@@ -183,7 +183,7 @@ pub(super) const RLS_ROUTED: &[&str] = &[
 pub(super) const REASON_SERVER_LIFECYCLE: &str =
     "server-lifecycle / liveness methods touch no tenant-owned row";
 pub(super) const REASON_AUDIT_CHAIN_ADMIN_GATED: &str =
-    "AuditVerify/AuditProveInclusion walk the hash-chained audit log (incl. its provenance-anchor entries) under the kg:admin capability gate -- not a graph row read";
+    "AuditVerify/AuditReadEvent/AuditProveInclusion walk the hash-chained audit log under security:audit and graph ACL; audit events are control records, not graph rows";
 // BUG A1 (2026-08-12): GetLedger was previously (wrongly) RLS_ROUTED. Its handler
 // (`handlers::graph_ops::try_handle`, `Method::GetLedger` arm) reads the mutation
 // ledger off `raw_core` (captured before `read_authority.project_core` shadows
@@ -304,6 +304,12 @@ pub(super) const REASON_GRAPH_SCHEMA_CONTROL_STATE: &str =
 // (`owl:read`); the request graph's read authority is the whole scope.
 pub(super) const REASON_GRAPH_SCHEMA_VOCABULARY: &str =
     "GraphSchemaClasses reads the declared class/property IRIs of the request graph's composed schema and the key of the source declaring each -- schema vocabulary behind owl:read, never a GraphView/core.analysis_snapshot() row read and never a source document";
+// `OntologyInspect` parses caller-supplied documents or the request graph's
+// composed GraphSchema source documents -- schema, not data. Its `validation:read`
+// scope is the one `ShaclValidate` already needs to apply those same composed
+// shapes; no GraphView or row is ever constructed.
+pub(super) const REASON_ONTOLOGY_SCHEMA_DOCUMENTS: &str =
+    "OntologyInspect parses caller-supplied Turtle or the request graph's composed GraphSchema source documents behind validation:read (the scope ShaclValidate needs to apply the same composed shapes) -- schema documents, never a GraphView/core.analysis_snapshot() row read";
 // RF-ADR-009: status reads one source-partition marker keyed by the verified
 // tenant, graph, connector and stream. The marker is ingestion control state,
 // not a caller-visible graph row; its `source:ingest` capability and verified
@@ -361,6 +367,8 @@ pub(super) const NON_ROW_SCOPED: &[(&str, &str)] = &[
     ("GraphSchemaList", REASON_GRAPH_SCHEMA_CONTROL_STATE),
     // REASON_GRAPH_SCHEMA_VOCABULARY
     ("GraphSchemaClasses", REASON_GRAPH_SCHEMA_VOCABULARY),
+    // REASON_ONTOLOGY_SCHEMA_DOCUMENTS
+    ("OntologyInspect", REASON_ONTOLOGY_SCHEMA_DOCUMENTS),
     // REASON_SOURCE_INGESTION_MARKER
     ("SourceIngestStatus", REASON_SOURCE_INGESTION_MARKER),
     // REASON_SERVER_LIFECYCLE
@@ -371,6 +379,7 @@ pub(super) const NON_ROW_SCOPED: &[(&str, &str)] = &[
     ("ResourceStatsPage", REASON_SERVER_LIFECYCLE),
     // REASON_AUDIT_CHAIN_ADMIN_GATED
     ("AuditVerify", REASON_AUDIT_CHAIN_ADMIN_GATED),
+    ("AuditReadEvent", REASON_AUDIT_CHAIN_ADMIN_GATED),
     ("AuditProveInclusion", REASON_AUDIT_CHAIN_ADMIN_GATED),
     // REASON_LEDGER_ADMIN_OBSERVABILITY
     ("GetLedger", REASON_LEDGER_ADMIN_OBSERVABILITY),

@@ -9,9 +9,9 @@
 //!
 //! * [`layout_predecessors`] names every refused predecessor of a layout. A
 //!   predecessor file is refused with `{LAYOUT}_FORMAT_UPGRADE_REQUIRED` and its
-//!   removal step. SQL, immediate pre-MCP Agent Library, and immediate
-//!   pre-enrichment GraphShard predecessors have explicit inspected offline
-//!   upgrades; ordinary opens still refuse.
+//!   removal step. SQL, immediate pre-MCP Agent Library, pre-enrichment
+//!   GraphShard and immediate pre-audit-request-index GraphShard predecessors
+//!   have explicit inspected offline upgrades; ordinary opens still refuse.
 //! * [`validate_against_lineage`] is the check every manifest read runs --
 //!   open, recovery adoption, classification and backup restore all read the
 //!   manifest through `manifest_io::read_manifest` -- so none of them can miss
@@ -156,6 +156,17 @@ const GRAPH_SHARD_TABLES_BEFORE_POLICY_REVISIONS: &[&str] = super::graph_shard::
     "repository_enrichment_parks",
 );
 
+/// The formerly pinned `01c2...` GraphShard layout: all four enrichment
+/// tables, before the operation audit-append idempotency index
+/// `audit_requests`. Every graph shard written before that index existed has
+/// exactly this table set.
+const GRAPH_SHARD_TABLES_BEFORE_AUDIT_REQUESTS: &[&str] = super::graph_shard::graph_shard_table_names!(
+    "repository_enrichment_budgets",
+    "repository_enrichment_policy_revisions",
+    "repository_enrichment_supersessions",
+    "repository_enrichment_parks",
+);
+
 /// Earlier graph-shard layout before the node-payload scrub cursor (EH-384).
 const GRAPH_SHARD_TABLES_BEFORE_STORAGE_SCRUB: &[&str] = GRAPH_SHARD_TABLES_BEFORE_ENRICHMENT
     .split_at(GRAPH_SHARD_TABLES_BEFORE_ENRICHMENT.len() - 1)
@@ -164,6 +175,14 @@ const GRAPH_SHARD_TABLES_BEFORE_STORAGE_SCRUB: &[&str] = GRAPH_SHARD_TABLES_BEFO
 pub const GRAPH_SHARD_PRE_ENRICHMENT_DIGEST: [u8; 32] = [
     0x34, 0x3e, 0xbe, 0x5b, 0xe2, 0x2f, 0xa5, 0x4d, 0xfe, 0x5e, 0xb8, 0x28, 0x4d, 0xd8, 0xbd, 0xee,
     0x37, 0x1a, 0xe5, 0x7b, 0x34, 0x6a, 0xde, 0x11, 0xa7, 0x6e, 0x4c, 0xd8, 0x3e, 0x0c, 0x84, 0x2d,
+];
+
+/// The layout digest every graph shard carried immediately before the
+/// operation audit-append idempotency index. Frozen: it is what existing
+/// files have on disk, so it is never recomputed from the current tables.
+pub const GRAPH_SHARD_PRE_AUDIT_REQUESTS_DIGEST: [u8; 32] = [
+    0x01, 0xc2, 0x19, 0xac, 0xd2, 0xbb, 0x2f, 0x1d, 0x52, 0x3a, 0x1b, 0xd8, 0x5e, 0xb0, 0x84, 0x42,
+    0xcc, 0xa0, 0x3b, 0xfc, 0x97, 0x5d, 0x60, 0xde, 0x2e, 0xff, 0x2b, 0x91, 0xe3, 0x42, 0x57, 0x93,
 ];
 
 pub const GRAPH_SHARD_BEFORE_ENRICHMENT: LayoutPredecessor = LayoutPredecessor {
@@ -179,6 +198,14 @@ pub const GRAPH_SHARD_BEFORE_POLICY_REVISIONS: LayoutPredecessor = LayoutPredece
     label: "graph shard before repository enrichment policy revisions",
     owner_tables: GRAPH_SHARD_TABLES_BEFORE_POLICY_REVISIONS,
     data_lost: "its graph rows require re-ingestion after moving the file aside; the offline enrichment upgrade only accepts the exact pre-enrichment layout",
+    file_name: "graph-*.redb",
+};
+
+pub const GRAPH_SHARD_BEFORE_AUDIT_REQUESTS: LayoutPredecessor = LayoutPredecessor {
+    layout: OwnerLayout::GraphShard,
+    label: "graph shard before the operation audit-append idempotency index",
+    owner_tables: GRAPH_SHARD_TABLES_BEFORE_AUDIT_REQUESTS,
+    data_lost: "its graph rows require the explicit offline audit-request-index layout upgrade before normal open, or re-ingestion after moving the file aside",
     file_name: "graph-*.redb",
 };
 
@@ -221,6 +248,7 @@ pub fn layout_predecessors(layout: OwnerLayout) -> &'static [LayoutPredecessor] 
             GRAPH_SHARD_BEFORE_STORAGE_SCRUB,
             GRAPH_SHARD_BEFORE_ENRICHMENT,
             GRAPH_SHARD_BEFORE_POLICY_REVISIONS,
+            GRAPH_SHARD_BEFORE_AUDIT_REQUESTS,
         ],
     }
 }
@@ -289,7 +317,7 @@ pub fn pinned_layout_digest(layout: OwnerLayout) -> &'static str {
             "0561a2a2ae13f067bf01a4c94d6cbaeb280aaefa56c68036a1f01da92cba8431"
         }
         OwnerLayout::GraphShard => {
-            "01c219acd2bb2f1d523a1bd85eb08442cca03bfc975d60de2eff2b91e3425793"
+            "952ea729e026deee49d9922dd2577cd1f789860be06b19e981cbb2949cf2a217"
         }
         OwnerLayout::AgentLibrary => {
             "e112d8118e4e62b002799b84bba8c69162e477071861a81d3893277736727ea0"
@@ -351,9 +379,9 @@ pub fn render_owner_store_formats() -> String {
          Regenerate with `cargo run -p eg-storage --example gen_owner_store_formats`.\n\n\
          Every durable owner file records the digest of its exact table layout. A file whose \
          layout is a declared predecessor below is refused on ordinary open with the named \
-         error. The SQL, immediate pre-MCP Agent Library, and immediate pre-enrichment \
-         GraphShard predecessors have explicit offline, data-preserving upgrades; others move \
-         aside and re-created. Any other digest is refused as `OWNER_STORE_FORMAT_UNKNOWN`.\n\n\
+         error. The SQL, immediate pre-MCP Agent Library, pre-enrichment GraphShard and \
+         immediate pre-audit-request-index GraphShard predecessors have explicit offline, \
+         data-preserving upgrades; others move aside and re-created. Any other digest is refused as `OWNER_STORE_FORMAT_UNKNOWN`.\n\n\
          | Store | Current layout digest | Refused predecessors |\n|---|---|---|\n",
     );
     for layout in ALL_LAYOUTS {
@@ -379,9 +407,7 @@ pub fn render_owner_store_formats() -> String {
             out.push_str(&format!(
                 "\n## `{code}`: {label}\n\n* Store file: `{file}`\n* Refused generation: {label}\n\
                  * Data lost: {lost}\n* Owner tables of the refused generation: {tables}\n\
-                 * Removal step: stop the engine, move `{file}` aside (keep it until the \
-                 restarted engine is confirmed healthy), and restart; a fresh store is \
-                 created. Backup bundles taken before this release cannot restore this file.\n",
+                 * Removal step: {removal}\n",
                 code = predecessor.error_code(),
                 file = predecessor.file_name,
                 label = predecessor.label,
@@ -392,12 +418,18 @@ pub fn render_owner_store_formats() -> String {
                     .map(|table| format!("`{table}`"))
                     .collect::<Vec<_>>()
                     .join(", "),
+                removal = crate::owner::offline_upgrade::render_removal_step(predecessor),
             ));
         }
     }
+    out.push_str(&crate::owner::offline_upgrade::render_offline_upgrade_procedure());
     out
 }
 
 #[cfg(test)]
 #[path = "lineage_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "lineage_fixture_tests.rs"]
+mod fixture_tests;

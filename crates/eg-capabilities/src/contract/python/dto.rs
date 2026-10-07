@@ -19,6 +19,7 @@ pub(super) const SHARED_DTO_RESULT_MODELS: &[(&str, &str)] = &[
     ("OwlExplain", "OwlExplainResult"),
     ("RunDatalogReasoning", "DatalogReasoningResult"),
     ("ShaclValidate", "ShaclValidationReport"),
+    ("OntologyInspect", "OntologyInspection"),
 ];
 
 /// Schema-specific digest projections rendered as model methods. Framing and
@@ -216,7 +217,28 @@ pub(super) fn ref_name(node: &serde_json::Value) -> Option<&str> {
 }
 
 pub(super) fn dto_python_type(node: &serde_json::Value) -> String {
-    dto_special_type(node).unwrap_or_else(|| constrained_annotation(node, dto_base_type(node)))
+    let mut annotation =
+        dto_special_type(node).unwrap_or_else(|| constrained_annotation(node, dto_base_type(node)));
+    if let Some(limit) = node
+        .get("x-eg-utf8-max-bytes")
+        .and_then(serde_json::Value::as_u64)
+    {
+        assert_eq!(
+            node.get("x-eg-no-control-bytes")
+                .and_then(serde_json::Value::as_bool),
+            Some(true),
+            "bounded engine text requires control-byte refusal"
+        );
+        annotation = format!("Annotated[{annotation}, AfterValidator(_eg_utf8_text({limit}))]");
+    }
+    if node
+        .get("x-eg-nonblank")
+        .and_then(serde_json::Value::as_bool)
+        == Some(true)
+    {
+        annotation = format!("Annotated[{annotation}, AfterValidator(_eg_nonblank)]");
+    }
+    annotation
 }
 
 fn dto_special_type(node: &serde_json::Value) -> Option<String> {
@@ -253,6 +275,12 @@ fn dto_type_array(node: &serde_json::Value, types: &[serde_json::Value]) -> Stri
             }
             let mut variant = node.clone();
             variant["type"] = wire_type.clone();
+            // Apply text extensions once to the complete nullable union.
+            if let Some(object) = variant.as_object_mut() {
+                object.remove("x-eg-utf8-max-bytes");
+                object.remove("x-eg-no-control-bytes");
+                object.remove("x-eg-nonblank");
+            }
             variant
         })
         .collect();
@@ -305,6 +333,18 @@ fn dto_array_type(node: &serde_json::Value) -> String {
 
 fn constrained_annotation(node: &serde_json::Value, annotation: String) -> String {
     let mut constraints = Vec::new();
+    if node
+        .get("x-eg-strict-scalar")
+        .and_then(serde_json::Value::as_bool)
+        == Some(true)
+    {
+        assert_eq!(
+            node.get("type").and_then(serde_json::Value::as_str),
+            Some("integer"),
+            "strict scalar metadata currently binds integer fields only"
+        );
+        constraints.push("strict=True".to_string());
+    }
     if let Some(pattern) = node.get("pattern").and_then(|value| value.as_str()) {
         constraints.push(format!("pattern={pattern:?}"));
     }
@@ -758,6 +798,7 @@ pub(super) fn push_dto_imports(
         out.push('\n');
     }
     let pydantic_names = [
+        ("AfterValidator", "AfterValidator("),
         ("BaseModel", "(BaseModel)"),
         ("ConfigDict", "ConfigDict("),
         ("Field", "Field("),

@@ -309,7 +309,10 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         Method::RunRules { .. } | Method::GetRdf => default_mutation_domain(surface),
         // Wire-unconditional, same reason as `datascience` above: `eg-capabilities`
         // forces `eg-types/security` on unconditionally (EH-319).
-        Method::AuditProveInclusion { .. } | Method::AuditVerify => {
+        Method::AuditProveInclusion { .. }
+        | Method::AuditVerify
+        | Method::AuditReadEvent { .. }
+        | Method::AuditAppend { .. } => {
             default_mutation_domain(surface)
         }
         // Wire-unconditional, same reason as `datascience` above: `eg-capabilities`
@@ -454,6 +457,7 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         | Method::ListChannels
         | Method::GetLedger
         | Method::ShaclValidate { .. }
+        | Method::OntologyInspect { .. }
         | Method::FinanceConvergenceGate { .. }
         | Method::FinanceGlostenMilgromSpread { .. }
         | Method::FinanceCvar { .. }

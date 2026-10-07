@@ -68,6 +68,8 @@ use crate::redb_store::shard::Shard;
 #[cfg(test)]
 use eg_transaction::OutboxClaimBudget;
 
+#[cfg(all(test, feature = "security"))]
+mod audit_append_tests;
 mod backend_audit;
 mod backend_backup;
 mod backend_load;

@@ -62,6 +62,9 @@ const METHOD_PREFIXES: &[(&str, &[&str])] = &[
         "ConnectorPack",
         &[
             "PACK_",
+            // A pack head whose schema source did not advance past the
+            // attached one (reproject of an unchanged head).
+            "SCHEMA_SOURCE_REGRESSION",
             "CONNECTOR_PACK_",
             "CONNECTOR_RELATIONSHIP_",
             "ARCHIVE_",
@@ -165,6 +168,17 @@ const EXACT_METHOD_ERRORS: &[(&str, &[&str])] = &[
         &["IDENTITY_STORE_MANAGED", "IDENTITY_STORE_NAMESPACE"],
     ),
     ("RbacAdmin", &["IDENTITY_STORE_NAMESPACE"]),
+    (
+        "AuditAppend",
+        &[
+            "AUDIT_CLASS_REQUIRED",
+            "AUDIT_CLASS_UNKNOWN",
+            "AUDIT_IDEMPOTENCY_CONFLICT",
+            "AUDIT_RESERVATION_MISMATCH",
+            "AUDIT_RESERVATION_REQUIRED",
+            "AUDIT_WRITER_UNAVAILABLE",
+        ],
+    ),
 ];
 
 fn add_engine_errors(d: &MethodDescriptor, codes: &mut BTreeSet<&'static str>) {

@@ -71,7 +71,8 @@
     "EG-DURABLE-KERNEL-R066",
     "EG-DURABLE-KERNEL-R067",
     "EG-DURABLE-KERNEL-R068",
-    "EG-DURABLE-KERNEL-R069"
+    "EG-DURABLE-KERNEL-R069",
+    "EG-DURABLE-KERNEL-R070"
   ],
   "delivery_state": "SPECIFIED",
   "acceptance_state": "NOT_AUDITED",
@@ -308,17 +309,16 @@
     {
       "id": "EG-DURABLE-KERNEL-R020",
       "title": "Bounded background scrub detects node corruption between restarts",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
-          "kind": "implementation",
+          "kind": "merged_head",
           "result": "passed",
           "commit": "461f8c84eb44b2edcf2ff75df0b6b37fe8d2d018",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/461f8c84eb44b2edcf2ff75df0b6b37fe8d2d018",
-          "description": "Implementing commit is on the default branch but is marked work in progress."
+          "description": "Implemented on the default branch; exercised by src/redb_store/scrub.rs::tests::bounded_passes_resume_from_the_cursor_and_skip_nothing"
         }
-      ],
-      "remaining": "Confirm the implementation builds and its tests pass at the current default branch, then record the proving commit."
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R021",
@@ -333,7 +333,7 @@
           "description": "Implementing commit is on the default branch but is marked work in progress."
         }
       ],
-      "remaining": "Confirm the implementation builds and its tests pass at the current default branch, then record the proving commit."
+      "remaining": "Store-authority binding validates once per write transaction via ValidatedWrite/begin_write (crates/eg-storage/src/physical/root.rs, write_authority.rs) and a correctness test exists (crates/eg-transaction/src/tests/write_authority.rs::a_group_commit_validates_store_authority_exactly_once). The verification column requires a commit-latency benchmark showing per-commit overhead drop to a small constant cost; no benches/ directory or criterion/#[bench] exists for this in eg-storage or eg-transaction, so that proof is absent."
     },
     {
       "id": "EG-DURABLE-KERNEL-R022",
@@ -457,16 +457,17 @@
     {
       "id": "EG-DURABLE-KERNEL-R031",
       "title": "Audit append supports tenant-scoped idempotent reservation",
-      "delivery_state": "BUILT",
+      "delivery_state": "BUILDING",
       "evidence": [
         {
-          "kind": "branch",
+          "kind": "merged_head",
           "result": "passed",
-          "commit": "1eaa86a57a0f7fa50311e86c3df46ae6c6b8eaae",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/1eaa86a57a0f7fa50311e86c3df46ae6c6b8eaae",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+          "commit": "2cc878fb893865d803c42c1fe4cbc72b25974a8d",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/pull/44",
+          "description": "Partial slice merged by pull request 44: reservation, outcome, replay, audit-class refusal, interrupted-reservation and writer-unavailable behaviour, with the audit refusals declared and served as their own codes. CI run 37034615432 passed on the tested integration tree 634fe3f5d3da5937aec8f1f418efe28ba8d4b9cf."
         }
-      ]
+      ],
+      "remaining": "Existing graph shards need the offline layout upgrade before they open, and no operator entry point runs that upgrade yet. The per-attempt admission id is generated inside replicated apply, and nothing in CI exercises the append through the replicated path."
     },
     {
       "id": "EG-DURABLE-KERNEL-R032",
@@ -663,9 +664,38 @@
     {
       "id": "EG-DURABLE-KERNEL-R052",
       "title": "Outbox delivery is organized by semantic class topics",
-      "delivery_state": "SPECIFIED",
-      "evidence": [],
-      "remaining": "The outbox architecture fully supports per-topic subscription/indexing (topic is a first-class subscribe/claim parameter), and head-only attempt accounting is tested, but no test on main exercises two distinct message-class topics simultaneously to confirm topic separation leaves attempt …"
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "9871859d4e0cc01f0a5a2f1f07584da056cf424e",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/pull/41#issuecomment-5939908410",
+          "description": "Merged by pull request 41. This merged-head local receipt reports 145 kernel tests, 1 doctest and 86 semantic tests. CI run 36912559244 tested PR head b6fd0de873311f43876a564b2de373ab805af958, not this merged commit; merged-head run 36921014473 was cancelled and is not passing evidence."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "d2e4cff47c86ac61a74b5b36ba22e3c9a41e0b03",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/d2e4cff47c86ac61a74b5b36ba22e3c9a41e0b03",
+          "description": "Independently audited default-branch revision for R052; tree f59cb306e3fa6370e297080859360cc0252c3d75. Whole-spec acceptance remains NOT_AUDITED."
+        },
+        {
+          "kind": "test",
+          "result": "passed",
+          "commit": "d2e4cff47c86ac61a74b5b36ba22e3c9a41e0b03",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/actions/runs/37139146972/job/111249791948",
+          "description": "Exact-main CI: 145 eg-transaction kernel tests and 1 doctest passed, including per-class topics, failing-head attempt accounting and successor replay regressions."
+        },
+        {
+          "kind": "consumer",
+          "result": "passed",
+          "commit": "d2e4cff47c86ac61a74b5b36ba22e3c9a41e0b03",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/actions/runs/37139146972/job/111249791820",
+          "description": "Exact-main CI: 529 eg-core tests passed, including 86 semantic tests and the real semantic producer cross-topic regression. Acceptance is scoped to R052 internal outbox delivery; no whole-spec, external deployment or release acceptance is implied."
+        }
+      ],
+      "acceptance_state": "ACCEPTED"
     },
     {
       "id": "EG-DURABLE-KERNEL-R053",
@@ -726,17 +756,16 @@
     {
       "id": "EG-DURABLE-KERNEL-R057",
       "title": "Sealed record classes are protected by a create-only write guard",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
-          "kind": "implementation",
+          "kind": "merged_head",
           "result": "passed",
           "commit": "5c2ab50088c49261a6588380ef0d7c13d49e129c",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/5c2ab50088c49261a6588380ef0d7c13d49e129c",
-          "description": "Implementing commit is on the default branch but is marked work in progress."
+          "description": "Implemented on the default branch; exercised by tests/sealed_record_guard.rs::generic_writes_cannot_change_or_remove_a_sealed_record"
         }
-      ],
-      "remaining": "Confirm the implementation builds and its tests pass at the current default branch, then record the proving commit."
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R058",
@@ -903,6 +932,20 @@
           "commit": "be291021dfdce44e0eefa42fc80611bf2eb0ecf9",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/be291021dfdce44e0eefa42fc80611bf2eb0ecf9",
           "description": "Implemented on the default branch; exercised by src/server/persistence/redb_backend/scrub_api_tests.rs::scrub_cursor_survives_reopen_and_the_walk_skips_nothing"
+        }
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R070",
+      "title": "Operator command inspects and applies registered offline store upgrades",
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "1b976462b17affc8f70cdfba03bead7c817eef16",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/1b976462b17affc8f70cdfba03bead7c817eef16",
+          "description": "Implementation commit is published on the branch feat/operator-store-upgrade; not yet merged to the default branch. Exercised by src/server/persistence/store_upgrade/tests.rs and crates/eg-storage/src/owner/offline_upgrade/tests.rs."
         }
       ]
     }

@@ -1,0 +1,126 @@
+# Fixture: a compiled connector-manifest ontology for an example "arr" connector,
+# in the same shape an external manifest compiler emits with rdflib. Its pinned
+# canonical digest below lets `OntologyInspect`'s own canonical-digest computation
+# be checked against an independently computed reference value.
+@prefix : <http://knuckles.team/kg#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<http://knuckles.team/kg/arr> a owl:Ontology ;
+    rdfs:label "arr Ontology (generated)" ;
+    rdfs:comment "OWL mirror of the arr connector manifest — every resource, relation, and field. CONCEPT:AU-KG.ontology.connector-manifest-compiler." ;
+    owl:imports <http://knuckles.team/kg> .
+
+
+:Album a owl:Class ;
+    rdfs:label "Album" ;
+    rdfs:comment "Connector resource (generated)." .
+
+:Artist a owl:Class ;
+    rdfs:label "Artist" ;
+    rdfs:comment "Connector resource (generated)." .
+
+:Book a owl:Class ;
+    rdfs:label "Book" ;
+    rdfs:comment "Connector resource (generated)." .
+
+:Episode a owl:Class ;
+    rdfs:label "Episode" ;
+    rdfs:comment "Connector resource (generated)." .
+
+:Indexer a owl:Class ;
+    rdfs:label "Indexer" ;
+    rdfs:comment "Connector resource (generated)." .
+
+:MediaRequest a owl:Class ;
+    rdfs:label "Media Request" ;
+    rdfs:comment "Connector resource (generated)." .
+
+:Movie a owl:Class ;
+    rdfs:label "Movie" ;
+    rdfs:comment "Connector resource (generated)." .
+
+:QualityProfile a owl:Class ;
+    rdfs:label "Quality Profile" ;
+    rdfs:comment "Connector resource (generated)." .
+
+:RootFolder a owl:Class ;
+    rdfs:label "Root Folder" ;
+    rdfs:comment "Connector resource (generated)." .
+
+:Series a owl:Class ;
+    rdfs:label "Series" ;
+    rdfs:comment "Connector resource (generated)." .
+
+:hasAlbum a owl:ObjectProperty ;
+    rdfs:label "has album" ;
+    rdfs:domain :Artist ;
+    rdfs:range :Album .
+
+:hasEpisode a owl:ObjectProperty ;
+    rdfs:label "has episode" ;
+    rdfs:domain :Series ;
+    rdfs:range :Episode .
+
+:requestedBy a owl:ObjectProperty ;
+    rdfs:label "requested by" ;
+    rdfs:domain :MediaRequest ;
+    rdfs:range :Person .
+
+:requestsMedia a owl:ObjectProperty ;
+    rdfs:label "requests media" ;
+    rdfs:domain :MediaRequest ;
+    rdfs:range owl:Thing .
+
+:enabled a owl:DatatypeProperty ;
+    rdfs:label "Enabled" ;
+    rdfs:range xsd:boolean .
+
+:hasFile a owl:DatatypeProperty ;
+    rdfs:label "Has File" ;
+    rdfs:range xsd:boolean .
+
+:imdbId a owl:DatatypeProperty ;
+    rdfs:label "Imdb Id" ;
+    rdfs:range xsd:string .
+
+:mediaStatus a owl:DatatypeProperty ;
+    rdfs:label "Media Status" ;
+    rdfs:range xsd:string .
+
+:monitored a owl:DatatypeProperty ;
+    rdfs:label "Monitored" ;
+    rdfs:range xsd:boolean .
+
+:overview a owl:DatatypeProperty ;
+    rdfs:label "Overview" ;
+    rdfs:range xsd:string .
+
+:protocol a owl:DatatypeProperty ;
+    rdfs:label "Protocol" ;
+    rdfs:range xsd:string .
+
+:requestStatus a owl:DatatypeProperty ;
+    rdfs:label "Request Status" ;
+    rdfs:range xsd:string .
+
+:sizeOnDisk a owl:DatatypeProperty ;
+    rdfs:label "Size On Disk" ;
+    rdfs:range xsd:integer .
+
+:title a owl:DatatypeProperty ;
+    rdfs:label "Title" ;
+    rdfs:range xsd:string .
+
+:tmdbId a owl:DatatypeProperty ;
+    rdfs:label "Tmdb Id" ;
+    rdfs:range xsd:string .
+
+:tvdbId a owl:DatatypeProperty ;
+    rdfs:label "Tvdb Id" ;
+    rdfs:range xsd:string .
+
+:year a owl:DatatypeProperty ;
+    rdfs:label "Year" ;
+    rdfs:range xsd:integer .

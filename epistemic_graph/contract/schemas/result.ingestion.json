@@ -1,0 +1,5182 @@
+{
+  "$comment": "One entry per method: its body, or one body per request op (`selected_by`). `encoding` is the ResultPayload variant; a `Raw` body is a MessagePack `bin` holding the MessagePack encoding of `schema`, a `Json` body is that value as a JSON tree. A body with a `dynamic` reason is chosen by the caller and has the unconstrained schema `true`.",
+  "$defs": {
+    "AgentLibraryCompositeRef": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_id": {
+          "type": "string"
+        },
+        "model_profile_digest": {
+          "type": "string"
+        },
+        "ontology_set_digest": {
+          "type": "string"
+        },
+        "role_digest": {
+          "type": "string"
+        },
+        "skill_set_digest": {
+          "type": "string"
+        },
+        "system_prompt_digest": {
+          "type": "string"
+        },
+        "tool_set_digest": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "agent_id",
+        "role_digest",
+        "system_prompt_digest",
+        "tool_set_digest",
+        "skill_set_digest",
+        "model_profile_digest",
+        "ontology_set_digest"
+      ],
+      "type": "object"
+    },
+    "AsrTranscriptSegment": {
+      "description": "One validated transcript segment.",
+      "properties": {
+        "avg_logprob": {
+          "description": "Present only for a calibrated provider quality estimate.",
+          "format": "float",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "end": {
+          "format": "double",
+          "type": "number"
+        },
+        "no_speech_prob": {
+          "format": "float",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "start": {
+          "description": "Seconds from the start of the audio.",
+          "format": "double",
+          "type": "number"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "start",
+        "end",
+        "text"
+      ],
+      "type": "object"
+    },
+    "AsrTranscription": {
+      "description": "Result of `AsrOp::TranscribeFile`: the whole transcript plus its validated\nsegments.",
+      "properties": {
+        "language": {
+          "description": "The language the provider transcribed in.",
+          "type": "string"
+        },
+        "segments": {
+          "items": {
+            "$ref": "#/$defs/AsrTranscriptSegment"
+          },
+          "type": "array"
+        },
+        "text": {
+          "description": "Every segment's text, space-joined and trimmed.",
+          "type": "string"
+        },
+        "timing_available": {
+          "description": "False when the provider reported no segment timing (`start`/`end` are then 0).",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "text",
+        "language",
+        "segments",
+        "timing_available"
+      ],
+      "type": "object"
+    },
+    "BoundedVec_IndexDiagnostic_8": {
+      "items": {
+        "$ref": "#/$defs/IndexDiagnostic"
+      },
+      "maxItems": 8,
+      "type": "array"
+    },
+    "BoundedVec_RawAdmissionReceipt_1024": {
+      "items": {
+        "$ref": "#/$defs/RawAdmissionReceipt"
+      },
+      "maxItems": 1024,
+      "type": "array"
+    },
+    "BoundedVec_RawRelationshipAdmissionReceipt_4096": {
+      "items": {
+        "$ref": "#/$defs/RawRelationshipAdmissionReceipt"
+      },
+      "maxItems": 4096,
+      "type": "array"
+    },
+    "BoundedVec_SourceMappingReceipt_5120": {
+      "items": {
+        "$ref": "#/$defs/SourceMappingReceipt"
+      },
+      "maxItems": 5120,
+      "type": "array"
+    },
+    "BoundedVec_SourceRelationshipTombstoneReceipt_4096": {
+      "items": {
+        "$ref": "#/$defs/SourceRelationshipTombstoneReceipt"
+      },
+      "maxItems": 4096,
+      "type": "array"
+    },
+    "BoundedVec_SourceTombstoneReceipt_16384": {
+      "items": {
+        "$ref": "#/$defs/SourceTombstoneReceipt"
+      },
+      "maxItems": 16384,
+      "type": "array"
+    },
+    "CanonicalTextAssetRef": {
+      "additionalProperties": false,
+      "properties": {
+        "asset_id": {
+          "type": "string"
+        },
+        "asset_revision": {
+          "type": "string"
+        },
+        "content_digest": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "asset_id",
+        "asset_revision",
+        "content_digest"
+      ],
+      "type": "object"
+    },
+    "CommittedVersion": {
+      "description": "Exact authoritative version transition committed with a durable record.",
+      "oneOf": [
+        {
+          "enum": [
+            "none"
+          ],
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "graph": {
+              "properties": {
+                "source": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "target": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "source",
+                "target"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "graph"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "native": {
+              "properties": {
+                "source": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "target": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "source",
+                "target"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "native"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Digest256": {
+      "description": "32 bytes of SHA-256 as lowercase hexadecimal",
+      "maxLength": 64,
+      "minLength": 64,
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "DiscoverHit": {
+      "description": "One ranked node of `Method::Discover`, hydrated with its human-readable text.",
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "description": "The node's `name`, or its id when it has none.",
+          "type": "string"
+        },
+        "score": {
+          "description": "Combined keyword + semantic score.",
+          "format": "float",
+          "type": "number"
+        },
+        "type": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "description",
+        "type",
+        "score"
+      ],
+      "type": "object"
+    },
+    "DurabilityDomain": {
+      "description": "Authoritative durability domain for an operation.",
+      "enum": [
+        "graph_rows",
+        "graph_snapshot",
+        "rdf_dataset",
+        "sql_catalog",
+        "blob_store",
+        "kv_store",
+        "time_series",
+        "analytics_job",
+        "semantic_index",
+        "broker",
+        "cross_modal",
+        "multi_graph",
+        "lifecycle",
+        "control_plane"
+      ],
+      "type": "string"
+    },
+    "ExtractedEdge": {
+      "description": "An extracted graph edge.",
+      "properties": {
+        "edge_type": {
+          "type": "string"
+        },
+        "properties": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "source": {
+          "type": "string"
+        },
+        "target": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "target",
+        "edge_type",
+        "properties"
+      ],
+      "type": "object"
+    },
+    "ExtractedNode": {
+      "description": "An extracted graph node: the shape the AST and screen enrichments share, so the\ncaller's persist path is one.",
+      "properties": {
+        "node_id": {
+          "type": "string"
+        },
+        "node_type": {
+          "type": "string"
+        },
+        "properties": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        }
+      },
+      "required": [
+        "node_id",
+        "node_type",
+        "properties"
+      ],
+      "type": "object"
+    },
+    "GraphTextPropertyRef": {
+      "additionalProperties": false,
+      "properties": {
+        "graph_id": {
+          "type": "string"
+        },
+        "property_id": {
+          "type": "string"
+        },
+        "type_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "graph_id",
+        "type_id",
+        "property_id"
+      ],
+      "type": "object"
+    },
+    "IncarnationId": {
+      "description": "Opaque logical-generation identity. It is never derived from a resource name.",
+      "type": "string"
+    },
+    "IndexDiagnostic": {
+      "description": "One bounded, machine-readable diagnostic for a repository-index input.",
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "type": "object"
+    },
+    "IndexFileOutcome": {
+      "description": "The exact outcome of one input file in an `IndexRepository` batch.\n\nOutcomes are returned one-for-one and in the same order as the submitted\nfiles. Both digests use the canonical `sha256:<lowercase-hex>` spelling.",
+      "properties": {
+        "content_digest": {
+          "type": "string"
+        },
+        "diagnostics": {
+          "$ref": "#/$defs/BoundedVec_IndexDiagnostic_8",
+          "description": "Bounded by the engine. The current parser emits at most one diagnostic\nfor an input, while the vector leaves room for richer parsers without a\nwire-shape change."
+        },
+        "file_path": {
+          "type": "string"
+        },
+        "parser_capability_digest": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/IndexFileStatus"
+        }
+      },
+      "required": [
+        "file_path",
+        "status",
+        "content_digest",
+        "parser_capability_digest",
+        "diagnostics"
+      ],
+      "type": "object"
+    },
+    "IndexFileStatus": {
+      "description": "Per-file disposition produced by [`IndexResult`].  It is deliberately\nseparate from `ParseResult`: an unsupported parser capability and a source\nfile containing no declarations are not the same outcome.",
+      "enum": [
+        "success",
+        "unsupported",
+        "error"
+      ],
+      "type": "string"
+    },
+    "IndexResult": {
+      "description": "Resolved, cross-file symbol graph for a batch of files — the response shape\nof the `IndexRepository` RPC. Unlike `ParseFiles` (one raw `ParseResult` per\nfile), this is a SINGLE merged graph whose `calls`/`inherits`/`realizes`/\n`depends_on` edges point at real node ids.",
+      "properties": {
+        "calls_resolved": {
+          "description": "Call sites bound to a definition (numerator of call-resolution coverage).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "calls_scope_resolved": {
+          "description": "Of `calls_resolved`, those bound by receiver/class scope (CONCEPT:EG-KG.compute.type-scope-resolved-call).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "calls_type_resolved": {
+          "description": "Of `calls_resolved`, those disambiguated by argument-count match.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "calls_unresolved": {
+          "description": "Call sites seen but not bound (external/stdlib/ambiguous) — the remainder.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "edges": {
+          "description": "`IMPLEMENTS` (file→symbol) + resolved `calls` (symbol→symbol) + `inherits`/\n`realizes` (class→class) + resolved `depends_on` (file→file). Raw unresolved\n`calls_raw`/`depends_on_raw` edges are dropped — they're superseded here.",
+          "items": {
+            "$ref": "#/$defs/ExtractedEdge"
+          },
+          "type": "array"
+        },
+        "file_outcomes": {
+          "description": "Exactly one outcome per submitted file, in input order. An unsupported\nextension is explicit and never represented as an empty success.",
+          "items": {
+            "$ref": "#/$defs/IndexFileOutcome"
+          },
+          "type": "array"
+        },
+        "files_parsed": {
+          "description": "Successfully parsed inputs. This is not the submitted batch size: see\n`file_outcomes` for unsupported and failed inputs.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "imports_resolved": {
+          "description": "Import statements bound to an in-batch file.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "imports_unresolved": {
+          "description": "Import statements seen but not bound (external packages, unknown layout).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "inherits_edges": {
+          "description": "Class→base `inherits` edges emitted.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "nodes": {
+          "description": "Every SYMBOL node across all files — ONE row per declaration site, never\ndeduplicated. The doc used to claim \"deduplicated by node id\" and\n`collect_result_nodes` never did it; the DOC was the wrong half. Under the\nold content-addressed id, deduplicating would have been a data-loss bug:\nbyte-identical declarations shared an id but not their facts (`file_path`,\n`line`, byte range), so collapsing them would have thrown away every\noccurrence but the first. Ids are now per-occurrence\n(CONCEPT:EG-KG.compute.symbol-occurrence-id), so uniqueness holds by\nconstruction and there is nothing left to dedupe — provided the batch\ncarries each file path once, which is the caller's contract (a path\nrepeated in `files` is parsed twice and would repeat its ids). The\ninternal `call_sites` resolution-input property is stripped before return.",
+          "items": {
+            "$ref": "#/$defs/ExtractedNode"
+          },
+          "type": "array"
+        },
+        "realizes_edges": {
+          "description": "Class→interface `realizes` edges emitted.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "similar_edges": {
+          "description": "Model-free `similar_to` edges emitted (CONCEPT:EG-KG.compute.model-free-similar-code).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "symbols_extracted": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "nodes",
+        "edges",
+        "symbols_extracted",
+        "files_parsed",
+        "file_outcomes",
+        "calls_resolved",
+        "calls_unresolved",
+        "calls_scope_resolved",
+        "calls_type_resolved",
+        "inherits_edges",
+        "realizes_edges",
+        "similar_edges",
+        "imports_resolved",
+        "imports_unresolved"
+      ],
+      "type": "object"
+    },
+    "LakehouseVectorProjectionRef": {
+      "additionalProperties": false,
+      "properties": {
+        "catalog_id": {
+          "type": "string"
+        },
+        "namespace_id": {
+          "type": "string"
+        },
+        "projection_id": {
+          "type": "string"
+        },
+        "source_revision": {
+          "type": "string"
+        },
+        "table_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "catalog_id",
+        "namespace_id",
+        "table_id",
+        "projection_id",
+        "source_revision"
+      ],
+      "type": "object"
+    },
+    "LogicalName": {
+      "description": "Validated graph or native-resource name with no filesystem semantics.",
+      "type": "string"
+    },
+    "McpCatalogSnapshotBinding": {
+      "additionalProperties": false,
+      "description": "Exact identity of the served MCP catalog snapshot this pack came from.\n\nThe pack digest binds this whole value. Consequently a stored resource can\nnever be mistaken for one observed under a different configuration,\nconnection or authorization scope even when its own body is byte-identical.",
+      "properties": {
+        "authorization_scope_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "catalog_generation": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "child_connection_generation": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "configuration_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "snapshot_digest": {
+          "$ref": "#/$defs/Digest256"
+        }
+      },
+      "required": [
+        "configuration_revision",
+        "catalog_generation",
+        "snapshot_digest",
+        "child_connection_generation",
+        "authorization_scope_digest"
+      ],
+      "type": "object"
+    },
+    "MultimodalAssetRef": {
+      "additionalProperties": false,
+      "properties": {
+        "asset_id": {
+          "type": "string"
+        },
+        "asset_revision": {
+          "type": "string"
+        },
+        "content_digest": {
+          "type": "string"
+        },
+        "media_kind": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "asset_id",
+        "media_kind",
+        "asset_revision",
+        "content_digest"
+      ],
+      "type": "object"
+    },
+    "MutationOutboxIntent": {
+      "additionalProperties": false,
+      "description": "A projection/index/CDC/audit/lineage notification to publish after commit.",
+      "properties": {
+        "headers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "key": {
+          "type": "string"
+        },
+        "payload": {
+          "items": {
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "topic": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "topic",
+        "key",
+        "payload",
+        "headers"
+      ],
+      "type": "object"
+    },
+    "MutationOutboxLease": {
+      "additionalProperties": false,
+      "description": "Durable lease over an outbox row.",
+      "properties": {
+        "attempt": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "consumer": {
+          "type": "string"
+        },
+        "lease_epoch": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "lease_until_ms": {
+          "description": "EXCLUSIVE upper bound, mirroring `eg_transaction::outbox::rows::\nOutboxDelivery::lease_until_ms` (the durable row this lease is\nissued over): valid while `now_ms < lease_until_ms`, expired once\n`now_ms >= lease_until_ms`. `now_ms == lease_until_ms` is already\nexpired, not still valid.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "record": {
+          "$ref": "#/$defs/MutationOutboxRecord"
+        }
+      },
+      "required": [
+        "record",
+        "consumer",
+        "lease_epoch",
+        "lease_until_ms",
+        "attempt"
+      ],
+      "type": "object"
+    },
+    "MutationOutboxRecord": {
+      "additionalProperties": false,
+      "description": "One durable outbox row.",
+      "properties": {
+        "batch_id": {
+          "type": "string"
+        },
+        "commit_sequence": {
+          "default": null,
+          "description": "The scope version after the batch committed. Legacy rows may omit\nthis field and are rejected when their original order is unverifiable.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "committed_version": {
+          "$ref": "#/$defs/CommittedVersion"
+        },
+        "created_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "identity": {
+          "$ref": "#/$defs/MutationScopeIdentity"
+        },
+        "intent": {
+          "$ref": "#/$defs/MutationOutboxIntent"
+        },
+        "ordinal": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "schema_version": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "batch_id",
+        "ordinal",
+        "identity",
+        "committed_version",
+        "intent",
+        "created_at_ms"
+      ],
+      "type": "object"
+    },
+    "MutationScope": {
+      "description": "Typed logical owner of a durable mutation.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "graph": {
+              "$ref": "#/$defs/LogicalName"
+            },
+            "kind": {
+              "const": "graph",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "graph"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "domain": {
+              "$ref": "#/$defs/DurabilityDomain"
+            },
+            "kind": {
+              "const": "native",
+              "type": "string"
+            },
+            "resource": {
+              "$ref": "#/$defs/LogicalName"
+            }
+          },
+          "required": [
+            "kind",
+            "domain",
+            "resource"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "MutationScopeDigest": {
+      "description": "Canonical SHA-256 identity digest persisted with every authority-bearing row.",
+      "items": {
+        "format": "uint8",
+        "maximum": 255,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "maxItems": 32,
+      "minItems": 32,
+      "type": "array"
+    },
+    "MutationScopeIdentity": {
+      "additionalProperties": false,
+      "description": "Tenant + typed logical owner + exact lifecycle generation.",
+      "properties": {
+        "identity_digest": {
+          "$ref": "#/$defs/MutationScopeDigest"
+        },
+        "incarnation_id": {
+          "$ref": "#/$defs/IncarnationId"
+        },
+        "scope": {
+          "$ref": "#/$defs/MutationScope"
+        },
+        "tenant": {
+          "$ref": "#/$defs/ScopeTenantId"
+        }
+      },
+      "required": [
+        "tenant",
+        "scope",
+        "incarnation_id",
+        "identity_digest"
+      ],
+      "type": "object"
+    },
+    "OutboxConsumerStatus": {
+      "additionalProperties": false,
+      "description": "One consumer's standing on one outbox -- the fields that mean the same\nthing regardless of WHICH durable outbox backs the view. Shared by\n[`MutationOutboxStatusView`] (this generic outbox) and\n[`crate::result_contract::ingestion::SemanticOutboxStatus`] (the\nsemantic-index stage queue's own outbox), which otherwise built an\nidentical 13-field struct independently; each view keeps its own\nsystem-specific fields (a schema version and the head-of-queue detail\nhere, claim counters there) beside this rather than inside it, and this\ntype is neither `#[serde(flatten)]`ed nor a wire-visible name of its\nown's alternative -- it is a genuinely nested field, precisely so both\ncontainers can keep `#[serde(deny_unknown_fields)]`, which `flatten`\ncannot coexist with.\n\nSeveral counters carry an explicit `_is_lower_bound` flag rather than being\nsilently approximate: a saturated index can only be scanned so far, and an\noperator deciding whether to rewind needs to know that \"12\" might mean\n\"at least 12\".",
+      "properties": {
+        "capacity": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "consumer": {
+          "type": "string"
+        },
+        "dead_lettered": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "delivered": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "index_complete": {
+          "type": "boolean"
+        },
+        "inflight": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "inflight_is_lower_bound": {
+          "type": "boolean"
+        },
+        "lag_rows": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "lag_versions": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "live": {
+          "type": "boolean"
+        },
+        "oldest_pending_age_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "pending": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "pending_is_lower_bound": {
+          "type": "boolean"
+        },
+        "saturated": {
+          "type": "boolean"
+        },
+        "topic": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "consumer",
+        "live",
+        "capacity",
+        "inflight",
+        "inflight_is_lower_bound",
+        "pending",
+        "pending_is_lower_bound",
+        "delivered",
+        "dead_lettered",
+        "oldest_pending_age_ms",
+        "lag_rows",
+        "lag_versions",
+        "saturated",
+        "index_complete"
+      ],
+      "type": "object"
+    },
+    "ParseResult": {
+      "description": "Result of `Method::ParseFile`, and one entry of `Method::ParseFiles`: the raw,\nunresolved symbol graph of one source file.",
+      "properties": {
+        "edges": {
+          "items": {
+            "$ref": "#/$defs/ExtractedEdge"
+          },
+          "type": "array"
+        },
+        "nodes": {
+          "items": {
+            "$ref": "#/$defs/ExtractedNode"
+          },
+          "type": "array"
+        },
+        "symbols_extracted": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "nodes",
+        "edges",
+        "symbols_extracted"
+      ],
+      "type": "object"
+    },
+    "QuantumExpectationResult": {
+      "description": "Result of [`QuantumOp::Expectation`].",
+      "properties": {
+        "backend_id": {
+          "type": "string"
+        },
+        "circuit_hash": {
+          "description": "Hex digest of the executed circuit.",
+          "type": "string"
+        },
+        "exact": {
+          "description": "The backend's own exactness verdict for the raw run.",
+          "type": "boolean"
+        },
+        "expectation_value": {
+          "description": "Sample-mean estimate of the Z-parity observable.",
+          "format": "double",
+          "type": "number"
+        },
+        "fidelity_hint": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "formalism": {
+          "description": "The backend's simulation formalism, as its `snake_case` name.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "noise_model_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "observable_qubits": {
+          "items": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "operation": {
+          "$ref": "#/$defs/QuantumOperationKind"
+        },
+        "peak_memory_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "planner": {
+          "$ref": "#/$defs/QuantumPlannerReport"
+        },
+        "proposal": {
+          "description": "Always true at this surface: a result is a proposal, never a hard constraint.",
+          "type": "boolean"
+        },
+        "seed": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "shots": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "stderr": {
+          "format": "double",
+          "type": "number"
+        },
+        "wall_time_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "backend_id",
+        "circuit_hash",
+        "exact",
+        "proposal",
+        "wall_time_ms",
+        "peak_memory_bytes",
+        "operation",
+        "planner",
+        "observable_qubits",
+        "expectation_value",
+        "stderr"
+      ],
+      "type": "object"
+    },
+    "QuantumOperationKind": {
+      "description": "Which [`QuantumOp`] produced a result.",
+      "enum": [
+        "rank",
+        "optimize_qaoa",
+        "expectation"
+      ],
+      "type": "string"
+    },
+    "QuantumPlannerAuditEntry": {
+      "description": "One rule the backend planner evaluated, with its note.",
+      "properties": {
+        "note": {
+          "type": "string"
+        },
+        "rule": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "rule",
+        "note"
+      ],
+      "type": "object"
+    },
+    "QuantumPlannerReport": {
+      "description": "The backend planner's decision for a run.",
+      "properties": {
+        "audit_trail": {
+          "description": "Every rule considered, in evaluation order.",
+          "items": {
+            "$ref": "#/$defs/QuantumPlannerAuditEntry"
+          },
+          "type": "array"
+        },
+        "backend_override_requested": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "chosen_backend": {
+          "type": "string"
+        },
+        "chosen_family": {
+          "description": "The chosen backend's family, as its `snake_case` name.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "rule": {
+          "description": "The rule that decided.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "chosen_backend",
+        "rule",
+        "audit_trail"
+      ],
+      "type": "object"
+    },
+    "QuantumQaoaResult": {
+      "description": "Result of [`QuantumOp::OptimizeQaoa`].",
+      "properties": {
+        "backend_id": {
+          "type": "string"
+        },
+        "circuit_hash": {
+          "description": "Hex digest of the executed circuit.",
+          "type": "string"
+        },
+        "cut_value": {
+          "format": "double",
+          "type": "number"
+        },
+        "exact": {
+          "description": "The backend's own exactness verdict for the raw run.",
+          "type": "boolean"
+        },
+        "fidelity_hint": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "formalism": {
+          "description": "The backend's simulation formalism, as its `snake_case` name.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "noise_model_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "operation": {
+          "$ref": "#/$defs/QuantumOperationKind"
+        },
+        "p_layers": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "partition": {
+          "additionalProperties": {
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "description": "Node id -> the side (0 or 1) of the best sampled cut.",
+          "type": "object"
+        },
+        "peak_memory_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "planner": {
+          "$ref": "#/$defs/QuantumPlannerReport"
+        },
+        "proposal": {
+          "description": "Always true at this surface: a result is a proposal, never a hard constraint.",
+          "type": "boolean"
+        },
+        "seed": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "shots": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "variational_optimizer": {
+          "description": "The fixed angle schedule used (no variational loop runs).",
+          "type": "string"
+        },
+        "wall_time_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "backend_id",
+        "circuit_hash",
+        "exact",
+        "proposal",
+        "wall_time_ms",
+        "peak_memory_bytes",
+        "operation",
+        "planner",
+        "partition",
+        "cut_value",
+        "p_layers",
+        "variational_optimizer"
+      ],
+      "type": "object"
+    },
+    "QuantumRankResult": {
+      "description": "Result of [`QuantumOp::Rank`].",
+      "properties": {
+        "backend_id": {
+          "type": "string"
+        },
+        "circuit_hash": {
+          "description": "Hex digest of the executed circuit.",
+          "type": "string"
+        },
+        "exact": {
+          "description": "The backend's own exactness verdict for the raw run.",
+          "type": "boolean"
+        },
+        "fidelity_hint": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "formalism": {
+          "description": "The backend's simulation formalism, as its `snake_case` name.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "noise_model_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "operation": {
+          "$ref": "#/$defs/QuantumOperationKind"
+        },
+        "peak_memory_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "planner": {
+          "$ref": "#/$defs/QuantumPlannerReport"
+        },
+        "proposal": {
+          "description": "Always true at this surface: a result is a proposal, never a hard constraint.",
+          "type": "boolean"
+        },
+        "ranked_candidates": {
+          "items": {
+            "$ref": "#/$defs/QuantumRankedCandidate"
+          },
+          "type": "array"
+        },
+        "seed": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "shots": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "wall_time_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "backend_id",
+        "circuit_hash",
+        "exact",
+        "proposal",
+        "wall_time_ms",
+        "peak_memory_bytes",
+        "operation",
+        "planner",
+        "ranked_candidates"
+      ],
+      "type": "object"
+    },
+    "QuantumRankedCandidate": {
+      "description": "One candidate of [`QuantumOp::Rank`], scored.",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "probability": {
+          "description": "Marginal probability of the candidate's qubit measuring 1.",
+          "format": "double",
+          "type": "number"
+        },
+        "rank": {
+          "description": "Zero-based position, best first.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "weight": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "id",
+        "weight",
+        "probability",
+        "rank"
+      ],
+      "type": "object"
+    },
+    "RawAdmissionReceipt": {
+      "additionalProperties": false,
+      "description": "One raw artifact admitted to content-addressed storage and bound to its\nsource identity. `deduplicated` reports an earlier identical artifact in\nthis batch (stable across replay); the CAS may also reuse bytes admitted by\nprior batches. Every record retains its own durable provenance binding.",
+      "properties": {
+        "deduplicated": {
+          "type": "boolean"
+        },
+        "raw_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "record_id": {
+          "type": "string"
+        },
+        "stream": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "stream",
+        "record_id",
+        "raw_digest",
+        "deduplicated"
+      ],
+      "type": "object"
+    },
+    "RawRelationshipAdmissionReceipt": {
+      "additionalProperties": false,
+      "properties": {
+        "deduplicated": {
+          "type": "boolean"
+        },
+        "raw_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "relationship_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "relationship_id",
+        "raw_digest",
+        "deduplicated"
+      ],
+      "type": "object"
+    },
+    "ScopeTenantId": {
+      "description": "Validated tenant security boundary. Bytes are retained exactly as supplied.",
+      "type": "string"
+    },
+    "ScreenObservationResult": {
+      "description": "Result of `Method::ObserveScreen`: one captured frame as session/frame/UI-element\ngraph entities.",
+      "properties": {
+        "changed": {
+          "description": "False when the frame is byte-identical to the previous one (no visual change).",
+          "type": "boolean"
+        },
+        "edges": {
+          "description": "session-`hasObservation`->frame, frame-`hasElement`->element, and\nprevframe-`succeededBy`->frame (only when the frame actually changed).",
+          "items": {
+            "$ref": "#/$defs/ExtractedEdge"
+          },
+          "type": "array"
+        },
+        "element_count": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "frame_id": {
+          "type": "string"
+        },
+        "hash": {
+          "description": "FNV-1a hash of the PNG bytes — the caller passes it back as `prev_hash`.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "height": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "nodes": {
+          "description": "The session node + the frame node + one node per UI element.",
+          "items": {
+            "$ref": "#/$defs/ExtractedNode"
+          },
+          "type": "array"
+        },
+        "width": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "nodes",
+        "edges",
+        "frame_id",
+        "width",
+        "height",
+        "hash",
+        "changed",
+        "element_count"
+      ],
+      "type": "object"
+    },
+    "SemanticAnnIndexIdentity": {
+      "additionalProperties": false,
+      "properties": {
+        "ann_index_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "binding_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "binding_id": {
+          "type": "string"
+        },
+        "dimension": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "generation": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "method": {
+          "$ref": "#/$defs/SemanticAnnIndexMethod"
+        },
+        "model_digest": {
+          "type": "string"
+        },
+        "parameters_digest": {
+          "type": "string"
+        },
+        "policy_digest": {
+          "type": "string"
+        },
+        "purpose_id": {
+          "type": "string"
+        },
+        "source_revision": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "binding_id",
+        "binding_digest",
+        "method",
+        "parameters_digest",
+        "generation",
+        "source_revision",
+        "model_digest",
+        "dimension",
+        "purpose_id",
+        "policy_digest",
+        "ann_index_digest"
+      ],
+      "type": "object"
+    },
+    "SemanticAnnIndexMethod": {
+      "enum": [
+        "hnsw",
+        "ivf_pq"
+      ],
+      "type": "string"
+    },
+    "SemanticBinding": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_scope": {
+          "type": "string"
+        },
+        "ann_index_identity": {
+          "$ref": "#/$defs/SemanticAnnIndexIdentity"
+        },
+        "binding_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "binding_id": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "dimension": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "durable_state": {
+          "$ref": "#/$defs/SemanticBindingState"
+        },
+        "effective_actor_scope": {
+          "type": "string"
+        },
+        "generation": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "lexical_index_identity": {
+          "$ref": "#/$defs/SemanticLexicalIndexIdentity"
+        },
+        "maintenance_policy_id": {
+          "type": "string"
+        },
+        "metric": {
+          "$ref": "#/$defs/SemanticVectorMetric"
+        },
+        "model_digest": {
+          "type": "string"
+        },
+        "model_id": {
+          "type": "string"
+        },
+        "model_revision": {
+          "type": "string"
+        },
+        "policy_digest": {
+          "type": "string"
+        },
+        "policy_identity": {
+          "$ref": "#/$defs/SemanticPolicyIdentity"
+        },
+        "preprocess_digest": {
+          "type": "string"
+        },
+        "purpose_id": {
+          "type": "string"
+        },
+        "queue_profile_id": {
+          "type": "string"
+        },
+        "source_field_set_digest": {
+          "type": "string"
+        },
+        "source_revision": {
+          "type": "string"
+        },
+        "source_schema_digest": {
+          "type": "string"
+        },
+        "source_selector": {
+          "$ref": "#/$defs/SemanticSourceSelector"
+        },
+        "tenant_id": {
+          "type": "string"
+        },
+        "vector_target_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "binding_id",
+        "binding_digest",
+        "tenant_id",
+        "actor_scope",
+        "effective_actor_scope",
+        "purpose_id",
+        "policy_identity",
+        "policy_digest",
+        "source_selector",
+        "source_schema_digest",
+        "source_revision",
+        "source_field_set_digest",
+        "vector_target_id",
+        "dimension",
+        "metric",
+        "model_id",
+        "model_revision",
+        "preprocess_digest",
+        "model_digest",
+        "generation",
+        "maintenance_policy_id",
+        "queue_profile_id",
+        "lexical_index_identity",
+        "ann_index_identity",
+        "created_at",
+        "durable_state"
+      ],
+      "type": "object"
+    },
+    "SemanticBindingPage": {
+      "additionalProperties": false,
+      "description": "One page of the bounded binding catalog.\n\nAn OBJECT, never a bare array, for the reason\n[`crate::agent_component::AgentComponentSearchPage`] is one: a read that\nstarts life as a JSON array can only grow a cursor by breaking every reader\nthat already parses it.",
+      "properties": {
+        "entries": {
+          "items": {
+            "$ref": "#/$defs/SemanticBinding"
+          },
+          "type": "array"
+        },
+        "next_cursor": {
+          "description": "Where to resume. OPAQUE: engine-produced and only ever handed back\nunmodified, and it cannot address a binding outside the owner that\nminted it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "entries"
+      ],
+      "type": "object"
+    },
+    "SemanticBindingState": {
+      "enum": [
+        "pending",
+        "building",
+        "live",
+        "disabled",
+        "failed",
+        "dropping"
+      ],
+      "type": "string"
+    },
+    "SemanticDigest": {
+      "description": "A SHA-256 semantic contract identity as `sha256:<64 lowercase hex>`",
+      "maxLength": 71,
+      "minLength": 71,
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "SemanticGenerationAggregate": {
+      "additionalProperties": false,
+      "properties": {
+        "aggregate_artifact_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "aggregate_receipt_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "completed_entity_count": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "entity_set_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "expected_entity_count": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "expected_entity_count",
+        "completed_entity_count",
+        "entity_set_digest",
+        "aggregate_receipt_digest",
+        "aggregate_artifact_digest"
+      ],
+      "type": "object"
+    },
+    "SemanticGenerationCheckpoint": {
+      "additionalProperties": false,
+      "properties": {
+        "aggregate": {
+          "$ref": "#/$defs/SemanticGenerationAggregate"
+        },
+        "artifact_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "binding_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "binding_id": {
+          "type": "string"
+        },
+        "checkpoint_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "completed_at": {
+          "type": "string"
+        },
+        "dependency": {
+          "$ref": "#/$defs/SemanticGenerationDependency"
+        },
+        "generation": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "source_revision": {
+          "type": "string"
+        },
+        "stage": {
+          "$ref": "#/$defs/SemanticStage"
+        }
+      },
+      "required": [
+        "binding_id",
+        "binding_digest",
+        "generation",
+        "source_revision",
+        "stage",
+        "aggregate",
+        "dependency",
+        "artifact_digest",
+        "completed_at",
+        "checkpoint_digest"
+      ],
+      "type": "object"
+    },
+    "SemanticGenerationCheckpointUpdate": {
+      "additionalProperties": false,
+      "description": "One exact checkpoint compare-and-swap carried with an S3/S5 completion.\nThe owner store must load the expected predecessor, insert `member`,\nrecompute the complete sorted aggregate from authoritative entity rows,\nand compare it with `successor` in the same transaction.",
+      "properties": {
+        "expected_previous_checkpoint_digest": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SemanticDigest"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "expected_previous_completed_count": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "member": {
+          "$ref": "#/$defs/SemanticGenerationMember"
+        },
+        "successor": {
+          "$ref": "#/$defs/SemanticGenerationCheckpoint"
+        }
+      },
+      "required": [
+        "expected_previous_completed_count",
+        "member",
+        "successor"
+      ],
+      "type": "object"
+    },
+    "SemanticGenerationDependency": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "dependency": {
+              "const": "none",
+              "type": "string"
+            }
+          },
+          "required": [
+            "dependency"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "checkpoint_digest": {
+              "$ref": "#/$defs/SemanticDigest"
+            },
+            "dependency": {
+              "const": "checkpoint",
+              "type": "string"
+            },
+            "stage": {
+              "$ref": "#/$defs/SemanticStage"
+            }
+          },
+          "required": [
+            "dependency",
+            "stage",
+            "checkpoint_digest"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "ann_checkpoint_digest": {
+              "$ref": "#/$defs/SemanticDigest"
+            },
+            "dependency": {
+              "const": "activation",
+              "type": "string"
+            },
+            "lexical_checkpoint_digest": {
+              "$ref": "#/$defs/SemanticDigest"
+            }
+          },
+          "required": [
+            "dependency",
+            "lexical_checkpoint_digest",
+            "ann_checkpoint_digest"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "SemanticGenerationMember": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "receipt_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "source_entity_id": {
+          "type": "string"
+        },
+        "source_revision": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_entity_id",
+        "source_revision",
+        "receipt_digest",
+        "artifact_digest"
+      ],
+      "type": "object"
+    },
+    "SemanticIndexError": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "unsupported_selector",
+              "type": "string"
+            },
+            "selector": {
+              "$ref": "#/$defs/SemanticSelectorKind"
+            }
+          },
+          "required": [
+            "code",
+            "selector"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "invalid_field",
+              "type": "string"
+            },
+            "field": {
+              "type": "string"
+            },
+            "reason": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "code",
+            "field",
+            "reason"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "digest_mismatch",
+              "type": "string"
+            },
+            "subject": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "code",
+            "subject"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "actual": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "code": {
+              "const": "generation_mismatch",
+              "type": "string"
+            },
+            "expected": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "code",
+            "expected",
+            "actual"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "actual": {
+              "$ref": "#/$defs/SemanticBindingState"
+            },
+            "code": {
+              "const": "binding_state_mismatch",
+              "type": "string"
+            },
+            "expected": {
+              "$ref": "#/$defs/SemanticBindingState"
+            }
+          },
+          "required": [
+            "code",
+            "expected",
+            "actual"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "invalid_binding_state_transition",
+              "type": "string"
+            },
+            "from": {
+              "$ref": "#/$defs/SemanticBindingState"
+            },
+            "to": {
+              "$ref": "#/$defs/SemanticBindingState"
+            }
+          },
+          "required": [
+            "code",
+            "from",
+            "to"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "policy_unresolved",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "source_revision_stale",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "predecessor_incomplete",
+              "type": "string"
+            },
+            "required": {
+              "$ref": "#/$defs/SemanticStage"
+            }
+          },
+          "required": [
+            "code",
+            "required"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "predecessor_receipt_mismatch",
+              "type": "string"
+            },
+            "stage": {
+              "$ref": "#/$defs/SemanticStage"
+            }
+          },
+          "required": [
+            "code",
+            "stage"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "stage_scope_mismatch",
+              "type": "string"
+            },
+            "stage": {
+              "$ref": "#/$defs/SemanticStage"
+            }
+          },
+          "required": [
+            "code",
+            "stage"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "generation_checkpoint_mismatch",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "generation_incomplete",
+              "type": "string"
+            },
+            "completed": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "expected": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "code",
+            "expected",
+            "completed"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "duplicate_source_entity",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "generation_entity_set_mismatch",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "source_manifest_mismatch",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "graph_projection_manifest_mismatch",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "authorization_receipt_mismatch",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "lineage_mismatch",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "unsupported_ann_metric_pair",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "search_probe_model_mismatch",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "maintained_index_unavailable",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "approval_required",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "approval_operation_mismatch",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "approval_digest_mismatch",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "approval_expired",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "authorization_context_mismatch",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "caller_set_binding_state",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "unmanaged_binding_resource",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "vector_binding_mismatch",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "active_pointer_mismatch",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "index_manifest_mismatch",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "progress_receipt_mismatch",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "dead_letter_identity_mismatch",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "stage_artifact_mismatch",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "canonical_record_too_large",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "malformed_canonical_record",
+              "type": "string"
+            },
+            "reason": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "code",
+            "reason"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "non_canonical_record",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "operation_result_mismatch",
+              "type": "string"
+            },
+            "operation": {
+              "$ref": "#/$defs/SemanticIndexOperation"
+            }
+          },
+          "required": [
+            "code",
+            "operation"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "mutation_receipt_required",
+              "type": "string"
+            },
+            "operation": {
+              "$ref": "#/$defs/SemanticIndexOperation"
+            }
+          },
+          "required": [
+            "code",
+            "operation"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "partial_mutation_outcome",
+              "type": "string"
+            },
+            "operation": {
+              "$ref": "#/$defs/SemanticIndexOperation"
+            }
+          },
+          "required": [
+            "code",
+            "operation"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "SemanticIndexOperation": {
+      "enum": [
+        "semantic_binding_create",
+        "semantic_binding_get",
+        "semantic_binding_list",
+        "semantic_binding_refresh",
+        "semantic_binding_disable",
+        "semantic_binding_drop",
+        "semantic_search",
+        "semantic_queue_status"
+      ],
+      "type": "string"
+    },
+    "SemanticIndexOutcome": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "receipt_digest": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/SemanticDigest"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "result": {
+              "$ref": "#/$defs/SemanticIndexResult"
+            },
+            "status": {
+              "const": "accepted",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "result"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "receipt_digest": {
+              "$ref": "#/$defs/SemanticDigest"
+            },
+            "status": {
+              "const": "deferred_backpressured",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "receipt_digest"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "receipt_digest": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/SemanticDigest"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "result": {
+              "$ref": "#/$defs/SemanticIndexResult"
+            },
+            "status": {
+              "const": "partial",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "result"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "error": {
+              "$ref": "#/$defs/SemanticIndexError"
+            },
+            "receipt_digest": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/SemanticDigest"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "status": {
+              "const": "rejected",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "error"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "status": {
+              "const": "not_found",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "SemanticIndexResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "$ref": "#/$defs/SemanticIndexOperation"
+        },
+        "outcome": {
+          "$ref": "#/$defs/SemanticIndexOutcome"
+        },
+        "request_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "request_id",
+        "operation",
+        "outcome"
+      ],
+      "type": "object"
+    },
+    "SemanticIndexResult": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "binding": {
+              "$ref": "#/$defs/SemanticBinding"
+            },
+            "result": {
+              "const": "binding",
+              "type": "string"
+            }
+          },
+          "required": [
+            "result",
+            "binding"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "bindings": {
+              "items": {
+                "$ref": "#/$defs/SemanticBinding"
+              },
+              "type": "array"
+            },
+            "next_cursor": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "result": {
+              "const": "binding_list",
+              "type": "string"
+            }
+          },
+          "required": [
+            "result",
+            "bindings"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "hits": {
+              "items": {
+                "$ref": "#/$defs/SemanticSearchHit"
+              },
+              "type": "array"
+            },
+            "result": {
+              "const": "search",
+              "type": "string"
+            },
+            "warnings": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "result",
+            "hits",
+            "warnings"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "queues": {
+              "items": {
+                "$ref": "#/$defs/SemanticQueueStatus"
+              },
+              "type": "array"
+            },
+            "result": {
+              "const": "queue_status",
+              "type": "string"
+            }
+          },
+          "required": [
+            "result",
+            "queues"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "result": {
+              "const": "empty",
+              "type": "string"
+            }
+          },
+          "required": [
+            "result"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "SemanticLexicalIndexIdentity": {
+      "additionalProperties": false,
+      "properties": {
+        "analyzer_config_digest": {
+          "type": "string"
+        },
+        "analyzer_id": {
+          "type": "string"
+        },
+        "analyzer_revision": {
+          "type": "string"
+        },
+        "binding_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "binding_id": {
+          "type": "string"
+        },
+        "generation": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "lexical_index_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "policy_digest": {
+          "type": "string"
+        },
+        "purpose_id": {
+          "type": "string"
+        },
+        "source_revision": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "binding_id",
+        "binding_digest",
+        "analyzer_id",
+        "analyzer_revision",
+        "analyzer_config_digest",
+        "generation",
+        "source_revision",
+        "purpose_id",
+        "policy_digest",
+        "lexical_index_digest"
+      ],
+      "type": "object"
+    },
+    "SemanticMutationReceipt": {
+      "description": "Durable receipt returned by the semantic-index owner for a committed mutation.\nThe runtime type lives above `eg-types`; this wire mirror keeps the contract at\nthe bottom of the crate DAG while retaining the exact serialized fields.",
+      "properties": {
+        "batch_id": {
+          "type": "string"
+        },
+        "mutation_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "replayed": {
+          "type": "boolean"
+        },
+        "source_version": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "target_version": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "batch_id",
+        "mutation_digest",
+        "source_version",
+        "target_version",
+        "replayed"
+      ],
+      "type": "object"
+    },
+    "SemanticOutboxStatus": {
+      "description": "Wire view of the outbox status returned by the semantic stage queue. The\nfields every outbox-status view shares live in\n[`OutboxConsumerStatus`]; `consecutive_claims`/`total_claims` are this\nqueue's own.",
+      "properties": {
+        "consecutive_claims": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "status": {
+          "$ref": "#/$defs/OutboxConsumerStatus"
+        },
+        "total_claims": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "status",
+        "consecutive_claims",
+        "total_claims"
+      ],
+      "type": "object"
+    },
+    "SemanticPolicyComponents": {
+      "additionalProperties": false,
+      "properties": {
+        "rbac_policy_digest": {
+          "type": "string"
+        },
+        "rbac_policy_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "row_policy_digest": {
+          "type": "string"
+        },
+        "row_policy_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "source_acl_digest": {
+          "type": "string"
+        },
+        "source_acl_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "rbac_policy_revision",
+        "rbac_policy_digest",
+        "row_policy_revision",
+        "row_policy_digest",
+        "source_acl_revision",
+        "source_acl_digest"
+      ],
+      "type": "object"
+    },
+    "SemanticPolicyIdentity": {
+      "additionalProperties": false,
+      "properties": {
+        "components": {
+          "$ref": "#/$defs/SemanticPolicyComponents"
+        },
+        "effective_actor_scope": {
+          "type": "string"
+        },
+        "policy_digest": {
+          "type": "string"
+        },
+        "purpose_id": {
+          "type": "string"
+        },
+        "tenant_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tenant_id",
+        "effective_actor_scope",
+        "purpose_id",
+        "components",
+        "policy_digest"
+      ],
+      "type": "object"
+    },
+    "SemanticQueueClass": {
+      "enum": [
+        "fast",
+        "medium",
+        "slow_heavy"
+      ],
+      "type": "string"
+    },
+    "SemanticQueueStatus": {
+      "additionalProperties": false,
+      "properties": {
+        "capacity": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "class": {
+          "$ref": "#/$defs/SemanticQueueClass"
+        },
+        "consecutive_claim_percent": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "fairness_relaxation_count": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "inflight": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "lag_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "lag_rows": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "live": {
+          "type": "boolean"
+        },
+        "oldest_age_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "queue_profile_id": {
+          "type": "string"
+        },
+        "rejection_count": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "retry_count": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "saturated": {
+          "type": "boolean"
+        },
+        "tenant_id": {
+          "type": "string"
+        },
+        "trace_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "queue_profile_id",
+        "class",
+        "capacity",
+        "inflight",
+        "oldest_age_ms",
+        "lag_rows",
+        "lag_ms",
+        "retry_count",
+        "rejection_count",
+        "live",
+        "saturated",
+        "tenant_id",
+        "consecutive_claim_percent",
+        "fairness_relaxation_count",
+        "trace_id"
+      ],
+      "type": "object"
+    },
+    "SemanticSearchHit": {
+      "additionalProperties": false,
+      "properties": {
+        "ann_index_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "authorization_receipt_digest": {
+          "$ref": "#/$defs/SemanticDigest",
+          "description": "Receipt for an affirmative server-side authorization decision. Absence\nis not representable on a materialized hit."
+        },
+        "binding_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "binding_id": {
+          "type": "string"
+        },
+        "freshness_lag_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "fused_score": {
+          "format": "float",
+          "type": "number"
+        },
+        "fusion_explanation": {
+          "type": "string"
+        },
+        "generation": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "generation_checkpoint_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "lexical_index_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "lexical_score": {
+          "format": "float",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "lineage_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "model_digest": {
+          "type": "string"
+        },
+        "policy_digest": {
+          "type": "string"
+        },
+        "preprocess_digest": {
+          "type": "string"
+        },
+        "purpose_id": {
+          "type": "string"
+        },
+        "source_entity_id": {
+          "type": "string"
+        },
+        "source_revision": {
+          "type": "string"
+        },
+        "vector_score": {
+          "format": "float",
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "binding_id",
+        "source_entity_id",
+        "source_revision",
+        "binding_digest",
+        "generation",
+        "purpose_id",
+        "policy_digest",
+        "model_digest",
+        "preprocess_digest",
+        "lexical_index_digest",
+        "ann_index_digest",
+        "fused_score",
+        "authorization_receipt_digest",
+        "generation_checkpoint_digest",
+        "freshness_lag_ms",
+        "fusion_explanation",
+        "lineage_digest"
+      ],
+      "type": "object"
+    },
+    "SemanticSelectorKind": {
+      "enum": [
+        "sql_column_ref",
+        "graph_text_property_ref",
+        "canonical_text_asset",
+        "agent_library_composite",
+        "multimodal_asset_ref",
+        "time_series_window_ref",
+        "lakehouse_vector_projection_ref"
+      ],
+      "type": "string"
+    },
+    "SemanticSourceSelector": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "sql_column_ref",
+              "type": "string"
+            },
+            "selector": {
+              "$ref": "#/$defs/SqlColumnRef"
+            }
+          },
+          "required": [
+            "kind",
+            "selector"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "graph_text_property_ref",
+              "type": "string"
+            },
+            "selector": {
+              "$ref": "#/$defs/GraphTextPropertyRef"
+            }
+          },
+          "required": [
+            "kind",
+            "selector"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "canonical_text_asset",
+              "type": "string"
+            },
+            "selector": {
+              "$ref": "#/$defs/CanonicalTextAssetRef"
+            }
+          },
+          "required": [
+            "kind",
+            "selector"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "agent_library_composite",
+              "type": "string"
+            },
+            "selector": {
+              "$ref": "#/$defs/AgentLibraryCompositeRef"
+            }
+          },
+          "required": [
+            "kind",
+            "selector"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "multimodal_asset_ref",
+              "type": "string"
+            },
+            "selector": {
+              "$ref": "#/$defs/MultimodalAssetRef"
+            }
+          },
+          "required": [
+            "kind",
+            "selector"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "time_series_window_ref",
+              "type": "string"
+            },
+            "selector": {
+              "$ref": "#/$defs/TimeSeriesWindowRef"
+            }
+          },
+          "required": [
+            "kind",
+            "selector"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "lakehouse_vector_projection_ref",
+              "type": "string"
+            },
+            "selector": {
+              "$ref": "#/$defs/LakehouseVectorProjectionRef"
+            }
+          },
+          "required": [
+            "kind",
+            "selector"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "SemanticSqlSourceIdentity": {
+      "additionalProperties": false,
+      "properties": {
+        "catalog_id": {
+          "type": "string"
+        },
+        "column_id": {
+          "type": "string"
+        },
+        "record_identity_digest": {
+          "$ref": "#/$defs/SemanticDigest",
+          "description": "Server-derived digest of the stable row identity. Raw predicates and\nprimary-key values are intentionally not transport fields."
+        },
+        "schema_id": {
+          "type": "string"
+        },
+        "source_identity_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "table_id": {
+          "type": "string"
+        },
+        "tenant_scope": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tenant_scope",
+        "catalog_id",
+        "schema_id",
+        "table_id",
+        "column_id",
+        "record_identity_digest",
+        "source_identity_digest"
+      ],
+      "type": "object"
+    },
+    "SemanticSqlSourceManifest": {
+      "additionalProperties": false,
+      "properties": {
+        "authorization_receipt_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "binding_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "binding_id": {
+          "type": "string"
+        },
+        "completed_at": {
+          "type": "string"
+        },
+        "completed_receipt_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "generation": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "manifest_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "source_acl_digest": {
+          "type": "string"
+        },
+        "source_acl_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "source_content_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "source_entity_id": {
+          "type": "string"
+        },
+        "source_field_set_digest": {
+          "type": "string"
+        },
+        "source_identity": {
+          "$ref": "#/$defs/SemanticSqlSourceIdentity"
+        },
+        "source_revision": {
+          "type": "string"
+        },
+        "source_schema_digest": {
+          "type": "string"
+        },
+        "source_schema_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "binding_id",
+        "binding_digest",
+        "generation",
+        "source_identity",
+        "source_entity_id",
+        "source_revision",
+        "source_content_digest",
+        "source_schema_revision",
+        "source_schema_digest",
+        "source_field_set_digest",
+        "source_acl_revision",
+        "source_acl_digest",
+        "authorization_receipt_digest",
+        "completed_receipt_digest",
+        "completed_at",
+        "manifest_digest"
+      ],
+      "type": "object"
+    },
+    "SemanticSqlSourcePageAdmission": {
+      "description": "Bounded continuation returned by one semantic source-page admission turn.",
+      "properties": {
+        "complete": {
+          "type": "boolean"
+        },
+        "next_cursor": {
+          "items": {
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "receipts": {
+          "items": {
+            "$ref": "#/$defs/SemanticMutationReceipt"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "receipts",
+        "complete"
+      ],
+      "type": "object"
+    },
+    "SemanticSqlSourceReconciliationAdmission": {
+      "description": "Bounded continuation returned by one semantic source-reconciliation turn.",
+      "properties": {
+        "complete": {
+          "type": "boolean"
+        },
+        "page_count": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "receipts": {
+          "items": {
+            "$ref": "#/$defs/SemanticMutationReceipt"
+          },
+          "type": "array"
+        },
+        "rows_seen": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "source_bytes_seen": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "source_revision": {
+          "type": "string"
+        },
+        "wakeup_consumed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "receipts",
+        "source_revision",
+        "page_count",
+        "complete",
+        "wakeup_consumed",
+        "rows_seen",
+        "source_bytes_seen"
+      ],
+      "type": "object"
+    },
+    "SemanticStage": {
+      "enum": [
+        "S1",
+        "S2",
+        "S3",
+        "S4",
+        "S5",
+        "S6"
+      ],
+      "type": "string"
+    },
+    "SemanticStageIntent": {
+      "additionalProperties": false,
+      "properties": {
+        "binding_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "binding_id": {
+          "type": "string"
+        },
+        "generation": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "input_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "intent_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "predecessor": {
+          "$ref": "#/$defs/SemanticStagePredecessor"
+        },
+        "scope": {
+          "$ref": "#/$defs/SemanticStageScope"
+        },
+        "source_revision": {
+          "type": "string"
+        },
+        "stage": {
+          "$ref": "#/$defs/SemanticStage"
+        }
+      },
+      "required": [
+        "binding_id",
+        "binding_digest",
+        "generation",
+        "scope",
+        "source_revision",
+        "stage",
+        "predecessor",
+        "input_digest",
+        "intent_digest"
+      ],
+      "type": "object"
+    },
+    "SemanticStageLeaseEntry": {
+      "additionalProperties": false,
+      "description": "One claimed stage lease, with the intent it leases and the queue class that\nintent's stage belongs to.\n\nThe class is returned rather than assumed because it is what a tiered worker\nroutes on: an S1 `Fast` row and an S5 `SlowHeavy` row are the same shape and\nwildly different work.",
+      "properties": {
+        "intent": {
+          "$ref": "#/$defs/SemanticStageIntent"
+        },
+        "lease": {
+          "$ref": "#/$defs/MutationOutboxLease"
+        },
+        "queue_class": {
+          "$ref": "#/$defs/SemanticQueueClass"
+        }
+      },
+      "required": [
+        "lease",
+        "intent",
+        "queue_class"
+      ],
+      "type": "object"
+    },
+    "SemanticStageLeasePage": {
+      "additionalProperties": false,
+      "description": "The bounded result of one claim turn.",
+      "properties": {
+        "entries": {
+          "items": {
+            "$ref": "#/$defs/SemanticStageLeaseEntry"
+          },
+          "type": "array"
+        },
+        "more_available": {
+          "description": "Whether the selection scan stopped at its page bound, so an immediate\nsecond claim may find more.",
+          "type": "boolean"
+        },
+        "queue_class": {
+          "$ref": "#/$defs/SemanticQueueClass",
+          "description": "The class this turn asked for. Echoed so a worker can prove the tier it\ngot is the tier it wanted."
+        }
+      },
+      "required": [
+        "queue_class",
+        "entries",
+        "more_available"
+      ],
+      "type": "object"
+    },
+    "SemanticStageOutcome": {
+      "enum": [
+        "completed",
+        "idempotent_noop",
+        "deferred_backpressured",
+        "parked_awaiting_predecessor",
+        "rejected_dead_letter"
+      ],
+      "type": "string"
+    },
+    "SemanticStagePredecessor": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "proof": {
+              "const": "none",
+              "type": "string"
+            }
+          },
+          "required": [
+            "proof"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "proof": {
+              "const": "entity_receipt",
+              "type": "string"
+            },
+            "receipt_digest": {
+              "$ref": "#/$defs/SemanticDigest"
+            },
+            "stage": {
+              "$ref": "#/$defs/SemanticStage"
+            }
+          },
+          "required": [
+            "proof",
+            "stage",
+            "receipt_digest"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "checkpoint_digest": {
+              "$ref": "#/$defs/SemanticDigest"
+            },
+            "proof": {
+              "const": "generation_checkpoint",
+              "type": "string"
+            },
+            "stage": {
+              "$ref": "#/$defs/SemanticStage"
+            }
+          },
+          "required": [
+            "proof",
+            "stage",
+            "checkpoint_digest"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "checkpoint": {
+              "$ref": "#/$defs/SemanticGenerationCheckpoint"
+            },
+            "proof": {
+              "const": "generation_coverage",
+              "type": "string"
+            }
+          },
+          "required": [
+            "proof",
+            "checkpoint"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "ann_checkpoint_digest": {
+              "$ref": "#/$defs/SemanticDigest"
+            },
+            "lexical_checkpoint_digest": {
+              "$ref": "#/$defs/SemanticDigest"
+            },
+            "proof": {
+              "const": "activation",
+              "type": "string"
+            }
+          },
+          "required": [
+            "proof",
+            "lexical_checkpoint_digest",
+            "ann_checkpoint_digest"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "SemanticStageReceipt": {
+      "additionalProperties": false,
+      "properties": {
+        "completed_at": {
+          "type": "string"
+        },
+        "cursor": {
+          "type": "string"
+        },
+        "intent_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        },
+        "outcome": {
+          "$ref": "#/$defs/SemanticStageOutcome"
+        },
+        "output_digest": {
+          "$ref": "#/$defs/SemanticDigest"
+        }
+      },
+      "required": [
+        "intent_digest",
+        "output_digest",
+        "cursor",
+        "completed_at",
+        "outcome"
+      ],
+      "type": "object"
+    },
+    "SemanticStageScope": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "scope": {
+              "const": "entity",
+              "type": "string"
+            },
+            "source_entity_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "scope",
+            "source_entity_id"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "scope": {
+              "const": "generation",
+              "type": "string"
+            }
+          },
+          "required": [
+            "scope"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "SemanticStageTransition": {
+      "additionalProperties": false,
+      "properties": {
+        "generation_checkpoint": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SemanticGenerationCheckpointUpdate"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "intent": {
+          "$ref": "#/$defs/SemanticStageIntent"
+        },
+        "receipt": {
+          "$ref": "#/$defs/SemanticStageReceipt"
+        }
+      },
+      "required": [
+        "intent",
+        "receipt"
+      ],
+      "type": "object"
+    },
+    "SemanticVectorMetric": {
+      "enum": [
+        "cosine",
+        "dot_product",
+        "euclidean"
+      ],
+      "type": "string"
+    },
+    "ServedModalityApplyDisposition": {
+      "enum": [
+        "Applied",
+        "IdempotentReplay"
+      ],
+      "type": "string"
+    },
+    "ServedModalityApplyOutcome": {
+      "properties": {
+        "disposition": {
+          "$ref": "#/$defs/ServedModalityApplyDisposition"
+        },
+        "event_sequence": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "observation_version": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "disposition",
+        "observation_version",
+        "event_sequence"
+      ],
+      "type": "object"
+    },
+    "ServedModalityAuthority": {
+      "properties": {
+        "access_policy_ref": {
+          "type": "string"
+        },
+        "maximum_classification": {
+          "$ref": "#/$defs/ServedModalityClassification"
+        },
+        "purpose_ref": {
+          "type": "string"
+        },
+        "tenant_ref": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tenant_ref",
+        "access_policy_ref",
+        "purpose_ref",
+        "maximum_classification"
+      ],
+      "type": "object"
+    },
+    "ServedModalityCapabilities": {
+      "properties": {
+        "component_not_applicable": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "component_pass": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "component_ready": {
+          "type": "boolean"
+        },
+        "component_total": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "component_ready",
+        "component_pass",
+        "component_not_applicable",
+        "component_total"
+      ],
+      "type": "object"
+    },
+    "ServedModalityClassification": {
+      "enum": [
+        "public",
+        "internal",
+        "confidential",
+        "restricted"
+      ],
+      "type": "string"
+    },
+    "ServedModalityEvent": {
+      "properties": {
+        "access_policy_ref": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/ServedModalityEventKind"
+        },
+        "observation_version": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "occurrence_id": {
+          "type": "string"
+        },
+        "sequence": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tenant_ref": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sequence",
+        "occurrence_id",
+        "observation_version",
+        "kind",
+        "tenant_ref",
+        "access_policy_ref"
+      ],
+      "type": "object"
+    },
+    "ServedModalityEventKind": {
+      "enum": [
+        "ingested",
+        "updated",
+        "deleted",
+        "moved_to_cold",
+        "restored",
+        "reindexed"
+      ],
+      "type": "string"
+    },
+    "ServedModalityStats": {
+      "properties": {
+        "active_records": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "events": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "modality_index_postings": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "native_index_keys": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "native_index_postings": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "segment_index_postings": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "snapshot_bytes": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tombstoned_records": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "total_records": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "active_records",
+        "total_records",
+        "tombstoned_records",
+        "modality_index_postings",
+        "segment_index_postings",
+        "native_index_keys",
+        "native_index_postings",
+        "events",
+        "snapshot_bytes"
+      ],
+      "type": "object"
+    },
+    "ServedModalityTombstoneCollection": {
+      "properties": {
+        "collected": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "collected"
+      ],
+      "type": "object"
+    },
+    "SourceCheckpoint": {
+      "additionalProperties": false,
+      "properties": {
+        "content_hash": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Digest256"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Provider-owned content identity for the returned page or snapshot.\nEG binds it into checkpoint CAS and replay; it never invents a value."
+        },
+        "pending_watermark": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "position": {
+          "$ref": "#/$defs/SourceJson"
+        },
+        "stream": {
+          "type": "string"
+        },
+        "watermark": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "stream",
+        "position"
+      ],
+      "type": "object"
+    },
+    "SourceEntityRef": {
+      "additionalProperties": false,
+      "properties": {
+        "record_id": {
+          "type": "string"
+        },
+        "stream": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "stream",
+        "record_id"
+      ],
+      "type": "object"
+    },
+    "SourceIngestStatus": {
+      "additionalProperties": false,
+      "description": "Latest checkpoint accepted by the one EG ingestion authority for a source\npartition. `None` means no batch has committed; callers must not substitute\na local checkpoint in that case.",
+      "properties": {
+        "accepted_checkpoint": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SourceCheckpoint"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "accepted_checkpoint_digest": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Digest256"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "committed_graph_version": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "connector": {
+          "type": "string"
+        },
+        "content_hash": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Digest256"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "last_batch_digest": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Digest256"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "last_receipt_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "live_set_digest": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Digest256"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "relationship_live_set_digest": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Digest256"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "stream": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "connector",
+        "stream"
+      ],
+      "type": "object"
+    },
+    "SourceIngestionDisposition": {
+      "enum": [
+        "committed",
+        "replayed"
+      ],
+      "type": "string"
+    },
+    "SourceIngestionMode": {
+      "enum": [
+        "full",
+        "delta",
+        "reconcile"
+      ],
+      "type": "string"
+    },
+    "SourceIngestionReceipt": {
+      "additionalProperties": false,
+      "description": "Terminal receipt returned only after canonical mutation, raw references,\nprovenance and cursor state have committed.  Its stable `receipt_digest`\nis the replay currency for the same batch digest.",
+      "properties": {
+        "accepted_checkpoint": {
+          "$ref": "#/$defs/SourceCheckpoint"
+        },
+        "accepted_checkpoint_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "affected_count": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "batch_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "committed_graph_version": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "content_hash": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Digest256"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "disposition": {
+          "$ref": "#/$defs/SourceIngestionDisposition"
+        },
+        "live_set_digest": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Digest256"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "mappings": {
+          "$ref": "#/$defs/BoundedVec_SourceMappingReceipt_5120"
+        },
+        "mode": {
+          "$ref": "#/$defs/SourceIngestionMode"
+        },
+        "raw_admissions": {
+          "$ref": "#/$defs/BoundedVec_RawAdmissionReceipt_1024"
+        },
+        "receipt_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "receipt_id": {
+          "type": "string"
+        },
+        "relationship_count": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "relationship_live_set_digest": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Digest256"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "relationship_raw_admissions": {
+          "$ref": "#/$defs/BoundedVec_RawRelationshipAdmissionReceipt_4096"
+        },
+        "relationship_tombstoned_count": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "relationship_tombstones": {
+          "$ref": "#/$defs/BoundedVec_SourceRelationshipTombstoneReceipt_4096"
+        },
+        "tombstoned_count": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tombstones": {
+          "$ref": "#/$defs/BoundedVec_SourceTombstoneReceipt_16384"
+        }
+      },
+      "required": [
+        "receipt_id",
+        "disposition",
+        "mode",
+        "batch_digest",
+        "mappings",
+        "raw_admissions",
+        "relationship_raw_admissions",
+        "tombstones",
+        "relationship_tombstones",
+        "accepted_checkpoint",
+        "accepted_checkpoint_digest",
+        "affected_count",
+        "relationship_count",
+        "tombstoned_count",
+        "relationship_tombstoned_count",
+        "committed_graph_version",
+        "receipt_digest"
+      ],
+      "type": "object"
+    },
+    "SourceJson": {},
+    "SourceMappingKind": {
+      "enum": [
+        "entity",
+        "relationship"
+      ],
+      "type": "string"
+    },
+    "SourceMappingReceipt": {
+      "additionalProperties": false,
+      "properties": {
+        "catalog": {
+          "$ref": "#/$defs/McpCatalogSnapshotBinding"
+        },
+        "connector_pack_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "kind": {
+          "$ref": "#/$defs/SourceMappingKind"
+        },
+        "mapping_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "mapping_reference": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "mapping_reference",
+        "mapping_digest",
+        "connector_pack_digest",
+        "catalog"
+      ],
+      "type": "object"
+    },
+    "SourceRelationshipTombstoneReceipt": {
+      "additionalProperties": false,
+      "properties": {
+        "reason": {
+          "type": "string"
+        },
+        "relationship_id": {
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/SourceEntityRef"
+        },
+        "target": {
+          "$ref": "#/$defs/SourceEntityRef"
+        }
+      },
+      "required": [
+        "relationship_id",
+        "source",
+        "target",
+        "reason"
+      ],
+      "type": "object"
+    },
+    "SourceTombstoneReceipt": {
+      "additionalProperties": false,
+      "properties": {
+        "entity": {
+          "$ref": "#/$defs/SourceEntityRef"
+        },
+        "node_id": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "entity",
+        "node_id",
+        "reason"
+      ],
+      "type": "object"
+    },
+    "SqlColumnRef": {
+      "additionalProperties": false,
+      "properties": {
+        "catalog_id": {
+          "type": "string"
+        },
+        "column_id": {
+          "type": "string"
+        },
+        "schema_id": {
+          "type": "string"
+        },
+        "table_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "catalog_id",
+        "schema_id",
+        "table_id",
+        "column_id"
+      ],
+      "type": "object"
+    },
+    "TelemetryDeriveReceipt": {
+      "additionalProperties": false,
+      "description": "What one derivation read, derived and wrote.",
+      "properties": {
+        "anomalies": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "edges_written": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "fact_ids": {
+          "description": "The id of every fact node written, in write order.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "ignored_metric_samples": {
+          "description": "Metric samples of an undeclared metric, or non-finite.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "incidents": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "invalid_declarations": {
+          "description": "Individuals whose declared resolution keys or declared health did not\nparse; they were skipped, not guessed.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "nodes_written": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "observations": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "signals_read": {
+          "description": "Stored log records, metric samples and spans read in the caller's scope.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "unresolved": {
+          "description": "Signals that bound to no single declared individual.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "violations": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "signals_read",
+        "observations",
+        "anomalies",
+        "incidents",
+        "violations",
+        "unresolved",
+        "ignored_metric_samples",
+        "invalid_declarations",
+        "nodes_written",
+        "edges_written",
+        "fact_ids"
+      ],
+      "type": "object"
+    },
+    "TimeSeriesWindowRef": {
+      "additionalProperties": false,
+      "properties": {
+        "series_id": {
+          "type": "string"
+        },
+        "source_revision": {
+          "type": "string"
+        },
+        "window_end": {
+          "type": "string"
+        },
+        "window_start": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "series_id",
+        "window_start",
+        "window_end",
+        "source_revision"
+      ],
+      "type": "object"
+    },
+    "VizCapabilityEntry": {
+      "properties": {
+        "level": {
+          "type": "string"
+        },
+        "mark": {
+          "type": "string"
+        },
+        "notes": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "type": "string"
+        },
+        "surface": {
+          "type": "string"
+        },
+        "target_wave": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "mark",
+        "surface",
+        "level",
+        "status"
+      ],
+      "type": "object"
+    },
+    "VizCapabilityMatrix": {
+      "properties": {
+        "entries": {
+          "items": {
+            "$ref": "#/$defs/VizCapabilityEntry"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "entries"
+      ],
+      "type": "object"
+    },
+    "VizFormat": {
+      "description": "Static export raster/vector format — mirrors `eg_viz_core::StaticExportFormat`\nfield-for-field, INCLUDING its `rename_all = \"snake_case\"` wire casing (so a\ncaller sends `\"png\"`/`\"svg\"`/`\"pdf\"`, not `\"Png\"`/`\"Svg\"`/`\"Pdf\"`). This crate\nstays dependency-free (no `eg-viz-core` dep), so the variant is not reused\ndirectly; the handler converts one-to-one.",
+      "enum": [
+        "png",
+        "svg",
+        "pdf"
+      ],
+      "type": "string"
+    },
+    "VizPayloadRef": {
+      "properties": {
+        "byte_len": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "byte_len"
+      ],
+      "type": "object"
+    },
+    "VizProvenanceRecord": {
+      "properties": {
+        "algo_family": {
+          "type": "string"
+        },
+        "algo_name": {
+          "type": "string"
+        },
+        "content_fingerprint": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "dataset_ref": {
+          "type": "string"
+        },
+        "exact": {
+          "type": "boolean"
+        },
+        "format": {
+          "type": "string"
+        },
+        "height_px": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "lod_tier": {
+          "type": "string"
+        },
+        "produced_at_unix_ms": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "query_hash": {
+          "type": "string"
+        },
+        "result_ref": {
+          "type": "string"
+        },
+        "row_count": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "wall_time_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "width_px": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "result_ref",
+        "query_hash",
+        "dataset_ref",
+        "content_fingerprint",
+        "algo_family",
+        "algo_name",
+        "lod_tier",
+        "exact",
+        "row_count",
+        "width_px",
+        "height_px",
+        "format",
+        "wall_time_ms",
+        "produced_at_unix_ms"
+      ],
+      "type": "object"
+    },
+    "VizRenderResponse": {
+      "properties": {
+        "bytes": {
+          "items": {
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "cached": {
+          "type": "boolean"
+        },
+        "content_type": {
+          "type": "string"
+        },
+        "format": {
+          "$ref": "#/$defs/VizFormat"
+        },
+        "result_ref": {
+          "type": "string"
+        },
+        "view_result": {
+          "$ref": "#/$defs/VizViewResult"
+        }
+      },
+      "required": [
+        "view_result",
+        "format",
+        "content_type",
+        "result_ref",
+        "cached",
+        "bytes"
+      ],
+      "type": "object"
+    },
+    "VizViewResult": {
+      "properties": {
+        "exact": {
+          "type": "boolean"
+        },
+        "lod_tier": {
+          "type": "string"
+        },
+        "payloads": {
+          "items": {
+            "$ref": "#/$defs/VizPayloadRef"
+          },
+          "type": "array"
+        },
+        "produced_at_unix_ms": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "query_hash": {
+          "type": "string"
+        },
+        "reduction": {
+          "type": "string"
+        },
+        "row_count": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "seed": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "wall_time_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "query_hash",
+        "row_count",
+        "lod_tier",
+        "reduction",
+        "exact",
+        "payloads",
+        "wall_time_ms",
+        "produced_at_unix_ms"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "methods": {
+    "AddEmbedding": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "String",
+          "schema": {
+            "type": "string"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "Asr": {
+      "bodies": {
+        "TranscribeFile": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/AsrTranscription"
+          }
+        }
+      },
+      "selected_by": "op"
+    },
+    "Discover": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "items": {
+              "$ref": "#/$defs/DiscoverHit"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "IndexRepository": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/IndexResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "ObserveScreen": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/ScreenObservationResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "ParseFile": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/ParseResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "ParseFiles": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "items": {
+              "$ref": "#/$defs/ParseResult"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "Quantum": {
+      "bodies": {
+        "expectation": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/QuantumExpectationResult"
+          }
+        },
+        "optimize_qaoa": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/QuantumQaoaResult"
+          }
+        },
+        "rank": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/QuantumRankResult"
+          }
+        }
+      },
+      "selected_by": "op"
+    },
+    "SemanticIndex": {
+      "bodies": {
+        "admit_binding": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/SemanticMutationReceipt"
+          }
+        },
+        "admit_source_page": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/SemanticSqlSourcePageAdmission"
+          }
+        },
+        "admit_source_reconcile": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/SemanticSqlSourceReconciliationAdmission"
+          }
+        },
+        "admit_source_record": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/SemanticMutationReceipt"
+          }
+        },
+        "admit_source_replacement": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/SemanticMutationReceipt"
+          }
+        },
+        "binding": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/SemanticBinding"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "claim_stage_leases": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/SemanticStageLeasePage"
+          }
+        },
+        "complete_generation_stage": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/SemanticMutationReceipt"
+          }
+        },
+        "complete_sql_source_stage": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/SemanticMutationReceipt"
+          }
+        },
+        "complete_stage": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/SemanticMutationReceipt"
+          }
+        },
+        "drop_binding": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/SemanticMutationReceipt"
+          }
+        },
+        "get_binding_request": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/SemanticIndexResponse"
+          }
+        },
+        "list_bindings": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/SemanticBindingPage"
+          }
+        },
+        "live_generation": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "refresh_binding": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/SemanticMutationReceipt"
+          }
+        },
+        "release_stage_lease": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "type": "boolean"
+          }
+        },
+        "replay_completed_sql_source_stage": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "$ref": "#/$defs/SemanticStageTransition"
+              },
+              {
+                "$ref": "#/$defs/SemanticMutationReceipt"
+              }
+            ],
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "sql_source_manifest": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/SemanticSqlSourceManifest"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "stage_status": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/SemanticOutboxStatus"
+          }
+        },
+        "subscribe_stage_consumer": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "type": "boolean"
+          }
+        },
+        "transition_binding": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/SemanticMutationReceipt"
+          }
+        },
+        "validate_stage_lease": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/SemanticStageIntent"
+          }
+        }
+      },
+      "selected_by": "op"
+    },
+    "SemanticSearch": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "items": {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "string"
+                },
+                {
+                  "format": "float",
+                  "type": "number"
+                }
+              ],
+              "type": "array"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "ServedModality": {
+      "bodies": {
+        "authority": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/ServedModalityAuthority"
+          }
+        },
+        "capabilities": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/ServedModalityCapabilities"
+          }
+        },
+        "collect_tombstones": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/ServedModalityTombstoneCollection"
+          }
+        },
+        "delete": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/ServedModalityApplyOutcome"
+          }
+        },
+        "events": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "items": {
+              "$ref": "#/$defs/ServedModalityEvent"
+            },
+            "type": "array"
+          }
+        },
+        "ingest": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/ServedModalityApplyOutcome"
+          }
+        },
+        "ingest_stream": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "items": {
+              "$ref": "#/$defs/ServedModalityApplyOutcome"
+            },
+            "type": "array"
+          }
+        },
+        "move_to_cold": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/ServedModalityApplyOutcome"
+          }
+        },
+        "native_query": {
+          "dynamic": {
+            "reason": "requested-modality",
+            "summary": "the server-declared served-modality body selected by the request"
+          },
+          "encoding": "Raw",
+          "schema": true
+        },
+        "query": {
+          "dynamic": {
+            "reason": "requested-modality",
+            "summary": "the server-declared served-modality body selected by the request"
+          },
+          "encoding": "Raw",
+          "schema": true
+        },
+        "restore": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/ServedModalityApplyOutcome"
+          }
+        },
+        "stats": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/ServedModalityStats"
+          }
+        }
+      },
+      "selected_by": "op"
+    },
+    "SourceIngest": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/SourceIngestionReceipt"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "SourceIngestStatus": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/SourceIngestStatus"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "TelemetryDerive": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/TelemetryDeriveReceipt"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "Viz": {
+      "bodies": {
+        "CapabilityMatrix": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/VizCapabilityMatrix"
+          }
+        },
+        "Render": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/VizRenderResponse"
+          }
+        },
+        "RenderProvenance": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/VizProvenanceRecord"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "selected_by": "op"
+    }
+  },
+  "title": "ingestion method results"
+}

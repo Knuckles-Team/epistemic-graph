@@ -12,6 +12,7 @@ pub(crate) mod identity;
 pub(crate) mod layout;
 pub(crate) mod lineage;
 pub(crate) mod manifest_io;
+pub(crate) mod offline_upgrade;
 pub(crate) mod persisted_layout;
 pub(crate) mod registry;
 pub(crate) mod row_key;
@@ -28,5 +29,7 @@ pub(crate) use registry::{
 
 #[cfg(test)]
 mod blob_shared_tests;
+#[cfg(test)]
+pub(crate) mod lineage_fixtures;
 #[cfg(test)]
 mod tests;

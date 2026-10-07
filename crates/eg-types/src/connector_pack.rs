@@ -25,6 +25,7 @@ pub mod index;
 pub mod ops;
 pub mod record;
 pub mod result;
+pub mod self_served_catalog;
 
 /// Format identity (RF-ADR-006) of [`index::ConnectorPackIndex`].
 pub const CONNECTOR_PACK_SCHEMA_VERSION: u16 = 2;
@@ -80,9 +81,9 @@ pub struct ConnectorRelationshipMapping {
 
 pub use annotations::{PackAnnotations, PackCost, PackModelFacts, PackToolMode};
 pub use catalog_authority::{
-    reconcile_catalog_authority, reconcile_joined_configuration, McpCatalogAuthorityCandidate,
-    McpCatalogAuthorityRow, McpCatalogAuthorityStatusRequest, McpCatalogReconcileRequest,
-    McpJoinedConfigurationRow,
+    reconcile_catalog_authority, reconcile_joined_configuration, McpCatalogAttestation,
+    McpCatalogAuthorityCandidate, McpCatalogAuthorityRow, McpCatalogAuthorityStatusRequest,
+    McpCatalogReconcileRequest, McpJoinedConfigurationRow,
 };
 pub use ids::{escape_pack_name, pack_component_id, validate_connector, PACK_COMPONENT_ID_PREFIX};
 pub use index::{
@@ -102,4 +103,8 @@ pub use result::{
     PackDispositionCounts, PackHeadView, PackImportReceipt, PackImportResult, PackMemberCounts,
     PackProjectionState, PackRetireResult, PackViolation, PackViolationCode, PackWarning,
     PackWarningCode, PackWriteErrorCode, MAX_PROJECTION_FAILURE_DETAIL_BYTES,
+};
+pub use self_served_catalog::{
+    check_self_served_import, self_served_candidate, self_served_component_revision,
+    McpSelfServedCatalogAttestRequest, SelfServedAttester,
 };

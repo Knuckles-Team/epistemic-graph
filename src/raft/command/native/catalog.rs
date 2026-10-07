@@ -31,6 +31,8 @@ macro_rules! native_method_catalog {
             record RunDatalogReasoning => GraphState,
             record IcvConfigure => GraphState,
             record GraphSchema => GraphState,
+            #[cfg(feature = "security")]
+            record AuditAppend => GraphState,
 
             record BeginTxn => Transaction,
             record TxnAddNode => Transaction,

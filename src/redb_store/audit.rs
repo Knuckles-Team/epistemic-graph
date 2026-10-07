@@ -41,6 +41,36 @@ use super::shard::{Shard, ShardWrite};
 #[cfg(feature = "security")]
 pub(crate) type AuditTailCache = std::collections::HashMap<String, (u64, crate::audit::Hash)>;
 
+/// A maintenance admission id unique per ATTEMPT, shared by every caller on
+/// this writer thread that needs one. `admit_maintenance` resolves a repeated
+/// id to a REPLAY and skips the write entirely (`shard::drain_batch`'s doc on
+/// `drain_id`), so an id derived only from stable content would make a
+/// SECOND, logically distinct attempt with the same content replay instead of
+/// admitting -- see [`anchor_op_id`] below and
+/// [`super::operation_audit::operation_audit_append`], whose own
+/// `AUDIT_REQUESTS` check is the precise idempotency; this id only has to admit
+/// a live write every time so that check can run. The wall clock separates two
+/// runs of the same counter value across a restart -- a process id alone does
+/// not, because the operating system reuses one.
+///
+/// The id names this node's own ledger receipt and nothing else. It is never
+/// written into an audit line, a chain hash or an idempotency row, so replicas
+/// that apply the same commands hold identical audit rows while each keeps its
+/// own receipt ids -- the same arrangement as every coalesced shard drain
+/// (`shard::drain_batch`).
+#[cfg(feature = "security")]
+pub(super) fn fresh_attempt_id(prefix: &str) -> String {
+    static ATTEMPT: AtomicU64 = AtomicU64::new(0);
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|since| since.as_nanos())
+        .unwrap_or(0);
+    format!(
+        "{prefix}:{stamp}:{}",
+        ATTEMPT.fetch_add(1, Ordering::Relaxed)
+    )
+}
+
 /// Append ONE tamper-evident audit-chain entry for a durable mutation, inside the
 /// caller's open admitted write (CONCEPT:EG-KG.sharding.row-level-security; O(1) via CONCEPT:EG-KG.storage.embedded-store). Uses the
 /// cached per-graph chain tail (`last seq` + its hash) to get `prev_hash` + next `seq`,
@@ -247,25 +277,13 @@ pub(crate) fn verify_audit(
 #[cfg(feature = "security")]
 pub(crate) type ProvenanceAnchorCache = HashMap<String, (u64, crate::audit::Hash)>;
 
-/// One provenance-anchor write's operation id, unique per ATTEMPT.
-///
-/// Not derived from the graph and root alone: `admit_maintenance` resolves a
-/// repeated batch id to a REPLAY and skips it, so a stable id would silently drop
-/// the second anchor of a graph whose window changed back and forth. See
-/// `shard::drain_batch`'s doc on `drain_id`. The wall clock separates two runs of
-/// the same counter value across a restart -- a process id alone does not, because
-/// the operating system reuses one.
+/// One provenance-anchor write's operation id, unique per ATTEMPT: a stable
+/// id derived only from the graph and root would silently drop the second
+/// anchor of a graph whose window changed back and forth (see
+/// [`fresh_attempt_id`] above for why).
 #[cfg(feature = "security")]
 fn anchor_op_id(graph: &str) -> String {
-    static ATTEMPT: AtomicU64 = AtomicU64::new(0);
-    let stamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|since| since.as_nanos())
-        .unwrap_or(0);
-    format!(
-        "provenance_anchor/{graph}:{stamp}:{}",
-        ATTEMPT.fetch_add(1, Ordering::Relaxed)
-    )
+    fresh_attempt_id(&format!("provenance_anchor/{graph}"))
 }
 
 /// Read the CURRENT durable content of each of `node_ids` and hash it into a

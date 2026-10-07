@@ -2729,7 +2729,20 @@ def _modality_stats(value: Any) -> ServedModalityStats:
     return cast(ServedModalityStats, stats)
 
 
-class ResultTooLargeError(RuntimeError):
+class EngineResponseError(RuntimeError):
+    """Engine refusal with a stable wire code separate from diagnostic detail.
+
+    ``detail`` must not be used to classify the refusal or copied into a
+    public API response without that API's own policy check.
+    """
+
+    def __init__(self, code: str, detail: str | None = None) -> None:
+        self.code = code
+        self.detail = detail
+        super().__init__(f"{code}: {detail}" if detail else code)
+
+
+class ResultTooLargeError(EngineResponseError):
     """Raised when an unbounded read (e.g. ``nodes.list()`` / ``GetNodes``) would
     return more than the engine's configured node cap
     (``EPISTEMIC_GRAPH_MAX_RESPONSE_NODES``,
@@ -2743,7 +2756,7 @@ class ResultTooLargeError(RuntimeError):
     """
 
 
-class StaleRouteError(RuntimeError):
+class StaleRouteError(EngineResponseError):
     """The contacted engine cannot serve the graph's current placement route.
 
     ``route`` is the engine-authored structured redirect containing the target,
@@ -2752,8 +2765,17 @@ class StaleRouteError(RuntimeError):
     placement catalog and retry without parsing an error string.
     """
 
-    def __init__(self, message: str, route: dict[str, Any] | None = None) -> None:
-        super().__init__(message)
+    def __init__(
+        self,
+        message: str,
+        route: dict[str, Any] | None = None,
+        *,
+        code: str = "OPERATION_REDIRECTED",
+        detail: str | None = None,
+    ) -> None:
+        super().__init__(code, detail)
+        if detail is None:
+            self.args = (message,)
         self.route = dict(route or {})
         self.target_ref = str(self.route.get("target_ref") or "")
         self.group = self.route.get("group")
@@ -10438,20 +10460,17 @@ _OPERATION_REDIRECT_FIELDS = frozenset(
 )
 
 
-def _send_error_detail(detail: Any, err_msg: Any) -> Any:
+def _send_error_detail(detail: Any) -> Any:
     """Best-effort decode of the structured detail carried by an error response."""
     if isinstance(detail, (bytes, bytearray)):
         with contextlib.suppress(Exception):
             detail = msgpack.unpackb(detail, raw=False)
-    if not isinstance(detail, dict) and isinstance(err_msg, str):
-        with contextlib.suppress(json.JSONDecodeError, TypeError):
-            parsed = json.loads(err_msg)
-            if isinstance(parsed, dict):
-                detail = parsed
     return detail
 
 
-def _raise_placement_redirect(detail: dict[str, Any]) -> NoReturn:
+def _raise_placement_redirect(
+    detail: dict[str, Any], code: str, error_detail: str | None
+) -> NoReturn:
     """Turn a ``status == "redirected"`` OperationResult into StaleRouteError."""
     operation = _exact_mapping("OperationResult", detail, _OPERATION_RESULT_FIELDS)
     route = _exact_mapping(
@@ -10459,29 +10478,30 @@ def _raise_placement_redirect(detail: dict[str, Any]) -> NoReturn:
     )
     if operation["schema_version"] != "1" or route["kind"] != "placement":
         raise RuntimeError("invalid operation redirect")
-    raise StaleRouteError("placement route redirected", route)
+    raise StaleRouteError(
+        "placement route redirected", route, code=code, detail=error_detail
+    )
 
 
 def _raise_send_error(resp: dict[str, Any]) -> NoReturn:
     """Raise the typed exception for an error response frame."""
-    err_msg = resp.get("error", "Unknown error")
-    detail = _send_error_detail(resp.get("result"), err_msg)
-    if isinstance(detail, dict) and detail.get("status") == "redirected":
-        _raise_placement_redirect(detail)
+    code = resp.get("error")
+    if not isinstance(code, str) or not code:
+        raise RuntimeError("invalid engine response error code")
     error_detail = resp.get("error_detail")
-    display = (
-        f"{err_msg}: {error_detail}"
-        if isinstance(err_msg, str) and isinstance(error_detail, str) and error_detail
-        else err_msg
-    )
+    if not isinstance(error_detail, str):
+        error_detail = None
+    detail = _send_error_detail(resp.get("result"))
+    if isinstance(detail, dict) and detail.get("status") == "redirected":
+        _raise_placement_redirect(detail, code, error_detail)
     # The engine's overload backstop
     # (CONCEPT:EG-KG.ingest.resets-socket-so-assimilation) returns a typed
     # RESULT_TOO_LARGE error for an oversize full-graph dump. Surface it as
     # a dedicated, catchable exception (still a RuntimeError subclass) so a
     # caller can fall back to a bounded query without string-matching.
-    if isinstance(err_msg, str) and err_msg.startswith("RESULT_TOO_LARGE"):
-        raise ResultTooLargeError(display)
-    raise RuntimeError(display)
+    if code == "RESULT_TOO_LARGE":
+        raise ResultTooLargeError(code, error_detail)
+    raise EngineResponseError(code, error_detail)
 
 
 def _tls_env(name: str) -> str:
@@ -12392,6 +12412,23 @@ class RdfClient:
         return (
             await _gen.reasoning.send_shacl_validate(
                 self._client, {"shapes": shapes, "data_graph": data_graph}
+            )
+        ).model_dump(mode="json")
+
+    async def validate_committed(
+        self, *, data_triples: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        """Validate typed triples against the graph's committed GraphSchema shapes.
+
+        A caller that owns no RDF syntax sends plain
+        ``{"subject", "predicate", "object"}`` triples; the engine builds the RDF
+        terms and validates them with ``shapes`` omitted, so the report carries
+        the composed digest of the exact schema snapshot it used. An empty
+        list validates an empty dataset, never the live graph.
+        """
+        return (
+            await _gen.reasoning.send_shacl_validate(
+                self._client, {"data_graph": "", "data_triples": data_triples}
             )
         ).model_dump(mode="json")
 
@@ -14681,6 +14718,54 @@ class AdminClient:
         names the offending audit-chain seq the moment ANY entry's hash link breaks
         (tampering or corruption), never before that point."""
         return (await _gen.security.send_audit_verify(self._client)).payload
+
+    async def audit_append(
+        self,
+        *,
+        op: str,
+        surface: str,
+        params_sha256: str,
+        status: str,
+        request_id: str,
+        audit_class: str,
+    ) -> dict[str, Any]:
+        """Append a privacy-safe operation audit event under the verified carrier.
+
+        Reserve before a governed effect with ``status="reserved"``, then close
+        the reservation with the outcome (``ok``, ``error`` or ``denied``) under
+        the same ``request_id``. ``audit_class`` is the class the operation
+        declares (``event`` or ``identity_chain``); an empty or ``none`` class
+        is refused with ``AUDIT_CLASS_REQUIRED`` and an undefined one with
+        ``AUDIT_CLASS_UNKNOWN``. An unavailable durable writer is refused with
+        ``AUDIT_WRITER_UNAVAILABLE``. No refusal writes anything.
+
+        The engine derives tenant and principal. It commits the hash-chain
+        entry and replay receipt before acknowledging this call. The receipt's
+        ``outcome_seq`` is ``None`` while a reservation has no linked outcome,
+        so replaying a reservation after an interruption shows whether its
+        outcome is still owed.
+        """
+        return (
+            await _gen.security.send_audit_append(
+                self._client,
+                {
+                    "op": op,
+                    "surface": surface,
+                    "params_sha256": params_sha256,
+                    "status": status,
+                    "request_id": request_id,
+                    "audit_class": audit_class,
+                },
+            )
+        ).payload
+
+    async def audit_read_event(self, seq: int) -> dict[str, Any]:
+        """Read one committed operation event and its chain verification result."""
+        return (
+            await _gen.security.send_audit_read_event(
+                self._client, {"seq": _integer("seq", seq, minimum=0)}
+            )
+        ).payload
 
     async def audit_prove_inclusion(
         self, node_id: str, *, anchor_seq: int | None = None

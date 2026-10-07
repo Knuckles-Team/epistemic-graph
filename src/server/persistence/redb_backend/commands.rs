@@ -174,6 +174,12 @@ pub(crate) enum Cmd {
         graph: String,
         reply: std::sync::mpsc::SyncSender<Result<crate::protocol::AuditReport, String>>,
     },
+    #[cfg(feature = "security")]
+    AuditAppend {
+        graph: String,
+        event: crate::redb_store::OperationAuditEvent,
+        reply: std::sync::mpsc::SyncSender<Result<crate::protocol::AuditAppendReceipt, String>>,
+    },
     /// TEST-ONLY tamper of one audit entry (see `test_tamper_audit_entry`).
     #[cfg(all(test, feature = "security"))]
     TestTamperAudit {

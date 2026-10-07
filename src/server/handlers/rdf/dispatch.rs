@@ -287,21 +287,39 @@ async fn try_handle_validation(
 ) -> Option<Response> {
     match method {
         #[cfg(feature = "shacl")]
-        Method::ShaclValidate { shapes, data_graph } => {
+        Method::ShaclValidate {
+            shapes,
+            data_graph,
+            data_triples,
+        } => {
             let authority = read_authority
                 .expect("ShaclValidate must carry the universal served-read authority");
             let projected = authority.project_core(core);
+            let data = super::validation::ShaclData {
+                turtle: data_graph,
+                triples: data_triples.as_deref(),
+            };
             Some(
                 super::validation::handle_shacl_validate(
                     req_id,
                     graph_name,
                     &projected,
                     shapes.clone(),
-                    data_graph.clone(),
+                    data,
                 )
                 .await,
             )
         }
+        #[cfg(feature = "shacl")]
+        Method::OntologyInspect {
+            documents,
+            source_ids,
+        } => Some(super::inspect::handle_ontology_inspect(
+            req_id,
+            core,
+            documents,
+            source_ids,
+        )),
         #[cfg(feature = "shacl")]
         Method::GraphSchemaList => Some(
             crate::server::graph_schema::handle_list(req_id, graph_name, core).await,

@@ -99,7 +99,9 @@
     "EG-TYPED-PACKS-R094",
     "EG-TYPED-PACKS-R095",
     "EG-TYPED-PACKS-R096",
-    "EG-TYPED-PACKS-R097"
+    "EG-TYPED-PACKS-R097",
+    "EG-TYPED-PACKS-R098",
+    "EG-TYPED-PACKS-R099"
   ],
   "delivery_state": "SPECIFIED",
   "acceptance_state": "NOT_AUDITED",
@@ -1128,17 +1130,16 @@
     {
       "id": "EG-TYPED-PACKS-R078",
       "title": "Proven retrieval plan templates keyed by task class and digest",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
-          "kind": "implementation",
+          "kind": "merged_head",
           "result": "passed",
           "commit": "e429630278b867a9718a12b0e77d9ecbc6d1fec4",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/e429630278b867a9718a12b0e77d9ecbc6d1fec4",
-          "description": "Implementing commit is on the default branch but is marked work in progress."
+          "description": "Implemented on the default branch; exercised by src/server/handlers/decide/stat_tests/retrieval_tests.rs::outcomes_teach_nothing_until_an_independent_verdict_joins_them"
         }
-      ],
-      "remaining": "Confirm the implementation builds and its tests pass at the current default branch, then record the proving commit."
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R079",
@@ -1171,8 +1172,17 @@
     {
       "id": "EG-TYPED-PACKS-R081",
       "title": "Ontology object model migrated into EG's kg/ontology package",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "64b30a5187f36807a012400906ace764019de212",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/pull/47",
+          "description": "One bounded slice merged by pull request 47: the object-path shortest-path utility with four focused tests. Full CI run 37035237661 passed on the integration with the previous main; the merged tree dc8c657f5edfb2c75230aa16d764a62396105cf1 was verified conflict-free with no changed-file overlap, without a full CI re-run on that exact tree."
+        }
+      ],
+      "remaining": "Only the object-path utility is on main and nothing served imports it. The rest of the ontology object model named by this requirement (object sets, property types, derived properties, links and the remaining modules) and its importers are not migrated."
     },
     {
       "id": "EG-TYPED-PACKS-R082",
@@ -1248,17 +1258,16 @@
     {
       "id": "EG-TYPED-PACKS-R087",
       "title": "Stable error codes for auth-boundary refusals",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
-          "kind": "implementation",
+          "kind": "merged_head",
           "result": "passed",
           "commit": "48746fc0e5aca76d70d65d5bd3aa5cb7276a3c62",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/48746fc0e5aca76d70d65d5bd3aa5cb7276a3c62",
-          "description": "Implementing commit is on the default branch but is marked work in progress."
+          "description": "Implemented on the default branch; exercised by src/server/handlers/timeseries/derived_tests.rs::bad_definitions_are_refused_and_other_tenants_see_nothing"
         }
-      ],
-      "remaining": "Confirm the implementation builds and its tests pass at the current default branch, then record the proving commit."
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R088",
@@ -1382,6 +1391,18 @@
     {
       "id": "EG-TYPED-PACKS-R097",
       "title": "Domain vocabularies ship as typed domain packs",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R098",
+      "title": "Ontology inspection method and inline data triples for validation",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R099",
+      "title": "Best-matching prototype by cosine similarity in the numeric kernel",
       "delivery_state": "SPECIFIED",
       "evidence": []
     }

@@ -107,7 +107,9 @@ fn the_canonical_bootstrap_matches_the_declared_shard_census() {
     let path = temp_path("census");
     let shard = bootstrap(&path);
     let declared = eg_storage::owner_table_names(eg_storage::OwnerLayout::GraphShard);
-    assert_eq!(declared.len(), 58);
+    // 58 -> 59: the tenant-scoped operation audit-append idempotency index
+    // `audit_requests`.
+    assert_eq!(declared.len(), 59);
 
     for retired in [
         "mutation_batches",

@@ -20,6 +20,8 @@ from ._runtime import (
 if TYPE_CHECKING:
     from . import models as _models
 
+    AuditAppendRequest = _models.MethodAuditAppendParams
+    AuditReadEventRequest = _models.MethodAuditReadEventParams
     AuditProveInclusionRequest = _models.MethodAuditProveInclusionParams
     RegisterIdentityRequest = _models.MethodRegisterIdentityParams
     RbacAdminRequest = _models.MethodRbacAdminParams
@@ -139,6 +141,92 @@ async def send_audit_verify(
 def decode_audit_verify(result: OpaqueResult) -> _models.AuditReport:
     """Validate this method's result against its contract model."""
     return decode_result("AuditVerify", models().AuditReport, result)
+
+
+async def send_audit_append(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        AuditAppend
+    Authorization:
+        security:audit-write
+    Durability:
+        GraphRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.security.json
+        #/methods/AuditAppend
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    models().MethodAuditAppendParams.model_validate(params or {})
+    payload = await client._send(
+        "AuditAppend",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("AuditAppend", payload)
+
+
+def decode_audit_append(result: OpaqueResult) -> _models.AuditAppendReceipt:
+    """Validate this method's result against its contract model."""
+    return decode_result("AuditAppend", models().AuditAppendReceipt, result)
+
+
+async def send_audit_read_event(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        AuditReadEvent
+    Authorization:
+        security:audit
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.security.json
+        #/methods/AuditReadEvent
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    models().MethodAuditReadEventParams.model_validate(params or {})
+    payload = await client._send(
+        "AuditReadEvent",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("AuditReadEvent", payload)
+
+
+def decode_audit_read_event(result: OpaqueResult) -> _models.AuditEventProof:
+    """Validate this method's result against its contract model."""
+    return decode_result("AuditReadEvent", models().AuditEventProof, result)
 
 
 async def send_audit_prove_inclusion(
@@ -432,6 +520,8 @@ def decode_check_access(result: OpaqueResult) -> _models.AccessDecision:
 # Methods whose `{Id}Request` resolves to `models.Method{Id}Params` (EH-192).
 _REQUEST_METHODS = frozenset(
     {
+        "AuditAppend",
+        "AuditReadEvent",
         "AuditProveInclusion",
         "RegisterIdentity",
         "RbacAdmin",

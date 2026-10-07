@@ -641,10 +641,7 @@ fn validate_shapes_union(
             "SHACL validation exceeds the deterministic evaluation budget",
         ));
     }
-    if shapes
-        .iter()
-        .any(|document| document.to_ascii_uppercase().contains("SERVICE"))
-    {
+    if shape_triples.iter().any(sparql_constraint_names_service) {
         return Err((
             PackViolationCode::ShapesInvalid,
             "SHACL SPARQL SERVICE constraints are forbidden",
@@ -669,6 +666,24 @@ fn validate_shapes_union(
         ));
     }
     Ok(())
+}
+
+/// A SHACL-SPARQL constraint (`sh:select` / `sh:ask`) whose query names the
+/// `SERVICE` keyword. Only constraint queries can federate: the word in a
+/// label, comment or IRI of a shape is not a SERVICE clause.
+#[cfg(all(feature = "owl", feature = "shacl"))]
+fn sparql_constraint_names_service(triple: &eg_rdf::oxrdf::Triple) -> bool {
+    const SH_SELECT: &str = "http://www.w3.org/ns/shacl#select";
+    const SH_ASK: &str = "http://www.w3.org/ns/shacl#ask";
+    let predicate = triple.predicate.as_str();
+    let eg_rdf::oxrdf::Term::Literal(query) = &triple.object else {
+        return false;
+    };
+    (predicate == SH_SELECT || predicate == SH_ASK)
+        && query
+            .value()
+            .split(|c: char| c.is_whitespace() || matches!(c, '{' | '}' | '(' | ')'))
+            .any(|token| token.eq_ignore_ascii_case("SERVICE"))
 }
 
 #[cfg(not(all(feature = "owl", feature = "shacl")))]
@@ -787,5 +802,36 @@ mod mcp_resource_uri_tests {
         assert!(!generic_mcp_uri("resources/item.json"));
         assert!(!generic_mcp_uri(":missing-scheme"));
         assert!(!generic_mcp_uri("1invalid://item"));
+    }
+}
+
+#[cfg(all(test, feature = "owl", feature = "shacl"))]
+mod shacl_service_tests {
+    use super::sparql_constraint_names_service;
+    use eg_rdf::oxrdf::{Literal, NamedNode, Triple};
+
+    fn triple(predicate: &str, object: &str) -> Triple {
+        Triple::new(
+            NamedNode::new("urn:shape").unwrap(),
+            NamedNode::new(predicate).unwrap(),
+            Literal::new_simple_literal(object),
+        )
+    }
+
+    #[test]
+    fn only_a_constraint_query_service_clause_is_refused() {
+        let select = "http://www.w3.org/ns/shacl#select";
+        assert!(sparql_constraint_names_service(&triple(
+            select,
+            "SELECT $this WHERE { service <http://x> { ?s ?p ?o } }"
+        )));
+        assert!(!sparql_constraint_names_service(&triple(
+            select,
+            "SELECT $this WHERE { $this <urn:service> ?service }"
+        )));
+        assert!(!sparql_constraint_names_service(&triple(
+            "http://www.w3.org/2000/01/rdf-schema#label",
+            "Service registration shape"
+        )));
     }
 }

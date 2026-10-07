@@ -95,3 +95,42 @@ def test_host_native_build_no_compiler_on_path_is_unverifiable(monkeypatch):
         "scripts.configure_rust_path_remap.shutil.which", lambda name: None
     )
     assert _resolve_probe_compiler("CXXFLAGS", None, {}) is None
+
+
+@pytest.mark.parametrize("pwd_is_home", [False, True])
+def test_rust_remaps_keep_specific_roots_across_build_topologies(pwd_is_home):
+    from scripts.configure_rust_path_remap import encoded_rustflags
+
+    home = "/fixture/user"
+    checkout = f"{home}/work/repository"
+    environment = {
+        "HOME": home,
+        "PWD": home if pwd_is_home else checkout,
+        "CARGO_HOME": f"{home}/.cargo",
+        "RUSTUP_HOME": f"{home}/.rustup",
+        "CARGO_TARGET_DIR": f"{checkout}/target",
+    }
+    flags, _, _ = encoded_rustflags(environment, checkout=checkout)
+    mappings = [
+        flag.removeprefix("--remap-path-prefix=").split("=", 1)
+        for flag in flags.split("\x1f")
+        if flag.startswith("--remap-path-prefix=")
+    ]
+    for original, expected in [
+        (f"{checkout}/src/lib.rs", "/build/source/src/lib.rs"),
+        (f"{checkout}/target/generated.rs", "/build/cargo-target/generated.rs"),
+        (
+            f"{home}/.cargo/registry/dependency.rs",
+            "/build/cargo/registry/dependency.rs",
+        ),
+        (
+            f"{home}/.rustup/toolchains/compiler.rs",
+            "/build/rustup/toolchains/compiler.rs",
+        ),
+    ]:
+        # Model rustc's documented last-matching-prefix rule, not list ordering.
+        actual = original
+        for prefix, destination in mappings:
+            if original == prefix or original.startswith(prefix + "/"):
+                actual = destination + original[len(prefix) :]
+        assert actual == expected

@@ -33,8 +33,7 @@ mod test_support;
 
 use serde_json::json;
 
-use epistemic_graph::protocol::{Method, ResultPayload};
-use epistemic_graph::server::dispatch;
+use epistemic_graph::protocol::{Method, Response, ResultPayload};
 
 const SECRET: &str = "usecase-lifecycle-secret";
 
@@ -60,14 +59,14 @@ async fn ok(state: &test_support::SharedState, id: u64, method: Method) {
 }
 
 async fn hybrid_read(state: &test_support::SharedState, id: u64) -> Vec<String> {
-    let r = Box::pin(dispatch(
+    let r = test_support::dispatch(
         state,
         test_support::commons_request(
             SECRET,
             id,
             test_support::uql("MATCH (:Sensor) |> RANK BY ~[1.0,0.0] |> LIMIT 10"),
         ),
-    ))
+    )
     .await;
     test_support::uql_ids(&r)
 }
@@ -80,7 +79,7 @@ const SHAPES: &str = "@prefix sh: <http://www.w3.org/ns/shacl#> .\n\
       sh:property [ sh:path ex:unit ; sh:minCount 1 ] .\n";
 
 async fn shacl_conforms(state: &test_support::SharedState, id: u64, data_graph: &str) -> bool {
-    let r = Box::pin(dispatch(
+    let r = test_support::dispatch(
         state,
         test_support::commons_request(
             SECRET,
@@ -88,14 +87,167 @@ async fn shacl_conforms(state: &test_support::SharedState, id: u64, data_graph: 
             Method::ShaclValidate {
                 shapes: Some(SHAPES.into()),
                 data_graph: data_graph.into(),
+                data_triples: None,
             },
         ),
-    ))
+    )
     .await;
     assert!(r.error.is_none(), "ShaclValidate error: {:?}", r.error);
     match &r.result {
         Some(ResultPayload::Json(v)) => v["conforms"].as_bool().expect("conforms bool"),
         other => panic!("expected Json report, got {other:?}"),
+    }
+}
+
+async fn rdf_snapshot(state: &test_support::SharedState, id: u64) -> serde_json::Value {
+    let response = test_support::dispatch(
+        state,
+        test_support::commons_request(SECRET, id, Method::GetRdf),
+    )
+    .await;
+    assert!(response.error.is_none(), "{:?}", response.error);
+    serde_json::to_value(response.result.expect("GetRdf result")).unwrap()
+}
+
+#[tokio::test]
+async fn inline_typed_validation_never_writes_to_the_request_graph() {
+    use eg_types::ontology_inspection::{RdfObject, RdfTriple};
+
+    let state = state();
+    ok(
+        &state,
+        20,
+        Method::AddTriples {
+            turtle: "<http://ex/live> a <http://ex/Sensor> .".into(),
+            ntriples: String::new(),
+        },
+    )
+    .await;
+    let before = rdf_snapshot(&state, 1).await;
+    assert!(
+        !shacl_conforms(&state, 21, "").await,
+        "omitted triples must validate the nonempty, nonconforming live graph"
+    );
+    let sensor = RdfTriple {
+        subject: "http://ex/inline-only".into(),
+        predicate: "http://www.w3.org/1999/02/22-rdf-syntax-ns#type".into(),
+        object: RdfObject::Iri {
+            iri: "http://ex/Sensor".into(),
+        },
+    };
+    let unit = RdfTriple {
+        subject: sensor.subject.clone(),
+        predicate: "http://ex/unit".into(),
+        object: RdfObject::Literal {
+            lexical: "celsius".into(),
+            datatype: None,
+            language: None,
+        },
+    };
+    for (id, triples, conforms) in [
+        (2, vec![sensor.clone()], false),
+        (4, vec![sensor.clone(), unit], true),
+        (8, vec![], true),
+    ] {
+        let response = test_support::dispatch(
+            &state,
+            test_support::commons_request(
+                SECRET,
+                id,
+                Method::ShaclValidate {
+                    shapes: Some(SHAPES.into()),
+                    data_graph: String::new(),
+                    data_triples: Some(triples),
+                },
+            ),
+        )
+        .await;
+        assert!(response.error.is_none(), "{:?}", response.error);
+        match response.result {
+            Some(ResultPayload::Json(report)) => assert_eq!(report["conforms"], conforms),
+            other => panic!("expected validation report, got {other:?}"),
+        }
+        assert_eq!(rdf_snapshot(&state, id + 1).await, before);
+    }
+    let response = test_support::dispatch(
+        &state,
+        test_support::commons_request(
+            SECRET,
+            6,
+            Method::ShaclValidate {
+                shapes: Some(SHAPES.into()),
+                data_graph: "<http://ex/other> a <http://ex/Sensor> .".into(),
+                data_triples: Some(vec![sensor]),
+            },
+        ),
+    )
+    .await;
+    assert!(
+        response.error.is_some(),
+        "mixed data inputs must be refused"
+    );
+    assert_eq!(rdf_snapshot(&state, 7).await, before);
+}
+
+async fn inspect_ontology(
+    state: &test_support::SharedState,
+    id: u64,
+    documents: Vec<String>,
+    source_ids: Vec<String>,
+) -> Response {
+    test_support::dispatch(
+        state,
+        test_support::commons_request(
+            SECRET,
+            id,
+            Method::OntologyInspect {
+                documents,
+                source_ids,
+            },
+        ),
+    )
+    .await
+}
+
+#[tokio::test]
+async fn ontology_inspection_dispatch_reads_inline_and_filtered_composed_sources() {
+    let state = state();
+    let before = rdf_snapshot(&state, 1).await;
+    let inline = "<http://ex/InlineClass> a <http://www.w3.org/2002/07/owl#Class> .";
+    for (id, documents, source_ids) in [
+        (2, vec![inline.to_string()], vec![]),
+        (4, vec![], vec![]),
+        (6, vec![], vec!["core:catalog@1".to_string()]),
+    ] {
+        let response = inspect_ontology(&state, id, documents, source_ids).await;
+        assert!(response.error.is_none(), "{:?}", response.error);
+        let Some(ResultPayload::Json(report)) = response.result else {
+            panic!("expected ontology report");
+        };
+        assert!(report["triple_count"].as_u64().unwrap() > 0);
+        if id == 2 {
+            assert_eq!(report["classes"][0]["iri"], "http://ex/InlineClass");
+            assert!(report.get("composed_digest").is_none());
+        } else {
+            assert!(report["composed_digest"].is_string());
+            if id == 6 {
+                assert_eq!(report["schema_digests"].as_array().unwrap().len(), 1);
+            }
+        }
+        assert_eq!(rdf_snapshot(&state, id + 1).await, before);
+    }
+    for (id, documents, source_ids) in [
+        (8, vec!["not turtle .".to_string()], vec![]),
+        (10, vec![], vec!["core:missing@1".to_string()]),
+        (
+            12,
+            vec![inline.to_string()],
+            vec!["core:catalog@1".to_string()],
+        ),
+    ] {
+        let response = inspect_ontology(&state, id, documents, source_ids).await;
+        assert!(response.error.is_some(), "invalid inspect must be refused");
+        assert_eq!(rdf_snapshot(&state, id + 1).await, before);
     }
 }
 
@@ -179,7 +331,7 @@ async fn validate_commit_infer_reindex_under_concurrency_eg438() {
         },
     )
     .await;
-    let commit = Box::pin(dispatch(
+    let commit = test_support::dispatch(
         &state,
         test_support::commons_request(
             SECRET,
@@ -189,7 +341,7 @@ async fn validate_commit_infer_reindex_under_concurrency_eg438() {
                 idempotency_key: None,
             },
         ),
-    ))
+    )
     .await;
     assert!(
         matches!(
@@ -212,10 +364,10 @@ async fn validate_commit_infer_reindex_under_concurrency_eg438() {
         },
     ]);
     let inferred = test_support::unified_ids(
-        &Box::pin(dispatch(
+        &test_support::dispatch(
             &state,
             test_support::commons_request(SECRET, 17, Method::UnifiedQuery { plan: reason }),
-        ))
+        )
         .await,
     );
     assert_eq!(
@@ -262,7 +414,7 @@ async fn validate_commit_infer_reindex_under_concurrency_eg438() {
                 },
             )
             .await;
-            let c = Box::pin(dispatch(
+            let c = test_support::dispatch(
                 &state,
                 test_support::commons_request(
                     SECRET,
@@ -272,7 +424,7 @@ async fn validate_commit_infer_reindex_under_concurrency_eg438() {
                         idempotency_key: None,
                     },
                 ),
-            ))
+            )
             .await;
             assert!(matches!(
                 c.result,

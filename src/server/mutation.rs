@@ -2033,6 +2033,7 @@ mod tests {
         ("RbacAdmin", "native rbac.redb MutationBatch shares the RBAC snapshot WTX"),
         ("RbacElevation", "EH-404: native rbac.redb MutationBatch; the elevation ledger is part of the RBAC policy image and shares its snapshot WTX"),
         ("Identity", "native rbac.redb MutationBatch; the identity store and its RBAC projection are part of the RBAC policy image and share its snapshot WTX"),
+        ("AuditAppend", "self-admits a maintenance group directly against the named graph's own shard (shard::admit_maintenance + ShardWrite), writing the audit-chain entry and its request-id/op idempotency row in one WTX outside the generic (ctx, plan, method, apply) shape, exactly like EdgeIndex's tenant-owner maintenance writes above"),
         ("RegisterForeignSource", "opaque prepared/committed session-control MutationBatch"),
         ("RegisterUdf", "opaque prepared/committed session-control MutationBatch"),
         ("RegisterContinuousQuery", "opaque prepared/committed session-control MutationBatch"),

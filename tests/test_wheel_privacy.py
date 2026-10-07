@@ -66,7 +66,7 @@ def _categories(path: Path, *, deny_prefixes: Iterable[str] = ()) -> set[str]:
     return {finding.category for finding in result.findings}
 
 
-def test_encoded_flags_preserve_existing_encoded_flags_and_remap_specific_first():
+def test_encoded_flags_preserve_existing_flags_and_effective_specific_remaps():
     checkout = PurePosixPath("/", "srv", "fixture-source")
     home = PurePosixPath("/", "srv")
     existing = UNIT_SEPARATOR.join(("-C", "debuginfo=0"))
@@ -88,13 +88,26 @@ def test_encoded_flags_preserve_existing_encoded_flags_and_remap_specific_first(
     # ALWAYS_DENIED_ROOTS adds regardless of environment -- see
     # configure_rust_path_remap.py.
     assert remaps == 4
-    assert flags[2].endswith("=/build/source")
-    assert all(flag.endswith("=/build/home") for flag in flags[3:6])
-    assert {flag.rpartition("=/build/home")[0] for flag in flags[3:6]} == {
-        "--remap-path-prefix=/github/home",
-        "--remap-path-prefix=/root",
-        "--remap-path-prefix=/srv",
+    mappings = [
+        flag.removeprefix("--remap-path-prefix=").split("=", 1) for flag in flags[2:]
+    ]
+    assert dict(mappings) == {
+        str(checkout): "/build/source",
+        str(home): "/build/home",
+        "/github/home": "/build/home",
+        "/root": "/build/home",
     }
+    for original, expected in [
+        (f"{checkout}/src/lib.rs", "/build/source/src/lib.rs"),
+        (f"{home}/other/file.rs", "/build/home/other/file.rs"),
+        ("/github/home/file.rs", "/build/home/file.rs"),
+        ("/root/file.rs", "/build/home/file.rs"),
+    ]:
+        actual = original
+        for prefix, destination in mappings:
+            if original == prefix or original.startswith(prefix + "/"):
+                actual = destination + original[len(prefix) :]
+        assert actual == expected
 
 
 def test_encoded_flags_convert_plain_flags_without_losing_quoted_values():

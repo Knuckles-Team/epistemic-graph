@@ -9,7 +9,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
 from ._shared import (
     AbstainReason,
@@ -295,6 +295,7 @@ from .connector_pack import (
     ConnectorPackImportRequest,
     ConnectorPackIndex,
     ConnectorPackOp,
+    ConnectorPackOpAttestSelfServedCatalog,
     ConnectorPackOpBind,
     ConnectorPackOpCatalogAuthorityStatus,
     ConnectorPackOpCatalogBindingStatus,
@@ -316,6 +317,7 @@ from .connector_pack import (
     DeclaredCost,
     McpCatalogAuthorityStatusRequest,
     McpCatalogReconcileRequest,
+    McpSelfServedCatalogAttestRequest,
     PackAnnotations,
     PackArchiveRef,
     PackDispositionCounts,
@@ -552,6 +554,9 @@ from .policy_evolution import (
 )
 from .rdf_report import (
     DatalogReasoningResult,
+    OntologyClassView,
+    OntologyInspection,
+    OntologyPropertyView,
     OwlExplainResult,
     OwlPropertyFact,
     OwlPropertyFactPremisesItem,
@@ -630,6 +635,26 @@ from .write_back import (
     WriteBackReceiptRecordAttempt,
     WriteBackReceiptRecordReconciliation,
 )
+
+
+def _eg_utf8_text(max_bytes):
+    def validate(value):
+        if value is not None:
+            if not value or len(value.encode("utf-8")) > max_bytes:
+                raise ValueError("engine text violates UTF-8 byte bounds")
+            if any(ord(char) < 0x20 for char in value):
+                raise ValueError("engine text contains a control byte")
+        return value
+
+    return validate
+
+
+def _eg_nonblank(value):
+    whitespace = "\t\n\v\f\r \x85\xa0\u1680\u2000\u2001\u2002\u2003\u2004"
+    whitespace += "\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000"
+    if value is not None and not value.strip(whitespace):
+        raise ValueError("engine identifier must not be blank")
+    return value
 
 
 class AbstentionResolution(BaseModel):
@@ -1328,11 +1353,34 @@ class AttributionValuePercentileBody(BaseModel):
     p: Annotated[int, Field(ge=0, le=255)]
 
 
+class AuditAppendReceipt(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    entry_sha256: str
+    graph: str
+    outcome_seq: Annotated[int, Field(ge=0)] | None = None
+    replayed: bool
+    reservation_seq: Annotated[int, Field(ge=0)]
+    seq: Annotated[int, Field(ge=0)]
+
+
 class AuditDraw(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     inclusion_probability: UnitRationalWire
     sampled: bool
+
+
+class AuditEventProof(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    chain_entries: Annotated[int, Field(ge=0)]
+    chain_verified: bool
+    entry_sha256: str
+    event_line: str
+    graph: str
+    previous_sha256: str
+    seq: Annotated[int, Field(ge=0)]
 
 
 class AuditReport(BaseModel):
@@ -2309,16 +2357,16 @@ class ClaimSource(BaseModel):
 class ClaimWorkItemRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
-    fairness_group: str | None = None
-    lease_ms: Annotated[int, Field(ge=0)]
-    max_tenant_in_flight: Annotated[int, Field(ge=0)]
-    now_ms: Annotated[int, Field(ge=0)]
-    queue_ref: str | None = None
-    resource_class: str | None = None
+    fairness_group: str | None
+    lease_ms: Annotated[int, Field(strict=True, ge=1)]
+    max_tenant_in_flight: Annotated[int, Field(strict=True, ge=1, le=4096)]
+    now_ms: Annotated[int, Field(strict=True, ge=0)]
+    queue_ref: str | None
+    resource_class: str | None
     schema_version: ClaimWorkItemRequestSchemaVersion
-    tenant_ref: str
-    work_item_id: str | None = None
-    worker_ref: str
+    tenant_ref: Annotated[str, AfterValidator(_eg_nonblank)]
+    work_item_id: str | None
+    worker_ref: Annotated[str, AfterValidator(_eg_nonblank)]
 
 
 class ClaimWorkItemRequestSchemaVersion(str, Enum):
@@ -3706,27 +3754,27 @@ class DevelopmentLaneHoldState(str, Enum):
 class DevelopmentLaneIntent(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
-    base_ref: str
+    base_ref: DevelopmentLaneIntentBaseRef
     base_sha: str
-    branch: str
-    fairness_group: str
-    host_ref: str
-    host_target_alias: str | None = None
+    branch: DevelopmentLaneIntentBranch
+    fairness_group: DevelopmentLaneIntentFairnessGroup
+    host_ref: DevelopmentLaneIntentHostRef
+    host_target_alias: DevelopmentLaneIntentHostTargetAlias
     host_target_kind: DevelopmentLaneIntentHostTargetKind
-    input_fingerprint: str
-    lane_id: str
-    owner_id: str
-    predicted_disk_bytes: Annotated[int, Field(ge=0)]
-    quota_policy_name: str
-    quota_policy_version: str
-    repository_id: str
-    request_id: str
-    resource_reservation_id: str
+    input_fingerprint: DevelopmentLaneIntentInputFingerprint
+    lane_id: DevelopmentLaneIntentLaneId
+    owner_id: DevelopmentLaneIntentOwnerId
+    predicted_disk_bytes: Annotated[int, Field(strict=True, ge=0)]
+    quota_policy_name: DevelopmentLaneIntentQuotaPolicyName
+    quota_policy_version: DevelopmentLaneIntentQuotaPolicyVersion
+    repository_id: DevelopmentLaneIntentRepositoryId
+    request_id: DevelopmentLaneIntentRequestId
+    resource_reservation_id: DevelopmentLaneIntentResourceReservationId
     schema_version: DevelopmentLaneIntentSchemaVersion
-    session_id: str
-    tenant_ref: str
-    ttl_ms: Annotated[int, Field(ge=0)]
-    workspace_ref: str
+    session_id: DevelopmentLaneIntentSessionId
+    tenant_ref: DevelopmentLaneIntentTenantRef
+    ttl_ms: Annotated[int, Field(strict=True, ge=0)]
+    workspace_ref: DevelopmentLaneIntentWorkspaceRef
     worktree_locator: str
 
 
@@ -9076,6 +9124,20 @@ class MethodAuditVerify(BaseModel):
     method: Literal["AuditVerify"]
 
 
+class MethodAuditAppend(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["AuditAppend"]
+    params: MethodAuditAppendParams
+
+
+class MethodAuditReadEvent(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["AuditReadEvent"]
+    params: MethodAuditReadEventParams
+
+
 class MethodAuditProveInclusion(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -10715,6 +10777,13 @@ class MethodShaclValidate(BaseModel):
     params: MethodShaclValidateParams
 
 
+class MethodOntologyInspect(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["OntologyInspect"]
+    params: MethodOntologyInspectParams
+
+
 class MethodIcvConfigure(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -11392,6 +11461,8 @@ Method = Annotated[
     | MethodClearLedger
     | MethodApplyLedger
     | MethodAuditVerify
+    | MethodAuditAppend
+    | MethodAuditReadEvent
     | MethodAuditProveInclusion
     | MethodGetSubgraph
     | MethodFork
@@ -11628,6 +11699,7 @@ Method = Annotated[
     | MethodOwlExplain
     | MethodRunRules
     | MethodShaclValidate
+    | MethodOntologyInspect
     | MethodIcvConfigure
     | MethodShexValidate
     | MethodCdcRead
@@ -11837,11 +11909,28 @@ class MethodAsrParams(BaseModel):
     op: AsrOp
 
 
+class MethodAuditAppendParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    audit_class: str | None = None
+    op: str
+    params_sha256: str
+    request_id: str
+    status: str
+    surface: str
+
+
 class MethodAuditProveInclusionParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     anchor_seq: Annotated[int, Field(ge=0)] | None = None
     node_id: str
+
+
+class MethodAuditReadEventParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    seq: Annotated[int, Field(ge=0)]
 
 
 class MethodBackupParams(BaseModel):
@@ -13939,6 +14028,13 @@ class MethodObserveScreenParams(BaseModel):
     obs_msgpack: bytes
 
 
+class MethodOntologyInspectParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    documents: list[str] = Field(default_factory=list)
+    source_ids: list[str] = Field(default_factory=list)
+
+
 class MethodOutDegreeParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -14489,6 +14585,7 @@ class MethodShaclValidateParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     data_graph: str | None = None
+    data_triples: list[RdfTriple] | None = None
     shapes: str | None = None
 
 
@@ -17405,6 +17502,36 @@ class RbacPolicyListing(BaseModel):
 
     grants: list[Grant]
     roles: list[Role]
+
+
+class RdfObjectIri(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    iri: str
+    kind: Literal["iri"]
+
+
+class RdfObjectLiteral(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    datatype: str | None = None
+    kind: Literal["literal"]
+    language: str | None = None
+    lexical: str
+
+
+RdfObject = Annotated[
+    RdfObjectIri | RdfObjectLiteral,
+    Field(discriminator="kind"),
+]
+
+
+class RdfTriple(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    object: RdfObject
+    predicate: str
+    subject: str
 
 
 class RebalanceExecution(BaseModel):
@@ -23050,6 +23177,151 @@ DegreeCentralityAllResultValueItem = Annotated[
 DegreeCentralityAllResult = list[DegreeCentralityAllResultValueItem]
 
 
+DevelopmentLaneIntentBaseRefValue = Annotated[str, Field(min_length=1)]
+
+
+DevelopmentLaneIntentBaseRef = Annotated[
+    DevelopmentLaneIntentBaseRefValue,
+    AfterValidator(_eg_utf8_text(512)),
+]
+
+
+DevelopmentLaneIntentBranchValue = Annotated[str, Field(min_length=1)]
+
+
+DevelopmentLaneIntentBranch = Annotated[
+    DevelopmentLaneIntentBranchValue,
+    AfterValidator(_eg_utf8_text(512)),
+]
+
+
+DevelopmentLaneIntentFairnessGroupValue = Annotated[str, Field(min_length=1)]
+
+
+DevelopmentLaneIntentFairnessGroup = Annotated[
+    DevelopmentLaneIntentFairnessGroupValue,
+    AfterValidator(_eg_utf8_text(512)),
+]
+
+
+DevelopmentLaneIntentHostRefValue = Annotated[str, Field(min_length=1)]
+
+
+DevelopmentLaneIntentHostRef = Annotated[
+    DevelopmentLaneIntentHostRefValue,
+    AfterValidator(_eg_utf8_text(512)),
+]
+
+
+DevelopmentLaneIntentHostTargetAliasValue = Annotated[str, Field(min_length=1)] | None
+
+
+DevelopmentLaneIntentHostTargetAlias = Annotated[
+    DevelopmentLaneIntentHostTargetAliasValue,
+    AfterValidator(_eg_utf8_text(512)),
+]
+
+
+DevelopmentLaneIntentInputFingerprint = Annotated[
+    str,
+    Field(
+        pattern="^v1:[0-9a-f]{64}$",
+        min_length=67,
+        max_length=67,
+    ),
+]
+
+
+DevelopmentLaneIntentLaneIdValue = Annotated[str, Field(min_length=1)]
+
+
+DevelopmentLaneIntentLaneId = Annotated[
+    DevelopmentLaneIntentLaneIdValue,
+    AfterValidator(_eg_utf8_text(512)),
+]
+
+
+DevelopmentLaneIntentOwnerIdValue = Annotated[str, Field(min_length=1)]
+
+
+DevelopmentLaneIntentOwnerId = Annotated[
+    DevelopmentLaneIntentOwnerIdValue,
+    AfterValidator(_eg_utf8_text(512)),
+]
+
+
+DevelopmentLaneIntentQuotaPolicyNameValue = Annotated[str, Field(min_length=1)]
+
+
+DevelopmentLaneIntentQuotaPolicyName = Annotated[
+    DevelopmentLaneIntentQuotaPolicyNameValue,
+    AfterValidator(_eg_utf8_text(512)),
+]
+
+
+DevelopmentLaneIntentQuotaPolicyVersionValue = Annotated[str, Field(min_length=1)]
+
+
+DevelopmentLaneIntentQuotaPolicyVersion = Annotated[
+    DevelopmentLaneIntentQuotaPolicyVersionValue,
+    AfterValidator(_eg_utf8_text(512)),
+]
+
+
+DevelopmentLaneIntentRepositoryIdValue = Annotated[str, Field(min_length=1)]
+
+
+DevelopmentLaneIntentRepositoryId = Annotated[
+    DevelopmentLaneIntentRepositoryIdValue,
+    AfterValidator(_eg_utf8_text(512)),
+]
+
+
+DevelopmentLaneIntentRequestIdValue = Annotated[str, Field(min_length=1)]
+
+
+DevelopmentLaneIntentRequestId = Annotated[
+    DevelopmentLaneIntentRequestIdValue,
+    AfterValidator(_eg_utf8_text(512)),
+]
+
+
+DevelopmentLaneIntentResourceReservationIdValue = Annotated[str, Field(min_length=1)]
+
+
+DevelopmentLaneIntentResourceReservationId = Annotated[
+    DevelopmentLaneIntentResourceReservationIdValue,
+    AfterValidator(_eg_utf8_text(512)),
+]
+
+
+DevelopmentLaneIntentSessionIdValue = Annotated[str, Field(min_length=1)]
+
+
+DevelopmentLaneIntentSessionId = Annotated[
+    DevelopmentLaneIntentSessionIdValue,
+    AfterValidator(_eg_utf8_text(512)),
+]
+
+
+DevelopmentLaneIntentTenantRefValue = Annotated[str, Field(min_length=1)]
+
+
+DevelopmentLaneIntentTenantRef = Annotated[
+    DevelopmentLaneIntentTenantRefValue,
+    AfterValidator(_eg_utf8_text(512)),
+]
+
+
+DevelopmentLaneIntentWorkspaceRefValue = Annotated[str, Field(min_length=1)]
+
+
+DevelopmentLaneIntentWorkspaceRef = Annotated[
+    DevelopmentLaneIntentWorkspaceRefValue,
+    AfterValidator(_eg_utf8_text(512)),
+]
+
+
 DiscoverResult = list[DiscoverHit]
 
 
@@ -24221,7 +24493,9 @@ __all__ = [
     "AttributionValue",
     "AttributionValuePercentile",
     "AttributionValuePercentileBody",
+    "AuditAppendReceipt",
     "AuditDraw",
+    "AuditEventProof",
     "AuditReport",
     "AuthMode",
     "AuthenticateOutcome",
@@ -24538,6 +24812,7 @@ __all__ = [
     "ConnectorPackImportRequest",
     "ConnectorPackIndex",
     "ConnectorPackOp",
+    "ConnectorPackOpAttestSelfServedCatalog",
     "ConnectorPackOpBind",
     "ConnectorPackOpCatalogAuthorityStatus",
     "ConnectorPackOpCatalogBindingStatus",
@@ -25404,6 +25679,7 @@ __all__ = [
     "McpCatalogAuthorityStatusRequest",
     "McpCatalogReconcileRequest",
     "McpCatalogSnapshotBinding",
+    "McpSelfServedCatalogAttestRequest",
     "MergeProposal",
     "MerkleInclusionReport",
     "MerkleProofStep",
@@ -25447,8 +25723,12 @@ __all__ = [
     "MethodApplyMutationParams",
     "MethodAsr",
     "MethodAsrParams",
+    "MethodAuditAppend",
+    "MethodAuditAppendParams",
     "MethodAuditProveInclusion",
     "MethodAuditProveInclusionParams",
+    "MethodAuditReadEvent",
+    "MethodAuditReadEventParams",
     "MethodAuditVerify",
     "MethodBackup",
     "MethodBackupParams",
@@ -26011,6 +26291,8 @@ __all__ = [
     "MethodObserveDevelopmentLaneParams",
     "MethodObserveScreen",
     "MethodObserveScreenParams",
+    "MethodOntologyInspect",
+    "MethodOntologyInspectParams",
     "MethodOutDegree",
     "MethodOutDegreeParams",
     "MethodOwlExplain",
@@ -26374,9 +26656,12 @@ __all__ = [
     "ObjectiveValue",
     "ObservationRef",
     "OneTimeTokenIssue",
+    "OntologyClassView",
     "OntologyGapMiningResult",
     "OntologyGapRow",
+    "OntologyInspection",
     "OntologyMatch",
+    "OntologyPropertyView",
     "Op",
     "OpAsOf",
     "OpAsOfBody",
@@ -26738,6 +27023,10 @@ __all__ = [
     "RbacElevationOpRevoke",
     "RbacGrantRemoval",
     "RbacPolicyListing",
+    "RdfObject",
+    "RdfObjectIri",
+    "RdfObjectLiteral",
+    "RdfTriple",
     "RebalanceExecution",
     "RebalanceMove",
     "RebalancePlanReport",

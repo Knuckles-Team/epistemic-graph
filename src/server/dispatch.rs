@@ -49,6 +49,26 @@ const IDENTITY_GRAPH_SCOPE_ERROR: &str =
     "INVALID_ARGUMENT: GetIdentity requires the __commons__ graph";
 
 /// Resolve one graph and its caller-bound row authority under the same state view.
+/// Open a catalog-known but cold graph before a direct registry read.
+///
+/// Readers that look a graph up in the resident registry (rather than
+/// routing a graph operation, which lazy-opens) would otherwise refuse a
+/// graph that is merely cold, as `__commons__` is after a restart.
+pub(crate) async fn ensure_graph_resident(state: &Arc<RwLock<ServerState>>, graph: &str) {
+    #[cfg(feature = "redb")]
+    if timed_read(state).await.registry.get(graph).is_none() {
+        crate::server::persistence::cold_offload::lazy_open(
+            state,
+            graph,
+            crate::server::persistence::cold_offload::max_resident_graphs(),
+            crate::server::persistence::cold_offload::lazy_open_page_size(),
+        )
+        .await;
+    }
+    #[cfg(not(feature = "redb"))]
+    let _ = (state, graph);
+}
+
 pub(crate) fn authorized_graph_read(
     state: &ServerState,
     graph: &str,

@@ -1609,6 +1609,7 @@ components:
       - "crates/eg-ann/src/lib.rs"
     test_roots:
       - "crates/eg-numeric/tests"
+      - "tests/test_numeric_prototype.py"
       - "crates/eg-ann/benches"
     generated_roots: []
     shared_roots: []
@@ -3872,6 +3873,7 @@ components:
       - "tests/test_configure_rust_path_remap.py"
       - "tests/test_connector_pack_planted.py"
       - "tests/test_contract_method_reachability.py"
+      - "tests/test_contract_receipt_verification.py"
       - "tests/test_contract_wave_surface.py"
       - "tests/test_connector_pack_client.py"
       - "tests/test_control_lease_kind_policy.py"
@@ -3914,6 +3916,7 @@ components:
       - "tests/test_generated_artifacts_ledger.py"
       - "tests/test_generated_client_contract.py"
       - "tests/test_generated_graph_schema_contract.py"
+      - "tests/test_generated_lane_claim_contract.py"
       - "tests/test_generated_models.py"
       - "tests/test_generated_semantic_authority_contract.py"
       - "tests/test_generated_write_back_contract.py"
@@ -3946,6 +3949,7 @@ components:
       - "tests/test_no_pyo3_and_quant.py"
       - "tests/test_no_version_suffixes.py"
       - "tests/test_obda_client.py"
+      - "tests/test_object_path.py"
       - "tests/test_p2_analytics_gate_contract.py"
       - "tests/test_pb_clients.py"
       - "tests/test_persisted_mutation_contract.py"

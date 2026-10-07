@@ -7,3 +7,46 @@ where
 {
     Option::<T>::deserialize(deserializer)
 }
+
+// Keep the serde and schema policies together for requests with required nullable fields.
+macro_rules! strict_nullable_request {
+    ($request:item) => {
+        #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+        #[serde(deny_unknown_fields)]
+        #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+        #[cfg_attr(feature = "contract-schema", schemars(transform = super::common::require_marked_nullable_fields))]
+        $request
+    };
+}
+pub(super) use strict_nullable_request;
+
+/// Preserve explicit-null wire fields while making their presence mandatory.
+#[cfg(feature = "contract-schema")]
+pub(super) fn require_marked_nullable_fields(schema: &mut schemars::Schema) {
+    let Some(object) = schema.as_object_mut() else {
+        return;
+    };
+    let fields: Vec<_> = object
+        .get("properties")
+        .and_then(serde_json::Value::as_object)
+        .into_iter()
+        .flat_map(|properties| properties.iter())
+        .filter(|(_, field)| {
+            field
+                .get("x-eg-required-presence")
+                .and_then(serde_json::Value::as_bool)
+                == Some(true)
+        })
+        .map(|(name, _)| serde_json::Value::String(name.clone()))
+        .collect();
+    let required = object
+        .entry("required")
+        .or_insert_with(|| serde_json::json!([]))
+        .as_array_mut()
+        .expect("object required must be an array");
+    for name in fields {
+        if !required.contains(&name) {
+            required.push(name);
+        }
+    }
+}

@@ -176,17 +176,16 @@
     {
       "id": "EG-CONTRACT-R010",
       "title": "Complexity gate scores exhaustive matches by arm body, not count",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
-          "kind": "implementation",
+          "kind": "merged_head",
           "result": "passed",
-          "commit": "c2deb6908131c8a6898f22332a2d4d13f8fd391e",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/c2deb6908131c8a6898f22332a2d4d13f8fd391e",
-          "description": "Part of the requirement is implemented on the default branch."
+          "commit": "d37f675e56da53bbb8686855b2017050ea421316",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/d37f675e56da53bbb8686855b2017050ea421316",
+          "description": "Implemented on the default branch; exercised by tests/test_check_complexity_staged.py::test_exempt_function_adding_exhaustive_arms_passes and ::test_exempt_function_adding_arm_with_nested_branching_fails"
         }
-      ],
-      "remaining": "Residual scoring (cyclomatic minus trivial arm count) already exists on main and a 'trivial new arm passes' test exists, but the specific 'newly added arm with nested branching still fails' gate fixture is only on unmerged origin/feat/gate-tools (5305979f75c); main's closest test grows an existing …"
+      ]
     },
     {
       "id": "EG-CONTRACT-R011",
@@ -225,8 +224,16 @@
     {
       "id": "EG-CONTRACT-R014",
       "title": "Generated error catalog with stable auth-mismatch codes",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "19d0663aaf5c3971c3934abf332df2da02c856ee",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/19d0663aaf5c3971c3934abf332df2da02c856ee",
+          "description": "Implemented on the default branch; exercised by `cargo run -p eg-capabilities --features contract --bin gen_contract -- --check` (byte-for-byte regeneration of contract/errors.json) and src/server/auth.rs::context_claim_refusals_are_exact_and_ordered"
+        }
+      ]
     },
     {
       "id": "EG-CONTRACT-R015",
@@ -273,17 +280,16 @@
     {
       "id": "EG-CONTRACT-R018",
       "title": "Release feature matrix includes the motif Cargo feature",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
-          "kind": "implementation",
+          "kind": "merged_head",
           "result": "passed",
-          "commit": "55e69dfb12b64f89166bcdbdc5b427cde29c646c",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/55e69dfb12b64f89166bcdbdc5b427cde29c646c",
-          "description": "Part of the requirement is implemented on the default branch."
+          "commit": "cfd03dda1ef71adbf436299cd8f41f80f16d6d77",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/cfd03dda1ef71adbf436299cd8f41f80f16d6d77",
+          "description": "Implemented on the default branch; exercised by tests/test_release_feature_matrix.py::test_release_crates_match_manifest_features and ::test_removing_motif_from_both_surfaces_still_fails"
         }
-      ],
-      "remaining": "motif is added to the gates-crates cargo-test feature list in release.yml, but no dedicated test/'Python CI replica feature-matrix consistency check' (no such named artifact found anywhere in the repo) proves matrix consistency."
+      ]
     },
     {
       "id": "EG-CONTRACT-R019",
@@ -399,8 +405,16 @@
     {
       "id": "EG-CONTRACT-R028",
       "title": "SQLite-format and speech-recognition differential tests run in CI",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "7798ab372b1e31d2c3577a4b8875eacdb9795e34",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/7798ab372b1e31d2c3577a4b8875eacdb9795e34",
+          "description": "Implemented on the default branch; both targets run as registered steps of the release workflow's gates job and pass: crates/eg-sqlite-format/tests/differential.rs and crates/eg-asr-whisper/tests/real_transcription.rs"
+        }
+      ]
     },
     {
       "id": "EG-CONTRACT-R029",
@@ -509,8 +523,16 @@
     {
       "id": "EG-CONTRACT-R037",
       "title": "Clippy is warning-free across every release profile",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "04a13429823674093d11f00aae792298ecc3cf29",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/04a13429823674093d11f00aae792298ecc3cf29",
+          "description": "Implemented on the default branch; the release workflow's quality-advisory job runs clippy -D warnings against all three declared release feature profiles (workspace-all-features, published-full, slim-server), all clean"
+        }
+      ]
     },
     {
       "id": "EG-CONTRACT-R038",
