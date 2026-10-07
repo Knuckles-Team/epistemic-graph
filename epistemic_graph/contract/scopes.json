@@ -822,6 +822,12 @@
       "approver_group": null,
       "class": "service-only",
       "owner": "engine",
+      "scope": "security:audit-write"
+    },
+    {
+      "approver_group": null,
+      "class": "service-only",
+      "owner": "engine",
       "scope": "security:bootstrap"
     },
     {

@@ -18,7 +18,7 @@
     "contract/schemas/result.security.json": "6f9eddc71dcedb51f65cb6b5a100478f7de09a429e894f100048198a0ad5f3bc",
     "contract/schemas/result.storage.json": "a8f2cf40f9331e7a9688869d7c7363ab73e5ee940a6fd1ad9687b01453c98f55",
     "contract/schemas/result.transactions.json": "0b7de622e70a7fe478270c3109bbf787caaba6d34f2633873e44b3789d6c6033",
-    "contract/scopes.json": "a9d99deeb635f83f6f69821649591cccd9f3d56589ffb5564e140df894835be4",
+    "contract/scopes.json": "1cee561b95b664965005d01fe0e7a876932477aea9a0355b6f20e8072df0c9eb",
     "crates/eg-capabilities/generated/method_catalog.rs": "a10b2180d765011b5982da6ca19e2be7c53b2a0e7da6bc316cb04b92911cf1da",
     "docs/capabilities.generated.md": "8bdff3f340d26c6ee73bdd4e99ee2cced15d75761cf8e3dba9504552bf297633",
     "epistemic_graph/contract/__init__.py": "028357ea7c0ac35605ca94b4b2d2e7b4735077766a027519bc336b904bf8b3cf",
@@ -37,7 +37,7 @@
     "epistemic_graph/contract/schemas/result.security.json": "6f9eddc71dcedb51f65cb6b5a100478f7de09a429e894f100048198a0ad5f3bc",
     "epistemic_graph/contract/schemas/result.storage.json": "a8f2cf40f9331e7a9688869d7c7363ab73e5ee940a6fd1ad9687b01453c98f55",
     "epistemic_graph/contract/schemas/result.transactions.json": "0b7de622e70a7fe478270c3109bbf787caaba6d34f2633873e44b3789d6c6033",
-    "epistemic_graph/contract/scopes.json": "a9d99deeb635f83f6f69821649591cccd9f3d56589ffb5564e140df894835be4",
+    "epistemic_graph/contract/scopes.json": "1cee561b95b664965005d01fe0e7a876932477aea9a0355b6f20e8072df0c9eb",
     "epistemic_graph/contract_errors.py": "45129aa10427f8338ecc1d991c7a519af6028fef2229e0af19ed17d2389b7728",
     "epistemic_graph/generated/__init__.py": "f17efbd514d0c9d1e7dd8d6e3adaa92163dabd5d9f40a3a20d808ad8619c98cf",
     "epistemic_graph/generated/_ids.py": "e522e8c4ccc6dd5162ea15b9462561afad9fafeece9273f53bdf8648966ae61d",
@@ -71,7 +71,7 @@
     "epistemic_graph/generated/transactions.py": "f4f7307094f8915f8672a2546d66981b36477e6182d9aec7a2293bf3cb951f71",
     "epistemic_graph/generated/write_back.py": "cbd29e0308e7e095abf84d5f31a67ce88ea46c69f8f39a95369a03ce82c21df0"
   },
-  "contract_digest": "df0587aa8b73ab747a123833c5bd02c9ab6b702f177d99150c4a7c5d31de5e64",
+  "contract_digest": "7e41891983135d490ef2d4c626bfe7c7777cf386410520df11e9ccd2dae4ba4e",
   "contract_version": 1,
   "feature_profile": [
     "contract",
