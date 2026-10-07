@@ -16,6 +16,8 @@ use eg_types::change_envelope::{ChangeEnvelope, ChangeEnvelopeDraft};
 /// The verified facts every draft of one request is compiled under.
 struct DraftAuthority<'a> {
     req_id: u64,
+    /// Whether the drafts are the envelopes of one batch.
+    batch: bool,
     /// The authoritative graph version, for drafts that name none.
     current_version: u64,
     graph: &'a str,
@@ -44,7 +46,13 @@ impl DraftAuthority<'_> {
             crate::server::mutation_batch::CompileBatch {
                 batch_id: &draft.mutation.batch_id,
                 request_id: self.req_id,
-                attempt_nonce: self.verified.attempt_nonce(),
+                // One request carries one attempt nonce; the envelopes of a
+                // batch are separate attempts, so they take server-minted ones.
+                attempt_nonce: if position == 0 && !self.batch {
+                    self.verified.attempt_nonce()
+                } else {
+                    None
+                },
                 principal: Some(&self.principal),
                 tenant: self.verified.tenant(),
                 graph: self.graph,
@@ -116,6 +124,7 @@ pub(super) async fn compile_change_envelope_drafts(
         .map_err(|error| Response::err(req.id, error))?;
     let authority = DraftAuthority {
         req_id: req.id,
+        batch: matches!(req.method, Method::ApplyChangeEnvelopeDrafts { .. }),
         current_version,
         graph: &req.graph,
         principal: verified.principal_persistence_id(),
@@ -242,6 +251,7 @@ mod tests {
         );
         let authority = DraftAuthority {
             req_id: 7,
+            batch: false,
             current_version: 3,
             graph: "graph-a",
             principal: verified.principal_persistence_id(),
@@ -283,6 +293,7 @@ mod tests {
             VerifiedRequestContext::verified_for_test_with_scopes("ingestor", "tenant-a", &["*"]);
         let authority = DraftAuthority {
             req_id: 7,
+            batch: false,
             current_version: 3,
             graph: "graph-a",
             principal: verified.principal_persistence_id(),
