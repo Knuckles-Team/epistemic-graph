@@ -27,6 +27,33 @@ fn refresh(layer: &mut IsolationLayer) {
     .unwrap();
 }
 
+/// Apply `op` as an identity administrator, then re-project the store.
+fn admin_then_refresh(layer: &mut IsolationLayer, op: IdentityOp) {
+    apply(layer, op, &stamp(IDENTITY_ADMIN_SCOPE)).unwrap();
+    refresh(layer);
+}
+
+/// Alice has no tenant access, and provisioning cannot restore it.
+fn assert_tenant_closed(layer: &mut IsolationLayer) {
+    assert!(!tenant_access(layer));
+    assert!(layer
+        .provision_tenant_graph_access(TENANT_GRAPH, Some("usr:alice"))
+        .is_err());
+}
+
+/// The saved image, after checking that the saved identity of `principal`
+/// equals the store's projection of it.
+fn saved_principal(layer: &IsolationLayer, principal: &str) -> (RbacPolicy, AgentIdentity) {
+    let (policy, identities, _) = layer.policy_store().unwrap().load().unwrap();
+    assert_eq!(
+        serde_json::to_value(&policy.identity_store().rbac_projection().identities[principal])
+            .unwrap(),
+        serde_json::to_value(&identities[principal]).unwrap()
+    );
+    let identity = identities[principal].clone();
+    (policy, identity)
+}
+
 #[test]
 fn managed_tenant_binding_survives_projection_and_is_in_the_saved_store() {
     let mut layer = seeded();
@@ -34,18 +61,9 @@ fn managed_tenant_binding_survives_projection_and_is_in_the_saved_store() {
     assert!(tenant_access(&layer));
     refresh(&mut layer);
     assert!(tenant_access(&layer));
-    let (policy, identities, _) = layer.policy_store().unwrap().load().unwrap();
-    assert_eq!(
-        serde_json::to_value(&policy.identity_store().rbac_projection().identities["usr:alice"])
-            .unwrap(),
-        serde_json::to_value(&identities["usr:alice"]).unwrap()
-    );
-    assert!(identities["usr:alice"]
-        .roles
-        .contains(&"idm:tenant:homelab".to_string()));
-    assert!(!identities["usr:alice"]
-        .roles
-        .contains(&"tenant:homelab".to_string()));
+    let (_, alice) = saved_principal(&layer, "usr:alice");
+    assert!(alice.roles.contains(&"idm:tenant:homelab".to_string()));
+    assert!(!alice.roles.contains(&"tenant:homelab".to_string()));
 }
 
 #[test]
@@ -67,7 +85,7 @@ fn tenant_binding_revocation_and_disable_survive_later_projection() {
     refresh(&mut layer);
     assert!(!tenant_access(&layer));
     provision(&mut layer);
-    apply(
+    admin_then_refresh(
         &mut layer,
         IdentityOp::User(UserOp::SetStatus {
             request: UserStatusChange {
@@ -75,14 +93,8 @@ fn tenant_binding_revocation_and_disable_survive_later_projection() {
                 status: UserStatus::Disabled,
             },
         }),
-        &stamp(IDENTITY_ADMIN_SCOPE),
-    )
-    .unwrap();
-    refresh(&mut layer);
-    assert!(!tenant_access(&layer));
-    assert!(layer
-        .provision_tenant_graph_access(TENANT_GRAPH, Some("usr:alice"))
-        .is_err());
+    );
+    assert_tenant_closed(&mut layer);
 }
 
 #[test]
@@ -207,7 +219,7 @@ fn tenant_role_removal_does_not_reappear_on_unrelated_identity_writes() {
 fn revoked_tenant_grants_are_not_recreated_or_overwritten_by_provisioning() {
     let mut layer = seeded();
     provision(&mut layer);
-    apply(
+    admin_then_refresh(
         &mut layer,
         IdentityOp::Access(AccessOp::UpsertRole {
             request: RoleUpsert {
@@ -218,14 +230,8 @@ fn revoked_tenant_grants_are_not_recreated_or_overwritten_by_provisioning() {
                 graph_grants: Vec::new(),
             },
         }),
-        &stamp(IDENTITY_ADMIN_SCOPE),
-    )
-    .unwrap();
-    refresh(&mut layer);
-    assert!(!tenant_access(&layer));
-    assert!(layer
-        .provision_tenant_graph_access(TENANT_GRAPH, Some("usr:alice"))
-        .is_err());
+    );
+    assert_tenant_closed(&mut layer);
     assert!(!tenant_access(&layer));
 }
 
@@ -269,17 +275,10 @@ fn managed_service_tenant_binding_survives_projection_and_persistence() {
         None,
         AccessLevel::Write,
     ));
-    let (policy, identities, _) = layer.policy_store().unwrap().load().unwrap();
+    let (policy, service) = saved_principal(&layer, SERVICE);
     let store = policy.identity_store();
     assert_eq!(store.kind_of(SERVICE), Some(UserKind::Service));
-    assert_eq!(
-        serde_json::to_value(&store.rbac_projection().identities[SERVICE]).unwrap(),
-        serde_json::to_value(&identities[SERVICE]).unwrap()
-    );
-    assert_eq!(
-        identities[SERVICE].roles,
-        vec!["idm:tenant:homelab".to_string()]
-    );
+    assert_eq!(service.roles, vec!["idm:tenant:homelab".to_string()]);
     assert!(store.resolve(SERVICE, &Registry).unwrap().scopes.is_empty());
 }
 
@@ -307,15 +306,8 @@ fn check_encoded_tenant_role(slug: &str, role_id: &str) {
     assert_named_tenant_access(&layer, &graph, true);
     assert_named_tenant_access(&layer, &format!("tenant__{slug}-other__default"), false);
     assert_named_tenant_access(&layer, "tenant__acme__default", false);
-    let (policy, identities, _) = layer.policy_store().unwrap().load().unwrap();
-    assert_eq!(
-        serde_json::to_value(&policy.identity_store().rbac_projection().identities["usr:alice"])
-            .unwrap(),
-        serde_json::to_value(&identities["usr:alice"]).unwrap()
-    );
-    assert!(identities["usr:alice"]
-        .roles
-        .contains(&format!("idm:{role_id}")));
+    let (policy, alice) = saved_principal(&layer, "usr:alice");
+    assert!(alice.roles.contains(&format!("idm:{role_id}")));
     assert_exact_saved_tenant_grants(policy.identity_store(), slug, role_id);
     apply(
         &mut layer,

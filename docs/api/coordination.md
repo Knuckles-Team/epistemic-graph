@@ -151,7 +151,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Capa
 
 ## `CasWorkItemMetadata`
 
-BUG-111: atomic single-field CAS on non-authority scheduling metadata (checkpoint_id/metadata/prio_bucket); status/lease/tenant are fenced but never written
+BUG-111: atomic single-field CAS on non-authority scheduling metadata (checkpoint_id/metadata/prio_bucket). Status/lease/tenant are fenced but never written
 
 | Property | Value |
 |---|---|
@@ -326,7 +326,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Comm
 
 ## `DecisionEval`
 
-RF-ADR-010 DL-6, runtime-conditional: status is an authenticated tenant-bound read; submit evaluates a draft or published head on admitted labels and commits the job row and its receipt in one agent_library.redb control-owner transaction; a DecisionHead publish requires a passed receipt. Local-only authority, refused in clustered mode
+RF-ADR-010 DL-6, runtime-conditional: status is an authenticated tenant-bound read. Submit evaluates a draft or published head on admitted labels and commits the job row and its receipt in one agent_library.redb control-owner transaction. A DecisionHead publish requires a passed receipt. Local-only authority, refused in clustered mode
 
 | Property | Value |
 |---|---|
@@ -365,7 +365,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Deci
 
 ## `DecisionFit`
 
-RF-ADR-010 DL-6, runtime-conditional: status is an authenticated tenant-bound read; submit runs one bounded deterministic fit to its terminal state and commits the job row and the draft head body in one agent_library.redb control-owner transaction. Local-only authority, refused in clustered mode
+RF-ADR-010 DL-6, runtime-conditional: status is an authenticated tenant-bound read. Submit runs one bounded deterministic fit to its terminal state and commits the job row and the draft head body in one agent_library.redb control-owner transaction. Local-only authority, refused in clustered mode
 
 | Property | Value |
 |---|---|
@@ -401,7 +401,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Deci
 
 ## `DecisionLog`
 
-RF-ADR-010 DL-5/DL-5b, runtime-conditional: commit re-derives an acted-on statistical record from its stored inputs, reveals its exploration seed and stores it; evaluate joins one independent outcome evaluation; get/aggregate are authenticated reads filtered by record visibility (graph-sourced records are visible to their committing principal only). All in the agent_library.redb control owner; local-only authority, refused in clustered mode
+RF-ADR-010 DL-5/DL-5b, runtime-conditional: commit re-derives an acted-on statistical record from its stored inputs, reveals its exploration seed and stores it. Evaluate joins one independent outcome evaluation. Get/aggregate are authenticated reads filtered by record visibility (graph-sourced records are visible to their committing principal only). All in the agent_library.redb control owner; local-only authority, refused in clustered mode
 
 | Property | Value |
 |---|---|
@@ -680,7 +680,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/GapT
 
 ## `GapUpsert`
 
-one tenant-bound canonical Gap and its native WorkItem commit together or not at all; only unseen evidence changes or reopens it
+one tenant-bound canonical Gap and its native WorkItem commit together or not at all. Only unseen evidence changes or reopens it
 
 | Property | Value |
 |---|---|
@@ -779,7 +779,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/GetW
 
 ## `GetWorkItemOutcome`
 
-tenant-bound terminal WorkItem plus the provenance its native commit bound; the OutcomeEvaluation receipt is digest-verified
+tenant-bound terminal WorkItem plus the provenance its native commit bound; the OutcomeEvaluation receipt is digest-checked
 
 | Property | Value |
 |---|---|
@@ -866,7 +866,7 @@ authenticated Agent Library pinned delegation lowered to native WorkItem admissi
 
 | Parameter | Type | Required | Description |
 |---|---|:---:|---|
-| `request` | `KgDelegateRequest` | yes | Boxed: a pinned delegation request carries the whole Agent Library entry reference and would otherwise set the size of EVERY `Method`. `Box` is transparent to serde, so the wire form is unchanged. |
+| `request` | `KgDelegateRequest` | yes | Boxed: a pinned delegation request carries the whole Agent Library entry reference and will otherwise set the size of EVERY `Method`. `Box` is transparent to serde, so the wire form is unchanged. |
 
 **Result**
 
@@ -1477,7 +1477,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Reso
 
 ## `RetireSealedRecord`
 
-digest-checked replacement of a sealed record by its audited tombstone in the WorkItem MutationBatch; generic writes may not change or remove a sealed row
+digest-checked replacement of a sealed record by its audited tombstone in the WorkItem MutationBatch. Generic writes may not change or remove a sealed row
 
 | Property | Value |
 |---|---|
@@ -1615,7 +1615,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Subm
 
 ## `ThrottleCapacityCell`
 
-EH-406 error-budget AIMD step on one cell: narrows the throttle ceiling on an error burst, gives it back only on recovery evidence and never above the declared capacity; each window counts once; the policy and capacity stay capacity:admin (UpdateCapacityCell)
+EH-406 error-budget AIMD step on one cell: narrows the throttle ceiling on an error burst, gives it back only on recovery evidence and never above the declared capacity. Each window counts once. The policy and capacity stay capacity:admin (UpdateCapacityCell)
 
 | Property | Value |
 |---|---|

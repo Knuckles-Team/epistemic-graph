@@ -13,7 +13,7 @@ Two universal rules hold for **every** listener:
    token (`1`/`on`) or a bare port binds `127.0.0.1` — never `0.0.0.0`. PGWire, MySQL,
    MSSQL TDS, Bolt, AMQP, MQTT and STOMP reject every non-loopback bind and reject
    missing key material. Expose one only through an authenticated TLS/mTLS sidecar or
-   gateway that connects to the loopback backend; the protocol login still verifies
+   gateway that connects to the loopback backend; the protocol login still checks
    and binds the actor. See the
    [runbook](../operations/runbook.md).
 3. **Current authority is mandatory.** Every served build includes `security` and
@@ -51,7 +51,7 @@ replication, not a different security or wire contract. See
 | Prometheus `/metrics` | Prometheus scrape | `metrics` (default) | `GRAPH_SERVICE_METRICS_ADDR` (`--metrics-addr`) | `127.0.0.1:9101` |
 
 > The default ports above are the **documented conventions** each listener binds when given a
-> bare enable token. You may pass a full **loopback** `host:port`; a routable
+> bare enable token. The operator may pass a full **loopback** `host:port`; a routable
 > auxiliary address is rejected. `EPISTEMIC_GRAPH_PGWIRE_ADDR=5433`
 > avoids clashing with a real Postgres on `5432` on the same host.
 
@@ -95,7 +95,7 @@ SELECT id, properties FROM nodes LIMIT 10;
 ```
 
 - Hand-rolled **Handshake v10** + mandatory `mysql_native_password` auth. Only a
-  verified native-password proof maps the user to an ACL actor; missing key material
+  checked native-password proof maps the user to an ACL actor; missing key material
   and every non-`native` mode fail startup. Text-protocol result sets use the same wire-neutral `WireSession`
   as pgwire, so SQL semantics are identical across wires
   (CONCEPT:EG-KG.compute.subsystems-reference).
@@ -113,7 +113,7 @@ sqlcmd -S 127.0.0.1,1433 -U agent -P "$MSSQL_PASSWORD" -Q "SELECT id FROM nodes"
 - Hand-rolled **TDS** server (no `tiberius`/`tds` server crate). Routes through the shared wire
   core — no SQL reimplemented per wire.
 - **Auth**: LOGIN7 password is `hex(HMAC-SHA256(secret, "mssql:" + user))`.
-  Missing key material fails startup; a verified user becomes the ACL actor. TDS
+  Missing key material fails startup; a checked user becomes the ACL actor. TDS
   encryption is not implemented, so remote clients require a TLS/mTLS gateway into
   this authenticated loopback listener.
 
@@ -197,9 +197,9 @@ redis-cli -h 127.0.0.1 -p 6379 --user "$REDIS_PRINCIPAL" --pass "$REDIS_CREDENTI
 - **Auth and isolation are mandatory**: `REDIS_CREDENTIAL` is
   `hex(HMAC-SHA256(GRAPH_SERVICE_AUTH_SECRET, "redis:" + REDIS_PRINCIPAL))`.
   The raw deployment secret is resolved by the server and is never a client credential.
-  The verified principal is converted to a secret-keyed pseudonym; its durable keys and
+  The checked principal is converted to a secret-keyed pseudonym; its durable keys and
   pub/sub channels are isolated from every other principal. Direct Redis binds loopback
-  only; remote access terminates TLS/mTLS at an identity-binding gateway. The command set
+  only; remote access stops TLS/mTLS at an identity-binding gateway. The command set
   is a documented **subset** of Redis, backed by the durable KV store.
 
 ## S3 — `aws s3` / MinIO SDKs (`s3-api`)
@@ -251,7 +251,7 @@ ch.basic_publish(exchange="", routing_key="tasks", body="hello")
   wires (AMQP/MQTT/STOMP) share the **one** broker — a message published over AMQP can be
   consumed over MQTT/STOMP by topic.
 - SASL PLAIN is mandatory. `AMQP_PASSWORD` is
-  `hex(HMAC-SHA256(secret, "amqp:" + principal))`; the verified principal becomes a
+  `hex(HMAC-SHA256(secret, "amqp:" + principal))`; the checked principal becomes a
   secret-keyed pseudonymous ACL actor reference before dispatch.
 
 ## MQTT — `mosquitto_pub` / IoT (`mqtt-wire`)
@@ -271,7 +271,7 @@ mosquitto_pub -h 127.0.0.1 -p 1883 -u publisher -P "$MQTT_PUB_PASSWORD" -t 'sens
 
 - Broker graph: `EPISTEMIC_GRAPH_MQTT_GRAPH` (default `__commons__`).
 - CONNECT username/password are mandatory. Each password is
-  `hex(HMAC-SHA256(secret, "mqtt:" + username))`; the verified username becomes a
+  `hex(HMAC-SHA256(secret, "mqtt:" + username))`; the checked username becomes a
   secret-keyed pseudonymous ACL actor reference before dispatch.
 
 ## STOMP — text-frame clients (`stomp-wire`)
@@ -299,7 +299,7 @@ hello^@
 ```
 
 - Broker graph: `EPISTEMIC_GRAPH_STOMP_GRAPH` (default `__commons__`).
-- CONNECT `login`/`passcode` are mandatory; the verified login becomes a secret-keyed
+- CONNECT `login`/`passcode` are mandatory; the checked login becomes a secret-keyed
   pseudonymous ACL actor reference before broker dispatch.
 
 ## KV-cache — vLLM / LMCache shared blocks (`kvcache-server`)
@@ -321,7 +321,7 @@ curl -s -H "$auth_header" http://127.0.0.1:9130/kv/<token-hash>/exists          
 curl -s -H "$auth_header" http://127.0.0.1:9130/kv/stats                                         # stats
 ```
 
-- **Auth**: mandatory verified JWT or runtime-injected bearer
+- **Auth**: mandatory checked JWT or runtime-injected bearer
   `EPISTEMIC_GRAPH_KVCACHE_TOKEN` (`Authorization: Bearer …`).
 - **Remote transport**: the connector accepts plain HTTP only for explicit
   loopback hosts. Non-loopback endpoints require HTTPS and use standard
@@ -370,7 +370,7 @@ See the [GraphQL guide](graphql.md#subscriptions-authenticated-sse).
 { Doc(first: 5) { id title mentions { id } } }
 ```
 
-The listener has no CORS compatibility path and does not terminate TLS. Remote access
+The listener has no CORS compatibility path and does not stop TLS. Remote access
 uses a same-host TLS reverse proxy that forwards the two authentication headers to the
 loopback address. `EPISTEMIC_GRAPH_GRAPHQL_MAX_CONNECTIONS` (default `128`) and
 `EPISTEMIC_GRAPH_GRAPHQL_MAX_SESSION_SECS` (default `300`) bound resource use and force
@@ -428,7 +428,7 @@ one query plan; `/federated` scatter-gathers a whole query across peer engines.
 
 ### Natural-language query (`/nl`, `nl-query`)
 
-`POST /nl` on the **SPARQL** listener turns a natural-language string into a plan and executes it
+`POST /nl` on the **SPARQL** listener turns a natural-language string into a plan and runs it
 through the deterministic pipeline (CONCEPT:EG-KG.query.core-query-input/080). It needs `nl-query` **and** an
 OpenAI-compatible endpoint (`EPISTEMIC_GRAPH_NL_ENDPOINT` / `…_NL_MODEL` / `…_NL_API_KEY_ENV`);
 unconfigured it returns a clear "not configured" error, never a panic.
@@ -467,7 +467,7 @@ surface and the [operations runbook](../operations/runbook.md) for the full env-
 tiers, backup/PITR, and RBAC.
 
 ---
-*CONCEPT:EG-KG.ontology.comprehensive-interface-operations-documentation — comprehensive interface + operations documentation.*
+*CONCEPT:EG-KG.ontology.comprehensive-interface-operations-documentation — complete interface + operations documentation.*
 
 ---
 

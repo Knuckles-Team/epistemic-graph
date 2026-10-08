@@ -58,7 +58,7 @@ python3 scripts/check_dupehound_census.py \
 Exit `0` means that the immutable manifest and native report joined
 successfully. A non-empty cluster list is still visible as advisory findings
 in the receipt. An empty production universe is explicitly reported as
-`not_applicable`. Exit `2` means the census could not be proven complete,
+`not_applicable`. Exit `2` means the census can not be proven complete,
 including tool/config drift, archive or path mismatches, malformed native
 JSON, skip-count mismatches, and timeout. The adapter does not run package
 installation, network access, a Cargo build, or a second scanner root.

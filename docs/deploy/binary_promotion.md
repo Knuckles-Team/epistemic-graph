@@ -64,7 +64,7 @@ repository or an operational report.
    - one authorized read and write under normal durable RBAC;
    - an authorization denial for a missing scope or cross-tenant claim;
    - a replayed envelope is rejected after process restart;
-   - the promoted capability executes, not merely that the socket is bound;
+   - the promoted capability runs, not merely that the socket is bound;
    - traces and metrics arrive at each configured observability destination.
 
 ## Fresh-store bootstrap

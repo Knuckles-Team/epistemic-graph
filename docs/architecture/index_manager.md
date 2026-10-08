@@ -45,7 +45,7 @@ descriptors** that route to the same `GraphCore` methods
 seam — it does **not** relocate cache storage, so label/property performance and
 their tests are untouched. The vector + ontology indexes are registered as
 **discoverable-only** (`serves_lookup = false`): they answer kNN / lexical scans
-through their own surfaces, but a planner can now enumerate them through the one
+through their own surfaces, but a planner can now list them through the one
 registry.
 
 ### The relational sibling — `eg-query`'s `PushdownRegistry`

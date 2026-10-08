@@ -1,6 +1,6 @@
 # Exact-artifact release campaigns
 
-Four release gates execute the supplied engine artifact without discovering or
+Four release gates run the supplied engine artifact without discovering or
 building a replacement. They require an executable path, the artifact's lowercase
 SHA-256, and a new absolute evidence destination. A symlink, digest mismatch, missing artifact,
 or pre-existing evidence file fails before certification begins.
@@ -31,7 +31,7 @@ and ordered event checks.
 Every native codec rejects malformed input, the served request boundary rejects an
 explicit over-limit source and malformed MessagePack bundle, and the engine remains
 queryable afterward. Invalid request authentication, classification filtering, and a
-second verified tenant must all fail closed while the owner records are still live.
+second checked tenant must all fail closed while the owner records are still live.
 The first tenant's records and rebuilt native indexes must survive hard process death,
 one-row lazy-open recovery, online backup, restore into a two-shard target, and index
 backfill. Four commit phases are fault-injected for every modality and must recover to
@@ -65,7 +65,7 @@ A registered, read-authorized peer then runs negative row/owner checks through t
 shared terminal data paths used by the protocol adapters: graph existence, properties,
 union reads, semantic retrieval, topology, RDF, time series, vector plans, blobs,
 jobs, SQL, warmed result cache, KV, and broker queues. The peer may read the graph but
-must not observe the owner's private fixture. A restart under a second verified tenant
+must not observe the owner's private fixture. A restart under a second checked tenant
 also proves graph-row, time-series, and KV namespace isolation. Thus the physical wire
 authentication matrix and the terminal row/carrier matrix are both executable; the
 static universal-read gate continues to prove that every adapter reaches those shared

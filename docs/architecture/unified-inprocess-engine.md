@@ -14,7 +14,7 @@ Two shapes now exist, and this doc is about the second one:
 | | Out-of-process (today's default) | Unified single binary (this doc) |
 |---|---|---|
 | Transport | Tokio UDS/TCP server, length-prefixed MessagePack, `eg2.` HMAC envelope | A direct Rust function call inside the same OS process |
-| Scales | Horizontally — one engine, many `graph-os` clients | Vertically only — one `graph-os`, one embedded engine |
+| Scales | Horizontally — one engine, multiple `graph-os` clients | Vertically only — one `graph-os`, one embedded engine |
 | Wheel target | `bindings = "bin"` (`epistemic-graph-server`) | A pyo3 `cdylib` (`epistemic_graph.engine`), injected into the same wheel |
 | Identity boundary | Real — client and engine are different processes/hosts | None needed for the call itself — the caller *is* the trusted process |
 | Batching rule | Non-negotiable (round-trip amortization) | **Equally non-negotiable** (lock/allocation amortization — see §5) |
@@ -31,7 +31,7 @@ and this new shape is reached only through the `pyo3-engine` cargo feature, off 
 The facade crate already contains the exact pattern this workstream needs:
 `src/embedded.rs`'s `EmbeddedEngine` (CONCEPT:EG-KG.backend.engine-modes, shipped under the
 `embedded` cargo feature, demoed in `examples/embedded.rs`). Its own doc comment says it
-better than a summary could:
+better than a summary can:
 
 > SQLite/DuckDB-style: `EmbeddedEngine::open(persist_dir, options)` hands back an
 > in-process handle that owns a `GraphRegistry` + (optionally) the redb durable store
@@ -55,7 +55,7 @@ in-process and does **not** stand up a Tokio reactor or run requests through the
 dispatch chain at all — because in-process there is no socket for Tokio to listen on and
 no network boundary for `eg2.` to authenticate (§7 makes the full argument). Spinning up
 an async reactor and an HMAC-checking dispatch layer purely to immediately call it via a
-plain function invocation that bypasses the socket would be building infrastructure for a
+plain function invocation that bypasses the socket will be building infrastructure for a
 threat model (an untrusted network peer) that does not exist in-process — exactly the
 shape `EmbeddedEngine` already rejected for the Rust API, for the identical reason. This
 is a refinement of the framing, not a deviation from the goal: "no socket round-trip" is
@@ -69,7 +69,7 @@ Two independent constraints rule out adding pyo3 directly to the facade crate
 
 1. **maturin binding modes are mutually exclusive.** The main wheel is
    `bindings = "bin"` (`pyproject.toml`) — it ships the `epistemic-graph-server` binary.
-   A single maturin invocation builds ONE binding kind; you cannot get a `bin` target
+   A single maturin invocation builds ONE binding kind; the operator cannot get a `bin` target
    and a pyo3 `cdylib` out of the same crate/invocation. `crates/eg-numeric` already
    solved this for the numeric kernel: it is **its own crate**, with **its own
    `pyproject.toml`**, built with a **separate** `maturin build -m
@@ -209,7 +209,7 @@ tying into W-D's transport modes) decides which `Transport` gets constructed at 
 everything above that line is unmodified.
 
 `EmbeddedTransport._send` is synchronous work wearing an `async def` — deliberately: the
-whole point of removing the socket is that there is no I/O to await for an in-memory op,
+whole point of removing the socket is that there is no `I/O` to await for an in-memory op,
 so the "await" is a no-op yield, not a real suspension. §6 covers the one place this
 stops being true (a durable commit) and what changes then.
 
@@ -309,12 +309,12 @@ via `Python::detach` — pyo3 0.29's name for the API earlier pyo3 releases call
 `Python::allow_threads` (same contract: run a closure with the GIL released; the crate
 pins `pyo3 = "0.29"`, confirmed while proving this prototype compiles — see §10/the final
 report) — the Rust-side mutation never holds the interpreter lock. For *this* prototype
-(synchronous, bounded, in-memory `GraphCore` calls, no I/O) that is a
+(synchronous, bounded, in-memory `GraphCore` calls, no `I/O`) that is a
 correctness/consistency practice more than a latency necessity: a `parking_lot::RwLock`
-read + a `DashMap` insert is sub-microsecond, so holding the GIL across it would barely
+read + a `DashMap` insert is sub-microsecond, so holding the GIL across it will barely
 register. It matters for real once the durable path is wired in (see §11): a redb
 group-commit **awaits** an off-reactor fsync (`AGENTS.md`'s "commit-before-ack"), and
-that wait must not hold the GIL, or a busy embedded engine would stall every other Python
+that wait must not hold the GIL, or a busy embedded engine will stall every other Python
 thread in the process (including, critically, `graph-os`'s own asyncio event loop if it
 runs on the same interpreter) for the duration of a disk write. The production shape
 for that case is a **persistent Tokio runtime owned once by the pyo3 module** (not
@@ -337,7 +337,7 @@ boundary**: the `eg2.` envelope (principal, tenant, audience, effective agent, p
 version, scopes, timestamp, nonce, idempotency key) is HMAC-signed against a signer
 registry and checked against a durable replay ledger before a single dispatch arm runs
 (`AGENTS.md`, `docs/service_mode.md#authentication-protocol`). None of that exists to
-authenticate *content* — it exists to authenticate *origin*, because the caller could be
+authenticate *content* — it exists to authenticate *origin*, because the caller can be
 any process on the wire.
 
 In-process, origin is not in question: the caller **is** the same OS process, the same
@@ -352,25 +352,25 @@ What this means concretely, layer by layer:
 - **`eg2.` HMAC envelope, signer registry, replay ledger, nonce/timestamp/skew** — not
   applicable in-process. There is no network packet to forge, replay, or intercept; the
   threat model these defend against does not exist across a plain function call within
-  one process. **Do not** build an in-process HMAC check — it would authenticate a
+  one process. **Do not** build an in-process HMAC check — it will authenticate a
   caller against itself.
 - **Tenant/policy-version/audience matching** (`EPISTEMIC_GRAPH_TENANT`,
   `EPISTEMIC_GRAPH_AUDIENCE`, `EPISTEMIC_GRAPH_POLICY_VERSION`) — these are
   deployment-identity assertions ("this server IS tenant X"), not per-call auth. A
   self-contained deployment still has exactly one tenant identity; it is simply bound
   **once**, at `Engine::new()`/`EmbeddedTransport.__init__` construction time (a
-  constructor argument or config read), rather than re-verified on every call. This is a
+  constructor argument or config read), rather than re-checked on every call. This is a
   config-binding question, not a crypto-verification one.
 - **Per-agent RBAC / row-level security (`isolation::IsolationLayer`)** — this is the one
   place "in-process ⇒ no auth needed" is **not** the full story, and it is the one gap
   `EmbeddedEngine` shares with this prototype rather than one this crate introduces. RLS
   answers "can agent A see/write property P on node N", a question that still matters
   in-process whenever more than one agent shares **one** embedded engine (the common
-  case — one `graph-os` serves many agents). Because there is no network boundary to
+  case — one `graph-os` serves multiple agents). Because there is no network boundary to
   authenticate, the identity for an RLS check does not need a *signature* — but it still
   needs to be **asserted**: the pyo3 call still needs an `agent_id`/scope parameter that
   feeds `IsolationLayer::filter_view` the same way the socket dispatch's
-  already-verified `agent_id` does today, just sourced from "the caller told us" instead
+  already-checked `agent_id` does today, just sourced from "the caller told us" instead
   of "the caller cryptographically proved it." Concretely: a production surface adds
   `agent_id: Option<String>` to methods that need RLS, threaded to the same
   `IsolationLayer` `GraphCore` already carries, with `None` meaning "the trusted-caller
@@ -439,11 +439,11 @@ extension once §11's packaging work lands.
 
 **Runtime, not install-time, selection.** `pip install epistemic-graph` always gets both
 artifacts (the `bin` **and** the extension) once this ships — installing does not commit
-you to a transport. `graph-os` picks the transport (`EmbeddedTransport` vs
+the operator to a transport. `graph-os` picks the transport (`EmbeddedTransport` vs
 `SocketTransport`, §4) from its own config at **startup**, which is exactly what W-D
 (deployment modes) and W-E (genesis profiles) key off of: a self-contained profile
-constructs `EmbeddedTransport` and never spawns `epistemic-graph-server` at all; a
-scale-out profile spawns/points at the server binary and constructs `SocketTransport`
+builds `EmbeddedTransport` and never spawns `epistemic-graph-server` at all; a
+scale-out profile spawns/points at the server binary and builds `SocketTransport`
 as it does today. Neither choice changes what got installed.
 
 ## 9. Feature-gating matrix
@@ -466,7 +466,7 @@ source-level composability is what keeps this a one-line feature addition rather
 fork of the build matrix.
 
 Mechanical proof this stays true, not just a convention: `scripts/check_no_pyo3.sh` now
-additionally asserts (a) `cargo tree -e normal` (the default/`full` feature set) links no
+also asserts (a) `cargo tree -e normal` (the default/`full` feature set) links no
 crate matching `pyo3`, and (b) `pyo3-engine` never appears inside the `default`/`full`/
 `cluster` feature definitions in `Cargo.toml` — both fail the gate if a future change
 accidentally folds this opt-in path into an aggregate the scale-out build enables.
@@ -516,11 +516,11 @@ The in-process arm ran **~13-15x faster per op** than this bench's envelope-free
 above for a single op). This is internally consistent with the existing full end-to-end
 baseline: this bench's `uds_socket` numbers (≈41-42 µs/op) land well **below**
 `docs/benchmarks.md`'s ≈187 µs p50 for the SAME op over the SAME transport — exactly the
-predicted relationship, since that existing number additionally pays the `eg2.` HMAC/
+predicted relationship, since that existing number also pays the `eg2.` HMAC/
 replay-ledger envelope this bench deliberately excludes; the ≈145 µs gap between the two
 is a believable order of magnitude for that envelope's own cost, not an inconsistency.
 
-**Caveat.** These numbers were collected on a host running several other concurrent,
+**Caveat.** These numbers were collected on a host running multiple other concurrent,
 CPU-heavy `cargo` compilations at the time (this session's own build activity plus
 unrelated processes already running on the shared box) — criterion flagged 2-4 high-
 severity outliers per group, and the `inprocess` arm's min/max spread (413 µs to 733 µs
@@ -537,10 +537,10 @@ settings.
 becomes default"* — that is a claim about the **unified, self-contained** deployment
 shape specifically (one `graph-os`, no horizontal fan-out), not a claim that in-process is
 strictly faster in every configuration. The out-of-process shape's entire reason to exist
-is horizontal scale-out (one engine, many clients, GIL-free) — a fair comparison is
+is horizontal scale-out (one engine, multiple clients, GIL-free) — a fair comparison is
 narrower than "socket vs. no socket": it is "for the self-contained deployment this
 feature targets, does removing the socket round trip measurably help, and does it cost
-anything else (e.g. GIL contention with `graph-os`'s own event loop) that would eat the
+anything else (e.g. GIL contention with `graph-os`'s own event loop) that will eat the
 win back." This bench answers the first half (transport tax, isolated); §11 lists what a
 follow-up needs to close the second half (a concurrent-load / GIL-contention soak, not a
 single-threaded criterion sample).
@@ -588,7 +588,7 @@ surface. In priority order:
    single-threaded criterion sampling (§10) — it proves the transport-tax removal, not
    the "does an embedded engine under real concurrent agent load stall `graph-os`'s own
    asyncio loop" question the program doc's gate ultimately cares about. That needs a
-   Python-side stress harness (many concurrent coroutines calling into the embedded
+   Python-side stress harness (multiple concurrent coroutines calling into the embedded
    engine while a control coroutine measures event-loop responsiveness) — out of scope
    for a Rust-only criterion bench, tracked here rather than skipped silently.
 8. **Single-writer-per-persist-dir enforcement.** Once (1) lands, exactly one embedded

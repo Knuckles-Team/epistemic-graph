@@ -1,6 +1,6 @@
-# Subsystems — the one substrate, many surfaces
+# Subsystems — the one substrate, multiple surfaces
 
-`epistemic-graph` is one durable engine, but this cycle (waves 18–22) added several **cross-cutting
+`epistemic-graph` is one durable engine, but this cycle (waves 18–22) added multiple **cross-cutting
 subsystems** and a fan of **wire adapters** that all compose on the *same* `GraphCore` + redb-authoritative
 store + unified `RowSet` planner. None is a bolt-on service: a broker queue, a log stream, a KV block, and
 a geometry are all rows in the one store, reached through the one dispatch shell and (where relevant) the
@@ -52,7 +52,7 @@ flowchart TB
 
 ---
 
-## Multi-wire adapters — one exec path, many databases
+## Multi-wire adapters — one exec path, multiple databases
 
 The keystone is the **`WireProtocol` / `WireSession` trait** (CONCEPT:EG-KG.compute.subsystems-reference): the wire-agnostic core was
 extracted from the Postgres `pgwire` module into a trait — `parse → classify → eg_query exec → encode` —
@@ -136,7 +136,7 @@ this cycle to real-GIS depth: the **full geometry model** (Multi*/GeometryCollec
 **DE-9IM topological relations** (EG-KG.ontology.de-9im-relations) with **RCC8 + Egenhofer** families (EG-KG.ontology.concept-7), **constructive
 algebra** (buffer/hull/union/simplify/centroid; EG-KG.ontology.concept-9), **geodesic** distance/area (EG-KG.ontology.concept-8), a
 **CRS registry + reprojection** (EPSG, WGS84↔Web-Mercator; EG-KG.domains.coordinate-reference-system/262), a durable **STR R-tree** spatial
-index (EG-KG.domains.spatial-strtree-index), **format I/O** (GeoJSON/WKB/GPX — plus Program-B **Shapefile/KML/GeoParquet**, EG-KG.domains.geojson-gpx-formats/306),
+index (EG-KG.domains.spatial-strtree-index), **format `I/O`** (GeoJSON/WKB/GPX — plus Program-B **Shapefile/KML/GeoParquet**, EG-KG.domains.geojson-gpx-formats/306),
 **map tiling** (XYZ/TMS + Mapbox Vector Tiles; EG-KG.domains.map-tiles), **routing/isochrones/TSP** (EG-KG.domains.geo-routing) — extended in
 Program B with **turn-restriction penalties + time-window/time-dependent edge weights** for realistic
 logistics (EG-KG.domains.geo-partitioning) — and **map-anchored task tracking** (`:GeoTask`; EG-KG.domains.geo-task). It surfaces through SQL `st_*`
@@ -199,7 +199,7 @@ loop is a *scheduled engine op*, not a Python reindex:
   bumps on retrieval, `decay` applies Ebbinghaus time-decay, `evict_below`/`forget` prune locally.
 - **Action/policy/trajectory memory** (EG-099) — ordered `:Trajectory` of `:Step{state,action,reward,…}` with
   discounted-return + best/worst retrieval, the substrate for policy learning + replay.
-- **LeanRAG hierarchical retrieval** (EG-195) — vector-retrieve at the summary level then drill down through
+- **LeanRAG hierarchical retrieval** (EG-195) — vector-retrieve at the summary level then look closer through
   provenance edges, beating flat top-k RAG on redundancy/coverage.
 
 The LLM *content* (distillation/summary text) stays in agent-utilities; the engine owns the deterministic,
@@ -236,7 +236,7 @@ engine version. The write path is unchanged — this is an additive projection, 
 Iceberg **Avro manifest** writer (CONCEPT:EG-KG.storage.eg-iceberg-avro-manifest) is a real, spec-compliant
 writer, not a stub — the Delta path, the real Avro manifest/manifest-list, and the Iceberg-REST catalog are
 all complete reader-ready surfaces; read-parity against real pyiceberg/deltalake readers is covered in
-`tests/test_lake_iceberg_delta_parity.py`.)* Deep dive: [lakehouse-ltap](lakehouse_ltap.md).
+`tests/test_lake_iceberg_delta_parity.py`.)* Detailed review: [lakehouse-ltap](lakehouse_ltap.md).
 
 ## QoS/SLO scheduler (server, EG-320)
 

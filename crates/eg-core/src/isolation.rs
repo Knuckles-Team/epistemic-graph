@@ -1686,7 +1686,8 @@ mod tests {
                 AccessLevel::Read
             ));
             // But the tenant-wide grant itself still exists for whoever DOES carry
-            // the role.
+            // the role: the tenant-pattern Read plus the commons Read
+            // (EG-IDENTITY-R006).
             assert_eq!(
                 layer
                     .rbac()
@@ -1694,7 +1695,7 @@ mod tests {
                     .iter()
                     .filter(|g| g.role == "tenant:homelab" && g.action == RbacAction::Read)
                     .count(),
-                1
+                2
             );
         }
 
@@ -1710,8 +1711,8 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 layer.rbac().grants().len(),
-                2,
-                "Read + Write, never duplicated"
+                3,
+                "tenant Read + Write and commons Read, never duplicated"
             );
             assert_eq!(layer.rbac().roles().count(), 1);
             let identity = layer.agents.get("creator").unwrap();
@@ -1741,7 +1742,40 @@ mod tests {
                 1,
                 "one role per tenant, reused across every graph that tenant owns"
             );
-            assert_eq!(layer.rbac().grants().len(), 2);
+            assert_eq!(layer.rbac().grants().len(), 3);
+        }
+
+        #[test]
+        fn a_tenant_role_reads_but_never_writes_the_shared_commons() {
+            // EG-IDENTITY-R006: commons is the union-read layer for every tenant. The
+            // tenant graph stays the only write target.
+            let mut layer = IsolationLayer::new();
+            layer
+                .provision_tenant_graph_access("tenant__homelab__default", None)
+                .unwrap();
+            with_roles(&mut layer, "webui-user-1", vec!["tenant:homelab".into()]);
+            assert!(layer.check_access(
+                "webui-user-1",
+                "__commons__",
+                GraphType::Commons,
+                None,
+                AccessLevel::Read
+            ));
+            assert!(!layer.check_access(
+                "webui-user-1",
+                "__commons__",
+                GraphType::Commons,
+                None,
+                AccessLevel::Write
+            ));
+            // The commons grant never widens to another tenant's graphs.
+            assert!(!layer.check_access(
+                "webui-user-1",
+                "tenant__acme__default",
+                GraphType::Agent,
+                None,
+                AccessLevel::Read
+            ));
         }
     }
 

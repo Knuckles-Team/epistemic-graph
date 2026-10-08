@@ -74,7 +74,7 @@ performance still require the operator's multi-node soak.
 
 ## 1. Pre-flight (do these BEFORE touching anything)
 
-1. **Back up node 1's authoritative data.** Stop writers if you can; snapshot the redb
+1. **Back up node 1's authoritative data.** Stop writers if the operator can; snapshot the redb
    persist dir (`ENGINE_PERSIST`, configured outside the repository)
    — a filesystem copy of the closed `*.redb` files, or a borg/zfs snapshot. **Verify
    the backup restores** before proceeding. This is the rollback anchor.
@@ -94,7 +94,7 @@ performance still require the operator's multi-node soak.
 
 The key idea: **the authoritative host keeps its redb data and becomes node 1.** The
 other nodes start **empty** and replicate the authoritative state from node 1 (via
-Raft log + snapshot). You never wipe node 1, and you never let an empty node bootstrap
+Raft log + snapshot). The operator never wipes node 1, and the operator never lets an empty node bootstrap
 the cluster.
 
 ### 2a. Restart node 1 as a single-member Raft cluster (still authoritative, now HA-ready)
@@ -190,7 +190,7 @@ no node was wiped.**
 
 ## 3. Rollback
 
-At any point before you trust the cluster, you can return to the single-node engine:
+At any point before the operator trusts the cluster, the operator can return to the single-node engine:
 
 1. **Tear down nodes 2–4** (`docker stack rm epistemic-graph-2/3/4`). With them gone the
    cluster loses quorum — that is fine for rollback because node 1 still holds the
@@ -210,7 +210,7 @@ nodes, drop the Raft env" — no data reconstruction needed.
 ## 4. Operational notes
 
 * **Quorum:** 4 voters tolerate **1** failure (majority = 3). For 2-failure tolerance
-  you'd want 5 voters; with 4, prefer keeping all 4 healthy and treat a node loss as a
+  the operator would want 5 voters; with 4, prefer keeping all 4 healthy and treat a node loss as a
   page, not a shrug. (A 3-voter set tolerating 1 failure is the classic sweet spot; node
   4 here adds a replica + a manager-co-located voter, not extra fault tolerance.)
 * **A restarted node self-heals from its own redb** (durable log tail) and catches the

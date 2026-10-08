@@ -43,7 +43,7 @@ flowchart TB
   returns it and **never autostarts**; an unreachable configured remote stays fail-loud rather than
   silently spawning a divergent local engine.
 - **shared-local** — the default/local endpoint is already serving (a cheap connect probe succeeds, or a
-  recorded spawn-lock holder is verified by a probe). Reuse it. This is how co-located entrypoints on
+  recorded spawn-lock holder is checked by a probe). Reuse it. This is how co-located entrypoints on
   one host share the **one** engine.
 - **autostart** — nothing reachable. Under a per-socket first-one-wins `flock`, a double-checked probe
   re-shares a peer's just-started engine; otherwise spawn a **detached, supervised** engine. Detached =
@@ -54,16 +54,16 @@ flowchart TB
 
 ## The auto-bundle: a supervised, idle-shutting engine
 
-Autostart launches the packaged main binary against the configured durable store.
+Autostart starts the packaged main binary against the configured durable store.
 It is the same engine used for an explicitly managed single-node service. Two
 lifecycle behaviours make sharing safe:
 
 - **Reference-counted graceful shutdown** (CONCEPT:EG-KG.backend.tiny-shared). The accept loop selects the next
   connection against a `ShutdownCoordinator` (an active-connection refcount + a `Notify`). With
-  `--idle-shutdown-secs N` (`EPISTEMIC_GRAPH_IDLE_SHUTDOWN_SECS`), the engine self-terminates cleanly
+  `--idle-shutdown-secs N` (`EPISTEMIC_GRAPH_IDLE_SHUTDOWN_SECS`), the engine self-stops cleanly
   once the refcount has been zero for `N` seconds. So the auto-bundled daemon
   vanishes after its last client disconnects (robust to client crashes).
-- **Persistent lifecycle.** Absent or `0` ⇒ the engine never idle-terminates: it runs forever like a
+- **Persistent lifecycle.** Absent or `0` ⇒ the engine never idle-stops: it runs forever like a
   normal service. SIGTERM/SIGINT drains cleanly in **both** modes. Commit-before-ack means a stop never
   drops an acknowledged write and requires no final checkpoint.
 
@@ -121,7 +121,7 @@ configuration.
 | Symptom | Mode |
 |---------|------|
 | Agent Utilities `GRAPH_SERVICE_ENDPOINTS` contains a reachable endpoint | **remote** (or shared, if local) |
-| Several processes on one host, one `epistemic-graph-server` PID | **shared-local** |
+| Multiple processes on one host, one `epistemic-graph-server` PID | **shared-local** |
 | First process on a host, an engine appears under the socket | **autostart** (detached, supervised) |
 | No socket, calls go straight to the library | **embedded** |
 

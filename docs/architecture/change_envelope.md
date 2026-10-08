@@ -77,7 +77,7 @@ while True:
 
 Rows are ordered by opaque node id. The scan observes live committed state, not
 a cross-request snapshot, so one reconciliation pass must be serialized with
-writers that could insert an id behind its cursor. Source run manifests should
+writers that can insert an id behind its cursor. Source run manifests should
 retain only keyed endpoint/query fingerprints, counts, content roots, cursor
 positions, and governance/privacy attestations; raw locations and source
 identifiers do not belong in the durable manifest.

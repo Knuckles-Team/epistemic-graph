@@ -332,15 +332,12 @@ fn stale_reset_policy_verdicts_leave_the_token_and_store_untouched() {
             apply_kept(&mut store, &issue, &issued, NOW).unwrap();
             let (op, stale) = redeem(&store, purpose, "synthetic-reset-token-hash");
             super::auth::replace_password(&mut store, &alice, "synthetic-password-hash-p1");
-            if replace_twice {
-                super::auth::replace_password(&mut store, &alice, "synthetic-password-hash-p2");
-            }
-            let before = store.clone();
-            assert_eq!(
-                store.apply(&op, &stale, &ctx_at(NOW)),
-                Err(IdentityRefusal::StaleCredential)
+            let before = super::auth::assert_stale_after_replace(
+                &mut store,
+                &alice,
+                replace_twice,
+                (&op, &stale),
             );
-            assert_eq!(store, before, "stale reset must not spend its token");
             let (op, mut fresh) = redeem(&store, purpose, "synthetic-reset-token-hash");
             let mut missing_snapshot = fresh.clone();
             missing_snapshot.password_check = None;
@@ -356,12 +353,7 @@ fn stale_reset_policy_verdicts_leave_the_token_and_store_untouched() {
                 Err(IdentityRefusal::Unstamped)
             );
             assert_eq!(store, before);
-            fresh.password_check = Some(check_for(&store, Some(&alice), true));
-            assert_eq!(
-                store.apply(&op, &fresh, &ctx_at(NOW)),
-                Err(IdentityRefusal::PasswordReused)
-            );
-            assert_eq!(store, before);
+            super::auth::assert_reuse_refused(&mut store, &alice, (&op, &mut fresh), &before);
             fresh.password_check = Some(check_for(&store, Some(&alice), false));
             store.apply(&op, &fresh, &ctx_at(NOW)).unwrap();
             assert_eq!(

@@ -8,7 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
-> **Documentation clarification (2026-07-23):** The `epistemic-tms` (paraconsistent truth-maintenance + Dung argumentation) and `epistemic-causal` (Pearl do-calculus) features are **included in the default `full` build as of 2.23.1** (EG-P0-6). Both features are unconditionally present in any served deployment; there is no configuration or flag to disable them.
+> **Documentation clarification (2026-07-23):** The `epistemic-tms` (paraconsistent truth-maintenance + Dung argumentation) and `epistemic-causal` (Pearl do-calculus) features are **included in the default `full` build as of 2.23.1** (EG-P0-6). Both features are unconditionally present in any served deployment. There is no configuration or flag to disable them.
 
 ### Added
 - **Python dependency CVE gate (`dependency-audit` pre-commit hook, CONCEPT:
@@ -56,7 +56,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   faster to decode at 1k/10k/100k nodes.
 - **Hierarchical Leiden clustering with expand-on-demand (VIZ-1, million-node
   graph visualization program)** — server-side community detection so a
-  client renders a few thousand top-level CLUSTER nodes for a million-node
+  client renders a small number of thousand top-level CLUSTER nodes for a million-node
   graph and drills in on demand, instead of laying out every node client-side.
   `eg_compute::graph_algos::leiden_hierarchy` keeps every intermediate level
   of Leiden's own local-moving/refine/aggregate loop (level 1 = finest
@@ -73,7 +73,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   by graph name — deliberately NOT graph nodes/edges: the engine holds at
   most one edge per ordered node pair and `upsert_edge` replaces the
   relationship type, so cluster membership as edges between existing nodes
-  would silently destroy asserted relationships. Reachable via
+  will silently destroy asserted relationships. Reachable via
   `EpistemicGraphClient.graph.cluster_hierarchy_{refresh,clusters,expand}`
   and a new `epistemic-graph-service cluster {refresh,list,expand}` CLI
   subcommand. Also backs VIZ-2's `graph_tile_server` as the real
@@ -135,7 +135,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   thread — audio starts before the whole response is buffered — and is cancellable at
   every phrase and audio-chunk boundary (an in-flight ONNX forward pass itself cannot
   be interrupted; cancellation granularity is per-phrase/per-chunk, matching the lane
-  design). Voice model/config pairs are digest-verified against the request's declared
+  design). Voice model/config pairs are digest-checked against the request's declared
   SHA-256 before any byte is read, resolved from an operator-configured directory
   (`EPISTEMIC_GRAPH_VOICE_MODEL_DIR`, an explicit interim seam pending GOC-36's real
   governed artifact resolver) — absent or mismatched artifacts fail closed
@@ -169,7 +169,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
     request against an already-ingested `dataset_ref`) plus a
     content-addressed render cache keyed on
     `ColumnStore::content_fingerprint` (new — chunk-content-hash-based,
-    deliberately NOT a version counter any unrelated write would invalidate)
+    deliberately NOT a version counter any unrelated write will invalidate)
     and `server::viz_provenance` durable render provenance, queryable via
     the new `VizOp::RenderProvenance`.
   - New loopback-only `viz-interactive` HTTP listener
@@ -233,7 +233,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   the SAME shape agent-utilities' config-sync ingestion
   (`knowledge_graph.core.engine_ingestion.ingest_mcp_server`) writes via Cypher
   `MERGE`. The server computes the absolute lease expiry from its own clock —
-  never a caller-supplied timestamp — and self-translates into a plain
+  never a caller-provided timestamp — and self-translates into a plain
   `Method::AddNode` against `__commons__` (`dispatch.rs`), so durability/audit/CDC
   are AddNode's own, already-proven machinery; a new periodic stale-lease reaper
   (`server::registry_reaper`, the engine's existing interval-task cadence —
@@ -255,7 +255,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   W2.1-1, CONCEPT:AU-OS.identity.per-agent-on-behalf-delegation) — `epistemic_graph.client`'s
   `RequestContextClaims`/`validate_request_context` previously rejected
   `oidc_token` as an unsupported claim, even though the server has independently
-  accepted+verified it (`EnvelopeV2.oidc_token`, `server::auth::bind_verified_identity`)
+  accepted+checked it (`EnvelopeV2.oidc_token`, `server::auth::bind_verified_identity`)
   since the `oidc` feature shipped — blocking agent-utilities' per-agent
   delegation (decision 5, RFC 8693 exchanged token) from ever reaching the wire.
   Mirrors `node`/`priority`'s optional-claim shape on the CALLER-FACING model, but
@@ -264,7 +264,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   into `build_envelope_v2_bytes` (no Rust changes needed) since the token's own
   RSA/JWKS signature is the trust anchor and `bind_verified_identity`
   independently cross-checks its subject/tenant against the SAME context — MAC
-  coverage would add no real protection (see `EnvelopeV2.oidc_token`'s existing
+  coverage will add no real protection (see `EnvelopeV2.oidc_token`'s existing
   doc comment). agent-utilities' `GraphSession._apply_spawn_delegation` now
   forwards `SpawnDelegation.oidc_token` onto the envelope in `on`-mode delegation.
 
@@ -293,7 +293,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   admits, `6 + 83n <= 4096`) had already moved from 61 to 49, but
   `epistemic_graph/client.py`'s `ingest_stream` validation, docstring, and `ValueError` message
   — and `docs/architecture/modality_serving.md`'s operation table — still said 64, so the client
-  would accept a batch of up to 64 records that the server was guaranteed to reject. Both now
+  will accept a batch of up to 64 records that the server was guaranteed to reject. Both now
   read 49. Added `require_ingest_stream_item_bound` (`scripts/check_p2_modality_architecture.py`,
   wired into the `P2 modality architecture gate` pre-commit hook via
   `require_modality_client_surface`) so the client's three literals must agree with each other
@@ -306,9 +306,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   connection's internal delivery pump, which only ran on a blind 200ms poll
   tick. Diagnosis: 3/3 passes under `taskset -c 0,1` (the CI-equivalent
   2-core constrained gate) across two independent matrix runs, only
-  flaky-failing on a many-core host running the ~1000-test `--lib` suite at
+  flaky-failing on a multiple-core host running the ~1000-test `--lib` suite at
   full host parallelism — the GOC-70 defect class (assert what's true
-  regardless of scheduling), not a routing/dedup/wire-codec defect (the other
+  in either case of scheduling), not a routing/dedup/wire-codec defect (the other
   9 `eg281_*` unit tests covering packet parsing/encoding were never
   affected). Fixed structurally in `src/server/mqtt_wire/mod.rs`: `accept_loop`
   now holds one listener-wide `tokio::sync::Notify` (valid because a listener's
@@ -342,7 +342,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   agent-utilities' `orchestration/manager.py` and `agent_digital_twin.py`.
   Diagnosis found `resolve_match`/`walk_hops`/`bind_target_node`/
   `node_props_match` already apply label + inline-property constraints
-  uniformly regardless of `NodePat.var` — true since the read-side inline
+  uniformly in either case of `NodePat.var` — true since the read-side inline
   prop-map's original introduction — so the differential does not reproduce
   against this engine. Added a permanent parity test suite
   (`crates/eg-query/src/cypher/exec.rs`) asserting byte-identical results
@@ -367,7 +367,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   consensus/replication cost — same-node replay is still caught by the existing
   ledger. New tri-state `EPISTEMIC_GRAPH_REQUIRE_NODE_BINDING` (`off`/`warn`/`on`,
   default `warn`) governs an ABSENT claim only; a present claim is always
-  exact-matched regardless of mode. The wire change is genuinely additive — the
+  exact-matched in either case of mode. The wire change is genuinely additive — the
   node-claim bytes are appended to the MAC-covered canonical encoding only when
   present, so an envelope from a client that predates node binding (or the
   untouched `clients/js`/`clients/go` bindings) encodes byte-for-byte identically to
@@ -382,7 +382,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   split out of the pre-existing `add_group_member`) are now reachable at runtime
   as `Method::RaftAddLearner` / `Method::RaftChangeMembership`, gated
   `admin:cluster` and leader-only (a follower answers `OPERATION_REDIRECTED`
-  naming the current leader). Closes the gap where a fresh node could never
+  naming the current leader). Closes the gap where a fresh node can never
   actually be attached to a live cluster outside the in-process test harness.
   New `epistemic_graph.client.RaftAdminClient` (`client.raft_admin.add_learner` /
   `.change_membership`).
@@ -417,10 +417,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   invalidate — so ONE instance safely serves every graph/tenant/caller. Sized
   by `EPISTEMIC_GRAPH_CYPHER_PLAN_CACHE` (default 256 entries, `0` disables).
 - **Live-CEP → broker push bridge** (W4.10, extends `CONCEPT:EG-KG.query.protocol-types`/EG-299).
-  `CepSubscribe`'s standing queries could previously only be drained via `CepPoll`
+  `CepSubscribe`'s standing queries can previously only be drained via `CepPoll`
   (long-poll). A standing query's matches can now ALSO be genuinely PUSHED: when
   `EPISTEMIC_GRAPH_CEP_BROKER_EXCHANGE` names an exchange, every match is
-  additionally published — topic-routed, routing key = the subscription id — onto
+  also published — topic-routed, routing key = the subscription id — onto
   that exchange in `__commons__`'s broker, so an already-connected AMQP/MQTT/STOMP
   consumer (the three existing wire adapters' own poll-driven push pumps) receives
   it with no further client action, and any RPC client can equally `BrokerConsume`
@@ -435,26 +435,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   end of the chain to find the tail — O(chain length). Rewritten as the bounded
   reverse range `(graph, 0)..=(graph, u64::MAX)` + `next_back()` (the same
   pattern `scan_next_edge_ordinal` already used for edge ordinals) — one B-tree
-  seek, O(log chain length), regardless of how long-lived the graph's audit
+  seek, O(log chain length), in either case of how long-lived the graph's audit
   chain is.
 - **Non-Linux / restricted-`/proc` RAM-cap default is no longer unbounded** (W1.8,
   CONCEPT:AU-KG.backend.b-auto-size). `autosize::default_node_cap` returned `0`
-  (unbounded) whenever `total_ram_bytes()` could not read `/proc/meminfo`
+  (unbounded) whenever `total_ram_bytes()` can not read `/proc/meminfo`
   (non-Linux, or a restricted/sandboxed `/proc`). That default was worse than
   merely unbounded: `GraphCore::lru_eviction_candidates` treats a cap of literal
   `0` as "evict every resident node," not "no cap," so an undetectable-RAM host
-  would have swept every graph down to empty on every memcap sweep. Now falls
+  will have swept every graph down to empty on every memcap sweep. Now falls
   back to the SAME conservative cap a real 1 GiB Pi gets (a real Pi always reads
   `/proc/meminfo` successfully, so this branch only fires on a genuinely
   unmeasurable host); a startup `tracing::warn!` now states RAM was undetectable
   and which cap was chosen. Override remains `EPISTEMIC_GRAPH_MAX_NODES_PER_GRAPH`.
-- **`eg-alignment` resolved through the real CAS backend; in-memory stub deleted**
+- **`eg-alignment` resolved through the real CAS backend; in-memory stub removed**
   (W4.7 / M3, CONCEPT:EG-P1-3). `eg-alignment` shipped a dependency-free
   `InMemoryResolver` as its only `EvidenceResolver` implementation, while the
   real implementation (`CasEvidenceResolver`, `src/server/blob/cas_resolver.rs`)
   had lived in the facade since the `alignment` feature landed — but nothing
   proved an `eg_alignment::AlignmentGraph` cross-modal JOIN resolving through
-  it, only single, disconnected loci. Deleted `InMemoryResolver` (No-Legacy: no
+  it, only single, disconnected loci. Removed `InMemoryResolver` (No-Legacy: no
   consumer outside this crate's own tests); its unit tests and dev-dependency
   integration test now use a private, non-exported `FixtureResolver` double to
   keep exercising the `EvidenceResolver`/`AlignmentGraph` mechanics this crate
@@ -477,7 +477,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
     no ShExJ/GraphView involved) genuinely pre-binds `$this`/`$PATH`/
     `$shapesGraph`/`$currentShape`, resolves `sh:prefixes`/`sh:declare`
     transitively through `owl:imports`, and turns every projected solution row
-    into one `ValidationResult`. Constructs the spec permits declining
+    into one `ValidationResult`. Builds the spec permits declining
     (aggregates, `MINUS`, `VALUES`, non-`SILENT` `SERVICE`, property paths,
     `EXISTS`, arithmetic) fail the validation run (`Err`) rather than silently
     mis-evaluating.
@@ -522,11 +522,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [2.23.1] - 2026-07-18 — Exact certification and protocol hardening
 
-Includes the ecosystem-utilization gap-fill, exact mutation fault/restart and
+Includes the ecosystem-use gap-fill, exact mutation fault/restart and
 performance certification harnesses, canonical typed-float signing, stricter
 time-series validation, release privacy controls, and the pinned Rust toolchain.
 
-**Ecosystem-utilization gap-fill (Python client wire-first gaps).**
+**Ecosystem-use gap-fill (Python client wire-first gaps).**
 
 Closes wire-first gaps the synergy-skills audit found: real, server-tested engine
 capabilities with no Python-client caller. All additive; no default/small-footprint
@@ -537,14 +537,14 @@ build affected.
   generated strict serde DTOs for the twelve shared agent/engine operations
   contracts and
   pins the authoritative catalog through a generated digest/ordered-field
-  manifest. A source-only CI gate verifies all 23 bound objects and rejects
+  manifest. A source-only CI gate checks all 23 bound objects and rejects
   unknown-field drift without compiling the engine or adding a runtime package.
   Placement, ClaimWorkItem, provenance evidence, and placement redirects now
   serialize those DTOs instead of independent JSON shapes.
 - **One served KnowledgeBatch protocol across all seven query families.**
   `Method::KnowledgeStream` now opens/resumes graph, SQL, RDF, vector, time-series,
   analytics-job, and cross-modal results through the same bounded Arrow adapter. Its cursor is
-  bound to verified authority, query, complete result snapshot, schema, and batch size and is
+  bound to checked authority, query, complete result snapshot, schema, and batch size and is
   routed only after graph ACL/RLS/materialization/placement checks. Arrow is the
   sole result projection; every client uses one native result plane.
 - **`ExplainBelief.disclosure_level` reachable from the client.** `QueryClient.explain_belief`
@@ -577,7 +577,7 @@ build affected.
   non-canonical names, and non-regular shard files. The bounded offline
   `migrate-shards --shards 1` path is the sole reader that converts retired K=1
   state, and portable backup format 4 records only the canonical layout.
-- **Verified request authority is a single strict contract.** `eg2.` is the sole
+- **Checked request authority is a single strict contract.** `eg2.` is the sole
   served envelope. Startup requires the `security` feature, a non-empty secret,
   exact audience/tenant/policy values, durable replay state, and a trusted signer
   registry. Native federation signs the same complete context and requires TLS
@@ -713,7 +713,7 @@ Also closes out 2.19.0's EG-P0-2 mutation-gateway rollout in full.
   `EPISTEMIC_GRAPH_LAZY_STARTUP=1` swaps the eager `load_all` boot recovery for a
   catalog-only scan — a graph's identity is known at boot but its node/edge data doesn't
   hydrate until first access; `EPISTEMIC_GRAPH_MAX_RESIDENT_GRAPHS` (default `0` =
-  unbounded, byte-for-byte unchanged) caps how many graphs are simultaneously RESIDENT,
+  unbounded, byte-for-byte unchanged) caps how multiple graphs are simultaneously RESIDENT,
   evicting the coldest by last-access recency through the same durability-gated
   cold-offload hibernate path R6 already uses; `__commons__` is never evicted. Both default
   off/unbounded, so a small deployment is unaffected.
@@ -727,7 +727,7 @@ Also closes out 2.19.0's EG-P0-2 mutation-gateway rollout in full.
   backed handle a job/foreign-compute leg can hand off (Arrow IPC) without re-serializing
   through the wire protocol row-by-row.
 - **WAL → lake materialization + Iceberg-REST catalog + OpenLineage (INT-P2-3, `lake`
-  feature).** Every `LakeManager` materialize/compact/delete run now emits a real
+  feature).** Every `LakeManager` materialize/compact/remove run now emits a real
   OpenLineage `RunEvent` (job/run/input-dataset/output-dataset with schema/datasource/
   output-statistics facets + an engine-specific LSN/Iceberg-snapshot custom facet),
   optionally pushed over HTTP to `EPISTEMIC_GRAPH_OPENLINEAGE_URL` (unset ⇒ silent no-op —
@@ -803,7 +803,7 @@ exhaustive audit, and ledger-driven admin scoping. Staged locally (not yet pushe
   dedup → CDC pre-image → `eg-core` apply → `mark_dirty` → WAL/redb durable commit → CDC emit happen
   together, declared by policy. Coalescable routed writes (`AddNode`/`RemoveNode`/`AddEdge`/`RemoveEdge`)
   flow through the per-graph write-coalescer so hot-path batching is preserved. 7 methods routed (their
-  direct `eg-core` bypass arms were deleted); the remaining 131 mutating methods
+  direct `eg-core` bypass arms were removed); the remaining 131 mutating methods
   are enumerated machine-visibly by the bypass-guard test as the rollout backlog.
 - **Default-deny RLS + ledger-driven admin scopes + exhaustive audit (EG-P0-6).**
   `crates/eg-core/src/isolation.rs` introduced the default-deny row-filtering
@@ -826,11 +826,11 @@ exhaustive audit, and ledger-driven admin scoping. Staged locally (not yet pushe
   the served `series.redb` any series whose durable point count hasn't yet converged. An exact multiset
   point-diff (not a positional "skip the first N" heuristic, which is unsafe when interleaved batches
   share a time bucket) makes the pass idempotent and duplicate-free — a converged series is skipped with
-  no I/O, so running it twice in a row is a true no-op.
+  no `I/O`, so running it twice in a row is a true no-op.
 - **L10 privilege gap (EG-P0-6).** Eight mutating broker/stream ops (`StreamDeclare`/`StreamPublish`/
   `StreamTrim`/`StreamCommitOffset`/`PublishConfirmed`/`PublishIdempotent`/`BrokerAckTag`/`BrokerNackTag`)
   were classified as Read in `access::requires_write` while durable-logging in `wal.rs` — a caller with
-  only READ access could invoke them. Now correctly require write access.
+  only READ access can invoke them. Now correctly require write access.
 - **Capability ledger reconciliation (EG-P0-6).** Regenerated `docs/capabilities.generated.md` and the
   `eg-capabilities` divergence snapshot so the five EG-P0-3-fixed methods are no longer counted as open
   WAL gaps (23 → 18).
@@ -849,14 +849,14 @@ exhaustive audit, and ledger-driven admin scoping. Staged locally (not yet pushe
 - **Signed request-envelope groundwork (EG-P0-5)** — introduced canonical
   audience, tenant, principal, graph, method/body digest, timestamp, nonce, and
   idempotency binding under HMAC-SHA256 with constant-time verification. The
-  transitional format from this release was subsequently deleted; the current
+  transitional format from this release was after removed; the current
   `eg2.` authority contract adds complete policy context and durable replay.
 
 ### Fixed
 - **WAL durability closure (EG-P0-3)** — `access::requires_write` classified `MineSequence` /
   `MineForecast` / `MineText` (non-`tfidf` writeback) / `MineSubgraph` (`gspan` writeback) /
   `AddEmbedding` as mutations (Write ACL + implied durability), but `wal::is_durable_mutation` never
-  returned `true` for them: an acknowledged write could be silently lost on crash, and the
+  returned `true` for them: an acknowledged write can be silently lost on crash, and the
   `MineSequence`/`MineForecast`/`MineText`/`MineSubgraph` replay arms in `apply()` were dead code.
   Closed by adding all five to the durable-mutation set (mirroring `access.rs`'s exact conditions) and
   adding the missing `AddEmbedding` replay arm. Also fixes a related post-restart bug: `replay()` now
@@ -903,7 +903,7 @@ the natural target (`CONCEPT:EG-KG.compute.reasoning-closure-gpu`).
   (transitive closure) — the one sparse-matrix-shaped rule — factored behind a
   `ClosureBackend` seam: an always-compiled `CpuBackend` (hash-join) plus a feature-gated
   `cuda::CudaBackend` that NVRTC-compiles a two-pass CSR-join kernel (binary-search count →
-  host exclusive-scan → scatter) and degrades to CPU on any device/compile/launch failure.
+  host exclusive-scan → scatter) and degrades to CPU on any device/compile/start failure.
   Mirrors the `eg-ann::kmeans_gpu` `AssignBackend` seam.
 - New `eg-compute` `gpu`/`gpu-cuda` features (+ optional `cudarc`, dynamic-loading so a
   `gpu-cuda` build needs no CUDA toolkit); facade `gpu`/`gpu-cuda` pass them through. Kept
@@ -1100,7 +1100,7 @@ history as engine-native concepts), addressing + exceeding the external function
   bucket via eg-tsdb `time_bucket` (closes EG-404's sibling — the TsScan→Window gap).
 - **EG-417** — negative vector components in UQL `RANK BY ~[-0.1, …]` (closes the lexer/parser
   asymmetry EG-404 flagged; the builder/wire always accepted them).
-- **EG-418** — UQL `FUSE` stage dispatch to the same `Op::FuseRrf` the builder/wire construct
+- **EG-418** — UQL `FUSE` stage dispatch to the same `Op::FuseRrf` the builder/wire build
   (RRF was builder/wire-only though the grammar listed it).
 
 ## [2.9.0] - 2026-07-03
@@ -1108,12 +1108,12 @@ history as engine-native concepts), addressing + exceeding the external function
 > **Minor, additive.** Extends the in-transaction cross-modal seam onto the SQL wire
 > family: a single psql `BEGIN…COMMIT` can now stage and atomically commit ALL modalities
 > and read its own uncommitted writes across them — routed onto the SAME committed RPC seam
-> the native transport uses (no re-implementation). Plus the North Star "Seamless" doc that
+> the native transport uses (no re-implementation). Plus the North Star "Smooth" doc that
 > makes the seam-at-every-surface discipline explicit and tracks the remaining open sub-seams.
 
 ### Added — pgwire / mysql / mssql cross-modal transaction seam
 - **EG-372** — pgwire (+ inherited mysql-wire / mssql-wire) in-transaction cross-modal
-  read-your-own-writes over the wire: inside a psql `BEGIN…COMMIT`, `UQL …`,
+  RYOW over the wire: inside a psql `BEGIN…COMMIT`, `UQL …`,
   `SET EMBEDDING FOR …`, `INSERT INTO series …`, `SPARQL UPDATE …`, and `SPARQL CONSTRUCT …`
   stage into the txn's write-set and read their own uncommitted writes across modalities,
   committing atomically. Each SQL-wire statement is a thin parser/router onto the existing
@@ -1123,28 +1123,28 @@ history as engine-native concepts), addressing + exceeding the external function
   shared EG-074 core (per-wire executable roundtrip tests still pending — see north_star.md).
 
 ### Added — North Star
-- **EG-373** — `docs/north_star.md` "Seamless" goal doc: every cross-modal seam must be fully
+- **EG-373** — `docs/north_star.md` "Smooth" goal doc: every cross-modal seam must be fully
   implemented at EVERY surface (RPC, SQL wire family, SPARQL, GraphQL), never merely flagged;
   a seam that works over RPC but errors over psql is a leak. Includes the seam backlog table
   tracking the remaining open sub-seams as explicit concept-owned rows rather than buried TODOs:
-  REASON-by-IRI mid-plan, the string→IRI class bridge, an in-txn tsdb read-your-own-writes
+  REASON-by-IRI mid-plan, the string→IRI class bridge, an in-txn tsdb RYOW
   overlay, per-wire mysql/mssql roundtrip tests, and GraphQL cross-modal.
 
 ## [2.8.0] - 2026-07-03
 
 > **Minor, additive.** Closes the in-transaction cross-modal seam so a single ACID
 > transaction can stage and atomically commit ALL modalities (graph + vector + time-series
-> + OWL + SPARQL CONSTRUCT), read its own uncommitted writes across modalities, and fuse a
+> + OWL + SPARQL Build), read its own uncommitted writes across modalities, and fuse a
 > time-series leg into a unified plan — plus a KV-cache data-version invalidation and the
 > collapse of the pi/pi-max/node deployment tiers into ONE full-featured build.
 
 ### Added — in-transaction cross-modal seam
-- **EG-359** — in-txn cross-modal read-your-own-writes: `Method::TxnUnifiedQuery{,Text}` run
+- **EG-359** — in-txn cross-modal RYOW: `Method::TxnUnifiedQuery{,Text}` run
   the SAME `wire::Plan`/UQL over the committed snapshot OVERLAID with the txn's staged
   write-set, so a staged node/edge/embedding is visible to THIS txn pre-commit and invisible
   off-txn until commit. Client: `client.txn.unified_query` / `unified_query_plan`.
 - **EG-360/361/362** — five-modality atomic staging: `TxnAddMeasurement` (time-series),
-  `TxnAxiom` (OWL Turtle), and `TxnConstruct` (SPARQL CONSTRUCT) stage into the SAME redb
+  `TxnAxiom` (OWL Turtle), and `TxnConstruct` (SPARQL Build) stage into the SAME redb
   `WriteTransaction` as the txn's graph/vector/blob writes, so all modalities land atomically
   at commit or none do. Client: `client.txn.add_measurement` / `axiom` / `construct`.
 - **EG-363** — tsdb-in-plan + planner reason-mid-pipeline: `wire::Op::TsScan{series,from,to}`
@@ -1198,7 +1198,7 @@ history as engine-native concepts), addressing + exceeding the external function
 - **EG-358** — normal-distribution `ppf` (inverse CDF) + `pdf` via `statrs` (analytics feature, out of
   the pi/default tier) — replaces `scipy.stats.norm.ppf`/`pdf`.
 
-numpy/scipy parity verified (13/13).
+numpy/scipy parity checked (13/13).
 
 ### Fixed
 - **EG-346** — the numeric-kernel wheel-packaging step (`scripts/inject_numeric_kernel.py`) now
@@ -1213,7 +1213,7 @@ numpy/scipy parity verified (13/13).
 > makes the release image build in seconds instead of ~25 min/arch.
 
 ### Added
-- **KG-2.132** — hybrid `Discover` engine op: dense HNSW retrieve + lexical keyword re-rank + text
+- **KG-2.132** — hybrid `Discover` engine op: dense HNSW fetch + lexical keyword re-rank + text
   hydration (`{id,name,description,type,score}`) in one round-trip, complementing `SemanticSearch`.
 - **EG-352** — release Docker image now `uv pip install`s the published `node`-tier wheel (no in-image
   cargo compile; multi-arch clean) and **pgwire** is folded into the `node`/`full` tiers so the node
@@ -1296,7 +1296,7 @@ numpy/scipy parity verified (13/13).
 - **LTAP lakehouse interop (`CONCEPT:EG-317`)** — a new async columnar-materialization crate **`eg-lake`**
   transcodes engine table/columnar data → **Parquet-on-object-store** with **Delta** + **Iceberg**
   transaction logs, an **Iceberg-REST catalog**, and **LSN-style as-of snapshots** (reusing the versioned
-  snapshots + `Op::AsOf`), so external lakehouse engines (Databricks / Spark / Trino / DuckDB) read our
+  snapshots + `Op::AsOf`), so external lakehouse engines (Databricks / Spark / Trino / DuckDB) read this repository's
   tables with **zero ETL** — making epistemic-graph an **LTAP** (lakehouse-transactional-analytical) superset.
   `arrow`/`parquet` + delta/iceberg deps behind a `lake` feature; out of `pi`. (The Iceberg Avro **manifest**
   writer is still a stub — the Delta path + Iceberg-REST catalog are the complete surfaces; see
@@ -1333,12 +1333,12 @@ numpy/scipy parity verified (13/13).
   surface (EG-176). server/redis_wire + server/s3.
 - **ICV write-path enforcement (`CONCEPT:EG-300`)** — EG-146 integrity-constraint-validation wired into the
   commit/write path: a guard evaluates the proposed change set against registered SHACL-as-constraints and
-  **rejects** a transaction that would introduce a violation (constraint-enforced transactions), configurable
+  **rejects** a transaction that will introduce a violation (constraint-enforced transactions), configurable
   enforce/warn. eg-rdf/eg-shacl + commit hook.
 - **OBDA full R2RML Turtle parse (`CONCEPT:EG-305`)** — standard R2RML mapping documents in Turtle
   (`rr:TriplesMap`/`rr:logicalTable`/`rr:subjectMap`/`rr:predicateObjectMap`/`rr:template`/`rr:column`) parse
   into the EG-101 VirtualGraph model, so a real R2RML file drives an OBDA virtual graph. eg-rdf.
-- **Geospatial format I/O: Shapefile/KML/GeoParquet (`CONCEPT:EG-306`)** — a reader/writer for ESRI
+- **Geospatial format `I/O`: Shapefile/KML/GeoParquet (`CONCEPT:EG-306`)** — a reader/writer for ESRI
   **Shapefile** (.shp/.dbf/.shx), **KML/KMZ**, and **GeoParquet**, round-tripping eg-geo geometries +
   attributes and completing the map-data ingest/export matrix alongside GeoJSON/WKB/GPX (EG-264). eg-geo.
 - **Routing turn-restrictions + time-windows (`CONCEPT:EG-312`)** — EG-266 routing extended with
@@ -1423,7 +1423,7 @@ numpy/scipy parity verified (13/13).
 - **GIS / logistics (`CONCEPT:EG-255`..`267`)** — coordinate-reference-systems + reprojection (`EG-255`, CRS
   registry `EG-262`), geodesic ops (`EG-256`), full geometry model incl. multi-geometries + holes (`EG-257`),
   DE-9IM topological relations (`EG-258`), constructive geometry algebra (`EG-259`), durable **R-tree** spatial
-  index (`EG-263`), geospatial format I/O — GeoJSON/WKB/GPX (`EG-264`), **map tiling** XYZ/TMS + Mapbox Vector
+  index (`EG-263`), geospatial format `I/O` — GeoJSON/WKB/GPX (`EG-264`), **map tiling** XYZ/TMS + Mapbox Vector
   Tiles (`EG-265`), **weighted routing + isochrones + TSP** (`EG-266`), and geo-anchored **map-based task
   tracking** (`EG-267`). Pure-Rust, no PROJ/C dep.
 - **Agent-native memory + retrieval (`CONCEPT:EG-078`/`080`/`195`/`220`/`221`/`222`)** — the hierarchical
@@ -1439,14 +1439,14 @@ numpy/scipy parity verified (13/13).
   action/policy/trajectory episodic memory (`EG-099`), OBDA virtual graphs (`EG-101`), an exact/flat vector
   index + recall harness alongside IVF-PQ ANN (`EG-297`), RBAC-at-scale — durable roles + hierarchy + grants
   on the `security` tier (`EG-092`), online backup / restore + **PITR** (`EG-090`), the massive-scale benchmark
-  harness (`EG-096`), and the comprehensive interface + operations documentation pass (`EG-095`).
+  harness (`EG-096`), and the complete interface + operations documentation pass (`EG-095`).
 
 ## [2.1.0] - 2026-06-29
 
 ### Documentation
 - **Universal-DB documentation accuracy pass** — `README.md`, `docs/capabilities.md`,
   `docs/roadmap.md`, `docs/interfaces/{sparql,sql,cypher,graphql}.md`, and
-  `docs/architecture/engine.md` now reflect the engine's true, source-verified state. Features
+  `docs/architecture/engine.md` now reflect the engine's true, source-checked state. Features
   previously marked `🔶`/`🗺` but actually shipped are flipped to `✅`: SQL DDL + arbitrary user
   tables + `COPY`; SPARQL `ASK`/`CONSTRUCT`/`DESCRIBE` + `UPDATE` + the W3C `/sparql` HTTP
   endpoint + the named-graph quad dataset; Cypher writes (`CREATE`/`MERGE`/`SET`/`DELETE`);
@@ -1506,13 +1506,13 @@ numpy/scipy parity verified (13/13).
   table over one `handlers/<domain>.rs` per protocol section, with write side-effects (in-flight
   gauge / `mark_dirty` / WAL enqueue) centralized in the shell. Cargo feature flags are now **real**
   (a slim `--features server` build links neither nalgebra nor tree-sitter), and a gated-out method
-  falls to an explicit "not available in this build" arm. Dead `compute`/`execution` modules deleted
+  falls to an explicit "not available in this build" arm. Dead `compute`/`execution` modules removed
   (No-Legacy). `tokio` trimmed from `"full"` to its used feature set + `deny(unsafe_code)`.
 - **`__bus__` commons graph renamed to `__commons__` (C3)** — the default commons graph was never a
   message bus; the misleading name is gone (atomic across every consumer, no alias kept).
 
 ### Removed
-- **In-engine Kafka event bus (C1)** — deleted as dead code; event distribution is the durable
+- **In-engine Kafka event bus (C1)** — removed as dead code; event distribution is the durable
   backend's job, not the cache layer's.
 
 ### Fixed

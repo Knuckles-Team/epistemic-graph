@@ -38,7 +38,7 @@ their RAM projection is changed. Runtime-result graph, Cypher, ordinary GraphQL,
 and RDF mutations execute against an isolated snapshot. Their bounded affected-row
 delta is SHA-256 bound to adjacent source and target graph versions and atomically
 updates the durable rows before publication. A complete snapshot uses the same
-version contract when a coordinator explicitly supplies one.
+version contract when a coordinator explicitly provides one.
 
 RDF multi-valued literals are retained under the reserved
 `__rdf_multivalue_literals` node property. This makes the lossless RDF dataset part
@@ -48,11 +48,11 @@ a second write authority or an alternate reader.
 SQL graph DML follows the staged graph path. SQL user-table/catalog statements use
 the table store's native coordinator: the table/catalog rows, SQL-domain version and
 fence, terminal batch/result, idempotency index, and immutable outbox are committed
-in one owner-scoped catalog transaction. Each verified tenant+effective actor resolves
+in one owner-scoped catalog transaction. Each checked tenant+effective actor resolves
 to an opaque redb filename under `<persist-dir>/sql-catalog/`; there is no global store,
 path override, unsigned reader, or temporary fallback. Query text and bound parameters are represented
 only by an operation digest in that metadata. GraphQL cross-modal begin/stage calls
-have no durable effect and are keyed by verified owner scope. Staged reads combine an
+have no durable effect and are keyed by checked owner scope. Staged reads combine an
 RLS-projected committed snapshot with only that owner's overlay. A sole-root
 `commitTransaction` is consumed by the facade, which revalidates graph and tenant
 authority and lands graph, semantic/blob/time-series rows plus the universal
@@ -68,13 +68,13 @@ wrapping either native domain in a second, non-atomic graph-snapshot commit.
   recomputable SHA-256 identity digest. Missing fields, unknown fields, digest
   mismatches, and every other schema version are rejected.
 - A batch has one opaque `batch_id` and deterministic idempotency key.
-- Verified principals are stored only as SHA-256 pseudonyms.
+- Checked principals are stored only as SHA-256 pseudonyms.
 - State-backed operations store an opaque method digest, not query text, paths,
   document bodies, or caller-provided identifiers.
 - `VersionExpectation` is explicitly `Graph`, `Native`, or capability-gated
   `Unversioned`. Graph and native expectations must match the batch's typed scope;
   `Unversioned` is restricted to the reserved system tenant, control-plane or
-  lifecycle domain, and a verified `UnversionedSystemMutation` capability.
+  lifecycle domain, and a checked `UnversionedSystemMutation` capability.
 - The typed version expectation, placement epoch, and fencing token are checked
   inside the same write transaction that advances the authoritative version.
 - A state descriptor advances exactly one checked graph-version step. Missing

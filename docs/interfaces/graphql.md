@@ -105,7 +105,7 @@ Sessions are deliberately bounded and must reauthenticate.
 | `EPISTEMIC_GRAPH_GRAPHQL_MAX_CONNECTIONS` / `--graphql-max-connections` | `128` | Process-wide cap across in-flight handshakes and SSE sessions; valid range `1..=10000`. |
 | `EPISTEMIC_GRAPH_GRAPHQL_MAX_SESSION_SECS` / `--graphql-max-session-secs` | `300` | Maximum session lifetime before fresh authentication is required; valid range `1..=3600`. |
 
-The listener does not terminate TLS. For remote clients, place a TLS reverse proxy on
+The listener does not stop TLS. For remote clients, place a TLS reverse proxy on
 the same host and forward the `Authorization` and `X-Epistemic-Request-Id` headers to
 the loopback listener.
 

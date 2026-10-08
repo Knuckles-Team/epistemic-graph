@@ -4,7 +4,7 @@ The main graph-os build includes a durable analytics worker plane and a
 change-driven reasoning projection. Both consume committed engine state and use
 opaque operational identities; neither copies runtime principals, prompts,
 credentials, endpoints, user names, or filesystem locations into coordinator
-records. The compact reasoning sidecar additionally hashes graph identifiers;
+records. The compact reasoning sidecar also hashes graph identifiers;
 the authoritative graph remains the only source for their original form.
 
 ## AnalyticsJob lifecycle
@@ -21,7 +21,7 @@ retain the native command history needed to recover it. Submission ids derive fr
 the committed batch identity rather than a process counter, so replay and follower
 apply converge. There is no pod-number or singleton-coordinator election.
 
-A bounded colocated pool (`EG_ANALYTICS_WORKERS`, default `1`) may execute jobs in a
+A bounded colocated pool (`EG_ANALYTICS_WORKERS`, default `1`) may run jobs in a
 single-node deployment; clustered authorities disable colocated execution and use
 remote workers so a scheduler leader change never strands an in-process kernel.
 Remote workers atomically lease the highest-priority eligible job through Raft. The
@@ -43,10 +43,10 @@ Remote workers use `Method::AnalyticsJob` with the following `JobOp` variants:
 | `WorkerFail` | job id, worker instance, epoch, enumerated reason code | retry/backoff or terminal failure status |
 | `WorkerCancel` | job id, worker instance, epoch | terminal cancellation acknowledgement |
 
-Every worker operation requires a verified `eg2.` RequestContext with both the
+Every worker operation requires a checked `eg2.` RequestContext with both the
 normal mutation grant and the dedicated `analytics:worker` scope (or
 `kg:admin`). The server derives the durable worker reference by hashing the
-verified principal with `worker_instance`; callers never choose the stored
+checked principal with `worker_instance`; callers never choose the stored
 identity. A worker should generate a random opaque instance value per concurrent
 slot and reuse it only when retrying that slot. Claim, stage, publish and cancel
 responses are idempotent for the same authenticated slot and epoch. Lease
@@ -63,7 +63,7 @@ comma-separated `EG_ANALYTICS_WORKER_CAPABILITIES` (default
 `mining.association,pool:default`). These values are runtime configuration and
 secrets, never persisted in a job or result. The native TCP protocol is signed
 with the shared HMAC secret; a deployment that requires transport mTLS must
-actually terminate and enforce it in a service mesh or authenticated proxy
+actually stop and enforce it in a service mesh or authenticated proxy
 rather than treating a mounted certificate as enforcement.
 
 Association mining checks a cooperative cancellation token inside transaction
@@ -115,7 +115,7 @@ Every authoritative MutationBatch emits an ordered outbox record. After graph
 recovery, the reasoning worker:
 
 1. leases pending records with an epoch;
-2. resolves the immutable authoritative batch and verifies the wake-up's operation
+2. resolves the immutable authoritative batch and checks the wake-up's operation
    digest, then applies its privacy-safe delta (domain-separated identity hashes and
    closed categorical tags only) to the compact support/conflict/causal/materialization
    index;
@@ -134,7 +134,7 @@ materializations stale.
 Snapshot recovery checks the file-size ceiling before allocation and performs an
 allocation-free MessagePack item/depth preflight before deserialization. Publication
 streams MessagePack directly to a cap-enforcing same-directory temporary writer; the
-writer refuses a chunk before it could cross the byte ceiling, so no whole-snapshot
+writer refuses a chunk before it can cross the byte ceiling, so no whole-snapshot
 output buffer exists. The image is fsync'd and published with the platform's atomic
 replacement primitive, including replacement of an existing image on Windows; an
 encode or swap failure removes the temporary image and leaves the prior image
@@ -266,7 +266,7 @@ work around the block by inventing a parallel shape:**
   actual proposed/validated/accepted/deprecated/retracted governance over that
   Claim from the AU side — the same authority split `eg-jobs::claim`'s own module
   docs describe for `eg-epistemic` ("no new persistence... it writes the SAME
-  convention"). Adding a redundant `promotion_state` enum inside `eg-jobs` would
+  convention"). Adding a redundant `promotion_state` enum inside `eg-jobs` will
   duplicate that AU-side state machine rather than close a real gap; if a future
   lane needs the promotion decision itself to be queryable FROM the job record,
   it should reference the AU claim id/state, not re-host the state machine.

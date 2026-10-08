@@ -43,7 +43,7 @@ served request already pays `is_active() == true`. All 9 call sites (grep
 across `dist_compute.rs`, `streaming.rs`, `txn.rs`, `access.rs` itself) use it
 consistently as that same "is RLS compiled in" gate, mostly to conservatively
 REJECT unscoped shared caching (materialized views, streaming cursors) whenever
-RLS COULD apply — a correct, fail-closed posture. Narrowing it to a per-actor
+RLS Can apply — a correct, fail-closed posture. Narrowing it to a per-actor
 "does this specific actor have zero restrictions" check (design option (b))
 was considered and NOT implemented: there is no existing cheap check for
 "this actor has zero possible restrictions" (the closest, `can_see_row`'s
@@ -71,7 +71,7 @@ search, …) is written against `&GraphCore`/`Arc<GraphCore>`, not `&GraphView`,
 and rewriting that surface is a materially larger, higher-risk change than
 this one — see option (c)'s own writeup below, unchanged from the original
 design. A workload that writes on every request from a rotating cast of
-actors (no cache reuse) would see no improvement from this fix; the measured
+actors (no cache reuse) will see no improvement from this fix; the measured
 production workload (grounding: a read-heavy burst per delegation, largely
 between writes) is exactly the shape this fix targets and fixes.
 
@@ -98,7 +98,7 @@ pub(crate) fn is_active(&self) -> bool {
 ```
 
 — hard-coded to `true` whenever the `security` feature is compiled in, for
-**every** caller, regardless of whether that caller's `IsolationLayer`
+**every** caller, in either case of whether that caller's `IsolationLayer`
 actually restricts anything for them. When active, `project_core`:
 
 1. `core.analysis_snapshot()` + `filter_view()` — one row-visibility pass.
@@ -126,7 +126,7 @@ terminal, non-gateway READ handlers pay the cost — which is exactly the
 `HasNode`/`GetNodes`/`GetNodeProperties`/`GetNodePropertiesBatch` family the
 orchestrator lane measured at 2.7-3.0s live, with **zero** samples under 1s
 across dozens of calls, against `CypherQuery`'s <0.0001s on 31 calls in the
-same window. The two paths look identical to a caller until you cross-check
+same window. The two paths look identical to a caller until the operator cross-checks
 against `__commons__`'s actual size (25,075 nodes / 2,656 edges, live gauges)
 and the resulting ~103 MB semantic-store memcpy per call (25,075 × 1024 dims
 × 4 bytes).
@@ -142,7 +142,7 @@ the same (actor, graph state) — the existing test
 file) is the correctness oracle a cached implementation must keep passing
 unmodified.
 
-## Fix, ranked (cheapest / highest-leverage first)
+## Fix, ranked (cheapest / highest-use first)
 
 ### (a) — chosen: cache the projected core per (actor, graph-version), invalidate on mutation
 
@@ -199,7 +199,7 @@ Properties:
   the SAME snapshot across calls between writes.
 - **No RLS weakening**: `is_active()` is untouched by this option (see (b)
   below for that, kept separate on purpose — combining them means a broken
-  cache-key change and a broken activity-detection change would be
+  cache-key change and a broken activity-detection change will be
   indistinguishable if either regressed).
 - **Bounded memory**: capacity tuned to the realistic concurrent-actor count
   (an LRU, not an unbounded map) — a single-tenant deployment with one
@@ -237,10 +237,10 @@ restricted caller, which is the reported symptom.
 ### (c) — considered, not recommended as the primary fix: filter lazily like Cypher/RDF
 
 The `CypherQuery`/RDF path proves a snapshot-level, filter-at-read-time
-design is sufficient and is the strongest available precedent. It was not
+design is enough and is the strongest available precedent. It was not
 chosen as the PRIMARY fix here because it is a materially larger, more
 invasive change: every primitive/algorithm currently written against a plain
-`&GraphCore` (has_node, get_neighbors, shortest-path, …) would need to
+`&GraphCore` (has_node, get_neighbors, shortest-path, …) will must
 either accept an `IsolationLayer` + actor and filter internally, or be
 re-expressed over the `GraphView` abstraction the Cypher path already uses.
 (a) gets the same effective outcome (no more per-call O(V) rebuild) as a
@@ -286,7 +286,7 @@ a fresh native execution had already gone empty).
 The sibling `result_cache` already called `invalidate_all()` at both
 `replace_snapshot` and `clear`, but that alone is insufficient: `project_core`
 builds its (expensive, `O(V log V + E log E + V*d)`) projection **off-lock**,
-so a whole-image transition landing while a build is in flight could still
+so a whole-image transition landing while a build is in flight can still
 publish a now-stale result microseconds after a bare "clear the map"
 invalidation ran.
 

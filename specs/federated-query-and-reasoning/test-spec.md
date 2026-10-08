@@ -23,6 +23,8 @@ All tests run from the repository root with local fixtures, mock servers, or iso
 | N-01 series and stats | FQR-09 | Two series at same timestamp, f64 values, constant/alternating/large windows, reference recompute. | No row collision or f32 truncation; flat window variance/z-score exactly zero; O(1) update measured independent of window length. |
 | N-02 advanced kernels | FQR-09 | Exact small Shapley oracle, seeded sampled CI, DAG/cycle impact, barrier sigma→0, motif brute-force, high-tail literal. | Exact results where specified; seeded repeatability and CI coverage; high-tail relative error ≤1e-12; budget refusal is typed. |
 | C-01 generated client | FQR-10 | Regenerate and check Rust method/error/receipt contracts; invoke UQL through Python generated sender. | Exact shape/code parity and served behavior; generated files show no manual drift. |
+| F-07 ontology source selection | FQR-11 | Ontology with labels, a subclass mapping, two sources, an unapproved mapping and a disconnected class pair. | Path and mapping per class with premises; subclass mapping serves the superclass; unapproved class uncovered; disconnected pair answers no path. |
+| F-08 operation-bound sources | FQR-04/11 | Recording MCP and GraphQL mocks with and without key-filter capability; budget one below need; ungranted source. | Equal rows with and without pushdown; residual always applied; typed budget and outbound refusals. |
 
 ## Quality and release gates
 

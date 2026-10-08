@@ -4,7 +4,7 @@
 
 ## `AuditAppend`
 
-tenant-bound operation audit: a reservation and its linked outcome with request-id/op idempotency and no raw params; requires a declared audit class and a durable writer (AUDIT_CLASS_REQUIRED, AUDIT_CLASS_UNKNOWN, AUDIT_WRITER_UNAVAILABLE); writes its own audit-chain entry directly (see src/redb_store/operation_audit.rs::operation_audit_append), not through the generic per-mutation audit_line() dispatch, like EdgeIndex above
+tenant-bound operation audit: a reservation and its linked outcome with request-id/op idempotency and no raw params. Requires a declared audit class and a durable writer (AUDIT_CLASS_REQUIRED, AUDIT_CLASS_UNKNOWN, AUDIT_WRITER_UNAVAILABLE). Writes its own audit-chain entry directly (see src/redb_store/operation_audit.rs::operation_audit_append), not through the generic per-mutation audit_line() dispatch, like EdgeIndex above
 
 | Property | Value |
 |---|---|
@@ -135,7 +135,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Audi
 
 ## `CheckAccess`
 
-confused-deputy-safe executor re-check: would this principal's own request of read/write on the request graph be admitted now (the engine's isolation/RBAC decision). Answers only allowed yes/no for one principal on one graph the caller can itself read; never the identity or the policy
+confused-deputy-safe executor re-check: will this principal's own request of read/write on the request graph be admitted now (the engine's isolation/RBAC decision). Answers only allowed yes/no for one principal on one graph the caller can itself read. Never the identity or the policy
 
 | Property | Value |
 |---|---|
@@ -301,7 +301,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Rbac
 
 ## `RbacElevation`
 
-EH-404 just-in-time elevation, runtime-conditional: list is a read (rbac:elevation-read); request/revoke need rbac:elevation, approve needs the EXACT rbac:approve-elevation scope from a direct (undelegated) principal sharing no identity with the requester; every transition is hash-chain audited in the elevation ledger that shares the rbac.redb policy WTX
+EH-404 just-in-time elevation, runtime-conditional: list is a read (rbac:elevation-read). Request/revoke need rbac:elevation, approve needs the EXACT rbac:approve-elevation scope from a direct (undelegated) principal sharing no identity with the requester. Every transition is hash-chain audited in the elevation ledger that shares the rbac.redb policy WTX
 
 | Property | Value |
 |---|---|

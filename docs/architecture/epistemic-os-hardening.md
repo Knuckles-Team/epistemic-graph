@@ -1,6 +1,6 @@
 # Epistemic OS Hardening — current capability catalog
 
-> **Purpose of this page.** This is the code-verified, line-anchored catalog of every
+> **Purpose of this page.** This is the code-checked, line-anchored catalog of every
 > capability the "Epistemic OS Hardening" program (Phase 0 → Phase 3 + the "exceed"
 > tracks) shipped into `epistemic-graph`. It exists so a static audit can use
 > `CHANGELOG.md` for release history and `docs/capabilities.md` for the
@@ -140,7 +140,7 @@ classifiers agreeing with each other by convention.
   `series.redb`) that cannot share a `WriteTransaction` (exclusive-lock conflict).
   The fix is **not** a single-file merge — it is a documented two-hop write with a
   reconciliation pass closing the gap:
-  1. Graph + vector + blob-ref + measurement (+ lowered axiom/CONSTRUCT/plan-writeback)
+  1. Graph + vector + blob-ref + measurement (+ lowered axiom/Build/plan-writeback)
      land in **one** authoritative-shard `WriteTransaction` (`redb_store.rs::commit_crossmodal`)
      — that set is the true cross-modal ACID boundary.
   2. The measurement is then replayed into the **served** `series.redb`
@@ -155,12 +155,12 @@ classifiers agreeing with each other by convention.
      point.
 - **Process note (found during the ledger-closeout wave):** the Phase-0 integration
   pass initially *missed* merging this workstream's branch to main (additive, so build
-  gates passed regardless of the miss) — it was caught later by the L16 agent and
+  gates passed in either case of the miss) — it was caught later by the L16 agent and
   restored. Worth remembering when auditing "is X really on main": additive changes can
   pass every gate while silently absent.
 - **Default-on:** part of the `redb`-backed durable server; not a separate feature flag.
 
-### Fail-secure verified request context (`src/server/auth.rs`)
+### Fail-secure checked request context (`src/server/auth.rs`)
 
 - **Only posture:** a served engine accepts only the `eg2.` envelope. It
   binds principal, tenant, audience, effective agent, roles, scopes, policy
@@ -182,7 +182,7 @@ classifiers agreeing with each other by convention.
 
 `IsolationLayer` filters every served `GraphView` before query execution. An
 unowned, undecodable, or untagged row is denied unless it is explicitly
-`_visibility: "public"` or its `_owner`/grant policy authorizes the verified
+`_visibility: "public"` or its `_owner`/grant policy authorizes the checked
 agent. The served engine always uses this posture; there is no environment
 switch or builder path that weakens it. The result-cache key includes the full
 RLS context so a filtered result cannot cross an authority boundary.
@@ -192,7 +192,7 @@ RLS context so a filtered result cannot cross an authority boundary.
 - 8 broker/stream mutating ops previously classified as **read** in `access.rs`
   (`StreamDeclare`/`Publish`/`Trim`/`CommitOffset`, `PublishConfirmed`, `BrokerAck`/
   `NackTag`, `PublishIdempotent`) were a real security gap (L10) — a read-only caller
-  could invoke them — and are now correctly classified as writes.
+  can invoke them — and are now correctly classified as writes.
 - Admin scoping is driven off the ledger's `authz_action` field, checked **once** in
   `dispatch_inner` — covering every existing admin method and, by construction, every
   future one the ledger declares.
@@ -227,8 +227,8 @@ RLS context so a filtered result cannot cross an authority boundary.
 - **The registry:** `crate::register_modality`/`registered_modalities()`
   (`crates/eg-modality/src/registry.rs`) is a `OnceLock<Mutex<Vec<ModalityDescriptor>>>`
   — a deliberate choice over `linkme`/`inventory` (neither is a workspace dependency
-  anywhere; both would be the first proc-macro dependency `eg-modality` pulls in, which
-  is meant to stay the thinnest possible seam). **Important nuance, verified in the
+  anywhere; both will be the first proc-macro dependency `eg-modality` pulls in, which
+  is meant to stay the thinnest possible seam). **Important nuance, checked in the
   registry module's own doc comment:** `register_modality()` is called from *inside* the
   `#[cfg(test)]` conformance-test module the `modality_conformance_tests!` macro
   generates — so `registered_modalities()` only populates when that crate's own test
@@ -243,7 +243,7 @@ RLS context so a filtered result cannot cross an authority boundary.
   symmetry, provenance-family non-panic, `cdc_topic` well-formedness, a malformed-payload
   decode-as-`Err` check, `analytics_ops()` well-formedness, and the TCK-report-generation
   + registration test. Invoked inside each crate's own `#[cfg(feature = "contract")]`
-  module. Document/image/audio/video additionally expose the common `serving`
+  module. Document/image/audio/video also expose the common `serving`
   runtime and are enabled by the main build's `modality-serving` feature.
 - **Adoption is source-enforced:** each `ModalityContract` implementation invokes
   `modality_conformance_tests!` behind its crate's `contract` feature. Fleet validation
@@ -270,7 +270,7 @@ RLS context so a filtered result cannot cross an authority boundary.
 - **Native served currency:** the facade `knowledge-batch` feature is folded into
   `full`. `result_stream.rs` adapts graph, SQL, RDF, vector, time-series, job, and
   cross-modal producers to bounded, snapshot-bound `KnowledgeBatchEnvelope`s. Every
-  row receives verified tenant/policy/snapshot/query/derivation/evidence references,
+  row receives checked tenant/policy/snapshot/query/derivation/evidence references,
   and `write_arrow_ipc` holds only one bounded batch at a time.
 - **`RowSet` remains the internal operator algebra;** served results cross the public
   query/job boundary as governed `KnowledgeBatch`, rather than as a family-specific
@@ -346,7 +346,7 @@ RLS context so a filtered result cannot cross an authority boundary.
 - **Crash-safe moves:** every move stores an immutable graph inventory, original
   route/epoch, target, completed graph set, and stage in a replicated
   `PartitionMoveJournal`. The placement leader reconciles non-terminal journals at
-  startup and re-verifies authoritative rows before cutover. Journal decoding and
+  startup and re-checks authoritative rows before cutover. Journal decoding and
   stage/placement mismatches fail startup closed; transitions and completed-graph
   evidence are monotonic. Exactly the placement leader drives a move, with an opaque
   per-partition local guard preventing competing local workflows. `abort_move` is
@@ -493,7 +493,7 @@ RLS context so a filtered result cannot cross an authority boundary.
   `AnalyticsJob` results. Its `KnowledgeStreamCursor` is authority-, snapshot-, and
   placement-bound; producers page bounded Arrow IPC and consumers resume without a
   row-by-row protocol projection. External workers submit work through the durable
-  analytics-job state machine and retrieve evidence-bearing committed results through
+  analytics-job state machine and fetch evidence-bearing committed results through
   the same stream, avoiding a second listener, registry, or result-publication protocol.
 - The engine's outer async driver and every Tokio worker use the same explicit 4 MiB
   stack contract. `server::spawn_engine_driver` owns the driver-thread boundary and
@@ -638,7 +638,7 @@ outbox records incrementally and advances a durable projection cursor.
   `RowVisibility`/`can_see_row` check (`crates/eg-core/src/isolation.rs`) every other
   RLS-aware read path enforces — masking (never silently dropping) an evidence node the
   caller's RLS context cannot see.
-- **The dual-arm handler (`src/server/handlers/query.rs`, both verified by direct
+- **The dual-arm handler (`src/server/handlers/query.rs`, both checked by direct
   read):**
   - `#[cfg(feature = "epistemic-redaction")]` arm: `disclosure_level: None` takes the
     byte-for-byte classic `explain_belief` path; `Some(cap)` routes through
@@ -647,7 +647,7 @@ outbox records incrementally and advances a durable projection cursor.
     `disclosure_level: Some(_)` returns an **explicit error** ("requires the
     epistemic-redaction feature, not enabled in this build") rather than silently
     ignoring the parameter and returning an unredacted tree — the one behavior that
-    would actually be dangerous.
+    will actually be dangerous.
 - **Default-on or opt-in:** `epistemic-redaction = ["epistemic", "security",
   "eg-epistemic/epistemic-redaction"]` — requires `security` too (for the shared
   `IsolationLayer`); **in `full` since WS-1b** (2026-07-12; both `security` and
@@ -656,7 +656,7 @@ outbox records incrementally and advances a durable projection cursor.
 ### The bitemporal `epistemic_status` capstone (`query.rs`, EPI-P3-5)
 
 - **What it is:** `crates/eg-epistemic/src/query.rs` (740 lines) implements the
-  why/why-not/what-changed/what-would-invalidate acceptance query family over the
+  why/why-not/what-changed/what-will-invalidate acceptance query family over the
   bitemporal `AsOf` axis, layered on the paraconsistent TMS. Two wire methods:
   - `Method::EpistemicStatus { node_id }` — the acceptance capstone: "is this still
     believed, as of when, and why" (handler `epistemic_status_wire`).
@@ -752,5 +752,5 @@ mean the source feature is deferred:
 - Live GPU/robotics parity on the target hardware and driver/toolchain versions.
 - OpenLineage delivery against the deployment's configured collector and trust profile.
 
-The generated capability ledger supplies the current method count. This narrative never
+The generated capability ledger provides the current method count. This narrative never
 freezes that count or substitutes release-history estimates for the executable gates.

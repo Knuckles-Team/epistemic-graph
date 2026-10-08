@@ -93,7 +93,7 @@ cargo run --features harness --bin nemesis -- --nodes 3 --rounds 20 --seed 42
   the observable effect on peers is identical: missed heartbeats).
 * **Multi-process** (not in-process) nodes — a true `kill -9` of a separate OS process.
   The in-process kill drops the node's Raft + redb backend, leaving the on-disk redb a
-  crash would leave (durability is the property under test, and that holds).
+  crash will leave (durability is the property under test, and that holds).
 
 ## Production-isolation guarantee
 

@@ -1,7 +1,7 @@
 # Run Epistemic Graph locally
 
 The release wheel contains the Python package, the Rust server binary, and the
-in-process engine binding. Start with the embedded binding when you want to
+in-process engine binding. Start with the embedded binding when the operator wants to
 evaluate the graph API without configuring a service.
 
 ## Install and create a graph

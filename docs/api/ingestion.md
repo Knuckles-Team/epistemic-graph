@@ -36,7 +36,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/AddE
 
 ## `Asr`
 
-self-routes before dispatch_graph_op like Quantum/Viz; direct non-durable whisper-rs transcription, commits no asr.result.v1 (that governed commit is future worker/AU-orchestration work, W03/W06)
+self-routes before dispatch_graph_op like Quantum/Viz. Direct non-durable whisper-rs transcription, commits no asr.result.v1 (that governed commit is future worker/AU-orchestration work, W03/W06)
 
 | Property | Value |
 |---|---|
@@ -102,7 +102,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Disc
 
 ## `IndexRepository`
 
-EH-280 runtime-conditional: without `scope` a stateless parse+resolve of the submitted files; with `scope` each unique blob is parsed once and the :Blob/:FileVersion/:Branch projection (tombstones remove membership) commits as one content-addressed ChangeEnvelope through ApplyChangeEnvelope, replaying an unchanged batch
+EH-280 runtime-conditional: without `scope` a stateless parse+resolve of the submitted files. With `scope` each unique blob is parsed once and the :Blob/:FileVersion/:Branch projection (tombstones remove membership) commits as one content-addressed ChangeEnvelope through ApplyChangeEnvelope, replaying an unchanged batch
 
 | Property | Value |
 |---|---|
@@ -227,7 +227,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Pars
 
 ## `Quantum`
 
-self-routes before dispatch_graph_op like AnalyticsJob/Statechart, never reaches the graph tamper-evident audit chain; R5 override audit instead rides the response's PlannerDecision.audit trail into the agent-utilities :ToolCall/:QuantumJob provenance
+self-routes before dispatch_graph_op like AnalyticsJob/Statechart, never reaches the graph tamper-evident audit chain. R5 override audit instead rides the response's PlannerDecision.audit trail into the agent-utilities :ToolCall/:QuantumJob provenance
 
 | Property | Value |
 |---|---|
@@ -263,7 +263,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Quan
 
 ## `SemanticIndex`
 
-RF-019's S1-S6 tiered ingestion queue. Runtime-conditional like the four agent layers, but over SIX authz actions rather than two: binding lifecycle is semantic:binding-write, S1 admission semantic:source-admit, subscribe/claim/release semantic:stage-claim, stage completion semantic:stage-complete, and the reads semantic:binding-read / semantic:stage-read. The row names the binding-write leg; SemanticIndexOp::authz_action is the authority for each operation
+RF-019's S1-S6 tiered ingestion queue. Runtime-conditional like the four agent layers, but over SIX authz actions rather than two: binding lifecycle is semantic:binding-write, S1 admission semantic:source-admit, subscribe/claim/release semantic:stage-claim, stage completion semantic:stage-complete, and the reads semantic:binding-read / semantic:stage-read. The row names the binding-write leg. SemanticIndexOp::authz_action is the authority for each operation
 
 | Property | Value |
 |---|---|
@@ -350,7 +350,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Sema
 
 ## `ServedModality`
 
-runtime-conditional: authority/query/events/capabilities are verified read snapshots; ingest/delete/cold/restore commit an encrypted state-backed MutationBatch
+runtime-conditional: authority/query/events/capabilities are checked read snapshots; ingest/remove/cold/restore commit an encrypted state-backed MutationBatch
 
 | Property | Value |
 |---|---|
@@ -396,7 +396,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Serv
 
 ## `SourceIngest`
 
-RF-ADR-009 native ingestion authority: tenant-bound typed Connector Manifest mapping resolution and idempotent raw-CAS admission precede one atomic ChangeEnvelope commit for mapped graph material, provenance, cursor and receipt; unknown mapping, tenant or authority fails closed; exact MCP catalog generation and digest binding makes the generated consumer contract replay-safe
+RF-ADR-009 native ingestion authority: tenant-bound typed Connector Manifest mapping resolution and idempotent raw-CAS admission precede one atomic ChangeEnvelope commit for mapped graph material, provenance, cursor and receipt. Unknown mapping, tenant or authority fails closed. Exact MCP catalog generation and digest binding makes the generated consumer contract replay-safe
 
 | Property | Value |
 |---|---|
@@ -462,7 +462,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Sour
 
 ## `TelemetryDerive`
 
-EH-408/EH-409: reads the caller's tenant-scoped stored logs/metrics/spans over one window, binds them to the request graph's declared individuals (RLS-filtered reads), derives BehaviourObservation/HealthAnomaly/Incident/ConformanceViolation facts, and self-translates into ONE BatchUpdate (upsert, deterministic fact ids) against the request graph through dispatch_graph_op; a re-derivation is an idempotent upsert
+EH-408/EH-409: reads the caller's tenant-scoped stored logs/metrics/spans over one window, binds them to the request graph's declared individuals (RLS-filtered reads), derives BehaviourObservation/HealthAnomaly/Incident/ConformanceViolation facts, and self-translates into ONE BatchUpdate (upsert, deterministic fact ids) against the request graph through dispatch_graph_op. A re-derivation is an idempotent upsert
 
 | Property | Value |
 |---|---|

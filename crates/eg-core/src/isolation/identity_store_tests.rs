@@ -111,11 +111,18 @@ pub(super) fn seeded() -> IsolationLayer {
     apply(&mut layer, role, &stamp(IDENTITY_ADMIN_SCOPE)).unwrap();
     let mut create = stamp(IDENTITY_ADMIN_SCOPE);
     create.minted_principal_id = Some("usr:alice".to_string());
-    let user = IdentityOp::User(UserOp::Create {
+    apply(&mut layer, create_user("alice", None), &create).unwrap();
+    layer
+}
+
+/// `CreateUser` for `username` holding the `reports` role, with an explicit
+/// principal id when `principal_id` is given.
+pub(super) fn create_user(username: &str, principal_id: Option<&str>) -> IdentityOp {
+    IdentityOp::User(UserOp::Create {
         request: CreateUserRequest {
-            username: "alice".to_string(),
+            username: username.to_string(),
             kind: UserKind::Human,
-            principal_id: None,
+            principal_id: principal_id.map(str::to_string),
             display_name: None,
             email: None,
             roles: BTreeSet::from(["reports".to_string()]),
@@ -123,9 +130,7 @@ pub(super) fn seeded() -> IsolationLayer {
             password: Secret::default(),
             must_change: false,
         },
-    });
-    apply(&mut layer, user, &create).unwrap();
-    layer
+    })
 }
 
 fn can_read(layer: &IsolationLayer) -> bool {
@@ -252,6 +257,35 @@ fn register_identity_cannot_overwrite_a_store_principal_and_is_audited_otherwise
     assert_eq!(last.event, IdentityEvent::RbacIdentityRegistered);
     assert_eq!(last.target.as_deref(), Some("agent:planner"));
     assert!(trail.verify().is_ok());
+}
+
+#[test]
+fn create_user_cannot_take_over_a_registered_principal() {
+    let mut layer = seeded();
+    layer
+        .try_register_agent_audited(agent("graph-os"), actor())
+        .unwrap();
+    let snapshot =
+        |layer: &IsolationLayer, id: &str| serde_json::to_string(&layer.get_identity(id)).unwrap();
+    for (username, taken) in [("graphos", "graph-os"), ("root", SYSTEM_AGENT)] {
+        let before = snapshot(&layer, taken);
+        let refused = apply(
+            &mut layer,
+            create_user(username, Some(taken)),
+            &stamp(IDENTITY_ADMIN_SCOPE),
+        );
+        assert_eq!(
+            refused,
+            Err(IdentityStoreError::Refused(IdentityRefusal::Collision)),
+            "{taken} is registered outside the store"
+        );
+        assert_eq!(snapshot(&layer, taken), before, "{taken} kept");
+        assert!(!layer.rbac().identity_store().manages(taken));
+    }
+    assert_eq!(
+        layer.get_identity(SYSTEM_AGENT).unwrap().role,
+        AgentRole::System
+    );
 }
 
 #[test]

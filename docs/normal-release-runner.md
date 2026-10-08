@@ -9,7 +9,7 @@ The reusable workflow admits only the canonical repository/owner IDs, a
 non-deletion push of `v2.27.0`, the normal `release.yml` caller and the approved
 operator `Knucklessg1` (ID 8661571), including the original sender and rerun actor.
 It independently peels the canonical remote tag, checks out `github.sha`, and
-verifies HEAD before source scripts. Other tags/manual builds use hosted x86.
+checks HEAD before source scripts. Other tags/manual builds use hosted x86.
 There are no source/command inputs or inherited publication secrets.
 
 The runner group must independently select the exact reviewed reusable workflow
@@ -20,7 +20,7 @@ separate approval. Do not broaden repository/workflow access or restore Default.
 At release cut, validate one exact latest main commit, confirm that PyPI and any
 GitHub release assets do not contain conflicting version bytes, coordinate a
 short merge pause, and retarget the version tag with the observed old tag-object
-lease. Verify the peeled remote tag after the push. Use the authenticated approved
+lease. Check the peeled remote tag after the push. Use the authenticated approved
 operator route that actually triggers workflows, not a repository GITHUB_TOKEN.
 This is not an atomic lock across main, tag, CI and publication. Later main
 advances do not invalidate an unchanged release tag.
@@ -28,7 +28,7 @@ advances do not invalidate an unchanged release tag.
 The publication job preserves required Linux x86, Linux ARM64 and Windows wheel
 completeness and engine/runtime checks. It uses a pinned shared pipelines helper
 to freeze filenames/digests and run/source identity, reject conflicting remote
-files, upload only missing exact files and verify the complete published set.
+files, upload only missing exact files and check the complete published set.
 Image publication waits for PyPI verification. Both publication paths recheck the
 canonical tag against their checkout immediately before the write boundary.
 No artifacts from the earlier release/recovery runs are imported.

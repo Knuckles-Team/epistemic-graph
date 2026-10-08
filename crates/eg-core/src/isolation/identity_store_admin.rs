@@ -82,6 +82,7 @@ impl IsolationLayer {
             .apply(op, stamp, &ctx)
             .map_err(IdentityStoreError::Refused)?;
         self.bootstrap_order(op, &next)?;
+        self.refuse_takeover(&next)?;
         if &next == self.rbac.identity_store() {
             return Ok(reply);
         }
@@ -116,6 +117,23 @@ impl IsolationLayer {
         let leaves_seed = system_repair_target(op).is_some() || !next.holds_only_seed();
         if pending && leaves_seed {
             return Err(IdentityStoreError::SystemBootstrapPending);
+        }
+        Ok(())
+    }
+
+    /// Takeover fence: the store may not start managing a principal that
+    /// already holds an identity registered outside it (`RegisterIdentity`,
+    /// the System bootstrap, a signer). The projection REPLACES a managed
+    /// principal's identity, so accepting would strip its System role and
+    /// non-`idm:` roles, and `RegisterIdentity` could not restore them.
+    fn refuse_takeover(&self, next: &IdentityStore) -> Result<(), IdentityStoreError> {
+        let current = self.rbac.identity_store();
+        let taken = self
+            .agents
+            .keys()
+            .any(|principal| next.manages(principal) && !current.manages(principal));
+        if taken {
+            return Err(IdentityStoreError::Refused(IdentityRefusal::Collision));
         }
         Ok(())
     }

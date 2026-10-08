@@ -10,7 +10,9 @@
 | I-06 | ID-03 | Stale epoch, missing surviving admin, no fresh MFA, non-loopback attestations, forged/replayed nonce, wrong tenant/principal. | Typed denial/conflict, unchanged mode and epoch, no retained session accepted after a committed transition. |
 | I-07 | ID-04 | Generate contract and install wheel in a clean environment. | Every declared scope has one class and digest; public catalog equals server registry and the consumer-derived allowlist. |
 | I-08 | ID-04 | Try human grant of service-only scope, service account admin, wildcard approver, and an unknown name. | Generation or runtime refuses each; direct human approver membership works only for the designated group. |
+| I-10 | ID-02 | Create a user whose explicit principal ID belongs to a `RegisterIdentity` principal or the System identity. | `IDENTITY_COLLISION`; the registered identity, its role set and its System role stay unchanged (`create_user_cannot_take_over_a_registered_principal`). |
 | I-09 | all | Run complete PR/release quality checks at exact commit. | No new CCCC/KISS/jscpd/Dupehound violation; generated artifacts fresh; supported Rust/Python/consumer tests pass. |
+| I-10 | ID-06 | Provision `tenant__homelab__default`, register a principal with role `tenant:homelab`, then check `__commons__` and `tenant__acme__default`. | Read on `__commons__` is allowed. Write on `__commons__` is denied. Read on the other tenant's graph is denied. Repeated provisioning keeps three grants. |
 
 ## Open acceptance gap: replicated tenant provisioning
 

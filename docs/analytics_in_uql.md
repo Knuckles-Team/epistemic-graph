@@ -10,7 +10,7 @@ surfaces, and this page keeps them apart:
   in the catalogs below is SQL; none of it is UQL syntax.
 * **UQL** ([`uql.md`](uql.md)): analytics that are pipeline *stages* over the RowSet — tumbling
   window aggregates, probabilistic scoring over stored distributions, tensor reductions, and
-  named score channels so several scores survive into one result:
+  named score channels so multiple scores survive into one result:
 
 ```uql
 TSSCAN ['cpu'] FROM 0 TO 3600 |> WINDOW 60 s MEAN |> RETURN window |> LIMIT 60
@@ -86,7 +86,7 @@ kernel. These run in-engine over resident columns just like the kernel operators
 > **Why not kernel-backed duplicates?** The task guidance is *prefer DataFusion built-ins;
 > add kernel-backed operators only where genuinely missing.* `corr`/`stddev`/`var`/`median`/
 > `approx_percentile_cont` are all present and correct on every SQL path (verified in the
-> test), so re-implementing them in the kernel would only add drift risk. The kernel earns
+> test), so re-implementing them in the kernel will only add drift risk. The kernel earns
 > its place for the operations DataFusion has **no** built-in for — PCA, SVD, k-means,
 > cosine similarity, L2-normalization — which are the analytical differentiators.
 

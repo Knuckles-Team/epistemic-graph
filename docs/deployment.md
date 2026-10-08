@@ -4,13 +4,13 @@
 dependency of `agent-utilities`, so every Agent Utilities install carries the one supported
 `epistemic-graph[full]` artifact. A local GraphOS process can autostart and supervise that
 artifact over a private UDS socket, or it can connect to a **standalone, centralized database
-container** shared across many agents. This guide covers the standalone deployment: container
+container** shared across multiple agents. This guide covers the standalone deployment: container
 recipes, connection configuration, the configuration surface, and the database architecture.
 
 > **Managed local process vs centralized service.** The `agent-utilities[mcp]` extra adds the
 > MCP serving surface on top of the same mandatory full engine; `agent-utilities[agent-runtime]`
-> additionally adds model orchestration. Neither extra selects or owns a different engine
-> build. Run the standalone server (below) when you want **one knowledge graph shared by
+> also adds model orchestration. Neither extra selects or owns a different engine
+> build. Run the standalone server (below) when the operator wants **one knowledge graph shared by
 > multiple agents**, durable separately from any agent process, or replicated for high
 > availability.
 
@@ -238,7 +238,7 @@ asyncio.run(main())
 | Argument | Env var | Default | Description |
 |----------|---------|---------|-------------|
 | `--socket-path` | `GRAPH_SERVICE_SOCKET` | platform runtime socket | UDS socket path (local clients) |
-| `--socket-mode` | `GRAPH_SERVICE_SOCKET_MODE` | `0600` | Octal mode applied to the UDS socket after bind; refused at startup if malformed or if it would grant world ("other") access |
+| `--socket-mode` | `GRAPH_SERVICE_SOCKET_MODE` | `0600` | Octal mode applied to the UDS socket after bind; refused at startup if malformed or if it will grant world ("other") access |
 | `--tcp-addr` | `GRAPH_SERVICE_TCP_ADDR` | loopback | Native TCP/TLS RPC listener |
 | `--tcp-tls-cert` / `--tcp-tls-key` | `GRAPH_SERVICE_TLS_CERT` / `GRAPH_SERVICE_TLS_KEY` | — | PEM server identity; required together for routable native TCP |
 | `--tcp-tls-client-ca` | `GRAPH_SERVICE_TLS_CLIENT_CA` | — | Optional CA bundle that enables required client certificates |
@@ -292,7 +292,7 @@ authentication in every profile. Fixed credential derivations are domain-separat
 Since 2026-07-22, `EPISTEMIC_GRAPH_REQUIRE_OIDC` defaults ON (unset ⇒ required — see
 `src/server/auth.rs`'s `require_oidc()`). This closes the primary `eg2.` protocol's
 Identity boundary seam: previously, the HMAC envelope alone (`GRAPH_SERVICE_AUTH_SECRET`)
-was sufficient to claim ANY principal/tenant/roles/scopes; OIDC verification was real but
+was enough to claim ANY principal/tenant/roles/scopes; OIDC verification was real but
 opt-in. Today, absent explicit configuration, **the server refuses to start** rather than
 silently accept HMAC-only identity — the same fail-closed posture as the mandatory
 `GRAPH_SERVICE_AUTH_SECRET` gate.

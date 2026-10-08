@@ -23,7 +23,7 @@ The bundle also carries `PolicyEnvelope`, `Derivation`, and
 `PrivacyAttestation`. Structural validation rejects duplicate identities, dangling
 references, conflicting or cyclic derivations, invalid coordinates, unsupported
 protocol versions, and failed privacy attestations. Production certification
-additionally requires all six tiers.
+also requires all six tiers.
 
 Every durable identifier uses `OpaqueRef`. Its validated lexical form cannot contain
 a URL, email address, local path, host/user name, display name, or whitespace. Raw
@@ -34,13 +34,13 @@ decoded payload cannot bypass the privacy boundary.
 
 ## Served lifecycle
 
-`ServedModalityRuntime<T>` supplies the common operational behavior:
+`ServedModalityRuntime<T>` provides the common operational behavior:
 
 - atomic batch and iterator-driven streaming ingest;
 - content-sensitive durable idempotency;
 - optimistic versioned update;
 - policy-filtered modality/segment/native-posting query and stable paging;
-- delete propagation with legal-hold enforcement;
+- remove propagation with legal-hold enforcement;
 - event-fenced tombstone collection after retention is demonstrated;
 - monotonic CDC/replay events;
 - active/cold/restore lifecycle transitions;
@@ -48,7 +48,7 @@ decoded payload cannot bypass the privacy boundary.
 
 Every mutation installs authoritative state before its event becomes visible. Batch
 ingest uses a touched-record undo journal and commits only if the complete iterator
-succeeds. A failed element therefore cannot leave a partial prefix. Delete removes the
+succeeds. A failed element therefore cannot leave a partial prefix. Remove removes the
 normalized payload and every posting while retaining only the opaque governance/audit
 envelope. Recovery rebuilds modality, segment, lexical, spatial, temporal, and
 signature postings from validated authoritative records before queries are served.
@@ -62,11 +62,11 @@ or source-specific server configuration.
 
 | Operation | Authority | Effect |
 |---|---|---|
-| `authority` | verified request context | Returns HMAC-derived tenant, access-policy, and purpose references for bundle construction |
+| `authority` | checked request context | Returns HMAC-derived tenant, access-policy, and purpose references for bundle construction |
 | `ingest` | graph write + exact occurrence policy | Runs the concrete native decoder and atomically creates/updates the served occurrence |
 | `ingest_stream` | graph write + exact occurrence policy | Validates and atomically applies two to 49 records with all-or-nothing rollback |
 | `query` | graph read + exact row/classification policy | Returns bounded, stably paged typed records |
-| `native_query` | graph read + exact row/classification policy | Executes a closed document-lexeme, image-region/pHash, audio-window, or video-window predicate through bounded native postings and exact filtering |
+| `native_query` | graph read + exact row/classification policy | Runs a closed document-lexeme, image-region/pHash, audio-window, or video-window predicate through bounded native postings and exact filtering |
 | `delete` | graph write + exact occurrence policy | Applies OCC, legal-hold, tombstone, and payload-erasure rules |
 | `move_to_cold` / `restore` | graph write + exact occurrence policy | Applies the governed lifecycle transition |
 | `events` | graph read + exact event occurrence policy | Returns bounded monotonic replay events |
@@ -74,7 +74,7 @@ or source-specific server configuration.
 | `collect_tombstones` | management scope | Collects eligible tombstones only through an explicit observed event fence |
 | `capabilities` | graph read | Returns the component TCK result only: 12 PASS / 0 N/A |
 
-Every operation requires an `eg2.` verified `RequestContext`. The server ignores the
+Every operation requires an `eg2.` checked `RequestContext`. The server ignores the
 request envelope's display identity for policy construction. It derives irreversible
 tenant/policy/purpose references with the server authentication secret and keeps the
 raw subject, tenant, roles, scopes, delegation chain, and policy version in request
@@ -83,9 +83,9 @@ memory only. `kg:admin` or the explicit
 `modality:classification:confidential` permits Confidential data; otherwise the
 boundary is Internal.
 
-The producer calls `authority`, constructs a certified `ArtifactBundle` with exactly
+The producer calls `authority`, builds a certified `ArtifactBundle` with exactly
 those opaque references, then sends the bundle and source bytes to `ingest` or a
-bounded `ingest_stream`. The handler verifies that every occurrence in the returned
+bounded `ingest_stream`. The handler checks that every occurrence in the returned
 bundle has the same authority
 and that the target artifact's opaque content token equals the content address
 produced by the concrete decoder. A caller therefore cannot attach a trusted envelope
@@ -130,7 +130,7 @@ collected = await client.modalities.collect_tombstones(
 component_tck = await client.modalities.capabilities("image")
 ```
 
-`authority` supplies the opaque references used while constructing a certified bundle;
+`authority` provides the opaque references used while building a certified bundle;
 it is not a deployment profile. Endpoint, credential, certificate, filesystem, and
 source-system settings remain external connection configuration and never enter a
 modality operation or durable bundle.
@@ -161,7 +161,7 @@ to records and events.
 Source bytes are decoded only in request memory. They are absent from runtime
 snapshots, graph properties, audit lines, CDC events, status/outbox rows, and durable
 MutationBatch operations. The durable operation is a SHA-256 descriptor over only
-the operation category and already-opaque references; the independently verified
+the operation category and already-opaque references; the independently checked
 state descriptor binds the authenticated state image. Before sealing, ingest scans
 the serialized plaintext normalized snapshot and rejects any surviving source
 sequence. Its tamper-evident audit link retains only that digest;
@@ -219,7 +219,7 @@ The native runtimes do real work without native libraries or external processes:
 | Audio | Strict 8/16-bit PCM/WAV decode, bounded complete-coverage peak/RMS/spectral windows, energy VAD, opaque-channel grouping, temporal/RMS predicates |
 | Video | Strict ISOBMFF brand/track/sample-table extraction, mdat range validation, frame timing/keyframes, current 24-bit raw-RGB frame decode, temporal predicates |
 
-The runtime reports only operations it actually executes. Compressed video samples
+The runtime reports only operations it actually runs. Compressed video samples
 remain exact encoded frame slices rather than being mislabeled as decoded pixels.
 
 ## Component TCK and release certification
@@ -228,13 +228,13 @@ The internal `TckReport::is_production_ready()` predicate requires all 12 core p
 to be `PASS`, no `N/A`, and a passing native production probe. The public capabilities
 response exposes this only as `component_ready`, `component_pass`,
 `component_not_applicable`, and `component_total`; it does not claim release
-readiness. The native probe executes the concrete codec,
+readiness. The native probe runs the concrete codec,
 source-free normalization, secondary-index generation, typed predicate, malformed
 input rejection, and resource bound. The
 fleet test registers document, image, audio, and video and asserts exactly 12 passes
 and zero N/A results plus the probe for each.
 
-Production release readiness additionally requires a passing G-14 campaign against
+Production release readiness also requires a passing G-14 campaign against
 the sealed release binary, including exact artifact round trips, authorization,
 crash/restart and restore migration, retention-fenced collection, malformed/resource
 rejection, the full four-by-four fault matrix, raw-source exclusion, and same-artifact
@@ -248,7 +248,7 @@ G-37 performance evidence.
 | Storage/index/stats | Normalized record plus modality/segment/native posting indexes |
 | Typed query | Closed wire predicates, posting candidate selection, and exact filtering |
 | Transaction | One staged governed record |
-| CDC/delete/retention | Monotonic event stream, tombstone, policy envelope |
+| CDC/remove/retention | Monotonic event stream, tombstone, policy envelope |
 | Tenant/region policy | Exact policy-scope matching |
 | Provenance/evidence | Derivation plus exact loci |
 | Backup/migrate/recover | Snapshot round trip and validation |
@@ -256,7 +256,7 @@ G-37 performance evidence.
 | Interop/workload | Common contract and KnowledgeBatch stream |
 
 `crates/eg-modality/tests/served_runtime.rs` also ingests 4,096 governed records,
-executes a selective native lexical query, asserts that only the 64 posting candidates
+runs a selective native lexical query, asserts that only the 64 posting candidates
 are examined, snapshots/rebuilds the runtime, and repeats the same bound after
 recovery. Leaf probes cover format-specific malformed and structural ceilings.
 
@@ -277,7 +277,7 @@ recovery. Leaf probes cover format-specific malformed and structural ceilings.
 
 Each stream requires opaque tenant, access-policy, placement, snapshot, query,
 derivation, and evidence-set references. Tenant and access-policy references are
-keyed from the already verified RequestContext; query, snapshot, evidence-set, and
+keyed from the already checked RequestContext; query, snapshot, evidence-set, and
 row identities are keyed as well. Raw tenant, principal, agent, role, scope,
 delegation, policy, graph, query, and source-row strings never enter a cursor or
 native result row. The adapter injects the opaque references into every row before
@@ -288,7 +288,7 @@ unsafe path-like evidence, and rows that bypass governance context.
 The request contains one typed query variant (`Graph`, `Sql`, `Rdf`,
 `Vector`, `TimeSeries`, `Job`, or `CrossModal`), a non-zero batch size, and an optional
 cursor. A request without a cursor opens the snapshot; each response carries one Arrow
-IPC batch and the cursor for the next pull. The dispatch point is after verified
+IPC batch and the cursor for the next pull. The dispatch point is after checked
 RequestContext scope enforcement, graph ACL/RLS filtering, lazy-materialization
 readiness, and authoritative placement resolution. The cursor binds result family,
 tenant, access policy, placement epoch/fence, the complete result snapshot, query,

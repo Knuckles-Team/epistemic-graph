@@ -3,7 +3,10 @@
 //! A verdict is honored only against the exact credential generation it
 //! names; every refusal is tested with the nearest verdict that is accepted.
 
-use super::auth::{apply_verdict, outcome, replace_password, sign_in, verdict, with_password};
+use super::auth::{
+    apply_verdict, assert_reuse_refused, assert_stale_after_replace, outcome, replace_password,
+    sign_in, verdict, with_password,
+};
 use super::*;
 
 fn change_own_password() -> IdentityOp {
@@ -155,22 +158,9 @@ fn administrative_password_policy_verdicts_are_bound_to_the_checked_history() {
         stale.password_hash = Some("synthetic-password-hash-p1".to_string());
         let first = stale.clone();
         apply_kept(&mut store, &op, &first, NOW).unwrap();
-        if replace_twice {
-            replace_password(&mut store, &alice, "synthetic-password-hash-p2");
-        }
-        let before = store.clone();
-        assert_eq!(
-            store.apply(&op, &stale, &ctx_at(NOW)),
-            Err(IdentityRefusal::StaleCredential)
-        );
-        assert_eq!(store, before, "no credential, session or audit mutation");
+        let before = assert_stale_after_replace(&mut store, &alice, replace_twice, (&op, &stale));
         let mut fresh = stale;
-        fresh.password_check = Some(check_for(&store, Some(&alice), true));
-        assert_eq!(
-            store.apply(&op, &fresh, &ctx_at(NOW)),
-            Err(IdentityRefusal::PasswordReused)
-        );
-        assert_eq!(store, before);
+        assert_reuse_refused(&mut store, &alice, (&op, &mut fresh), &before);
         fresh.password_check = Some(check_for(&store, Some(&alice), false));
         fresh.password_hash = Some("synthetic-password-hash-p3".to_string());
         apply_kept(&mut store, &op, &fresh, NOW).unwrap();

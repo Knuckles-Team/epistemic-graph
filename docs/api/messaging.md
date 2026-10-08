@@ -958,7 +958,7 @@ PublishIdempotent is the one exception (producer-id/seq dedup makes replays idem
 
 | Parameter | Type | Required | Description |
 |---|---|:---:|---|
-| `delay_ms` | integer \| null | no | EG-279: hold the message non-claimable for this many ms from `now_ms`. |
+| `delay_ms` | integer \| null | no | EG-279: hold the message non-claimable for this multiple ms from `now_ms`. |
 | `exchange` | string | yes |  |
 | `now_ms` | integer \| null | no | Caller clock (ms since epoch) used to resolve `delay_ms`/`ttl_ms` to absolute etas — explicit so WAL replay is deterministic. |
 | `payload` | array of integer (uint8) | yes |  |
@@ -1236,8 +1236,8 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Stre
 
 | Parameter | Type | Required | Description |
 |---|---|:---:|---|
-| `max_age_ms` | integer \| null | no | Drop messages older than this many ms (`now_ms - ts`) on trim. |
-| `max_messages` | integer \| null | no | Keep at most this many newest messages (older dropped on trim). |
+| `max_age_ms` | integer \| null | no | Drop messages older than this multiple ms (`now_ms - ts`) on trim. |
+| `max_messages` | integer \| null | no | Keep at most this multiple newest messages (older dropped on trim). |
 | `stream` | string | yes |  |
 
 **Result**

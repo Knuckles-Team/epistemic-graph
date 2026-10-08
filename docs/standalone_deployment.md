@@ -1,6 +1,6 @@
 # Standalone deployment — just the engine, nothing else
 
-`epistemic-graph` is a **self-contained durable database**. You do **not** need
+`epistemic-graph` is a **self-contained durable database**. The operator do **not** need
 `agent-utilities`, a KG hub, or any other service to run it — the shipped
 `epistemic-graph-server` binary *is* the whole product. This page is the copy-paste
 recipe to stand up a running database two ways:
@@ -21,7 +21,7 @@ to the optional orchestrator and UIs, see the
 
 ---
 
-## What you get
+## What the operator get
 
 The published wheel is the **one main build** — a *complete single-node DB*:
 durable redb-authoritative store + Cypher + DataFusion **SQL** + vector ANN +
@@ -88,7 +88,7 @@ epistemic-graph-server \
 
 That is a running database. It also opens a MessagePack RPC transport — a local
 **Unix Domain Socket** in the platform runtime directory, and a TCP listener if
-you add `--tcp-addr`. Neither is
+the operator adds `--tcp-addr`. Neither is
 needed to use the Postgres wire; they are for the native `epistemic_graph` client.
 
 Minimal env-only variant (everything via environment, no flags):

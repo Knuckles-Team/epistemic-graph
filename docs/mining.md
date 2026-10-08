@@ -187,7 +187,7 @@ retrieval — but it can only express "every node with this label". The `plan`
 parameter (CONCEPT:EG-KG.mining.fused-plan-source) generalizes that to an
 **arbitrary upstream cross-modal retrieval plan** — the SAME `Op` algebra
 `unified_query` runs (`Scan`/`Filter`/`Traverse`/`Rank`/`RankText`/`Reason`/…):
-the plan executes FIRST, over the resident graph/vector/SQL/RDF modalities, and
+the plan runs FIRST, over the resident graph/vector/SQL/RDF modalities, and
 the resulting rows' stored embeddings become the mining op's feature matrix —
 so "retrieve a candidate set, then mine it, then write back" is ONE round trip,
 never two. `cluster`, `anomaly`, `classify_fit`, `classify_predict`, and
@@ -207,7 +207,7 @@ res = c.mining.cluster(
 )
 ```
 
-A plan is graph-derived like `source`, and the canonical mutation applier executes it
+A plan is graph-derived like `source`, and the canonical mutation applier runs it
 deterministically against the current graph state. A plan leg that matches no
 rows degrades to an empty feature set (never an error) — the same "no match ⇒
 empty" contract every other mining source honors. **Scope cut:** the
@@ -344,7 +344,7 @@ With `writeback=true` each flagged row becomes a typed `:Anomaly` node (`algo`,
 `score`, `source`; deterministic id) linked (`ANOMALY_OF`) to its resident source
 node (CONCEPT:EG-KG.mining.anomaly-writeback) — so the RCA result feeds OWL
 reasoning + the next mining pass. This directly serves the evolution use case:
-anomaly-detect our own **concept-implementation coverage** to surface divergent /
+anomaly-detect this repository's own **concept-implementation coverage** to surface divergent /
 under-implemented areas for the wiring sweep.
 
 ## MCP + REST (cluster / anomaly)
@@ -377,7 +377,7 @@ estimators with the four classical linear/probabilistic/instance classifiers:
 - **`multinomialnb`** — Multinomial Naive Bayes; Laplace-smoothed (`alpha`)
   class-conditional log-probabilities over non-negative count features.
 - **`knn`** — brute k-nearest-neighbor majority vote (`k` neighbors); `proba` is the
-  per-class vote fraction. (A brute scan over the feature rows — the ANN index would
+  per-class vote fraction. (A brute scan over the feature rows — the ANN index will
   accelerate this at 1M+ scale; the exact vote keeps parity deterministic.)
 - **`logistic`** — one-vs-rest logistic regression fit by batch gradient descent
   (`lr`, `epochs`, L2 `l2`). Handles binary and multiclass.
@@ -440,7 +440,7 @@ embedding `{id, coords}`. Beyond the datascience PCA:
 **Scope (honest):** SVD and LDA are exact, deterministic, parity-checkable linear
 algebra. **UMAP and t-SNE are approximate, iterative, and intended for small N**
 (viz-scale — hundreds to low thousands of rows); they preserve neighborhood/cluster
-structure, **not** exact coordinates, and are deterministic per `seed` (verified by a
+structure, **not** exact coordinates, and are deterministic per `seed` (checked by a
 neighbor-preservation sanity check on planted clusters, not an exact-coordinate
 assertion).
 
@@ -597,7 +597,7 @@ out = await c.mining.forecast(values=series, algorithm="stl", period=12, horizon
 
 With `writeback=True`, the forecast is materialized as a typed `:Forecast{horizon,
 values, lower, upper}` node — linked `FORECAST_OF` to a resident node named
-`series_id` when one is given and exists (e.g. a `:Metric` node whose id you pass as
+`series_id` when one is given and exists (e.g. a `:Metric` node whose id the operator passes as
 `series_id`) — feeding the evolution flywheel's "anticipate where to invest" use case
 (forecasting research-topic trajectories, capacity trends, etc.).
 

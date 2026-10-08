@@ -43,7 +43,7 @@ any TCP selection, or TLS configuration is refused. Missing sockets fail without
 consulting environment defaults or the conventional `/tmp` fallback.
 
 The restriction applies to every request and reconnect for that client, including
-claims supplied later through `use_verified_context`. A task-local restriction
+claims provided later through `use_verified_context`. A task-local restriction
 must equal the connection's restriction; it cannot upgrade an existing unbound
 client. Create a separately bound client instead. Claims remain task-local and
 the synchronous client forwards both APIs, including calls through namespaces.
@@ -57,7 +57,7 @@ A bound context containing `oidc_token` also requires `write_admission`. Both
 `Callable[[RequestContextClaims], ContextManager[None]]`. It receives a defensive
 copy of the exact claims serialized for that request. Its context manager must
 acquire the same lock used for atomic credential renewal, check that the current
-verified proof and authority still match those claims and the intended recipient,
+checked proof and authority still match those claims and the intended recipient,
 and reject expired or superseded proof. It must hold that lock through `yield`.
 The client enters it after any reconnect and write-lock wait, checks the actual
 recipient again, and writes both frame parts without awaiting. It releases
@@ -68,11 +68,11 @@ expired or renewed to B, the queued A request is refused before any bytes. The
 caller may start a new request with a fresh projection; the client does not
 automatically replay or re-sign it. Claims and their admission factory remain
 paired through concurrent tasks, synchronous calls, and native codec preparation.
-A task-local context must supply its own factory; it never inherits another
+A task-local context must provide its own factory; it never inherits another
 session's factory from the connection. Proof-free transport setup needs none.
 
 Admission factories must be short, synchronous, reusable, and perform no network
-I/O or nested RPC. Their managers must yield `None` and exit synchronously without
+`I/O` or nested RPC. Their managers must yield `None` and exit synchronously without
 raising. Never hold the renewal lock while calling a synchronous client: the
 client's event-loop thread must acquire it. Entry refusals become a sanitized
 `PermissionError`, clean up the pending call, and leave a healthy transport
@@ -80,7 +80,7 @@ usable. Cleanup failure is transport-fatal because bytes may already have been
 written. No callback or proof material is included in diagnostics or wire fields.
 
 Bound clients refuse `fresh_bolt_auth_token()`, because an exported credential
-could be used on a separate connection outside this restriction. Existing clients
+can be used on a separate connection outside this restriction. Existing clients
 without `required_socket_path` retain their normal remote transport behavior.
 This is local endpoint confinement, not cryptographic peer identity: deployments
 must protect the socket and its parent directories against replacement. Proof
@@ -104,7 +104,7 @@ The complete Python client binds the two served protocols directly:
 | Namespace | Current operation | Result |
 |---|---|---|
 | `client.knowledge` | `pull(query, batch_size=..., cursor=...)` | One `arrow_ipc` payload and an authority-/placement-/snapshot-bound cursor |
-| `client.modalities` | `authority()` | Opaque tenant, access-policy, and purpose references derived from the verified request |
+| `client.modalities` | `authority()` | Opaque tenant, access-policy, and purpose references derived from the checked request |
 | `client.modalities` | `ingest(...)` | Atomic native decode/create/update outcome |
 | `client.modalities` | `query(...)` | Bounded page of active or authorized cold records |
 | `client.modalities` | `search_documents(...)`, `query_image_region(...)`, `query_similar_images(...)`, `query_audio_window(...)`, `query_video_window(...)` | Bounded native-posting query with exact policy and predicate filtering |
@@ -149,7 +149,7 @@ and trust configuration remains outside these protocol payloads.
 
 - **Framing:** a 4-byte **big-endian** length prefix + a MessagePack request
   `{ id, graph, auth_token, method, params }`.
-- **Auth:** every driver requires complete verified-context claims and signs the
+- **Auth:** every driver requires complete checked-context claims and signs the
   sole `eg2.` identity/policy envelope. GraphOS binds those claims from the
   immutable authenticated `GraphSession`. There is no anonymous or reduced-claim
   client mode. See [Service mode](../service_mode.md#authentication-protocol).
@@ -159,7 +159,7 @@ and trust configuration remains outside these protocol payloads.
   encoder: the embedded `eg_method_codec.wasm` (`crates/eg-method-codec`, built by
   `scripts/build_method_codec_wasm.py`). Each client's vector test replays every
   contract method-body vector (body digest + engine envelope MAC) through its signer. A
-  request the engine could not decode is refused before it is sent.
+  request the engine can not decode is refused before it is sent.
 - **Correlation:** each response carries the request `id`. The Python client demuxes
   out-of-order responses on one pipelined connection (EG-043); the thin JS client does the
   same by `id`; the thin Go client serializes one round-trip at a time (in-order).

@@ -35,7 +35,7 @@ itself. These sites implement the replacement that the lint directs callers to.
 
 **Invariant.** The joined thread is meant to run for the whole life of the
 process, so the join returns when the process is asked to stop. There is no
-concurrent party that might fail to arrive. Any deadline would mean "stop
+concurrent party that may fail to arrive. Any deadline will mean "stop
 serving after N seconds".
 
 **Sites.**
@@ -46,7 +46,7 @@ serving after N seconds".
 **Invariant.** A long-lived worker blocks in `recv` as its idle state, not while
 waiting for a reply. "No command yet" is normal. The worker's only termination
 condition is every sender dropping, and `recv` reports that promptly as `Err`.
-A `recv_timeout` inside `while let Ok(..)` would make the worker exit the first
+A `recv_timeout` inside `while let Ok(..)` will make the worker exit the first
 time its owner paused, losing the state it owns.
 
 **Sites.**
@@ -57,7 +57,7 @@ time its owner paused, losing the state it owns.
 
 **Invariant.** The unbounded wait runs entirely inside an enclosing deadline
 that turns a missed party into a test failure. A second deadline inside the
-wait could fire only after the outer one had already failed the test.
+wait can fire only after the outer one had already failed the test.
 
 **Sites.**
 - `src/server/persistence/redb_backend.rs`: the concurrent shard fan-out
@@ -66,7 +66,7 @@ wait could fire only after the outer one had already failed the test.
 ## panic-fixture-join
 
 **Invariant.** In a test, the joined thread panics unconditionally and has
-nothing between `spawn` and `panic!` that could block. The panic is the
+nothing between `spawn` and `panic!` that can block. The panic is the
 fixture itself, for example the way a mutex gets poisoned. `join_bounded`
 cannot be used because it re-raises the worker's panic.
 

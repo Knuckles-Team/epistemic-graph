@@ -8,7 +8,7 @@ learned edge-function is *itself* a queryable KG node. The headline is
 can rank missing links, but it cannot answer *why*. Here the scoring function that
 combines structural signals into a link probability is a small set of learned,
 inspectable univariate curves (one per feature), materialized as `:EdgeFunction`
-nodes you can Cypher-query.
+nodes the operator can Cypher-query.
 
 This is a pure-Rust, resident-graph-scale primitive (comparable in ambition to the
 existing Jaccard/Louvain machinery). Deep multi-layer KAN-GNNs (GraphKAN/KAGAT at
@@ -106,7 +106,7 @@ MATCH (e:EdgeFunction) RETURN e.feature, e.coefficients ORDER BY e.feature
 ```
 
 Each row is the Chebyshev coefficient vector of the univariate function that maps that
-structural feature to its contribution to the link score — you can plot it, diff it
+structural feature to its contribution to the link score — the operator can plot it, diff it
 across fits, or reason over it in the KG like any other node.
 
 ## Honest ceiling
