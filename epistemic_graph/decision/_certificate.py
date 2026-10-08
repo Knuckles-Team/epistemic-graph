@@ -17,6 +17,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from pydantic import ValidationError
+
+from ..generated.models import Incumbent
 from ._digest import raw_digest
 
 MODEL_DIGEST_DOMAIN = "eg-solve/model/v1"
@@ -132,9 +135,19 @@ def _holds(relation: str, lhs: int, rhs: int) -> bool:
     ]
 
 
+def _incumbent_selection(incumbent: dict[str, Any]) -> list[bool]:
+    """Admit the generated wire shape without coercing assignment values."""
+    try:
+        return Incumbent.model_validate(incumbent, strict=True).selected
+    except ValidationError as exc:
+        raise CertificateError(
+            "the incumbent does not match the typed contract"
+        ) from exc
+
+
 def check_incumbent(model: Model, incumbent: dict[str, Any]) -> int:
     """A feasible incumbent whose claimed objective matches the recomputed one."""
-    selected = incumbent["selected"]
+    selected = _incumbent_selection(incumbent)
     if len(selected) != len(model.weights):
         raise CertificateError("the incumbent has the wrong number of variables")
     for index, row in enumerate(model.rows):
