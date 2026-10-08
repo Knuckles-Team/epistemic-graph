@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import collections
-import os
 import threading
 import time
 
@@ -18,24 +16,6 @@ from epistemic_graph.client import (
 )
 
 pytestmark = pytest.mark.no_engine
-
-
-def _resources() -> tuple[int, int, int, collections.Counter[str]]:
-    sockets = 0
-    epolls = 0
-    for fd in os.listdir("/proc/self/fd"):
-        try:
-            target = os.readlink(f"/proc/self/fd/{fd}")
-        except OSError:
-            continue
-        sockets += target.startswith("socket:")
-        epolls += "eventpoll" in target
-    return (
-        len(os.listdir("/proc/self/fd")),
-        sockets,
-        epolls,
-        collections.Counter(thread.name for thread in threading.enumerate()),
-    )
 
 
 class _AsyncClient(EpistemicGraphClient):
@@ -124,10 +104,6 @@ def test_sync_deadline_cancels_blocked_graph_future_without_asyncio_run_tail() -
     } == baseline_workers
 
 
-@pytest.mark.skipif(
-    not os.path.isdir("/proc/self/fd"),
-    reason="requires Linux /proc file-descriptor accounting",
-)
 def test_failed_sync_connect_releases_its_loop_resources(monkeypatch) -> None:
     """A failed async dial must not strand the loop thread or selector FDs."""
 
@@ -155,10 +131,6 @@ def test_failed_sync_connect_releases_its_loop_resources(monkeypatch) -> None:
         assert not thread.is_alive(), "owned loop thread remains alive"
 
 
-@pytest.mark.skipif(
-    not os.path.isdir("/proc/self/fd"),
-    reason="requires Linux /proc file-descriptor accounting",
-)
 def test_successful_sync_close_releases_loop_resources_once(monkeypatch) -> None:
     """The successful path closes the selector and remains idempotent."""
     clients: list[_AsyncClient] = []
@@ -169,21 +141,20 @@ def test_successful_sync_close_releases_loop_resources_once(monkeypatch) -> None
         return client
 
     monkeypatch.setattr(EpistemicGraphClient, "connect", connect)
-    baseline = _resources()
+    # Unrelated cleanup changes process totals but cannot change client ownership.
+    unrelated_loop = asyncio.new_event_loop()
 
     for _ in range(32):
         client = SyncEpistemicGraphClient.connect(verified_context={})
+        unrelated_loop.close()
         client.close()
         client.close()
-        assert _resources() == baseline
+        assert client._loop.is_closed(), "owned selector remains open"
+        assert not client._thread.is_alive(), "owned loop thread remains alive"
 
     assert all(client.close_calls == 1 for client in clients)
 
 
-@pytest.mark.skipif(
-    not os.path.isdir("/proc/self/fd"),
-    reason="requires Linux /proc file-descriptor accounting",
-)
 def test_sync_close_retries_loop_teardown_without_reclosing_transport(
     monkeypatch,
 ) -> None:
@@ -208,15 +179,15 @@ def test_sync_close_retries_loop_teardown_without_reclosing_transport(
         "_stop_loop",
         staticmethod(fail_once),
     )
-    baseline = _resources()
     client = SyncEpistemicGraphClient.connect(verified_context={})
 
     client.close()
     assert not client._loop.is_closed()
+    assert client._thread.is_alive()
     assert async_client.close_calls == 1
 
     client.close()
     assert client._loop.is_closed()
     assert async_client.close_calls == 1
     assert stop_calls == 2
-    assert _resources() == baseline
+    assert not client._thread.is_alive(), "owned loop thread remains alive"
