@@ -13,12 +13,14 @@ use eg_types::connector_pack::{
 };
 use eg_types::contract::Digest256;
 
+use crate::server::persistence::agent_library::AgentLibraryStore;
 use crate::server::persistence::connector_pack::ConnectorPackMemberRow;
 
 use super::facts::{component_kind, facts};
 use super::validation::{entry_description, section_bytes, violation};
 
 pub(super) fn build_all_desired(
+    store: &AgentLibraryStore,
     request: &ConnectorPackImportRequest,
     archive: &[u8],
     all: &[&PackEntry],
@@ -29,6 +31,7 @@ pub(super) fn build_all_desired(
     let mut complete = BTreeMap::new();
     let mut visiting = BTreeSet::new();
     let mut builder = DesiredBuilder {
+        store,
         request,
         server_uri: &request.index.server.uri,
         entries,
@@ -56,7 +59,21 @@ pub(super) struct Desired {
     valid: bool,
 }
 
+impl Desired {
+    /// Content equality alone cannot carry forward a revision whose resolved
+    /// references or server pin changed. Package provenance is not a pin.
+    pub(super) fn pins_match(&self, current: &AgentComponentEntry) -> bool {
+        let mut wanted: Vec<_> = self.draft.requires.iter().collect();
+        let mut stored: Vec<_> = current.requires.iter().collect();
+        wanted.sort();
+        stored.sort();
+        wanted == stored
+            && self.draft.provenance.pinned_component() == current.provenance.pinned_component()
+    }
+}
+
 struct DesiredBuilder<'a> {
+    store: &'a AgentLibraryStore,
     request: &'a ConnectorPackImportRequest,
     server_uri: &'a str,
     entries: &'a BTreeMap<String, &'a PackEntry>,
@@ -168,7 +185,15 @@ impl DesiredBuilder<'_> {
             member.lifecycle == AgentLibraryLifecycle::Published
                 && member.entry_digest == entry_digest
         }) {
-            return Ok(member.definition_digest.clone());
+            let current = self
+                .store
+                .current_component(&self.request.context.tenant_id, &desired.component_id)?
+                .ok_or_else(|| {
+                    "CORRUPT_CONNECTOR_PACK: member has no component revision".to_string()
+                })?;
+            if desired.pins_match(&current) {
+                return Ok(member.definition_digest.clone());
+            }
         }
         Ok(AgentComponentEntry::publish(
             desired.draft.clone(),

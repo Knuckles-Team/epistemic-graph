@@ -38,7 +38,9 @@
     "EG-UNIFIED-DATA-PLANE-R033",
     "EG-UNIFIED-DATA-PLANE-R034",
     "EG-UNIFIED-DATA-PLANE-R035",
-    "EG-UNIFIED-DATA-PLANE-R036"
+    "EG-UNIFIED-DATA-PLANE-R036",
+    "EG-UNIFIED-DATA-PLANE-R037",
+    "EG-UNIFIED-DATA-PLANE-R038"
   ],
   "delivery_state": "SPECIFIED",
   "acceptance_state": "NOT_AUDITED",
@@ -283,6 +285,18 @@
           "description": "Implemented on the default branch; exercised by crates/eg-stream/src/telemetry/tests/conformance.rs::a_service_declared_healthy_but_erroring_is_a_violation"
         }
       ]
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R037",
+      "title": "Virtual-graph vocabulary is an EG core schema source",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R038",
+      "title": "Materialize metadata and hot subsets; virtualize the rest",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
     }
   ]
 }

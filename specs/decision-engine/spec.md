@@ -29,6 +29,10 @@ Each requirement has two independent states. **Delivery:** `WAITING` means no re
 
 `ACCEPTED` requires published-main contract generation, deterministic solver and verifier proof, served client requests, versioned replay vectors, negative authorization/visibility and pack-claim probes, and hosted CI at the exact commit. Each affected requirement ID gets its own evidence row; completing other requirements in the same implementation sequence does not automatically close unrelated IDs. CCCC, jscpd (zero new clone pairs), Dupehound and KISS checks apply to changed code alongside formatting, Clippy, package tests and generated contract freshness. Hosted checks must provision disposable fixtures; credentials or an existing live deployment cannot be required to run the baseline PR gate. Optional deployment qualification is recorded separately.
 
+### Task-plan facts (EG-DECISION-ENGINE-R126, EG-DECISION-ENGINE-R127)
+
+An agent-utilities task planner answers "How can I execute task X?" as one plan. EG supplies the facts behind that plan; the planner only composes them. `AgentAssemble` (EG-DECISION-ENGINE-R036) remains the authority for agent composition. The coverage query (EG-DECISION-ENGINE-R126) names Agent Library templates and A2A agents that already serve each capability. The guardrail query (EG-DECISION-ENGINE-R127) names the rules each task class must follow. Both answers carry premises, so the planner cites ontology facts for every plan element. Neither answer authorizes execution. The consumer contract is AU-CONTROL-R027 in [agent-utilities](https://github.com/Knuckles-Team/agent-utilities/tree/main/specs/agent-control-plane).
+
 ## Coverage map
 
 The stable IDs identify obligations even if implementation moves. T1–T9 are sequence labels; a dash means a cross-cutting invariant. This spec contains the full normative behavior and test design; no other repository is required to understand or implement it.
@@ -38,6 +42,7 @@ The stable IDs identify obligations even if implementation moves. T1–T9 are se
 | Core decision/solver | EG-DECISION-ENGINE-R001–046, EG-DECISION-ENGINE-R046–074 (T1, T2, T3, T4; EG-DECISION-ENGINE-R015/017–019 cross-cutting), EG-DECISION-ENGINE-R076 (T4), EG-DECISION-ENGINE-R082 et seq. (T4; see `requirements.md`), EG-DECISION-ENGINE-R095 (T3) | Behavior 1–5; architecture §§1–4; tests A–D |
 | Pack facts consumed by Decide | EG-DECISION-ENGINE-R050, EG-DECISION-ENGINE-R061, EG-DECISION-ENGINE-R075, EG-TYPED-PACKS-R032, EG-TYPED-PACKS-R042 et seq. (see `typed-packs-and-catalog/requirements.md`), EG-TYPED-PACKS-R066 | Behavior 6; architecture §5; tests E |
 | Decision consumers and future questions | EG-DECISION-ENGINE-R100 (T6), EG-DECISION-ENGINE-R104 (T4), EG-DECISION-ENGINE-R105 et seq. (T6; see `requirements.md`), EG-DECISION-ENGINE-R118 (T6) | Behavior 5; architecture §6; tests D |
+| Task-plan facts | EG-DECISION-ENGINE-R126, EG-DECISION-ENGINE-R127 (T6) | Behavior 2 and 5; acceptance "Task-plan facts"; tests D2 |
 
 The exact decision-owned ID inventory is in `coverage.md`; it includes each title, sequence label and historical delivery claim for review. Pack storage and import failure rules have their own owner spec. The range EG-DECISION-ENGINE-R001–074 excludes an end-to-end decision journey tested as an integration fixture by the web UI's own spec. Historical decisions may be `RETIRED` only with a recorded superseding choice.
 
