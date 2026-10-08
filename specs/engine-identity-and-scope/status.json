@@ -7,7 +7,8 @@
     "EG-IDENTITY-R002",
     "EG-IDENTITY-R003",
     "EG-IDENTITY-R004",
-    "EG-IDENTITY-R005"
+    "EG-IDENTITY-R005",
+    "EG-IDENTITY-R006"
   ],
   "delivery_state": "SPECIFIED",
   "acceptance_state": "NOT_AUDITED",
@@ -75,6 +76,13 @@
       "delivery_state": "SPECIFIED",
       "evidence": [],
       "remaining": "src/server/handlers/semantic_index/worker.rs dispatches StageClaim/StageStatus/etc. (different queue classes) all reading ctx.authority.agent_id() from one authenticated request context, which structurally supports a single identity per request, but no integration test was found confirming the SAME …"
+    },
+    {
+      "id": "EG-IDENTITY-R006",
+      "title": "Tenant roles read the shared commons graph",
+      "delivery_state": "BUILDING",
+      "evidence": [],
+      "remaining": "Merge the PR. Backfill the grant for tenant roles provisioned before this change (task I-8)."
     }
   ]
 }
