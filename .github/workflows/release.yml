@@ -1072,7 +1072,8 @@ jobs:
           assert re.fullmatch(r'[0-9]+[.][0-9]+[.][0-9]+', channel);
           open(os.environ['GITHUB_OUTPUT'],'a',encoding='utf-8').write(f'channel={channel}\n')"
 
-      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
+      - &eg-wheel-rust
+        uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
         with:
           toolchain: ${{ steps.rust-toolchain.outputs.channel }}
           targets: ${{ matrix.target }}
@@ -1096,7 +1097,8 @@ jobs:
       # -ffile-prefix-map (GCC 8+ only) and falls back to -fdebug-prefix-map,
       # written to a CFLAGS_<target> variable scoped to this leg alone so it
       # can never reach a different leg's toolchain.
-      - name: Configure identity-neutral Rust source paths
+      - &eg-wheel-remap
+        name: Configure identity-neutral Rust source paths
         shell: bash
         run: python scripts/configure_rust_path_remap.py --github-env "$GITHUB_ENV" --target "${{ matrix.target }}"
 
@@ -1520,8 +1522,11 @@ jobs:
     concurrency:
       group: engine-main-wheel
       cancel-in-progress: true
+    strategy:
+      matrix:
+        target: [x86_64-unknown-linux-gnu]
     env:
-      EG_WHEEL_TARGET: x86_64-unknown-linux-gnu
+      EG_WHEEL_TARGET: ${{ matrix.target }}
       EG_WHEEL_MATURIN_ARGS: ""
       EG_WHEEL_JOBS_ARG: "--jobs 2"
       EG_WHEEL_MANYLINUX: "2_28"
@@ -1530,16 +1535,10 @@ jobs:
       - *eg-gates-python
       - *eg-wheel-toolchain-pin
 
-      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
-        with:
-          toolchain: ${{ steps.rust-toolchain.outputs.channel }}
-          targets: x86_64-unknown-linux-gnu
-
+      - *eg-wheel-rust
       - *eg-wheel-source-date
 
-      - name: Configure identity-neutral Rust source paths
-        shell: bash
-        run: python scripts/configure_rust_path_remap.py --github-env "$GITHUB_ENV" --target x86_64-unknown-linux-gnu
+      - *eg-wheel-remap
 
       - name: Build primary wheel (linux-x86_64)
         uses: ./.github/actions/folded-wheel
