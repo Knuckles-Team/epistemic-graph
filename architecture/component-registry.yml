@@ -3919,6 +3919,7 @@ components:
       - "tests/test_generated_graph_schema_contract.py"
       - "tests/test_generated_lane_claim_contract.py"
       - "tests/test_generated_models.py"
+      - "tests/test_generated_dto_strictness.py"
       - "tests/test_generated_semantic_authority_contract.py"
       - "tests/test_generated_write_back_contract.py"
       - "tests/test_get_nodes_by_label.py"
