@@ -1499,6 +1499,72 @@ jobs:
       - name: Perf/recall regression gate
         run: python3 scripts/bench_gate.py
 
+  # ── Rolling engine wheel for consumer CI (spec public-engine-contract-and-release). The wheel
+  # exceeds the PyPI size limit, so each main push publishes its Linux x86
+  # wheel to the `engine-main` GitHub prerelease. Consumers install it with
+  # `gh release download engine-main -p '*.whl'`. Release notes name the
+  # source commit. Tag releases keep their own trusted build path above.
+  engine-main-wheel:
+    timeout-minutes: 360
+    name: engine-main wheel (linux-x86_64)
+    needs: [gates, gates-facade, gates-variants, gates-crates, python-suite, security, lint-and-architecture]
+    if: >-
+      github.repository == 'Knuckles-Team/epistemic-graph'
+      && github.event_name == 'push' && github.ref == 'refs/heads/main'
+      && needs.gates.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: engine-main-wheel
+      cancel-in-progress: true
+    env:
+      EG_WHEEL_TARGET: x86_64-unknown-linux-gnu
+      EG_WHEEL_MATURIN_ARGS: ""
+      EG_WHEEL_JOBS_ARG: "--jobs 2"
+      EG_WHEEL_MANYLINUX: "2_28"
+    steps:
+      - *eg-gates-checkout
+      - *eg-gates-python
+      # rustup installs the channel pinned by rust-toolchain.toml.
+      - name: Install the tracked Rust toolchain
+        shell: bash
+        run: rustup toolchain install --profile minimal && rustup show active-toolchain
+      - name: Bind build time and neutral source paths
+        shell: bash
+        run: |
+          echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "$GITHUB_ENV"
+          python scripts/configure_rust_path_remap.py --github-env "$GITHUB_ENV" --target "$EG_WHEEL_TARGET"
+
+      - name: Build primary wheel (linux-x86_64)
+        uses: ./.github/actions/folded-wheel
+        with:
+          pass: primary
+
+      - name: Stage wheel
+        shell: bash
+        run: |
+          mkdir dist
+          cp dist-primary/epistemic_graph-*.whl dist/
+          (cd dist && sha256sum epistemic_graph-*.whl > SHA256SUMS)
+
+      - name: Smoke test (server --help + import epistemic_graph.{numeric,engine})
+        shell: bash
+        run: bash scripts/release_wheel_smoke.sh
+
+      - name: Publish to the rolling engine-main prerelease
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          notes="Rolling Linux x86_64 wheel built from main at ${SOURCE_SHA}. Not a versioned release."
+          gh release delete engine-main --cleanup-tag --yes || true
+          gh release create engine-main dist/epistemic_graph-*.whl dist/SHA256SUMS \
+            --target "$SOURCE_SHA" --prerelease --latest=false \
+            --title "engine-main (${SOURCE_SHA:0:12})" --notes "$notes"
+
   # ── Deploy concern, not a gate (folded from the former standalone
   # advisory.yml `pages` job, itself folded from pages.yml). No
   # `pip install -e .`, just `mkdocs build` from `docs/`. A job that calls a
