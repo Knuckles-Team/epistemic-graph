@@ -1518,6 +1518,7 @@ jobs:
     with:
       content_source: docs
       shared_theme_enabled: true
+      spec_dashboard_enabled: true
     permissions:
       contents: write
       pages: write
