@@ -31,7 +31,7 @@ Each requirement has two independent states. **Delivery:** `WAITING` means no re
 
 ### Task-plan facts (EG-DECISION-ENGINE-R126, EG-DECISION-ENGINE-R127)
 
-An agent-utilities task planner answers "How can I execute task X?" as one plan. EG supplies the facts behind that plan; the planner only composes them. `AgentAssemble` (EG-DECISION-ENGINE-R036) remains the authority for agent composition. The coverage query (EG-DECISION-ENGINE-R126) names Agent Library templates and A2A agents that already serve each capability. The guardrail query (EG-DECISION-ENGINE-R127) names the rules each task class must follow. Both answers carry premises, so the planner cites ontology facts for every plan element. Neither answer authorizes execution. The consumer contract is AU-CONTROL-R024 in [agent-utilities](https://github.com/Knuckles-Team/agent-utilities/tree/main/specs/agent-control-plane).
+An agent-utilities task planner answers "How can I execute task X?" as one plan. EG supplies the facts behind that plan; the planner only composes them. `AgentAssemble` (EG-DECISION-ENGINE-R036) remains the authority for agent composition. The coverage query (EG-DECISION-ENGINE-R126) names Agent Library templates and A2A agents that already serve each capability. The guardrail query (EG-DECISION-ENGINE-R127) names the rules each task class must follow. Both answers carry premises, so the planner cites ontology facts for every plan element. Neither answer authorizes execution. The consumer contract is AU-CONTROL-R027 in [agent-utilities](https://github.com/Knuckles-Team/agent-utilities/tree/main/specs/agent-control-plane).
 
 ## Coverage map
 
