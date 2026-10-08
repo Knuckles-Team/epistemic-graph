@@ -76,10 +76,18 @@ pub use search::{
 /// value for a reason nothing states -- the same reasoning
 /// `agent_library.rs:17-20` gives for its own bump.
 pub const AGENT_COMPONENT_SCHEMA_VERSION: u16 = 3;
-/// Format-identity constant (RF-ADR-006), advanced with the schema version:
-/// the digest covers a different shape, so it must be minted under a different
-/// domain or two different definitions could collide across the bump.
-pub const AGENT_COMPONENT_DIGEST_DOMAIN: &[u8] = b"au-eg/agent-component-definition/v3";
+/// Format-identity constant (RF-ADR-006) for every NEW definition digest.
+///
+/// v4 (EG-TYPED-PACKS-R016) drops `SourcePackage.package_version` from the
+/// digest input set: package version is provenance only, so a release that
+/// changes nothing else keeps its server pin. The record shape is unchanged,
+/// so the schema version stays 3 and stored v3 rows still validate through
+/// [`AGENT_COMPONENT_DIGEST_DOMAIN_V3`]. A different domain keeps a v4 digest
+/// from ever colliding with a v3 digest over different inputs.
+pub const AGENT_COMPONENT_DIGEST_DOMAIN: &[u8] = b"au-eg/agent-component-definition/v4";
+/// Read-compatibility domain: the v3 digest still mixes the package version
+/// in. `validate` accepts it so stored rows need no migration; no write mints it.
+pub const AGENT_COMPONENT_DIGEST_DOMAIN_V3: &[u8] = b"au-eg/agent-component-definition/v3";
 /// Format-identity constant (RF-ADR-006) for the tenant binding inside an
 /// opaque search cursor. See [`encode_search_cursor`].
 pub const AGENT_COMPONENT_SEARCH_CURSOR_DOMAIN: &[u8] = b"au-eg/agent-component-search-cursor/v1";
@@ -580,7 +588,10 @@ impl AgentComponentEntry {
                 "WITHDRAWN_NOT_ALLOWED: only a connector pack member may be withdrawn".to_string(),
             );
         }
-        if self.definition_digest != definition_digest(&self.as_draft()) {
+        let draft = self.as_draft();
+        if self.definition_digest != definition_digest(&draft)
+            && self.definition_digest != digest_with(&draft, DigestVersion::V3)
+        {
             return Err("agent component definition_digest does not match its definition".into());
         }
         Ok(())
@@ -660,16 +671,33 @@ impl AgentComponentDraft {
     }
 }
 
+/// Which digest input set a definition digest was minted under.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DigestVersion {
+    /// Read-compatibility only: includes `SourcePackage.package_version`.
+    V3,
+    /// Every new write: package version is provenance, not identity.
+    V4,
+}
+
+/// The digest every new write mints.
 fn definition_digest(draft: &AgentComponentDraft) -> String {
+    digest_with(draft, DigestVersion::V4)
+}
+
+fn digest_with(draft: &AgentComponentDraft, version: DigestVersion) -> String {
     let mut hasher = Sha256::new();
-    hasher.update(AGENT_COMPONENT_DIGEST_DOMAIN);
+    hasher.update(match version {
+        DigestVersion::V3 => AGENT_COMPONENT_DIGEST_DOMAIN_V3,
+        DigestVersion::V4 => AGENT_COMPONENT_DIGEST_DOMAIN,
+    });
     put_text(&mut hasher, &draft.component_id);
     put_text(&mut hasher, draft.kind.as_str());
     put_text(&mut hasher, &draft.version);
     put_text(&mut hasher, &draft.content_digest);
     put_opt_text(&mut hasher, draft.content_ref.as_deref());
     put_facts(&mut hasher, &draft.facts);
-    put_provenance(&mut hasher, &draft.provenance);
+    put_provenance(&mut hasher, &draft.provenance, version);
     put_text(&mut hasher, &draft.summary);
     let mut classification = draft.classification.clone();
     classification.sort();
@@ -793,7 +821,7 @@ fn put_facts(hasher: &mut Sha256, facts: &AgentComponentFacts) {
     }
 }
 
-fn put_provenance(hasher: &mut Sha256, provenance: &ComponentProvenance) {
+fn put_provenance(hasher: &mut Sha256, provenance: &ComponentProvenance, version: DigestVersion) {
     put_text(hasher, provenance.label());
     match provenance {
         ComponentProvenance::Native => {}
@@ -802,7 +830,9 @@ fn put_provenance(hasher: &mut Sha256, provenance: &ComponentProvenance) {
             package_version,
         } => {
             put_text(hasher, package_id);
-            put_text(hasher, package_version);
+            if version == DigestVersion::V3 {
+                put_text(hasher, package_version);
+            }
         }
         ComponentProvenance::McpServer {
             server,
@@ -1221,6 +1251,43 @@ mod tests {
 
     /// One named edit to a definition, for the digest-binding table below.
     type NamedMutation<T> = (&'static str, fn(&mut T));
+
+    /// EG-TYPED-PACKS-R016: package version is provenance, not identity.
+    /// New writes mint v4, which ignores it; a stored v3 row still validates.
+    #[test]
+    fn package_version_leaves_the_v4_digest_and_v3_rows_still_validate() {
+        let packaged = |package_version: &str| AgentComponentDraft {
+            provenance: ComponentProvenance::SourcePackage {
+                package_id: "connector-a".to_string(),
+                package_version: package_version.to_string(),
+            },
+            ..draft("server-a", AgentComponentKind::Toolset)
+        };
+        let original = AgentComponentEntry::publish(packaged("1.0.0"), 1, 10).unwrap();
+        let release = AgentComponentEntry::publish(packaged("9.9.9"), 1, 10).unwrap();
+        assert_eq!(original.definition_digest, release.definition_digest);
+
+        let stored_v3 = AgentComponentEntry {
+            definition_digest: digest_with(&original.as_draft(), DigestVersion::V3),
+            ..original.clone()
+        };
+        assert_ne!(stored_v3.definition_digest, original.definition_digest);
+        stored_v3
+            .validate()
+            .expect("a stored v3 row validates without migration");
+        stored_v3
+            .retire(2, 20)
+            .expect("a v3 row keeps its digest through retire");
+
+        let tampered = AgentComponentEntry {
+            summary: "changed".to_string(),
+            ..stored_v3
+        };
+        assert!(
+            tampered.validate().is_err(),
+            "v3 read-compat still binds content"
+        );
+    }
 
     fn digest(seed: char) -> String {
         format!("sha256:{}", seed.to_string().repeat(64))

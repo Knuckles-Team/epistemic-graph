@@ -24,6 +24,17 @@ The order below minimizes incompatible intermediate states. A step may be a veri
 | Fleet catalog | ServerRegistry liveness plus component content | GraphOS joins typed reads and may cache by version, without becoming content authority. |
 | Contract receipt | `eg-capabilities` registry and `gen_contract` | Python/Go/JS senders and SDK verify method/result/signing vectors. |
 
+## R016 digest v4: package version is provenance only
+
+EG-TYPED-PACKS-R016 requires equal server pins across package releases with equal content. The v3 definition digest mixes `SourcePackage.package_version` into every server component digest. Two independent stores that import the same content under different releases therefore mint different server pins.
+
+- **Versioned digest.** New writes mint digest v4 under domain `au-eg/agent-component-definition/v4`. v4 omits `package_version` from the provenance input. The entry still stores the package version as provenance text.
+- **Read compatibility.** `AgentComponentEntry::validate` accepts a digest that matches v4 or v3. The v3 path keeps domain `au-eg/agent-component-definition/v3` and the old input set. No write mints v3.
+- **No migration.** The record shape does not change, so `AGENT_COMPONENT_SCHEMA_VERSION` stays 3. Stored v3 rows validate in place. Retire keeps a row's recorded digest.
+- **Domain separation.** Distinct domains stop a v4 digest from colliding with a v3 digest over different inputs.
+- **One-time revision.** The first import after the upgrade recomputes the server pin under v4. A changed pin issues one ordinary revision for the server and its dependents. Later releases with equal content stay `Unchanged`.
+- **Proof.** A unit test proves v4 equality across package versions and v3 read compatibility. The connector-pack test `package_versions_produce_equal_pins_in_independent_stores` returns.
+
 ## Migration and rollback
 
 The current connector pack schema is version 2; compatible additions keep existing method semantics and require regenerated artifacts. An incompatible version bump must refuse old payloads with a stable code and be coupled to client TCK changes. Agent Library layout changes use a registered layout lineage and named manifest refusal; no implicit destructive upgrade is allowed. Deployment rolls forward with dual-reader compatibility only if explicitly tested; rollback to an older binary is rejected when its layout cannot read the new owner file. A projection failure leaves the committed pack invisible and re-drivable. ReconcileBodies reclaims only unheld bodies after the grace period. A static schema attachment on another graph remains at its recorded pack revision until an administrator reattaches it.

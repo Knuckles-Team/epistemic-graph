@@ -16,7 +16,8 @@
 
 use eg_types::agent_component::{
     is_reserved_component_id, AgentComponentEntry, AgentComponentKind, AgentComponentOp,
-    AGENT_COMPONENT_DIGEST_DOMAIN, AGENT_COMPONENT_SCHEMA_VERSION,
+    AGENT_COMPONENT_DIGEST_DOMAIN, AGENT_COMPONENT_DIGEST_DOMAIN_V3,
+    AGENT_COMPONENT_SCHEMA_VERSION,
 };
 use eg_types::agent_library::{refuse_withdrawn, AgentLibraryLifecycle};
 use eg_types::connector_pack::digest as pack_digests;
@@ -203,6 +204,10 @@ fn the_component_bump_refuses_every_thing_it_declares_closed() {
     assert_eq!(AGENT_COMPONENT_SCHEMA_VERSION, 3);
     assert_eq!(
         AGENT_COMPONENT_DIGEST_DOMAIN,
+        b"au-eg/agent-component-definition/v4"
+    );
+    assert_eq!(
+        AGENT_COMPONENT_DIGEST_DOMAIN_V3,
         b"au-eg/agent-component-definition/v3"
     );
 
