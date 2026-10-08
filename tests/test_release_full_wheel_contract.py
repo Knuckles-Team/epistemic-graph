@@ -342,3 +342,28 @@ def _assert_workflow_job_budget(workflow: Path, name: str, job: dict) -> None:
         )
     else:
         _assert_runner_budget(workflow, name, job)
+
+
+@pytest.mark.parametrize(
+    ("event", "ref", "cancel"),
+    [
+        ("push", "refs/heads/main", False),
+        ("workflow_dispatch", "refs/heads/main", False),
+        ("push", "refs/tags/v1.0.0", False),
+        ("workflow_dispatch", "refs/tags/v1.0.0", False),
+        ("pull_request", "refs/pull/1/merge", True),
+    ],
+)
+def test_release_concurrency_preserves_running_main(
+    event: str, ref: str, cancel: bool
+) -> None:
+    concurrency = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["concurrency"]
+    assert concurrency["group"] == "release-${{ github.ref }}"
+    # Keep GitHub's bounded default: one running plus the latest pending run.
+    assert concurrency.get("queue", "single") == "single"
+    expression = concurrency["cancel-in-progress"]
+    assert isinstance(expression, str)
+    match = re.fullmatch(r"\$\{\{ github\.event_name == '([^']+)' \}\}", expression)
+    assert match is not None
+    assert (event == match.group(1)) is cancel
+    assert concurrency["group"].replace("${{ github.ref }}", ref) == f"release-{ref}"
