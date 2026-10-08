@@ -127,5 +127,7 @@ configuration.
 for documented specifications, separate requirement status, delivery evidence,
 and open pull request and issue snapshots. It refreshes on pushes to `main`.
 Completion requires recorded delivery and acceptance; a merged requirement does
-not complete its parent specification. Dates and trends remain unknown until
-supported by recorded evidence.
+not complete its parent specification. Burndown, source-landed velocity, and
+the delivery timeline use bounded first-parent observations of tracked status
+files. Commit dates are observation times; release and deployment dates remain
+unknown without explicit evidence.
