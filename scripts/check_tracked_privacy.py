@@ -100,10 +100,11 @@ _GENERIC_IDENTIFIERS = frozenset(
         "workspace",
     }
 )
+# User directory names may contain Unicode letters, not only ASCII.
 _HOME_PATH_PATTERN = (
-    r"(?:(?<![A-Za-z0-9_.-])/home/(?P<home_user>[A-Za-z0-9_.-]+)(?:/|\b)|"
-    r"(?<![A-Za-z0-9_.-])/Users/(?P<users_user>[A-Za-z0-9_.-]+)(?:/|\b)|"
-    r"(?<![A-Za-z0-9_.-])/mnt/[A-Za-z]/Users/(?P<mnt_user>[A-Za-z0-9_.-]+)(?:/|\b)|"
+    r"(?:(?<![A-Za-z0-9_.-])/home/(?P<home_user>[\w.-]+)(?:/|\b)|"
+    r"(?<![A-Za-z0-9_.-])/Users/(?P<users_user>[\w.-]+)(?:/|\b)|"
+    r"(?<![A-Za-z0-9_.-])/mnt/[A-Za-z]/Users/(?P<mnt_user>[\w.-]+)(?:/|\b)|"
     # BUG-228: this branch had no left boundary guard (unlike the three
     # above), so a REST route id like ``"route:GET:/users/{id}"`` spuriously
     # matched it -- the "T" ending "GET" read as a fake drive letter. The
