@@ -1,6 +1,7 @@
 use super::*;
 
 /// The shared commons graph. Every tenant role reads it (EG-IDENTITY-R006).
+#[cfg(feature = "security")]
 const COMMONS_GRAPH: &str = "__commons__";
 
 impl IsolationLayer {
