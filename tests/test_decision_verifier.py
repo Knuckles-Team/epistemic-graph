@@ -98,3 +98,14 @@ def test_the_weakest_premise_classifies() -> None:
     assert decision.weakest(["definition"]) == "proof"
     assert decision.weakest(["proof", "observation"]) == "observation"
     assert decision.weakest(["definition", "claim", "observation"]) == "claim"
+
+
+@pytest.mark.parametrize("selected_value", [1, 0, 1.0, 0.0, "false", "", None])
+def test_non_boolean_incumbent_selection_is_refused(selected_value: Any) -> None:
+    case = _case("research")
+    certificate = copy.deepcopy(case["record"]["outcome"]["certificate"])
+    assert decision.verify_certificate(case["model"], certificate).supports_an_answer
+    selected = certificate["incumbent"]["selected"]
+    selected[selected.index(bool(selected_value))] = selected_value
+    with pytest.raises(decision.CertificateError, match="incumbent.*contract"):
+        decision.verify_certificate(case["model"], certificate)
