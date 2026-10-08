@@ -261,13 +261,13 @@ pub(crate) fn render_offline_upgrade_procedure() -> String {
          1. Stop the engine. Both verbs refuse while an engine holds the data directory.\n\
          2. Inspect: `{inspect}`. This reads every store's manifest and changes nothing. \
          Exit status `0` means nothing to do, `10` an upgrade is available, `20` a store is \
-         in a format this build neither opens nor upgrades, `30` a store could not be read, \
+         in a format this build neither opens nor upgrades, `30` a store can not be read, \
          and `1` the command was refused.\n\
          3. Apply: `{apply}`. Each upgrade is one atomic commit that creates the missing \
-         empty tables and replaces the owner manifest; existing rows are not rewritten, and \
+         empty tables and replaces the owner manifest. Existing rows are not rewritten, and \
          a failed or interrupted upgrade leaves the file in its previous layout. No separate \
          copy of the store is kept, so take a filesystem snapshot first if one is wanted. \
-         The run stops at the first failure with exit status `1`; a store it does not \
+         The run stops at the first failure with exit status `1`. A store it does not \
          upgrade is never written; a second run reports nothing to do. Before an upgrade is \
          admitted the store is checked on a private scratch copy, which needs free space of \
          about the store's size under `<data-dir>/.store-upgrade-staging` (`--staging-dir` \
@@ -278,7 +278,7 @@ pub(crate) fn render_offline_upgrade_procedure() -> String {
          without recovering it, which `inspect` never does: it reports the store as not \
          inspectable (`30`). `apply` recovers a private copy of such a store, upgrades the \
          store if a registered upgrade admits it, and otherwise leaves it untouched and \
-         reports `30`; the engine recovers that store at its next start and then opens it \
+         reports `30`. The engine recovers that store at its next start and then opens it \
          or refuses it by name.\n\n\
          The last output line of both verbs is one JSON object with the outcome, the exit \
          status and one entry per store.\n\n\
