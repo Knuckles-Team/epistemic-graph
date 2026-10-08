@@ -1676,7 +1676,8 @@ mod tests {
                 AccessLevel::Read
             ));
             // But the tenant-wide grant itself still exists for whoever DOES carry
-            // the role.
+            // the role: the tenant-pattern Read plus the commons Read
+            // (EG-IDENTITY-R006).
             assert_eq!(
                 layer
                     .rbac()
@@ -1684,7 +1685,7 @@ mod tests {
                     .iter()
                     .filter(|g| g.role == "tenant:homelab" && g.action == RbacAction::Read)
                     .count(),
-                1
+                2
             );
         }
 
