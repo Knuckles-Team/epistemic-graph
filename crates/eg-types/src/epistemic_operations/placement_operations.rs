@@ -159,11 +159,14 @@ pub struct ClaimWorkItemResult {
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct EvidenceBundle {
     pub schema_version: EvidenceBundleSchemaVersion,
+    #[cfg_attr(feature = "contract-schema", schemars(extend("x-eg-nonblank" = true)))]
     pub bundle_id: String,
+    #[cfg_attr(feature = "contract-schema", schemars(extend("x-eg-strict-scalar" = true)))]
     pub resolved: bool,
     #[serde(deserialize_with = "deserialize_required_option")]
     pub answer_ref: Option<String>,
     pub claims: Vec<EvidenceClaim>,
+    #[cfg_attr(feature = "contract-schema", schemars(extend("uniqueItems" = true)))]
     pub policy_exclusions: Vec<String>,
     pub next_action_refs: Vec<String>,
 }
