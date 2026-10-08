@@ -1267,21 +1267,21 @@ mod tests {
         let release = AgentComponentEntry::publish(packaged("9.9.9"), 1, 10).unwrap();
         assert_eq!(original.definition_digest, release.definition_digest);
 
-        let stored_v3 = AgentComponentEntry {
+        let stored_legacy = AgentComponentEntry {
             definition_digest: digest_with(&original.as_draft(), DigestVersion::V3),
             ..original.clone()
         };
-        assert_ne!(stored_v3.definition_digest, original.definition_digest);
-        stored_v3
+        assert_ne!(stored_legacy.definition_digest, original.definition_digest);
+        stored_legacy
             .validate()
             .expect("a stored v3 row validates without migration");
-        stored_v3
+        stored_legacy
             .retire(2, 20)
             .expect("a v3 row keeps its digest through retire");
 
         let tampered = AgentComponentEntry {
             summary: "changed".to_string(),
-            ..stored_v3
+            ..stored_legacy
         };
         assert!(
             tampered.validate().is_err(),
