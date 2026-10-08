@@ -11,6 +11,8 @@
 7. **Close numerical surfaces.** Implement exact/golden series, attribution, propagation, barrier and motif kernels behind one public syntax and shared compute code. Add deterministic seed and budget handling before enabling a new operator on the served wire.
 8. **Publish evidence.** For each stable ID, record merged public SHA, exact test profile, positive/negative result, quality gate result and client/generator version in the native spec evidence. Mark `ACCEPTED` only after exact-head gates and affected downstream client compatibility pass.
 
+9. **Ontology source selection.** Add a read method that takes question classes and returns the class path and per-class approved mappings with premises. Reuse the reasoner for subclass entailment and the unified-data-plane mapping approval state. Add operation-bound source kinds to the foreign source registry under the shared outbound guard. (EG-FEDERATED-QUERY-R072, EG-FEDERATED-QUERY-R073)
+
 ## Incremental delivery slices
 
 | Slice | Depends on | Exit artifact |

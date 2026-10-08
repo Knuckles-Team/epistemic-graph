@@ -73,7 +73,9 @@
     "EG-FEDERATED-QUERY-R068",
     "EG-FEDERATED-QUERY-R069",
     "EG-FEDERATED-QUERY-R070",
-    "EG-FEDERATED-QUERY-R071"
+    "EG-FEDERATED-QUERY-R071",
+    "EG-FEDERATED-QUERY-R072",
+    "EG-FEDERATED-QUERY-R073"
   ],
   "delivery_state": "SPECIFIED",
   "acceptance_state": "NOT_AUDITED",
@@ -1025,6 +1027,18 @@
           "description": "Implemented on the default branch; exercised by crates/eg-plan/src/federation_opt/http.rs::placeholders_are_only_recognised_in_the_query_string, ::keys_are_percent_encoded_and_comma_joined"
         }
       ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R072",
+      "title": "The ontology selects the sources for a cross-source question",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R073",
+      "title": "Operation-bound virtual mappings federate API, MCP, A2A and GraphQL sources",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
     }
   ]
 }
