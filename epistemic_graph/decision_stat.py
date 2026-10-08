@@ -16,6 +16,7 @@ digest is over serde's field-order JSON, not over a sorted form.
 
 from __future__ import annotations
 
+import binascii
 import hashlib
 import json
 from collections.abc import Mapping, Sequence
@@ -64,7 +65,7 @@ def decode_body(content_digest: str, attributes: Mapping[str, str]) -> Any:
     expected = [f"{BODY_ATTRIBUTE_PREFIX}{i:02d}" for i in range(len(names))]
     if not names or names != expected:
         raise ValueError("decision body chunks are missing or not densely numbered")
-    data = bytes.fromhex("".join(attributes[name] for name in expected))
+    data = binascii.unhexlify("".join(attributes[name] for name in expected))
     if content_digest_of(data) != content_digest:
         raise ValueError("decision body does not match its content digest")
     return json.loads(data)
