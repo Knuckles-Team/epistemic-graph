@@ -157,7 +157,18 @@ async def test_work_item_retries_bind_stable_keys_to_signed_wire(
         },
     }
 
-    async def round_trip(payload: bytes, *, req_id: int, method: str) -> dict[str, Any]:
+    async def round_trip(
+        payload: bytes,
+        *,
+        req_id: int,
+        method: str,
+        required_socket_path: str | None = None,
+        verified_binding: Any = None,
+    ) -> dict[str, Any]:
+        assert required_socket_path is None
+        assert verified_binding is not None
+        assert verified_binding.claims == client._effective_verified_context()
+        assert verified_binding.admission is None
         request = msgpack.unpackb(payload, raw=False)
         assert isinstance(request, dict)
         wire.append(request)
