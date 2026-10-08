@@ -310,10 +310,19 @@ fn lay_out(archive: &mut Vec<u8>, content: &Content) -> PackEntry {
 /// A complete, digest-honest pack: its index (archive blob digest still to be
 /// filled by the upload) and its archive bytes.
 pub(super) fn build_pack(connector: &str, entries: &[Content]) -> (ConnectorPackIndex, Vec<u8>) {
+    build_pack_with_server(connector, &server(connector), entries)
+}
+
+/// Use the same archive and digest layout for a changed server contract.
+pub(super) fn build_pack_with_server(
+    connector: &str,
+    server_content: &Content,
+    entries: &[Content],
+) -> (ConnectorPackIndex, Vec<u8>) {
     let mut ordered = entries.to_vec();
     ordered.sort_by(|left, right| left.uri.cmp(&right.uri));
     let mut archive = Vec::new();
-    let server = lay_out(&mut archive, &server(connector));
+    let server = lay_out(&mut archive, server_content);
     let entries: Vec<PackEntry> = ordered
         .iter()
         .map(|content| lay_out(&mut archive, content))
@@ -438,4 +447,172 @@ async fn a_cancelled_waiter_leaves_the_pack_lock_queue() {
     .expect("a cancelled waiter must not wait for the holder");
     assert_eq!(waited.err().as_deref(), Some(CANCELLED));
     drop(held);
+}
+
+/// Reproduce the old planner's server-only commit, leaving published dependent
+/// rows and their pins untouched. A fresh served import supplies the canonical
+/// server draft; the existing owner commit writes its revision, body holder,
+/// membership and receipt atomically. No raw tables or hash stand-ins are used.
+pub(super) async fn seed_server_only_import(
+    served: &Served,
+    pack: &(ConnectorPackIndex, Vec<u8>),
+    previous: &eg_types::connector_pack::PackImportReceipt,
+) -> eg_types::connector_pack::PackImportReceipt {
+    use crate::server::persistence::connector_pack::commit::{
+        ConnectorPackCommitPlan, ConnectorPackComponentCommit, ConnectorPackHolderCommit,
+    };
+    use crate::server::persistence::connector_pack::ConnectorPackBodyHolderRow;
+    use eg_types::agent_component::{
+        AgentComponentEntry, AgentComponentMutationKind, ComponentDependency,
+    };
+    use eg_types::agent_library::AgentLibraryLifecycle;
+    use eg_types::connector_pack::{
+        PackArchiveFacts, PackDisposition, PackEntryRecord, PackImportRecord, PackImportResult,
+        PackProjectionState, PackServerRecord, PACK_IMPORT_RECORD_SCHEMA_VERSION,
+    };
+
+    let index = &pack.0;
+    let donor = Served::new();
+    bind(&donor, index.connector.as_str(), ADMIN).await;
+    imported(&donor, pack, None).await;
+    let id = eg_types::connector_pack::pack_component_id(
+        index.connector.as_str(),
+        PackEntryKind::McpServer,
+        &index.server.name,
+    );
+    let donor_store = donor.state.write().await.ensure_agent_library().unwrap();
+    let canonical = donor_store.current_component(TENANT, &id).unwrap().unwrap();
+    let store = served.state.write().await.ensure_agent_library().unwrap();
+    let old = store.current_component(TENANT, &id).unwrap().unwrap();
+    let mut context = crate::server::persistence::agent_fixtures::mutation_context(
+        &store,
+        TENANT,
+        "seed-legacy-server-only",
+        200,
+        0,
+        "connector-pack:import",
+    );
+    context.created_at_ms = old.updated_at_ms + 1;
+    let server = AgentComponentEntry::create(
+        canonical.as_draft(),
+        old.entry_revision + 1,
+        AgentLibraryLifecycle::Published,
+        old.created_at_ms,
+        context.created_at_ms,
+    )
+    .unwrap();
+    let section = &index.server.body;
+    let body = crate::server::blob::engine_bodies::EngineBody {
+        sha256: section.sha256,
+        body: pack.1[section.offset as usize..(section.offset + section.length) as usize].to_vec(),
+    };
+    let stored = served
+        .state
+        .read()
+        .await
+        .blob
+        .as_ref()
+        .unwrap()
+        .store
+        .put_engine_bodies(TENANT, &[body], context.created_at_ms)
+        .unwrap()
+        .remove(0);
+    let holder = ConnectorPackBodyHolderRow {
+        engine_manifest_digest: stored.manifest_digest.clone(),
+        length: stored.length,
+    };
+    let record_id = "seed-legacy-server-only-record".to_string();
+    let mut members = store
+        .connector_pack_members(TENANT, &index.connector)
+        .unwrap();
+    for member in &mut members {
+        member.last_record_id = record_id.clone();
+        if member.uri == index.server.uri {
+            member.entry_digest =
+                eg_types::connector_pack::digest::entry_digest(&index.server).unwrap();
+            member.entry_revision = server.entry_revision;
+            member.definition_digest = server.definition_digest.clone();
+            member.body_sha256 = stored.sha256;
+            member.engine_manifest_digest = stored.manifest_digest.clone();
+            member.body_length = stored.length;
+        } else {
+            let entry = index
+                .entries
+                .iter()
+                .find(|entry| entry.uri == member.uri)
+                .unwrap();
+            assert_eq!(
+                eg_types::connector_pack::digest::entry_digest(entry).unwrap(),
+                member.entry_digest,
+                "the legacy fixture changes only server content"
+            );
+        }
+    }
+    let entries = members
+        .iter()
+        .map(|member| PackEntryRecord {
+            uri: member.uri.clone(),
+            kind: member.kind,
+            entry_digest: member.entry_digest,
+            disposition: if member.uri == index.server.uri {
+                PackDisposition::Revised
+            } else {
+                PackDisposition::Unchanged
+            },
+            component_id: member.component_id.clone(),
+            entry_revision: member.entry_revision,
+            definition_digest: member.definition_digest.clone(),
+        })
+        .collect();
+    let record = PackImportRecord {
+        schema_version: PACK_IMPORT_RECORD_SCHEMA_VERSION,
+        tenant_id: TENANT.to_string(),
+        connector: index.connector.clone(),
+        binding_revision: previous.binding_revision + 1,
+        record_id,
+        pack_digest: index.pack_digest,
+        catalog: index.catalog.clone(),
+        previous_pack_digest: Some(previous.pack_digest),
+        server: PackServerRecord {
+            name: index.server.name.clone(),
+            contract_version: index.server.annotations.contract_version.clone(),
+            package_version: index.server_package_version.clone(),
+            component: ComponentDependency {
+                component_id: id.clone(),
+                kind: server.kind,
+                definition_digest: server.definition_digest.clone(),
+            },
+        },
+        producer: index.producer.clone(),
+        archive: PackArchiveFacts {
+            length: index.archive.length,
+            sha256: index.archive.sha256,
+        },
+        importer: context.caller_principal.clone(),
+        committed_at_ms: context.created_at_ms,
+        entries: BoundedVec::new(entries).unwrap(),
+        warnings: BoundedVec::new(Vec::new()).unwrap(),
+        projection: PackProjectionState::None,
+    };
+    let plan = ConnectorPackCommitPlan {
+        context,
+        expected_head: Some(head_of(previous)),
+        record,
+        members,
+        holders: vec![ConnectorPackHolderCommit {
+            body_sha256: stored.sha256,
+            component_id: id,
+            entry_revision: server.entry_revision,
+            row: holder,
+        }],
+        components: vec![ConnectorPackComponentCommit {
+            expected_revision: old.entry_revision,
+            kind: AgentComponentMutationKind::Publish,
+            entry: server,
+        }],
+    };
+    match store.commit_connector_pack(plan).unwrap() {
+        PackImportResult::Imported { receipt } => *receipt,
+        other => panic!("legacy fixture import did not land: {other:?}"),
+    }
 }

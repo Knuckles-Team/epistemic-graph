@@ -1062,7 +1062,8 @@ jobs:
         with:
           python-version-file: '.python-version'
 
-      - name: Read tracked Rust toolchain pin
+      - &eg-wheel-toolchain-pin
+        name: Read tracked Rust toolchain pin
         id: rust-toolchain
         shell: bash
         run: >-
@@ -1076,7 +1077,8 @@ jobs:
           toolchain: ${{ steps.rust-toolchain.outputs.channel }}
           targets: ${{ matrix.target }}
 
-      - name: Bind build time to the source revision
+      - &eg-wheel-source-date
+        name: Bind build time to the source revision
         shell: bash
         run: |
           SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
@@ -1499,17 +1501,7 @@ jobs:
       - name: Perf/recall regression gate
         run: python3 scripts/bench_gate.py
 
-  # ── Deploy concern, not a gate (folded from the former standalone
-  # advisory.yml `pages` job, itself folded from pages.yml). No
-  # `pip install -e .`, just `mkdocs build` from `docs/`. A job that calls a
-  # reusable workflow (`uses:`) accepts only
-  # name/uses/with/secrets/needs/if/permissions/strategy/concurrency — no
-  # `runs-on`/`steps`/`continue-on-error` (agent-utilities' release.yml hit
-  # this exact parser trap on its own `publish-docker` job; adding
-  # `continue-on-error` here would invalidate the WHOLE workflow file the
-  # same way). It carries no `needs:`, so it structurally cannot block
-  # `build`/`publish-pypi`/`publish-image` regardless.
-  # ── Rolling engine wheel for consumer CI (EG-CONTRACT-R047). The wheel
+  # ── Rolling engine wheel for consumer CI (spec public-engine-contract-and-release). The wheel
   # exceeds the PyPI size limit, so each main push publishes its Linux x86
   # wheel to the `engine-main` GitHub prerelease. Consumers install it with
   # `gh release download engine-main -p '*.whl'`. Release notes name the
@@ -1534,31 +1526,16 @@ jobs:
       EG_WHEEL_JOBS_ARG: "--jobs 2"
       EG_WHEEL_MANYLINUX: "2_28"
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          persist-credentials: false
-
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
-        with:
-          python-version-file: '.python-version'
-
-      - name: Read tracked Rust toolchain pin
-        id: rust-toolchain
-        shell: bash
-        run: >-
-          python -c "import os,re,tomllib;
-          channel=tomllib.load(open('rust-toolchain.toml','rb'))['toolchain']['channel'];
-          assert re.fullmatch(r'[0-9]+[.][0-9]+[.][0-9]+', channel);
-          open(os.environ['GITHUB_OUTPUT'],'a',encoding='utf-8').write(f'channel={channel}\n')"
+      - *eg-gates-checkout
+      - *eg-gates-python
+      - *eg-wheel-toolchain-pin
 
       - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
         with:
           toolchain: ${{ steps.rust-toolchain.outputs.channel }}
           targets: x86_64-unknown-linux-gnu
 
-      - name: Bind build time to the source revision
-        shell: bash
-        run: echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "$GITHUB_ENV"
+      - *eg-wheel-source-date
 
       - name: Configure identity-neutral Rust source paths
         shell: bash
@@ -1593,6 +1570,16 @@ jobs:
             --target "$SOURCE_SHA" --prerelease --latest=false \
             --title "engine-main (${SOURCE_SHA:0:12})" --notes "$notes"
 
+  # ── Deploy concern, not a gate (folded from the former standalone
+  # advisory.yml `pages` job, itself folded from pages.yml). No
+  # `pip install -e .`, just `mkdocs build` from `docs/`. A job that calls a
+  # reusable workflow (`uses:`) accepts only
+  # name/uses/with/secrets/needs/if/permissions/strategy/concurrency — no
+  # `runs-on`/`steps`/`continue-on-error` (agent-utilities' release.yml hit
+  # this exact parser trap on its own `publish-docker` job; adding
+  # `continue-on-error` here would invalidate the WHOLE workflow file the
+  # same way). It carries no `needs:`, so it structurally cannot block
+  # `build`/`publish-pypi`/`publish-image` regardless.
   pages:
     name: Deploy GitHub Pages
     # Only main deploys: the github-pages environment rejects tag refs, which

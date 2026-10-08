@@ -9,6 +9,10 @@
 5. **Add question adapters.** Implement typed retrieval, routing, enrichment, entity-resolution, schema mapping, topology and informational recommendation questions through the same ladder. No adapter owns a second policy or decision store. Gate: D and question-specific negative tests.
 6. **Publish evidence.** Run quality and hosted checks on the exact branch head, land on main, rerun or cite hosted main checks, and update each requirement's delivery and acceptance states. A branch green status is not a main acceptance verdict.
 
+## Task-plan facts
+
+Add the coverage and guardrail queries as typed read methods beside `AgentAssemble`. Reuse the capability closure that assembly already derives. Reuse the A2A agent-card ingestion and the governance shapes in the core ontology corpus. Add no second catalog and no ranking. Generate the Python client methods from the same method registry. Gate: D2. (EG-DECISION-ENGINE-R126, EG-DECISION-ENGINE-R127)
+
 ## Parallelism and dependencies
 
 The contract bump precedes decision handler integration. Exact solver and pack fact-admission work may proceed independently once DTO ownership is frozen. Statistical jobs consume the committed record and visibility rules; question adapters consume the stable decision method. Shared edits to `agent_component.rs`, method descriptors, access classification and generated contract files are one coordinated integration unit to avoid competing schema versions.

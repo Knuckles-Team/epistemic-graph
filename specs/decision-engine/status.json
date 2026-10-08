@@ -127,7 +127,9 @@
     "EG-DECISION-ENGINE-R122",
     "EG-DECISION-ENGINE-R123",
     "EG-DECISION-ENGINE-R124",
-    "EG-DECISION-ENGINE-R125"
+    "EG-DECISION-ENGINE-R125",
+    "EG-DECISION-ENGINE-R126",
+    "EG-DECISION-ENGINE-R127"
   ],
   "delivery_state": "SPECIFIED",
   "acceptance_state": "NOT_AUDITED",
@@ -1645,6 +1647,18 @@
           "description": "Implemented on the default branch; exercised by crates/eg-stream/src/telemetry/tests/rollup.rs::a_pods_behaviour_also_rolls_up_to_the_workload_that_schedules_it"
         }
       ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R126",
+      "title": "Capability coverage answers which components can serve a task",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R127",
+      "title": "Guardrail entailment lists the rules a task must follow",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
     }
   ]
 }
