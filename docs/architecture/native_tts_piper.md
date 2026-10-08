@@ -30,8 +30,8 @@ TTS method exists.
 
 The leaf provider remains intentionally narrow: Piper-specific ONNX/JSON model
 execution, no model acquisition, no generic Transformers/safetensors claim, and
-no speaker diarization, biometric identity, or verification. Callers must supply
-already-resolved model/config artifacts, and the provider independently verifies
+no speaker diarization, biometric identity, or verification. Callers must provide
+already-resolved model/config artifacts, and the provider independently checks
 their declared SHA-256 digests before loading them.
 
 ## Running the synthesis tests

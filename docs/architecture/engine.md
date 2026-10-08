@@ -125,7 +125,7 @@ dir is the **authoritative source of truth** in authoritative mode (default when
 set). Three rules make "authoritative" safe:
 
 - **Commit-before-ack.** A durable mutation is fsynced to redb (group-commit) *before* its Response is
-  acked. A commit failure becomes an ERROR response, so an acked write is always on disk. Many awaiting
+  acked. A commit failure becomes an ERROR response, so an acked write is always on disk. Multiple awaiting
   writers coalesce into one group-commit fsync.
 - **Read-through-safe eviction.** The per-graph node cap stays enforced (bounded RAM) without data
   loss: a `ReadThrough` seam serves an evicted node's blob from redb on a RAM miss, and a node is
@@ -396,7 +396,7 @@ txn stays the byte-for-byte single-node fast path. Distributed Pregel/GAS comput
 PageRank / connected-components / BFS across graphs whose vertices span multiple groups, and persists
 named results as redb-backed materialized views reloaded on boot.
 
-### Tenant lifecycle (create / hibernate / reshard / delete + purge)
+### Tenant lifecycle (create / hibernate / reshard / remove + purge)
 
 Because one shared registry + one shared authoritative shard is keyed by graph name, a "move" is re-pointing
 ownership of future writes, not copying rows — so resharding is zero-downtime.

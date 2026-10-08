@@ -20,7 +20,7 @@ open a PR; everything needed to run the gates is installed by the bootstrap
 
 ## Branch / worktree workflow
 
-Take your own git worktree on your own branch (do not edit the canonical checkout
+Take the operator's own git worktree on the operator's own branch (do not edit the canonical checkout
 directly — a concurrent session or sync may reset it):
 
 ```bash
@@ -28,10 +28,10 @@ rm_worktree add epistemic-graph <your-branch>     # repository-manager MCP, or:
 git worktree add ${WORKTREE_ROOT}/epistemic-graph/<branch> -b <branch> main
 ```
 
-Commit early and often, push your branch, and open a pull request against `main`;
-hosted CI runs the same hooks as your local commit plus the full test matrix.
+Commit early and often, push the operator's branch, and open a pull request against `main`;
+hosted CI runs the same hooks as the operator's local commit plus the full test matrix.
 
-## Before you push
+## Before the operator push
 
 ```bash
 cargo test --features server --lib          # Rust unit tests
@@ -84,6 +84,6 @@ and its
 and
 [task-planner](https://github.com/Knuckles-Team/universal-skills/tree/main/universal_skills/development/task-planner)
 skills. The file sequence aligns with [GitHub Spec Kit
-v1.0.12](https://github.com/github/spec-kit/releases/tag/v1.0.12); `test-spec.md` makes our test and
+v1.0.12](https://github.com/github/spec-kit/releases/tag/v1.0.12); `test-spec.md` makes this repository's test and
 quality contract explicit. Link the PR to its spec IDs and include exact test, wiring, CCCC, jscpd,
 dupehound, and KISS evidence before proposing a landed status.

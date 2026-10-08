@@ -41,7 +41,7 @@ The intended control loop is:
 1. Collect bounded observations from engine/node telemetry.
 2. Run `CrossNodeElasticityPlanner::plan` on a canonical input ordering.
 3. Persist proposals and abort evidence under the existing action policy.
-4. Let the placement/reshard owner execute snapshot → delta catch-up → fenced
+4. Let the placement/reshard owner run snapshot → delta catch-up → fenced
    cutover, checkpointing progress durably.
 5. Re-read placement and telemetry, then plan again after cooldown/hysteresis.
 

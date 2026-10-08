@@ -167,13 +167,13 @@ report `reports/phase2-memory-kv-benchmark-results.md`.
 
 | Category | epistemic-graph | Stitched baseline | Winner |
 |---|---|---|---|
-| recall@10 (quality) | **1.000** (indexed ANN) | 1.000 (exhaustive scan) | tie — ours keeps quality *with* an index |
+| recall@10 (quality) | **1.000** (indexed ANN) | 1.000 (exhaustive scan) | tie — this repository's keeps quality *with* an index |
 | cross-modal retrieval p50 (N=2000) | **7.3 ms** | 26.3 ms | **~3.6×** |
-| cost-optimizer filter-pushdown @scale | **1.21× (10k) → 1.33× (100k)**, grows with N | no unified plan | **ours** |
-| warm-fork fan-out (N=8/32/128) | **`retrieval_calls == 1`**, 100% branches | `retrieval_calls == N` | **ours — 128× fewer retrievals** |
-| write → read-fresh | **25.7 ms** p50 (incremental, durable) | 19–69 ms full rebuild | **ours** |
-| throughput | **799 qps** | N-scan per query | **ours** |
-| KV cross-restart | **100% page survival, ~24 µs/page GET → >300× vs recompute** | none (full recompute) | **ours (≥7.5× target smashed)** |
+| cost-optimizer filter-pushdown @scale | **1.21× (10k) → 1.33× (100k)**, grows with N | no unified plan | **this repository's** |
+| warm-fork fan-out (N=8/32/128) | **`retrieval_calls == 1`**, 100% branches | `retrieval_calls == N` | **this repository's — 128× fewer retrievals** |
+| write → read-fresh | **25.7 ms** p50 (incremental, durable) | 19–69 ms full rebuild | **this repository's** |
+| throughput | **799 qps** | N-scan per query | **this repository's** |
+| KV cross-restart | **100% page survival, ~24 µs/page GET → >300× vs recompute** | none (full recompute) | **this repository's (≥7.5× target smashed)** |
 
 **Ablation (per-feature, N=1000):** disabling the result cache makes warm queries **3.3× slower**
 (4.6 → 15.3 ms) — the clear warm-path win; the cost-optimizer and incremental index are
@@ -223,8 +223,8 @@ within each run, and the SAME arm moved by ~40% between the two independent
 runs (external contention, not a code change). Run 2's `anchoring_on` median
 is actually *below* its `anchoring_off` median. This is not a claim of zero
 overhead — it means the effect size (if any) at this aggressive 10ms cadence
-is smaller than this shared box's own measurement noise floor. We do not
-report a single precise "+X%" figure from this data because it would not be
+is smaller than this shared box's own measurement noise floor. This repository do not
+report a single precise "+X%" figure from this data because it will not be
 honest at this noise level.
 
 **Why the architecture is the stronger evidence for the <1% budget:** the
@@ -238,7 +238,7 @@ overwhelmingly common case at any `EPISTEMIC_GRAPH_PROVENANCE_ANCHOR_SECS`
 realistic cadence, since most ticks see no new provenance nodes). The
 measured numbers above are consistent with (do not contradict) this design:
 even a maximally-aggressive 100-commits/sec synthetic stress, run back to
-back with the baseline, could not be distinguished from noise on this box.
+back with the baseline, can not be distinguished from noise on this box.
 
 Reproduce on a quieter box for a tighter confidence interval:
 

@@ -296,7 +296,7 @@ handler `#[cfg(feature = "numeric")]`) L2-normalizes a batch in-engine via
 "dep:ndarray"]`); the engine's top-level `numeric = ["dep:eg-numeric", "eg-query?/numeric"]`
 turns the SQL operators on whenever the query surface is also built (i.e. the main build).
 eg-numeric's pyo3 (`python`) feature is off in every engine build, so a `numeric` engine links
-faer/ndarray but **no Python extension**. Verified: `cargo tree | grep -ci pyo3` = 0.
+faer/ndarray but **no Python extension**. Checked: `cargo tree | grep -ci pyo3` = 0.
 
 The current native surface includes `BatchL2Normalize`, `svd`, `pca`, `kmeans`,
 and cross-modal graph/vector/time-series analytics through the shared query path.

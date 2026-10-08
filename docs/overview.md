@@ -9,7 +9,7 @@ reasoning, time-series, content-addressed BLOB, full-text, and finance/data-scie
 edge, embeds it in-process via the `embedded` feature.
 
 This page is the architectural map. For the operational protocol see
-[Service Mode](service_mode.md); for the deep dive (distribution, security, streaming, federation,
+[Service Mode](service_mode.md); for the detailed review (distribution, security, streaming, federation,
 multimodal) see [the master-of-all engine](architecture/engine.md); for build composition see
 [One build, opt-in layers](architecture/tiers.md).
 

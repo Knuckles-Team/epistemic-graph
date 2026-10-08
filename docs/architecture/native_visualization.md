@@ -1,13 +1,13 @@
 # Native Visualization (D-VZ-1)
 
 Neither `agent-utilities` nor `epistemic-graph` ships a visualization library, and
-`matplotlib` does not scale — it draws every point regardless of how many pixels
+`matplotlib` does not scale — it draws every point in either case of how multiple pixels
 exist on screen. This engine ships its own **LOD-native** visualization stack
 instead: a declarative chart IR, a columnar store, decimation/density kernels, a
 static export backend, an interactive rendering surface, and a content-addressed
 render cache — architecturally inspired by `open-source-libraries/xy`
 (Apache-2.0), reimplemented in-tree rather than depended on (that project is
-alpha and Python-first; a dependency there would put this engine's visualization
+alpha and Python-first; a dependency there will put this engine's visualization
 surface behind someone else's API churn).
 
 ## Lane map
@@ -104,7 +104,7 @@ scalar/SIMD equivalence — see that crate's `tests/proptest_invariants.rs`.
   row, not a synthesized extremum.
 - **SIMD.** A cached `is_x86_feature_detected!("avx2")` check (never a
   compile-time `target-feature` assumption — this fleet's interactive dev host lacks
-  `x86-64-v3` and would SIGILL on a build that assumed AVX2) gates a
+  `x86-64-v3` and will SIGILL on a build that assumed AVX2) gates a
   vectorized fast path for the genuinely regular, independent arithmetic each
   kernel needs (M4's bucket-index/finite-mask precompute; LTTB's
   per-candidate triangle-area evaluation) — never the inherently scalar
@@ -144,7 +144,7 @@ shared between the RPC and interactive-HTTP paths) now holds:
 This program's own `D-OP-1` regression is the cautionary example: an RLS
 projection cache keyed on `GraphCore::version()` is *correct* there (a
 correctness control that must invalidate on any write to the graph it
-protects), but that same shape would be a **performance-cache mistake** —
+protects), but that same shape will be a **performance-cache mistake** —
 keying a render cache on a whole-graph or whole-engine version means any
 write anywhere invalidates every cached render, driving the hit rate toward
 zero under real write traffic.
@@ -153,7 +153,7 @@ Instead, `eg_viz_columnstore::ColumnStore::content_fingerprint(dataset_ref)`
 hashes the dataset's chunk `content_id`s — already computed at ingest,
 content-addressed, no rescan. Writing an **unrelated** dataset never touches
 this fingerprint; re-ingesting **byte-identical** data still fingerprints
-identically (a real cache hit a monotonic counter could never give).
+identically (a real cache hit a monotonic counter can never give).
 
 ```mermaid
 sequenceDiagram
@@ -241,7 +241,7 @@ A per-request `GET /tile` (not a persistent WebSocket) is the standard shape
 every tile server — including `xy`'s own tile-pyramid design — already uses:
 the browser's `fetch()` cache/coalescing/cancellation semantics apply for
 free, no new framing to hand-roll, and pan/zoom naturally becomes "issue a new
-GET for the new viewport." A WebSocket would need this crate to hand-roll RFC
+GET for the new viewport." A WebSocket will need this crate to hand-roll RFC
 6455 framing (or add `tokio-tungstenite`, already a dependency elsewhere in
 this workspace via `ros2-bridge`, but not one this lane needs) for a benefit
 (lower per-request overhead) that does not matter at human interaction rates.
@@ -255,7 +255,7 @@ endpoint uses **LTTB unconditionally for every mark it serves, including
 Scatter** — and that is honest specifically because LTTB never aggregates:
 every returned point is a real row, so "here are some of the real points,
 zoom in for more" carries no synthetic-aggregate lie the way a min/max marker
-would.
+will.
 
 ## VIZ-2 — binary tile protocol for graph payloads
 
@@ -280,9 +280,9 @@ SEPARATE binary protocol built for graph payloads specifically, not a second
   separately.
 - **Edges reference nodes by `u32` array index**, never by string id — the
   entire reason a flat JSON array of `{src_idx, dst_idx, type: "knows"}`
-  objects costs several times what the binary form does at scale (see the
+  objects costs multiple times what the binary form does at scale (see the
   measurements below): a million-node graph's edges outnumber its nodes
-  several-fold, and repeating even a short string id or type name on every
+  multiple-fold, and repeating even a short string id or type name on every
   edge is the dominant cost. `ClusterExpansion`'s `TileNode.id` still carries
   the real string id — that cost exists once per NODE in the tile (bounded by
   cluster size), never once per edge.
@@ -306,7 +306,7 @@ SEPARATE binary protocol built for graph payloads specifically, not a second
 
 **Why not reuse `lttb_reduce`/`m4_reduce`.** Both are ordered-x-axis
 time-series kernels; a graph has no x-axis to sort edges along, and
-"decimating" a random subset of edges from a cluster would silently drop
+"decimating" a random subset of edges from a cluster will silently drop
 structure rather than aggregate it honestly. Nothing here calls either
 kernel — see `crates/eg-viz-graph-tiles/src/wire.rs`'s module doc for the
 full reasoning.

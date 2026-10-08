@@ -18,13 +18,13 @@ preserving operations. (Localized maintenance, not global reorganization, per ar
 A native multi-level memory abstraction ladder: `:SummaryNode` graph nodes roll up a set of source
 memories with a **level** + provenance links (`SUMMARIZES`/`CONSOLIDATES`) to their children. A
 `summarize`/`rollup` primitive materializes a higher level from a cluster of lower-level memories. The
-engine owns the structure + provenance; the LLM distill content is supplied by agent-utilities.
+engine owns the structure + provenance; the LLM distill content is provided by agent-utilities.
 
 ## Episodic → semantic consolidation (EG-KG.compute.consolidate-cluster)
 
 A localized consolidation op promotes a cluster of episodic memory nodes into a consolidated **semantic**
 node — merging properties, redirecting edges, preserving provenance and bitemporal `tx_from`/`tx_to`,
-importance-weighted. Deterministic (caller-supplied `now`); no global reindex — the "localized maintenance
+importance-weighted. Deterministic (caller-provided `now`); no global reindex — the "localized maintenance
 beats global reorganization" finding.
 
 ## Maintenance — decay + reinforcement (EG-222)
@@ -35,7 +35,7 @@ Each memory node carries **importance** + **access-count** + **last-access**:
 - `decay(now, half_life)` — time-based importance decay;
 - `evict_below(threshold)` / `forget` — prune low-value memories locally.
 
-Deterministic (caller-supplied `now`), so it is Raft-safe. This is the substrate the agent-utilities
+Deterministic (caller-provided `now`), so it is Raft-safe. This is the substrate the agent-utilities
 loop schedules (and it composes with the engine's Ebbinghaus fact-decay knobs
 `GRAPH_SERVICE_DECAY_HALF_LIFE`/`…_DECAY_FLOOR`/`…_DECAY_INTERVAL`).
 

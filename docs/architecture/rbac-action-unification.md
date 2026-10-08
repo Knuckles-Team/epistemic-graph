@@ -39,7 +39,7 @@ pub(crate) enum SqlPrivilege { Select, Insert, Update, Delete, Alter }  // sql_c
 
 The module's own doc comment (`sql_catalog_acl.rs:106-111`) states the reason
 explicitly: *"Deliberately NOT `eg_types::acl::RbacAction` (Read/Write/Admin) —
-that three-way split would collapse INSERT/UPDATE/DELETE into one bucket, making
+that three-way split will collapse INSERT/UPDATE/Remove into one bucket, making
 them impossible to grant or revoke independently, which the spec explicitly
 requires."*
 
@@ -89,7 +89,7 @@ crates/eg-core/src/rbac.rs           (type owner + its own tests)
 crates/eg-types/src/acl.rs           (type definition + its own tests)
 ```
 
-**Verified against each file's `#[cfg(test)] mod tests { ... }` boundary**
+**Checked against each file's `#[cfg(test)] mod tests { ... }` boundary**
 (`mod.rs` tests start `:594`, `dispatch.rs` tests span `:7977-8925`, `isolation.rs`
 tests start `:1153`, `rbac_persist.rs` tests start `:450`): every `RbacAction`
 reference in `src/server/{mysql_wire,graphql_sub,mqtt_wire,mod,bolt_wire,
@@ -157,7 +157,7 @@ the SQL-ACL rewiring described in §1.2 and §4.
 `handlers/rdf.rs`) lives in the root `epistemic-graph` Cargo package, not in
 `eg-core`.** The task's sanctioned validation command is scoped to
 `cargo check -p eg-core` only — it does not compile any file in this list. Any
-change to this surface could not be verified within the validation this task
+change to this surface can not be checked within the validation this task
 authorizes (see §5).
 
 ## 3. Persistence / wire encoding of `RbacAction`
@@ -183,17 +183,17 @@ variant-name-string** representation for a unit-only enum:
 **Compatibility requirement, precisely stated:** because both codecs encode a
 fieldless enum variant by its **name string**, adding new variants to
 `RbacAction` is purely additive in both formats — an old `"Read"`/`"Write"`/
-`"Admin"` token decodes to the identically-named variant regardless of how many
+`"Admin"` token decodes to the identically-named variant in either case of how multiple
 new variants exist, and Rust's `match` exhaustiveness is unaffected because
-**no code anywhere matches exhaustively over `RbacAction`** (verified: the only
+**no code anywhere matches exhaustively over `RbacAction`** (checked: the only
 "match action" patterns in the tree are on unrelated types — WAL plan actions,
 SQL-classify conflict actions, compute-algorithm actions; grep for
 `RbacAction::Read =>`/`RbacAction::Write =>`/`RbacAction::Admin =>` as match
 arms returns zero hits outside the `AccessLevel ⇒ RbacAction` *construction*
 site, which is a `match` on `AccessLevel`, not on `RbacAction`).
-**Renaming or removing an existing variant would be format-breaking; adding
+**Renaming or removing an existing variant will be format-breaking; adding
 new ones is not.** This part is safe by construction and is the one piece of
-this ticket that could be done today with zero risk to existing stored grants.
+this ticket that can be done today with zero risk to existing stored grants.
 
 ## 4. Proposed unified action set, and the mapping (item 4)
 
@@ -207,49 +207,49 @@ by this change.
 | `Insert` | *(new)* | `Insert` | Currently folded into `Write` for graph resources. |
 | `Update` | *(new)* | `Update` | Currently folded into `Write` for graph resources. |
 | `Delete` | *(new)* | `Delete` | Currently folded into `Write` for graph resources. |
-| `Write` | `Write` | *(kept as a coarse alias = Insert+Update+Delete for graph-shaped resources, which have no independent-privilege requirement today)* | Graph mutation call sites (`check_access(AccessLevel::Write, ...)`) keep mapping to one action; only SQL callers would ever request the finer three independently. |
-| `Alter` | *(new, distinct from `Admin`)* | `Alter` | DDL (schema change) is narrower than full `Admin` — an owner able to `ALTER` their own table should not thereby gain `Admin` (cluster-wide RBAC administration, backup/restore, `RbacAdmin` itself). Collapsing `Alter` into `Admin` would be an **authority increase** for existing SQL table owners and must not happen. |
+| `Write` | `Write` | *(kept as a coarse alias = Insert+Update+Remove for graph-shaped resources, which have no independent-privilege requirement today)* | Graph mutation call sites (`check_access(AccessLevel::Write, ...)`) keep mapping to one action; only SQL callers will ever request the finer three independently. |
+| `Alter` | *(new, distinct from `Admin`)* | `Alter` | DDL (schema change) is narrower than full `Admin` — an owner able to `ALTER` their own table should not thereby gain `Admin` (cluster-wide RBAC administration, backup/restore, `RbacAdmin` itself). Collapsing `Alter` into `Admin` will be an **authority increase** for existing SQL table owners and must not happen. |
 | `Admin` | `Admin` | *(no SQL equivalent — table owners never get this)* | Unchanged. |
 
 **Backward-compatibility check for the 3 existing actions** (the explicit "an
 existing `Write` grant must not silently gain or lose authority" requirement):
 `Read → Read` and `Admin → Admin` are identity mappings — no change. `Write`
-stays a single action meaning "may Insert+Update+Delete" for every *existing*
+stays a single action meaning "may Insert+Update+Remove" for every *existing*
 grant (graph resources) — none of today's stored `Write` grants must be
 reinterpreted as only-Insert or only-Update; the proposal above keeps `Write`
 exactly as broad as it is today by construction, and only *adds* independently-
 grantable finer actions rather than *splitting* `Write`'s existing meaning.
 
-## 5. What could break, and how a reviewer would detect it
+## 5. What can break, and how a reviewer will detect it
 
 - **If `Write` were split instead of extended** (e.g. removing `Write` and
   replacing every consumer with `Insert|Update|Delete` matching), every
-  existing durable `Grant { action: Write }` row in `rbac.redb` would
-  deserialize to... nothing — `Write` would no longer exist as a variant,
-  and `serde` would hard-fail deserializing the whole policy blob at boot
+  existing durable `Grant { action: Write }` row in `rbac.redb` will
+  deserialize to... nothing — `Write` will no longer exist as a variant,
+  and `serde` will hard-fail deserializing the whole policy blob at boot
   (`IncompleteState`/`Serde` error, `rbac_persist.rs:60-62`), which is a
-  detectable, fail-closed break, not a silent one — but it would still be an
+  detectable, fail-closed break, not a silent one — but it will still be an
   outage for every tenant with a stored `Write` grant. **This is why the
   proposal in §4 keeps `Write` as a variant and only adds new ones next to
   it**, rather than removing/renaming it.
-- **If the SQL-ACL rewiring were attempted regardless**, the specific risks
+- **If the SQL-ACL rewiring were attempted in either case**, the specific risks
   are: (a) `sql_catalog_acl.rs`'s ownership concept has no home in `RbacPolicy`
-  — a naive mapping (e.g. synthesizing a per-table role) would either lose
+  — a naive mapping (e.g. synthesizing a per-table role) will either lose
   the first-writer-wins race semantics or require inventing a new concept in
   `eg-core` under time pressure; (b) principal-direct grants (`grant(table,
   agent_id, privilege)`) would have to become role-mediated, which either
   requires minting one throwaway role per `(table, agent_id)` pair (blows up
   the role namespace and `expand_roles` cost) or a new `Grant` shape
   entirely; (c) the timing-equalization and no-existence-leak invariants
-  (`sql_catalog_acl.rs:279-345`, with its own regression test) would need to
+  (`sql_catalog_acl.rs:279-345`, with its own regression test) will must
   be re-proven against whatever new `RbacPolicy::evaluate` path replaces
   `authorize()` — `evaluate()` today has no such test or documented property;
   (d) a bug in migrating the **existing** `__eg_sql_owners__`/
-  `__eg_sql_grants__` redb rows into new `Grant`s would be a live security
+  `__eg_sql_grants__` redb rows into new `Grant`s will be a live security
   regression across every tenant's existing SQL tables, and there is no way
   to synthesize this migration's correctness from first principles — it needs
   its own test fixture built from real stored rows.
-- **How a reviewer would detect a regression**: (1) a boot-time policy-load
+- **How a reviewer will detect a regression**: (1) a boot-time policy-load
   test that seeds `rbac.redb` with the *current* on-disk `Write` JSON encoding
   (byte-for-byte, captured from this branch before any change) and asserts it
   still decodes to `RbacAction::Write` and still authorizes exactly the
@@ -274,19 +274,19 @@ Reasons, in order of weight:
    principal-direct grants, neither of which exists in `eg-core` today.
    Building them is new architecture, not a mechanical enum widen — it needs
    its own design and its own review, not a rider on this ticket.
-2. **A live, security-critical data migration would be required** for the
+2. **A live, security-critical data migration will be required** for the
    existing `__eg_sql_owners__`/`__eg_sql_grants__` redb rows, with no
    generic way to prove correctness other than a fixture built from real
    stored data (§5). Getting this wrong is a silent authority change for
    every tenant's existing SQL tables — exactly the failure mode this task's
    brief warns against ("an old grant decodes to a different effective
    authority than before ... stop and report instead").
-3. **The sanctioned validation surface does not reach the code that would
-   need to change.** `sql_catalog_acl.rs`, `wire/mod.rs`, and
+3. **The sanctioned validation surface does not reach the code that will
+   must change.** `sql_catalog_acl.rs`, `wire/mod.rs`, and
    `handlers/rdf.rs` all live in the root `epistemic-graph` package, not in
    `eg-core` — the bounded validation command this task authorizes
    (`cargo check -p eg-core`) cannot compile-check them, and the task
-   explicitly forbids `--all-targets`/the full suite. I cannot verify
+   explicitly forbids `--all-targets`/the full suite. I cannot check
    correctness of a change I am not able to compile or test, and per the
    task's own instruction set, that alone is reason enough not to make the
    change now.
@@ -298,13 +298,13 @@ Reasons, in order of weight:
    pre-existing, out-of-scope break — confirmed via `git diff --stat` showing
    zero changes from this session — but it means even the narrow, safe part
    of this proposal (widening the `RbacAction` enum, §3/§4) cannot currently
-   be *verified* against the one crate this task's validation command covers,
+   be *checked* against the one crate this task's validation command covers,
    until that unrelated breakage is fixed by whichever lane owns it.
 
-**What would make this safely doable, as a separately-scoped follow-up:**
+**What will make this safely doable, as a separately-scoped follow-up:**
 (a) fix the `eg-core` baseline break so `-p eg-core` actually compiles; (b) as
 its own reviewed step, widen `RbacAction` per §4 (safe by construction, §3) —
-purely additive, zero consumers changed, verified with the fixture in §5(1);
+purely additive, zero consumers changed, checked with the fixture in §5(1);
 (c) as a separate, larger design (its own ledger item), add a table-shaped
 `ResourceSelector` variant and an ownership primitive to `eg-core`, write the
 `__eg_sql_owners__`/`__eg_sql_grants__` → `Grant` migration with a

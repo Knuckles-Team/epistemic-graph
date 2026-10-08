@@ -2,7 +2,7 @@
 
 epistemic-graph speaks SQL two ways:
 
-1. **In-engine** via the `query` feature — DataFusion 43 executes `SELECT` and the engine handles DML
+1. **In-engine** via the `query` feature — DataFusion 43 runs `SELECT` and the engine handles DML
    over the graph node store. This is what the unified planner's `Filter` op and the native client use.
 2. **Over the Postgres wire** via the `pgwire` feature (folded into `cluster`) — any `psql` / BI tool /
    ORM connects as if to Postgres.
@@ -35,7 +35,7 @@ The SQL surface exposes the graph as two synthetic tables:
 ### Tenant and actor isolation
 
 Arbitrary SQL tables, views, functions, extensions, indexes, and their transaction
-metadata belong to the verified tenant+effective actor. The engine stores each
+metadata belong to the checked tenant+effective actor. The engine stores each
 owner's catalog in an opaque file below the configured
 `GRAPH_SERVICE_PERSIST_DIR/sql-catalog/` directory. Filenames contain only a
 one-way digest, and catalog-open errors do not expose identities or local paths.
@@ -44,7 +44,7 @@ temporary-store fallback. On Unix the catalog directory/file are restricted to
 `0700`/`0600`, and symlinked catalog directories or files are rejected.
 
 `Method::Sql`, pgwire, MySQL, MSSQL, SQLite import/export, and OBDA all resolve the
-same catalog for the same verified tenant+actor. A different actor or tenant cannot
+same catalog for the same checked tenant+actor. A different actor or tenant cannot
 discover its names, schema, rows, or catalog metadata. Native SQL adapters bind this
 authority only after their mandatory SCRAM/HMAC login succeeds; the authenticated
 adapter supplies the deployment's configured tenant, audience, and policy context.
@@ -108,7 +108,7 @@ is replicated/durable like any other mutation. The DML surface is now full (EG-0
 ### Transactions (mixed-store, over the wire — EG-KG.compute.kg-transaction-is-pinned)
 
 pgwire `BEGIN`/`COMMIT`/`ROLLBACK` buffer **both** graph-node ops and user-table ops in one transaction;
-reads inside the txn see the buffered writes (read-your-own-writes). `COMMIT` applies the node batch (one
+reads inside the txn see the buffered writes (RYOW). `COMMIT` applies the node batch (one
 `GraphCore::txn()` + one durable group) then the user-table txn. `ReadyForQuery` reports `T`/`E`/`I`, and
 an aborted txn rejects statements until `ROLLBACK` (`25P02`). The node↔table commit is best-effort ordered
 (a documented non-2PC window).
@@ -118,7 +118,7 @@ an aborted txn rejects statements until `ROLLBACK` (`25P02`). The node↔table c
 Arbitrary user tables are first-class: `CREATE TABLE`, full `ALTER TABLE`, `DROP TABLE`, `COPY`,
 and `CREATE VIEW` / `DROP VIEW` (EG-072 — a referenced view expands to its stored SELECT) persist to a
 durable redb catalog (`crates/eg-query/src/tables/`, EG-KG.query.register-user-tables-alongside/EG-KG.query.register-each-user-table). User-table DML
-(`INSERT`/`UPDATE`/`DELETE`, `INSERT … SELECT`, `RETURNING`) executes against it, and user tables are
+(`INSERT`/`UPDATE`/`DELETE`, `INSERT … SELECT`, `RETURNING`) runs against it, and user tables are
 JOINable to the graph `nodes`/`edges` in a single query. Reserved names `nodes`/`edges` are rejected for DDL.
 `COPY … FROM STDIN` accepts the current `WITH (FORMAT …, DELIMITER …, HEADER …)`
 option grammar; positional option forms are rejected.
@@ -154,7 +154,7 @@ invokes them in queries. PL/pgSQL control-flow (`IF`/`LOOP`/`RETURN`) is a docum
 
 Array types (`int[]`/`text[]`: literals, subscript, `ANY`/`ALL`, `unnest`, `array_agg`, `array_length`,
 `||` concat, `@>`/`&&` overlap) and range types (`int4range`/`tsrange` with `@>`/`&&`/`<@`) parse and
-execute, along with the common scalar functions ORMs/BI emit: `string_agg`, `split_part`, `regexp_replace`,
+run, along with the common scalar functions ORMs/BI emit: `string_agg`, `split_part`, `regexp_replace`,
 `to_char`/`to_timestamp`, `date_trunc`, `extract`, `greatest`/`least`, `generate_series`,
 `coalesce`/`nullif`.
 
@@ -199,7 +199,7 @@ psql -h 127.0.0.1 -p 5433 -U agent -d epistemic
   engine ACL actor, so Row-Level Security applies to every wire query. There is no
   authentication bypass.
 - **Transport boundary**: the direct PGWire listener is plaintext and therefore
-  unconditionally loopback-only. For remote clients, terminate authenticated TLS/mTLS
+  unconditionally loopback-only. For remote clients, stop authenticated TLS/mTLS
   in an identity-aware gateway and forward to the loopback listener; the gateway does
   not replace the SCRAM actor proof.
 - **Protocols**: both simple and extended/prepared (`$N` parameters) are implemented.

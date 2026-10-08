@@ -288,3 +288,6 @@ mcp_server = false
 #
 # `--profile release-tiny` (opt-level z + fat LTO + strip) still works for a smaller
 # binary if wanted; the release CI builds the standard `--release` main wheel.
+
+[tool.pipelines_hooks.ste]
+exempt = ["specs/*", "specs/**/*"]

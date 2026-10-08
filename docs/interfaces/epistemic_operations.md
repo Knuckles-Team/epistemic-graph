@@ -43,7 +43,7 @@ encoded bytes, not Unicode characters. For example, 512 ASCII characters,
 additional character in each example is refused. The retired AU limit of
 256 characters does not apply.
 
-`worktree_locator` has the same text bounds and additionally must be a relative
+`worktree_locator` has the same text bounds and also must be a relative
 locator with no backslash, leading slash, empty component, `.` component or
 `..` component. `base_sha` instead requires exactly 40 or 64 lowercase ASCII
 hexadecimal digits. `input_fingerprint` requires exactly `v1:` followed by

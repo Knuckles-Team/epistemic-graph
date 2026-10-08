@@ -57,7 +57,7 @@ helpers as a complete bounded validator.
    or accept user-overridden resource limits. Pipelines owns installation,
    exact revision/artifact pinning, chosen profile and invocation.
 
-## Proposed versioned I/O contract (not implemented)
+## Proposed versioned `I/O` contract (not implemented)
 
 The request identifies a profile and an ordered list of uniquely identified
 ontology/shape documents, each containing its exact UTF-8 text. Composition

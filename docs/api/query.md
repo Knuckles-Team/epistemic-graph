@@ -4,7 +4,7 @@
 
 ## `CausalCounterfactual`
 
-EPI-P3-6 Pearl point-counterfactual over a request-carried SCM + a fully-observed unit; handler additionally gated `epistemic-causal`
+EPI-P3-6 Pearl point-counterfactual over a request-carried SCM + a fully-observed unit; handler also gated `epistemic-causal`
 
 | Property | Value |
 |---|---|
@@ -38,7 +38,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Caus
 
 ## `CausalEstimate`
 
-EPI-P3-3/P3-6 do-calculus intervention OR observational conditioning (selected by `mode`) over a request-carried SCM; handler additionally gated `epistemic-causal`
+EPI-P3-3/P3-6 do-calculus intervention OR observational conditioning (selected by `mode`) over a request-carried SCM; handler also gated `epistemic-causal`
 
 | Property | Value |
 |---|---|
@@ -106,7 +106,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Cyph
 
 ## `Decide`
 
-RF-ADR-010 DL-4. Evaluate-only: scores the tenant-visible library candidates under a pinned feature schema, head and policy and answers a batch of sealed statistical records; it commits none of them. Graph-sourced candidates are refused until graph-sourced records land
+RF-ADR-010 DL-4. Evaluate-only: scores the tenant-visible library candidates under a pinned feature schema, head and policy and answers a batch of sealed statistical records. It commits none of them. Graph-sourced candidates are refused until graph-sourced records land
 
 | Property | Value |
 |---|---|
@@ -138,7 +138,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Deci
 
 ## `EdgeIndex`
 
-EH-351/EH-352, runtime-conditional: status reads; create, refresh and drop write the verified tenant's SQL catalog (registration and generations) and the request graph's IndexManager. Drop is fenced: a build in flight never activates after it
+EH-351/EH-352, runtime-conditional: status reads. Create, refresh and drop write the checked tenant's SQL catalog (registration and generations) and the request graph's IndexManager. Drop is fenced: a build in flight never activates after it
 
 | Property | Value |
 |---|---|
@@ -171,7 +171,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Edge
 
 ## `EdgeSearch`
 
-EH-351: edge-native vector or BM25 search of the request graph; the caller's row-level security, the edge type and the property filters are applied inside the index walk, and edges come back as edges (endpoints and parallel-edge ordinal)
+EH-351: edge-native vector or BM25 search of the request graph. The caller's row-level security, the edge type and the property filters are applied inside the index walk, and edges come back as edges (endpoints and parallel-edge ordinal)
 
 | Property | Value |
 |---|---|
@@ -203,7 +203,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Edge
 
 ## `EpistemicStatus`
 
-L53 (EPI-P3-5) acceptance capstone; handler additionally gated `epistemic-tms`
+L53 (EPI-P3-5) acceptance capstone; handler also gated `epistemic-tms`
 
 | Property | Value |
 |---|---|
@@ -266,7 +266,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Expl
 
 ## `ExplainEvidence`
 
-CONCEPT:EG-X1 multimodal-citation resolver; handler additionally gated `evidence-graph`
+CONCEPT:EG-X1 multimodal-citation resolver; handler also gated `evidence-graph`
 
 | Property | Value |
 |---|---|
@@ -454,7 +454,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/GetC
 
 ## `GetChangeEnvelope`
 
-Verified tenant-scoped reconciliation read
+Checked tenant-scoped reconciliation read
 
 | Property | Value |
 |---|---|
@@ -680,7 +680,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/NlQu
 
 ## `RankByProvenance`
 
-EPI-P3-3 provenance-aware retrieval ranking; handler additionally gated `epistemic-causal`
+EPI-P3-3 provenance-aware retrieval ranking; handler also gated `epistemic-causal`
 
 | Property | Value |
 |---|---|
@@ -747,7 +747,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Reco
 
 ## `ResolveConflict`
 
-EPI-P3-7 (gap-fill) standalone Dung argumentation (grounded/preferred/stable) conflict resolution over a BeliefGraph snapshot; handler additionally gated `epistemic-tms`
+EPI-P3-7 (gap-fill) standalone Dung argumentation (grounded/preferred/stable) conflict resolution over a BeliefGraph snapshot; handler also gated `epistemic-tms`
 
 | Property | Value |
 |---|---|
@@ -780,7 +780,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Reso
 
 ## `Sql`
 
-runtime-conditional; graph DML uses staged graph state while table/catalog writes atomically commit SQL rows plus MutationBatch status/fence/idempotency/outbox
+runtime-conditional. Graph DML uses staged graph state while table/catalog writes atomically commit SQL rows plus MutationBatch status/fence/idempotency/outbox
 
 | Property | Value |
 |---|---|
@@ -970,7 +970,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Uql`
 
 ## `WhatChanged`
 
-L53 (EPI-P3-5) bitemporal diff; handler additionally gated `epistemic-tms`
+L53 (EPI-P3-5) bitemporal diff; handler also gated `epistemic-tms`
 
 | Property | Value |
 |---|---|

@@ -1,6 +1,6 @@
 # SPARQL & RDF interface
 
-epistemic-graph is an RDF triple-store: you load RDF (OWL/RDFS or plain triples), the engine maps it
+epistemic-graph is an RDF triple-store: the operator loads RDF (OWL/RDFS or plain triples), the engine maps it
 onto the property graph, and SPARQL `SELECT` runs over it. RDF and the property graph are **the same
 data** — a triple is a node, an edge, or a property depending on its object.
 
@@ -68,9 +68,9 @@ intentionally unsupported (the write path does no HTTP fetch).
   compaction, `@id`/`@type`/`@graph`), **TriG** + **N-Quads** (named-graph-aware), and **RDF/XML**.
 
 The same matrix is available on ingest (parse) and via the W3C SPARQL 1.1 **Graph Store Protocol**
-(GET/PUT/POST/DELETE on `/rdf-graphs/…?graph=`, EG-134) for direct RDF-tooling read/write.
+(GET/PUT/POST/Remove on `/rdf-graphs/…?graph=`, EG-134) for direct RDF-tooling read/write.
 
-SPARQL UPDATE and Graph Store PUT/POST/DELETE require an exact current request envelope:
+SPARQL UPDATE and Graph Store PUT/POST/Remove require an exact current request envelope:
 `Authorization: Bearer eg2.<envelope>` and `X-Epistemic-Request-Id`. The adapter dispatches
 that signed request into the native multi-graph coordinator. It checks every addressed graph
 before detached planning and creates missing graphs only with `graph:admin`. Before changing
@@ -107,7 +107,7 @@ SELECT ?site WHERE {
 - **ICV** (EG-KG.ontology.wired-into-commit-write): Stardog-style Integrity Constraint Validation — interpret SHACL shapes under the
   closed-world / unique-name assumption as database integrity constraints, report violations with a
   focus-node + failing-constraint + a SPARQL "explain" witness, with an optional **guard mode** that
-  rejects a write/transaction that would violate a constraint (and also runs in the OWL-reasoned view).
+  rejects a write/transaction that will violate a constraint (and also runs in the OWL-reasoned view).
 
 ## OBDA / virtual graphs — R2RML (EG-101)
 

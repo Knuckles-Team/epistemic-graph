@@ -7,7 +7,7 @@
 
 The current engine contract is defined by the capability matrix, the owning
 architecture pages, and executable evidence in the repository.
-The **[North Star: Seamless](north_star.md)** page defines the cross-modal seam
+The **[North Star: Smooth](north_star.md)** page defines the cross-modal seam
 contract; the native, SQL-wire, GraphQL, RDF, timeseries, and transaction surfaces
 route through shared current-only machinery.
 

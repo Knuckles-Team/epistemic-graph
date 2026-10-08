@@ -4,7 +4,7 @@
 
 ## `ApplyChangeEnvelope`
 
-Engine-native object/material/governance/version/cursor/outbox commit; verified context is mandatory
+Engine-native object/material/governance/version/cursor/outbox commit; checked context is mandatory
 
 | Property | Value |
 |---|---|
@@ -37,7 +37,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Appl
 
 ## `ApplyChangeEnvelopeDraft`
 
-Client path: the request boundary mints scope identity, version expectation and admission envelope from the verified context
+Client path: the request boundary mints scope identity, version expectation and admission envelope from the checked context
 
 | Property | Value |
 |---|---|
@@ -70,7 +70,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Appl
 
 ## `ApplyChangeEnvelopeDrafts`
 
-Client batch path: drafts compiled into governed envelopes by the request boundary from the verified context
+Client batch path: drafts compiled into governed envelopes by the request boundary from the checked context
 
 | Property | Value |
 |---|---|
@@ -304,7 +304,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Mult
 
 ## `MutationOutbox`
 
-X10, runtime-conditional: status and dead_letters are reads; rewind resets one consumer's durable cursor through bounded eg-transaction transactions, so it is a saga rather than one atomic write. Targets a graph's outbox, or a native store of the verified tenant through a typed scope selector (tenant for Agent Library and jobs, binding for a semantic index, resource for the shared SQL catalog). Local-only authority, refused in clustered mode
+X10, runtime-conditional: status and dead_letters are reads. Rewind resets one consumer's durable cursor through bounded eg-transaction transactions, so it is a saga rather than one atomic write. Targets a graph's outbox, or a native store of the checked tenant through a typed scope selector (tenant for Agent Library and jobs, binding for a semantic index, resource for the shared SQL catalog). Local-only authority, refused in clustered mode
 
 | Property | Value |
 |---|---|

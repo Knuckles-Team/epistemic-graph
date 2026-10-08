@@ -1,7 +1,7 @@
-# Deployment topology — the engine, and what you can bolt onto it
+# Deployment topology — the engine, and what the operator can bolt onto it
 
 `epistemic-graph` runs **standalone**. It is a complete durable database on its own —
-you can deploy *only* the engine and talk to it over the Postgres wire (or any of the
+the operator can deploy *only* the engine and talk to it over the Postgres wire (or any of the
 other wire protocols) with nothing else installed. Everything below the engine in the
 diagram is **optional** and additive: each component uses the engine, none is required
 to run it.
@@ -41,7 +41,7 @@ flowchart TD
 
 > **The line to hold:** epistemic-graph is a **stand-alone database**. It does not
 > depend on any of the components above and never calls back into them. They are
-> *clients* of the engine. Deploy just the engine and you have a working, durable,
+> *clients* of the engine. Deploy just the engine and the operator has a working, durable,
 > multi-wire DB.
 
 ---
@@ -55,15 +55,15 @@ A durable database for SQL/graph/vector/etc. clients. No orchestrator, no UI.
 → **[Standalone deployment](standalone_deployment.md)** (pure binary or
 `docker/compose.standalone.yml`) and the **[DBeaver/psql quickstart](dbeaver_quickstart.md)**.
 
-Use when: you want a Postgres-wire-speaking graph+vector+SQL database and will drive
-it with your own clients (psql, DBeaver, a BI tool, an app, an ORM).
+Use when: the operator wants a Postgres-wire-speaking graph+vector+SQL database and will drive
+it with the operator's own clients (psql, DBeaver, a BI tool, an app, an ORM).
 
 ### 2. Engine + agent-utilities (the full platform)
 
 Add the orchestrator/KG hub. The `agent-utilities` base install always carries the
 mandatory `epistemic-graph[full]` artifact. For a local dev box, GraphOS autostarts and
 supervises its server binary over a private UDS socket; alternatively it connects to the
-**standalone engine container** you deployed in shape (1) for a shared, durable,
+**standalone engine container** the operator deployed in shape (1) for a shared, durable,
 separately-scaled database. It layers on ontology-driven ingestion, an agent fleet, MCP
 tools, and the loop engine — turning the raw database into a reasoning knowledge-graph
 platform.
@@ -103,7 +103,7 @@ a reasoning platform.
 
 ## Interlinks with agent-utilities
 
-If you are deploying the full platform, these agent-utilities docs are the companion
+If the operator is deploying the full platform, these agent-utilities docs are the companion
 reading (paths are in the `agent-utilities` repo under `docs/`):
 
 - **`docs/guides/deployment.md`** — canonical "Deploying agent-utilities" reference;

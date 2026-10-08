@@ -10,8 +10,8 @@
 > "Elastic sharding / resharding-rebalancing with live data migration" and
 > "Scalable tenant catalog". These gaps were originally scoped in a
 > `epistemic-graph-master-engine-gaps-2026-06-23.md` planning document; that
-> document could not be located in this repo's history or in any known
-> workspace archive as of 2026-08-25 (an audit found several sibling
+> document can not be located in this repo's history or in any known
+> workspace archive as of 2026-08-25 (an audit found multiple sibling
 > `reports/*.md` citations from the same era that DO survive under
 > `plans/_archive/` — this one apparently did not). Treat the gap scope above
 > as the operative statement of intent; this document reconciles current
@@ -35,7 +35,7 @@
 > admin RPC (`EG-038` — `Reshard`/`Catalog*`/`RebalancePlan`/`RebalanceExecute` +
 > `handlers/admin.rs` + `ReshardingClient`), rebalance plan EXECUTION (`EG-KG.backend.r3-plan-execution`
 > `RedbBackend::rebalance_execute`), the R6 `touch()` wiring + interval offload sweep
-> (`EG-KG.backend.r6-feature`), and the R1 snapshot+delta copy (`EG-KG.backend.flush-pending-first` `bulk_copy`/`delta_flip_purge`). These are current source paths; focused tests are repository evidence, not a deployment or scale certification. **Still
+> (`EG-KG.backend.r6-feature`), and the R1 snapshot+delta copy (`EG-KG.backend.flush-pending-first` `bulk_copy`/`delta_flip_purge`). These are current source paths. Focused tests are repository evidence, not a deployment or scale certification. **Still
 > REMAINING:** R2 (cross-node, needs M2), and the original R4-gated object-store arm of R6
 > (cold tenants colder than redb spilled to `cold-tier-s3`/`blob-s3`).
 
@@ -74,10 +74,10 @@ in. Rows are copied **verbatim** (no decode/unseal/re-derive):
 - Per-graph tables — `NODES` / `EDGES` / `LEDGER` / `SEMANTIC` / `GRAPH_META` — moved row for
   row, value blob unchanged (encryption-at-rest blobs survive without the key).
 - The tamper-evident hash-chained `AUDIT` log (`CONCEPT:EG-KG.sharding.row-level-security`) is copied verbatim
-  `(graph, seq) → blob`, so the chain stays verifiable (re-deriving would break verification).
+  `(graph, seq) → blob`, so the chain stays verifiable (re-deriving will break verification).
 - Global, non-per-graph records — Raft log/meta (`RAFT_LOG`/`RAFT_META`), cross-shard 2PC
   (`XSHARD_PREPARE`/`XSHARD_DECISION`), matviews (`MATVIEWS`, `compute-dist` only) — re-home to
-  the NEW shard 0 (EG-KG.backend.sharded-k-way-durable's `shard0()` home), regardless of graph.
+  the NEW shard 0 (EG-KG.backend.sharded-k-way-durable's `shard0()` home), in either case of graph.
 
 **Public API** (`shard_migrate`):
 - `migrate_shards(src_dir, dst_dir, new_k) -> MigrationReport` — out-of-place for
@@ -125,7 +125,7 @@ that OVERRIDES EG-KG.backend.sharded-k-way-durable hash routing per graph:
   `shard_index`**. So an EMPTY catalog is byte-for-byte identical to no catalog — pure FNV-1a.
 - The seam in `RedbBackend::shard_for` is gated on a catalog being attached; default
   (`catalog: None`) is unchanged EG-026. The catalog only ever stores the *exceptions* to the
-  hash (moved/rebalanced tenants) — it never has to enumerate all 100M graphs.
+  hash (moved/rebalanced tenants) — it never has to list all 100M graphs.
 - Durability is opt-in: `TenantCatalog::open(persist_dir)` backs it with `catalog.redb`
   (assignments survive restart); `TenantCatalog::in_memory()` is non-durable for tests.
 
@@ -149,7 +149,7 @@ guarantee — matches `shard_index` for every graph at K∈{1,2,4,8,16}),
 
 ## M3 status matrix — remaining cross-node/object-tier work is `DESIGNED`
 
-Each task below is self-contained: module/I/O, dependencies & ordering, and whether it can run
+Each task below is self-contained: module/`I/O`, dependencies & ordering, and whether it can run
 in parallel or must sequence behind M2 (the sibling's multi-Raft work in `src/raft/`,
 `CONCEPT:EG-KG.sharding.raft-resharding/2.207`). The catalog (EG-031) and migration tool (EG-030) are the substrate
 all of these compose.
@@ -175,7 +175,7 @@ offline tool has no online write path.
 
 Original design sketch (superseded by the current snapshot-plus-delta implementation):
 - **Module:** new `src/server/persistence/online_reshard.rs`. Composes the EG-030 verbatim
-  row-copy (extract the per-graph copy loop in `shard_migrate.rs` into a reusable
+  row-copy (extract the per-graph copy include `shard_migrate.rs` into a reusable
   `copy_graph_rows(src_shard, dst_shard, graph_fname)` helper) with the EG-031 catalog.
 - **Algorithm:** (1) `catalog.assign(g, dst, node)` is NOT flipped yet; (2) snapshot-copy the
   graph's rows from source shard to dest shard under a read txn (MVCC — writes continue to the
@@ -183,7 +183,7 @@ Original design sketch (superseded by the current snapshot-plus-delta implementa
   writer, `CONCEPT:EG-KG.sharding.per-graph-write-coalescer`, `src/write_coalescer.rs` — `drop_writer`/quiesce one key);
   (4) copy the delta; (5) atomically flip `catalog.reassign(g, dst)` and resume; (6) GC the old
   rows from the source shard.
-- **I/O:** redb read/write txns on two shards in the same `RedbBackend`; the catalog write.
+- **`I/O`:** redb read/write txns on two shards in the same `RedbBackend`; the catalog write.
 - **Ordering / parallel:** independent of M2 (single node). The design sketch
   predates the current R5 gate and is retained only to explain the evolution of
   the contract; it is not an open implementation task.
@@ -197,7 +197,7 @@ Make `ShardAssignment.node` real: move a tenant to a shard owned by a *different
 - **Deps:** REQUIRES M2 multi-Raft landed (`src/raft/multi.rs` `MultiRaft`, `CONCEPT:EG-KG.sharding.raft-resharding`;
   leader transfer/membership `CONCEPT:EG-KG.sharding.semantic-embedding-store-backed`). Cross-node row movement must replicate through
   the destination node's Raft group, not a raw file copy, or the move isn't consensus-durable.
-- **I/O:** Raft `propose` of the migrated rows on the destination group; catalog `node` flip.
+- **`I/O`:** Raft `propose` of the migrated rows on the destination group; catalog `node` flip.
 - **Ordering:** strictly after R1 (reuses its copy/quiesce/flip) AND after M2. Do NOT start the
   cross-node arm until `src/raft/` stabilizes (sibling-owned — coordinate).
 
