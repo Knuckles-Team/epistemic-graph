@@ -44,7 +44,7 @@ two admission resources fill up:
    `max_in_flight/4`) for `__commons__` itself.
 
 Before EG-KG.coordination.reserved-read-lane a read that lost both was shed `BUSY` exactly like a write — so a
-heavy ingestion stream could starve interactive MCP reads/queries even though a
+heavy ingestion stream can starve interactive MCP reads/queries even though a
 read is cheap and never blocks a write. The engine must **stay responsive while
 ingesting**, so an interactive read must outrank background ingestion at the
 admission gate.
@@ -168,7 +168,7 @@ read_reserved = (max_inflight / 8).clamp(8, 1024)
 ```
 
 i.e. an eighth of the global admission cap, floored at 8 so a 1–2 core box still
-keeps several read lanes open, ceilinged at 1024. Reads hold a slot only for the
+keeps multiple read lanes open, ceilinged at 1024. Reads hold a slot only for the
 brief off-lock snapshot, so even a small reservation keeps the read path alive.
 The value is read once at startup in [`src/main.rs`](https://github.com/Knuckles-Team/epistemic-graph/blob/main/src/main.rs) and logged
 (`Backpressure: max in-flight = … (per-graph cap = …, reserved read lane = …)`).
@@ -183,7 +183,7 @@ epistemic_graph_read_reserved_admitted_total
 
 > *"Read/query requests admitted via the RESERVED read lane (CONCEPT:EG-KG.coordination.reserved-read-lane)
 > after the global pool / per-graph cap was saturated by writes — each is an
-> interactive read that would otherwise have been shed BUSY behind ingestion."*
+> interactive read that will otherwise have been shed BUSY behind ingestion."*
 
 A rising `read_reserved_admitted_total` alongside `busy_rejections_total` is the
 signal that the reserved lane is actively keeping reads alive under ingestion
@@ -226,9 +226,9 @@ ecosystem ingests continuously. Tuning guidance:
 
 - **Default is usually right.** The auto-size tracks `max_inflight`, so a bigger
   box gets a bigger reserved lane automatically.
-- **Raise `EPISTEMIC_GRAPH_READ_RESERVED`** only if you observe reads shedding
+- **Raise `EPISTEMIC_GRAPH_READ_RESERVED`** only if the operator observes reads shedding
   `BUSY` (the reserved lane filling) under a genuinely read-heavy *and*
-  write-heavy mix — e.g. many concurrent interactive agents querying while
+  write-heavy mix — e.g. multiple concurrent interactive agents querying while
   ingestion runs. Keep it well below `max_inflight` so the reserved reads can't
   themselves exhaust the box.
 - **It is harmless on a Pi.** The lane floors at 8; reads hold a slot only for a

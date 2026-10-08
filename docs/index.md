@@ -50,7 +50,7 @@ authority, durability, audit, CDC, and transaction properties.
 ## Where this engine fits
 
 <figure class="site-card">
-  <img src="assets/runtime-architecture.svg" alt="Clients enter through GraphOS, agent-utilities executes agents and workflows, Epistemic Graph owns durable knowledge, and connector packages synchronize external systems.">
+  <img src="assets/runtime-architecture.svg" alt="Clients enter through GraphOS, agent-utilities runs agents and workflows, Epistemic Graph owns durable knowledge, and connector packages synchronize external systems.">
   <figcaption>Epistemic Graph is the durable authority at the base of the shared runtime.</figcaption>
 </figure>
 
@@ -73,7 +73,7 @@ authority, durability, audit, CDC, and transaction properties.
     <span class="site-flow__body">MCP, REST, A2A, identity, policy, and the hosted WebUI share one public door.</span>
   </li>
   <li class="site-flow__step">
-    <span class="site-flow__title">Execute with agent-utilities</span>
+    <span class="site-flow__title">Run with agent-utilities</span>
     <span class="site-flow__body">Agents, workflows, skills, evaluation, and control-plane decisions run above the database.</span>
   </li>
   <li class="site-flow__step">
@@ -98,7 +98,7 @@ authority, durability, audit, CDC, and transaction properties.
 | Ingest documents and media | [Governed modality serving](architecture/modality_serving.md) |
 | Operate a durable service | [Standalone deployment](standalone_deployment.md) and [operations](operations/runbook.md) |
 
-## Run your first graph
+## Run the operator's first graph
 
 The release wheel includes the in-process engine binding, so the shortest path
 needs no server, port, certificate, or background process:

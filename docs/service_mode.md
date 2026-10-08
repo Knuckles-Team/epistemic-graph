@@ -65,7 +65,7 @@ epistemic-graph-service graphs list
 | Argument | Env Var | Default | Description |
 |---|---|---|---|
 | `--socket-path` | `GRAPH_SERVICE_SOCKET` | platform runtime socket | UDS socket path |
-| `--socket-mode` | `GRAPH_SERVICE_SOCKET_MODE` | `0600` | Octal mode applied to the UDS socket after bind; refused at startup if malformed or if it would grant world ("other") access |
+| `--socket-mode` | `GRAPH_SERVICE_SOCKET_MODE` | `0600` | Octal mode applied to the UDS socket after bind; refused at startup if malformed or if it will grant world ("other") access |
 | `--tcp-addr` | `GRAPH_SERVICE_TCP_ADDR` | None | Optional native TCP listener; a routable address requires TLS |
 | `--tcp-tls-cert` / `--tcp-tls-key` | `GRAPH_SERVICE_TLS_CERT` / `GRAPH_SERVICE_TLS_KEY` | — | PEM identity required together for routable native TCP |
 | `--tcp-tls-client-ca` | `GRAPH_SERVICE_TLS_CLIENT_CA` | — | Optional CA bundle enabling required client certificates |
@@ -125,7 +125,7 @@ newline delimiting. Each message — in both directions — is:
 ```
 
 Because the frame length is explicit, binary payloads containing `0x0A`
-(newline) bytes round-trip intact — newline framing would corrupt them.
+(newline) bytes round-trip intact — newline framing will corrupt them.
 
 ### Request Shape
 
@@ -152,7 +152,7 @@ frame = len(body).to_bytes(4, byteorder="big") + body
 ```
 
 `agent_id` is an authenticated assertion, never authority by itself. The server
-derives the effective actor from the verified envelope and rejects a conflict.
+derives the effective actor from the checked envelope and rejects a conflict.
 
 ### Response Shape
 
@@ -172,7 +172,7 @@ transaction that buffers BOTH graph-node DML (`INSERT`/`UPDATE`/`DELETE` over
 `nodes`, including the `… SELECT` / `… FROM` join forms) and user-table DDL/DML,
 applying them at `COMMIT`.
 
-- **Read-your-own-writes** — a `SELECT` inside an open transaction sees the
+- **RYOW** — a `SELECT` inside an open transaction sees the
   transaction's own uncommitted node writes (the read runs over the live snapshot
   overlaid with the buffered ops).
 - **Aborted transactions** — after any statement inside the block errors, every
@@ -231,8 +231,8 @@ access. It permits exactly one bootstrap mutation in `__commons__`: a trusted
 signer-backed `RegisterIdentity` request that registers the envelope's own
 principal/effective agent as `System`, with empty teams and roles, no delegation,
 and the single exact scope `security:bootstrap`. The detached operation signature
-must verify against `EPISTEMIC_GRAPH_SIGNER_KEYS_JSON` and its signer id must equal
-the verified principal. Once the first rule exists, this bootstrap path closes;
+must check against `EPISTEMIC_GRAPH_SIGNER_KEYS_JSON` and its signer id must equal
+the checked principal. Once the first rule exists, this bootstrap path closes;
 all operations, including later identity administration, require normal durable
 RBAC and capability checks.
 
@@ -310,11 +310,11 @@ Violations return an `ACCESS_DENIED: ...` error response.
 
 Enforcement is unconditional:
 
-- Every caller comes from verified `eg2.` authority. The unsigned `agent_id`
+- Every caller comes from checked `eg2.` authority. The unsigned `agent_id`
   request field cannot establish or change identity.
 - Native wire session objects may exist before authentication, but they cannot
-  execute, enter QoS/admission accounting, evaluate ACLs, or access state until
-  a non-empty verified identity and opaque principal scope are bound. There is
+  run, enter QoS/admission accounting, evaluate ACLs, or access state until
+  a non-empty checked identity and opaque principal scope are bound. There is
   no anonymous, graph-name, or empty-string identity bucket.
 - An empty durable identity/RBAC store grants no graph access. It admits only
   the exact signer-backed `security:bootstrap` self-registration described
@@ -338,7 +338,7 @@ Enforcement is unconditional:
 | Team member | `team:<name>` | ✅ | ❌ |
 | Team manager | `team:<name>` | ✅ | ✅ |
 | Any agent | `global:<name>` | ✅ | ❌ |
-| Unbound transport (before verified identity) | Any graph | Cannot execute | Cannot execute |
+| Unbound transport (before checked identity) | Any graph | Cannot run | Cannot run |
 
 ## Building & Running
 

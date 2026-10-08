@@ -24,18 +24,18 @@ The committed contracts are:
 
 ## What it proves
 
-One run stages the digest-verified executable into a private Linux-native work
+One run stages the digest-checked executable into a private Linux-native work
 directory and starts exactly one engine with:
 
 - a private Unix socket;
 - the authoritative redb store and commit-before-ack behavior;
 - one redb shard, so runs do not hide parallel compilation or multi-process work;
 - fixed global, per-graph, reserved-read, and client timeout limits;
-- an `eg2.` verified request context and an opaque, one-run bootstrap identity;
+- an `eg2.` checked request context and an opaque, one-run bootstrap identity;
 - no optional listener or inherited engine setting.
 
 The harness waits for the staged process's owner-only socket and connects only
-after that socket is verified; ambient endpoint discovery cannot satisfy readiness.
+after that socket is checked; ambient endpoint discovery cannot satisfy readiness.
 
 It then measures:
 

@@ -2,8 +2,8 @@
 
 `scripts/push_gate_evidence.py` keys heavy local checks (for example the
 cluster-extras affected lint) by their exact command and build environment.
-Identical selections execute once per invocation;
-later consumers may reuse only a verified result from that same invocation (or
+Identical selections run once per invocation;
+later consumers may reuse only a checked result from that same invocation (or
 an explicitly declared completed prior phase).
 
 This is an execution optimization, not a coverage waiver. A missing,
@@ -23,7 +23,7 @@ Each selection is keyed by a canonical digest of:
 The invocation source identity includes the committed revision and tree,
 working-tree and index binary diffs, bounded untracked-file content, the
 `Cargo.lock` digest, and pinned toolchain/configuration plus `rustc`/`cargo`
-version output. A successful result is additionally bound to its selection
+version output. A successful result is also bound to its selection
 payload and exit code. Evidence is stored in the worktree's private Git
 directory, with restrictive permissions and a per-invocation HMAC key. It is
 never a release artifact and contains environment digests rather than raw
@@ -40,7 +40,7 @@ source/configuration identity changes are not admissible.
 A record can be consumed only when all of the following hold:
 
 1. the evidence schema, invocation identity, source fingerprint, file modes,
-   content digest, and HMAC verify;
+   content digest, and HMAC check;
 2. the invocation status is `complete`;
 3. the selection payload is present exactly in the plan;
 4. the result is `success`, has exit code `0`, and has the expected result
@@ -57,7 +57,7 @@ build. Mandatory coverage remains mandatory.
 
 ## Failure and restart behavior
 
-The producer marks a resumed cache `running` before executing any new plan
+The producer marks a resumed cache `running` before running any new plan
 item. It records failed results as failed and leaves them non-consumable. An
 interrupted or otherwise non-finalized invocation remains partial and is
 executed normally on the next attempt. A corrupt marker, key, or evidence file
@@ -79,5 +79,5 @@ The focused selector is:
 pytest -q tests/test_push_gate_evidence.py
 ```
 
-The source-only worker did not execute this command or any Cargo/build/hook
+The source-only worker did not run this command or any Cargo/build/hook
 command.

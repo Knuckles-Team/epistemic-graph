@@ -1439,7 +1439,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/OutD
 
 ## `PolicyEvolution`
 
-EH-346/EH-347 capture-first policy evolution, runtime-conditional: get is a snapshot read (policy:read); put_capability / commit_capture / register_model_policy_version / commit_training_run / commit_policy_evaluation each self-translate into ONE CreateNodeIfAbsent of an immutable content-addressed record in the request graph. The row names the capture leg; PolicyEvolutionOp::authz_action is the authority for each operation (the other writes are admin: gated)
+EH-346/EH-347 capture-first policy evolution, runtime-conditional: get is a snapshot read (policy:read). Put_capability / commit_capture / register_model_policy_version / commit_training_run / commit_policy_evaluation each self-translate into ONE CreateNodeIfAbsent of an immutable content-addressed record in the request graph. The row names the capture leg. PolicyEvolutionOp::authz_action is the authority for each operation (the other writes are admin: gated)
 
 | Property | Value |
 |---|---|
@@ -1479,7 +1479,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Poli
 
 ## `PolicyEvolutionStore`
 
-EH-346 engine-internal: the durable WorkItem-kernel write that stores one record PolicyEvolution already admitted (content-addressed, create-only, tenant bound to the verified carrier); refused from the wire. Generic graph writes to policy-evolution rows are refused by the row guard, so this is their only writer
+EH-346 engine-internal: the durable WorkItem-kernel write that stores one record PolicyEvolution already admitted (content-addressed, create-only, tenant bound to the checked carrier). Refused from the wire. Generic graph writes to policy-evolution rows are refused by the row guard, so this is their only writer
 
 | Property | Value |
 |---|---|

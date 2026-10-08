@@ -39,7 +39,7 @@ opaque tool references, revision lineage, and policy. Examples contain only opaq
 input/output/feedback/trace references, bounded scores, and located evidence. The
 corpus carries a privacy attestation proving that raw PII and local identifiers were
 not persisted. Server ingress replaces all caller policy scope, including optimizer
-artifact scope, with verified authority.
+artifact scope, with checked authority.
 
 | Program modality | Required evidence address |
 |---|---|
@@ -141,7 +141,7 @@ deterministic candidate references and selected state. Plan-step rows carry the
 dependency-ordered executor, step kind, opaque inputs/outputs, modalities, and
 operation ceiling.
 
-For a provider-dependent family, execute returned plan steps only through the
+For a provider-dependent family, run returned plan steps only through the
 named governed engine runtime. Add the resulting reference-only
 `optimizer_artifacts` to the same request and resubmit. After evaluating a
 candidate, add an `EvaluationSummary` to `candidate_evaluations` and resubmit;
@@ -150,9 +150,9 @@ coverage, and minimum-evidence requirements all pass. Promotion still commits
 through `ChangeEnvelope` and `MutationBatch`.
 
 For an Agent Utilities or GraphOS deployment, run the
-[live deployment doctor](https://github.com/Knuckles-Team/agent-utilities/blob/main/docs/guides/self-setup.md#8-verify)
-with `agent-utilities-doctor --live`; it verifies that the connected engine
-advertises and executes the native optimization capability.
+[live deployment doctor](https://github.com/Knuckles-Team/agent-utilities/blob/main/docs/guides/self-setup.md#8-check)
+with `agent-utilities-doctor --live`; it checks that the connected engine
+advertises and runs the native optimization capability.
 
 ## Plan and candidate lifecycle
 

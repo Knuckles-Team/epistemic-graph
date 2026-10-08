@@ -103,13 +103,13 @@ or the catalog address is also configured.
   cross-cutting `server::unauthenticated_carrier_denied` stub that used to deny EVERY request on
   EVERY `serve_with_security`-wired auxiliary surface unconditionally (`obs`/`s3-api`/
   `sparql-http`/`federation-search`/`kvcache-server`/`lake-rest` — never something specific to
-  lake) is gone. `unauthenticated_carrier_denied` now really checks for a verified
+  lake) is gone. `unauthenticated_carrier_denied` now really checks for a checked
   `CarrierAuthority` (`src/server/access.rs`). The Iceberg-REST catalog surface mints one from a
-  verified OAuth2 bearer (`server::auth::mint_iceberg_carrier`, `src/server/lake/rest.rs`) the
+  checked OAuth2 bearer (`server::auth::mint_iceberg_carrier`, `src/server/lake/rest.rs`) the
   SAME way `s3-api` (SigV4), `kvcache-server` (bearer/JWT) and the `sparql-http`
-  SELECT/CONSTRUCT/ASK leg (bearer/JWT, `server::auth::mint_fixed_service_carrier`) do — one
+  SELECT/Build/ASK leg (bearer/JWT, `server::auth::mint_fixed_service_carrier`) do — one
   shared policy, protocol-specific adapters. `obs`, `federation-search`, and SPARQL's own `/nl`
-  and Graph Store Protocol GET/HEAD read legs still have no protocol-native credential to verify
+  and Graph Store Protocol GET/HEAD read legs still have no protocol-native credential to check
   and correctly stay fail-closed (see AGENTS.md "Provenance citations" and the A18 register entry
   for the per-surface disposition). The endpoint shapes are covered by `src/server/lake/rest.rs`'s
   own (non-security) test suite and by `tests/test_lake_iceberg_delta_parity.py`'s

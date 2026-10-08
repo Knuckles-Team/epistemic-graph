@@ -3,13 +3,13 @@
 This is the curated map of the `architecture/` tree (37 pages). It groups every page by what it's
 actually about — the commit model, the analytics/reasoning plane, distribution and scaling,
 performance, media/voice/visualization, the robotics/GPU tail, and security/access hardening — so
-you can go straight to the layer you need instead of scanning a flat file list. Pages marked
+the operator can go straight to the layer the operator needs instead of scanning a flat file list. Pages marked
 **★** are the release-defining contract pages tracked directly in site navigation and by the
 generated documentation ledger; everything else here is
 just as real, only demoted out of the sidebar.
 
 For the engine's single guiding design principle, see
-**[North Star: Seamless](../north_star.md)** — every cross-modal read/write path (a write that
+**[North Star: Smooth](../north_star.md)** — every cross-modal read/write path (a write that
 touches OWL, vector, graph, and time-series together) is implemented at *every* wire surface
 (RPC, every SQL wire, SPARQL, GraphQL, …), never merely flagged at the one it was first built for.
 
@@ -21,7 +21,7 @@ modality identity, and the substrate they all sit on.
 | Page | What it covers |
 |---|---|
 | [The master-of-all engine](engine.md) | The deep architectural reference: durability, cross-modal ACID, RDF/OWL mapping, the RLS request path, streaming/CDC, federation, multi-Raft + cross-shard 2PC, tenant lifecycle. |
-| ★ [Verified Request Authority](request_authority.md) | The `eg2.` request envelope every call carries — request id, graph, method, digest, timestamp, nonce, idempotency key, ACL agent, tenant, audience, policy version, roles, scopes, delegation chain, trace context. |
+| ★ [Checked Request Authority](request_authority.md) | The `eg2.` request envelope every call carries — request id, graph, method, digest, timestamp, nonce, idempotency key, ACL agent, tenant, audience, policy version, roles, scopes, delegation chain, trace context. |
 | ★ [Authoritative MutationBatch](mutation_batch.md) | The engine's durable mutation currency — commit-before-ack staging, durable idempotency/status, ordered projection outbox, the native WorkItem state machine. |
 | ★ [Governed ChangeEnvelope](change_envelope.md) | One native transaction for external graph/object material, policy, lineage, evidence, typed content versions/cursors, and the outbox. |
 | ★ [Durable MCP catalog ingestion](mcp_catalog_ingestion.md) | Generic MCP resources/templates bound to an exact served generation/digest through ConnectorPack, AgentComponent, and Blob CAS authority. |
@@ -29,7 +29,7 @@ modality identity, and the substrate they all sit on.
 | ★ [Governed modality serving](modality_serving.md) | Universal Artifact/Occurrence/Rendition/Segment/Feature/EvidenceLocus identities, the `ServedModality` ingest/query/lifecycle service, and the one cursor-driven `KnowledgeStream` protocol shared by every modality. |
 | [Subsystems (C4 containers)](subsystems.md) | How the broker, observability stack, KV-cache, and every wire adapter compose on the one `GraphCore` + redb-authoritative store + unified `RowSet` planner. |
 | [One build, opt-in layers](tiers.md) | The feature-composition map: the one main full-featured build plus the opt-in `cluster` (HA Raft) and `full-extras` (GPU/ROS2) layers. |
-| [Epistemic OS Hardening — capability catalog](epistemic-os-hardening.md) | The code-verified, line-anchored catalog of everything the hardening program (Phase 0 → Phase 3 + "exceed" tracks) shipped. |
+| [Epistemic OS Hardening — capability catalog](epistemic-os-hardening.md) | The code-checked, line-anchored catalog of everything the hardening program (Phase 0 → Phase 3 + "exceed" tracks) shipped. |
 
 ## Analytics, reasoning & optimization
 
@@ -40,7 +40,7 @@ optimization.
 |---|---|
 | ★ [Analytics Program — one kernel, two surfaces](analytics_program.md) | The BLAS/LAPACK-free Rust numeric kernel (`eg-numeric`) that serves both Python-side array math and in-database analytics over engine-resident data. |
 | ★ [Numeric kernel](numeric_kernel.md) | The kernel foundation of the Analytics Program — compiled kernel, Agent Utilities numeric surface, and native engine operators. |
-| ★ [Distributed analytics & incremental reasoning](distributed-analytics-reasoning.md) | Verified coordinator RPCs for leased/fenced remote workers, durable typed results, and outbox/cursor-driven TMS, conflict, causal, and materialization maintenance. |
+| ★ [Distributed analytics & incremental reasoning](distributed-analytics-reasoning.md) | Checked coordinator RPCs for leased/fenced remote workers, durable typed results, and outbox/cursor-driven TMS, conflict, causal, and materialization maintenance. |
 | ★ [Native program optimization](native-program-optimization.md) | The `submit_program_optimization` contract, 13 Rust-native optimizer families, evidence across all 14 modalities, governed runtime plan steps, evaluation-gated promotion. |
 | [Lakehouse LTAP interop](lakehouse_ltap.md) | The LTAP (Lakehouse-Transactional-Analytical Processing) superset: external engines read the store as open Parquet + Delta/Iceberg with zero ETL. |
 | [Data mining](../mining.md) | `graph_mine` / `/api/mining` — pattern and structure mining over engine-resident graphs. |

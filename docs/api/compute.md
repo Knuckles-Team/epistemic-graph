@@ -1926,7 +1926,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Fina
 
 ## `FinanceMarket`
 
-EH-413..EH-418 market bars and trend signals: bar codec/resolve/rollup over the time-series layout, integer indicators, signal replay/advance/scan, calibrated flip confidence and the backtest-run record. Pure compute over the request; informational only, never an order authority
+EH-413..EH-418 market bars and trend signals: bar codec/resolve/rollup over the time-series layout, integer indicators, signal replay/advance/scan, calibrated flip confidence and the backtest-run record. Pure compute over the request. Informational only, never an order authority
 
 | Property | Value |
 |---|---|
@@ -2778,7 +2778,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Fina
 
 ## `FinanceSignalModels`
 
-EH-423 / AUD-30 signal fusion and the strategic-insider model moved from agent-utilities: sequential Bayesian fusion of directional calls weighted by measured priors, and the Kyle insider equilibrium under dynamic legal risk with its schedule and penalty verdict. Pure compute over the request; informational only, never an order authority
+EH-423 / AUD-30 signal fusion and the strategic-insider model moved from agent-utilities: sequential Bayesian fusion of directional calls weighted by measured priors, and the Kyle insider equilibrium under dynamic legal risk with its schedule and penalty verdict. Pure compute over the request. Informational only, never an order authority
 
 | Property | Value |
 |---|---|
@@ -3284,7 +3284,7 @@ mutates is a conservative upper bound: the REAL access::requires_write(m) return
 | Parameter | Type | Required | Description |
 |---|---|:---:|---|
 | `algorithm` | `AnomalyAlgorithm` | no | Which detector to run. |
-| `as_claim` | boolean | no | ADDITIONALLY materialize a `:Claim` (+ `:Evidence`) per flagged anomaly (E6) — see [`Method::MineAssociate::as_claim`]. Confidence is seeded from the row's anomaly score. Requires `writeback`. |
+| `as_claim` | boolean | no | Also materialize a `:Claim` (+ `:Evidence`) per flagged anomaly (E6) — see [`Method::MineAssociate::as_claim`]. Confidence is seeded from the row's anomaly score. Requires `writeback`. |
 | `features` | array of array of number (double) | no | Explicit feature matrix — each row a point. Empty ⇒ use `values`/`source`. |
 | `gamma` | number (double) | no | One-Class SVM RBF gamma; `≤ 0` ⇒ the `1/n_features` default. |
 | `k` | integer (uint) | no | LOF neighbor count. |
@@ -3331,7 +3331,7 @@ mutates is a conservative upper bound: the REAL access::requires_write(m) return
 | Parameter | Type | Required | Description |
 |---|---|:---:|---|
 | `algorithm` | `MineAlgorithm` (enum: `fpgrowth`, `apriori`, `eclat`) | no | Which frequent-itemset engine to run (all agree; FP-Growth default). |
-| `as_claim` | boolean | no | ADDITIONALLY materialize a first-class epistemic object per rule (E6, CONCEPT:EG-KG.epistemic.epistemic-substrate): a `:Claim` (confidence seeded from the rule's quality score, normalized to `[0,1]`) plus a provenance `:Evidence` node, both `SUPPORTS`-linked to the claim so the `eg_epistemic` belief layer can propagate confidence over the mined finding. Requires `writeback` (the `:AssociationRule` node is the claim's evidence anchor). Gated `all(mining, epistemic)`; unset ⇒ write-back is byte-identical. |
+| `as_claim` | boolean | no | Also materialize a first-class epistemic object per rule (E6, CONCEPT:EG-KG.epistemic.epistemic-substrate): a `:Claim` (confidence seeded from the rule's quality score, normalized to `[0,1]`) plus a provenance `:Evidence` node, both `SUPPORTS`-linked to the claim so the `eg_epistemic` belief layer can propagate confidence over the mined finding. Requires `writeback` (the `:AssociationRule` node is the claim's evidence anchor). Gated `all(mining, epistemic)`; unset ⇒ write-back is byte-identical. |
 | `min_confidence` | number (double) | no | Minimum rule confidence (0.0–1.0) to emit. |
 | `min_support` | number (double) | no | Minimum fractional support (0.0–1.0) an itemset must meet. |
 | `source` | one of: `TransactionSource` \| null | no | Graph-derived transaction source (compute-near-data). Used when `transactions` is empty. |
@@ -3369,7 +3369,7 @@ mutates is a conservative upper bound: the REAL access::requires_write(m) return
 
 | Parameter | Type | Required | Description |
 |---|---|:---:|---|
-| `as_claim` | boolean | no | ADDITIONALLY materialize a `:Claim` (+ `:Evidence`) for the estimate (E6) — see [`Method::MineAssociate::as_claim`]. Confidence is seeded from the estimate's own significance (`1 - two_sided_p`). Requires `writeback`. |
+| `as_claim` | boolean | no | Also materialize a `:Claim` (+ `:Evidence`) for the estimate (E6) — see [`Method::MineAssociate::as_claim`]. Confidence is seeded from the estimate's own significance (`1 - two_sided_p`). Requires `writeback`. |
 | `control` | array of number (double) | no | The control series for difference-in-differences. Empty ⇒ plain interrupted-time-series (no control). |
 | `intervention_index` | integer (uint) | no | Index of the FIRST post-intervention observation (in BOTH series for DiD). |
 | `series` | array of number (double) | no | The (treatment, for DiD) series to analyze — required. |
@@ -3449,7 +3449,7 @@ mutates is a conservative upper bound: the REAL access::requires_write(m) return
 
 | Parameter | Type | Required | Description |
 |---|---|:---:|---|
-| `as_claim` | boolean | no | ADDITIONALLY materialize a `:Claim` (+ `:Evidence`) per prediction (D3, mirroring E6) — see [`Method::MineAssociate::as_claim`]. Confidence is seeded from the prediction's OWN max class probability (`out.proba[i]`'s argmax), already `[0,1]` by construction (a probability simplex row). Requires `writeback`. |
+| `as_claim` | boolean | no | Also materialize a `:Claim` (+ `:Evidence`) per prediction (D3, mirroring E6) — see [`Method::MineAssociate::as_claim`]. Confidence is seeded from the prediction's OWN max class probability (`out.proba[i]`'s argmax), already `[0,1]` by construction (a probability simplex row). Requires `writeback`. |
 | `model` | `FittedClassifier` | yes | The fitted model blob from `MineClassifyFit`. |
 | `plan` | one of: `Plan` \| null | no | Fused retrieve→mine plan (CONCEPT:EG-KG.mining.fused-plan-source) — see `MineCluster::plan`. Takes precedence over `source`; ignored when `x` is non-empty. |
 | `source` | one of: `VectorSource` \| null | no | Graph-derived vector source (node embeddings). Used when `x` is empty. |
@@ -3488,14 +3488,14 @@ mutates is a conservative upper bound: the REAL access::requires_write(m) return
 | Parameter | Type | Required | Description |
 |---|---|:---:|---|
 | `algorithm` | `ClusterAlgorithm` (enum: `dbscan`, `hierarchical`, `gmm`, `kmedoids`) | no | Which clustering engine to run. |
-| `as_claim` | boolean | no | ADDITIONALLY materialize a `:Claim` (+ `:Evidence`) per cluster (E6) — see [`Method::MineAssociate::as_claim`]. Confidence is seeded from the cluster's compactness score. Requires `writeback`. |
+| `as_claim` | boolean | no | Also materialize a `:Claim` (+ `:Evidence`) per cluster (E6) — see [`Method::MineAssociate::as_claim`]. Confidence is seeded from the cluster's compactness score. Requires `writeback`. |
 | `eps` | number (double) | no | DBSCAN neighborhood radius. |
 | `features` | array of array of number (double) | no | Explicit feature matrix — each row a point. Empty ⇒ use `source`. |
 | `k` | integer (uint) | no | Target cluster count for hierarchical / GMM / k-medoids. |
 | `linkage` | `Linkage` (enum: `single`, `complete`, `average`) | no | Hierarchical linkage: `single` · `complete` · `average` (default). |
 | `max_iter` | integer (uint) | no | EM / PAM iteration cap (GMM, k-medoids). |
 | `min_pts` | integer (uint) | no | DBSCAN minimum points (incl. self) for a core point. |
-| `plan` | one of: `Plan` \| null | no | Fused retrieve→mine plan (CONCEPT:EG-KG.mining.fused-plan-source): an upstream cross-modal RETRIEVAL plan (`Op::Scan|Filter|Traverse|Rank|…`), executed FIRST over the resident graph/vector/SQL/time modalities; the resulting RowSet ids are then resolved to their stored embeddings (the SAME lookup `VectorSource` uses) to build this op's feature rows — so `retrieve → cluster → writeback` is ONE plan, ONE round-trip (compute-near-data, no client marshalling between retrieve and mine). Takes precedence over `source` when present; ignored when `features` is non-empty. Gated additionally on `query` (the plan algebra lives behind that feature) — a `mining`-only build without `query` drops this field. |
+| `plan` | one of: `Plan` \| null | no | Fused retrieve→mine plan (CONCEPT:EG-KG.mining.fused-plan-source): an upstream cross-modal RETRIEVAL plan (`Op::Scan|Filter|Traverse|Rank|…`), executed FIRST over the resident graph/vector/SQL/time modalities; the resulting RowSet ids are then resolved to their stored embeddings (the SAME lookup `VectorSource` uses) to build this op's feature rows — so `retrieve → cluster → writeback` is ONE plan, ONE round-trip (compute-near-data, no client marshalling between retrieve and mine). Takes precedence over `source` when present; ignored when `features` is non-empty. Gated also on `query` (the plan algebra lives behind that feature) — a `mining`-only build without `query` drops this field. |
 | `seed` | integer (uint64) | no | Seed for GMM's k-means++ init (deterministic). |
 | `source` | one of: `VectorSource` \| null | no | Graph-derived vector source (node embeddings). Used when `features` is empty. |
 | `writeback` | boolean | no | Materialize each cluster as a typed `:Cluster` node linked to members. |
@@ -3532,7 +3532,7 @@ mutates is a conservative upper bound: the REAL access::requires_write(m) return
 | Parameter | Type | Required | Description |
 |---|---|:---:|---|
 | `algorithm` | `CommunityAlgorithm` (enum: `louvain`, `labelprop`) | no | Which existing GDS kernel to run. |
-| `as_claim` | boolean | no | ADDITIONALLY materialize a `:Claim` (+ `:Evidence`) per community (E6) — see [`Method::MineAssociate::as_claim`]. Confidence is seeded from the community's own internal-edge density (already `[0,1]`). Requires `writeback`. |
+| `as_claim` | boolean | no | Also materialize a `:Claim` (+ `:Evidence`) per community (E6) — see [`Method::MineAssociate::as_claim`]. Confidence is seeded from the community's own internal-edge density (already `[0,1]`). Requires `writeback`. |
 | `label` | string \| null | no | Optional: restrict the projected graph to nodes of this one type. |
 | `max_iterations` | integer (uint) | no | Iteration/sweep cap. |
 | `resolution` | number (double) | no | Louvain modularity resolution (ignored by label-propagation). |
@@ -3571,10 +3571,10 @@ mutates is a conservative upper bound: the REAL access::requires_write(m) return
 
 | Parameter | Type | Required | Description |
 |---|---|:---:|---|
-| `as_claim` | boolean | no | ADDITIONALLY materialize a `:Claim` (+ `:Evidence`) per match (E6) — see [`Method::MineAssociate::as_claim`]. Confidence is seeded from the match's OWN similarity. Requires `writeback`. |
+| `as_claim` | boolean | no | Also materialize a `:Claim` (+ `:Evidence`) per match (E6) — see [`Method::MineAssociate::as_claim`]. Confidence is seeded from the match's OWN similarity. Requires `writeback`. |
 | `block_keys` | array of string | no | Blocking key per record, same length as `records`. All-empty-string (or shorter than `records`) ⇒ one global block (no blocking). |
 | `bucket_precision` | integer (int32) | no | Grid-bucket rounding precision for the `vectors`/`source` blocking path. |
-| `ids` | array of string | no | Optional external ids parallel to `records`/`vectors` (the explicit paths only — `source` supplies its own resident node ids). Shorter than the input ⇒ missing entries fall back to their index. |
+| `ids` | array of string | no | Optional external ids parallel to `records`/`vectors` (the explicit paths only — `source` provides its own resident node ids). Shorter than the input ⇒ missing entries fall back to their index. |
 | `records` | array of array of string | no | Token-attribute records (Jaccard record linkage). Empty ⇒ use `vectors`/`source`. |
 | `source` | one of: `VectorSource` \| null | no | Graph-derived vector source (node embeddings) — used when `records` and `vectors` are both empty. |
 | `threshold` | number (double) | no | Minimum similarity (Jaccard or Cosine, `[0,1]`) to emit a match. |
@@ -3614,7 +3614,7 @@ mutates is a conservative upper bound; writeback=true enters the canonical durab
 |---|---|:---:|---|
 | `algorithm` | `ForecastAlgorithm` (enum: `arima`, `holtwinters`, `stl`) | no | Which forecasting engine to run. |
 | `alpha` | number (double) | no | Holt-Winters level smoothing. |
-| `as_claim` | boolean | no | ADDITIONALLY materialize a `:Claim` (+ `:Evidence`) for the forecast (E6) — see [`Method::MineAssociate::as_claim`]. Confidence is seeded from the forecast's `confidence` band level. Requires `writeback`. |
+| `as_claim` | boolean | no | Also materialize a `:Claim` (+ `:Evidence`) for the forecast (E6) — see [`Method::MineAssociate::as_claim`]. Confidence is seeded from the forecast's `confidence` band level. Requires `writeback`. |
 | `beta` | number (double) | no | Holt-Winters trend smoothing. |
 | `confidence` | number (double) | no | Two-sided confidence level for the forecast band (e.g. `0.95`). |
 | `d` | integer (uint) | no | ARIMA differencing order. |
@@ -3658,7 +3658,7 @@ mutates is a conservative upper bound: the REAL access::requires_write(m) return
 
 | Parameter | Type | Required | Description |
 |---|---|:---:|---|
-| `as_claim` | boolean | no | ADDITIONALLY materialize a `:Claim` (+ `:Evidence`) per gap (E6) — see [`Method::MineAssociate::as_claim`]. Confidence is seeded from the gap kind's fixed documented severity (`eg_compute::mining::ontology_gap::GapKind::severity`). Requires `writeback`. |
+| `as_claim` | boolean | no | Also materialize a `:Claim` (+ `:Evidence`) per gap (E6) — see [`Method::MineAssociate::as_claim`]. Confidence is seeded from the gap kind's fixed documented severity (`eg_compute::mining::ontology_gap::GapKind::severity`). Requires `writeback`. |
 | `label` | string \| null | no | Optional: restrict the scan to class nodes of this one type (`None` ⇒ every node whose `type`/`node_type` is `Class` or `OwlClass`). |
 | `writeback` | boolean | no | Materialize each gap as a typed `:OntologyGap` node linked to its class. |
 
@@ -3693,7 +3693,7 @@ mutates is a conservative upper bound: the REAL access::requires_write(m) return
 
 | Parameter | Type | Required | Description |
 |---|---|:---:|---|
-| `as_claim` | boolean | no | ADDITIONALLY materialize a `:Claim` (+ `:Evidence`) for the model (E6) — see [`Method::MineAssociate::as_claim`]. Confidence is seeded from the fraction of observed activity pairs classified `causal`/`parallel` (vs. `choice`) — a log-coverage proxy, already `[0,1]`. Requires `writeback`. |
+| `as_claim` | boolean | no | Also materialize a `:Claim` (+ `:Evidence`) for the model (E6) — see [`Method::MineAssociate::as_claim`]. Confidence is seeded from the fraction of observed activity pairs classified `causal`/`parallel` (vs. `choice`) — a log-coverage proxy, already `[0,1]`. Requires `writeback`. |
 | `process_id` | string | no | Optional identity for the write-back `:ProcessModel` node. Empty ⇒ derived from the mined footprint's own shape. |
 | `traces` | array of array of string | no | Ordered activity-label traces — each a time-ordered event sequence (an activity may repeat within a trace). Required. |
 | `writeback` | boolean | no | Materialize the footprint as a typed `:ProcessModel` node. |
@@ -3730,7 +3730,7 @@ mutates is a conservative upper bound: the REAL access::requires_write(m) return
 | Parameter | Type | Required | Description |
 |---|---|:---:|---|
 | `algorithm` | `ReduceAlgorithm` | no | Which reduction engine to run. |
-| `as_claim` | boolean | no | ADDITIONALLY materialize a `:Claim` (+ `:Evidence`) — D3, mirroring E6 — but ONLY for `svd` (`ReduceAlgorithm::Svd`), the one engine with a principled `[0,1]` quality score: the retained EXPLAINED-VARIANCE RATIO (`Σ retained singular_values² / Σ ALL row sum-of-squares`, i.e. how much of the rows' total variance the kept components capture). `lda`/`umap`/`tsne` have no such score (LDA's discriminant eigenvalues aren't returned; UMAP/t-SNE are approximate neighborhood LAYOUTS with no reconstruction-error analogue) — for those, `as_claim=true` is a documented no-op (no claim is written; see [`Method::MineAssociate::as_claim`] for the general shape). Requires `writeback`. |
+| `as_claim` | boolean | no | Also materialize a `:Claim` (+ `:Evidence`) — D3, mirroring E6 — but ONLY for `svd` (`ReduceAlgorithm::Svd`), the one engine with a principled `[0,1]` quality score: the retained EXPLAINED-VARIANCE RATIO (`Σ retained singular_values² / Σ ALL row sum-of-squares`, i.e. how much of the rows' total variance the kept components capture). `lda`/`umap`/`tsne` have no such score (LDA's discriminant eigenvalues aren't returned; UMAP/t-SNE are approximate neighborhood LAYOUTS with no reconstruction-error analogue) — for those, `as_claim=true` is a documented no-op (no claim is written; see [`Method::MineAssociate::as_claim`] for the general shape). Requires `writeback`. |
 | `epochs` | integer (uint) | no | UMAP / t-SNE optimization epochs. |
 | `labels` | array of integer (int64) | no | Class labels, one per row — REQUIRED for LDA (ignored otherwise). |
 | `lr` | number (double) | no | t-SNE learning rate. |
@@ -3775,7 +3775,7 @@ mutates is a conservative upper bound: the REAL access::requires_write(m) return
 
 | Parameter | Type | Required | Description |
 |---|---|:---:|---|
-| `as_claim` | boolean | no | ADDITIONALLY materialize a `:Claim` (+ `:Evidence`) for the report (E6) — see [`Method::MineAssociate::as_claim`]. Confidence is seeded from the report's own F1 (harmonic mean of precision@k/recall@k, already `[0,1]`). Requires `writeback`. |
+| `as_claim` | boolean | no | Also materialize a `:Claim` (+ `:Evidence`) for the report (E6) — see [`Method::MineAssociate::as_claim`]. Confidence is seeded from the report's own F1 (harmonic mean of precision@k/recall@k, already `[0,1]`). Requires `writeback`. |
 | `k` | integer (uint) | no | Precision/recall/MRR cutoff. `0` ⇒ use each trace's full retrieved list. |
 | `query_id` | string | no | Optional identity for the write-back `:RetrievalQuality` node. Empty ⇒ derived from the input traces. |
 | `traces` | array of `RetrievalTraceSpec` | no | Retrieval traces to evaluate — required. |
@@ -3812,7 +3812,7 @@ mutates is a conservative upper bound: the REAL access::requires_write(m) return
 
 | Parameter | Type | Required | Description |
 |---|---|:---:|---|
-| `as_claim` | boolean | no | ADDITIONALLY materialize a `:Claim` (+ `:Evidence`) per scored node (E6) — see [`Method::MineAssociate::as_claim`]. Confidence is seeded from the node's own propagated share (already `[0,1]`, mass-conserving). Requires `writeback`. |
+| `as_claim` | boolean | no | Also materialize a `:Claim` (+ `:Evidence`) per scored node (E6) — see [`Method::MineAssociate::as_claim`]. Confidence is seeded from the node's own propagated share (already `[0,1]`, mass-conserving). Requires `writeback`. |
 | `damping` | number (double) | no | Damping factor (probability of following an edge vs. restarting to `seed`). |
 | `edges` | array of array of any | no | Weighted directed edges `(from_id, to_id, weight)`; `weight` clamped `>= 0`. |
 | `max_iterations` | integer (uint) | no | Hard iteration cap. |
@@ -3853,7 +3853,7 @@ mutates is a conservative upper bound: the REAL access::requires_write(m) return
 
 | Parameter | Type | Required | Description |
 |---|---|:---:|---|
-| `as_claim` | boolean | no | ADDITIONALLY materialize a `:Claim` (+ `:Evidence`) for the top candidate (E6) — see [`Method::MineAssociate::as_claim`]. Confidence mirrors `anomaly`'s `score / (1 + score)` mapping over the candidate's OWN raw responsibility score (normalizing against the candidate list would be trivially `1.0` for the top candidate). Requires `writeback`. |
+| `as_claim` | boolean | no | Also materialize a `:Claim` (+ `:Evidence`) for the top candidate (E6) — see [`Method::MineAssociate::as_claim`]. Confidence mirrors `anomaly`'s `score / (1 + score)` mapping over the candidate's OWN raw responsibility score (normalizing against the candidate list will be trivially `1.0` for the top candidate). Requires `writeback`. |
 | `decay` | number (double) | no | Per-hop score decay `(0,1]` (mirrors PageRank's damping factor). |
 | `edges` | array of array of any | no | Dependency edges `(cause_id, effect_id, weight)`; `weight` clamped to `[0,1]`. |
 | `max_hops` | integer (uint) | no | Search depth cap. |
@@ -3894,7 +3894,7 @@ mutates is a conservative upper bound; writeback=true enters the canonical durab
 | Parameter | Type | Required | Description |
 |---|---|:---:|---|
 | `algorithm` | `MineSeqAlgorithm` (enum: `prefixspan`, `gsp`) | no | Which sequential-pattern engine to run (both agree; PrefixSpan default). |
-| `as_claim` | boolean | no | ADDITIONALLY materialize a `:Claim` (+ `:Evidence`) per pattern (E6) — see [`Method::MineAssociate::as_claim`]. Confidence is seeded from the pattern's support. Requires `writeback`. |
+| `as_claim` | boolean | no | Also materialize a `:Claim` (+ `:Evidence`) per pattern (E6) — see [`Method::MineAssociate::as_claim`]. Confidence is seeded from the pattern's support. Requires `writeback`. |
 | `min_support` | number (double) | no | Minimum fractional support (0.0–1.0) a pattern must meet. |
 | `sequences` | array of array of string | no | Explicit ordered sequences — each a time-ordered list of item labels. Empty ⇒ use `source`. |
 | `source` | one of: `SequenceSource` \| null | no | Graph-derived sequence source (compute-near-data). Used when `sequences` is empty. |
@@ -3932,7 +3932,7 @@ mutates is a conservative upper bound; writeback=true for gspan enters the canon
 | Parameter | Type | Required | Description |
 |---|---|:---:|---|
 | `algorithm` | `SubgraphAlgorithm` (enum: `gspan`, `motif`) | no | Which algorithm to run. |
-| `as_claim` | boolean | no | ADDITIONALLY materialize a `:Claim` (+ `:Evidence`) per frequent pattern (E6, `gspan` only) — see [`Method::MineAssociate::as_claim`]. Confidence is seeded from the pattern's support. Requires `writeback`. |
+| `as_claim` | boolean | no | Also materialize a `:Claim` (+ `:Evidence`) per frequent pattern (E6, `gspan` only) — see [`Method::MineAssociate::as_claim`]. Confidence is seeded from the pattern's support. Requires `writeback`. |
 | `label` | string \| null | no | Optional: restrict the host graph to nodes of this one type. `None` ⇒ the whole resident graph (heterogeneous). |
 | `max_edges` | integer (uint) | no | Pattern-size growth cap (tractability). Ignored by `motif`. |
 | `min_support` | number (double) | no | Minimum fractional support (0.0–1.0, of the host's total edge count) a pattern's embedding count must meet. Ignored by `motif`. |
@@ -3971,14 +3971,14 @@ mutates is a conservative upper bound; writeback=true for lda/nmf enters the can
 |---|---|:---:|---|
 | `algorithm` | `TextAlgorithm` (enum: `tfidf`, `lda`, `nmf`) | no | Which text-mining engine to run. |
 | `alpha` | number (double) | no | LDA symmetric doc-topic Dirichlet prior. |
-| `as_claim` | boolean | no | ADDITIONALLY materialize a `:Claim` (+ `:Evidence`) per topic (D3, mirroring E6) — `lda`/`nmf` only, a no-op for `tfidf` (which has no topics, mirroring `writeback`). Quality = the topic's mean doc-membership strength among the documents DOMINANTLY assigned to it (`mean(doc_topics[d][t])` over docs `d` whose argmax topic is `t`) — a topic-coherence proxy: both LDA's Dirichlet posterior and NMF's row-normalized `W` are already `[0,1]` distributions that sum to 1 across topics (see `eg_compute::mining::text` module docs), so this is a principled, already-bounded score requiring no extra normalization. Requires `writeback`. |
+| `as_claim` | boolean | no | Also materialize a `:Claim` (+ `:Evidence`) per topic (D3, mirroring E6) — `lda`/`nmf` only, a no-op for `tfidf` (which has no topics, mirroring `writeback`). Quality = the topic's mean doc-membership strength among the documents DOMINANTLY assigned to it (`mean(doc_topics[d][t])` over docs `d` whose argmax topic is `t`) — a topic-coherence proxy: both LDA's Dirichlet posterior and NMF's row-normalized `W` are already `[0,1]` distributions that sum to 1 across topics (see `eg_compute::mining::text` module docs), so this is a principled, already-bounded score requiring no extra normalization. Requires `writeback`. |
 | `beta` | number (double) | no | LDA symmetric topic-term Dirichlet prior. |
 | `docs` | array of array of string | no | Explicit pre-tokenized documents. Empty ⇒ use `source`. |
 | `iterations` | integer (uint) | no | Gibbs sweeps (`lda`) / multiplicative-update iterations (`nmf`). |
 | `k` | integer (uint) | no | Topic count for `lda`/`nmf`. |
 | `seed` | integer (uint64) | no | Seed for LDA's Gibbs sampler / NMF's initial factors (deterministic). |
 | `source` | one of: `TextSource` \| null | no | Graph-derived text source (compute-near-data). Used when `docs` is empty. |
-| `top_n` | integer (uint) | no | How many terms to keep per document/topic row. |
+| `top_n` | integer (uint) | no | How multiple terms to keep per document/topic row. |
 | `writeback` | boolean | no | Materialize each topic as a typed `:Topic` node (`lda`/`nmf` only — a no-op for `tfidf`, which has no topics to write back). |
 
 **Result**
@@ -4293,7 +4293,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Reso
 
 ## `RunUdf`
 
-executes a registered sandboxed function; treated as read/compute unless the UDF itself writes back (not modeled -- the wire protocol has no writeback flag here)
+runs a registered sandboxed function. Treated as read/compute unless the UDF itself writes back (not modeled -- the wire protocol has no writeback flag here)
 
 | Property | Value |
 |---|---|
@@ -4320,7 +4320,7 @@ executes a registered sandboxed function; treated as read/compute unless the UDF
 
 | Body | Type | Encoding | Dynamic |
 |---|---|---|---|
-| `result` | any | Raw | {'reason': 'caller-bytes', 'summary': 'opaque bytes the caller wrote or a caller-supplied program produced'} |
+| `result` | any | Raw | {'reason': 'caller-bytes', 'summary': 'opaque bytes the caller wrote or a caller-provided program produced'} |
 
 Full machine-checked schema: `contract/schemas/method.request.json#/methods/RunUdf`, `contract/schemas/result.compute.json#/methods/RunUdf`.
 

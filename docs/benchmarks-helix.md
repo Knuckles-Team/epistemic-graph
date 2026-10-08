@@ -25,7 +25,7 @@ pipelines' job.
 | Spec | [`benches/helix_compare/spec.json`](https://github.com/Knuckles-Team/epistemic-graph/blob/main/benches/helix_compare/spec.json) holds both digests, workload sizes, the plan (gate 100 ops, warm-up 200, cold 50, concurrency 1 and 8) and CPU pinning (server CPUs 0–3, client CPUs 4–7) |
 | Result | [`benches/helix_compare/results/2026-09-24-reference.json.gz`](https://github.com/Knuckles-Team/epistemic-graph/blob/main/benches/helix_compare/results/2026-09-24-reference.json.gz) (the complete, losslessly compressed report) and its rendered `.md` |
 
-The archived report decompresses with `gzip -dc benches/helix_compare/results/2026-09-24-reference.json.gz`. Its uncompressed SHA-256 is `bb0b585d3a73cb8aa89c69d97ba47ae51d4fded0704c22b73f4384dec9dbf913`; the values and JSON structure are byte-for-byte the original measured result.
+The archived report decompresses with `gzip -dc benches/helix_compare/results/2026-09-24-reference.json.gz`. Its uncompressed SHA-256 is `bb0b585d3a73cb8aa89c69d97ba47ae51d4fded0704c22b73f4384dec9dbf913`. The values and JSON structure are byte-for-byte the original measured result.
 
 `tests/test_bench_helix_compare.py` regenerates the corpus and the query set and fails
 if either digest drifts.

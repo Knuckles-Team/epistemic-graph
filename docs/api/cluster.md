@@ -164,7 +164,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Cata
 
 ## `ClusterMembers`
 
-ADR-1/W1.1 engine-authoritative client topology; deliberately NOT admin:cluster-read -- ordinary service roles need it to re-resolve after a failover; answered from any node, not just the leader
+ADR-1/W1.1 engine-authoritative client topology. Deliberately NOT admin:cluster-read -- ordinary service roles need it to re-resolve after a failover. Answered from any node, not just the leader
 
 | Property | Value |
 |---|---|
@@ -296,7 +296,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Dele
 
 ## `FleetCatalog`
 
-EH-345 fleet catalog, runtime-conditional: list/lookup are tenant- and principal-projected snapshot reads forced to __commons__ that join discovery records and operator overrides with connector-pack AgentComponents; record_discovery/set_override/clear_override self-translate into CreateNodeIfAbsent/CompareAndSetNodeFields against __commons__ (overrides need admin:fleet-catalog)
+EH-345 fleet catalog, runtime-conditional: list/lookup are tenant- and principal-projected snapshot reads forced to __commons__ that join discovery records and operator overrides with connector-pack AgentComponents. Record_discovery/set_override/clear_override self-translate into CreateNodeIfAbsent/CompareAndSetNodeFields against __commons__ (overrides need admin:fleet-catalog)
 
 | Property | Value |
 |---|---|
@@ -421,7 +421,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/List
 
 ## `ListRegisteredServers`
 
-typed, RLS-projected live :Server snapshot forced to __commons__; revision+digest-fenced keyset pages; authoritative on the single-node/full route (no cluster read barrier is claimed)
+typed, RLS-projected live :Server snapshot forced to __commons__. Revision+digest-fenced keyset pages. Authoritative on the single-node/full route (no cluster read barrier is claimed)
 
 | Property | Value |
 |---|---|
@@ -518,7 +518,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Plac
 
 ## `PlacementRoute`
 
-engine-authoritative complete route; single-node returns authoritative unplaced group 0/epoch 0, while clustered routing requires a live MultiRaft control leader; GOC-15/BUG-030 narrowed off admin:cluster-read (2026-08-17) -- ordinary kg:read/kg:write routes their OWN tenant, handlers::placement::handle_route requires kg:admin for any other tenant's route
+engine-authoritative complete route. Single-node returns authoritative unplaced group 0/epoch 0, while clustered routing requires a live MultiRaft control leader. GOC-15/BUG-030 narrowed off admin:cluster-read (2026-08-17) -- ordinary kg:read/kg:write routes their OWN tenant, handlers::placement::handle_route requires kg:admin for any other tenant's route
 
 | Property | Value |
 |---|---|

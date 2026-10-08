@@ -141,7 +141,7 @@ evidence, not a current live deployment, multi-host soak, or 1M certification.
   healthy leader. So a triggered election ALONE cannot move leadership off a healthy
   incumbent — the incumbent must cooperatively **yield** (stop heartbeating). That is the
   yield half above; with both halves the cluster converges to the round-robin spread
-  within a couple of election timeouts.
+  within a two election timeouts.
 - **Where (`src/raft/multi.rs`):** `desired_leader` (pure fn), `RebalanceReport`,
   `MultiRaft::rebalance_leaders` + `may_trigger_elect` (cooldown), `last_elect` field.
 - **Proven by:** `src/raft/tests.rs` `desired_leader_round_robin_spreads_across_voters`
@@ -190,11 +190,11 @@ reported 23 passing tests for that implementation record. This remains
   `Arc<EgStore>`; `create_group` passes the SAME `Arc` as both (no adaptor). Every
   storage method returns `std::io::Error` (the 0.9 `StorageError`/`StorageIOError`
   constructors are gone); types use the `…Of<C>` aliases. `append` now signals
-  durability via an `IOFlushed` callback (fired right after our group-commit fsync);
+  durability via an `IOFlushed` callback (fired right after this repository's group-commit fsync);
   `apply` consumes a `Stream` of `(entry, responder)` and `send`s each response;
   `delete_conflict_logs_since`/`purge_logs_upto` became `truncate_after`/`purge`; the
   chunked `install_snapshot` became full-snapshot transfer.
-- **Network = `RaftNetworkV2`.** The deprecated v1 `RaftNetwork` was deleted; the client
+- **Network = `RaftNetworkV2`.** The deprecated v1 `RaftNetwork` was removed; the client
   implements `RaftNetworkV2` (blanket-deriving the `Net*` sub-traits the factory needs).
   The snapshot RPC is now one tagged `full_snapshot` frame (vote + meta + body) → the
   follower's `install_full_snapshot`. `RPCError<C>` is single-generic. A new

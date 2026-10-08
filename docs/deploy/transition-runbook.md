@@ -1,4 +1,4 @@
-# Engine + graph-os transition runbook (clean, self-verifying deploy)
+# Engine + graph-os transition runbook (clean, self-checking deploy)
 
 > How to cleanly transition the epistemic-graph engine to a new build **and** restart
 > graph-os/messaging without the roughness that bit us on 2026-07-05. The one-command
@@ -42,9 +42,9 @@ the right node, and **gates on a real engine query** before declaring success.
 1. **Discover** engine placement (node label → IP, binary bind-mount source, TCP addr) from the
    manager. Nothing hardcoded — relocating the engine needs no script edit.
 2. **Build** `--features full`; guard the **finance symbols** (a server-only build silently breaks
-   finance/quant); verify the binary's **max required GLIBC ≤ the target node's glibc** (a binary
+   finance/quant); check the binary's **max required GLIBC ≤ the target node's glibc** (a binary
    built on a newer-glibc box will not run on an older node — fail fast, don't ship a crash-loop).
-3. **Copy** to the correct node atomically: stream → `sha256` verify → timestamped `.bak` → `mv -f`.
+3. **Copy** to the correct node atomically: stream → `sha256` check → timestamped `.bak` → `mv -f`.
 4. **Restart engine** stop-first with `--health-start-period` (survives a first-boot `.mp→redb`
    migration), watching the target node's logs for the socket bind.
 5. **Restart consumers**, wait for each to be Running/healthy.
@@ -65,7 +65,7 @@ node-local `config.json` still sets `GRAPH_SERVICE_SOCKET=/run/epistemic-graph/e
 On the client node that socket path is served (when present) by a **local autostarted "tiny-daemon"
 engine** (`--idle-shutdown-secs 60`, separate near-empty store `~/.local/share/agent-utilities/graph_snapshots`).
 So a client can resolve/​autostart that **ephemeral empty local engine instead of the real ENGINE-NODE KG**,
-and when the tiny-daemon is in its idle-shutdown window you get Connection refused. `graph_kvcache`
+and when the tiny-daemon is in its idle-shutdown window the operator gets Connection refused. `graph_kvcache`
 hides it (it degrades transport errors to an all-zeros miss).
 
 **Resolution precedence (already correct in code)** — `resolve_endpoints()` ranks
@@ -142,7 +142,7 @@ python3 -c "import epistemic_graph.numeric as n; assert n.__kernel__=='eg-numeri
 The clean long-term fix is to make these **true editable installs with extras** — `pip install -e
 /au` and either `pip install epistemic-graph[numeric]` (kernel-bearing wheel, no `/eg` shadow) or a
 maturin build of `/eg` that lands the `.so` — so "latest editable" actually includes the built
-artifacts. Until then, `transition_deploy.sh --preflight` verifies the kernel is importable before it
+artifacts. Until then, `transition_deploy.sh --preflight` checks the kernel is importable before it
 restarts anything.
 
 ### nofile (the EMFILE fix)

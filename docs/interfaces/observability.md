@@ -3,7 +3,7 @@
 epistemic-graph is a full **observability backend** — an OpenObserve-class store for the logs + metrics +
 traces trilogy — served from the same durable engine (feature `obs`, in the one main build; out of the
 one main build). Logs land as time-series + full-text documents, metrics answer PromQL, spans answer trace
-search, and a super-cluster `/federated` fan-out unifies many regions. It is cross-modal: an ingest
+search, and a super-cluster `/federated` fan-out unifies multiple regions. It is cross-modal: an ingest
 pipeline can enrich a record from the graph, and a query can join logs against graph/SQL data.
 
 > Status snapshot: log ingestion (AU-KG.ingest.self-ingest), Parquet-on-object-store segments (EG-KG.retrieval.observability-search), log search/query API
@@ -142,7 +142,7 @@ ingest.
 
 !!! note "Deferred — live dashboards UI (🗺)"
     The **query side** ships (PromQL, log `_search`, trace search, service-map, federated fan-out). A
-    Grafana-style **dashboard front-end** over those APIs is not built — today you point an existing
+    Grafana-style **dashboard front-end** over those APIs is not built — today the operator points an existing
     Grafana/Prometheus/OTel front-end at the listeners. See the [forward roadmap](../roadmap.md).
 
 ---

@@ -68,7 +68,7 @@ A **third** cross-shard commit branch alongside 2PC (`commit_cross_shard`) and P
 (`commit_cross_shard_nonblocking`). Where those are *agreement-first* (every writing participant
 runs an OCC prepare and VOTES), Calvin is *order-first*: a global `CalvinSequencer` stamps the txn
 with a monotone total-order `GlobalSeq`, that ORDER is Raft-replicated (the "input log"), and
-participants EXECUTE it deterministically with **no vote round and no abort**. Agreement on the
+participants Run it deterministically with **no vote round and no abort**. Agreement on the
 order IS agreement on the outcome, so a crashed coordinator is resolved by any node replaying the
 replicated sequence — there is no in-doubt window.
 

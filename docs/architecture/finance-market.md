@@ -63,7 +63,7 @@ A bar is one store point. `ts` is the bar's open time, and the fields follow
 
 Every field is an integer that an `f64` holds exactly.
 
-The store only appends, and several versions of one bar coexist at one
+The store only appends, and multiple versions of one bar coexist at one
 timestamp. A correction is therefore a new point with a higher revision.
 `encode_points` writes records in this layout for `TsAppend`. `resolve` decodes
 stored points (and takes plain records) and builds the view as of any time:
@@ -72,7 +72,7 @@ for each open time it takes the highest revision known at that time.
 `resolve` refuses these inputs:
 
 - two different bodies at one revision;
-- a provisional version that would revise a final bar;
+- a provisional version that will revise a final bar;
 - a final bar that claims to be known before it closes;
 - overlapping bars.
 
@@ -234,7 +234,7 @@ hallucination warning, and the mechanical trigger. A caller can neither omit
 nor reword them, because they are part of the digest. A snapshot never
 includes positions (`excludes_positions` is always true).
 
-To verify a stored record, seal its draft again and compare the digests. An
+To check a stored record, seal its draft again and compare the digests. An
 application stores the record as an `AnalysisSnapshot` graph node, created only
 if absent, whose id derives from the digest; `analysisOf` names the listing and
 `analysisDigest` holds the digest. It shares the record through a

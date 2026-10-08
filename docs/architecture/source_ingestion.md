@@ -44,7 +44,7 @@ The three modes have distinct semantics:
   zero-affected receipt.
 - `reconcile` carries the complete `authoritative_live_ids`. EG compares that
   set with its prior durable set and derives tombstones atomically. An empty set
-  additionally requires both a non-empty `empty_authoritative_approval`
+  also requires both a non-empty `empty_authoritative_approval`
   reference and the verified `source:reconcile-empty` capability.
 
 The checkpoint comparison is part of that final graph transaction. A missing

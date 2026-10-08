@@ -4,7 +4,7 @@
 
 ## `AgentAssemble`
 
-RF-ADR-010 A1. Reads ONE tenant-bound agent_library.redb snapshot and proves an agent graph against it; commits nothing. The record it answers with is durable only if the caller then sends DecisionCommit
+RF-ADR-010 A1. Reads ONE tenant-bound agent_library.redb snapshot and proves an agent graph against it. Commits nothing. The record it answers with is durable only if the caller then sends DecisionCommit
 
 | Property | Value |
 |---|---|
@@ -36,7 +36,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Agen
 
 ## `AgentComponent`
 
-RF-ADR-008 layer 1. Runtime-conditional like AgentLibrary/AgentGraph: Current/History/Status/Search are authenticated tenant-bound read snapshots; Publish/Retire atomically commit native component revisions, action provenance, replay receipts and outbox through ControlRedb into the SAME agent_library.redb owner
+RF-ADR-008 layer 1. Runtime-conditional like AgentLibrary/AgentGraph: Current/History/Status/Search are authenticated tenant-bound read snapshots. Publish/Retire atomically commit native component revisions, action provenance, replay receipts and outbox through ControlRedb into the SAME agent_library.redb owner
 
 | Property | Value |
 |---|---|
@@ -77,7 +77,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Agen
 
 ## `AgentGraph`
 
-RF-ADR-008. Runtime-conditional exactly like AgentLibrary: Current/History/Status are authenticated tenant-bound read snapshots; Publish/Retire atomically commit native graph revisions, action provenance, replay receipts, and outbox through ControlRedb into the SAME agent_library.redb owner
+RF-ADR-008. Runtime-conditional exactly like AgentLibrary: Current/History/Status are authenticated tenant-bound read snapshots. Publish/Retire atomically commit native graph revisions, action provenance, replay receipts, and outbox through ControlRedb into the SAME agent_library.redb owner
 
 | Property | Value |
 |---|---|
@@ -116,7 +116,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Agen
 
 ## `AgentLibrary`
 
-runtime-conditional: Current/History/Status are authenticated tenant-bound read snapshots; Publish/Retire atomically commit native revisions, action provenance, replay receipts, and outbox through ControlRedb
+runtime-conditional: Current/History/Status are authenticated tenant-bound read snapshots. Publish/Retire atomically commit native revisions, action provenance, replay receipts, and outbox through ControlRedb
 
 | Property | Value |
 |---|---|
@@ -155,7 +155,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Agen
 
 ## `AgentTemplate`
 
-RF-ADR-008 item C. Runtime-conditional like the three layers beside it: Current/History/Status/Instantiate are authenticated tenant-bound read snapshots (Instantiate binds parameters and returns a draft, committing nothing); Publish/Retire atomically commit native template revisions, action provenance, replay receipts and outbox through ControlRedb into the SAME agent_library.redb owner. Its own authz action because publishing a parameterized FAMILY of agents is a distinct privilege from publishing one
+RF-ADR-008 item C. Runtime-conditional like the three layers beside it: Current/History/Status/Instantiate are authenticated tenant-bound read snapshots (Instantiate binds parameters and returns a draft, committing nothing). Publish/Retire atomically commit native template revisions, action provenance, replay receipts and outbox through ControlRedb into the SAME agent_library.redb owner. Its own authz action because publishing a parameterized FAMILY of agents is a distinct privilege from publishing one
 
 | Property | Value |
 |---|---|
@@ -261,7 +261,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Back
 
 ## `BlobBegin`
 
-multi-call chunked-upload protocol (Begin ... ChunkPut* ... Commit); no single-call atomicity; durable via its own blob.redb (group-committed Immediate), self-routes before dispatch_graph_op
+multi-call chunked-upload protocol (Begin ... ChunkPut* ... Commit). No single-call atomicity. Durable via its own blob.redb (group-committed Immediate), self-routes before dispatch_graph_op
 
 | Property | Value |
 |---|---|
@@ -359,7 +359,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Blob
 
 ## `BlobCommit`
 
-multi-call chunked-upload protocol (Begin ... ChunkPut* ... Commit); no single-call atomicity; durable via its own blob.redb (group-committed Immediate), self-routes before dispatch_graph_op
+multi-call chunked-upload protocol (Begin ... ChunkPut* ... Commit). No single-call atomicity. Durable via its own blob.redb (group-committed Immediate), self-routes before dispatch_graph_op
 
 | Property | Value |
 |---|---|
@@ -483,7 +483,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Blob
 
 ## `BlobRef`
 
-X6 (fix/eg-blob-cas-hardening-20260917): holder-scoped named reference (digest, owner scope), not a bare counter -- a retry or replay of the same reference is one holder row, never a second count (holders.rs's own module doc and handle_blob_ref_op's doc comment). Idempotent as of the 2.27.x blob CAS hardening; durable via blob.redb.
+X6 (fix/eg-blob-cas-hardening-20260917): holder-scoped named reference (digest, owner scope), not a bare counter -- a retry or replay of the same reference is one holder row, never a second count (holders.rs's own module doc and handle_blob_ref_op's doc comment). Idempotent as of the 2.27.x blob CAS hardening. Durable via blob.redb.
 
 | Property | Value |
 |---|---|
@@ -516,7 +516,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Blob
 
 ## `BlobUnref`
 
-X6: releasing an already-released holder returns changed: false rather than erroring or underflowing (HolderOutcome's own doc comment). Idempotent as of the 2.27.x blob CAS hardening; durable via blob.redb.
+X6: releasing an already-released holder returns changed: false rather than erroring or underflowing (HolderOutcome's own doc comment). Idempotent as of the 2.27.x blob CAS hardening. Durable via blob.redb.
 
 | Property | Value |
 |---|---|
@@ -580,7 +580,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Clea
 
 ## `ConnectorPack`
 
-RF-ADR-009 A2 plus RF-021 durable catalog reconciliation; runtime-conditional: status is an authenticated tenant-bound read snapshot exposing the exact MCP catalog generation/digest binding; import atomically commits resources/templates, component revisions, CAS body holders, provenance, receipt and outbox. Bind/unbind/retire/reproject/reconcile_bodies and a mass-withdrawal import need admin:connector-pack; local-only authority, refused in clustered mode
+RF-ADR-009 A2 plus RF-021 durable catalog reconciliation. Runtime-conditional: status is an authenticated tenant-bound read snapshot exposing the exact MCP catalog generation/digest binding. Import atomically commits resources/templates, component revisions, CAS body holders, provenance, receipt and outbox. Bind/unbind/retire/reproject/reconcile_bodies and a mass-withdrawal import need admin:connector-pack; local-only authority, refused in clustered mode
 
 | Property | Value |
 |---|---|
@@ -627,7 +627,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Conn
 
 ## `DecisionCommit`
 
-native MutationBatch in agent_library.redb: one DecisionRecord component revision, its receipt and outbox in one WTX after re-derivation and a catalog compare-and-set; local-only authority, refused in clustered mode
+native MutationBatch in agent_library.redb: one DecisionRecord component revision, its receipt and outbox in one WTX after re-derivation and a catalog compare-and-set. Local-only authority, refused in clustered mode
 
 | Property | Value |
 |---|---|
@@ -961,7 +961,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Rest
 
 ## `SqlSourceBatch`
 
-native SQL-catalog MutationBatch: typed source rows, provider cursor, committed source epoch, terminal result, replay/idempotency and outbox in one WTX; self-routes before graph dispatch; local-only authority, refused in clustered mode
+native SQL-catalog MutationBatch: typed source rows, provider cursor, committed source epoch, terminal result, replay/idempotency and outbox in one WTX. Self-routes before graph dispatch. Local-only authority, refused in clustered mode
 
 | Property | Value |
 |---|---|
@@ -1091,7 +1091,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/TsAs
 
 ## `TsDefineSeries`
 
-EH-524 materialised derived series: one native MutationBatch in series.redb commits the derived points and the definition/checkpoint in the series metadata; idempotent for the same definition (a re-definition only catches up)
+EH-524 materialised derived series: one native MutationBatch in series.redb commits the derived points and the definition/checkpoint in the series metadata. Idempotent for the same definition (a re-definition only catches up)
 
 | Property | Value |
 |---|---|
@@ -1320,7 +1320,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/TsWi
 
 ## `WriteBack`
 
-RF-ADR-009 D18, runtime-conditional: create/record operations append tenant-bound change-set and receipt rows through the existing Agent Library ControlRedb mutation kernel; get/receipts are authenticated snapshots. EG records authorization and source observations and never calls vendor APIs
+RF-ADR-009 D18, runtime-conditional: create/record operations append tenant-bound change-set and receipt rows through the existing Agent Library ControlRedb mutation kernel. Get/receipts are authenticated snapshots. EG records authorization and source observations and never calls vendor APIs
 
 | Property | Value |
 |---|---|

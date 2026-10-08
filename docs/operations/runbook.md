@@ -73,7 +73,7 @@ Every listener is opt-in (feature **and** address must be set). Full connect exa
 | Postgres wire | `pgwire` | `EPISTEMIC_GRAPH_PGWIRE_ADDR` | `127.0.0.1:5433` | `EPISTEMIC_GRAPH_PGWIRE_AUTH`, `…_PGWIRE_GRAPH` |
 | MySQL wire | `mysql-wire` | `EPISTEMIC_GRAPH_MYSQL_ADDR` | `127.0.0.1:3306` | `EPISTEMIC_GRAPH_MYSQL_AUTH`, `…_MYSQL_GRAPH` |
 | MSSQL wire | `mssql-wire` | `EPISTEMIC_GRAPH_MSSQL_ADDR` | `127.0.0.1:1433` | `EPISTEMIC_GRAPH_MSSQL_GRAPH` |
-| SQLite NDJSON | `sqlite-wire` | `EPISTEMIC_GRAPH_SQLITE_ADDR` | (your port) | `EPISTEMIC_GRAPH_SQLITE_GRAPH` |
+| SQLite NDJSON | `sqlite-wire` | `EPISTEMIC_GRAPH_SQLITE_ADDR` | (the operator's port) | `EPISTEMIC_GRAPH_SQLITE_GRAPH` |
 | Bolt wire (Neo4j) `EG-KG.query.bolt-wire-protocol` | `bolt-wire` | `EPISTEMIC_GRAPH_BOLT_ADDR` | `127.0.0.1:7687` | signed `eg2.` session request binds the graph; no graph/auth-mode env |
 | Redis RESP wire `EG-KG.ontology.resp2-resp3-codec-round` | `redis-wire` | `EPISTEMIC_GRAPH_REDIS_ADDR` | `127.0.0.1:6379` | `AUTH <principal> <hex(HMAC-SHA256(GRAPH_SERVICE_AUTH_SECRET, "redis:" + principal))>`; isolated pseudonymous keyspace |
 | AMQP broker `EG-275` | `amqp-wire` | `EPISTEMIC_GRAPH_AMQP_ADDR` | `127.0.0.1:5672` | `EPISTEMIC_GRAPH_AMQP_GRAPH` |
@@ -106,7 +106,7 @@ Every listener is opt-in (feature **and** address must be set). Full connect exa
 | `EPISTEMIC_GRAPH_TXN_TTL_SECS` / `…_TXN_MAX_PER_AGENT` / `…_TXN_MAX_PER_GRAPH` | Interactive-transaction TTL / caps. |
 | `EPISTEMIC_GRAPH_MAX_NODES_PER_GRAPH` / `…_MAX_RESPONSE_NODES` | Per-graph node ceiling / response cap. |
 | `EPISTEMIC_GRAPH_MAX_REQUEST_BYTES` / `…_MAX_RESPONSE_BYTES` | Native protocol frame limits (bounded by a hard engine ceiling). |
-| `EPISTEMIC_GRAPH_CONNECTION_IO_TIMEOUT_SECS` / `…_TLS_HANDSHAKE_TIMEOUT_SECS` | Native connection I/O and TLS-handshake deadlines. |
+| `EPISTEMIC_GRAPH_CONNECTION_IO_TIMEOUT_SECS` / `…_TLS_HANDSHAKE_TIMEOUT_SECS` | Native connection `I/O` and TLS-handshake deadlines. |
 | `EPISTEMIC_GRAPH_GRAPHQL_MAX_CONNECTIONS` | GraphQL SSE process-wide cap across handshakes and sessions; `1..=10000`, default `128`, outside the range fails startup. |
 | `EPISTEMIC_GRAPH_GRAPHQL_MAX_SESSION_SECS` | Maximum GraphQL SSE session lifetime before a newly signed eg2 request is required; `1..=3600` seconds, default `300`, outside the range fails startup. |
 | `EPISTEMIC_GRAPH_TENANT_CATALOG` | Multi-tenant catalog path. |
@@ -157,7 +157,7 @@ epistemic-graph-server store-upgrade apply "${GRAPH_SERVICE_PERSIST_DIR:?}" --co
 ```
 
 `inspect` writes nothing and exits `0` (nothing to do), `10` (upgrade available),
-`20` (a store this build neither opens nor upgrades) or `30` (a store could not be
+`20` (a store this build neither opens nor upgrades) or `30` (a store can not be
 read, as after an unclean shutdown). `apply` is safe to run on every deployment: with
 nothing to upgrade it changes no store and exits `0`. The upgrades and the full
 procedure are listed in [owner-store formats](owner-store-formats.md).
@@ -208,7 +208,7 @@ form an inheritance hierarchy (a role gets every grant of its transitively-reach
 `Grant`s bind a role to a `(resource, action, effect)` triple. `RbacPolicy::evaluate` returns
 the winning effect (deny-overrides, most-specific-wins).
 
-- Roles and scopes come from the verified `eg2.` authority envelope; unsigned
+- Roles and scopes come from the checked `eg2.` authority envelope; unsigned
   request fields never grant access.
 - Administer the policy with `Method::RbacAdmin { op }` (add/remove role, grant/revoke).
 - The identity flows through the SQL wires too: a pgwire `user` (SCRAM) becomes the engine ACL
@@ -216,7 +216,7 @@ the winning effect (deny-overrides, most-specific-wins).
 
 A fresh durable policy store denies every ordinary graph and admin action. Its
 only admitted mutation is a trusted-signer-backed `RegisterIdentity` in
-`__commons__` that registers the verified principal/effective agent itself as
+`__commons__` that registers the checked principal/effective agent itself as
 `System`, with no teams, roles, or delegation and exactly the
 `security:bootstrap` scope. After that first rule commits, all identity and RBAC
 administration requires the normal durable admin policy.
@@ -232,7 +232,7 @@ administration requires the normal durable admin policy.
 ### Encryption key lifecycle (NE-028 / BUG-248)
 
 Each encrypted shard stores an AEAD-sealed canary whose plaintext binds the configured
-key identity and version, plus a non-secret copy of that reference.  Startup verifies
+key identity and version, plus a non-secret copy of that reference.  Startup checks
 both before the redb writer thread or any listener is admitted.  The old
 single-secret configuration remains compatible as `legacy@1`; new deployments should
 set `EPISTEMIC_GRAPH_ENCRYPTION_KEY_ID` and
@@ -243,14 +243,14 @@ admitted (BUG-PE-055):
 
 - **A populated PLAINTEXT store handed a key is refused.** Enabling encryption-at-rest
   on a store that already holds durable rows is a destructive-read operation, not a
-  config toggle -- every pre-existing value would fail to unseal. Use the
+  config toggle -- every pre-existing value will fail to unseal. Use the
   re-encryption ceremony below into a fresh persist dir, or unset the key.
-- **An ENCRYPTED store opened with no key is refused**, regardless of
+- **An ENCRYPTED store opened with no key is refused**, in either case of
   `EPISTEMIC_GRAPH_ENCRYPTION_REQUIRED`. A missing key for a sealed store is not a
   rollout-posture choice; it used to open cleanly and then fail one read at a time.
 - Establishing a NEW key binding (only possible on an empty store) logs at WARN, not
-  INFO, naming `EPISTEMIC_GRAPH_ENCRYPTION_KEY`. If you expected the store to already
-  hold data, that warning means it is not the store you meant.
+  INFO, naming `EPISTEMIC_GRAPH_ENCRYPTION_KEY`. If the operator expected the store to already
+  hold data, that warning means it is not the store the operator meant.
 
 **Where the key lives matters as much as the store.** If the key material is minted
 under an ephemeral location (a container `emptyDir`) while the persist dir is durable,
@@ -261,8 +261,8 @@ is to source the key from the KMS/secret reference, not from a per-process file.
 The key reference is a pin, not a secret.  A changed ID/version is deliberately a
 rotation boundary: the engine refuses to open with a bounded diagnostic and never
 auto-rekeys a live store.  This prevents a crash halfway through a rewrite from
-leaving a mixture that is unreadable after restart.  Do not delete or overwrite the
-old key until the replacement store has been independently opened, read-verified,
+leaving a mixture that is unreadable after restart.  Do not remove or overwrite the
+old key until the replacement store has been independently opened, read-checked,
 backed up, and the rollback window has expired.
 
 Safe rotation ceremony:
@@ -276,10 +276,10 @@ Safe rotation ceremony:
    commit path under a new key and incremented version.  Raw `migrate-shards` and
    `restore` are **verbatim** operations and therefore do not rotate ciphertext.
 3. Open the destination with the new `EPISTEMIC_GRAPH_ENCRYPTION_KEY`, matching ID,
-   and matching version.  Verify representative graph reads, audit verification,
+   and matching version.  Check representative graph reads, audit verification,
    mutation replay/outbox state, and a fresh backup before switching the service
    path.  Keep the old source and key available until this verification passes.
-4. Atomically switch the deployment to the verified destination.  If any startup
+4. Atomically switch the deployment to the checked destination.  If any startup
    or read check fails, stop the destination and roll back to the old path/key;
    never change the canary by hand and never suppress the mismatch error.
 
@@ -352,4 +352,4 @@ is mandatory for any served binary. Startup fails if it is absent.
 [Observability](../interfaces/observability.md).
 
 ---
-*CONCEPT:EG-KG.ontology.comprehensive-interface-operations-documentation — comprehensive interface + operations documentation.*
+*CONCEPT:EG-KG.ontology.comprehensive-interface-operations-documentation — complete interface + operations documentation.*

@@ -3,7 +3,7 @@
 UQL is epistemic-graph's human- and agent-writable query language. It is a **pure
 front-end** (CONCEPT:AU-KG.query.top-nodes-by-degree) over the engine's cross-modal plan
 algebra (CONCEPT:AU-KG.compute.vector): a UQL string parses to the *exact same* `wire::Plan`
-(an ordered `Vec<Op>`) that the structured `UnifiedQuery` API executes — it adds **no** new
+(an ordered `Vec<Op>`) that the structured `UnifiedQuery` API runs — it adds **no** new
 execution path.
 
 **Every plan operator has a UQL spelling.** The contract is executable: a test walks every
@@ -250,7 +250,7 @@ MATCH (:Doc) |> FUSE K 60 [RANK BY ~[1, 0]] [TEXT 'graph'] [RERANK NODE_DISTANCE
 | Clause | Op |
 |--------|-----|
 | `AS OF @t` / `AS OF VALID @t` / `VALID AS OF @t` | `AsOf{axis: Valid}` — what was true at `t` |
-| `AS OF TX @t` | `AsOf{axis: Transaction}` — what we believed at `t` |
+| `AS OF TX @t` | `AsOf{axis: Transaction}` — what this repository believed at `t` |
 | `WINDOW 1 h` | `Window{secs}` — tumbling mean |
 | `WINDOW 500 ms SUM` | `WindowAgg{secs, agg}` |
 
@@ -340,7 +340,7 @@ contributions always sum to the value of the whole row set.
 | `SHAPLEY SAMPLES n SEED s` | sampled Shapley over `n` antithetic permutations drawn from seed `s`; channel `attribution_ci` carries each row's 95% CI half-width |
 | `OWEN BY <property>` | Owen values: rows grouped into unions by a node property (for example pods within a service) |
 
-The score channel is `attribution`. A stage that would need more coalition evaluations than
+The score channel is `attribution`. A stage that will need more coalition evaluations than
 its budget fails with `UQL_BUDGET_EXCEEDED`; a row without the attributed value is refused by
 id. Replays are bit-identical: the seed is part of the stage.
 
@@ -355,7 +355,7 @@ MATCH (:Service) |> ATTRIBUTE P95 OF latency_ms SHAPLEY SAMPLES 4000 SEED 7 |> R
 ### `RETURN` — score channels
 
 `RETURN similarity, belief` → `Project{channels}`. Every scoring stage records its score under
-a named channel as well as in `score`, so the results of several scoring stages coexist
+a named channel as well as in `score`, so the results of multiple scoring stages coexist
 instead of the last one overwriting the others. The served result carries the named channels
 per row (see [Running a query](#running-a-query)).
 
@@ -374,7 +374,7 @@ MATCH (:Doc) WHERE year >= $min AND lang = $lang |> RANK BY ~$v |> LIMIT $k
 ## Programs: named sub-plans and DAGs
 
 `LET name = pipeline;` names a sub-plan. `FROM name` continues from a binding's output and
-`JOIN a, b |> stage` feeds the intersection of several outputs into one stage — the program
+`JOIN a, b |> stage` feeds the intersection of multiple outputs into one stage — the program
 becomes a `PlanDag` (the executor's multi-input nodes intersect their inputs). `FUSE (a, b)`
 inlines bindings as RRF branches. Bindings must be defined before use and must be used.
 
@@ -385,7 +385,7 @@ JOIN recent, cited |> LIMIT 10
 ```
 
 A statement may start with a version pragma, `UQL 1;`, and with `EXPLAIN` (plan, cost and
-incremental-maintainability, no execution) or `PROFILE` (execute and report per-stage rows
+incremental-maintainability, no execution) or `PROFILE` (run and report per-stage rows
 and time).
 
 ```uql
@@ -445,7 +445,7 @@ whose executor needs a cargo feature the build lacks is refused **at parse time*
 
 Every error has a stable code (`UQL_UNEXPECTED_TOKEN`, `UQL_UNKNOWN_STAGE`,
 `UQL_EXPECTED_INTEGER`, `UQL_NESTING_TOO_DEEP`, `UQL_UNBOUND_PARAMETER`,
-`UQL_FEATURE_NOT_IN_BUILD`, …), a byte span, the set of spellings that would have been
+`UQL_FEATURE_NOT_IN_BUILD`, …), a byte span, the set of spellings that will have been
 accepted, and — where one is known — a fix. Rendered, the caret sits under the exact span on
 the right line:
 
@@ -490,7 +490,7 @@ rows = result["rows"]  # [{"id", "score", "channels": {"mmr": …}}]; result["ki
 ```
 
 On the wire this is `Method::Uql { text, params }` — the one query-text method — and, inside a
-transaction (read your own writes), `Method::TxnUql { txn_id, text, params }`: the same
+transaction (read the operator's own writes), `Method::TxnUql { txn_id, text, params }`: the same
 statement, grammar and result (EH-434 retired the rows-only `UnifiedQueryText` and
 `TxnUnifiedQueryText`). Executed answers are result-cached like `UnifiedQuery`
 answers (keyed on the text, the bound params and the caller's RLS context); `PROFILE` answers

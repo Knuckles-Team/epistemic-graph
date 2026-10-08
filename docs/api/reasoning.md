@@ -65,7 +65,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Grap
 
 ## `GraphSchemaClasses`
 
-EH-389. One page of the classes and properties the request graph's composed schema declares, with the declaring source; the schema's own vocabulary, not graph rows and not the source documents, so an ordinary ontology read (owl:read) rather than GraphSchemaList's security:admin
+EH-389. One page of the classes and properties the request graph's composed schema declares, with the declaring source. The schema's own vocabulary, not graph rows and not the source documents, so an ordinary ontology read (owl:read) rather than GraphSchemaList's security:admin
 
 | Property | Value |
 |---|---|
@@ -99,7 +99,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Grap
 
 ## `GraphSchemaList`
 
-X9. Reads the request graph's schema-source set and its composed digest; a separate method rather than an op because a read op inside a gateway-routed method would need a runtime-conditional gateway plan
+X9. Reads the request graph's schema-source set and its composed digest. A separate method rather than an op because a read op inside a gateway-routed method will need a runtime-conditional gateway plan
 
 | Property | Value |
 |---|---|
@@ -164,7 +164,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/IcvC
 
 ## `OntologyInspect`
 
-the vocabulary, SHACL targets and canonical digest of inline documents or the composed GraphSchema sources, so orchestration callers need no RDF parser; reads schema, never graph rows
+the vocabulary, SHACL targets and canonical digest of inline documents or the composed GraphSchema sources, so orchestration callers need no RDF parser. Reads schema, never graph rows
 
 | Property | Value |
 |---|---|
@@ -247,7 +247,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/OwlE
 
 | Parameter | Type | Required | Description |
 |---|---|:---:|---|
-| `class_base` | string | no | The absolute namespace a bare string node `type` (e.g. `"Agent"`) is bridged into before classification (`eg_rdf::owl::bridge_type_to_class`) — independent of `target_class`, which ONLY controls filtering (BUG-281: the two used to be conflated, so an empty `target_class` — its own documented "all classes" case — could never supply a namespace, and a caller wanting "reason over everything" always hit `OwlReason requires an absolute target class`). Empty ⇒ fall back to `target_class`'s own namespace when `target_class` is absolute (the pre-existing convenience for a caller that only ever set one field); a class bridge for a bare string `type` is only possible once SOME absolute namespace is available from either field. |
+| `class_base` | string | no | The absolute namespace a bare string node `type` (e.g. `"Agent"`) is bridged into before classification (`eg_rdf::owl::bridge_type_to_class`) — independent of `target_class`, which ONLY controls filtering (BUG-281: the two used to be conflated, so an empty `target_class` — its own documented "all classes" case — can never supply a namespace, and a caller wanting "reason over everything" always hit `OwlReason requires an absolute target class`). Empty ⇒ fall back to `target_class`'s own namespace when `target_class` is absolute (the pre-existing convenience for a caller that only ever set one field); a class bridge for a bare string `type` is only possible once SOME absolute namespace is available from either field. |
 | `min_confidence` | number (double) | yes | Confidence threshold τ in `[0,1]` (CONCEPT:EG-KG.ontology.concept-13). The result carries a per-entailment confidence (axioms/facts may be uncertain; the closure propagates it — `eg:confidence` annotations × the per-node confidence × Ebbinghaus decay). Only entailments with `confidence ≥ min_confidence` are returned. `0.0` keeps everything (and a HARD ontology yields all `1.0`). |
 | `ontology` | string | no | Extra OWL axioms as Turtle (empty ⇒ reason over the graph's own axioms). |
 | `target_class` | string | no | When set, restrict the returned instance memberships to this class (its inferred members) — the materialize-one-class shape. Empty ⇒ all classes. |
@@ -336,7 +336,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/RunD
 
 ## `RunRules`
 
-READ-ONLY (EG-P0-2/L11 handler audit): handle_run_rules reasons over an off-lock analysis_snapshot and returns inferred triples, no writeback -- unlike its sibling RunDatalogReasoning which materialises in-place. Corrected from a prior mutates=true semantic guess; now agrees with access.rs (never a write there)
+READ-ONLY (EG-P0-2/L11 handler audit): handle_run_rules reasons over an off-lock analysis_snapshot and returns inferred triples, no writeback -- unlike its sibling RunDatalogReasoning which materialises in-place. Corrected from a prior mutates=true semantic guess. Now agrees with access.rs (never a write there)
 
 | Property | Value |
 |---|---|

@@ -36,7 +36,7 @@ not implement Parakeet:
   and per-token timing/probability — everything the frozen ASR contract
   needs. Meetily's own Parakeet path decodes token timestamps internally but
   its provider trait **discards** them (`ParakeetEngine::transcribe_audio`
-  returns only `result.text`); reaching timing parity would mean writing a
+  returns only `result.text`); reaching timing parity will mean writing a
   full ONNX decoder/tokenizer pipeline from scratch, not adapting a published
   crate.
 - Parakeet's model license (CC-BY-4.0) and custom mirror hosting are exactly
@@ -106,10 +106,10 @@ separate `aarch64` architecture). This is the decisive
 reason this lane implements `whisper-rs`/ggml rather than ONNX Runtime: the
 sibling native-TTS lane independently hit a dead end because `ort`'s only
 x86_64 CPU prebuilt hard-requires AVX2 with no baseline fallback artifact —
-no host here can run it natively, and that lane could only prove correctness
+no host here can run it natively, and that lane can only prove correctness
 under `qemu-x86_64 -cpu max` emulation. ggml does not share that failure
 mode: it is compiled from source per target and has genuine non-AVX2 code
-paths (the fixed baseline below), so it was verified to **actually run
+paths (the fixed baseline below), so it was checked to **actually run
 natively** — see "Hardware verification" below.
 
 `whisper-rs-sys` compiles whisper.cpp/ggml from source via `cmake`, forwarding
@@ -149,12 +149,12 @@ Built and run natively (no `qemu`/emulation) on the Sandy Bridge build host
 (`Intel(R) Xeon(R) CPU E5-4620` — `/proc/cpuinfo` confirms
 `avx sse4_1 sse4_2` present, `avx2`/`fma`/`f16c`/`bmi2` all absent). A real
 `ggml-tiny.en.bin` model (MIT, `huggingface.co/ggerganov/whisper.cpp`,
-digest-verified) transcribed a synthesized 16 kHz mono speech fixture
+digest-checked) transcribed a synthesized 16 kHz mono speech fixture
 end to end, producing real, recognizable text with real timing/quality, and
 a real native callback-checkpoint `Cancelled` error. This is what actually
 surfaced the `GGML_BMI2` requirement above: the first attempt SIGILLed
 precisely because it ran on real Sandy Bridge hardware, not a newer or
-emulated CPU that would have masked the gap.
+emulated CPU that will have masked the gap.
 
 ## Reachability
 
@@ -187,7 +187,7 @@ emulated CPU that would have masked the gap.
   it through the crate's typed `abort_bridge` to whisper.cpp's raw callback.
   Native cancellation is observed at callback checkpoints between graph and
   decode steps within a window; it cannot preempt a graph kernel already
-  executing. A cancelled request returns `AsrError::Cancelled`, never a
+  running. A cancelled request returns `AsrError::Cancelled`, never a
   truncated "success".
 - **Quality is calibrated or explicitly unavailable, never a heuristic
   dressed as a probability**: `avg_logprob` is the mean of `ln(token

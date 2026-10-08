@@ -171,7 +171,7 @@ cluster**, and the core node-loss chaos case was exercised, then torn down.
 | **Data survives a node kill** | ✅ the probe remained readable from a surviving peer — durable, no loss |
 | **Raft safety under lost quorum** | ✅ after quorum loss, the cluster **correctly refused** new writes (no split-brain, no phantom commit) — the intended openraft safety guarantee |
 
-**Harness caveat:** repeated formation attempts could contend for recently released
+**Harness caveat:** repeated formation attempts can contend for recently released
 ports. This is a harness limitation, not an engine defect; replication, durability,
 and safety behavior remained correct in the completed runs. A dedicated supervised
 cluster is required for the broader fault-domain matrix below.

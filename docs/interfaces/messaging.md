@@ -33,7 +33,7 @@ task/RPC pattern, the stream is the event-log pattern.
 Every successful `BrokerConsume` returns a positive integer `delivery_tag`. Tag operations are
 current-generation operations: `ack_tag`, `nack_tag`, and `renew_tag` require the claiming
 `consumer`; the engine atomically verifies `status == "claimed"`, the current tag, and the owner.
-Renewal additionally requires a still-live lease, explicit `now_ms`/`lease_ms`, and a resulting
+Renewal also requires a still-live lease, explicit `now_ms`/`lease_ms`, and a resulting
 deadline later than the current deadline. Reclaim retires
 the prior reverse lookup before installing a fresh tag, so a delayed acknowledgement from an old
 consumer cannot mutate the reclaimed delivery. There are no ownerless tag-operation forms.
@@ -95,7 +95,7 @@ All three direct broker listeners require authenticated loopback. Credentials ar
 `hex(HMAC-SHA256(secret, prefix + principal))`, using the domain prefixes `amqp:`,
 `mqtt:` and `stomp:`. A verified principal becomes a secret-keyed pseudonymous actor
 reference before broker dispatch, so raw protocol usernames do not enter request or
-persistence state. Remote clients terminate TLS/mTLS at an identity-binding gateway
+persistence state. Remote clients stop TLS/mTLS at an identity-binding gateway
 that forwards to loopback; missing key material fails startup.
 
 ## Wire ↔ broker graph

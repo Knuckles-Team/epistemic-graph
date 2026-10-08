@@ -11,7 +11,7 @@ WorkItem command result.
 All capacity DTOs use `schema_version: "1"`.  Every operation is scoped by the
 request graph and tenant.  The server binds mutating timestamps to its
 authoritative clock and, for external callers, requires `owner_digest` to equal
-the verified principal persistence id.
+the checked principal persistence id.
 
 * `AcquireCapacity { request }`: `tenant_ref`, `work_item_id`, `owner_digest`,
   `idempotency_key`, `priority`, `demands[]`, optional single-cell `lease_id`,
@@ -60,7 +60,7 @@ max_tenant_in_flight
 ```
 
 The engine binds context tenant/graph/agent/audience/policy/scopes to the
-verified carrier.  It validates the SHA-256 command digest, dependency
+checked carrier.  It validates the SHA-256 command digest, dependency
 existence and same-tenant ownership, metadata/provenance/reference bounds, and
 the tenant in-flight cap before allocating a graph-scoped monotonic command
 sequence.  WorkItem node, dependency edges, command sequence, mutation-batch
@@ -98,5 +98,5 @@ submission to `client.work_items.submit`; scheduler-local capacity gates in
 `resource_priority.py`, `worker_scheduler.py`, `gpu_group_budget.py`,
 `engine_tasks.py`, and the dispatch worker use
 `client.capacity_leases.acquire`/`renew`/`release`/`reclaim`/`reconcile`.
-These calls must pass the verified carrier-derived owner digest and preserve each native
+These calls must pass the checked carrier-derived owner digest and preserve each native
 `lease_epoch`/`fence_token`; local semaphores remain advisory only.

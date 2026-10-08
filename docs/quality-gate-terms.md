@@ -90,7 +90,7 @@ Before the terms report is classified, `scripts/validate_cccc_census.py`
 requires the native CCCC schema: numeric fields stay in native ranges, names
 are nonempty, and summary file/function/parse counts plus recursive child
 metrics exactly match the retained report tree. File totals may also include
-module-level code, so they only need to be at least the recursive function
+module-level code, so they only must be at least the recursive function
 totals. A file with no functions remains valid when its summary function
 metrics legitimately report zero.
 
@@ -128,7 +128,7 @@ nothing.
 
 The **41 with no `match` at all** are worth calling out. An earlier
 classification that only grepped for a catch-all pattern counted them as
-"exhaustive" and would have exempted them. They are `if`/`else` ladders and `?`
+"exhaustive" and will have exempted them. They are `if`/`else` ladders and `?`
 chains, and they are debt.
 
 ## KISS — three rules were calibrated for OO, not for Rust
@@ -139,7 +139,7 @@ inline, summarised here.
 
 | rule | was | now | measured distribution | why |
 |---|---|---|---|---|
-| `returns_per_function` | 5 | **8** | p90=2, p95=3, p99=5, max=29 over 16,883 functions | At 5, only **33 %** of findings are corroborated by cccc cognitive complexity > 15; at 8, **53 %**. 8 is the smallest cap at which the rule is right more often than wrong. Below it, it fires mostly on flat guard-clause validators — the exact shape its own advice tells you to write. |
+| `returns_per_function` | 5 | **8** | p90=2, p95=3, p99=5, max=29 over 16,883 functions | At 5, only **33 %** of findings are corroborated by cccc cognitive complexity > 15; at 8, **53 %**. 8 is the smallest cap at which the rule is right more often than wrong. Below it, it fires mostly on flat guard-clause validators — the exact shape its own advice tells the operator to write. |
 | `methods_per_class` | 10 | **13** | p90=8, p95=11, p99=31, max=222 over 2,040 impl units | KISS aggregates every impl block of a type within a file, **trait impls included**, and its advice ("extract related methods into a separate type with its own impl") is **impossible** for a trait impl — the trait defines the method set. This workspace's own `ModalityContract` has 22 implementations, 8 of them at exactly 12 methods and the largest at 13. A cap below 13 demands a refactor that does not exist. |
 | `concrete_types_per_file` | 8 | **20** | p90=7, p95=9, p99=18, max=140 over 1,279 files | Of 70 files over 8, **40 are already flagged oversized** by `lines_per_file` / `statements_per_file` / `functions_per_file`; for those the type count adds nothing. The 30 it flags *alone* are uniformly the Rust contract-module pattern — `eg-types/native_control.rs` is 276 lines and 19 types, one `Capacity*` / `SubmitWorkItem*` request+result vocabulary. 20 clears the largest coherent contract module measured (19) and still names 9 grab-bags. |
 
@@ -155,10 +155,10 @@ Costs and judgement calls, stated rather than buried:
   over-broad interfaces `ChunkStore` (21) and `PersistenceBackend` (44) all
   remain flagged.
 * Two premises that turned out to be **false** and are recorded so nobody
-  re-derives them: KISS does **not** let you evade `methods_per_class` by
+  re-derives them: KISS does **not** let the operator evade `methods_per_class` by
   splitting a type into two `impl` blocks in the same file (it aggregates them),
   and `returns_per_function` does **not** count `?` or the tail expression
-  (verified on a probe) — so the "it punishes idiomatic Rust `?`" argument does
+  (checked on a probe) — so the "it punishes idiomatic Rust `?`" argument does
   not hold. The reasons above are the ones that survive measurement.
 
 ### Rules deliberately left alone
@@ -234,14 +234,14 @@ its name but is a different "item" for lineage purposes) — see
 `architecture-gates-key-on-byte-offsets` in the operator's working notes.
 There is **no baseline file, allowlist, or self-updating count** anywhere in
 this comparison: both the staged and the HEAD report are computed fresh, from
-the two Git blobs, on every hook invocation — a ratchet would let today's
+the two Git blobs, on every hook invocation — a ratchet will let today's
 `kiss.toml` thresholds erode quietly; this rule instead re-derives "was this
 introduced or made worse by THIS diff" from scratch every time.
 `tests/test_kiss_diff_scope.py` fixtures the four defining scenarios directly
 against the matcher (comment-only change to a file with a pre-existing
 violation → pass; a new violating function → fail; modifying an
 already-violating function → fail; a file-level threshold newly crossed →
-fail); `tests/test_kiss_staged.py` additionally proves the hook's bash-level
+fail); `tests/test_kiss_staged.py` also proves the hook's bash-level
 wiring (materializing the HEAD tree, running the second KISS pass, invoking
 the filter, propagating its exit status) end-to-end with a fake KISS binary.
 
@@ -270,7 +270,7 @@ The `kiss-census` hook reports the de-duplicated union of one `kiss check .`
 over the repository root and one run per package root (`src`, `crates/<name>`),
 each a single-path invocation, in about 80 seconds. A per-file census treated
 every file as its own codebase, so the cross-file duplication, orphan-module,
-dependency-depth and cycle rules could never fire, and it paid KISS's Rust role
+dependency-depth and cycle rules can never fire, and it paid KISS's Rust role
 scan once per file (137 minutes in the hosted scanner job). The root run sees
 cross-crate structure; the package runs resolve intra-crate `crate::` paths
 exactly. `scripts/check_kiss_census.py` records the measured comparison.

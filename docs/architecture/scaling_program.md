@@ -62,7 +62,7 @@ description is the **"Durability model" section of
 ### Authoritative durability (the floor)
 
 - **redb-authoritative by default** (`CONCEPT:AU-KG.backend.backend-modes`) — a stock build with a
-  mandatory persist dir is durable out of the box; redb is the sole served persistence backend.
+  mandatory persist dir is durable by default; redb is the sole served persistence backend.
 - **Commit-before-ack** (`CONCEPT:EG-KG.backend.authoritative-dispatch`) — a durable mutation is group-commit
   fsynced to redb *before* its Response is acked; a commit failure is an ERROR
   response, so an acked write is always on disk.
@@ -177,7 +177,7 @@ keep **interactive** traffic alive while ingestion runs flat-out:
 - **True single-connection request pipelining** (`CONCEPT:EG-KG.backend.framed-response`) — server-side: the
   per-connection loop `tokio::io::split`s the stream and `tokio::spawn`s a dispatch task
   per frame whose id-tagged Response is written back out of order through a single
-  writer task — so many requests on ONE connection process concurrently. Composes with
+  writer task — so multiple requests on ONE connection process concurrently. Composes with
   EG-037 (the pool multiplexes connections AND each connection multiplexes requests).
 - **Parallel cross-shard read fan-out** (`CONCEPT:AU-KG.backend.roadmap-f-parallel-cross`) — a cross-shard read
   (`load_all`/`load_into`) fans each shard's dump concurrently off its OWN `begin_read()`
@@ -301,7 +301,7 @@ feature flags in [`AGENTS.md`](https://github.com/Knuckles-Team/epistemic-graph/
 | `EPISTEMIC_GRAPH_READ_RESERVED` | resp. | Reserved read lane size (default `max_inflight/8` clamped 8..1024). A positive override is clamped to the global cgroup-aware admission bound. |
 | `EPISTEMIC_GRAPH_COLD_OFFLOAD_SECS` | M3 | Idle-offload sweep window (`0`/absent = disabled). |
 | `EPISTEMIC_GRAPH_TENANT_CATALOG` | M3 | Attach the durable tenant catalog (default OFF = pure FNV-1a). |
-| `EPISTEMIC_GRAPH_RAFT_NODE_ID` / `_PEERS` / `_BIND_ADDR` | M2 | Activate the cluster (with `--features raft` + a persist dir). |
+| `EPISTEMIC_GRAPH_RAFT_NODE_ID` / `_PEERS` / `_BIND_ADDR` | M2 | Enable the cluster (with `--features raft` + a persist dir). |
 | `EPISTEMIC_GRAPH_RAFT_FAILURE_DOMAINS` | M2 / NE-171 | Optional complete `node_id=domain` map for bounded automatic leader transfer. Distinct known domains are required; unset derives the advertised endpoint host and fails closed for same-host targets. |
 
 ### What to tune for a Pi vs a 64-core box
@@ -311,7 +311,7 @@ feature flags in [`AGENTS.md`](https://github.com/Knuckles-Team/epistemic-graph/
   it is not a hard-coded host-class rule). Adding shards just adds threads it can't parallelize. The auto-sizer already
   derives a cgroup-aware admission cap, a RAM-derived per-graph node cap, and floors
   the reserved read lane at 8. Consider `COLD_OFFLOAD_SECS` to bound RAM
-  across many tenants. No openraft, no DataFusion.
+  across multiple tenants. No openraft, no DataFusion.
 - **64-core box:** let non-Raft auto-sizing pick `REDB_SHARDS` toward its current
   ceiling of 8 (or choose a smaller stable K; changing an existing persist-dir
   needs the migration tool). An active Raft node instead sizes K=N groups up to
@@ -322,7 +322,7 @@ feature flags in [`AGENTS.md`](https://github.com/Knuckles-Team/epistemic-graph/
   durable shard count is **K=N groups per node** under active Raft — scale write
   throughput by adding groups (multi-Raft), with each group owning its shard.
 
-### How to verify
+### How to check
 
 - **Transport / admission + responsiveness:** `python3 scripts/bench_transport.py`
   (measured baseline: `AddNode` p50 ≈ 0.187 ms over UDS) and the

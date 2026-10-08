@@ -40,7 +40,7 @@ rebuilt in a single O(N) integer pass. Writes are atomic (temp + rename). A redb
 
 ## Brute-force fallback & warming
 
-- Below a build threshold (a few thousand vectors), or while the index is `Cold` or a warm holds the
+- Below a build threshold (a small number of thousand vectors), or while the index is `Cold` or a warm holds the
   write lock, search uses a **rayon-parallel, SIMD (AVX2) brute-force** scan over a contiguous arena
   with cached L2 norms and a partial-select top-k. This is exact and always available.
 - The ANN index is built **off the query path** by a background warm-on-start task; searches never block
@@ -51,8 +51,8 @@ rebuilt in a single O(N) integer pass. Writes are atomic (temp + rename). A redb
 ## HNSW index (EG-KG.retrieval.hnsw-vector-index)
 
 Alongside IVF-PQ, eg-ann carries an **HNSW** (hierarchical-navigable-small-world) graph index for **higher
-recall-per-probe** than IVF-PQ on many datasets. It supports insert, search, and **serde persistence**
-(load without rebuild), and is tuned against the EG-KG.query.concept-5 recall@k harness so you can pick IVF-PQ vs HNSW by
+recall-per-probe** than IVF-PQ on multiple datasets. It supports insert, search, and **serde persistence**
+(load without rebuild), and is tuned against the EG-KG.query.concept-5 recall@k harness so the operator can pick IVF-PQ vs HNSW by
 the measured accuracy/latency trade-off. Over pgwire, `CREATE INDEX … USING hnsw` selects it for the
 pgvector pushdown (EG-KG.query.real-pgvector-ann-top).
 
@@ -61,7 +61,7 @@ pgvector pushdown (EG-KG.query.real-pgvector-ann-top).
 Alongside the IVF-PQ ANN, a **brute-force exact kNN index** provides ground truth for small sets and a
 **re-rank stage** over ANN candidates for high precision (a hybrid combining ANN recall with exact-distance
 refinement). A **recall@k / precision self-evaluation harness** measures the ANN against the exact ground
-truth, so you can quantify the accuracy/latency trade-off for a given dataset.
+truth, so the operator can quantify the accuracy/latency trade-off for a given dataset.
 
 ## Cross-shard & pre-filtered search (EG-319/070)
 

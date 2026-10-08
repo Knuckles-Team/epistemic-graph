@@ -40,7 +40,7 @@ secret, so an authorized operator can compute it and no secret is ever persisted
 password(user) = hex( HMAC-SHA256( GRAPH_SERVICE_AUTH_SECRET, "pgwire:" + user ) )
 ```
 
-Compute it for the user you'll connect as (here `agent`):
+Compute it for the user the operator will connect as (here `agent`):
 
 ```bash
 python3 - <<'PY'
@@ -51,9 +51,9 @@ print(hmac.new(secret.encode(), b"pgwire:" + user.encode(), hashlib.sha256).hexd
 PY
 ```
 
-The pg `user` you log in as becomes the engine's ACL actor (`AgentIdentity`), so
-Row-Level Security / access control applies to your session. Any user string works
-(e.g. `agent:planner`); its derived password is what you must present.
+The pg `user` the operator logs in as becomes the engine's ACL actor (`AgentIdentity`), so
+Row-Level Security / access control applies to the operator's session. Any user string works
+(e.g. `agent:planner`); its derived password is what the operator must present.
 
 ---
 
@@ -66,7 +66,7 @@ psql "host=127.0.0.1 port=5433 user=agent dbname=__commons__"
 ```
 
 - `dbname` maps to the **graph** the connection binds. `__commons__` is the default
-  (override with `EPISTEMIC_GRAPH_PGWIRE_GRAPH`); you can switch per-session with
+  (override with `EPISTEMIC_GRAPH_PGWIRE_GRAPH`); the operator can switch per-session with
   `SET graph = '<name>'`.
 - Introspection works: `\l`, `\dt`, `\d <table>` resolve against the synthetic
   `pg_catalog` + `information_schema` the engine serves.
@@ -83,7 +83,7 @@ psql "host=127.0.0.1 port=5433 user=agent dbname=__commons__"
 3. **Driver settings / connection properties** (recommended):
    - DBeaver may probe features some clients don't need. If the initial connection
      test complains, set **Show all databases = off** and keep the single database
-     you entered. The engine serves a read-only `pg_catalog`/`information_schema`
+     the operator entered. The engine serves a read-only `pg_catalog`/`information_schema`
      shim, so metadata browsing of the `nodes`/`edges` and the authenticated
      tenant+actor's user tables works,
      but it is not a full Postgres catalog.
@@ -137,7 +137,7 @@ UPDATE items SET price = 8.99 WHERE id = 'sku-1';
 DELETE FROM items WHERE id = 'sku-2';
 ```
 
-Notes (verified against [`docs/interfaces/sql.md`](interfaces/sql.md)):
+Notes (checked against [`docs/interfaces/sql.md`](interfaces/sql.md)):
 
 - **`nodes`** `(id, properties JSON, …)` and **`edges`** `(src, tgt, type, …)` are
   always present — the graph store as SQL tables, with real predicate pushdown.
@@ -155,9 +155,9 @@ Notes (verified against [`docs/interfaces/sql.md`](interfaces/sql.md)):
 | Symptom | Fix |
 |---------|-----|
 | `Connection refused` on 5433 | The listener is opt-in — confirm `EPISTEMIC_GRAPH_PGWIRE_ADDR` is set and (Docker) the port is published. Check the server log for `pgwire: serving Postgres wire protocol on …`. |
-| `password authentication failed` | You're in `scram` mode. Recompute `hex(HMAC-SHA256(secret, "pgwire:"+user))` with the **exact** `user` you connect as and the **exact** running secret. |
+| `password authentication failed` | The operator is in `scram` mode. Recompute `hex(HMAC-SHA256(secret, "pgwire:"+user))` with the **exact** `user` the operator connects as and the **exact** running secret. |
 | Want no password for local dev | Use the embedded engine API; the direct pgwire listener always requires SCRAM. |
 | DBeaver metadata errors on connect | The `pg_catalog` is a read-only shim, not a full Postgres catalog. Point at a single database and disable "show all databases". |
-| `psql` prints `could not interpret result from server: INSERT 2` after an `INSERT` | Cosmetic. The engine's `INSERT` CommandComplete tag omits the always-`0` oid field libpq expects (`INSERT 0 2`); the rows **are** written (verify with a `SELECT`). `UPDATE`/`DELETE`/`SELECT`/`CREATE` tags are unaffected. DBeaver ignores it. |
+| `psql` prints `could not interpret result from server: INSERT 2` after an `INSERT` | Cosmetic. The engine's `INSERT` CommandComplete tag omits the always-`0` oid field libpq expects (`INSERT 0 2`); the rows **are** written (check with a `SELECT`). `UPDATE`/`DELETE`/`SELECT`/`CREATE` tags are unaffected. DBeaver ignores it. |
 
 See also: [SQL & pgwire](interfaces/sql.md) · [Connecting (per-wire guide)](interfaces/connecting.md) · [standalone deployment](standalone_deployment.md).

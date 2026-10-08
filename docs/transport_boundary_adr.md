@@ -32,7 +32,7 @@ enforces the absence of PyO3 in source and built wheels.
   `eg2.` verification, socket permissions, and
   backpressure — *not* ABI/FFI concerns.
 - The engine can be restarted, replaced, or scaled independently of the Python
-  process; many clients (MCP server, CLI, UIs, ingestion) share one engine,
+  process; multiple clients (MCP server, CLI, UIs, ingestion) share one engine,
   eliminating embedded-DB file-lock contention.
 - There is still no PyO3/FFI, but the Python client no longer hand-mirrors the
   `Method` enum: RF-RULING-003 made `crates/eg-capabilities` the single contract
@@ -68,7 +68,7 @@ architecture.
 
 ## Auth reality (current)
 
-The served engine accepts only the `eg2.` verified request-context envelope. It
+The served engine accepts only the `eg2.` checked request-context envelope. It
 binds method/body, graph, tenant, audience, authenticated principal,
 effective agent, roles, scopes, policy version, delegation, timestamp, nonce, and
 idempotency key under HMAC-SHA256 and commits nonce acceptance to durable replay

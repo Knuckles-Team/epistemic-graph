@@ -1,10 +1,10 @@
-# Verified Request Authority
+# Checked Request Authority
 
-The graph engine accepts exactly one verified request context: the `eg2.`
+The graph engine accepts exactly one checked request context: the `eg2.`
 authority envelope. It binds the request id, graph, method, body
 digest, timestamp, nonce, idempotency key, effective ACL agent, tenant,
 audience, policy version, roles, scopes, delegation chain, and trace context.
-The server verifies the envelope before dispatch and rejects replay, deployment
+The server checks the envelope before dispatch and rejects replay, deployment
 policy mismatch, and conflicting caller identity.
 
 ## Capability contract with Graph-OS
@@ -28,7 +28,7 @@ without receiving unrelated capabilities.
 ## Privacy and provenance
 
 The raw authenticated principal remains request-local. Durable mutation
-provenance receives a stable SHA-256 subject id instead. The verified context
+provenance receives a stable SHA-256 subject id instead. The checked context
 does not carry or persist local filesystem paths, workstation user names, or
 personal display names.
 
@@ -56,7 +56,7 @@ consume their nonce inside the mutation kernel instead.
 
 All values are mandatory except the skew override. The server also requires a
 build containing the `security` feature. Graph operations receive identity only
-from verified context, never unsigned request fields. A routable native TCP
+from checked context, never unsigned request fields. A routable native TCP
 listener requires TLS, while every auxiliary listener remains loopback-only.
 
 ## Fresh durable policy bootstrap
@@ -64,12 +64,12 @@ listener requires TLS, while every auxiliary listener remains loopback-only.
 A fresh durable store begins with no ambient graph or administrative authority.
 It admits only one narrowly shaped bootstrap mutation in `__commons__`:
 
-- `RegisterIdentity` registers the verified principal/effective agent itself;
+- `RegisterIdentity` registers the checked principal/effective agent itself;
 - the requested role is `System`, with empty teams and roles;
-- the verified envelope has no delegation and exactly one scope,
+- the checked envelope has no delegation and exactly one scope,
   `security:bootstrap`;
-- the detached registration signature verifies against
-  `EPISTEMIC_GRAPH_SIGNER_KEYS_JSON`, and the signer id equals the verified
+- the detached registration signature checks against
+  `EPISTEMIC_GRAPH_SIGNER_KEYS_JSON`, and the signer id equals the checked
   principal.
 
 After that first identity rule is durable, the bootstrap predicate is false.
@@ -83,7 +83,7 @@ any kind. A deputy executor that needs the scope for one feature must not gain
 every other lease kind with it. That includes kinds an approver or the
 two-person elevation flow owns, such as `rbac.elevation`.
 
-`EPISTEMIC_GRAPH_CONTROL_LEASE_KIND_POLICY_JSON` narrows this per verified
+`EPISTEMIC_GRAPH_CONTROL_LEASE_KIND_POLICY_JSON` narrows this per checked
 `agent_id`:
 
 ```json
@@ -121,7 +121,7 @@ Convergence** in agent-utilities, and the exact claim-key-level contract
 (required/optional field table, per-surface carrier status including this
 file's own `authenticated_iceberg_bearer` tenant-match boundary, and the
 consumer handoff for lanes minting caller identity) is frozen as
-**Verified Identity Carrier Contract (GOC-15)**, also in agent-utilities
+**Checked Identity Carrier Contract (GOC-15)**, also in agent-utilities
 (`docs/architecture/verified-identity-carrier-contract.md`). Both should be
 read before adding a new auxiliary surface's identity binding (SPARQL,
 federation, observability) — the Iceberg-bearer tenant-match pattern above is

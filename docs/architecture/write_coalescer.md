@@ -67,14 +67,14 @@ The worker applies the canonical mutation under the transaction and returns its
 outcome. The authoritative redb commit, size gauges, audit, and CDC emission remain
 centralized in `dispatch::dispatch_graph_op`, run per operation against the returned
 `Response`. A saturated queue returns `BUSY` before any mutation is attempted; there
-is no inline overflow path that could overtake an accepted ticket. The routed gateway
+is no inline overflow path that can overtake an accepted ticket. The routed gateway
 (`src/server/routed_write_coalescer.rs`) uses the same ordered admission model for
 the complete prepare→durable-commit→RAM-publish sequence, including
 `AddNode`/`RemoveNode`/`AddEdge`/`RemoveEdge` and CAS.
 
 ### CAS exactly-once is preserved
 
-A `compare_and_set` batched with other CAS ops on the same node still executes its
+A `compare_and_set` batched with other CAS ops on the same node still runs its
 read-modify-write under the single held guard, one op at a time, so the claim path's
 exactly-once invariant holds: of N concurrent claimers of one node, exactly one wins.
 A decode failure short-circuits to `Bool(false)` without enqueuing — identical to the
@@ -111,7 +111,7 @@ auto-sized, not a flag):
 | Field | Default | Rationale |
 |------|---------|-----------|
 | `max_batch` | `(cpus*8).clamp(16,256)` | more cores → more concurrent producers → a larger batch amortizes the lock further, while a clamp keeps p99 lock-hold low |
-| `queue_capacity` | `(max_batch*4).clamp(256,4096)` | a few batches in flight without unbounded growth |
+| `queue_capacity` | `(max_batch*4).clamp(256,4096)` | a small number of batches in flight without unbounded growth |
 | `max_linger` | 200 µs | a tiny window for a lone op to let a burst coalesce; a single write is essentially undelayed |
 
 The bounded coalescer is always on. Its hardware-sized limits are part of the
