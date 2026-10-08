@@ -223,5 +223,5 @@ method_results! {
     CheckAccess(CheckAccess) => Json<AccessDecision>;
     // Every identity op answers one tagged reply; no reply variant can
     // carry a hash, token or sealed secret.
-    Identity(Identity) => Json<crate::identity::IdentityReply>;
+    Identity(Identity) => Json<crate::identity::IdentityReply<crate::acl::RequestContextClaims>>;
 }

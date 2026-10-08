@@ -196,7 +196,7 @@ pub struct ResetDelivery {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "value", rename_all = "snake_case")]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
-pub enum IdentityReply {
+pub enum IdentityReply<C = ()> {
     /// A write that answers nothing but whether it changed state.
     Done {
         changed: bool,
@@ -207,7 +207,7 @@ pub enum IdentityReply {
     },
     User(UserView),
     Users(Vec<UserView>),
-    Resolution(PrincipalResolution),
+    Resolution(PrincipalResolution<C>),
     Authenticate(AuthenticateResult),
     Sessions(Vec<SessionView>),
     Roles(Vec<RoleRecord>),
@@ -224,4 +224,34 @@ pub enum IdentityReply {
     WebauthnCredentials(Vec<WebauthnCredentialView>),
     /// `issue_password_reset`.
     ResetDelivery(ResetDelivery),
+}
+
+impl IdentityReply {
+    /// Convert the raw store reply to the public authority-bearing reply.
+    /// Only resolution replies invoke the fallible producer.
+    pub fn try_with_request_context<C, E>(
+        self,
+        compose: impl FnOnce(PrincipalResolution) -> Result<PrincipalResolution<C>, E>,
+    ) -> Result<IdentityReply<C>, E> {
+        Ok(match self {
+            Self::Config(value) => IdentityReply::Config(value),
+            Self::User(value) => IdentityReply::User(value),
+            Self::Users(value) => IdentityReply::Users(value),
+            Self::Authenticate(value) => IdentityReply::Authenticate(value),
+            Self::Sessions(value) => IdentityReply::Sessions(value),
+            Self::Roles(value) => IdentityReply::Roles(value),
+            Self::Groups(value) => IdentityReply::Groups(value),
+            Self::Idps(value) => IdentityReply::Idps(value),
+            Self::Audit(value) => IdentityReply::Audit(value),
+            Self::Sql(value) => IdentityReply::Sql(value),
+            Self::Provisioned(value) => IdentityReply::Provisioned(value),
+            Self::DirectoryGroup(value) => IdentityReply::DirectoryGroup(value),
+            Self::DirectoryGroups(value) => IdentityReply::DirectoryGroups(value),
+            Self::WebauthnCredentials(value) => IdentityReply::WebauthnCredentials(value),
+            Self::ResetDelivery(value) => IdentityReply::ResetDelivery(value),
+            Self::Done { changed } => IdentityReply::Done { changed },
+            Self::Principal { principal_id } => IdentityReply::Principal { principal_id },
+            Self::Resolution(value) => IdentityReply::Resolution(compose(value)?),
+        })
+    }
 }

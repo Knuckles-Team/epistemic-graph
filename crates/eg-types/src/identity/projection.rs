@@ -18,11 +18,14 @@ use super::store::IdentityStore;
 use super::{IdentityRefusal, RBAC_ROLE_PREFIX};
 use crate::acl::{AgentIdentity, AgentRole, Grant, Role};
 
-/// What the local issuer puts in a principal's token.
+/// Current principal projection. The store uses `()`; public issuance requires
+/// `RequestContextClaims`, composed only after credential and policy validation.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
-pub struct PrincipalResolution {
+pub struct PrincipalResolution<C = ()> {
+    /// Required in the public specialization; never a default authority.
+    pub request_context: C,
     pub principal_id: String,
     pub username: String,
     pub kind: UserKind,
@@ -38,6 +41,26 @@ pub struct PrincipalResolution {
     /// Set by `resolve_session`: the session still owes its second factor.
     #[serde(default)]
     pub session_mfa_pending: bool,
+}
+
+impl PrincipalResolution {
+    /// Attach server-derived authority without recomputing narrowed scopes.
+    pub fn with_request_context<C>(self, request_context: C) -> PrincipalResolution<C> {
+        PrincipalResolution {
+            request_context,
+            principal_id: self.principal_id,
+            username: self.username,
+            kind: self.kind,
+            status: self.status,
+            is_bootstrap: self.is_bootstrap,
+            roles: self.roles,
+            groups: self.groups,
+            scopes: self.scopes,
+            mfa_required: self.mfa_required,
+            mfa_enrolled: self.mfa_enrolled,
+            session_mfa_pending: self.session_mfa_pending,
+        }
+    }
 }
 
 /// The RBAC state the store owns.
@@ -121,6 +144,7 @@ impl IdentityStore {
             .filter_map(|group| self.groups.get(group))
             .any(|group| group.mfa_required);
         Ok(PrincipalResolution {
+            request_context: (),
             principal_id: principal_id.to_string(),
             username: user.username.clone(),
             kind: user.kind,
