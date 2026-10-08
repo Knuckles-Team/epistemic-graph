@@ -87,11 +87,34 @@ def test_every_request_vector_validates_as_its_domain_request(
     _validate(lambda doc: model.model_validate(doc), params)
 
 
-def test_unknown_fields_are_refused_at_every_depth() -> None:
-    with pytest.raises(ValidationError):
-        _METHOD.validate_python(
-            {"method": "Sparql", "params": {"query": "SELECT", "unknown": 1}}
-        )
+@pytest.mark.parametrize(
+    "path",
+    [
+        (),
+        ("params",),
+        ("params", "request"),
+        ("params", "request", "question"),
+        ("params", "request", "feature_schema"),
+        ("params", "request", "policy"),
+        ("params", "request", "candidates"),
+        ("params", "request", "candidates", "scope"),
+    ],
+    ids=lambda path: "/".join(path) or "method",
+)
+def test_unknown_fields_are_refused_at_every_depth(path: tuple[str, ...]) -> None:
+    vector = next(item for item in VECTORS if item["method"] == "Decide")
+    request = vector_request(vector)
+    _METHOD.validate_python(request)
+    target = request
+    for field in path:
+        target = target[field]
+    target["unknown"] = 1
+    with pytest.raises(ValidationError) as raised:
+        _METHOD.validate_python(request)
+    errors = raised.value.errors()
+    assert len(errors) == 1
+    assert errors[0]["type"] == "extra_forbidden"
+    assert errors[0]["loc"][-1] == "unknown"
 
 
 def test_decode_validates_a_result_against_its_contract_model() -> None:
