@@ -120,3 +120,12 @@ Expected output: `True 1`. This explicit `:memory:` mode is ephemeral. Continue
 to the [local guide](get-started.md) for the annotated example, or go directly
 to [Deploy](standalone_deployment.md) for durable service, TLS, and cluster
 configuration.
+
+## Specification delivery
+
+[Open the specification dashboard](https://knuckles-team.github.io/epistemic-graph/spec-delivery/)
+for documented specifications, separate requirement status, delivery evidence,
+and open pull request and issue snapshots. It refreshes on pushes to `main`.
+Completion requires recorded delivery and acceptance; a merged requirement does
+not complete its parent specification. Dates and trends remain unknown until
+supported by recorded evidence.
