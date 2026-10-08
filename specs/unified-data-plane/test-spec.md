@@ -15,6 +15,7 @@
 | Immich and entity resolution | API fixture/live smoke, full four-user ingest followed by no-op replay and one incremental upload; approved links answer cross-app relationship question. | Unnamed faces remain unlinked, low-score matches remain proposals, cross-user media/GPS access denied, API schema digest drift and missing connector registration fail release. | EG-UNIFIED-DATA-PLANE-R030, EG-UNIFIED-DATA-PLANE-R032 |
 | Kernel dependency: bursty storage | Consume the `durable-graph-kernel` exact-head native point/KV, durability, batch, recovery and DepClock proof before admitting a dependent app. | Missing authz/HMAC, stale cached plan or partial batch ack blocks app admission; this row does not implement a second kernel. | Kernel-owned EG-DURABLE-KERNEL-R032/EG-DURABLE-KERNEL-R037–EG-DURABLE-KERNEL-R041 |
 | Kernel dependency: benchmarks | Consume the same-hardware raw benchmark receipt from `durable-graph-kernel`. | A missing target, changed class, unreported gap or unrepeatable run blocks a comparative claim. | Kernel-owned EG-DURABLE-KERNEL-R042 |
+| Virtual-graph metadata | A registered API, MCP and SQL source each yield one hashed `MetadataContract`; an approved mapping answers a live read; a hot mapping copies only its declared subset. | Credential-bearing reference, undiscovered field, unapproved mapping, missing hot-subset predicate and stale watermark each refuse or fall back to live reads. | EG-UNIFIED-DATA-PLANE-R037, EG-UNIFIED-DATA-PLANE-R038 |
 
 ## Reproducible contributor environment
 
