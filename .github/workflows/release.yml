@@ -1062,8 +1062,7 @@ jobs:
         with:
           python-version-file: '.python-version'
 
-      - &eg-wheel-toolchain-pin
-        name: Read tracked Rust toolchain pin
+      - name: Read tracked Rust toolchain pin
         id: rust-toolchain
         shell: bash
         run: >-
@@ -1072,14 +1071,12 @@ jobs:
           assert re.fullmatch(r'[0-9]+[.][0-9]+[.][0-9]+', channel);
           open(os.environ['GITHUB_OUTPUT'],'a',encoding='utf-8').write(f'channel={channel}\n')"
 
-      - &eg-wheel-rust
-        uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
         with:
           toolchain: ${{ steps.rust-toolchain.outputs.channel }}
           targets: ${{ matrix.target }}
 
-      - &eg-wheel-source-date
-        name: Bind build time to the source revision
+      - name: Bind build time to the source revision
         shell: bash
         run: |
           SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
@@ -1097,8 +1094,7 @@ jobs:
       # -ffile-prefix-map (GCC 8+ only) and falls back to -fdebug-prefix-map,
       # written to a CFLAGS_<target> variable scoped to this leg alone so it
       # can never reach a different leg's toolchain.
-      - &eg-wheel-remap
-        name: Configure identity-neutral Rust source paths
+      - name: Configure identity-neutral Rust source paths
         shell: bash
         run: python scripts/configure_rust_path_remap.py --github-env "$GITHUB_ENV" --target "${{ matrix.target }}"
 
@@ -1522,23 +1518,23 @@ jobs:
     concurrency:
       group: engine-main-wheel
       cancel-in-progress: true
-    strategy:
-      matrix:
-        target: [x86_64-unknown-linux-gnu]
     env:
-      EG_WHEEL_TARGET: ${{ matrix.target }}
+      EG_WHEEL_TARGET: x86_64-unknown-linux-gnu
       EG_WHEEL_MATURIN_ARGS: ""
       EG_WHEEL_JOBS_ARG: "--jobs 2"
       EG_WHEEL_MANYLINUX: "2_28"
     steps:
       - *eg-gates-checkout
       - *eg-gates-python
-      - *eg-wheel-toolchain-pin
-
-      - *eg-wheel-rust
-      - *eg-wheel-source-date
-
-      - *eg-wheel-remap
+      # rustup installs the channel pinned by rust-toolchain.toml.
+      - name: Install the tracked Rust toolchain
+        shell: bash
+        run: rustup toolchain install --profile minimal && rustup show active-toolchain
+      - name: Bind build time and neutral source paths
+        shell: bash
+        run: |
+          echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "$GITHUB_ENV"
+          python scripts/configure_rust_path_remap.py --github-env "$GITHUB_ENV" --target "$EG_WHEEL_TARGET"
 
       - name: Build primary wheel (linux-x86_64)
         uses: ./.github/actions/folded-wheel
