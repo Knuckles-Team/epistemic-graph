@@ -221,4 +221,7 @@ method_results! {
     // roles is a present identity with an empty `roles` list.
     GetIdentity(GetIdentity) => Json<Option<AgentIdentity>>;
     CheckAccess(CheckAccess) => Json<AccessDecision>;
+    // Every identity op answers one tagged reply; no reply variant can
+    // carry a hash, token or sealed secret.
+    Identity(Identity) => Json<crate::identity::IdentityReply>;
 }

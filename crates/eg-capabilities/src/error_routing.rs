@@ -94,6 +94,7 @@ const METHOD_PREFIXES: &[(&str, &[&str])] = &[
     ),
     ("Decide", &["DECISION_", "COMPONENT_", "CORRUPT_DECISION_"]),
     ("RbacElevation", &["ELEVATION_"]),
+    ("Identity", &["IDENTITY_"]),
 ];
 const DOMAIN_PREFIXES: &[(&str, &[&str])] = &[
     ("cluster", &["CLUSTER_", "FLEET_", "REGISTRY_", "RAFT_"]),
@@ -162,6 +163,16 @@ const EXACT_METHOD_ERRORS: &[(&str, &[&str])] = &[
         "Decide",
         &["DECISIONS", "UNSUPPORTED_COALITION", "CAPACITY_UNAVAILABLE"],
     ),
+    // The identity store's namespace is fenced off the two older RBAC
+    // writers (identity_store_admin.rs). `RegisterIdentity` is refused for a
+    // principal the store manages AND for a role in the store's `idm:`
+    // namespace; `RbacAdmin` writes roles and grants only, so it meets the
+    // namespace fence alone.
+    (
+        "RegisterIdentity",
+        &["IDENTITY_STORE_MANAGED", "IDENTITY_STORE_NAMESPACE"],
+    ),
+    ("RbacAdmin", &["IDENTITY_STORE_NAMESPACE"]),
     (
         "AuditAppend",
         &[
@@ -336,5 +347,22 @@ mod tests {
             "SubmitWorkItem",
             "CLUSTER_CONFIGURATION_INVALID"
         ));
+    }
+
+    #[test]
+    fn the_older_identity_writers_declare_exactly_the_store_fences_they_meet() {
+        for (method, code, declared) in [
+            ("RegisterIdentity", "IDENTITY_STORE_MANAGED", true),
+            ("RegisterIdentity", "IDENTITY_STORE_NAMESPACE", true),
+            ("RbacAdmin", "IDENTITY_STORE_NAMESPACE", true),
+            ("RbacAdmin", "IDENTITY_STORE_MANAGED", false),
+            ("GetIdentity", "IDENTITY_STORE_NAMESPACE", false),
+        ] {
+            assert_eq!(
+                method_allows_error(method, code),
+                declared,
+                "{method} {code}"
+            );
+        }
     }
 }

@@ -195,6 +195,33 @@ mod consensus_admin_route_tests {
     }
 
     #[test]
+    fn identity_mutations_share_the_commons_order_across_caller_graphs_and_tenants() {
+        let method = Method::Identity {
+            op: eg_types::identity::IdentityOp::User(eg_types::identity::UserOp::SetStatus {
+                request: eg_types::identity::UserStatusChange {
+                    principal_id: "usr:route-test".to_string(),
+                    status: eg_types::identity::UserStatus::Disabled,
+                },
+            }),
+            stamp: None,
+        };
+        let command = crate::raft::NativeMutationCommand::from_public_method(
+            method.clone(),
+            "consensus-identity-mutation-route-test",
+        )
+        .expect("identity mutation has a typed native command");
+        for (graph, tenant) in [
+            ("caller-graph-a", "tenant-a"),
+            ("caller-graph-b", "tenant-b"),
+        ] {
+            assert_eq!(
+                native_route_target(graph, tenant, &method, &command),
+                "__commons__"
+            );
+        }
+    }
+
+    #[test]
     fn capability_consensus_paths_refuse_without_the_original_auth_envelope() {
         use crate::epistemic_operations_ext::{
             WorkItemClaimCapabilityMintRequest, WorkItemClaimCapabilityRequestSchemaVersion,

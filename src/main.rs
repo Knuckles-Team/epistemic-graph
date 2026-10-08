@@ -588,6 +588,9 @@ async fn spawn_optional_service_listeners(
     epistemic_graph::server::repository_enrichment_worker::spawn(state.clone());
     #[cfg(feature = "epistemic-tms")]
     epistemic_graph::server::reasoning_projection::spawn(state.clone());
+    // Sampled authorization denials reach the identity audit trail.
+    #[cfg(feature = "security")]
+    epistemic_graph::server::spawn_denial_sample_flusher(state.clone());
     Ok(())
 }
 

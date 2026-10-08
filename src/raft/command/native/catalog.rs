@@ -142,6 +142,7 @@ macro_rules! native_method_catalog {
             record RegisterIdentity => Identity,
             record RbacAdmin => Identity,
             record RbacElevation => Identity,
+            record Identity => Identity,
 
             record Reshard => ClusterAdmin,
             record CatalogAssign => ClusterAdmin,

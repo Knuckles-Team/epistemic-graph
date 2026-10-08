@@ -119,6 +119,26 @@ pub(in crate::server::dispatch) async fn create_graph(
     }
 }
 
+/// Replicated authority names a fingerprint, not a proven identity-store
+/// subject. It may equal another user's raw ID, so never bind a managed user
+/// from it. Keep the graph result and the existing unmanaged route unchanged.
+#[cfg(feature = "security")]
+fn provision_created_tenant_access(
+    state: &mut ServerState,
+    graph: &str,
+    creator: Option<&str>,
+) -> Result<(), String> {
+    #[cfg(feature = "raft")]
+    if is_replicated_apply()
+        && creator.is_some_and(|id| state.isolation.rbac().identity_store().manages(id))
+    {
+        return Ok(());
+    }
+    state
+        .isolation
+        .provision_tenant_graph_access(graph, creator)
+}
+
 /// `CreateGraph` once its declared result is encoded: the durable registration,
 /// then the resident incarnation.
 async fn create_declared_graph(
@@ -250,9 +270,8 @@ async fn create_declared_graph(
             // decides graph access via `check_access`'s owner-based ACL
             // branch directly, so there is no RBAC store here to provision.
             #[cfg(feature = "security")]
-            if let Err(error) = s
-                .isolation
-                .provision_tenant_graph_access(&graph_name, req_agent_id.as_deref())
+            if let Err(error) =
+                provision_created_tenant_access(&mut s, &graph_name, req_agent_id.as_deref())
             {
                 tracing::warn!(
                     graph = %graph_name,
@@ -576,47 +595,75 @@ pub(super) async fn apply_rbac_admin(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     op: crate::acl::RbacAdminOp,
+    actor: &str,
+) -> Response {
+    let mut s = timed_write(state).await;
+    let audit = crate::isolation::AuditActor {
+        principal: actor,
+        now_ms: authoritative_now_ms(),
+    };
+    let response = rbac_admin_response(&mut s, req_id, op, audit);
+    s.publish_identity_view();
+    response
+}
+
+#[cfg(feature = "security")]
+fn rbac_admin_response(
+    s: &mut ServerState,
+    req_id: u64,
+    op: crate::acl::RbacAdminOp,
+    audit: crate::isolation::AuditActor<'_>,
 ) -> Response {
     use crate::acl::RbacAdminOp;
-    let mut s = timed_write(state).await;
+    use eg_types::result_contract::security as results;
     match op {
-        RbacAdminOp::AddRole(role) => rbac_admin_ack::<
-            eg_types::result_contract::security::RbacAddRole,
-        >(
-            req_id, s.isolation.try_add_role(role), "role_added"
-        ),
-        RbacAdminOp::RemoveRole(name) => {
-            rbac_admin_ack::<eg_types::result_contract::security::RbacRemoveRole>(
-                req_id,
-                s.isolation.try_remove_role(&name),
-                "role_removed",
-            )
-        }
-        RbacAdminOp::AddGrant(grant) => rbac_admin_ack::<
-            eg_types::result_contract::security::RbacAddGrant,
-        >(
-            req_id, s.isolation.try_add_grant(grant), "grant_added"
-        ),
-        RbacAdminOp::RemoveGrant(grant) => match s.isolation.try_remove_grant(&grant) {
-            Ok(removed) => Response::ok(
-                req_id,
-                ResultPayload::of::<eg_types::result_contract::security::RbacRemoveGrant>(
-                    eg_types::result_contract::security::RbacGrantRemoval { removed },
-                ),
-            ),
-            Err(message) => Response::err(req_id, message),
-        },
         RbacAdminOp::List => {
             let policy = s.isolation.rbac();
             Response::ok(
                 req_id,
-                ResultPayload::of::<eg_types::result_contract::security::RbacList>(
-                    eg_types::result_contract::security::RbacPolicyListing {
-                        roles: policy.roles().cloned().collect(),
-                        grants: policy.grants().to_vec(),
-                    },
-                ),
+                ResultPayload::of::<results::RbacList>(results::RbacPolicyListing {
+                    roles: policy.roles().cloned().collect(),
+                    grants: policy.grants().to_vec(),
+                }),
             )
+        }
+        RbacAdminOp::AddRole(role) => rbac_admin_ack::<results::RbacAddRole>(
+            req_id,
+            s.isolation
+                .try_rbac_admin_audited(RbacAdminOp::AddRole(role), audit)
+                .map(drop),
+            "role_added",
+        ),
+        RbacAdminOp::RemoveRole(name) => rbac_admin_ack::<results::RbacRemoveRole>(
+            req_id,
+            s.isolation
+                .try_rbac_admin_audited(RbacAdminOp::RemoveRole(name), audit)
+                .map(drop),
+            "role_removed",
+        ),
+        RbacAdminOp::AddGrant(grant) => rbac_admin_ack::<results::RbacAddGrant>(
+            req_id,
+            s.isolation
+                .try_rbac_admin_audited(RbacAdminOp::AddGrant(grant), audit)
+                .map(drop),
+            "grant_added",
+        ),
+        RbacAdminOp::RemoveGrant(grant) => {
+            match s
+                .isolation
+                .try_rbac_admin_audited(RbacAdminOp::RemoveGrant(grant), audit)
+            {
+                Ok(removed) => Response::ok(
+                    req_id,
+                    ResultPayload::of::<results::RbacRemoveGrant>(results::RbacGrantRemoval {
+                        removed,
+                    }),
+                ),
+                Err(message) => Response::err(req_id, message),
+            }
         }
     }
 }
+
+#[cfg(all(test, feature = "raft", feature = "security", feature = "redb"))]
+mod replicated_tenant_tests;

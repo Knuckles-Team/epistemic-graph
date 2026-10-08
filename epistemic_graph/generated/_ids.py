@@ -387,6 +387,7 @@ METHOD_IDS = frozenset(
         "RegisterIdentity",
         "RbacAdmin",
         "RbacElevation",
+        "Identity",
         "GetIdentity",
         "CheckAccess",
         "ToMsgpack",

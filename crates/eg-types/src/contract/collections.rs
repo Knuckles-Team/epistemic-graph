@@ -5,6 +5,14 @@ use serde::de::{Error as _, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt;
 
+/// `Ok` when `value` is a non-empty, control-character-free field at or under
+/// `max` bytes, and `refusal` otherwise -- the one "bounded text" check; each
+/// surface names its own typed refusal.
+pub(crate) fn bounded_text_or<E>(value: &str, max: usize, refusal: E) -> Result<(), E> {
+    let clean = !value.trim().is_empty() && !value.chars().any(char::is_control);
+    (clean && value.len() <= max).then_some(()).ok_or(refusal)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct BoundedVec<T, const MAXIMUM: usize>(Vec<T>);
 

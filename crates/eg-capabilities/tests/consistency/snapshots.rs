@@ -480,6 +480,12 @@ pub(crate) const AUDIT_RS_AUDITED: &[&str] = &[
     "RbacElevation",
     // EH-408/EH-409: defense-in-depth marker, like `FleetCatalog`.
     "TelemetryDerive",
+    // Defense-in-depth markers; the durable record is the identity store's
+    // hash-chained audit trail, written in the same rbac.redb image as the
+    // change it records.
+    "Identity",
+    "RbacAdmin",
+    "RegisterIdentity",
     "RemoveEdge",
     "RemoveNode",
     "RemoveTriples",
