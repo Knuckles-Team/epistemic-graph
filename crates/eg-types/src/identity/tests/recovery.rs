@@ -188,13 +188,19 @@ fn complete_with_the_factor(store: &mut IdentityStore, session: &str) {
     assert_eq!(outcome(reply).outcome, AuthenticateOutcome::Ok);
 }
 
+/// Alice signed in on session `complete`, with a factor and recovery codes.
+fn alice_with_codes(store: &mut IdentityStore) -> String {
+    let alice = with_password(store, "alice");
+    open_session(store, "alice", &alice, "complete");
+    enrol_factor(store, "complete");
+    run(store, issue_codes("complete")).unwrap();
+    alice
+}
+
 #[test]
 fn codes_that_outlive_their_factor_complete_nothing() {
     let mut store = store_in(AuthMode::Local);
-    let alice = with_password(&mut store, "alice");
-    open_session(&mut store, "alice", &alice, "complete");
-    enrol_factor(&mut store, "complete");
-    run(&mut store, issue_codes("complete")).unwrap();
+    let alice = alice_with_codes(&mut store);
     let remove = IdentityOp::Mfa(MfaOp::RemoveWebauthn {
         request: ObjectRef {
             id: "Y3JlZC1hbGljZS0x".to_string(),
@@ -224,10 +230,7 @@ fn codes_that_outlive_their_factor_complete_nothing() {
 #[test]
 fn recovery_backoff_blocks_guesses_and_preserves_a_valid_code_until_retry() {
     let mut store = store_in(AuthMode::Local);
-    let alice = with_password(&mut store, "alice");
-    open_session(&mut store, "alice", &alice, "complete");
-    enrol_factor(&mut store, "complete");
-    run(&mut store, issue_codes("complete")).unwrap();
+    let alice = alice_with_codes(&mut store);
     open_session_owing_a_factor(&mut store, &alice, "pending");
     for _ in 0..5 {
         assert_eq!(

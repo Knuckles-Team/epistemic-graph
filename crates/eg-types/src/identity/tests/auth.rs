@@ -49,8 +49,12 @@ pub(super) fn outcome(reply: IdentityReply) -> AuthenticateResult {
     }
 }
 
-/// An administrator replaces `principal`'s password with `hash`.
-pub(super) fn replace_password(store: &mut IdentityStore, principal: &str, hash: &str) {
+/// An administrator's `SetPassword` for `principal`, stamped with `hash`.
+pub(super) fn set_password_op(
+    store: &IdentityStore,
+    principal: &str,
+    hash: &str,
+) -> (IdentityOp, IdentityStamp) {
     let mut stamp = admin();
     stamp.password_hash = Some(hash.to_string());
     stamp.password_check = Some(check_for(store, Some(principal), false));
@@ -61,7 +65,49 @@ pub(super) fn replace_password(store: &mut IdentityStore, principal: &str, hash:
             must_change: false,
         },
     });
+    (op, stamp)
+}
+
+/// An administrator replaces `principal`'s password with `hash`.
+pub(super) fn replace_password(store: &mut IdentityStore, principal: &str, hash: &str) {
+    let (op, stamp) = set_password_op(store, principal, hash);
     apply_kept(store, &op, &stamp, NOW).unwrap();
+}
+
+/// Optionally replace `principal`'s password a second time, then prove that
+/// `stale` is refused as stale and changes nothing. Returns the unchanged store.
+pub(super) fn assert_stale_after_replace(
+    store: &mut IdentityStore,
+    principal: &str,
+    replace_twice: bool,
+    (op, stale): (&IdentityOp, &IdentityStamp),
+) -> IdentityStore {
+    if replace_twice {
+        replace_password(store, principal, "synthetic-password-hash-p2");
+    }
+    let before = store.clone();
+    assert_eq!(
+        store.apply(op, stale, &ctx_at(NOW)),
+        Err(IdentityRefusal::StaleCredential)
+    );
+    assert_eq!(*store, before, "a stale verdict mutates nothing");
+    before
+}
+
+/// Re-check `fresh` as a reused password; the op is refused and the store
+/// still equals `before`.
+pub(super) fn assert_reuse_refused(
+    store: &mut IdentityStore,
+    principal: &str,
+    (op, fresh): (&IdentityOp, &mut IdentityStamp),
+    before: &IdentityStore,
+) {
+    fresh.password_check = Some(check_for(store, Some(principal), true));
+    assert_eq!(
+        store.apply(op, fresh, &ctx_at(NOW)),
+        Err(IdentityRefusal::PasswordReused)
+    );
+    assert_eq!(store, before);
 }
 
 pub(super) fn with_password(store: &mut IdentityStore, username: &str) -> String {

@@ -37,13 +37,13 @@ fn change_own_password() -> IdentityOp {
     })
 }
 
-/// Send `op` as `context`, hold it once its stamp is derived, replace the
-/// bootstrap administrator's password, then let the held op apply.
-async fn raced_past_a_replacement(
+/// Send `op` as `context` and hold it once its stamp is derived, then
+/// replace the bootstrap administrator's password. The op is still held.
+async fn held_past_a_replacement(
     state: &Arc<RwLock<ServerState>>,
     context: VerifiedRequestContext,
     op: IdentityOp,
-) -> Response {
+) -> (pause::Held, tokio::task::JoinHandle<Response>) {
     let held = pause::arm(state);
     let racing = tokio::spawn({
         let state = Arc::clone(state);
@@ -52,6 +52,17 @@ async fn raced_past_a_replacement(
     tokio::task::block_in_place(|| held.derived());
     let replaced = send(state, administrator(), replace_password()).await;
     assert!(replaced.error.is_none(), "{:?}", replaced.error);
+    (held, racing)
+}
+
+/// Send `op` as `context`, hold it once its stamp is derived, replace the
+/// bootstrap administrator's password, then let the held op apply.
+async fn raced_past_a_replacement(
+    state: &Arc<RwLock<ServerState>>,
+    context: VerifiedRequestContext,
+    op: IdentityOp,
+) -> Response {
+    let (held, racing) = held_past_a_replacement(state, context, op).await;
     held.release();
     tokio::time::timeout(RENDEZVOUS_TIMEOUT, racing)
         .await
@@ -244,14 +255,7 @@ async fn race_password_policy(
     op: IdentityOp,
     replace_twice: bool,
 ) {
-    let held = pause::arm(state);
-    let racing = tokio::spawn({
-        let state = Arc::clone(state);
-        async move { send(&state, context, op).await }
-    });
-    tokio::task::block_in_place(|| held.derived());
-    let first = send(state, administrator(), replace_password()).await;
-    assert!(first.error.is_none(), "{:?}", first.error);
+    let (held, racing) = held_past_a_replacement(state, context, op).await;
     if replace_twice {
         let second = send(
             state,

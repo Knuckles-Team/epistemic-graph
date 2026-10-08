@@ -15,17 +15,7 @@ fn transition(to: AuthMode, epoch: u64, ack: Option<&str>) -> IdentityOp {
 }
 
 fn set_password(store: &IdentityStore, principal: &str) -> (IdentityOp, IdentityStamp) {
-    let mut stamp = admin();
-    stamp.password_hash = Some("$argon2id$set".to_string());
-    stamp.password_check = Some(check_for(store, Some(principal), false));
-    let op = IdentityOp::Credential(CredentialOp::SetPassword {
-        request: PasswordSet {
-            principal_id: principal.to_string(),
-            password: Secret::default(),
-            must_change: false,
-        },
-    });
-    (op, stamp)
+    super::auth::set_password_op(store, principal, "$argon2id$set")
 }
 
 #[test]
