@@ -60,3 +60,18 @@ def test_body_hex_rejects_whitespace_like_the_engine(whitespace: str) -> None:
     attributes["decision.body/00"] = chunk[:2] + whitespace + chunk[2:]
     with pytest.raises(ValueError):
         ds.decode_body(digest, attributes)
+
+
+@pytest.mark.parametrize("constant", ["NaN", "Infinity", "-Infinity"])
+def test_body_json_rejects_nonstandard_constants(constant: str) -> None:
+    data = ('{"value":' + constant + "}").encode("utf-8")
+    attributes = {"decision.body/00": data.hex()}
+    with pytest.raises(ValueError, match="nonstandard JSON constant"):
+        ds.decode_body(ds.content_digest_of(data), attributes)
+
+
+@pytest.mark.parametrize("constant", ["NaN", "Infinity", "-Infinity"])
+def test_body_json_preserves_constant_names_as_strings(constant: str) -> None:
+    body = {"value": constant}
+    digest, attributes = ds.encode_body(body)
+    assert ds.decode_body(digest, attributes) == body

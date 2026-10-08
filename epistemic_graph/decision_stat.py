@@ -20,7 +20,7 @@ import binascii
 import hashlib
 import json
 from collections.abc import Mapping, Sequence
-from typing import Any
+from typing import Any, NoReturn
 
 BODY_ATTRIBUTE_PREFIX = "decision.body/"
 BODY_CHUNK_HEX = 4000
@@ -57,6 +57,10 @@ def encode_body(value: Any) -> tuple[str, dict[str, str]]:
     return content_digest_of(data), attributes
 
 
+def _reject_json_constant(value: str) -> NoReturn:
+    raise ValueError(f"decision body contains a nonstandard JSON constant: {value}")
+
+
 def decode_body(content_digest: str, attributes: Mapping[str, str]) -> Any:
     """Reassemble and verify a body; the inverse of :func:`encode_body`."""
     names = sorted(
@@ -68,7 +72,7 @@ def decode_body(content_digest: str, attributes: Mapping[str, str]) -> Any:
     data = binascii.unhexlify("".join(attributes[name] for name in expected))
     if content_digest_of(data) != content_digest:
         raise ValueError("decision body does not match its content digest")
-    return json.loads(data)
+    return json.loads(data, parse_constant=_reject_json_constant)
 
 
 def dataset_digest(dataset: Mapping[str, Any]) -> str:
