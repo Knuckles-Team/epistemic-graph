@@ -51,3 +51,12 @@ def test_the_dataset_digest_is_order_sensitive_canonical_json() -> None:
     second = {"items": [], "schema_version": 1}
     assert ds.dataset_digest(first) != ds.dataset_digest(second)
     assert ds.dataset_digest(first) == ds.dataset_digest(dict(first))
+
+
+@pytest.mark.parametrize("whitespace", [" ", "\t", "\n", "\r", "\v", "\f"])
+def test_body_hex_rejects_whitespace_like_the_engine(whitespace: str) -> None:
+    digest, attributes = ds.encode_body(_schema())
+    chunk = attributes["decision.body/00"]
+    attributes["decision.body/00"] = chunk[:2] + whitespace + chunk[2:]
+    with pytest.raises(ValueError):
+        ds.decode_body(digest, attributes)
