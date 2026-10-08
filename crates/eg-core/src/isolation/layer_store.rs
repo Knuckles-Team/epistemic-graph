@@ -36,6 +36,16 @@ impl IsolationLayer {
         proof: &[u8],
     ) -> Result<Self, crate::rbac_persist::RbacPersistError> {
         let store = crate::rbac_persist::RbacStore::open(dir, verifier, principal, proof)?;
+        Self::with_policy_store(std::sync::Arc::new(store))
+    }
+
+    /// Native adapter seam. It loads and validates the same complete durable
+    /// image as the directory opener. Atomic-store fault fixtures also use it.
+    #[doc(hidden)]
+    #[cfg(feature = "security")]
+    pub fn with_policy_store(
+        store: std::sync::Arc<dyn crate::rbac_persist::RbacPolicyStore>,
+    ) -> Result<Self, crate::rbac_persist::RbacPersistError> {
         let (rbac, identities, identity_bootstrap) = store.load()?;
         if identity_bootstrap == crate::rbac_persist::IdentityBootstrapState::Pending
             && !holds_only_identity_store_state(&rbac, &identities)
@@ -49,7 +59,7 @@ impl IsolationLayer {
             agents,
             rbac,
             identity_bootstrap,
-            persist: Some(std::sync::Arc::new(store)),
+            persist: Some(store),
         })
     }
 

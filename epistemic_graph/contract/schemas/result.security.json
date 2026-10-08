@@ -1371,7 +1371,7 @@
     },
     "PrincipalResolution": {
       "additionalProperties": false,
-      "description": "What the local issuer puts in a principal's token.",
+      "description": "Current principal projection. The store uses `()`; public issuance requires\n`RequestContextClaims`, composed only after credential and policy validation.",
       "properties": {
         "groups": {
           "items": {
@@ -1395,6 +1395,10 @@
         },
         "principal_id": {
           "type": "string"
+        },
+        "request_context": {
+          "$ref": "#/$defs/RequestContextClaims",
+          "description": "Required in the public specialization; never a default authority."
         },
         "roles": {
           "items": {
@@ -1424,6 +1428,7 @@
         }
       },
       "required": [
+        "request_context",
         "principal_id",
         "username",
         "kind",
@@ -1514,6 +1519,78 @@
           "type": "string"
         }
       ]
+    },
+    "RequestContextClaims": {
+      "additionalProperties": false,
+      "description": "Identity and policy claims carried by a verified request-context envelope.\n\nThis is the wire representation only.  Callers must not treat a deserialized\nvalue as trusted until the server has verified the envelope MAC, deployment\naudience/tenant/policy version, request binding, and delegation chain.  The\nserver exposes a separate, non-constructible `VerifiedRequestContext` wrapper\nafter those checks succeed.",
+      "properties": {
+        "agent_id": {
+          "description": "Effective agent identity used for ACL/RBAC decisions.",
+          "type": "string"
+        },
+        "audience": {
+          "description": "Intended service audience.",
+          "type": "string"
+        },
+        "delegation": {
+          "description": "Ordered delegation path from `principal` to `agent_id` (inclusive).\nEmpty means no delegation and therefore requires principal == agent_id.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "node": {
+          "description": "Target node id this envelope was minted for (ADR-3 / W1.9 node-bound\nenvelopes — ``reports/wave1/ADR-scale-trio.md``). `None` for a client\nthat predates node binding, or one that has not yet learned a target\nnode id; a single-node deployment never needs to set this. When\n`Some(id)`, the server exact-matches it against the receiving node's\nown identity before dispatch (`server::auth::validate_context_claims`)\n— a mismatch means the envelope was captured and replayed against a\ndifferent cluster member. `#[serde(default)]` so an envelope minted by\na client that has never heard of this claim deserializes exactly as\nbefore (absent, not a hard error).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "policy_version": {
+          "description": "Exact policy bundle/version under which the context was issued.",
+          "type": "string"
+        },
+        "principal": {
+          "description": "Authenticated subject that originated the request.",
+          "type": "string"
+        },
+        "priority": {
+          "description": "Advisory QoS admission-priority class this request declares (W2.4 —\nengine-native QoS lanes). One of the agent-utilities `PriorityClass`\nwire values `\"interactive\"` / `\"orchestration\"` / `\"hydration\"` /\n`\"background_ingestion\"`; any other or absent value is treated as the\norchestration default (high, never starved — matching au's\nuntagged-context semantics). Mapped to a [`crate`]-independent admission\nclass by the server's QoS scheduler (`server::qos::QosClass`).\n\nIt is **MAC-covered** (appended to `build_envelope_v2_bytes` as a\ndistinct tag-`2` optional trailer, after the tag-`1` node trailer) so a\nnoisy principal cannot forge a higher class to defeat the admission\nordering — the priority is bound to the signed envelope exactly like\nevery other claim. `#[serde(default)]` + presence-gated encoding keep an\nenvelope minted by a client that predates this claim byte-for-byte\nidentical to before (absent, not a hard error) — fully additive.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "roles": {
+          "description": "Identity-provider roles asserted for policy evaluation/audit.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "scopes": {
+          "description": "Fine-grained capabilities asserted for policy evaluation/audit.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "tenant": {
+          "description": "Tenant security boundary selected by the deployment.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "principal",
+        "tenant",
+        "audience",
+        "agent_id",
+        "roles",
+        "scopes",
+        "policy_version",
+        "delegation"
+      ],
+      "type": "object"
     },
     "ResetDelivery": {
       "additionalProperties": false,

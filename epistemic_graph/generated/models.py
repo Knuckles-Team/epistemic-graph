@@ -17100,6 +17100,7 @@ class PrincipalResolution(BaseModel):
     mfa_enrolled: bool
     mfa_required: bool
     principal_id: str
+    request_context: RequestContextClaims
     roles: list[str]
     scopes: list[str]
     session_mfa_pending: bool | None = None
