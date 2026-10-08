@@ -48,7 +48,8 @@
     "EG-CONTRACT-R043",
     "EG-CONTRACT-R044",
     "EG-CONTRACT-R045",
-    "EG-CONTRACT-R046"
+    "EG-CONTRACT-R046",
+    "EG-CONTRACT-R047"
   ],
   "delivery_state": "SPECIFIED",
   "acceptance_state": "NOT_AUDITED",
@@ -659,6 +660,12 @@
           "description": "Implementing commit is reachable from the default branch."
         }
       ]
+    },
+    {
+      "id": "EG-CONTRACT-R047",
+      "title": "Main publishes a rolling engine wheel for consumer CI",
+      "delivery_state": "BUILDING",
+      "evidence": []
     }
   ]
 }

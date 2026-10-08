@@ -17,6 +17,7 @@
 - [ ] **C-13 — EG-CONTRACT-R028, EG-CONTRACT-R035, EG-CONTRACT-R037:** Wire the SQLite-format and speech-recognition differential tests and the `eg-compute` solve test into the release workflow's gates job, run clippy warning-free across every declared release feature profile, and audit declared-versus-executed test targets for the full gates job.
 - [ ] **C-14 — EG-CONTRACT-R040, EG-CONTRACT-R041, EG-CONTRACT-R043:** Keep the privacy and secret-history scanners accurate: no false positive on their own documented example patterns, host-path detection across the full tracked tree including the files named in EG-CONTRACT-R041, and zero credential-shaped literals in test fixtures across the full commit range.
 - [ ] **C-15 — All IDs:** Build the wheel twice in clean environments, install the published candidate outside the checkout, run every consumer check against one commit/digest, run the combined quality-gate script plus the full hosted release workflow (CCCC, KISS, Dupehound, jscpd, clippy, formatting, the complete Rust and Python test suites), and publish the evidence record below before setting any requirement to `ACCEPTED`.
+- [ ] **C-16 — EG-CONTRACT-R047:** Publish the main Linux x86_64 wheel to the rolling `engine-main` prerelease. Record the first main run and asset SHA-256. Consumer CI in agent-utilities, graph-os and agent-connector-sdk installs from it.
 
 ## Evidence record to fill for each task
 
