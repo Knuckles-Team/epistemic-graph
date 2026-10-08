@@ -37,3 +37,30 @@ def test_cluster_runbook_is_environment_neutral() -> None:
         assert MACHINE_HOME.search(content) is None, relative
         assert ENVIRONMENT_DNS.search(content) is None, relative
         assert MACHINE_HOST_ALIAS.search(content) is None, relative
+
+
+@pytest.mark.parametrize("relative", PUBLIC_SURFACES)
+@pytest.mark.parametrize(
+    "private_text",
+    [
+        ".".join(("10", "12", "34", "56")),
+        "/".join(("", "home", "example", "document")),
+        ".".join(("example", "local")),
+        "host" + str(123),
+    ],
+    ids=["private-ip", "home-path", "local-dns", "host-alias"],
+)
+def test_public_surface_rejects_private_content(
+    relative: str,
+    private_text: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for surface in PUBLIC_SURFACES:
+        path = tmp_path / surface
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("Public deployment documentation.\n", encoding="utf-8")
+    (tmp_path / relative).write_text(private_text, encoding="utf-8")
+    monkeypatch.setitem(globals(), "ROOT", tmp_path)
+    with pytest.raises(AssertionError, match=re.escape(relative)):
+        test_cluster_runbook_is_environment_neutral()
