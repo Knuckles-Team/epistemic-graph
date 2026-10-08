@@ -47,6 +47,10 @@ pub(crate) struct CarrierAuthority {
     admin: bool,
     can_read: bool,
     can_write: bool,
+    /// The verified identity actor: the identity store decides from it, against
+    /// its current state, whether its SQL relations are visible.
+    #[cfg(feature = "security")]
+    identity_actor: eg_types::identity::IdentityActor,
 }
 
 /// One owner-scoped process-global call (EH-373/EH-374): the server state, the request
@@ -147,6 +151,8 @@ impl CarrierAuthority {
             admin,
             can_read,
             can_write,
+            #[cfg(feature = "security")]
+            identity_actor: crate::server::identity_view::identity_actor(context),
         })
     }
 
@@ -198,6 +204,12 @@ impl CarrierAuthority {
 
     pub(crate) fn is_admin(&self) -> bool {
         self.admin
+    }
+
+    /// The verified identity actor, for the identity store's own check.
+    #[cfg(feature = "security")]
+    pub(crate) fn identity_actor(&self) -> &eg_types::identity::IdentityActor {
+        &self.identity_actor
     }
 
     /// Coarse read capability (`kg:read` or admin). See the field's doc
@@ -727,6 +739,8 @@ fn check_graph_access_with_policy(
         Ok(())
     } else {
         crate::metrics::access_denied();
+        #[cfg(feature = "security")]
+        crate::server::denial_sample::offer(agent, graph_name, "GRAPH_ACCESS_DENIED");
         Err(format!(
             "ACCESS_DENIED: verified principal lacks {access:?} access to graph '{graph_name}'"
         ))

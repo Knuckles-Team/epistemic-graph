@@ -72,6 +72,41 @@ impl IsolationLayer {
         let Some(tenant_slug) = tenant_slug_from_graph_name(graph_name) else {
             return Ok(());
         };
+        if let Some(principal) =
+            creator_agent_id.filter(|id| self.rbac.identity_store().manages(id))
+        {
+            return self.provision_managed_tenant_access(principal, &tenant_slug);
+        }
+        self.provision_unmanaged_tenant_access(&tenant_slug, creator_agent_id)
+    }
+
+    /// Update the owning store and its projection in one rollback boundary.
+    #[cfg(feature = "security")]
+    fn provision_managed_tenant_access(
+        &mut self,
+        principal: &str,
+        tenant_slug: &str,
+    ) -> Result<(), String> {
+        let previous = (self.rbac.clone(), self.agents.clone());
+        self.rbac
+            .identity_store_mut()
+            .provision_tenant_graph_access(principal, tenant_slug)
+            .map_err(|error| error.to_string())?;
+        self.project_identity_store();
+        if let Err(error) = self.persist_state() {
+            (self.rbac, self.agents) = previous;
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    /// Preserve the existing provisioning route for non-store identities.
+    #[cfg(feature = "security")]
+    fn provision_unmanaged_tenant_access(
+        &mut self,
+        tenant_slug: &str,
+        creator_agent_id: Option<&str>,
+    ) -> Result<(), String> {
         let role_name = format!("tenant:{tenant_slug}");
         let pattern = format!("tenant__{tenant_slug}__*");
         self.try_add_role(crate::acl::Role::new(role_name.clone()))?;

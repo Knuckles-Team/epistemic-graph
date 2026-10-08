@@ -206,9 +206,10 @@ fn every_wire_variant_has_exactly_one_descriptor_and_vice_versa() {
     // 458 -> 459: `OntologyInspect`, the read-only typed vocabulary surface.
     // 459 -> 461: `ApplyChangeEnvelopeDraft(s)`, the client path whose mutation
     // authority the request boundary mints.
+    // 461 -> 462: the identity store's Identity method.
     assert_eq!(
         variants.len(),
-        461,
+        462,
         "the wire method census changed; update this exact count deliberately"
     );
 }

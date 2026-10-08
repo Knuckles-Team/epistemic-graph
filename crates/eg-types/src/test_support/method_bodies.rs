@@ -27,6 +27,15 @@ pub fn typed_samples() -> Vec<(&'static str, Method)> {
     ));
     #[cfg(feature = "query")]
     samples.push(("SqlSourceBatch", sql_source_batch()));
+    // A two-level tagged op (`family` + `op`): a schema-minimal sample
+    // cannot pick a consistent pair, so the vector carries a real one.
+    samples.push((
+        "Identity",
+        Method::Identity {
+            op: crate::identity::IdentityOp::Config(crate::identity::ConfigOp::Get),
+            stamp: None,
+        },
+    ));
     samples
 }
 

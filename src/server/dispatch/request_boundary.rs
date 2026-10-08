@@ -281,6 +281,24 @@ async fn preflight_commit_owner(
     .await
 }
 
+/// Derive and clear identity secrets while preserving the request error id.
+#[cfg(feature = "security")]
+async fn stamp_identity_request(
+    state: &Arc<RwLock<ServerState>>,
+    req: &mut Request,
+    verified_context: &VerifiedRequestContext,
+    state_machine_authorized: bool,
+) -> Result<(), Response> {
+    super::identity_store::stamp_identity(
+        state,
+        &mut req.method,
+        verified_context,
+        super::elevation::ElevationStampAuthority::of(state_machine_authorized),
+    )
+    .await
+    .map_err(|error| Response::err(req.id, error))
+}
+
 async fn dispatch_preamble_checks(
     state: &Arc<RwLock<ServerState>>,
     mut req: Request,
@@ -329,6 +347,13 @@ async fn dispatch_preamble_checks(
     {
         return Err(Response::err(req.id, refusal));
     }
+
+    // After the ledger's scope check, before consensus routing --
+    // stamp the actor, check the op's exact identity authority, derive every
+    // hash/verdict/sealed value and clear every plaintext secret, so the
+    // replicated command never carries one.
+    #[cfg(feature = "security")]
+    stamp_identity_request(state, &mut req, verified_context, state_machine_authorized).await?;
 
     // A client change-envelope draft becomes its governed envelope here, after
     // authorization and before material preflight, consensus and dispatch.

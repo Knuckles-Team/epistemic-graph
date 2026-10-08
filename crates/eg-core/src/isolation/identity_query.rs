@@ -6,12 +6,15 @@ impl IsolationLayer {
         &self.rbac
     }
 
+    /// The engine's System identity has not bootstrapped yet, and the policy
+    /// holds nothing but the identity store's SEED: initializing the store
+    /// keeps the bootstrap open, while any real principal, credential or grant
+    /// made through it (first-admin setup, a claim, SCIM/LDAP provisioning)
+    /// closes it.
     #[cfg(feature = "security")]
     pub fn identity_bootstrap_pending(&self) -> bool {
         self.identity_bootstrap == crate::rbac_persist::IdentityBootstrapState::Pending
-            && self.agents.is_empty()
-            && self.rbac.roles().next().is_none()
-            && self.rbac.grants().is_empty()
+            && super::layer_store::holds_only_identity_seed(&self.rbac, self.agents.keys())
     }
 
     #[cfg(not(feature = "security"))]

@@ -111,6 +111,28 @@ each accepted mutation is committed before acknowledgement and restart recovery 
 that same store. There is no in-memory-only served profile, alternate snapshot format,
 checkpoint RPC, or write-behind durability mode.
 
+## Identity-managed tenant access
+
+When an identity-store principal creates a tenant graph, its tenant read/write
+binding belongs to the identity store. The role ID is `tenant:<slug>` when it
+meets identity identifier limits.
+Otherwise it is `tenant-sha256:<digest>`, with the full SHA-256 hex digest of
+the exact UTF-8 slug bytes; graph grants retain the original tenant spelling.
+The RBAC projection prefixes that role ID with `idm:`. Use the Identity access
+operations to change that role's graph grants or remove a user's role binding. Later identity
+updates preserve those decisions. Existing projected roles are not imported.
+
+Replicated `CreateGraph` carries only an opaque principal fingerprint. If that
+value matches a managed principal, the engine withholds automatic tenant binding:
+it cannot prove whether the value is that user's original ID or another caller's
+fingerprint. Graph creation still succeeds. This also applies to users whose raw
+IDs already have the fingerprint format. Provision their tenant access separately
+through authorized Identity operations. Local verified creation retains automatic
+binding. This does not resolve the broader clustered provisioning/ordering gap.
+
+The `RbacAdmin` operations continue to manage tenant roles for principals outside
+the identity store. They cannot modify the store's `idm:` namespace.
+
 ## Wire Protocol
 
 Communication uses **length-prefixed MessagePack framing** (see

@@ -393,6 +393,13 @@ fn native_catalog_is_complete_unique_and_has_domain_representatives() {
         NativeMutationDomain::Identity,
     );
     assert_native_round_trip(
+        Method::Identity {
+            op: eg_types::identity::IdentityOp::Config(eg_types::identity::ConfigOp::Get),
+            stamp: None,
+        },
+        NativeMutationDomain::Identity,
+    );
+    assert_native_round_trip(
         Method::Restore {
             source: "backup".to_string(),
             target_shards: 1,

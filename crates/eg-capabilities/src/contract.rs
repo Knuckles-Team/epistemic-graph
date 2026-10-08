@@ -322,14 +322,25 @@ fn body_artifacts(catalog: &Catalog) -> Vec<Artifact> {
     out.extend(python::artifacts(catalog));
     out.extend(vectors::artifacts());
     out.extend(method_bodies::artifacts());
+    let scopes = scopes_json();
+    out.push(Artifact {
+        path: "contract/scopes.json".to_string(),
+        bytes: scopes.clone(),
+    });
+    // The packaged copy is what agent-utilities generates its session-scope
+    // allowlist from; both are digested, so neither can drift.
+    out.push(Artifact {
+        path: "epistemic_graph/contract/scopes.json".to_string(),
+        bytes: scopes,
+    });
     out.extend(package_contract_artifacts(&out));
     out
 }
 
 /// Mirror the canonical discovery surface without rewriting schema references or
 /// method policy. Consumers resolve `contract/schemas/...` within the package.
-/// Scopes need an authoritative classification registry before they can be added;
-/// an `authz_action` string alone does not declare a scope class.
+/// Scopes are mirrored separately in `body_artifacts` from the authoritative
+/// `crate::scopes` registry.
 fn package_contract_artifacts(artifacts: &[Artifact]) -> Vec<Artifact> {
     artifacts
         .iter()
@@ -344,6 +355,30 @@ fn package_contract_artifacts(artifacts: &[Artifact]) -> Vec<Artifact> {
             bytes: artifact.bytes.clone(),
         })
         .collect()
+}
+
+/// `contract/scopes.json` -- the scope registry, sorted by scope.
+fn scopes_json() -> Vec<u8> {
+    let scopes: Vec<serde_json::Value> = crate::scopes::SCOPES
+        .iter()
+        .map(|entry| {
+            let approver_group = crate::scopes::APPROVER_GROUPS
+                .iter()
+                .find(|(scope, _)| *scope == entry.scope)
+                .map(|(_, group)| *group);
+            serde_json::json!({
+                "scope": entry.scope,
+                "class": crate::scopes::class_name(entry.class),
+                "owner": entry.owner,
+                "approver_group": approver_group,
+            })
+        })
+        .collect();
+    pretty(&serde_json::json!({
+        "registry_version": 1,
+        "generator": "eg-capabilities/gen_contract",
+        "scopes": scopes,
+    }))
 }
 
 /// Render every committed contract artifact, receipt last.

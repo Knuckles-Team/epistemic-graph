@@ -67,8 +67,33 @@ pub(super) async fn dispatch_identity_and_access_methods(
             )
             .await
         }
-        other => return ControlFlow::Continue(other),
+        other => return dispatch_identity_store_method(ctx, other).await,
     })
+}
+
+/// Keep the identity-store route in this domain, including feature fallback.
+async fn dispatch_identity_store_method(
+    ctx: DispatchCtx<'_>,
+    method: Method,
+) -> ControlFlow<Response, Method> {
+    #[cfg(not(feature = "security"))]
+    let _ = ctx;
+    match method {
+        #[cfg(feature = "security")]
+        Method::Identity { op, stamp } => ControlFlow::Break(
+            crate::server::dispatch::identity_store::dispatch_identity(
+                ctx.state,
+                ctx.req.id,
+                ctx.verified_context,
+                crate::server::dispatch::elevation::ElevationStampAuthority::of(
+                    ctx.state_machine_authorized,
+                ),
+                (op, stamp),
+            )
+            .await,
+        ),
+        other => ControlFlow::Continue(other),
+    }
 }
 
 /// `ApplyMultisigMutation` answers with the SPARQL UPDATE report of the
@@ -127,6 +152,7 @@ async fn dispatch_identity_and_access_methods_arm_0(
                         IdentityRegistrationMode {
                             bootstrap: identity_bootstrap,
                             state_machine_authorized,
+                            actor: verified_context.principal(),
                         },
                     ) {
                         return Response::err(req_id, message);
@@ -191,21 +217,36 @@ async fn dispatch_check_access(
     )
 }
 
-struct IdentityRegistrationMode {
+struct IdentityRegistrationMode<'a> {
     bootstrap: bool,
     state_machine_authorized: bool,
+    /// Who registered, for the identity store's own audit entry.
+    actor: &'a str,
 }
 
 fn register_identity(
     state: &mut ServerState,
     identity: crate::isolation::AgentIdentity,
-    mode: IdentityRegistrationMode,
+    mode: IdentityRegistrationMode<'_>,
 ) -> Result<(), String> {
     if mode.bootstrap
         || (mode.state_machine_authorized && replicated_identity_bootstrap_authorized())
     {
-        state.isolation.try_bootstrap_system_identity(identity)
-    } else {
+        return state.isolation.try_bootstrap_system_identity(identity);
+    }
+    #[cfg(feature = "security")]
+    {
+        let actor = crate::isolation::AuditActor {
+            principal: mode.actor,
+            now_ms: authoritative_now_ms(),
+        };
+        let outcome = state.isolation.try_register_agent_audited(identity, actor);
+        state.publish_identity_view();
+        outcome
+    }
+    #[cfg(not(feature = "security"))]
+    {
+        let _ = mode.actor;
         state.isolation.try_register_agent_from_request(identity)
     }
 }
@@ -244,7 +285,10 @@ async fn dispatch_identity_and_access_methods_arm_2(
         identity_bootstrap,
     } = ctx;
     match method {
-        Method::RbacAdmin { op } => dispatch_boxed(apply_rbac_admin(state, req.id, op)).await,
+        Method::RbacAdmin { op } => {
+            let actor = verified_context.principal();
+            dispatch_boxed(apply_rbac_admin(state, req.id, op, actor)).await
+        }
         _ => Response::err(req.id, "router dispatch helper routing mismatch"),
     }
 }

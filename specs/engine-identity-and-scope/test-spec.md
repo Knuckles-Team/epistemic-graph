@@ -10,8 +10,45 @@
 | I-06 | ID-03 | Stale epoch, missing surviving admin, no fresh MFA, non-loopback attestations, forged/replayed nonce, wrong tenant/principal. | Typed denial/conflict, unchanged mode and epoch, no retained session accepted after a committed transition. |
 | I-07 | ID-04 | Generate contract and install wheel in a clean environment. | Every declared scope has one class and digest; public catalog equals server registry and the consumer-derived allowlist. |
 | I-08 | ID-04 | Try human grant of service-only scope, service account admin, wildcard approver, and an unknown name. | Generation or runtime refuses each; direct human approver membership works only for the designated group. |
+| I-10 | ID-02 | Create a user whose explicit principal ID belongs to a `RegisterIdentity` principal or the System identity. | `IDENTITY_COLLISION`; the registered identity, its role set and its System role stay unchanged (`create_user_cannot_take_over_a_registered_principal`). |
 | I-09 | all | Run complete PR/release quality checks at exact commit. | No new CCCC/KISS/jscpd/Dupehound violation; generated artifacts fresh; supported Rust/Python/consumer tests pass. |
 | I-10 | ID-06 | Provision `tenant__homelab__default`, register a principal with role `tenant:homelab`, then check `__commons__` and `tenant__acme__default`. | Read on `__commons__` is allowed. Write on `__commons__` is denied. Read on the other tenant's graph is denied. Repeated provisioning keeps three grants. |
+
+## Open acceptance gap: replicated tenant provisioning
+
+**OPEN — clustered tenant provisioning and identity-store ordering.** The
+inherited replicated `CreateGraph` path receives a principal fingerprint rather
+than the original principal ID (`src/server/authority_context.rs`,
+`VerifiedRequestContext::replicated_mutation`). The request boundary copies that
+verified identity into the request, and lifecycle provisioning looks it up as an
+identity ID. Local tenant provisioning tests do not establish correct clustered
+provisioning; this work does not claim that inherited mismatch is fixed.
+
+A narrow fail-closed guard now withholds managed auto-binding during replicated
+creation when the fingerprint matches a managed ID. It skips the entire
+provisioning call, including the unmanaged fallback; graph creation still
+succeeds. Raw fingerprint-shaped self IDs are also withheld because the carrier
+cannot distinguish them from another caller's fingerprint. Separate authorized
+Identity grants are required. The new serialization/application regression source
+covers caller `U` plus managed alias `H(U)`, raw self-ID `H`, local creation, and
+policy persistence/reprojection using temporary Redb. These regressions are
+unexecuted pending exact-source native qualification; they do not establish
+cross-group ordering or close this acceptance gap.
+
+Separately, the new managed tenant provisioning side effect mutates the identity
+store and must have correct route ownership and ordering against Identity
+mutations. `CreateGraph` follows the named graph route, while Identity mutations
+use `__commons__` (`src/server/dispatch/consensus/routing.rs`). The local store
+transaction and focused Identity routing regression do not establish ordering
+between these routes.
+
+Before clearing this acceptance gap, require a focused replicated
+CreateGraph/Identity test or equivalent exact-source contract evidence proving
+correct creator binding, durable grants, and ordering with identity revocation
+across replica application and replay. Keep this gap OPEN until that evidence
+exists; passing local mapping, persistence, or routing tests alone is insufficient.
+This note does not authorize principal reverse lookup or a cross-group authority
+design change, and does not promote the related acceptance criteria to passed.
 
 ## Reproducible gates
 
