@@ -25,6 +25,7 @@ use crate::server::identity_view::identity_actor;
 mod exposure;
 #[cfg(test)]
 mod pause;
+mod resolution_context;
 mod secrets;
 mod stamp;
 
@@ -97,14 +98,11 @@ pub(crate) async fn dispatch_identity(
     if authority == ElevationStampAuthority::External && stamp.actor != identity_actor(context) {
         return Response::err(req_id, FORGED);
     }
-    let now_ms = super::authoritative_now_ms();
     let mut guard = super::timed_write(state).await;
-    let outcome = guard.isolation.try_apply_identity(
-        &op,
-        &stamp,
-        now_ms,
-        &eg_capabilities::scopes::ScopeRegistry,
-    );
+    // Credential expiry and session touches use time at apply, not before contention.
+    let now_ms = super::authoritative_now_ms();
+    let outcome =
+        resolution_context::apply_and_compose(&mut guard, &op, &stamp, context, authority, now_ms);
     guard.publish_identity_view();
     drop(guard);
     respond(req_id, &op, &stamp, outcome)
@@ -114,7 +112,7 @@ fn respond(
     req_id: u64,
     op: &IdentityOp,
     stamp: &IdentityStamp,
-    outcome: Result<eg_types::identity::IdentityReply, crate::isolation::IdentityStoreError>,
+    outcome: Result<eg_types::identity::IdentityReply<eg_types::acl::RequestContextClaims>, String>,
 ) -> Response {
     match outcome {
         Ok(reply) => {
