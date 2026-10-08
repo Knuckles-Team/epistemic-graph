@@ -283,12 +283,23 @@ fn nonresolution_reply_does_not_request_authority() {
     ));
 }
 
+/// Boots a fresh locked engine fixture, a broker context and a pre-mutation
+/// identity-store snapshot. Shared by refusal tests that assert the store is
+/// untouched after a rejected operation.
+async fn locked_fixture_snapshot() -> (
+    Arc<RwLock<ServerState>>,
+    IdentityStore,
+    VerifiedRequestContext,
+) {
+    let state = crate::server::dispatch::test_support::bootstrapped_state();
+    let before = state.read().await.isolation.rbac().identity_store().clone();
+    (state, before, context())
+}
+
 #[tokio::test]
 async fn arbitrary_broker_lookup_refuses_before_store_change() {
-    let state = crate::server::dispatch::test_support::bootstrapped_state();
+    let (state, before, ctx) = locked_fixture_snapshot().await;
     let mut state = state.write().await;
-    let before = state.isolation.rbac().identity_store().clone();
-    let ctx = context();
     let op = IdentityOp::User(UserOp::Resolve {
         request: ObjectRef {
             id: "usr:alice".into(),
@@ -308,10 +319,8 @@ async fn arbitrary_broker_lookup_refuses_before_store_change() {
 
 #[tokio::test]
 async fn unauthorized_broker_cannot_use_subject_credential() {
-    let state = crate::server::dispatch::test_support::bootstrapped_state();
+    let (state, before, ctx) = locked_fixture_snapshot().await;
     let mut state = state.write().await;
-    let before = state.isolation.rbac().identity_store().clone();
-    let ctx = context();
     let result = apply_and_compose(
         &mut state,
         &session_op(),
