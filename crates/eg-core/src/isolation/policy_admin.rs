@@ -1,5 +1,8 @@
 use super::*;
 
+/// The shared commons graph. Every tenant role reads it (EG-IDENTITY-R006).
+const COMMONS_GRAPH: &str = "__commons__";
+
 impl IsolationLayer {
     #[cfg(feature = "security")]
     pub fn add_role(&mut self, role: crate::acl::Role) {
@@ -59,6 +62,7 @@ impl IsolationLayer {
     }
 
     /// Provision the one tenant role and its read/write graph-pattern grants.
+    /// The role also reads the shared commons graph (EG-IDENTITY-R006). It never writes it.
     #[cfg(feature = "security")]
     pub fn provision_tenant_graph_access(
         &mut self,
@@ -81,6 +85,12 @@ impl IsolationLayer {
             role: role_name.clone(),
             resource: crate::acl::ResourceSelector::Pattern(pattern),
             action: crate::acl::RbacAction::Write,
+            effect: crate::acl::GrantEffect::Allow,
+        })?;
+        self.try_add_grant(crate::acl::Grant {
+            role: role_name.clone(),
+            resource: crate::acl::ResourceSelector::Graph(COMMONS_GRAPH.to_string()),
+            action: crate::acl::RbacAction::Read,
             effect: crate::acl::GrantEffect::Allow,
         })?;
         if let Some(identity) = creator_agent_id.and_then(|id| self.agents.get(id)) {

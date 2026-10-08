@@ -11,6 +11,7 @@
 | I-07 | ID-04 | Generate contract and install wheel in a clean environment. | Every declared scope has one class and digest; public catalog equals server registry and the consumer-derived allowlist. |
 | I-08 | ID-04 | Try human grant of service-only scope, service account admin, wildcard approver, and an unknown name. | Generation or runtime refuses each; direct human approver membership works only for the designated group. |
 | I-09 | all | Run complete PR/release quality checks at exact commit. | No new CCCC/KISS/jscpd/Dupehound violation; generated artifacts fresh; supported Rust/Python/consumer tests pass. |
+| I-10 | ID-06 | Provision `tenant__homelab__default`, register a principal with role `tenant:homelab`, then check `__commons__` and `tenant__acme__default`. | Read on `__commons__` is allowed. Write on `__commons__` is denied. Read on the other tenant's graph is denied. Repeated provisioning keeps three grants. |
 
 ## Reproducible gates
 
