@@ -313,6 +313,12 @@ async fn dispatch_preamble_checks(
         verified_context,
         super::elevation::ElevationStampAuthority::of(state_machine_authorized),
     );
+    // EH-560: the governed-change actor, the same way.
+    super::governed::stamp_governed_actor(
+        &mut req.method,
+        verified_context,
+        super::elevation::ElevationStampAuthority::of(state_machine_authorized),
+    );
     let method_policy = eg_capabilities::policy(&req.method);
     let action = method_policy.authz_action;
     let identity_bootstrap =

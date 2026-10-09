@@ -224,4 +224,10 @@ method_results! {
     // Every identity op answers one tagged reply; no reply variant can
     // carry a hash, token or sealed secret.
     Identity(Identity) => Json<crate::identity::IdentityReply<crate::acl::RequestContextClaims>>;
+    // EH-560: every write answers the governed change as it now stands.
+    GovernedPropose(GovernedChange / "propose") => Json<crate::governed_change::GovernedChange>;
+    GovernedApprove(GovernedChange / "approve") => Json<crate::governed_change::GovernedChange>;
+    GovernedRevoke(GovernedChange / "revoke") => Json<crate::governed_change::GovernedChange>;
+    GovernedGet(GovernedChange / "get") => Json<Option<crate::governed_change::GovernedChange>>;
+    GovernedList(GovernedChange / "list") => Json<Vec<crate::governed_change::GovernedChange>>;
 }
