@@ -392,15 +392,28 @@ mod tests {
             )
             .unwrap_err();
         assert!(numeric.contains("require string values"));
-        let bad = eg_types::wire::ForeignSourceSpec::Sql {
-            columns: vec!["name; DROP".into()],
-            ..mapped.clone()
+        let with_columns = |columns: Vec<String>| {
+            let eg_types::wire::ForeignSourceSpec::Sql {
+                dsn,
+                query,
+                id_field,
+                score_field,
+                ..
+            } = mapped.clone()
+            else {
+                panic!("the mapped fixture is a Sql spec");
+            };
+            eg_types::wire::ForeignSourceSpec::Sql {
+                dsn,
+                query,
+                id_field,
+                score_field,
+                columns,
+            }
         };
+        let bad = with_columns(vec!["name; DROP".into()]);
         assert!(crate::federation::validate_column_mapping(&bad).is_err());
-        let dup = eg_types::wire::ForeignSourceSpec::Sql {
-            columns: vec!["ID".into()],
-            ..mapped
-        };
+        let dup = with_columns(vec!["ID".into()]);
         assert!(crate::federation::validate_column_mapping(&dup).is_err());
     }
 

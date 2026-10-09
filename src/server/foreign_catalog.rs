@@ -395,6 +395,7 @@ mod tests {
                 query: "SELECT id FROM t".into(),
                 id_field: "id".into(),
                 score_field: None,
+                columns: Vec::new(),
             }
         }
 
