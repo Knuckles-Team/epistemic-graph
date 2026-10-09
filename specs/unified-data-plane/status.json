@@ -22,6 +22,7 @@
     "EG-UNIFIED-DATA-PLANE-R017",
     "EG-UNIFIED-DATA-PLANE-R018",
     "EG-UNIFIED-DATA-PLANE-R019",
+    "EG-UNIFIED-DATA-PLANE-R019.1",
     "EG-UNIFIED-DATA-PLANE-R020",
     "EG-UNIFIED-DATA-PLANE-R021",
     "EG-UNIFIED-DATA-PLANE-R022",
@@ -165,7 +166,13 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R019",
       "title": "Implement the MongoDB and DocumentDB attached-source adapter",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R019.1",
+      "title": "DocumentSourceCatalog typed inferred-shape model and field-path refusal",
+      "delivery_state": "BUILT",
       "evidence": []
     },
     {

@@ -34,6 +34,10 @@ pub mod capacity_lease;
 // eg-transaction admission boundary. This module grants no executable capability.
 pub mod authority;
 pub mod change_envelope;
+// EG-UNIFIED-DATA-PLANE-R019.1 — typed inferred-shape catalog for an attached
+// MongoDB/DocumentDB source. Pure data; the native-driver connection and
+// change-stream capture are later children.
+pub mod document_source_catalog;
 // GOC-03 — the cross-domain commit-descriptor/read-barrier currency shared by
 // graph, modality, vector, blob/refcount, time-series, evidence, table/lake, and
 // terminal-analytics-outcome participants. Deliberately a NEW module (not folded
