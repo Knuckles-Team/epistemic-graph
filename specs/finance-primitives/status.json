@@ -35,7 +35,8 @@
     "EG-FINANCE-PRIMITIVES-R016",
     "EG-FINANCE-PRIMITIVES-R017",
     "EG-FINANCE-PRIMITIVES-R004.2.1",
-    "EG-FINANCE-PRIMITIVES-R004.2.2"
+    "EG-FINANCE-PRIMITIVES-R004.2.2",
+    "EG-FINANCE-PRIMITIVES-R005.2"
   ],
   "delivery_state": "BUILDING",
   "acceptance_state": "NOT_AUDITED",
@@ -83,7 +84,7 @@
           "description": "EG-FINANCE-PRIMITIVES-R002 merged to the default branch in this commit."
         }
       ],
-      "remaining": "purged_cpcv_splits, deflated_sharpe_ratio, probability_of_backtest_overfit, diebold_mariano and the FeatureSkill (IC/IR/n_eff) and Brier kernels are rehomed into eg-numeric on main, and FinanceRollingZscore/FinanceEwma were retired. But Ornstein-Uhlenbeck, ADF, and regime-HMM calculations are still \u2026"
+      "remaining": "purged_cpcv_splits, deflated_sharpe_ratio, probability_of_backtest_overfit, diebold_mariano and the FeatureSkill (IC/IR/n_eff) and Brier kernels are rehomed into eg-numeric on main, and FinanceRollingZscore/FinanceEwma were retired. But Ornstein-Uhlenbeck, ADF, and regime-HMM calculations are still …"
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R003",
@@ -152,8 +153,23 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R004.3",
       "title": "finance-v1 record-type server wiring and contract regeneration",
-      "delivery_state": "SPECIFIED",
-      "evidence": [],
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "fcca865a05059f07fe43b25a0c94045111e3528a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/fcca865a05059f07fe43b25a0c94045111e3528a",
+          "description": "admit_finance_record_version is published on a branch; not yet merged to the default branch. Served method registration and contract regeneration remain open."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "fcca865a05059f07fe43b25a0c94045111e3528a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/fcca865a05059f07fe43b25a0c94045111e3528a",
+          "description": "EG-FINANCE-PRIMITIVES-R004.3.1 merged to the default branch in this commit."
+        }
+      ],
       "remaining": "Split per the dependency-first sizing rule: EG-FINANCE-PRIMITIVES-R004.3.1 (the wire-boundary schema-version gate, built this PR) and further children for the served method registration and generated-client contract regeneration. R004.3 is LANDED when every child is LANDED."
     },
     {
@@ -458,7 +474,7 @@
           "description": "EG-FINANCE-PRIMITIVES-R015 merged to the default branch in this commit."
         }
       ],
-      "remaining": "AnalysisSnapshot/AnalysisSnapshotDraft (crates/eg-types/src/compute_result/market/snapshot.rs) carries informational_only, excludes_positions and SnapshotNotices, but has no control-lease / share.read link field anywhere in its definition. A generic ControlLease mechanism exists in \u2026"
+      "remaining": "AnalysisSnapshot/AnalysisSnapshotDraft (crates/eg-types/src/compute_result/market/snapshot.rs) carries informational_only, excludes_positions and SnapshotNotices, but has no control-lease / share.read link field anywhere in its definition. A generic ControlLease mechanism exists in …"
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R016",
@@ -515,6 +531,12 @@
           "description": "EG-FINANCE-PRIMITIVES-R004.2.2 merged to the default branch in this commit."
         }
       ]
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R005.2",
+      "title": "Remaining scope of EG-FINANCE-PRIMITIVES-R005 (slice .2): Deterministic fixed-point portfolio accounting",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
     }
   ]
 }

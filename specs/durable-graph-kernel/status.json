@@ -103,9 +103,17 @@
     "EG-DURABLE-KERNEL-R039.1",
     "EG-DURABLE-KERNEL-R040.1"
   ],
-  "delivery_state": "BUILDING",
+  "delivery_state": "LANDED",
   "acceptance_state": "NOT_AUDITED",
-  "evidence": [],
+  "evidence": [
+    {
+      "kind": "merged_head",
+      "result": "passed",
+      "commit": "b43f33569dd46b84dbdb317d02c20fea10a0da1e",
+      "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/b43f33569dd46b84dbdb317d02c20fea10a0da1e",
+      "description": "Every requirement in this spec is merged to the default branch."
+    }
+  ],
   "requirements": [
     {
       "id": "EG-DURABLE-KERNEL-R001",
@@ -514,8 +522,23 @@
     {
       "id": "EG-DURABLE-KERNEL-R024.2",
       "title": "Fan-out backend becomes a MirrorTargetSpec federation mirror target",
-      "delivery_state": "BUILDING",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "3ddc77c97ef8e34dab8fc7460153d9021b998676",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/3ddc77c97ef8e34dab8fc7460153d9021b998676",
+          "description": "EG-DURABLE-KERNEL-R024.2.1 merged to the default branch in this commit."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "7a8f87ca84846dbba9bed03c1742abce71576145",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/7a8f87ca84846dbba9bed03c1742abce71576145",
+          "description": "EG-DURABLE-KERNEL-R024.2.2 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R024.3",
@@ -660,7 +683,7 @@
     {
       "id": "EG-DURABLE-KERNEL-R027",
       "title": "Schema repair uses a reserved two-person approval lease",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -675,6 +698,27 @@
           "commit": "bc43de58a9da5983dbbb927da3276dada7772593",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/bc43de58a9da5983dbbb927da3276dada7772593",
           "description": "Original never-merged implementation commit; superseded by the EG-DURABLE-KERNEL-R027.1/.2/.3 split ported against current main."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "3c618dd255ba8ce5bae2a29bb8b9f086766e64a6",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/3c618dd255ba8ce5bae2a29bb8b9f086766e64a6",
+          "description": "EG-DURABLE-KERNEL-R027.1 merged to the default branch in this commit."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "cd899a5c8c20b871c7150e30e6af48ad4910dd96",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/cd899a5c8c20b871c7150e30e6af48ad4910dd96",
+          "description": "EG-DURABLE-KERNEL-R027.2 merged to the default branch in this commit."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "cd899a5c8c20b871c7150e30e6af48ad4910dd96",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/cd899a5c8c20b871c7150e30e6af48ad4910dd96",
+          "description": "EG-DURABLE-KERNEL-R027.3 merged to the default branch in this commit."
         }
       ]
     },

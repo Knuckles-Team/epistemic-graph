@@ -18,6 +18,7 @@
     "EG-UNIFIED-DATA-PLANE-R010",
     "EG-UNIFIED-DATA-PLANE-R011",
     "EG-UNIFIED-DATA-PLANE-R012",
+    "EG-UNIFIED-DATA-PLANE-R012.1",
     "EG-UNIFIED-DATA-PLANE-R013",
     "EG-UNIFIED-DATA-PLANE-R014",
     "EG-UNIFIED-DATA-PLANE-R014.1",
@@ -73,7 +74,39 @@
     "EG-UNIFIED-DATA-PLANE-R006.1",
     "EG-UNIFIED-DATA-PLANE-R007.1",
     "EG-UNIFIED-DATA-PLANE-R009.1",
-    "EG-UNIFIED-DATA-PLANE-R011.1"
+    "EG-UNIFIED-DATA-PLANE-R011.1",
+    "EG-UNIFIED-DATA-PLANE-R014.2",
+    "EG-UNIFIED-DATA-PLANE-R015.2",
+    "EG-UNIFIED-DATA-PLANE-R016.2",
+    "EG-UNIFIED-DATA-PLANE-R017.2",
+    "EG-UNIFIED-DATA-PLANE-R018.2",
+    "EG-UNIFIED-DATA-PLANE-R019.2",
+    "EG-UNIFIED-DATA-PLANE-R019.3",
+    "EG-UNIFIED-DATA-PLANE-R020.2",
+    "EG-UNIFIED-DATA-PLANE-R020.3",
+    "EG-UNIFIED-DATA-PLANE-R021.2",
+    "EG-UNIFIED-DATA-PLANE-R021.3",
+    "EG-UNIFIED-DATA-PLANE-R022.2",
+    "EG-UNIFIED-DATA-PLANE-R022.3",
+    "EG-UNIFIED-DATA-PLANE-R023.2",
+    "EG-UNIFIED-DATA-PLANE-R023.3",
+    "EG-UNIFIED-DATA-PLANE-R024.2",
+    "EG-UNIFIED-DATA-PLANE-R024.3",
+    "EG-UNIFIED-DATA-PLANE-R025.2",
+    "EG-UNIFIED-DATA-PLANE-R025.3",
+    "EG-UNIFIED-DATA-PLANE-R026.2",
+    "EG-UNIFIED-DATA-PLANE-R026.3",
+    "EG-UNIFIED-DATA-PLANE-R027.2",
+    "EG-UNIFIED-DATA-PLANE-R027.3",
+    "EG-UNIFIED-DATA-PLANE-R028.2",
+    "EG-UNIFIED-DATA-PLANE-R028.3",
+    "EG-UNIFIED-DATA-PLANE-R029.2",
+    "EG-UNIFIED-DATA-PLANE-R030.2",
+    "EG-UNIFIED-DATA-PLANE-R030.3",
+    "EG-UNIFIED-DATA-PLANE-R031.2",
+    "EG-UNIFIED-DATA-PLANE-R032.2",
+    "EG-UNIFIED-DATA-PLANE-R033.2",
+    "EG-UNIFIED-DATA-PLANE-R038.2"
   ],
   "delivery_state": "BUILDING",
   "acceptance_state": "NOT_AUDITED",
@@ -326,7 +359,7 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R014",
       "title": "Implement the MySQL and MariaDB attached-source adapters",
-      "delivery_state": "LANDED",
+      "delivery_state": "BUILDING",
       "evidence": [
         {
           "kind": "merged_head",
@@ -356,7 +389,7 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R015",
       "title": "Implement the SQLite file attached-source adapter",
-      "delivery_state": "LANDED",
+      "delivery_state": "BUILDING",
       "evidence": [
         {
           "kind": "merged_head",
@@ -424,7 +457,7 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R018",
       "title": "Implement the Oracle and Db2 attached-source adapters",
-      "delivery_state": "LANDED",
+      "delivery_state": "BUILDING",
       "evidence": [
         {
           "kind": "merged_head",
@@ -452,7 +485,7 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R019",
       "title": "Implement the MongoDB and DocumentDB attached-source adapter",
-      "delivery_state": "LANDED",
+      "delivery_state": "BUILDING",
       "evidence": [
         {
           "kind": "merged_head",
@@ -480,7 +513,7 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R020",
       "title": "Federate Snowflake, BigQuery, DuckDB, and Iceberg sources",
-      "delivery_state": "LANDED",
+      "delivery_state": "BUILDING",
       "evidence": [
         {
           "kind": "merged_head",
@@ -508,7 +541,7 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R021",
       "title": "Bridge Debezium Kafka events into ChangeEnvelope",
-      "delivery_state": "LANDED",
+      "delivery_state": "BUILDING",
       "evidence": [
         {
           "kind": "merged_head",
@@ -536,7 +569,7 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R022",
       "title": "Build a per-dialect conformance harness",
-      "delivery_state": "LANDED",
+      "delivery_state": "BUILDING",
       "evidence": [
         {
           "kind": "merged_head",
@@ -564,7 +597,7 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R023",
       "title": "Operate a shared CloudNativePG and MariaDB platform",
-      "delivery_state": "LANDED",
+      "delivery_state": "BUILDING",
       "evidence": [
         {
           "kind": "merged_head",
@@ -592,7 +625,7 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R024",
       "title": "Admit applications to the shared platform with rollback",
-      "delivery_state": "LANDED",
+      "delivery_state": "BUILDING",
       "evidence": [
         {
           "kind": "merged_head",
@@ -620,7 +653,7 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R025",
       "title": "Evaluate a pgrx companion extension through a spike",
-      "delivery_state": "LANDED",
+      "delivery_state": "BUILDING",
       "evidence": [
         {
           "kind": "merged_head",
@@ -648,7 +681,7 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R026",
       "title": "Run the Gramps native-hosting pilot phases P0 through P5",
-      "delivery_state": "LANDED",
+      "delivery_state": "BUILDING",
       "evidence": [
         {
           "kind": "merged_head",
@@ -676,7 +709,7 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R027",
       "title": "Fix Postgres compatibility gaps proven by captured traffic",
-      "delivery_state": "LANDED",
+      "delivery_state": "BUILDING",
       "evidence": [
         {
           "kind": "merged_head",
@@ -704,7 +737,7 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R028",
       "title": "Build the Postgres-equivalence differential harness",
-      "delivery_state": "LANDED",
+      "delivery_state": "BUILDING",
       "evidence": [
         {
           "kind": "merged_head",
@@ -732,7 +765,7 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R029",
       "title": "Expose a schema_context query surface",
-      "delivery_state": "LANDED",
+      "delivery_state": "BUILDING",
       "evidence": [
         {
           "kind": "merged_head",
@@ -760,7 +793,7 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R030",
       "title": "Resolve entities across attached applications",
-      "delivery_state": "LANDED",
+      "delivery_state": "BUILDING",
       "evidence": [
         {
           "kind": "merged_head",
@@ -828,7 +861,7 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R033",
       "title": "Cut over Gramps to EG-backed storage in production",
-      "delivery_state": "LANDED",
+      "delivery_state": "BUILDING",
       "evidence": [
         {
           "kind": "merged_head",
@@ -1054,6 +1087,198 @@
           "description": "EG-UNIFIED-DATA-PLANE-R011.1 merged to the default branch in this commit."
         }
       ]
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R014.2",
+      "title": "Remaining scope of EG-UNIFIED-DATA-PLANE-R014 (slice .2): Implement the MySQL and MariaDB attached-source adapters",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R015.2",
+      "title": "Lock-safe live read-only attach and real WAL-frame tailing/watermark polling",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R016.2",
+      "title": "tiberius driver connection, T-SQL TOP/OFFSET-FETCH rendering, and LSN-polled CDC/Change Tracking capture",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R017.2",
+      "title": "HTTP/native client connection and federated query pushdown",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R018.2",
+      "title": "Driver/ODBC connection, catalog read, and Debezium bridge wiring",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R019.2",
+      "title": "Native MongoDB/DocumentDB driver connection and change-stream capture into ChangeEnvelope",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R019.3",
+      "title": "Conformance entry comparing EG query results and captured change stream against native MongoDB/DocumentDB",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R020.2",
+      "title": "Query pushdown per kind (Arrow Flight SQL where offered), extending eg-query::sql::iceberg_federation for Iceberg",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R020.3",
+      "title": "Conformance entry comparing federated query results against each native warehouse/lake engine",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R021.2",
+      "title": "Kafka consumer plus real conversion into ChangeEnvelope records",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R021.3",
+      "title": "Replay test feeding a captured Debezium event stream through the bridge",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R022.2",
+      "title": "Containerized matrix runner per adapter/engine version",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R022.3",
+      "title": "Change-capture replay comparison against a source snapshot",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R023.2",
+      "title": "CloudNativePG/MariaDB operator wiring and PITR schedule to object storage",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R023.3",
+      "title": "Restore-drill automation and post-restore data-match verification",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R024.2",
+      "title": "Admission runner and tested rollback path per candidate application",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R024.3",
+      "title": "Per-application admission test confirming rollback and that the retired connector no longer writes",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R025.2",
+      "title": "Run the spike across its declared scope areas",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R025.3",
+      "title": "Review the spike's results and recorded decision; produce the approved ADR",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R026.2",
+      "title": "Run P0-P2 (baseline digest, Postgres control, unmodified corpus replay)",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R026.3",
+      "title": "Run P3-P5 (proven-gap fixes, restore verification, schema-understanding demonstration)",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R027.2",
+      "title": "Capture application traffic per feature and record the proof reference",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R027.3",
+      "title": "Implement each proven feature with its failing-then-passing test",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R028.2",
+      "title": "Run the Postgres regression suite and SQLancer-style generated corpora against EG",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R028.3",
+      "title": "Run the captured-application-traffic corpus and publish the harness report",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R029.2",
+      "title": "Wire the real schema_context query entry point through Graph OS, following the code_context pattern",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R030.2",
+      "title": "Blocking and field-similarity candidate generation across Gramps/Immich/Twenty/Firefly",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R030.3",
+      "title": "Real Fellegi-Sunter scoring and the approval workflow",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R031.2",
+      "title": "Real fault-isolation enforcement and quota metering",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R032.2",
+      "title": "Run phase I0 (version-pinned OpenAPI client generation and digest)",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R033.2",
+      "title": "Real production cutover: Postgres replica, nightly independent XML export, and the rehearsed failover test",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R038.2",
+      "title": "Real per-source-kind discovery writing the contract, the copy pipeline, and EXPLAIN's per-fragment live/copy reporting",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
     }
   ]
 }
