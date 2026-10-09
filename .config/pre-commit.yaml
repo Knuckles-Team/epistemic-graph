@@ -81,6 +81,12 @@ repos:
   hooks:
   - id: public-surface
     stages: [pre-commit, manual]
+  - id: spec-status
+    stages: [pre-commit]
+  - id: spec-decomposition
+    stages: [pre-commit]
+  - id: spec-trailers
+    stages: [pre-push]
 - repo: https://github.com/jendrikseipp/vulture
   rev: b0f67ba0044693aa9ec0d38fe460590facc98004 # v2.16
   hooks:

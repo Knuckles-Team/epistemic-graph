@@ -23,6 +23,10 @@ DELIVERY_STATES = frozenset(
     }
 )
 ACCEPTANCE_STATES = frozenset({"NOT_AUDITED", "PENDING", "ACCEPTED", "FAILED"})
+# schema_version 2 (the spec-status-lifecycle generator): the generator owns
+# per-requirement evidence (requirements[].delivery_state/landed_in/verified_by)
+# and the v1 merged-head/acceptance receipt rules no longer apply.
+V2_DELIVERY_STATES = frozenset({"SPECIFIED", "LANDED", "VERIFIED", "RETIRED"})
 EVIDENCE_KINDS = frozenset(
     {
         "merged_head",
@@ -155,29 +159,31 @@ def _status_errors(root: Path, path: Path) -> list[str]:
         return [f"{path}: invalid JSON ({exc})"]
     if not isinstance(data, dict):
         return [f"{path}: status must be an object"]
-    entries = data.get("evidence")
-    return (
-        _status_field_errors(path, data)
-        + _evidence_errors(path, entries)
-        + _receipt_errors(path, data, entries)
-    )
+    errors = _status_field_errors(path, data)
+    if data.get("schema_version") == 1:
+        # v1 only: the generator (schema_version 2) owns per-requirement
+        # evidence/landed_in/verified_by instead, so these rules don't apply.
+        entries = data.get("evidence")
+        errors += _evidence_errors(path, entries) + _receipt_errors(path, data, entries)
+    return errors
 
 
 def _status_field_errors(path: Path, data: dict) -> list[str]:
+    version = data.get("schema_version")
+    if version not in (1, 2):
+        return [f"{path}: schema_version, spec_id, and owner_repo are required"]
     errors = []
-    ids = data.get("requirement_ids")
-    if (
-        data.get("schema_version") != 1
-        or not data.get("spec_id")
-        or not data.get("owner_repo")
-    ):
+    if not data.get("spec_id") or not data.get("owner_repo"):
         errors.append(f"{path}: schema_version, spec_id, and owner_repo are required")
-    if not _valid_ids(ids):
+    if not _valid_ids(data.get("requirement_ids")):
         errors.append(f"{path}: nonempty real requirement_ids are required")
-    if data.get("delivery_state") not in DELIVERY_STATES:
+    if version == 1:
+        if data.get("delivery_state") not in DELIVERY_STATES:
+            errors.append(f"{path}: invalid delivery_state")
+        if data.get("acceptance_state") not in ACCEPTANCE_STATES:
+            errors.append(f"{path}: invalid acceptance_state")
+    elif data.get("delivery_state") not in V2_DELIVERY_STATES:
         errors.append(f"{path}: invalid delivery_state")
-    if data.get("acceptance_state") not in ACCEPTANCE_STATES:
-        errors.append(f"{path}: invalid acceptance_state")
     return errors
 
 
