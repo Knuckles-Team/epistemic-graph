@@ -2448,7 +2448,7 @@ mod tests {
                 "{name} must route LocalOnly"
             );
             assert!(
-                LOCAL_ONLY_METHODS.contains(name),
+                plan::LOCAL_ONLY_METHODS.contains(name),
                 "{name} must be named in LOCAL_ONLY_METHODS"
             );
         }
