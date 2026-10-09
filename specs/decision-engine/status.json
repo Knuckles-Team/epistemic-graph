@@ -546,8 +546,16 @@
     {
       "id": "EG-DECISION-ENGINE-R030",
       "title": "Decision-based ingestion path routing",
-      "delivery_state": "SPECIFIED",
-      "evidence": [],
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "28ca65b7e45b63db1d7d970439d9efe074a4c29e",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/28ca65b7e45b63db1d7d970439d9efe074a4c29e",
+          "description": "EG-DECISION-ENGINE-R030 merged to the default branch in this commit."
+        }
+      ],
       "remaining": "QuestionKind::IngestionLane exists only as an enum variant; it is referenced nowhere else in the repository (no routing logic, no caller, no test)."
     },
     {

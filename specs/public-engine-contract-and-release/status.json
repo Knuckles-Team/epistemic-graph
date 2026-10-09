@@ -247,7 +247,7 @@
     {
       "id": "EG-CONTRACT-R015",
       "title": "Wheel ships the method, error and scope contract with callability flags",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -255,6 +255,13 @@
           "commit": "c457fca2e93d6e701c91b62150bbe32a18648063",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/c457fca2e93d6e701c91b62150bbe32a18648063",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "5738b6093ea7c4f07d0cb8c982b6242dcdc80873",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/5738b6093ea7c4f07d0cb8c982b6242dcdc80873",
+          "description": "EG-CONTRACT-R015 merged to the default branch in this commit."
         }
       ]
     },
@@ -679,8 +686,16 @@
     {
       "id": "EG-CONTRACT-R047",
       "title": "Main publishes a rolling engine wheel for consumer CI",
-      "delivery_state": "BUILDING",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "9084e9343bf485648d1582e5a5fdf5ff52759703",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/9084e9343bf485648d1582e5a5fdf5ff52759703",
+          "description": "EG-CONTRACT-R047 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-CONTRACT-R048",
