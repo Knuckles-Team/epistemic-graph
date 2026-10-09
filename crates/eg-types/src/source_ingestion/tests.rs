@@ -384,3 +384,179 @@ fn r003_1_a_different_root_is_not_blocked_by_an_unrelated_claim() {
     let already_claimed = vec![MigratedIngestionCapabilityRoot::QuantumProcessing];
     assert!(standardization.claim(&already_claimed).is_ok());
 }
+
+// EG-REPO-INGEST-R003.7 — trace-ontology observability is claimed through
+// EG's own typed interface rather than left to its retiring legacy module.
+
+#[test]
+fn r003_7_trace_ontology_observability_round_trips_through_the_typed_root() {
+    let root = MigratedIngestionCapabilityRoot::TraceOntologyObservability;
+    let wire = serde_json::to_string(&root).unwrap();
+    assert_eq!(wire, "\"trace_ontology_observability\"");
+    let back: MigratedIngestionCapabilityRoot = serde_json::from_str(&wire).unwrap();
+    assert_eq!(back, root);
+}
+
+#[test]
+fn r003_7_a_fresh_claim_on_trace_ontology_observability_succeeds() {
+    let root = MigratedIngestionCapabilityRoot::TraceOntologyObservability;
+    assert!(root.claim(&[]).is_ok());
+}
+
+#[test]
+fn r003_7_a_duplicate_claim_on_trace_ontology_observability_is_refused() {
+    let root = MigratedIngestionCapabilityRoot::TraceOntologyObservability;
+    let already_claimed = vec![root];
+    let err = root
+        .claim(&already_claimed)
+        .expect_err("a second writer for the same migrated root must be refused");
+    assert!(err.contains("already claimed"));
+}
+
+#[test]
+fn r003_7_a_different_root_is_not_blocked_by_an_unrelated_claim() {
+    let trace_ontology = MigratedIngestionCapabilityRoot::TraceOntologyObservability;
+    let already_claimed = vec![MigratedIngestionCapabilityRoot::SelfIngestionObservability];
+    assert!(trace_ontology.claim(&already_claimed).is_ok());
+}
+
+// EG-REPO-INGEST-R003.8 — self-ingestion observability is claimed through
+// EG's own typed interface rather than left to its retiring legacy module.
+
+#[test]
+fn r003_8_self_ingestion_observability_round_trips_through_the_typed_root() {
+    let root = MigratedIngestionCapabilityRoot::SelfIngestionObservability;
+    let wire = serde_json::to_string(&root).unwrap();
+    assert_eq!(wire, "\"self_ingestion_observability\"");
+    let back: MigratedIngestionCapabilityRoot = serde_json::from_str(&wire).unwrap();
+    assert_eq!(back, root);
+}
+
+#[test]
+fn r003_8_a_fresh_claim_on_self_ingestion_observability_succeeds() {
+    let root = MigratedIngestionCapabilityRoot::SelfIngestionObservability;
+    assert!(root.claim(&[]).is_ok());
+}
+
+#[test]
+fn r003_8_a_duplicate_claim_on_self_ingestion_observability_is_refused() {
+    let root = MigratedIngestionCapabilityRoot::SelfIngestionObservability;
+    let already_claimed = vec![root];
+    let err = root
+        .claim(&already_claimed)
+        .expect_err("a second writer for the same migrated root must be refused");
+    assert!(err.contains("already claimed"));
+}
+
+#[test]
+fn r003_8_a_different_root_is_not_blocked_by_an_unrelated_claim() {
+    let self_ingestion = MigratedIngestionCapabilityRoot::SelfIngestionObservability;
+    let already_claimed = vec![MigratedIngestionCapabilityRoot::AuditLoggingObservability];
+    assert!(self_ingestion.claim(&already_claimed).is_ok());
+}
+
+// EG-REPO-INGEST-R003.9 — audit-logging observability is claimed through
+// EG's own typed interface rather than left to its retiring legacy module.
+
+#[test]
+fn r003_9_audit_logging_observability_round_trips_through_the_typed_root() {
+    let root = MigratedIngestionCapabilityRoot::AuditLoggingObservability;
+    let wire = serde_json::to_string(&root).unwrap();
+    assert_eq!(wire, "\"audit_logging_observability\"");
+    let back: MigratedIngestionCapabilityRoot = serde_json::from_str(&wire).unwrap();
+    assert_eq!(back, root);
+}
+
+#[test]
+fn r003_9_a_fresh_claim_on_audit_logging_observability_succeeds() {
+    let root = MigratedIngestionCapabilityRoot::AuditLoggingObservability;
+    assert!(root.claim(&[]).is_ok());
+}
+
+#[test]
+fn r003_9_a_duplicate_claim_on_audit_logging_observability_is_refused() {
+    let root = MigratedIngestionCapabilityRoot::AuditLoggingObservability;
+    let already_claimed = vec![root];
+    let err = root
+        .claim(&already_claimed)
+        .expect_err("a second writer for the same migrated root must be refused");
+    assert!(err.contains("already claimed"));
+}
+
+#[test]
+fn r003_9_a_different_root_is_not_blocked_by_an_unrelated_claim() {
+    let audit_logging = MigratedIngestionCapabilityRoot::AuditLoggingObservability;
+    let already_claimed = vec![MigratedIngestionCapabilityRoot::RelationalAuthorityGovernance];
+    assert!(audit_logging.claim(&already_claimed).is_ok());
+}
+
+// EG-REPO-INGEST-R003.10 — relational-authority governance is claimed
+// through EG's own typed interface rather than left to its retiring legacy
+// module.
+
+#[test]
+fn r003_10_relational_authority_governance_round_trips_through_the_typed_root() {
+    let root = MigratedIngestionCapabilityRoot::RelationalAuthorityGovernance;
+    let wire = serde_json::to_string(&root).unwrap();
+    assert_eq!(wire, "\"relational_authority_governance\"");
+    let back: MigratedIngestionCapabilityRoot = serde_json::from_str(&wire).unwrap();
+    assert_eq!(back, root);
+}
+
+#[test]
+fn r003_10_a_fresh_claim_on_relational_authority_governance_succeeds() {
+    let root = MigratedIngestionCapabilityRoot::RelationalAuthorityGovernance;
+    assert!(root.claim(&[]).is_ok());
+}
+
+#[test]
+fn r003_10_a_duplicate_claim_on_relational_authority_governance_is_refused() {
+    let root = MigratedIngestionCapabilityRoot::RelationalAuthorityGovernance;
+    let already_claimed = vec![root];
+    let err = root
+        .claim(&already_claimed)
+        .expect_err("a second writer for the same migrated root must be refused");
+    assert!(err.contains("already claimed"));
+}
+
+#[test]
+fn r003_10_a_different_root_is_not_blocked_by_an_unrelated_claim() {
+    let relational_authority = MigratedIngestionCapabilityRoot::RelationalAuthorityGovernance;
+    let already_claimed = vec![MigratedIngestionCapabilityRoot::PlacementMiningResearch];
+    assert!(relational_authority.claim(&already_claimed).is_ok());
+}
+
+// EG-REPO-INGEST-R003.11 — placement-mining research is claimed through
+// EG's own typed interface rather than left to its retiring legacy module.
+
+#[test]
+fn r003_11_placement_mining_research_round_trips_through_the_typed_root() {
+    let root = MigratedIngestionCapabilityRoot::PlacementMiningResearch;
+    let wire = serde_json::to_string(&root).unwrap();
+    assert_eq!(wire, "\"placement_mining_research\"");
+    let back: MigratedIngestionCapabilityRoot = serde_json::from_str(&wire).unwrap();
+    assert_eq!(back, root);
+}
+
+#[test]
+fn r003_11_a_fresh_claim_on_placement_mining_research_succeeds() {
+    let root = MigratedIngestionCapabilityRoot::PlacementMiningResearch;
+    assert!(root.claim(&[]).is_ok());
+}
+
+#[test]
+fn r003_11_a_duplicate_claim_on_placement_mining_research_is_refused() {
+    let root = MigratedIngestionCapabilityRoot::PlacementMiningResearch;
+    let already_claimed = vec![root];
+    let err = root
+        .claim(&already_claimed)
+        .expect_err("a second writer for the same migrated root must be refused");
+    assert!(err.contains("already claimed"));
+}
+
+#[test]
+fn r003_11_a_different_root_is_not_blocked_by_an_unrelated_claim() {
+    let placement_mining = MigratedIngestionCapabilityRoot::PlacementMiningResearch;
+    let already_claimed = vec![MigratedIngestionCapabilityRoot::StandardizationProcessing];
+    assert!(placement_mining.claim(&already_claimed).is_ok());
+}
