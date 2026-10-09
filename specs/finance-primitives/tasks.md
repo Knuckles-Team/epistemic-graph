@@ -17,6 +17,8 @@ Tasks are ordered by dependency. Check a task only when its code, tests and exac
   - [x] Point-in-time `CorporateAction` fact type (split/dividend/symbol-change/delisting) and its `(listing_id, effective_time)` as-of revision resolver, with a ticker-reuse-is-never-conflated test; `Session` (regular/pre/post/closed/unknown) classification over `ExchangeCalendar`'s new pre-/post-market spans, with DST and early-close vectors; `resolve::resolve_priced` wires session/source/as-of onto the bar price path. Code: `crates/eg-types/src/compute_result/market/corporate_action.rs`, `crates/eg-compute/src/finance/market/corporate_actions.rs`, `calendar.rs::session_at`, `resolve.rs::resolve_priced`.
   - [ ] Remaining: wire `session`/`source`/`as_of` onto the other price-result paths (indicator/signal/snapshot outputs), and an ontology/SHACL representation of `CorporateAction` alongside the existing `finance-v1` classes.
 - [ ] **F-03 · EG-FINANCE-PRIMITIVES-R005:** Implement canonical activity ordering and checked decimal lot engine for FIFO/LIFO/specific/average basis; add correction replay, transfer and split invariants.
+- [x] **F-03.1 · EG-FINANCE-PRIMITIVES-R005.1:** Deterministic fixed-point FIFO/LIFO lot-matching engine (`crates/eg-compute/src/finance/lot_accounting.rs`), pure over an ordered activity slice; oversell/out-of-order/non-positive refusals and a replay-determinism test.
+- [ ] **F-03.2 · EG-FINANCE-PRIMITIVES-R005.2:** Add specific-lot/average-cost elections and transfer/split invariants.
 - [ ] **F-04 · EG-FINANCE-PRIMITIVES-R005:** Add sourced FX, realized/unrealized P&L, TWR, bounded XIRR and benchmark comparison with partial coverage reports.
 - [ ] **F-05 · EG-FINANCE-PRIMITIVES-R007:** Define immutable strategy-spec digest and proposal contract; implement DCA, trend and rebalance evaluators with idempotent cadence/missed-cycle evidence.
 - [ ] **F-06 · EG-FINANCE-PRIMITIVES-R008:** Build common-horizon strategy comparison atop sealed `BacktestRun`; calculate CV, deflated Sharpe and PBO from one verified split matrix with costs.
@@ -52,6 +54,11 @@ Requirement IDs not covered by any task above before this line: none remain — 
 | EG-FINANCE-PRIMITIVES-R004.3 | — | — | NOT_RUN |
 | EG-FINANCE-PRIMITIVES-R005 | — | — | NOT_RUN |
 | EG-FINANCE-PRIMITIVES-R006 | — | — | PARTIAL: corporate-action resolver + session classification delivered; other price paths and ontology remain |
+| EG-FINANCE-PRIMITIVES-R004 | — | — | NOT_RUN |
+| EG-FINANCE-PRIMITIVES-R005 | — | — | NOT_RUN (rollup) |
+| EG-FINANCE-PRIMITIVES-R005.1 | — | `cargo test -p eg-compute --all-features finance::lot_accounting` | PR open; see PR for run result |
+| EG-FINANCE-PRIMITIVES-R005.2 | — | — | NOT_RUN |
+| EG-FINANCE-PRIMITIVES-R006 | — | — | NOT_RUN |
 | EG-FINANCE-PRIMITIVES-R007 | — | — | NOT_RUN |
 | EG-FINANCE-PRIMITIVES-R008 | — | — | NOT_RUN |
 | EG-FINANCE-PRIMITIVES-R009 | — | — | NOT_RUN |
