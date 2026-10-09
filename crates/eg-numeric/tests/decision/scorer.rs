@@ -244,3 +244,74 @@ fn trajectory_belief_reads_one_state_over_time() {
     let refusal = belief(&head, &reversed, OPTIONS).expect_err("time must increase");
     assert_eq!(refusal.code, "PARAMETER_INVALID");
 }
+
+/// EG-DECISION-ENGINE-R083: the scorer reads each option's STRUCTURED
+/// feature row only (EH-292) -- never a serialized text label -- so its
+/// per-option width is the feature schema's fixed cardinality. An option
+/// count this large would overrun any plausible text-token budget if an
+/// option were instead described to a model as text; scored from structured
+/// facts, width never depends on option count or label length, and scoring
+/// still succeeds.
+#[test]
+fn a_large_option_set_scores_because_width_is_bounded_by_cardinality_not_text() {
+    const LARGE_OPTION_COUNT: usize = 4_000;
+    // A generous per-option label estimate (a realistic tool/agent summary)
+    // and a common chars-per-token ratio, so the contrast is not an
+    // arbitrarily chosen number.
+    const NOTIONAL_LABEL_CHARS: usize = 120;
+    const CHARS_PER_TOKEN: usize = 4;
+    const PLAUSIBLE_TOKEN_BUDGET: usize = 128_000;
+    let notional_text_tokens = (LARGE_OPTION_COUNT * NOTIONAL_LABEL_CHARS) / CHARS_PER_TOKEN;
+    assert!(
+        notional_text_tokens > PLAUSIBLE_TOKEN_BUDGET,
+        "fixture is not large enough to make the point: {notional_text_tokens} notional tokens"
+    );
+
+    let head = head(8);
+    let rows: Vec<Vec<i64>> = (0..LARGE_OPTION_COUNT)
+        .map(|r| {
+            (0..FEATURES)
+                .map(|f| (((r * 11 + f * 5) % 13) as i64 - 6) << 29)
+                .collect()
+        })
+        .collect();
+    let views: Vec<&[i64]> = rows.iter().map(Vec::as_slice).collect();
+    let legal = LegalSet::derive(LARGE_OPTION_COUNT, &[]);
+
+    let scoring = read(&head, &views, &legal)
+        .expect("reads")
+        .expect("in distribution");
+
+    // Every legal option's standardised row -- all `LARGE_OPTION_COUNT` of
+    // them -- is exactly `FEATURES` wide: the schema's declared cardinality,
+    // never a function of option count or any notional label length.
+    let legal_rows: Vec<&Vec<i64>> = scoring
+        .standardised
+        .iter()
+        .filter(|row| !row.is_empty())
+        .collect();
+    assert_eq!(legal_rows.len(), LARGE_OPTION_COUNT);
+    for row in legal_rows {
+        assert_eq!(
+            row.len(),
+            FEATURES,
+            "feature width must equal the schema's fixed cardinality"
+        );
+    }
+
+    // The shortlist still bounds how many of those legal options are scored,
+    // independent of how many were legal. A scored option's logit is never
+    // `EXCLUDED_LOGIT`; this count is exact (unlike a probability, it is
+    // never at risk of rounding to zero).
+    assert_eq!(scoring.probabilities.len(), LARGE_OPTION_COUNT);
+    assert_eq!(scoring.logits.len(), LARGE_OPTION_COUNT);
+    let scored_count = scoring
+        .logits
+        .iter()
+        .filter(|&&logit| logit != EXCLUDED_LOGIT)
+        .count();
+    assert_eq!(
+        scored_count,
+        usize::from(head.scorer.as_ref().unwrap().shortlist)
+    );
+}
