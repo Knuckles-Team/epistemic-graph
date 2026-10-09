@@ -156,6 +156,7 @@ fn effective_sample_size_matches_its_closed_form() {
     assert_eq!(effective_sample_size(&[]), 0.0);
 }
 
+// spec: EG-DECISION-ENGINE-R006
 #[test]
 fn ess_gate_refuses_below_its_minimum() {
     let result = ips(&fixed_log()).unwrap();
@@ -200,6 +201,7 @@ fn logged_decision_validates_propensities_and_target() {
     assert!(decision.with_reward_model(vec![1.0]).is_err());
 }
 
+// spec: EG-DECISION-ENGINE-R006
 #[test]
 fn support_checks_find_the_unsupported_action_and_its_mass() {
     let unsupported_mu = vec![

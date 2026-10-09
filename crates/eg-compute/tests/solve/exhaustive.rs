@@ -37,6 +37,7 @@ fn assert_matches_oracle(spec: &ModelSpec) {
     );
 }
 
+// spec: EG-DECISION-ENGINE-R004
 #[test]
 fn optimum_matches_exhaustive_search_on_random_small_models() {
     for seed in 0..400u64 {
