@@ -713,7 +713,11 @@ ex:parent a owl:AsymmetricProperty .
         // analysis-snapshot record (EH-420/EH-421).
         // +9: the skos mappings of the eight trading classes folded from company_infra
         // into finance (EH-517); the fold itself moves triples without adding any.
-        assert_eq!(composed.ontology.len(), 13_568);
+        // +88: the virtual-graph module -- `core:virtual-graph@1`'s SourceConnection/
+        // MetadataContract/VirtualMapping classes and properties plus
+        // `core:virtual-graph-shapes@1`'s SHACL shapes (EG-UNIFIED-DATA-PLANE-R037),
+        // and their catalog import.
+        assert_eq!(composed.ontology.len(), 13_656);
 
         let ontology_subjects: BTreeSet<String> = composed
             .ontology
