@@ -95,6 +95,7 @@
     "EG-DECISION-ENGINE-R083",
     "EG-DECISION-ENGINE-R084",
     "EG-DECISION-ENGINE-R085",
+    "EG-DECISION-ENGINE-R085.1",
     "EG-DECISION-ENGINE-R086",
     "EG-DECISION-ENGINE-R087",
     "EG-DECISION-ENGINE-R088",
@@ -1294,7 +1295,14 @@
       "title": "Legal option sets are derived from the ontology, never received as-is",
       "delivery_state": "SPECIFIED",
       "evidence": [],
-      "remaining": "LegalSet in eg-numeric only consumes a caller-supplied eliminated-index list; could not confirm, within this repo, a SHACL-shape/SPARQL-shortlist-driven derivation with a negative test proving an illegal caller-supplied option never reaches the scorer."
+      "remaining": "Split into EG-DECISION-ENGINE-R085.1 (typed caller-candidate filter, delivered) and EG-DECISION-ENGINE-R085.2 (the real SHACL-shape/SPARQL-shortlist-driven predicate, not yet started). LegalSet in eg-numeric still only consumes a caller-supplied eliminated-index list; the ontology-backed derivation remains unconfirmed."
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R085.1",
+      "title": "Typed legal-option-set filter (producer-first split of R085)",
+      "delivery_state": "SPECIFIED",
+      "evidence": [],
+      "remaining": "derive_legal_options and CandidateOption (crates/eg-numeric/src/decision/legal_option_filter.rs) prove the type-level contract -- a caller-supplied candidate reaches the derived set only if an admissibility predicate accepts it -- with a negative test (rejected candidate excluded) and a positive test (admissible candidate passes through), both against a fixture predicate. The real SHACL-shape/SPARQL-shortlist-backed predicate, and wiring this filter into the scorer's actual candidate path, is EG-DECISION-ENGINE-R085.2."
     },
     {
       "id": "EG-DECISION-ENGINE-R086",

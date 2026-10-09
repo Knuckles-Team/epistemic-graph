@@ -54,6 +54,8 @@
 
 - [x] D16 **EG-DECISION-ENGINE-R080.1 (first slice of R080):** Add the typed `ProvenanceRung` six-level enum and the pure `resolve_rung` overwrite-protection rule (`crates/eg-types/src/decision/ingestion_ladder.rs`). Remaining for `EG-DECISION-ENGINE-R080`: the real per-rung extractors (AST walking, symbol resolution, statistical/community derivation, classical ML/NER, embeddings, an LLM call) and an ingestion call site that tags each derived fact through `resolve_rung`.
 
+- [x] D16 **EG-DECISION-ENGINE-R085.1:** Add the typed `derive_legal_options` filter and `CandidateOption` (`crates/eg-numeric/src/decision/legal_option_filter.rs`), proving the type-level contract that a caller-supplied candidate reaches the derived set only if an admissibility predicate accepts it. The predicate here is a fixture closure; the real SHACL-shape / SPARQL-shortlist-backed predicate is `EG-DECISION-ENGINE-R085.2` (not in scope for this slice). Test: `crates/eg-numeric/src/decision/legal_option_filter.rs::tests::a_caller_supplied_option_that_fails_the_admissibility_predicate_is_excluded`.
+
 ## Evidence format
 
 For each stable ID, record: `ID | sequence | delivery | acceptance | main SHA | tests/workflow | reviewed date | notes`. Until a row has an exact commit and passing required tests, use `WAITING / NOT_RUN`, `IN_PROGRESS / PARTIAL`, or `SOURCE_LANDED / PARTIAL` as observed; do not infer acceptance from a sequence label. `RETIRED` requires the superseding contract and removal test. Keep evidence records in this repository alongside the spec so external contributors can audit them.

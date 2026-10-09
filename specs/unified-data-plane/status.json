@@ -47,6 +47,7 @@
     "EG-UNIFIED-DATA-PLANE-R029",
     "EG-UNIFIED-DATA-PLANE-R029.1",
     "EG-UNIFIED-DATA-PLANE-R030",
+    "EG-UNIFIED-DATA-PLANE-R030.1",
     "EG-UNIFIED-DATA-PLANE-R031",
     "EG-UNIFIED-DATA-PLANE-R032",
     "EG-UNIFIED-DATA-PLANE-R033",
@@ -337,7 +338,13 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R030",
       "title": "Resolve entities across attached applications",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R030.1",
+      "title": "EntityLinkProposal typed model and unapproved/non-Match refusal",
+      "delivery_state": "BUILT",
       "evidence": []
     },
     {
