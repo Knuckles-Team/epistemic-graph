@@ -57,7 +57,7 @@ jobs:
   # jobs; skipped jobs still report, so required checks never hang, and tags,
   # manual runs and new branches always run everything.
   changes:
-    timeout-minutes: 360
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
     name: Change scope
     runs-on: ubuntu-latest
     outputs:
@@ -88,7 +88,7 @@ jobs:
 
   # ── Dependency and source-history security checks. ─────────────────────
   security:
-    timeout-minutes: 360
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
     name: Security checks
     runs-on: ubuntu-latest
     steps:
@@ -136,11 +136,11 @@ jobs:
 
   # ── STAGE 1: release-critical checks only. Nothing else may live here. ──
   gates:
-    timeout-minutes: 360
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
     name: gates
     needs: changes
     if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted", "homelab"]') || 'ubuntu-latest' }}
     steps:
       - &eg-gates-checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -361,11 +361,11 @@ jobs:
   # failure, with nine selections still to go). Every step is carried over
   # verbatim; `build` needs all three.
   gates-facade:
-    timeout-minutes: 360
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
     name: gates (facade full)
     needs: changes
     if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted", "homelab"]') || 'ubuntu-latest' }}
     steps:
       - *eg-gates-checkout
 
@@ -439,11 +439,11 @@ jobs:
   # pyo3 crates get every feature except `python` (pyo3 extension-module cannot
   # link a test binary).
   gates-crates:
-    timeout-minutes: 360
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
     name: gates (workspace crates)
     needs: changes
     if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted", "homelab"]') || 'ubuntu-latest' }}
     steps:
       - *eg-gates-checkout
 
@@ -469,8 +469,75 @@ jobs:
       # crash-test module: no sleeps, lock-error retries, or skipped assertions.
       - name: Test (storage crate, isolated crash-process lifecycle)
         run: python3 scripts/cargo_test_rescue.py cargo test --locked -p eg-storage --all-features --no-fail-fast -- --test-threads=1
-      - name: Test (every other workspace crate, all features)
+
+      # Operator decision (2026-10-09): on a pull request this broad
+      # workspace sweep narrows to only the crates the diff could plausibly
+      # break, so a PR gate turns around in minutes; `push` to main and a
+      # release tag keep running the unchanged full command below.
+      - name: Resolve the published base
+        if: github.event_name == 'pull_request'
+        run: |
+          set -euo pipefail
+          BASE="${{ github.event.pull_request.base.sha }}"
+          if [ -z "${BASE:-}" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "$BASE" 2>/dev/null; then
+            BASE="$(git rev-list --max-parents=0 HEAD)"
+          fi
+          echo "PRE_COMMIT_FROM_REF=$BASE" >> "$GITHUB_ENV"
+      - name: Resolve pull-request test scope (workspace crates)
+        if: github.event_name == 'pull_request'
+        id: pr-test-scope
+        run: |
+          set -euo pipefail
+          uvx --from 'git+https://github.com/Knuckles-Team/pipelines@main' \
+            pipelines-hook pr-test-scope --lang rust --base-ref "$PRE_COMMIT_FROM_REF" \
+            --workspace-root . > "$RUNNER_TEMP/pr-test-scope.txt"
+          cat "$RUNNER_TEMP/pr-test-scope.txt"
+          {
+            echo "scope<<PR_TEST_SCOPE_EOF"
+            cat "$RUNNER_TEMP/pr-test-scope.txt"
+            echo "PR_TEST_SCOPE_EOF"
+          } >> "$GITHUB_OUTPUT"
+      - name: Test (every other workspace crate, all features; push to main / release tag)
+        if: github.event_name != 'pull_request'
         run: python3 scripts/cargo_test_rescue.py cargo test --locked --workspace --exclude epistemic-graph --exclude eg-types --exclude eg-core --exclude eg-compute --exclude eg-storage --exclude eg-tts-piper --exclude eg-numeric --exclude eg-pyengine --all-features --no-fail-fast
+      - name: Test (every other workspace crate -- pull request fast subset)
+        if: github.event_name == 'pull_request'
+        env:
+          SCOPE: ${{ steps.pr-test-scope.outputs.scope }}
+        run: |
+          set -euo pipefail
+          # These crates have their own dedicated steps/jobs with different
+          # feature flags; a changed-crate hit on one of them is already
+          # covered there, so it is dropped from this generic --all-features
+          # sweep rather than double-run (or, for eg-numeric/eg-pyengine,
+          # run with an incompatible feature set).
+          excluded="epistemic-graph eg-types eg-core eg-compute eg-storage eg-tts-piper eg-numeric eg-pyengine"
+          if [ "$SCOPE" = "NONE" ]; then
+            echo "pr-test-scope: no changed Rust file outside the specially-tested crates; skipping"
+            exit 0
+          fi
+          if [ "$SCOPE" = "FULL" ]; then
+            echo "pr-test-scope: unmapped Rust change (or an unreadable diff); running the full crate set"
+            python3 scripts/cargo_test_rescue.py cargo test --locked --workspace --exclude epistemic-graph --exclude eg-types --exclude eg-core --exclude eg-compute --exclude eg-storage --exclude eg-tts-piper --exclude eg-numeric --exclude eg-pyengine --all-features --no-fail-fast
+            exit 0
+          fi
+          args=()
+          while IFS= read -r crate; do
+            [ -z "$crate" ] && continue
+            skip=false
+            for ex in $excluded; do
+              [ "$crate" = "$ex" ] && skip=true && break
+            done
+            [ "$skip" = true ] && continue
+            args+=(-p "$crate")
+          done <<< "$SCOPE"
+          if [ "${#args[@]}" -eq 0 ]; then
+            echo "pr-test-scope: changed crates are all covered by other steps/jobs; skipping"
+            exit 0
+          fi
+          echo "pr-test-scope: running only the changed crates this diff affects:"
+          printf '%s\n' "${args[@]}"
+          python3 scripts/cargo_test_rescue.py cargo test --locked "${args[@]}" --all-features --no-fail-fast
       - name: Test (pyo3 crates, every feature except python)
         run: python3 scripts/cargo_test_rescue.py cargo test --locked -p eg-numeric -p eg-pyengine --features eg-numeric/analytics,eg-numeric/contract,eg-numeric/complex,eg-numeric/decision,eg-numeric/motif,eg-pyengine/security,eg-pyengine/ml-pipeline,eg-pyengine/reasoning,eg-pyengine/query,eg-pyengine/cypher,eg-pyengine/tsdb,eg-pyengine/streaming,eg-pyengine/wasm-udf,eg-pyengine/rdf,eg-pyengine/blob,eg-pyengine/jobs,eg-pyengine/statechart,eg-pyengine/finance --no-fail-fast
 
@@ -523,7 +590,7 @@ jobs:
   # -m crates/eg-pyengine/Cargo.toml --features python,security` invocation the `gates`
   # job's "Build gates pyengine kernel wheel" step runs for the WHEEL path.
   python-suite:
-    timeout-minutes: 360
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
     name: Python suite (tests/)
     needs: changes
     if: needs.changes.outputs.code == 'true'
@@ -599,7 +666,7 @@ jobs:
   #     runner image. Installed so bindgen's libclang lookup does not depend on
   #     which clang packages the image happens to ship.
   tts-piper-inference:
-    timeout-minutes: 360
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
     name: eg-tts-piper real-inference tests
     needs: changes
     if: needs.changes.outputs.code == 'true'
@@ -636,7 +703,7 @@ jobs:
   # byte-for-byte, then replays every contract method-body vector (body digest and
   # envelope MAC) through each client's signer, plus the clients' own unit tests.
   language-clients:
-    timeout-minutes: 360
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
     name: Go and JavaScript clients
     needs: changes
     if: needs.changes.outputs.code == 'true'
@@ -678,7 +745,7 @@ jobs:
   # modality, reasoning, release-campaign, and persisted-schema behavior.
   # They remain blocking alongside the executable test suites.
   lint-and-architecture:
-    timeout-minutes: 360
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
     name: Lint, format and architecture (pre-commit)
     runs-on: ubuntu-latest
     steps:
@@ -715,7 +782,7 @@ jobs:
   # published build (`full,ast-extended` = MATURIN_FEATURES, which has no raft) or
   # the slim `server` build; each profile is its own leg.
   quality-advisory:
-    timeout-minutes: 360
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
     name: Clippy ${{ matrix.profile.name }}
     needs: changes
     if: needs.changes.outputs.code == 'true'
@@ -756,7 +823,7 @@ jobs:
   # jscpd step left CCCC, KISS, import-linter, depcruise and arch-lint unrun.
   # The job still fails at the end if any step failed.
   scanner-quality:
-    timeout-minutes: 360
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
     name: Scanner + architecture quality (advisory)
     needs: changes
     if: needs.changes.outputs.code == 'true'
