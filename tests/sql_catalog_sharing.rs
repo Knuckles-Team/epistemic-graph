@@ -410,6 +410,7 @@ fn assert_handler_reachable_only_through_gateway(
 /// path to a private helper that itself calls the handler.)
 ///
 /// Remove any one of those calls, or route before gating, and this test fails.
+// spec: EG-DURABLE-KERNEL-R048
 #[test]
 fn check_graph_access_precedes_query_and_rdf_try_handle_in_dispatch() {
     let (path, source) = defining_source("async fn dispatch_graph_op_inner");
