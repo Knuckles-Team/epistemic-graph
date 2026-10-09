@@ -48,6 +48,8 @@ pub fn binding_plan(stmt: &Statement) -> Plan {
 
 /// Run `stmt` over `ctx`.
 pub fn run_statement(stmt: &Statement, ctx: &PlanCtx) -> Result<UqlResult, String> {
+    #[cfg(feature = "federation")]
+    apply_federation_budget(stmt, ctx)?;
     let warnings: Vec<String> = stmt
         .warnings
         .iter()
@@ -61,8 +63,103 @@ pub fn run_statement(stmt: &Statement, ctx: &PlanCtx) -> Result<UqlResult, Strin
         (Body::Dag(nodes), Mode::Explain) => dag::explain(nodes, ctx, warnings),
         (Body::Dag(nodes), Mode::Profile) => dag::profile(nodes, ctx, warnings),
     }?;
+    #[cfg(feature = "federation")]
+    attach_federation_report(&mut result, stmt, ctx);
     annotate::annotate(&mut result, stmt, ctx)?;
     Ok(result)
+}
+
+#[cfg(feature = "federation")]
+fn apply_federation_budget(stmt: &Statement, ctx: &PlanCtx) -> Result<(), String> {
+    if let Some(budget) = stmt.federation_budget {
+        let session = ctx.federation.ok_or(
+            "FEDERATION_BUDGET_HINT_REQUIRES_SESSION: bind a per-query federation session",
+        )?;
+        session.narrow_budget(budget);
+    }
+    Ok(())
+}
+
+/// The existing UQL stage report is the wire surface for remote/local sections.
+/// EXPLAIN is plan-only; PROFILE adds actual fragments from the same request session.
+#[cfg(feature = "federation")]
+pub(crate) fn attach_federation_report(result: &mut UqlResult, stmt: &Statement, ctx: &PlanCtx) {
+    use crate::federation_opt::{explain_source, EstimateProvenance, FragmentTrace};
+
+    fn remote_ops(ops: &[Op], reports: &mut Vec<UqlStageReport>) {
+        for op in ops {
+            if let Some(source) = explain_source(op) {
+                reports.push(UqlStageReport {
+                    stage: format!("REMOTE {source} strategy=planned estimate=pending"),
+                    estimated_rows: 0.0,
+                    rows: None,
+                    micros: None,
+                });
+            }
+            #[cfg(feature = "text")]
+            if let Op::FuseRrf { branches, .. } = op {
+                for branch in branches {
+                    remote_ops(branch, reports);
+                }
+            }
+        }
+    }
+
+    fn actual(trace: &[FragmentTrace]) -> Vec<UqlStageReport> {
+        trace.iter().map(|fragment| {
+            let source = crate::federation_opt::redacted_label(&fragment.source);
+            let estimate = match fragment.estimate {
+                EstimateProvenance::NotNeeded => "not-needed".to_string(),
+                EstimateProvenance::Default => "default".to_string(),
+                EstimateProvenance::Learned { samples, rows } => {
+                    format!("learned(samples={samples}, rows={rows:.2})")
+                }
+            };
+            UqlStageReport {
+                stage: format!(
+                    "REMOTE {source} strategy={:?} keys={} limit={:?} requests={} fetched={} kept={} estimate={estimate}",
+                    fragment.strategy, fragment.keys_pushed, fragment.limit_pushed,
+                    fragment.requests, fragment.rows_fetched, fragment.rows_kept,
+                ),
+                estimated_rows: match fragment.estimate {
+                    EstimateProvenance::Learned { rows, .. } => rows,
+                    _ => 0.0,
+                },
+                rows: Some(fragment.rows_kept as u64),
+                micros: Some(fragment.elapsed_ms.saturating_mul(1000)),
+            }
+        }).collect()
+    }
+
+    let ops = binding_plan(stmt).ops;
+    let mut planned = Vec::new();
+    remote_ops(&ops, &mut planned);
+    if planned.is_empty() {
+        return;
+    }
+    match result {
+        UqlResult::Explain { stages, .. } => {
+            stages.push(UqlStageReport {
+                stage: "LOCAL evaluation (per-stage reports above)".into(),
+                estimated_rows: 0.0,
+                rows: None,
+                micros: None,
+            });
+            stages.extend(planned);
+        }
+        UqlResult::Profile { stages, .. } => {
+            stages.push(UqlStageReport {
+                stage: "LOCAL evaluation (per-stage reports above)".into(),
+                estimated_rows: 0.0,
+                rows: None,
+                micros: None,
+            });
+            if let Some(session) = ctx.federation {
+                stages.extend(actual(&session.trace()));
+            }
+        }
+        UqlResult::Rows { .. } => {}
+    }
 }
 
 /// The channels the LAST `RETURN` names (empty without one).

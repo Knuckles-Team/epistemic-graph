@@ -113,6 +113,110 @@ fn profile_counts_rows_per_stage_and_params_bind() {
     assert!(stages.iter().all(|s| s.micros.is_some()));
 }
 
+#[cfg(feature = "federation")]
+#[test]
+fn explain_has_redacted_remote_and_local_sections_without_running_source() {
+    let (view, semantic) = fixture();
+    let ctx = PlanCtx::new(&view, &semantic);
+    let out = run(
+        "EXPLAIN FOREIGN 'https://secret.example/token'",
+        &Params::new(),
+        &ctx,
+    )
+    .unwrap();
+    let UqlResult::Explain { stages, .. } = out else {
+        panic!("explain expected")
+    };
+    let golden = stages.iter().map(|s| s.stage.as_str()).collect::<Vec<_>>();
+    assert!(golden.iter().any(|s| s.starts_with("LOCAL evaluation")));
+    let remote = golden.iter().find(|s| s.starts_with("REMOTE ")).unwrap();
+    assert!(remote.starts_with("REMOTE named#"), "{remote}");
+    assert!(
+        remote.ends_with(" strategy=planned estimate=pending"),
+        "{remote}"
+    );
+    assert!(!remote.contains("secret"), "{remote}");
+    assert!(stages.iter().all(|s| s.rows.is_none()));
+}
+
+#[cfg(feature = "federation")]
+#[test]
+fn budget_hint_requires_bound_session_and_never_bypasses_server_cap() {
+    use crate::federation_opt::{FederationBudget, FederationSession};
+    let (view, semantic) = fixture();
+    let unbound = PlanCtx::new(&view, &semantic);
+    let hint = "PROFILE FEDERATION BUDGET (REQUESTS=5) MATCH (:Doc)";
+    assert!(run(hint, &Params::new(), &unbound)
+        .unwrap_err()
+        .starts_with("FEDERATION_BUDGET_HINT_REQUIRES_SESSION"));
+
+    let session = FederationSession::new(FederationBudget {
+        max_requests: 2,
+        max_rows: 7,
+        max_bind_keys: 4,
+        max_wall_ms: 100,
+    });
+    let bound = PlanCtx::new(&view, &semantic).with_federation(&session);
+    run(hint, &Params::new(), &bound).unwrap();
+    assert_eq!(session.budget().max_requests, 2);
+    run(
+        "PROFILE FEDERATION BUDGET (REQUESTS=1, ROWS=3) MATCH (:Doc)",
+        &Params::new(),
+        &bound,
+    )
+    .unwrap();
+    assert_eq!(session.budget().max_requests, 1);
+    assert_eq!(session.budget().max_rows, 3);
+}
+
+#[cfg(feature = "federation")]
+#[test]
+fn profile_remote_fragment_has_redacted_golden_output_and_provenance() {
+    use crate::federation_opt::{
+        EstimateProvenance, FederationBudget, FederationSession, FetchStrategy, FragmentTrace,
+    };
+    let (view, semantic) = fixture();
+    let session = FederationSession::new(FederationBudget::default());
+    session.record(FragmentTrace {
+        source: "sql:postgres://user:password@host/db#deadbeef".into(),
+        strategy: FetchStrategy::BindJoin,
+        keys_pushed: 3,
+        limit_pushed: Some(7),
+        requests: 2,
+        rows_fetched: 5,
+        rows_kept: 4,
+        elapsed_ms: 6,
+        estimate: EstimateProvenance::Learned {
+            samples: 8,
+            rows: 12.5,
+        },
+    });
+    let ctx = PlanCtx::new(&view, &semantic).with_federation(&session);
+    let stmt = parse_statement("PROFILE FOREIGN 'registered'", &Params::new()).unwrap();
+    let mut result = UqlResult::Profile {
+        columns: vec![],
+        rows: vec![],
+        stages: vec![],
+        warnings: vec![],
+    };
+    crate::uql::serve::attach_federation_report(&mut result, &stmt, &ctx);
+    let UqlResult::Profile { stages, .. } = result else {
+        unreachable!()
+    };
+    assert_eq!(stages.len(), 2);
+    assert_eq!(
+        stages[0].stage,
+        "LOCAL evaluation (per-stage reports above)"
+    );
+    assert_eq!(stages[1].stage,
+        "REMOTE sql#deadbeef strategy=BindJoin keys=3 limit=Some(7) requests=2 fetched=5 kept=4 estimate=learned(samples=8, rows=12.50)");
+    assert_eq!(
+        (stages[1].estimated_rows, stages[1].rows, stages[1].micros),
+        (12.5, Some(4), Some(6000))
+    );
+    assert!(!stages[1].stage.contains("password"));
+}
+
 #[test]
 fn a_let_program_runs_as_a_dag() {
     let (view, semantic) = fixture();

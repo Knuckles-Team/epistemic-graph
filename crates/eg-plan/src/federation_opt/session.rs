@@ -62,6 +62,12 @@ impl FederationSession {
         self.lock().meter.budget()
     }
 
+    /// Apply an untrusted request hint only as a field-wise reduction of the server cap.
+    /// UQL calls this before its first fragment; no hint can grant extra network work.
+    pub fn narrow_budget(&self, requested: FederationBudget) {
+        self.lock().meter.narrow(requested);
+    }
+
     /// Every fragment executed so far, in execution order.
     pub fn trace(&self) -> Vec<FragmentTrace> {
         self.lock().trace.clone()
