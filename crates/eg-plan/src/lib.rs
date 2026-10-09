@@ -150,6 +150,11 @@ pub mod federation_opt;
 /// The one outbound-destination gate for federation (HTTP URLs, SQL DSN hosts).
 #[cfg(feature = "federation")]
 pub mod federation_ssrf;
+/// The write-side mirror-target seam (EG-DURABLE-KERNEL-R024.2) — the
+/// `MirrorTarget` trait binding a [`eg_types::wire::MirrorTargetSpec`] to a
+/// driver. Mirrors `federation`'s read-side `ForeignSource` seam.
+#[cfg(feature = "federation")]
+pub mod mirror_target;
 /// The cross-modal cost-based optimizer (CONCEPT:EG-KG.query.xmodal-cost-optimizer) — Lane A's
 /// rule engine over the logical `Vec<Op>` that [`exec::plan_optimize`] calls to reorder
 /// operators across modalities into a cheaper-but-equivalent plan. Compiled under `query`;

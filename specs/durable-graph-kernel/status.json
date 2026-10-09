@@ -72,7 +72,9 @@
     "EG-DURABLE-KERNEL-R067",
     "EG-DURABLE-KERNEL-R068",
     "EG-DURABLE-KERNEL-R069",
-    "EG-DURABLE-KERNEL-R070"
+    "EG-DURABLE-KERNEL-R070",
+    "EG-DURABLE-KERNEL-R024.2",
+    "EG-DURABLE-KERNEL-R024.2.1"
   ],
   "delivery_state": "BUILDING",
   "acceptance_state": "NOT_AUDITED",
@@ -984,6 +986,18 @@
           "description": "Implementation merged to the default branch; the commit names this requirement."
         }
       ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R024.2",
+      "title": "Fan-out backend becomes a MirrorTargetSpec federation mirror target",
+      "delivery_state": "BUILDING",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R024.2.1",
+      "title": "MirrorTargetSpec::FanOut typed spec, validation, and registration refusal",
+      "delivery_state": "BUILT",
+      "evidence": []
     }
   ]
 }
