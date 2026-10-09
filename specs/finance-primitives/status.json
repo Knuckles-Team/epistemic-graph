@@ -1,7 +1,8 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "spec_id": "EG-FINANCE-PRIMITIVES",
   "owner_repo": "epistemic-graph",
+  "delivery_state": "SPECIFIED",
   "requirement_ids": [
     "EG-FINANCE-PRIMITIVES-R001",
     "EG-FINANCE-PRIMITIVES-R002",
@@ -9,10 +10,13 @@
     "EG-FINANCE-PRIMITIVES-R004",
     "EG-FINANCE-PRIMITIVES-R004.1",
     "EG-FINANCE-PRIMITIVES-R004.2",
+    "EG-FINANCE-PRIMITIVES-R004.2.1",
+    "EG-FINANCE-PRIMITIVES-R004.2.2",
     "EG-FINANCE-PRIMITIVES-R004.3",
     "EG-FINANCE-PRIMITIVES-R004.3.1",
     "EG-FINANCE-PRIMITIVES-R005",
     "EG-FINANCE-PRIMITIVES-R005.1",
+    "EG-FINANCE-PRIMITIVES-R005.2",
     "EG-FINANCE-PRIMITIVES-R006",
     "EG-FINANCE-PRIMITIVES-R007",
     "EG-FINANCE-PRIMITIVES-R007.1",
@@ -33,510 +37,424 @@
     "EG-FINANCE-PRIMITIVES-R014",
     "EG-FINANCE-PRIMITIVES-R015",
     "EG-FINANCE-PRIMITIVES-R016",
-    "EG-FINANCE-PRIMITIVES-R017",
-    "EG-FINANCE-PRIMITIVES-R004.2.1",
-    "EG-FINANCE-PRIMITIVES-R004.2.2",
-    "EG-FINANCE-PRIMITIVES-R005.2"
+    "EG-FINANCE-PRIMITIVES-R017"
   ],
-  "delivery_state": "BUILDING",
-  "acceptance_state": "NOT_AUDITED",
-  "evidence": [],
   "requirements": [
     {
       "id": "EG-FINANCE-PRIMITIVES-R001",
       "title": "Cross-host BacktestRun digest and Pine parity for finance-core",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "implementation",
-          "result": "passed",
-          "commit": "ae7b0d6647498b6ffe6446b9f620c36c7b6c9a41",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/ae7b0d6647498b6ffe6446b9f620c36c7b6c9a41",
-          "description": "Implementing commit is on the default branch but is marked work in progress."
-        },
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "ae7b0d6647498b6ffe6446b9f620c36c7b6c9a41",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/ae7b0d6647498b6ffe6446b9f620c36c7b6c9a41",
-          "description": "EG-FINANCE-PRIMITIVES-R001 merged to the default branch in this commit."
-        }
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "ae7b0d664749"
       ],
-      "remaining": "The pinned soft-float BacktestRun digest test passes on this single host (crates/eg-compute/src/finance/market/record_tests.rs::a_sealed_backtest_run_digest_is_pinned_across_hosts) and the finance-v1/company_infra-v1 ontology classes have no name overlap. The verification column requires independent builds on two architectures compared for equal digests; no such cross-architecture test or CI infrastructure exists. The Pine companion test (tests/test_finance_pine_companion.py) only checks that the Pine script's declared constants and rules match the same fixture the Rust test checks against, not a live comparison of Pine and Rust signal transitions, which is a materially weaker form of parity than the requirement describes."
+      "verified_by": [
+        "crates/eg-compute/src/finance/market/record_tests.rs:371",
+        "crates/eg-compute/src/finance/market/record_tests.rs:386",
+        "crates/eg-compute/src/finance/quant.rs:258"
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002",
       "title": "Rehome generic finance evaluation kernels into eg-numeric",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "implementation",
-          "result": "passed",
-          "commit": "31cbdeb6d98bf4ee7e7165e7a4d1e469ae517aba",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/31cbdeb6d98bf4ee7e7165e7a4d1e469ae517aba",
-          "description": "Part of the requirement is implemented on the default branch."
-        },
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "31cbdeb6d98bf4ee7e7165e7a4d1e469ae517aba",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/31cbdeb6d98bf4ee7e7165e7a4d1e469ae517aba",
-          "description": "EG-FINANCE-PRIMITIVES-R002 merged to the default branch in this commit."
-        }
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "31cbdeb6d98b"
       ],
-      "remaining": "purged_cpcv_splits, deflated_sharpe_ratio, probability_of_backtest_overfit, diebold_mariano and the FeatureSkill (IC/IR/n_eff) and Brier kernels are rehomed into eg-numeric on main, and FinanceRollingZscore/FinanceEwma were retired. But Ornstein-Uhlenbeck, ADF, and regime-HMM calculations are still …"
+      "verified_by": [
+        "crates/eg-capabilities/tests/contract_registry.rs:146",
+        "crates/eg-numeric/src/evaluation/backtest.rs:189",
+        "crates/eg-numeric/src/evaluation/backtest.rs:200"
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R003",
       "title": "Compute PBO from a BacktestRun's own CSCV splits",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "branch",
-          "result": "passed",
-          "commit": "e36b760f1a108d9961c68ad8e4feb097a2381f26",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/e36b760f1a108d9961c68ad8e4feb097a2381f26",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
-        },
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "458eb5bb9475987fabed70ec91e7ac2424d88a2c",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/458eb5bb9475987fabed70ec91e7ac2424d88a2c",
-          "description": "EG-FINANCE-PRIMITIVES-R003 merged to the default branch in this commit."
-        }
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "458eb5bb9475"
+      ],
+      "verified_by": [
+        "crates/eg-compute/src/finance/market/record_tests.rs:259",
+        "crates/eg-compute/src/finance/market/record_tests.rs:345",
+        "crates/eg-compute/src/finance/market/record_tests.rs:386"
       ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R004",
       "title": "finance-v1 asset, account, and strategy record types",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "0ae2193fae8da31b2cef3058ae5f2e96fbed8e75",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/0ae2193fae8da31b2cef3058ae5f2e96fbed8e75",
-          "description": "EG-FINANCE-PRIMITIVES-R004 merged to the default branch in this commit."
-        }
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "0ae2193fae8d"
       ],
-      "remaining": "Rollup of EG-FINANCE-PRIMITIVES-R004.1 (ontology/SHACL asset-class vocabulary), .2 (Rust record types) and .3 (server wiring and contract regeneration), split by code root. LANDED when every child is LANDED."
+      "verified_by": [],
+      "rollup_of": [
+        "EG-FINANCE-PRIMITIVES-R004.1",
+        "EG-FINANCE-PRIMITIVES-R004.2",
+        "EG-FINANCE-PRIMITIVES-R004.3"
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R004.1",
       "title": "finance-v1 asset-class controlled vocabulary",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "0ae2193fae8da31b2cef3058ae5f2e96fbed8e75",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/0ae2193fae8da31b2cef3058ae5f2e96fbed8e75",
-          "description": "EG-FINANCE-PRIMITIVES-R004.1 merged to the default branch in this commit."
-        }
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "0ae2193fae8d"
+      ],
+      "verified_by": [
+        "src/server/graph_schema/finance_tests.rs:259"
       ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R004.2",
       "title": "finance-v1 Account/Activity/Lot/Position/PortfolioGroup/StrategySpec/StrategyRun/LeverageTerms Rust record types",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "a189dbe4067fefefa91927b3b4a59b094b89e183",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/a189dbe4067fefefa91927b3b4a59b094b89e183",
-          "description": "EG-FINANCE-PRIMITIVES-R004.2 merged to the default branch in this commit."
-        }
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "a189dbe4067f",
+        "fd0aa73cb7b5"
+      ],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-FINANCE-PRIMITIVES-R004.2.1",
+        "EG-FINANCE-PRIMITIVES-R004.2.2"
+      ]
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R004.2.1",
+      "title": "Account and Position OWL classes and SHACL shapes",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "a189dbe4067f",
+        "fd0aa73cb7b5"
+      ],
+      "verified_by": [
+        "src/server/graph_schema/finance_tests.rs:191",
+        "src/server/graph_schema/finance_tests.rs:45",
+        "src/server/graph_schema/finance_tests.rs:83"
+      ]
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R004.2.2",
+      "title": "Activity and Lot OWL classes and SHACL shapes",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "a189dbe4067f",
+        "fd0aa73cb7b5"
+      ],
+      "verified_by": [
+        "src/server/graph_schema/finance_tests.rs:191",
+        "src/server/graph_schema/finance_tests.rs:45",
+        "src/server/graph_schema/finance_tests.rs:83"
       ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R004.3",
       "title": "finance-v1 record-type server wiring and contract regeneration",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "branch",
-          "result": "passed",
-          "commit": "fcca865a05059f07fe43b25a0c94045111e3528a",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/fcca865a05059f07fe43b25a0c94045111e3528a",
-          "description": "admit_finance_record_version is published on a branch; not yet merged to the default branch. Served method registration and contract regeneration remain open."
-        },
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "fcca865a05059f07fe43b25a0c94045111e3528a",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/fcca865a05059f07fe43b25a0c94045111e3528a",
-          "description": "EG-FINANCE-PRIMITIVES-R004.3.1 merged to the default branch in this commit."
-        }
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "fcca865a0505",
+        "fd0aa73cb7b5"
       ],
-      "remaining": "Split per the dependency-first sizing rule: EG-FINANCE-PRIMITIVES-R004.3.1 (the wire-boundary schema-version gate, built this PR) and further children for the served method registration and generated-client contract regeneration. R004.3 is LANDED when every child is LANDED."
+      "verified_by": [],
+      "rollup_of": [
+        "EG-FINANCE-PRIMITIVES-R004.3.1"
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R004.3.1",
       "title": "The wire boundary refuses an unknown finance-v1 schema version",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "branch",
-          "result": "passed",
-          "commit": "fcca865a05059f07fe43b25a0c94045111e3528a",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/fcca865a05059f07fe43b25a0c94045111e3528a",
-          "description": "admit_finance_record_version is published on a branch; not yet merged to the default branch. Served method registration and contract regeneration remain open."
-        },
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "fcca865a05059f07fe43b25a0c94045111e3528a",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/fcca865a05059f07fe43b25a0c94045111e3528a",
-          "description": "EG-FINANCE-PRIMITIVES-R004.3.1 merged to the default branch in this commit."
-        }
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "fcca865a0505"
+      ],
+      "verified_by": [
+        "crates/eg-compute/src/finance/ghostfolio_import.rs:105",
+        "crates/eg-compute/src/finance/ghostfolio_import.rs:91",
+        "crates/eg-compute/src/finance/ghostfolio_import.rs:97"
       ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R005",
       "title": "Deterministic fixed-point portfolio accounting",
       "delivery_state": "SPECIFIED",
-      "evidence": [],
-      "remaining": "Rollup of EG-FINANCE-PRIMITIVES-R005.1 (FIFO/LIFO lot-matching engine) and .2 (specific-lot/average-cost, transfer/split); further children needed for P&L/TWR/XIRR/FX/benchmark. LANDED when every child is LANDED."
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-FINANCE-PRIMITIVES-R005.1",
+        "EG-FINANCE-PRIMITIVES-R005.2"
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R005.1",
       "title": "FIFO/LIFO fixed-point lot-matching engine",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "eee78d6b3d1d078dce546e19f16c3392a7b25d20",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/eee78d6b3d1d078dce546e19f16c3392a7b25d20",
-          "description": "EG-FINANCE-PRIMITIVES-R005.1 merged to the default branch in this commit."
-        }
-      ]
-    },
-    {
-      "id": "EG-FINANCE-PRIMITIVES-R006",
-      "title": "Point-in-time corporate actions and exchange session calendars",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "b9870e23567b2623fe68e334e55ac464c46407bc",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/b9870e23567b2623fe68e334e55ac464c46407bc",
-          "description": "EG-FINANCE-PRIMITIVES-R006 merged to the default branch in this commit."
-        }
-      ]
-    },
-    {
-      "id": "EG-FINANCE-PRIMITIVES-R007",
-      "title": "Versioned StrategySpec evaluator with DCA, trend, rebalancing",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "6602649a6bffd2e0dcca97c0e39252829684630a",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/6602649a6bffd2e0dcca97c0e39252829684630a",
-          "description": "EG-FINANCE-PRIMITIVES-R007 merged to the default branch in this commit."
-        }
-      ]
-    },
-    {
-      "id": "EG-FINANCE-PRIMITIVES-R007.1",
-      "title": "DCA-by-fixed-amount default strategy evaluator",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "6602649a6bffd2e0dcca97c0e39252829684630a",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/6602649a6bffd2e0dcca97c0e39252829684630a",
-          "description": "EG-FINANCE-PRIMITIVES-R007.1 merged to the default branch in this commit."
-        }
-      ]
-    },
-    {
-      "id": "EG-FINANCE-PRIMITIVES-R008",
-      "title": "Strategy backtests sealed through BacktestRun",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "b96ef8ebd9df8b3e57ec48711555728b87876841",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/b96ef8ebd9df8b3e57ec48711555728b87876841",
-          "description": "EG-FINANCE-PRIMITIVES-R008 merged to the default branch in this commit."
-        }
-      ]
-    },
-    {
-      "id": "EG-FINANCE-PRIMITIVES-R008.1",
-      "title": "Dollar-cost-averaging backtest seals through BacktestRun",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "b96ef8ebd9df8b3e57ec48711555728b87876841",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/b96ef8ebd9df8b3e57ec48711555728b87876841",
-          "description": "EG-FINANCE-PRIMITIVES-R008.1 merged to the default branch in this commit."
-        }
-      ]
-    },
-    {
-      "id": "EG-FINANCE-PRIMITIVES-R009",
-      "title": "Calibrated abstaining recommendations with scorecards",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "e93220a15cd2ae272644b5131a201e1099bc8cfa",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/e93220a15cd2ae272644b5131a201e1099bc8cfa",
-          "description": "EG-FINANCE-PRIMITIVES-R009 merged to the default branch in this commit."
-        }
-      ]
-    },
-    {
-      "id": "EG-FINANCE-PRIMITIVES-R009.1",
-      "title": "Calibrated recommendation decision over flip confidence",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "e93220a15cd2ae272644b5131a201e1099bc8cfa",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/e93220a15cd2ae272644b5131a201e1099bc8cfa",
-          "description": "EG-FINANCE-PRIMITIVES-R009.1 merged to the default branch in this commit."
-        }
-      ]
-    },
-    {
-      "id": "EG-FINANCE-PRIMITIVES-R010",
-      "title": "Leverage risk module with margin, sizing, live-order boundary",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "76107c24568d021b7eff7d3f6861a884da805d86",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/76107c24568d021b7eff7d3f6861a884da805d86",
-          "description": "EG-FINANCE-PRIMITIVES-R010 merged to the default branch in this commit."
-        }
-      ]
-    },
-    {
-      "id": "EG-FINANCE-PRIMITIVES-R010.1",
-      "title": "Live-order eligibility boundary",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "76107c24568d021b7eff7d3f6861a884da805d86",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/76107c24568d021b7eff7d3f6861a884da805d86",
-          "description": "EG-FINANCE-PRIMITIVES-R010.1 merged to the default branch in this commit."
-        }
-      ]
-    },
-    {
-      "id": "EG-FINANCE-PRIMITIVES-R011",
-      "title": "Finance alerts published through the finance outbox",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "3eeb3126f421366dc657ecfcbaa1fcb5179c0409",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/3eeb3126f421366dc657ecfcbaa1fcb5179c0409",
-          "description": "EG-FINANCE-PRIMITIVES-R011 merged to the default branch in this commit."
-        }
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "eee78d6b3d1d"
       ],
-      "remaining": "Split into EG-FINANCE-PRIMITIVES-R011.1 (typed finance alert envelope, delivered) and later slices for the transactional outbox append and delivery idempotence (not yet started)."
-    },
-    {
-      "id": "EG-FINANCE-PRIMITIVES-R011.1",
-      "title": "Typed finance alert envelope (producer-first split of R011)",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "3eeb3126f421366dc657ecfcbaa1fcb5179c0409",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/3eeb3126f421366dc657ecfcbaa1fcb5179c0409",
-          "description": "EG-FINANCE-PRIMITIVES-R011.1 merged to the default branch in this commit."
-        }
-      ],
-      "remaining": "FinanceAlertEnvelope and FinanceAlertKind (crates/eg-types/src/finance_event_envelope.rs) prove the type-level contract for price/trend-flip/DCA-due/margin-threshold alerts and their outbox event-schema names, with validation and refusal tests (empty event_id, empty listing_id, non-positive timestamp, empty message). Wiring this envelope into the outbox append path and preserving the existing TrendFlip event id end to end is a later slice of EG-FINANCE-PRIMITIVES-R011."
-    },
-    {
-      "id": "EG-FINANCE-PRIMITIVES-R012",
-      "title": "Optional one-way Ghostfolio activity import",
-      "delivery_state": "SPECIFIED",
-      "evidence": [],
-      "remaining": "Net-new, sliced per the sizing rule: EG-FINANCE-PRIMITIVES-R012.1 (typed model: the one-way flow-direction gate and activity mapping, built this PR) and .2 (the typed source-registry attachment and disposable-fixture integration tests). R012 is LANDED when every child is LANDED."
-    },
-    {
-      "id": "EG-FINANCE-PRIMITIVES-R012.1",
-      "title": "A typed gate admits only a one-way Ghostfolio import, never a write-back",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "branch",
-          "result": "passed",
-          "commit": "fcca865a05059f07fe43b25a0c94045111e3528a",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/fcca865a05059f07fe43b25a0c94045111e3528a",
-          "description": "admit_ghostfolio_flow and map_ghostfolio_activity are published on a branch; not yet merged to the default branch."
-        },
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "fcca865a05059f07fe43b25a0c94045111e3528a",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/fcca865a05059f07fe43b25a0c94045111e3528a",
-          "description": "EG-FINANCE-PRIMITIVES-R012.1 merged to the default branch in this commit."
-        }
-      ]
-    },
-    {
-      "id": "EG-FINANCE-PRIMITIVES-R012.2",
-      "title": "Ghostfolio attaches through the typed source registry with disposable-fixture coverage",
-      "delivery_state": "SPECIFIED",
-      "evidence": [],
-      "remaining": "Depends on EG-FINANCE-PRIMITIVES-R012.1 (producer). Typed source-registry attachment and integration tests against a disposable Ghostfolio fixture are not yet designed."
-    },
-    {
-      "id": "EG-FINANCE-PRIMITIVES-R013",
-      "title": "Golden accounting and risk fixtures with full provenance",
-      "delivery_state": "SPECIFIED",
-      "evidence": [],
-      "remaining": "Net-new, sliced per the sizing rule: EG-FINANCE-PRIMITIVES-R013.1 (typed model: the figure shape and provenance-refusal gate, built this PR) and .2 (the golden fixtures themselves -- broker statements, corporate actions, DST/session boundaries, leveraged-ETF decay, futures rolls -- compared against published reference values). R013 is LANDED when every child is LANDED."
-    },
-    {
-      "id": "EG-FINANCE-PRIMITIVES-R013.1",
-      "title": "A golden-fixture figure is refused when its provenance is incomplete",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "branch",
-          "result": "passed",
-          "commit": "fcca865a05059f07fe43b25a0c94045111e3528a",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/fcca865a05059f07fe43b25a0c94045111e3528a",
-          "description": "GoldenFixtureFigure and check_figure_provenance are published on a branch; not yet merged to the default branch."
-        },
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "fcca865a05059f07fe43b25a0c94045111e3528a",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/fcca865a05059f07fe43b25a0c94045111e3528a",
-          "description": "EG-FINANCE-PRIMITIVES-R013.1 merged to the default branch in this commit."
-        }
-      ]
-    },
-    {
-      "id": "EG-FINANCE-PRIMITIVES-R013.2",
-      "title": "Golden fixtures compare computed figures against published reference values",
-      "delivery_state": "SPECIFIED",
-      "evidence": [],
-      "remaining": "Depends on EG-FINANCE-PRIMITIVES-R013.1 (producer). The actual broker-statement/corporate-action/DST-session/leveraged-ETF-decay/futures-roll fixtures are not yet written."
-    },
-    {
-      "id": "EG-FINANCE-PRIMITIVES-R014",
-      "title": "finance-v1 thin instrument and signal module",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "532418b7e55b483cd5745e624bc5d5e9a859dd1a",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/532418b7e55b483cd5745e624bc5d5e9a859dd1a",
-          "description": "Implemented on the default branch; exercised by crates/eg-compute/src/finance/market/golden_tests.rs::daily_kernels_match_the_reference_bit_for_bit"
-        }
-      ]
-    },
-    {
-      "id": "EG-FINANCE-PRIMITIVES-R015",
-      "title": "AnalysisSnapshot records with share.read control leases",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "implementation",
-          "result": "passed",
-          "commit": "3899594fed447ce6b784365fc954be1e837cde4f",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/3899594fed447ce6b784365fc954be1e837cde4f",
-          "description": "Part of the requirement is implemented on the default branch."
-        },
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "3899594fed447ce6b784365fc954be1e837cde4f",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/3899594fed447ce6b784365fc954be1e837cde4f",
-          "description": "EG-FINANCE-PRIMITIVES-R015 merged to the default branch in this commit."
-        }
-      ],
-      "remaining": "AnalysisSnapshot/AnalysisSnapshotDraft (crates/eg-types/src/compute_result/market/snapshot.rs) carries informational_only, excludes_positions and SnapshotNotices, but has no control-lease / share.read link field anywhere in its definition. A generic ControlLease mechanism exists in …"
-    },
-    {
-      "id": "EG-FINANCE-PRIMITIVES-R016",
-      "title": "Incremental deterministic indicator kernels with Pine parity",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "532418b7e55b483cd5745e624bc5d5e9a859dd1a",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/532418b7e55b483cd5745e624bc5d5e9a859dd1a",
-          "description": "Implemented on the default branch; exercised by crates/eg-compute/src/finance/market/golden_tests.rs::weekly_kernels_match_the_reference_bit_for_bit"
-        }
-      ]
-    },
-    {
-      "id": "EG-FINANCE-PRIMITIVES-R017",
-      "title": "BacktestRun provenance record with mandatory fields",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "532418b7e55b483cd5745e624bc5d5e9a859dd1a",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/532418b7e55b483cd5745e624bc5d5e9a859dd1a",
-          "description": "Implemented on the default branch; exercised by crates/eg-compute/src/finance/market/record_tests.rs::look_ahead_fills_and_missing_outputs_are_refused"
-        }
-      ]
-    },
-    {
-      "id": "EG-FINANCE-PRIMITIVES-R004.2.1",
-      "title": "Account and Position OWL classes and SHACL shapes",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "a189dbe4067fefefa91927b3b4a59b094b89e183",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/a189dbe4067fefefa91927b3b4a59b094b89e183",
-          "description": "EG-FINANCE-PRIMITIVES-R004.2.1 merged to the default branch in this commit."
-        }
-      ]
-    },
-    {
-      "id": "EG-FINANCE-PRIMITIVES-R004.2.2",
-      "title": "Activity and Lot OWL classes and SHACL shapes",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "a189dbe4067fefefa91927b3b4a59b094b89e183",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/a189dbe4067fefefa91927b3b4a59b094b89e183",
-          "description": "EG-FINANCE-PRIMITIVES-R004.2.2 merged to the default branch in this commit."
-        }
+      "verified_by": [
+        "crates/eg-compute/src/finance/lot_accounting.rs:209",
+        "crates/eg-compute/src/finance/lot_accounting.rs:224",
+        "crates/eg-compute/src/finance/lot_accounting.rs:239"
       ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R005.2",
       "title": "Remaining scope of EG-FINANCE-PRIMITIVES-R005 (slice .2): Deterministic fixed-point portfolio accounting",
       "delivery_state": "SPECIFIED",
-      "evidence": []
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R006",
+      "title": "Point-in-time corporate actions and exchange session calendars",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "86432b21655e",
+        "b9870e23567b"
+      ],
+      "verified_by": [
+        "crates/eg-compute/src/finance/market/calendar.rs:460",
+        "crates/eg-compute/src/finance/market/calendar.rs:476",
+        "crates/eg-compute/src/finance/market/calendar.rs:485"
+      ]
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R007",
+      "title": "Versioned StrategySpec evaluator with DCA, trend, rebalancing",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "6602649a6bff"
+      ],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-FINANCE-PRIMITIVES-R007.1"
+      ]
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R007.1",
+      "title": "DCA-by-fixed-amount default strategy evaluator",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "6602649a6bff"
+      ],
+      "verified_by": [
+        "crates/eg-compute/src/finance/strategy.rs:70",
+        "crates/eg-compute/src/finance/strategy.rs:85",
+        "crates/eg-compute/src/finance/strategy.rs:97"
+      ]
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R008",
+      "title": "Strategy backtests sealed through BacktestRun",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "b96ef8ebd9df"
+      ],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-FINANCE-PRIMITIVES-R008.1"
+      ]
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R008.1",
+      "title": "Dollar-cost-averaging backtest seals through BacktestRun",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "b96ef8ebd9df"
+      ],
+      "verified_by": [
+        "crates/eg-compute/src/finance/market/strategy_backtest.rs:112",
+        "crates/eg-compute/src/finance/market/strategy_backtest.rs:121",
+        "crates/eg-compute/src/finance/market/strategy_backtest.rs:97"
+      ]
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R009",
+      "title": "Calibrated abstaining recommendations with scorecards",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "e93220a15cd2"
+      ],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-FINANCE-PRIMITIVES-R009.1"
+      ]
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R009.1",
+      "title": "Calibrated recommendation decision over flip confidence",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "e93220a15cd2"
+      ],
+      "verified_by": [
+        "crates/eg-compute/src/finance/market/recommendation.rs:104",
+        "crates/eg-compute/src/finance/market/recommendation.rs:81",
+        "crates/eg-compute/src/finance/market/recommendation.rs:94"
+      ]
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R010",
+      "title": "Leverage risk module with margin, sizing, live-order boundary",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "76107c24568d"
+      ],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-FINANCE-PRIMITIVES-R010.1"
+      ]
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R010.1",
+      "title": "Live-order eligibility boundary",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "76107c24568d"
+      ],
+      "verified_by": [
+        "crates/eg-compute/src/finance/leverage.rs:113",
+        "crates/eg-compute/src/finance/leverage.rs:131",
+        "crates/eg-compute/src/finance/leverage.rs:98"
+      ]
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R011",
+      "title": "Finance alerts published through the finance outbox",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "3eeb3126f421"
+      ],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-FINANCE-PRIMITIVES-R011.1"
+      ]
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R011.1",
+      "title": "Typed finance alert envelope (producer-first split of R011)",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "3eeb3126f421"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/finance_event_envelope.rs:103",
+        "crates/eg-types/src/finance_event_envelope.rs:111",
+        "crates/eg-types/src/finance_event_envelope.rs:97"
+      ]
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R012",
+      "title": "Optional one-way Ghostfolio activity import",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-FINANCE-PRIMITIVES-R012.1",
+        "EG-FINANCE-PRIMITIVES-R012.2"
+      ]
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R012.1",
+      "title": "A typed gate admits only a one-way Ghostfolio import, never a write-back",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "fcca865a0505"
+      ],
+      "verified_by": [
+        "crates/eg-compute/src/finance/ghostfolio_import.rs:105",
+        "crates/eg-compute/src/finance/ghostfolio_import.rs:91",
+        "crates/eg-compute/src/finance/ghostfolio_import.rs:97"
+      ]
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R012.2",
+      "title": "Ghostfolio attaches through the typed source registry with disposable-fixture coverage",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R013",
+      "title": "Golden accounting and risk fixtures with full provenance",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-FINANCE-PRIMITIVES-R013.1",
+        "EG-FINANCE-PRIMITIVES-R013.2"
+      ]
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R013.1",
+      "title": "A golden-fixture figure is refused when its provenance is incomplete",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "fcca865a0505"
+      ],
+      "verified_by": [
+        "crates/eg-compute/src/finance/ghostfolio_import.rs:105",
+        "crates/eg-compute/src/finance/ghostfolio_import.rs:91",
+        "crates/eg-compute/src/finance/ghostfolio_import.rs:97"
+      ]
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R013.2",
+      "title": "Golden fixtures compare computed figures against published reference values",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R014",
+      "title": "finance-v1 thin instrument and signal module",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "532418b7e55b"
+      ],
+      "verified_by": [
+        "crates/eg-capabilities/tests/contract_registry.rs:146",
+        "crates/eg-compute/src/finance/market/calendar.rs:344",
+        "crates/eg-compute/src/finance/market/calendar.rs:356"
+      ]
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R015",
+      "title": "AnalysisSnapshot records with share.read control leases",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "3899594fed44"
+      ],
+      "verified_by": [
+        "crates/eg-compute/src/finance/market/decimate.rs:301",
+        "crates/eg-compute/src/finance/market/decimate.rs:311",
+        "crates/eg-compute/src/finance/market/decimate.rs:331"
+      ]
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R016",
+      "title": "Incremental deterministic indicator kernels with Pine parity",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "532418b7e55b"
+      ],
+      "verified_by": [
+        "crates/eg-capabilities/tests/contract_registry.rs:146",
+        "crates/eg-compute/src/finance/market/calendar.rs:344",
+        "crates/eg-compute/src/finance/market/calendar.rs:356"
+      ]
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R017",
+      "title": "BacktestRun provenance record with mandatory fields",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "532418b7e55b"
+      ],
+      "verified_by": [
+        "crates/eg-capabilities/tests/contract_registry.rs:146",
+        "crates/eg-compute/src/finance/market/calendar.rs:344",
+        "crates/eg-compute/src/finance/market/calendar.rs:356"
+      ]
     }
   ]
 }

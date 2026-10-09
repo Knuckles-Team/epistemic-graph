@@ -1,7 +1,8 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "spec_id": "EG-REPO-INGEST",
   "owner_repo": "epistemic-graph",
+  "delivery_state": "SPECIFIED",
   "requirement_ids": [
     "EG-REPO-INGEST-R001",
     "EG-REPO-INGEST-R002",
@@ -23,296 +24,281 @@
     "EG-REPO-INGEST-R007",
     "EG-REPO-INGEST-R008",
     "EG-REPO-INGEST-R009",
+    "EG-REPO-INGEST-R009.1",
+    "EG-REPO-INGEST-R009.2",
     "EG-REPO-INGEST-R010",
     "EG-REPO-INGEST-R011"
   ],
-  "delivery_state": "BUILDING",
-  "acceptance_state": "NOT_AUDITED",
-  "evidence": [],
   "requirements": [
     {
       "id": "EG-REPO-INGEST-R001",
       "title": "Reconcile mode re-admits stranded semantic intents",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "implementation",
-          "result": "passed",
-          "commit": "ac563847728840503193b0d6b999e4012bf17c78",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/ac563847728840503193b0d6b999e4012bf17c78",
-          "description": "Part of the requirement is implemented on the default branch."
-        },
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "ac563847728840503193b0d6b999e4012bf17c78",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/ac563847728840503193b0d6b999e4012bf17c78",
-          "description": "EG-REPO-INGEST-R001 merged to the default branch in this commit."
-        }
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "ac5638477288"
       ],
-      "remaining": "admit_sql_source_dirty_reconcile exists and is heavily tested for crash/reopen and tombstone-after-snapshot reconciliation, but no 'retire a topic' operation exists anywhere, and no test retires a topic with pending stranded intents and confirms reconcile-mode re-admission as the requirement …"
+      "verified_by": [
+        "crates/eg-ann/src/hnsw.rs:424",
+        "crates/eg-ann/src/hnsw.rs:456",
+        "crates/eg-ann/src/hnsw.rs:486"
+      ]
     },
     {
       "id": "EG-REPO-INGEST-R002",
       "title": "SourceIngest is sole owner of migrated ingestion capabilities",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "implementation",
-          "result": "passed",
-          "commit": "f17f47ab300f7f1ddd972d4e0214283a28547e36",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/f17f47ab300f7f1ddd972d4e0214283a28547e36",
-          "description": "Part of the requirement is implemented on the default branch."
-        },
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "f17f47ab300f7f1ddd972d4e0214283a28547e36",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/f17f47ab300f7f1ddd972d4e0214283a28547e36",
-          "description": "EG-REPO-INGEST-R002 merged to the default branch in this commit."
-        }
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "f17f47ab300f"
       ],
-      "remaining": "SourceIngest exists on main as a real method wired through dispatch/access/mutation/audit, but none of the 14 named legacy capabilities (envelope_ingest, change_envelope, evidence_spine, semantic_event_model, object_centric_derivation, process_conformance, embedding_admission, gpu_slot_scheduler …"
+      "verified_by": [
+        "crates/eg-capabilities/src/contract/python/tests.rs:201",
+        "crates/eg-capabilities/src/contract/python/tests.rs:224",
+        "crates/eg-capabilities/src/contract/python/tests.rs:523"
+      ]
     },
     {
       "id": "EG-REPO-INGEST-R003",
       "title": "EG is sole home for remaining migrated ingestion modules (rollup)",
-      "delivery_state": "BUILDING",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "ae0f93b6bf70e1107afcc235f0d32caf70131180",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/ae0f93b6bf70e1107afcc235f0d32caf70131180",
-          "description": "EG-REPO-INGEST-R003 merged to the default branch in this commit."
-        }
+      "delivery_state": "SPECIFIED",
+      "landed_in": [
+        "ae0f93b6bf70"
       ],
-      "remaining": "Rolled up into EG-REPO-INGEST-R003.1-R003.11, one child per migrating legacy-module root; see each child for its own state."
+      "verified_by": [],
+      "rollup_of": [
+        "EG-REPO-INGEST-R003.1",
+        "EG-REPO-INGEST-R003.2",
+        "EG-REPO-INGEST-R003.3",
+        "EG-REPO-INGEST-R003.4",
+        "EG-REPO-INGEST-R003.5",
+        "EG-REPO-INGEST-R003.6",
+        "EG-REPO-INGEST-R003.7",
+        "EG-REPO-INGEST-R003.8",
+        "EG-REPO-INGEST-R003.9",
+        "EG-REPO-INGEST-R003.10",
+        "EG-REPO-INGEST-R003.11"
+      ]
     },
     {
       "id": "EG-REPO-INGEST-R003.1",
       "title": "EG is sole home for migrated standardization processing (excluding drift detection)",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "e72ee15e11bbdfa5266de45a1e01507c2b9f23f9",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/e72ee15e11bbdfa5266de45a1e01507c2b9f23f9",
-          "description": "EG-REPO-INGEST-R003.1 merged to the default branch in this commit."
-        }
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "ae0f93b6bf70",
+        "e72ee15e11bb"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/source_ingestion/tests.rs:341",
+        "crates/eg-types/src/source_ingestion/tests.rs:357",
+        "crates/eg-types/src/source_ingestion/tests.rs:367"
       ]
     },
     {
       "id": "EG-REPO-INGEST-R003.2",
       "title": "EG is sole home for migrated infrastructure processing",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "f70de8c33b4f7deac0696265565af0975ae27095",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/f70de8c33b4f7deac0696265565af0975ae27095",
-          "description": "EG-REPO-INGEST-R003.2 merged to the default branch in this commit."
-        }
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "f70de8c33b4f"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/source_ingestion/tests.rs:384"
       ]
     },
     {
       "id": "EG-REPO-INGEST-R003.3",
       "title": "EG is sole home for migrated quantum processing",
-      "delivery_state": "BUILDING",
-      "evidence": []
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "EG-REPO-INGEST-R003.4",
       "title": "EG is sole home for migrated security processing",
-      "delivery_state": "BUILDING",
-      "evidence": []
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "EG-REPO-INGEST-R003.5",
       "title": "EG is sole home for migrated enterprise protocol handling",
-      "delivery_state": "BUILDING",
-      "evidence": []
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "EG-REPO-INGEST-R003.6",
       "title": "EG is sole home for migrated ecosystem concept extraction",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "f70de8c33b4f7deac0696265565af0975ae27095",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/f70de8c33b4f7deac0696265565af0975ae27095",
-          "description": "EG-REPO-INGEST-R003.6 merged to the default branch in this commit."
-        }
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "f70de8c33b4f"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/source_ingestion/tests.rs:527"
       ]
     },
     {
       "id": "EG-REPO-INGEST-R003.7",
       "title": "EG is sole home for migrated trace-ontology observability",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "fb19bf6ab789adc4f087050dc17bf0e0c34fc40f",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/fb19bf6ab789adc4f087050dc17bf0e0c34fc40f",
-          "description": "EG-REPO-INGEST-R003.7 merged to the default branch in this commit."
-        }
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "fb19bf6ab789"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/source_ingestion/tests.rs:384",
+        "crates/eg-types/src/source_ingestion/tests.rs:395",
+        "crates/eg-types/src/source_ingestion/tests.rs:405"
       ]
     },
     {
       "id": "EG-REPO-INGEST-R003.8",
       "title": "EG is sole home for migrated self-ingestion observability",
-      "delivery_state": "BUILDING",
-      "evidence": []
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "EG-REPO-INGEST-R003.9",
       "title": "EG is sole home for migrated audit-logging observability",
-      "delivery_state": "BUILDING",
-      "evidence": []
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "EG-REPO-INGEST-R003.10",
       "title": "EG is sole home for migrated relational-authority governance",
-      "delivery_state": "BUILDING",
-      "evidence": []
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "EG-REPO-INGEST-R003.11",
       "title": "EG is sole home for migrated placement-mining research",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "fd9e20bc998db7b0a2b93c0eb24a04c83199d54b",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/fd9e20bc998db7b0a2b93c0eb24a04c83199d54b",
-          "description": "EG-REPO-INGEST-R003.11 merged to the default branch in this commit."
-        }
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "ae0f93b6bf70",
+        "fb19bf6ab789",
+        "fd9e20bc998d"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/source_ingestion/tests.rs:341",
+        "crates/eg-types/src/source_ingestion/tests.rs:357",
+        "crates/eg-types/src/source_ingestion/tests.rs:367"
       ]
     },
     {
       "id": "EG-REPO-INGEST-R004",
       "title": "Derived series maintained incrementally with lineage",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "2b8c0364ebb79449959bc6c1b904f233b87d00e3",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/2b8c0364ebb79449959bc6c1b904f233b87d00e3",
-          "description": "Implemented on the default branch; exercised by src/server/handlers/timeseries/derived_tests.rs::bad_definitions_are_refused_and_other_tenants_see_nothing; crates/eg-tsdb/src/derive/maintain_tests.rs::a_replay_over_the_budget_is_refused_and_checkpoints_stay_bounded"
-        }
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "2b8c0364ebb7"
+      ],
+      "verified_by": [
+        "crates/eg-plan/src/tsdb_scan_tests.rs:693",
+        "src/server/handlers/timeseries/derived_tests.rs:205"
       ]
     },
     {
       "id": "EG-REPO-INGEST-R005",
       "title": "Replay-protection nonces commit in batches for throughput",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "7d1bf0006b9484897b4c97fab4d6c6e54a870413",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/7d1bf0006b9484897b4c97fab4d6c6e54a870413",
-          "description": "Implemented on the default branch; exercised by src/server/request_replay.rs::tests::a_nonce_is_accepted_once_and_refused_after; ::one_durable_commit_per_advancing_second"
-        }
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "7d1bf0006b94"
+      ],
+      "verified_by": [
+        "src/server/request_replay.rs:418",
+        "src/server/request_replay.rs:428",
+        "src/server/request_replay.rs:473"
       ]
     },
     {
       "id": "EG-REPO-INGEST-R006",
       "title": "Native ingestion commits fast; heavy enrichment deferred",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "implementation",
-          "result": "passed",
-          "commit": "6bb88b0a90ccaac33b7e92662b5b5350f29caf58",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/6bb88b0a90ccaac33b7e92662b5b5350f29caf58",
-          "description": "Part of the requirement is implemented on the default branch."
-        },
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "6bb88b0a90ccaac33b7e92662b5b5350f29caf58",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/6bb88b0a90ccaac33b7e92662b5b5350f29caf58",
-          "description": "EG-REPO-INGEST-R006 merged to the default branch in this commit."
-        }
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "6bb88b0a90cc"
       ],
-      "remaining": "Native admission/budget/deferred-enrichment pipeline and a background drain worker exist on main, but no bounded on-demand enrichment path for a unit a query needs, and no end-to-end commit-latency benchmark against real public repositories was found; private tracking confirms served/enrichment and …"
+      "verified_by": [
+        "crates/eg-capabilities/tests/invariants.rs:423",
+        "crates/eg-storage/src/recovery/validate.rs:737",
+        "crates/eg-transaction/src/tests/supersede.rs:64"
+      ]
     },
     {
       "id": "EG-REPO-INGEST-R007",
       "title": "Large ingestion batches refuse atomically with a stable code",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "33c5c6459154be8b8356b93e66c54322a28715c4",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/33c5c6459154be8b8356b93e66c54322a28715c4",
-          "description": "Implemented on the default branch; exercised by src/server/handlers/repository_index_tests.rs::a_batch_over_the_commit_budget_is_refused_whole"
-        }
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "33c5c6459154"
+      ],
+      "verified_by": [
+        "crates/eg-compute/src/parser/branch_index_tests.rs:102",
+        "crates/eg-compute/src/parser/branch_index_tests.rs:319",
+        "crates/eg-compute/src/parser/branch_index_tests.rs:345"
       ]
     },
     {
       "id": "EG-REPO-INGEST-R008",
       "title": "Oversized batches return a stable code for retry",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "504e3109b2b0dc97a231a5558c247431e2c223ff",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/504e3109b2b0dc97a231a5558c247431e2c223ff",
-          "description": "EG-REPO-INGEST-R008 merged to the default branch in this commit."
-        }
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "504e3109b2b0"
+      ],
+      "verified_by": [
+        "src/server/handlers/repository_index_tests.rs:218",
+        "src/server/handlers/repository_index_tests.rs:248"
       ]
     },
     {
       "id": "EG-REPO-INGEST-R009",
       "title": "Repository hydration links into the specification bridge",
-      "delivery_state": "BUILDING",
-      "evidence": [
-        {
-          "kind": "branch",
-          "result": "passed",
-          "commit": "a13974941fb3f516b8f0a0051f9ad03a43c3c7a3",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/a13974941fb3f516b8f0a0051f9ad03a43c3c7a3",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
-        }
+      "delivery_state": "LANDED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-REPO-INGEST-R009.1",
+        "EG-REPO-INGEST-R009.2"
       ]
+    },
+    {
+      "id": "EG-REPO-INGEST-R009.1",
+      "title": "Edge identity is the `(source, target, relation_type)` triple",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "1bb3ca5fed33",
+        "1f5ba9350abb"
+      ],
+      "verified_by": [
+        "crates/eg-core/src/graph/core_edge_queries.rs:271"
+      ]
+    },
+    {
+      "id": "EG-REPO-INGEST-R009.2",
+      "title": "Semantic-bridge projection of the nine relations onto typed triples",
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "1f5ba9350abb"
+      ],
+      "verified_by": []
     },
     {
       "id": "EG-REPO-INGEST-R010",
       "title": "Tree-sitter grammar coverage expands to 18 more languages",
       "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "2a0d6eae09180f09d4666208faa138685f1ae50a",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/2a0d6eae09180f09d4666208faa138685f1ae50a",
-          "description": "Implementing commit is reachable from the default branch."
-        }
-      ]
+      "landed_in": [
+        "2a0d6eae0918"
+      ],
+      "verified_by": []
     },
     {
       "id": "EG-REPO-INGEST-R011",
       "title": "Ingestion community detection uses pure Leiden",
-      "delivery_state": "CLOSED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "b5fe3c140c212d2c32d80074c72e7913103554a7",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/b5fe3c140c212d2c32d80074c72e7913103554a7",
-          "description": "Implementing commit is reachable from the default branch."
-        }
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "b5fe3c140c21"
+      ],
+      "verified_by": [
+        "crates/eg-compute/src/algorithms/tests.rs:112",
+        "crates/eg-compute/src/algorithms/tests.rs:141",
+        "crates/eg-compute/src/algorithms/tests.rs:192"
       ]
     }
   ]

@@ -1,7 +1,8 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "spec_id": "EG-IDENTITY-001",
   "owner_repo": "epistemic-graph",
+  "delivery_state": "LANDED",
   "requirement_ids": [
     "EG-IDENTITY-R001",
     "EG-IDENTITY-R002",
@@ -10,131 +11,80 @@
     "EG-IDENTITY-R005",
     "EG-IDENTITY-R006"
   ],
-  "delivery_state": "LANDED",
-  "acceptance_state": "NOT_AUDITED",
-  "evidence": [
-    {
-      "kind": "merged_head",
-      "result": "passed",
-      "commit": "bb5db1746a16013ed24c76587dae3519d63e2998",
-      "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/bb5db1746a16013ed24c76587dae3519d63e2998",
-      "description": "Every requirement in this spec is merged to the default branch."
-    }
-  ],
   "requirements": [
     {
       "id": "EG-IDENTITY-R001",
       "title": "Multi-issuer OIDC trust list with per-issuer kind limits",
       "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "branch",
-          "result": "passed",
-          "commit": "46628aaef4bf614e2b48d73429f4733f0fe50c39",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/46628aaef4bf614e2b48d73429f4733f0fe50c39",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
-        },
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "bb5db1746a16013ed24c76587dae3519d63e2998",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/bb5db1746a16013ed24c76587dae3519d63e2998",
-          "description": "EG-IDENTITY-R001 merged to the default branch in this commit."
-        }
-      ]
+      "landed_in": [
+        "bb5db1746a16"
+      ],
+      "verified_by": []
     },
     {
       "id": "EG-IDENTITY-R002",
       "title": "Identity and RBAC writes recompute roles and audit atomically",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "branch",
-          "result": "passed",
-          "commit": "1cdde6348908afe8ccd5128e02b7d46ebb5c4d1f",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/1cdde6348908afe8ccd5128e02b7d46ebb5c4d1f",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
-        },
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "f9a69bfe8a9c9702bbfa702b02eb4d902ba4fb3f",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/f9a69bfe8a9c9702bbfa702b02eb4d902ba4fb3f",
-          "description": "EG-IDENTITY-R002 merged to the default branch in this commit."
-        }
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "f9a69bfe8a9c"
+      ],
+      "verified_by": [
+        "crates/eg-capabilities/src/scopes/tests.rs:38",
+        "crates/eg-capabilities/src/scopes/tests.rs:51",
+        "crates/eg-capabilities/src/scopes/tests.rs:65"
       ]
     },
     {
       "id": "EG-IDENTITY-R003",
       "title": "Identity mode is a durable singleton with CAS transition",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "branch",
-          "result": "passed",
-          "commit": "e9bed82e7e44da062b32db64b6aab08b6ee57791",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/e9bed82e7e44da062b32db64b6aab08b6ee57791",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
-        },
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "f9a69bfe8a9c9702bbfa702b02eb4d902ba4fb3f",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/f9a69bfe8a9c9702bbfa702b02eb4d902ba4fb3f",
-          "description": "EG-IDENTITY-R003 merged to the default branch in this commit."
-        }
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "f9a69bfe8a9c"
+      ],
+      "verified_by": [
+        "crates/eg-capabilities/src/scopes/tests.rs:38",
+        "crates/eg-capabilities/src/scopes/tests.rs:51",
+        "crates/eg-capabilities/src/scopes/tests.rs:65"
       ]
     },
     {
       "id": "EG-IDENTITY-R004",
       "title": "Generated scope registry classifies every capability scope",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "branch",
-          "result": "passed",
-          "commit": "5ad487bf2efcd2f1e4559453c9277637bfdde04b",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/5ad487bf2efcd2f1e4559453c9277637bfdde04b",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
-        },
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "a2cbfc473ba296f412cffdddf04afa5c79d67b58",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/a2cbfc473ba296f412cffdddf04afa5c79d67b58",
-          "description": "EG-IDENTITY-R004 merged to the default branch in this commit."
-        }
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "63488a50eefc",
+        "a2cbfc473ba2"
+      ],
+      "verified_by": [
+        "crates/eg-capabilities/src/scopes/tests.rs:113",
+        "crates/eg-capabilities/src/scopes/tests.rs:73"
       ]
     },
     {
       "id": "EG-IDENTITY-R005",
       "title": "Semantic workers use one identity across queue classes",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "62bec8a1ae9459629b435a6b05ffd9dffd48f7e3",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/62bec8a1ae9459629b435a6b05ffd9dffd48f7e3",
-          "description": "EG-IDENTITY-R005 merged to the default branch in this commit."
-        }
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "62bec8a1ae94"
       ],
-      "remaining": "src/server/handlers/semantic_index/worker.rs dispatches StageClaim/StageStatus/etc. (different queue classes) all reading ctx.authority.agent_id() from one authenticated request context, which structurally supports a single identity per request, but no integration test was found confirming the SAME \u2026"
+      "verified_by": [
+        "src/server/semantic_index/dispatch_pipeline_tests.rs:556",
+        "src/server/semantic_index/dispatch_pipeline_tests.rs:601"
+      ]
     },
     {
       "id": "EG-IDENTITY-R006",
       "title": "Tenant roles read the shared commons graph",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "7622e4b24455e2dbe3c573e0d63727b668774829",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/7622e4b24455e2dbe3c573e0d63727b668774829",
-          "description": "Implementation merged to the default branch; the commit names this requirement."
-        }
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "7622e4b24455",
+        "dfb2367561d1"
       ],
-      "remaining": "Merge the PR. Backfill the grant for tenant roles provisioned before this change (task I-8)."
+      "verified_by": [
+        "crates/eg-core/src/isolation.rs:1672",
+        "crates/eg-core/src/isolation.rs:1734",
+        "crates/eg-core/src/isolation.rs:1753"
+      ]
     }
   ]
 }
