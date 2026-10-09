@@ -40,6 +40,7 @@
     "EG-UNIFIED-DATA-PLANE-R027",
     "EG-UNIFIED-DATA-PLANE-R027.1",
     "EG-UNIFIED-DATA-PLANE-R028",
+    "EG-UNIFIED-DATA-PLANE-R028.1",
     "EG-UNIFIED-DATA-PLANE-R029",
     "EG-UNIFIED-DATA-PLANE-R030",
     "EG-UNIFIED-DATA-PLANE-R031",
@@ -290,7 +291,13 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R028",
       "title": "Build the Postgres-equivalence differential harness",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R028.1",
+      "title": "DeviationBaseline typed model and no-silent-drop refusal",
+      "delivery_state": "BUILT",
       "evidence": []
     },
     {

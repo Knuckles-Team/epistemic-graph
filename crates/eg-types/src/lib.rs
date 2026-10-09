@@ -76,6 +76,11 @@ pub mod gramps_pilot_phase;
 // captured-traffic/failing-test/passing-test proof. Pure data;
 // implementing each proven feature is a later child.
 pub mod pg_compat_feature;
+// EG-UNIFIED-DATA-PLANE-R028.1 — typed Postgres-equivalence differential
+// deviation baseline, refusing a baseline update that drops a deviation
+// without an explicit resolution record (no self-updating baseline). Pure
+// data; running the regression/SQLancer/captured-traffic corpora is a
+pub mod pg_diff_baseline;
 // GOC-03 — the cross-domain commit-descriptor/read-barrier currency shared by
 // graph, modality, vector, blob/refcount, time-series, evidence, table/lake, and
 // terminal-analytics-outcome participants. Deliberately a NEW module (not folded
