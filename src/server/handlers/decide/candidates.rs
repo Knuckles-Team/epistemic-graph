@@ -261,6 +261,28 @@ pub(super) fn graph_candidates(
     })
 }
 
+/// Map an [`IngestionLaneRequest::check`] failure to its wire refusal.
+///
+/// `check()` reports an unsupported lane as free text prefixed
+/// `"UNSUPPORTED_INGESTION_LANE: "` (its own closed vocabulary, mirrored by
+/// [`StatisticalErrorCode::UnsupportedIngestionLane`]); passing that whole
+/// string through `refusal(StatisticalErrorCode::ParameterInvalid, ...)`
+/// would nest it two codes deep (`"PARAMETER_INVALID: UNSUPPORTED_INGESTION_
+/// LANE: ..."`), and `crate::protocol::Response::err` only ever promotes the
+/// FIRST `"CODE: detail"` segment to the wire-visible `error` field -- the
+/// served response would read `PARAMETER_INVALID`, silently dropping the
+/// specific code a caller needs to branch on (caught by
+/// `consumer_tests::an_unregistered_ingestion_lane_is_refused_through_decide`,
+/// which asserts on the served response, not the type's own unit test).
+/// The other `check()` failure (an empty candidate list) carries no such
+/// prefix and stays `ParameterInvalid`.
+fn ingestion_lane_refusal(detail: &str) -> String {
+    match detail.strip_prefix("UNSUPPORTED_INGESTION_LANE: ") {
+        Some(rest) => refusal(StatisticalErrorCode::UnsupportedIngestionLane, rest),
+        None => refusal(StatisticalErrorCode::ParameterInvalid, detail),
+    }
+}
+
 /// Declared candidates: the caller's own options, each fact a claim, visible
 /// to the declaring principal only. Validated before any feature reads them.
 ///
@@ -281,7 +303,7 @@ pub(super) fn declared_candidates(
             candidate_lanes: options.iter().map(|o| o.option_id.clone()).collect(),
         }
         .check()
-        .map_err(|detail| refusal(StatisticalErrorCode::ParameterInvalid, detail))?;
+        .map_err(|detail| ingestion_lane_refusal(&detail))?;
     }
     let views = options
         .iter()

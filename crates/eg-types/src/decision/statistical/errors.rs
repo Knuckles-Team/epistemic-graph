@@ -45,6 +45,10 @@ closed_error_codes! {
         TrialsUnderstated => "TRIALS_UNDERSTATED",
         /// A replay's folds, budget or data cannot be replayed.
         ReplaySpecInvalid => "REPLAY_SPEC_INVALID",
+        /// A declared ingestion-lane candidate names a lane outside the
+        /// fixed registry (`IngestionLane::ALL`), refused before any
+        /// decision runs (EG-DECISION-ENGINE-R030).
+        UnsupportedIngestionLane => "UNSUPPORTED_INGESTION_LANE",
     }
 }
 
