@@ -107,6 +107,10 @@ pub mod hot_store_engine;
 // model: a single-store scope structurally can never map to the cross-store
 // commit path. Pure serde, no dep.
 pub mod cross_store_scope;
+// EG-DURABLE-KERNEL-R035 — the PostgreSQL wire protocol's required
+// operational surfaces and a fail-closed compatibility matrix. Pure serde,
+// no dep.
+pub mod pg_operational_surface;
 // EH-346/EH-347 — capture-first open-weight policy evolution: the capability,
 // capture, model-policy version, training-run and evaluation records EG owns.
 // Pure serde; EG records and relates, it never trains.
