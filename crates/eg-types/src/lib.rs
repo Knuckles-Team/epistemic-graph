@@ -34,6 +34,11 @@ pub mod capacity_lease;
 // eg-transaction admission boundary. This module grants no executable capability.
 pub mod authority;
 pub mod change_envelope;
+// EG-UNIFIED-DATA-PLANE-R020.1 — typed federated warehouse/lake source-kind
+// model (Snowflake, BigQuery, DuckDB, Iceberg) and its per-kind required-field
+// refusal. Pure data; query pushdown and the conformance entry are later
+// children.
+pub mod warehouse_federation;
 // GOC-03 — the cross-domain commit-descriptor/read-barrier currency shared by
 // graph, modality, vector, blob/refcount, time-series, evidence, table/lake, and
 // terminal-analytics-outcome participants. Deliberately a NEW module (not folded

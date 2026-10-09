@@ -34,6 +34,9 @@
 - [ ] **EG-UNIFIED-DATA-PLANE-R018:** Oracle and Db2 catalog/query through driver/ODBC and Debezium capture; depends on EG-UNIFIED-DATA-PLANE-R021.
 - [ ] **EG-UNIFIED-DATA-PLANE-R019:** MongoDB/DocumentDB document catalog and change streams; depends on EG-UNIFIED-DATA-PLANE-R002.
 - [ ] **EG-UNIFIED-DATA-PLANE-R020:** Snowflake, BigQuery, DuckDB and Iceberg federation; depends on EG-UNIFIED-DATA-PLANE-R007.
+- [x] **EG-UNIFIED-DATA-PLANE-R020.1:** `WarehouseSourceKind`/`WarehouseSourceConfig` typed model plus required-field refusal (`crates/eg-types/src/warehouse_federation.rs`).
+- [ ] **EG-UNIFIED-DATA-PLANE-R020.2:** Query pushdown per kind (Arrow Flight SQL where offered), extending `eg-query::sql::iceberg_federation` for Iceberg.
+- [ ] **EG-UNIFIED-DATA-PLANE-R020.3:** Conformance entry comparing federated query results against each native warehouse/lake engine.
 - [ ] **EG-UNIFIED-DATA-PLANE-R021:** Debezium Kafka-to-`ChangeEnvelope` bridge; depends on EG-UNIFIED-DATA-PLANE-R008.
 
 ## Platform and app admission
