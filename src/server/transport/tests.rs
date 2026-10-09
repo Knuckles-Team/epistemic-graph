@@ -320,6 +320,7 @@ async fn uds_setup_keeps_current_thread_responsive_and_shutdown_cancels_accept()
 }
 
 #[cfg(unix)]
+// spec: EG-CONTRACT-R025
 #[tokio::test(flavor = "current_thread")]
 async fn uds_setup_propagates_bind_errors_without_entering_accept_loop() {
     let missing_parent = unique_socket_path(std::path::Path::new(UDS_TEST_BASE), "missing-parent");

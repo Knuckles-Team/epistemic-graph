@@ -552,6 +552,7 @@
       "title": "Audit append supports tenant-scoped idempotent reservation",
       "delivery_state": "LANDED",
       "landed_in": [
+        "1ef84395fa69",
         "2cc878fb8938",
         "8628416b1736",
         "8e288da667fc",
@@ -564,6 +565,7 @@
       "title": "Native primary-key fast path bypasses the SQL planner",
       "delivery_state": "LANDED",
       "landed_in": [
+        "1ef84395fa69",
         "49c43fca68d0"
       ],
       "verified_by": [],
@@ -585,6 +587,7 @@
       "title": "Hot-store engine choice is evaluated against captured workloads",
       "delivery_state": "LANDED",
       "landed_in": [
+        "1ef84395fa69",
         "be3fad3f9840"
       ],
       "verified_by": [],
@@ -606,6 +609,7 @@
       "title": "Cross-store atomicity is proven and scoped to mixed transactions",
       "delivery_state": "LANDED",
       "landed_in": [
+        "1ef84395fa69",
         "5dc0a601b2cf"
       ],
       "verified_by": [],
@@ -627,6 +631,7 @@
       "title": "PostgreSQL wire protocol reaches operational and dump/restore parity",
       "delivery_state": "LANDED",
       "landed_in": [
+        "1ef84395fa69",
         "de5f096bc0fd"
       ],
       "verified_by": [],
@@ -639,6 +644,7 @@
       "title": "Mirror sinks reach fan-out parity and include Postgres table mirroring",
       "delivery_state": "LANDED",
       "landed_in": [
+        "1ef84395fa69",
         "d833c1d987a6"
       ],
       "verified_by": [],
@@ -669,6 +675,7 @@
       "title": "Workload classifier routes point operations around the SQL planner",
       "delivery_state": "LANDED",
       "landed_in": [
+        "1ef84395fa69",
         "4ed831ced92f"
       ],
       "verified_by": [],
@@ -682,6 +689,7 @@
       "title": "KV namespaces declare an explicit, enforced durability class",
       "delivery_state": "LANDED",
       "landed_in": [
+        "1ef84395fa69",
         "2146c76bc6f8"
       ],
       "verified_by": [],
@@ -731,6 +739,7 @@
       "title": "In-memory data structures rebuild from the redb durability log",
       "delivery_state": "LANDED",
       "landed_in": [
+        "1ef84395fa69",
         "a7372171174e"
       ],
       "verified_by": [],
@@ -752,6 +761,7 @@
       "title": "Pipelined requests commit as a single batch",
       "delivery_state": "LANDED",
       "landed_in": [
+        "1ef84395fa69",
         "726ee0a3eadf"
       ],
       "verified_by": [],
@@ -764,6 +774,7 @@
       "title": "SQL plan cache keyed by statement digest and schema version",
       "delivery_state": "LANDED",
       "landed_in": [
+        "1ef84395fa69",
         "aaf7113fe427"
       ],
       "verified_by": [],
@@ -804,6 +815,7 @@
       "title": "Benchmark gate defines and proves performance superiority claims",
       "delivery_state": "LANDED",
       "landed_in": [
+        "1ef84395fa69",
         "9eac21608e67"
       ],
       "verified_by": [],
@@ -825,7 +837,8 @@
       "title": "MutationBatch is the sole persistent write envelope across stores",
       "delivery_state": "LANDED",
       "landed_in": [
-        "1d83cf4b704f"
+        "1d83cf4b704f",
+        "1ef84395fa69"
       ],
       "verified_by": []
     },
@@ -834,6 +847,7 @@
       "title": "Upload cursor identifiers are never reused after a restart",
       "delivery_state": "LANDED",
       "landed_in": [
+        "1ef84395fa69",
         "b43f33569dd4"
       ],
       "verified_by": []
@@ -843,6 +857,7 @@
       "title": "A single owner-manifest lineage check governs format upgrades",
       "delivery_state": "LANDED",
       "landed_in": [
+        "1ef84395fa69",
         "df476f0df010"
       ],
       "verified_by": []
@@ -852,6 +867,7 @@
       "title": "Polygon interior/touch predicates are correct for shared boundaries",
       "delivery_state": "LANDED",
       "landed_in": [
+        "1ef84395fa69",
         "b43f33569dd4"
       ],
       "verified_by": []
@@ -859,26 +875,33 @@
     {
       "id": "EG-DURABLE-KERNEL-R047",
       "title": "Ring-buffer eviction test matches whole entry identifiers",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "1ef84395fa69",
         "a1bb9fb9503e"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/raft/harness/trace_capture.rs:481"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R048",
       "title": "Dispatch-ordering guard test reliably locates its target function",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "1ef84395fa69",
         "cfb0a1279595"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/sql_catalog_sharing.rs:413"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R049",
       "title": "Idempotent retry of CreateGraph and DeleteGraph succeeds",
       "delivery_state": "LANDED",
       "landed_in": [
+        "1ef84395fa69",
         "ceec54145720"
       ],
       "verified_by": []
@@ -888,6 +911,7 @@
       "title": "Blob garbage collection enforces a grace period before deletion",
       "delivery_state": "LANDED",
       "landed_in": [
+        "1ef84395fa69",
         "b43f33569dd4"
       ],
       "verified_by": []
@@ -895,17 +919,21 @@
     {
       "id": "EG-DURABLE-KERNEL-R051",
       "title": "BlobRef and BlobUnref are holder-scoped and idempotent",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "1ef84395fa69",
         "b43f33569dd4"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/blob/store/tests.rs:648"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R052",
       "title": "Outbox delivery is organized by semantic class topics",
       "delivery_state": "LANDED",
       "landed_in": [
+        "1ef84395fa69",
         "9871859d4e0c",
         "d2e4cff47c86"
       ],
@@ -916,6 +944,7 @@
       "title": "AVX2 kernel paths are exercised on AVX2-capable hardware",
       "delivery_state": "LANDED",
       "landed_in": [
+        "1ef84395fa69",
         "a1bb9fb9503e"
       ],
       "verified_by": []
@@ -923,26 +952,34 @@
     {
       "id": "EG-DURABLE-KERNEL-R054",
       "title": "Placement and consensus routing tests pass after command sealing changes",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "1ef84395fa69",
         "b43f33569dd4"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/raft/placement_harness.rs:149",
+        "src/raft/tests.rs:1016"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R055",
       "title": "Durable-store registry classifies every .redb literal in the codebase",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "1ef84395fa69",
         "c143146d7855"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/persistence/durable_stores.rs:627"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R056",
       "title": "Mutation durability classification is correct under every feature build",
       "delivery_state": "LANDED",
       "landed_in": [
+        "1ef84395fa69",
         "5bf5b719de7e"
       ],
       "verified_by": []
@@ -952,6 +989,7 @@
       "title": "Sealed record classes are protected by a create-only write guard",
       "delivery_state": "LANDED",
       "landed_in": [
+        "1ef84395fa69",
         "5c2ab50088c4"
       ],
       "verified_by": []
@@ -959,26 +997,33 @@
     {
       "id": "EG-DURABLE-KERNEL-R058",
       "title": "Source-batch publication waiter cancellation is deterministic",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "1ef84395fa69",
         "480766675bd1"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/handlers/source_batch/tests.rs:176"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R059",
       "title": "Garbage collection preserves chunks shared with a direct reference",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "1ef84395fa69",
         "b43f33569dd4"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/blob/store/tests.rs:393"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R060",
       "title": "Unsupported legacy graph-data layouts are not silently migrated",
       "delivery_state": "LANDED",
       "landed_in": [
+        "1ef84395fa69",
         "9bc78efe95b3"
       ],
       "verified_by": []
@@ -1022,11 +1067,13 @@
     {
       "id": "EG-DURABLE-KERNEL-R065",
       "title": "Signed dispatch commit recovers correctly after an ack-lost fault window",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "57a12eb06632"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/txn_reconcile_ack_lost_retry.rs:573"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R066",
@@ -1058,11 +1105,13 @@
     {
       "id": "EG-DURABLE-KERNEL-R069",
       "title": "Scrub cursor fixture reliably tests the no-key encryption state",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "be291021dfdc"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/persistence/redb_backend/scrub_api_tests.rs:80"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R070",

@@ -78,6 +78,7 @@ async def _decide_as_verified_session(tenant_id: str) -> object:
         await client.close()
 
 
+@pytest.mark.spec("EG-CONTRACT-R002.1")
 def test_decide_refuses_a_request_tenant_that_does_not_match_the_verified_session() -> (
     None
 ):
@@ -96,6 +97,7 @@ def test_decide_refuses_a_request_tenant_that_does_not_match_the_verified_sessio
     assert "tenant" in message.lower(), message
 
 
+@pytest.mark.spec("EG-CONTRACT-R002.2")
 def test_decide_passes_the_tenant_check_for_a_matching_request_tenant() -> None:
     """A session verified for ``TEST_TENANT`` MAY ``Decide`` for its own
     tenant: the auth-boundary check in ``serve()`` does not refuse it. The
@@ -140,6 +142,7 @@ async def _pack_journey(connector: str) -> dict[str, Any]:
         await client.close()
 
 
+@pytest.mark.spec("EG-CONTRACT-R002.2")
 def test_served_pack_publish_import_and_status_journey() -> None:
     """The Agent Library pack journey from EG-CONTRACT-R002's acceptance
     text -- publishing (bind + upload through the Blob CAS), importing, then

@@ -213,5 +213,6 @@ def _case_id(mutation: object) -> str:
     range(len(MUTATIONS)),
     ids=[_case_id(mutation) for mutation in MUTATIONS],
 )
+@pytest.mark.spec("EG-TYPED-PACKS-R020")
 def test_planted_defect_is_refused_by_its_rule(index: int) -> None:
     asyncio.run(_run(index))

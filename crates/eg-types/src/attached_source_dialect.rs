@@ -93,6 +93,7 @@ impl SqlEngineDialectEntry {
 mod tests {
     use super::*;
 
+    // spec: EG-UNIFIED-DATA-PLANE-R014.1
     #[test]
     fn mysql_and_mariadb_are_distinct_entries() {
         let mysql = SqlEngineDialectEntry::declare(

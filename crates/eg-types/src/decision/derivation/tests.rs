@@ -135,6 +135,7 @@ fn the_coverage_chain_is_the_shortest_and_re_checks() {
     );
 }
 
+// spec: EG-DECISION-ENGINE-R126.1
 #[test]
 fn capability_coverage_joins_derived_library_coverage_with_self_declared_a2a_coverage() {
     // EG-DECISION-ENGINE-R126: reuses required_capabilities/coverage_chain
