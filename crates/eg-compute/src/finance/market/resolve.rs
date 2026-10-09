@@ -8,9 +8,10 @@
 
 use std::collections::BTreeMap;
 
+use super::calendar::session_at;
 use super::{
-    BarRecord, BarStatus, FinalityFilter, MarketError, MarketResult, CONFLICTING_REVISION,
-    INVALID_BAR, OUT_OF_ORDER,
+    BarRecord, BarStatus, FinalityFilter, MarketError, MarketResult, PricedBar, TradingCalendar,
+    CONFLICTING_REVISION, INVALID_BAR, OUT_OF_ORDER,
 };
 
 /// The bar contract every stored version satisfies.
@@ -118,6 +119,28 @@ pub fn resolve(
         .collect();
     require_ordered(&bars)?;
     Ok(bars)
+}
+
+/// `resolve` wrapped as the price-result envelope: every bar carries the
+/// session it was observed in, its source, and the as-of time of the view
+/// (EG-FINANCE-PRIMITIVES-R006). `as_of` defaults to each bar's own
+/// `known_at` when the view is unbounded (`None`).
+pub fn resolve_priced(
+    records: &[BarRecord],
+    as_of: Option<i64>,
+    finality: FinalityFilter,
+    calendar: &TradingCalendar,
+    source: &str,
+) -> MarketResult<Vec<PricedBar>> {
+    Ok(resolve(records, as_of, finality)?
+        .into_iter()
+        .map(|bar| PricedBar {
+            session: session_at(calendar, bar.open_time),
+            as_of: as_of.unwrap_or(bar.known_at),
+            source: source.to_string(),
+            bar,
+        })
+        .collect())
 }
 
 #[cfg(test)]
