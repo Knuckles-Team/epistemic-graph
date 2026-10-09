@@ -48,6 +48,8 @@
     "EG-DECISION-ENGINE-R043",
     "EG-DECISION-ENGINE-R044",
     "EG-DECISION-ENGINE-R045",
+    "EG-DECISION-ENGINE-R045.1",
+    "EG-DECISION-ENGINE-R045.2",
     "EG-DECISION-ENGINE-R046",
     "EG-DECISION-ENGINE-R047",
     "EG-DECISION-ENGINE-R048",
@@ -712,7 +714,28 @@
       "id": "EG-DECISION-ENGINE-R045",
       "title": "Smallest covering tool subset within a context budget",
       "delivery_state": "SPECIFIED",
-      "evidence": []
+      "evidence": [],
+      "rollup": true,
+      "children": [
+        "EG-DECISION-ENGINE-R045.1",
+        "EG-DECISION-ENGINE-R045.2"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R045.1",
+      "title": "Smallest covering tool subset within a context budget \u2014 typed request and greedy set-cover slice",
+      "delivery_state": "SPECIFIED",
+      "evidence": [],
+      "depends_on": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R045.2",
+      "title": "Smallest covering tool subset within a context budget \u2014 wiring slice",
+      "delivery_state": "SPECIFIED",
+      "evidence": [],
+      "depends_on": [
+        "EG-DECISION-ENGINE-R045.1"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R046",
