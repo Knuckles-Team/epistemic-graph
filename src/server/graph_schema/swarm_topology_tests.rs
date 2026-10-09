@@ -5,7 +5,7 @@
 //! projection conforms under the COMPOSED shapes (the shapes-omitted
 //! `ShaclValidate` path) and each planted defect is flagged.
 
-use super::compose::validate_and_compose;
+use super::test_support::conforms;
 use crate::graph::GraphSchemaSources;
 
 const SWARM_SOURCE: &str = "core:swarm-topology@1";
@@ -29,14 +29,6 @@ fn projection(fan_nodes: &str, worker_widths: (u8, u8), stop: &str, resource: &s
 
 const FAN: &str = " ; swarm:nodeKind \"fanout\", \"join\"";
 const MAX_ROUNDS: &str = "swarm:MaxRoundsStop ; swarm:n 1";
-
-fn conforms(data: &str) -> bool {
-    let composed = validate_and_compose(&GraphSchemaSources::default()).unwrap();
-    let data = eg_shacl::graph_from_turtle(data).unwrap();
-    eg_shacl::validate(&composed.shapes, &data)
-        .unwrap()
-        .conforms
-}
 
 #[test]
 fn the_swarm_vocabulary_and_shapes_are_core_sources() {

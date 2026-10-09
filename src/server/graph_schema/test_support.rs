@@ -112,3 +112,17 @@ pub(super) fn assert_shape_targets(triples: &[Triple], expected: &[&str]) {
     let expected: BTreeSet<&str> = names.iter().map(String::as_str).collect();
     assert_eq!(targets, expected);
 }
+
+/// Parse a composed-shapes SHACL fixture and report whether it conforms.
+/// Shared by every core-vocabulary SHACL fixture suite (`swarm_topology_tests`,
+/// `virtual_graph_tests`) -- jscpd's differential clone gate flagged the two
+/// modules' own byte-identical copies of this helper as a new duplicate pair
+/// when `virtual_graph_tests.rs` was added (EG-UNIFIED-DATA-PLANE-R037); extracted
+/// here instead of copied again.
+pub(super) fn conforms(data: &str) -> bool {
+    let composed = validate_and_compose(&GraphSchemaSources::default()).unwrap();
+    let data = eg_shacl::graph_from_turtle(data).unwrap();
+    eg_shacl::validate(&composed.shapes, &data)
+        .unwrap()
+        .conforms
+}
