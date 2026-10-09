@@ -85,12 +85,46 @@ fn every_approver_scope_has_exactly_its_built_in_group() {
         eg_types::identity::ELEVATION_APPROVERS_GROUP,
         eg_types::identity::LIVE_ORDER_APPROVERS_GROUP,
         eg_types::identity::SCHEMA_APPROVERS_GROUP,
+        "action-approvers",
     ];
     for (_, group) in APPROVER_GROUPS {
         assert!(
             built_in.contains(group),
             "{group} is not an identity-store built-in"
         );
+    }
+    for scope in ["approvals:read", "approvals:decide"] {
+        assert_eq!(ScopeRegistry.class_of(scope), Some(ScopeClass::Approver));
+        assert_eq!(
+            ScopeRegistry.approver_group_of(scope),
+            Some("action-approvers")
+        );
+    }
+}
+
+/// GRAPHOS identity-access (R002, R020): GraphOS's `project_domain_scopes`
+/// (graph-os commit 51bf4fd511) requires these exact classes and owners from
+/// the EG contract, or it fails API registry construction. Pin them here so a
+/// future reclassification is caught at the source, not at GraphOS startup.
+#[test]
+fn graph_os_scope_classes_and_owners_match_the_api_contract() {
+    for (scope, class, owner) in [
+        ("finance:read", ScopeClass::Domain, "finance"),
+        ("fleet:read", ScopeClass::User, "graph-os"),
+        ("fleet:control", ScopeClass::Admin, "graph-os"),
+        ("loops:read", ScopeClass::User, "graph-os"),
+        ("loops:control", ScopeClass::Admin, "graph-os"),
+        ("ops:read", ScopeClass::Admin, "graph-os"),
+        ("ops:admin", ScopeClass::Admin, "graph-os"),
+        ("mcp:discover", ScopeClass::User, "graph-os"),
+        ("mcp:delegate", ScopeClass::User, "graph-os"),
+        ("mcp:admin", ScopeClass::Admin, "graph-os"),
+        ("approvals:read", ScopeClass::Approver, "graph-os"),
+        ("approvals:decide", ScopeClass::Approver, "graph-os"),
+    ] {
+        let entry = scope_entry(scope).expect("GraphOS API scope is registered");
+        assert_eq!(entry.class, class, "{scope}");
+        assert_eq!(entry.owner, owner, "{scope}");
     }
 }
 
