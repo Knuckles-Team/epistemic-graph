@@ -207,6 +207,7 @@ fn acceptability_coverage(seed: u64) -> f64 {
     met as f64 / 500.0
 }
 
+// spec: EG-DECISION-ENGINE-R005
 #[test]
 fn acceptability_sets_meet_the_acceptable_options_at_nominal_rate() {
     let repeats = 50;
@@ -357,6 +358,7 @@ fn drifting_score(generator: &mut ChaCha8Rng, t: usize) -> f64 {
     uniform(generator) * (1.0 + t as f64 / 400.0)
 }
 
+// spec: EG-DECISION-ENGINE-R005
 #[test]
 fn adaptive_conformal_meets_its_long_run_bound_under_drift() {
     let alpha: Level = level(1, 10);

@@ -188,6 +188,7 @@ fn tampered(edit: impl FnOnce(&mut Vec<DerivationEdge>)) -> CoverageDerivation {
     }
 }
 
+// spec: EG-DECISION-ENGINE-R003
 #[test]
 fn a_tampered_chain_is_refused_at_the_step_that_lies() {
     let web = candidate("tool-web", &["eg:capability/retrieval/web-search"]);

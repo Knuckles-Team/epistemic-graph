@@ -243,6 +243,7 @@ fn planted_selective_run(seed: u64) -> Option<f64> {
     certificate.certified.map(|c| c.threshold)
 }
 
+// spec: EG-DECISION-ENGINE-R005
 #[test]
 fn selective_risk_controls_planted_risk_with_power() {
     // P(wrong | s) = 1 - s with s ~ U(0, 1): the true risk of acting at lambda

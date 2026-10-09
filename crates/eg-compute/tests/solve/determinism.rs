@@ -46,6 +46,7 @@ const SHAPE: AssemblyShape = AssemblyShape {
 /// `serde_json`, `sha2` and `digest` (rules out dependency drift).
 const GOLDEN_DIGEST: &str = "1bc99ac3ed5d12211a9074b23cafde1f35f7ed90d70608f7e47c4a0429f4ea88";
 
+// spec: EG-DECISION-ENGINE-R004
 #[test]
 fn repeated_solves_are_byte_identical() {
     let instance = model(&planted_assembly(SHAPE, 7).spec);
@@ -73,6 +74,7 @@ fn wire_round_trips_preserve_the_model_digest_and_the_certificate() {
     );
 }
 
+// spec: EG-DECISION-ENGINE-R004
 #[test]
 fn the_certificate_digest_matches_the_committed_golden_vector() {
     let instance = model(&planted_assembly(SHAPE, 7).spec);
