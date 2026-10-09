@@ -116,6 +116,10 @@ pub mod cross_store_scope;
 // operational surfaces and a fail-closed compatibility matrix. Pure serde,
 // no dep.
 pub mod pg_operational_surface;
+// EG-DURABLE-KERNEL-R039 — in-memory structure/atomic-primitive kinds and a
+// durability declaration that always names redb as sole durability
+// authority. Pure serde, no dep.
+pub mod atomic_primitive;
 // EH-346/EH-347 — capture-first open-weight policy evolution: the capability,
 // capture, model-policy version, training-run and evaluation records EG owns.
 // Pure serde; EG records and relates, it never trains.
