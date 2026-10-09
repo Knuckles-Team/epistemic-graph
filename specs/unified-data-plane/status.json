@@ -41,6 +41,7 @@
     "EG-UNIFIED-DATA-PLANE-R026",
     "EG-UNIFIED-DATA-PLANE-R026.1",
     "EG-UNIFIED-DATA-PLANE-R027",
+    "EG-UNIFIED-DATA-PLANE-R027.1",
     "EG-UNIFIED-DATA-PLANE-R028",
     "EG-UNIFIED-DATA-PLANE-R029",
     "EG-UNIFIED-DATA-PLANE-R030",
@@ -296,7 +297,13 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R027",
       "title": "Fix Postgres compatibility gaps proven by captured traffic",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R027.1",
+      "title": "FeatureFixRecord typed inventory and incomplete-proof refusal",
+      "delivery_state": "BUILT",
       "evidence": []
     },
     {
