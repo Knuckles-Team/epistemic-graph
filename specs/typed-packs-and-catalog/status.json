@@ -393,8 +393,16 @@
     {
       "id": "EG-TYPED-PACKS-R021",
       "title": "Cross-cutting import-safety defects are release-gate obligations",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "96a4c42888e7a36838a8d77123e37d82db6cf0c8",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/96a4c42888e7a36838a8d77123e37d82db6cf0c8",
+          "description": "EG-TYPED-PACKS-R021 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R022",

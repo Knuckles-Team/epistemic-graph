@@ -101,8 +101,16 @@
     {
       "id": "EG-FEDERATED-QUERY-R002",
       "title": "Rejection reasons stay out of the core kernel row schema",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "2b3e2738b5fff5bb1d1769455ab74e6eb83ea75e",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/2b3e2738b5fff5bb1d1769455ab74e6eb83ea75e",
+          "description": "EG-FEDERATED-QUERY-R002 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R003",
@@ -297,8 +305,16 @@
     {
       "id": "EG-FEDERATED-QUERY-R016",
       "title": "UQL AS OF uses Unix-second timestamps, not ISO dates",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "a3ad18c91bc52e77a86906098c41306d103546e0",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/a3ad18c91bc52e77a86906098c41306d103546e0",
+          "description": "EG-FEDERATED-QUERY-R016 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R017",
@@ -471,8 +487,16 @@
     {
       "id": "EG-FEDERATED-QUERY-R029",
       "title": "UQL text from graph-exploration clients matches the grammar",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "cb0a4dfcf4a58853bb22eb0b3f632246a6c3c9eb",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/cb0a4dfcf4a58853bb22eb0b3f632246a6c3c9eb",
+          "description": "EG-FEDERATED-QUERY-R029 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R030",
@@ -964,7 +988,7 @@
     {
       "id": "EG-FEDERATED-QUERY-R057",
       "title": "SQL provider module stays within the repository's file-size limit",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -972,6 +996,13 @@
           "commit": "318890c51ab837bbd639c805a5ddf053c9b25edd",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/318890c51ab837bbd639c805a5ddf053c9b25edd",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "3241ec8af9d4815e5d230d6adf2fabeefe36fdf5",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/3241ec8af9d4815e5d230d6adf2fabeefe36fdf5",
+          "description": "EG-FEDERATED-QUERY-R057 merged to the default branch in this commit."
         }
       ]
     },

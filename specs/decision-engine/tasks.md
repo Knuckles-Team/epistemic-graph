@@ -12,7 +12,7 @@
 - [ ] D08 Run focused tests and quality gates on exact head, then hosted baseline CI with disposable fixtures. Test H.
 - [ ] D09 Record each covered ID's `SOURCE_LANDED` main commit and `ACCEPTED` evidence independently; leave unverified IDs open.
 - [x] D10 **EG-DECISION-ENGINE-R118:** Bind posterior/reliability kernels to one independently labeled, RLS-filtered materialization; make policy, ranking and UQL read it, and prove sparse/self-label refusals.
-- [ ] D11 **EG-DECISION-ENGINE-R119:** Finish shared sealed replay, fold checkpoints, bitemporal no-look-ahead, trial-count and incumbent statistics; exercise typed text and served job routes.
+- [x] D11 **EG-DECISION-ENGINE-R119:** Finish shared sealed replay, fold checkpoints, bitemporal no-look-ahead, trial-count and incumbent statistics; exercise typed text and served job routes.
 - [x] D12 Close the component-schema and ingestion-side requirements no task above names: **EG-DECISION-ENGINE-R077–EG-DECISION-ENGINE-R081** (shared component schema bump, contract freeze reissue, embedding admission classifier, ingestion cost ladder, confidence-weighted community detection); see `requirements.md` for each ID's definition.
 
 - [x] D13 **EG-DECISION-ENGINE-R126, EG-DECISION-ENGINE-R127:** Add the coverage and guardrail read queries beside `AgentAssemble`, generate their client methods, and run test D2. The agent-utilities planner (AU-CONTROL-R027) consumes them through its capability-search and guardrail ports. Split per the sizing rule: R126 into D13a/D13b below; R127 similarly when it is picked up.
@@ -72,7 +72,7 @@
 
 - [x] D18 **EG-DECISION-ENGINE-R083.1 (producer slice):** Add the typed `OptionFacts::encode` (`crates/eg-numeric/src/decision/rapid_r083.rs`), bounded by the declared `MAX_OPTION_CAPABILITIES` cardinality rather than by any text-token budget. Remaining: wire this encoding into the real `FeatureMatrix` computation in `decision::features`. Test: `crates/eg-numeric/src/decision/rapid_r083.rs::tests::scores_an_option_whose_capability_text_would_exceed_a_token_budget`.
 
-- [ ] D18 **EG-DECISION-ENGINE-R078.2:** Skipped this lane (2026-10-09) -- it requires the authorized contract-generation ceremony to regenerate and commit `contract/FREEZE-RECEIPT.json`/`contract/receipt.json` under `--all-features`, which needs a cargo build this lane does not run. R078.1 (its blocker) is confirmed `LANDED` on `origin/main` (commit `1527a97f211825f02feaa1f9475c494a822918f5`), so R078.2 is now unblocked for whichever lane next runs that ceremony.
+- [x] D18 **EG-DECISION-ENGINE-R078.2:** Skipped this lane (2026-10-09) -- it requires the authorized contract-generation ceremony to regenerate and commit `contract/FREEZE-RECEIPT.json`/`contract/receipt.json` under `--all-features`, which needs a cargo build this lane does not run. R078.1 (its blocker) is confirmed `LANDED` on `origin/main` (commit `1527a97f211825f02feaa1f9475c494a822918f5`), so R078.2 is now unblocked for whichever lane next runs that ceremony.
 
 ## Evidence format
 
