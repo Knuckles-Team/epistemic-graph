@@ -2,6 +2,8 @@
 //! path -- fixed-point kernels, the cross-host golden vector, legality, the
 //! shortlist, encode-once scoring and trajectory-prefix belief.
 
+use std::time::Instant;
+
 use eg_numeric::decision::scorer::fixed::{exp_non_positive, softmax, to_f64, ONE};
 use eg_numeric::decision::scorer::forward::{read, EncodedState, Scorer, EXCLUDED_LOGIT};
 use eg_numeric::decision::scorer::legal::{shortlist, LegalSet};
@@ -10,7 +12,9 @@ use eg_types::decision::digest::digest_text;
 use eg_types::decision::statistical::head::{
     DecisionHeadBody, FeatureStandardisation, FittedRegime, HeadKind, DECISION_HEAD_SCHEMA_VERSION,
 };
-use eg_types::decision::statistical::scorer::OptionAttentionParams;
+use eg_types::decision::statistical::scorer::{
+    OptionAttentionParams, MAX_SCORER_FEATURES, MAX_SCORER_SHORTLIST, MAX_SCORER_WIDTH,
+};
 use eg_types::decision::{QuantScaleTag, QuantisedValue};
 
 use super::common::{bounded, SCHEMA_DIGEST};
@@ -243,4 +247,107 @@ fn trajectory_belief_reads_one_state_over_time() {
     let reversed = [prefixes[2], prefixes[0]];
     let refusal = belief(&head, &reversed, OPTIONS).expect_err("time must increase");
     assert_eq!(refusal.code, "PARAMETER_INVALID");
+}
+
+/// A head shaped at the largest dimensions `OptionAttentionParams::check`
+/// ever admits: `MAX_SCORER_WIDTH`, `MAX_SCORER_FEATURES`, `MAX_SCORER_SHORTLIST`.
+fn largest_legal_head() -> DecisionHeadBody {
+    let width = MAX_SCORER_WIDTH;
+    let features = MAX_SCORER_FEATURES;
+    let spec = FeatureStandardisation {
+        center: q(ONE / 4),
+        scale: q(2 * ONE),
+        lower: q(-8 * ONE),
+        upper: q(8 * ONE),
+    };
+    DecisionHeadBody {
+        schema_version: DECISION_HEAD_SCHEMA_VERSION,
+        kind: HeadKind::OptionAttention,
+        regime: FittedRegime::FullLabel,
+        feature_schema_digest: SCHEMA_DIGEST.to_string(),
+        standardisation: bounded(vec![spec; features]),
+        weights: bounded(pattern(features, 0).into_iter().map(q).collect()),
+        calibration: None,
+        training_records_digest: "sha256:golden".to_string(),
+        n_training: 0,
+        synthetic: true,
+        scorer: Some(Box::new(OptionAttentionParams {
+            width: width as u8,
+            shortlist: MAX_SCORER_SHORTLIST as u8,
+            embed: bounded(pattern(features * width, 1)),
+            embed_bias: bounded(pattern(width, 2)),
+            query: bounded(pattern(width * width, 3)),
+            key: bounded(pattern(width * width, 4)),
+            value: bounded(pattern(width * width, 5)),
+            self_weight: bounded(pattern(width, 6)),
+            context_weight: bounded(pattern(width, 7)),
+        })),
+    }
+}
+
+/// The total scalar parameter count of a head's scorer, the way its wire
+/// bytes actually lay it out (EH-291/EH-300). `weights` is the linear head's
+/// own parameter vector, read by every head kind; `scorer` is additional.
+fn parameter_count(head: &DecisionHeadBody) -> usize {
+    head.weights.len()
+        + head.scorer.as_ref().map_or(0, |p| {
+            p.embed.len()
+                + p.embed_bias.len()
+                + p.query.len()
+                + p.key.len()
+                + p.value.len()
+                + p.self_weight.len()
+                + p.context_weight.len()
+        })
+}
+
+/// EG-DECISION-ENGINE-R090: the resident scorer is a small compiled-in Rust
+/// struct, not a GPU or sidecar model. The largest shape
+/// `OptionAttentionParams::check` ever admits still holds far under the
+/// declared "a few megabytes" footprint, and a served reading over the
+/// largest `Decide` batch (`MAX_DECIDE_RECORDS`) stays at a small fraction of
+/// the declared single-digit-millisecond CPU budget.
+#[test]
+fn the_largest_legal_scorer_stays_inside_its_resident_cpu_and_memory_budget() {
+    const UNIVERSE: usize = 256; // eg_types::decision::statistical::MAX_DECIDE_RECORDS
+    let head = largest_legal_head();
+
+    let params = parameter_count(&head);
+    let footprint_bytes = params * std::mem::size_of::<i64>();
+    assert!(
+        params < 700_000,
+        "the largest legal scorer holds {params} parameters, past the declared budget"
+    );
+    assert!(
+        footprint_bytes < 2 * 1024 * 1024,
+        "the largest legal scorer's resident footprint is {footprint_bytes} bytes, past a few megabytes"
+    );
+
+    let rows: Vec<Vec<i64>> = (0..UNIVERSE)
+        .map(|r| {
+            (0..MAX_SCORER_FEATURES)
+                .map(|f| (((r * 5 + f * 3) % 7) as i64 - 3) << 28)
+                .collect()
+        })
+        .collect();
+    let views: Vec<&[i64]> = rows.iter().map(Vec::as_slice).collect();
+    let legal = LegalSet::derive(UNIVERSE, &[]);
+
+    // Warm the allocator once, then measure the compiled scorer's own
+    // per-decision CPU cost: encode plus every question's attention pass.
+    read(&head, &views, &legal)
+        .expect("reads")
+        .expect("in distribution");
+    const ITERATIONS: u32 = 50;
+    let started = Instant::now();
+    for _ in 0..ITERATIONS {
+        read(&head, &views, &legal)
+            .expect("reads")
+            .expect("in distribution");
+    }
+    let per_decision = started.elapsed() / ITERATIONS;
+    assert!(
+        per_decision.as_millis() < 10,
+        "the largest legal scorer took {per_decision:?} per decision, past single-digit milliseconds"
+    );
 }
