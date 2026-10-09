@@ -42,6 +42,7 @@ pub fn best_cosine_prototype(
 mod tests {
     use super::*;
 
+    // spec: EG-TYPED-PACKS-R099
     #[test]
     fn first_positive_maximum_and_zero_rows() {
         let rows = vec![vec![0.0, 0.0], vec![1.0, 0.0], vec![1.0, 0.0]];
@@ -56,6 +57,7 @@ mod tests {
         );
     }
 
+    // spec: EG-TYPED-PACKS-R099
     #[test]
     fn ragged_zero_row_is_harmless_but_nonzero_mismatch_errors() {
         assert_eq!(
@@ -65,6 +67,7 @@ mod tests {
         assert!(best_cosine_prototype(&[1.0, 0.0], &[vec![1.0]]).is_err());
     }
 
+    // spec: EG-TYPED-PACKS-R099
     #[test]
     fn empty_and_nonpositive_inputs_have_no_match() {
         for query in [vec![], vec![0.0, 0.0], vec![1.0, 0.0]] {
