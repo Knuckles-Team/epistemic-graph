@@ -22,7 +22,9 @@
 - [x] **EG-UNIFIED-DATA-PLANE-R030.1:** `EntityLinkProposal` typed model plus unapproved/non-Match assertion refusal (`crates/eg-types/src/entity_link_proposal.rs`).
 - [ ] **EG-UNIFIED-DATA-PLANE-R030.2:** Blocking and field-similarity candidate generation across Gramps/Immich/Twenty/Firefly.
 - [ ] **EG-UNIFIED-DATA-PLANE-R030.3:** Real Fellegi-Sunter scoring and the approval workflow.
-- [ ] **EG-UNIFIED-DATA-PLANE-R031:** Define isolation, quotas, compatibility, native admission and rollback; depends on EG-UNIFIED-DATA-PLANE-R002.
+- [ ] **EG-UNIFIED-DATA-PLANE-R031 (rollup):** Define isolation, quotas, compatibility, native admission and rollback; depends on EG-UNIFIED-DATA-PLANE-R002.
+  - [x] **EG-UNIFIED-DATA-PLANE-R031.1:** `ApplicationAdmission`/`ConsolidationIsolationRegistry` typed model plus identity/quota refusals (`crates/eg-types/src/consolidation_isolation.rs`).
+  - [ ] **EG-UNIFIED-DATA-PLANE-R031.2:** Real fault-isolation enforcement and quota metering.
 
 ## Query, change and write paths
 
@@ -53,7 +55,9 @@
 - [ ] **EG-UNIFIED-DATA-PLANE-R015:** SQLite lock-safe file attach, WITHOUT ROWID and safe WAL/watermark capture; depends on EG-UNIFIED-DATA-PLANE-R002.
 - [ ] **EG-UNIFIED-DATA-PLANE-R016:** MSSQL catalog/T-SQL/CDC adapter; depends on EG-UNIFIED-DATA-PLANE-R002.
 - [ ] **EG-UNIFIED-DATA-PLANE-R017:** ClickHouse federation/acceleration adapter with explicit no-CDC capability; depends on EG-UNIFIED-DATA-PLANE-R002.
-- [ ] **EG-UNIFIED-DATA-PLANE-R018:** Oracle and Db2 catalog/query through driver/ODBC and Debezium capture; depends on EG-UNIFIED-DATA-PLANE-R021.
+- [ ] **EG-UNIFIED-DATA-PLANE-R018 (rollup):** Oracle and Db2 catalog/query through driver/ODBC and Debezium capture; depends on EG-UNIFIED-DATA-PLANE-R021.
+  - [x] **EG-UNIFIED-DATA-PLANE-R018.1:** `RelationalSourceCatalog` typed model plus identifier and Debezium-capture refusals (`crates/eg-types/src/relational_attached_catalog.rs`).
+  - [ ] **EG-UNIFIED-DATA-PLANE-R018.2:** Driver/ODBC connection, catalog read, and Debezium bridge wiring.
 - [x] **EG-UNIFIED-DATA-PLANE-R019:** MongoDB/DocumentDB document catalog and change streams; depends on EG-UNIFIED-DATA-PLANE-R002.
 - [x] **EG-UNIFIED-DATA-PLANE-R019.1:** `DocumentSourceCatalog` typed inferred-shape model plus field-path refusal (`crates/eg-types/src/document_source_catalog.rs`).
 - [ ] **EG-UNIFIED-DATA-PLANE-R019.2:** Native MongoDB/DocumentDB driver connection and change-stream capture into `ChangeEnvelope`.
@@ -77,7 +81,9 @@
 - [x] **EG-UNIFIED-DATA-PLANE-R024.1:** `ApplicationAdmission` typed stage machine plus early-retirement refusal (`crates/eg-types/src/platform_admission.rs`).
 - [ ] **EG-UNIFIED-DATA-PLANE-R024.2:** Admission runner and tested rollback path per candidate application.
 - [ ] **EG-UNIFIED-DATA-PLANE-R024.3:** Per-application admission test confirming rollback and that the retired connector no longer writes.
-- [ ] **EG-UNIFIED-DATA-PLANE-R032 / Immich I0–I6:** Generated API client, MCP tools, registration, incremental per-user ingest, naming, approved links and operations. Implement I0–I6 as defined in [spec.md](spec.md).
+- [ ] **EG-UNIFIED-DATA-PLANE-R032 (rollup) / Immich I0–I6:** Generated API client, MCP tools, registration, incremental per-user ingest, naming, approved links and operations. Implement I0–I6 as defined in [spec.md](spec.md).
+  - [x] **EG-UNIFIED-DATA-PLANE-R032.1:** `ImmichPilotProgress` typed phase-gate model (I0-I6) plus exit-artifact and skip-ahead refusals (`crates/eg-types/src/immich_pilot_phase.rs`).
+  - [ ] **EG-UNIFIED-DATA-PLANE-R032.2:** Run phase I0 (version-pinned OpenAPI client generation and digest).
 
 ## Native hosting and app admission
 

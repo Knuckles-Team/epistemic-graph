@@ -25,6 +25,7 @@
     "EG-UNIFIED-DATA-PLANE-R016",
     "EG-UNIFIED-DATA-PLANE-R017",
     "EG-UNIFIED-DATA-PLANE-R018",
+    "EG-UNIFIED-DATA-PLANE-R018.1",
     "EG-UNIFIED-DATA-PLANE-R019",
     "EG-UNIFIED-DATA-PLANE-R019.1",
     "EG-UNIFIED-DATA-PLANE-R020",
@@ -50,7 +51,9 @@
     "EG-UNIFIED-DATA-PLANE-R030",
     "EG-UNIFIED-DATA-PLANE-R030.1",
     "EG-UNIFIED-DATA-PLANE-R031",
+    "EG-UNIFIED-DATA-PLANE-R031.1",
     "EG-UNIFIED-DATA-PLANE-R032",
+    "EG-UNIFIED-DATA-PLANE-R032.1",
     "EG-UNIFIED-DATA-PLANE-R033",
     "EG-UNIFIED-DATA-PLANE-R034",
     "EG-UNIFIED-DATA-PLANE-R035",
@@ -358,7 +361,13 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R018",
       "title": "Implement the Oracle and Db2 attached-source adapters",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R018.1",
+      "title": "RelationalSourceCatalog typed model plus identifier and Debezium-capture refusals",
+      "delivery_state": "BUILT",
       "evidence": []
     },
     {
@@ -700,13 +709,25 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R031",
       "title": "Enforce consolidation safety across attached applications",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R031.1",
+      "title": "ApplicationAdmission/ConsolidationIsolationRegistry typed model plus identity/quota refusals",
+      "delivery_state": "BUILT",
       "evidence": []
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R032",
       "title": "Run the Immich connector pilot phases I0 through I6",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R032.1",
+      "title": "ImmichPilotProgress typed phase-gate model (I0-I6) plus exit-artifact and skip-ahead refusals",
+      "delivery_state": "BUILT",
       "evidence": []
     },
     {

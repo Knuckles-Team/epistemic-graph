@@ -339,6 +339,21 @@ pub mod attached_catalog;
 // EG-UNIFIED-DATA-PLANE-R004 — bounded, policy-gated column-sampling budget
 // for deterministic schema inference.
 pub mod schema_inference;
+// EG-UNIFIED-DATA-PLANE-R018.1 — typed Oracle/Db2 attached-source catalog
+// model: double-quoted identifier refusal and the Debezium-captured-table
+// primary-key refusal. Pure data; the driver/ODBC connection and Debezium
+// bridge wiring are later children.
+pub mod relational_attached_catalog;
+// EG-UNIFIED-DATA-PLANE-R031.1 — typed consolidation-isolation admission:
+// per-application quota and upgrade-coupling policy, with the empty-identity
+// and all-zero-quota refusal. Pure data; real fault isolation and quota
+// metering are later children.
+pub mod consolidation_isolation;
+// EG-UNIFIED-DATA-PLANE-R032.1 — typed Immich connector pilot phase gate
+// (I0-I6), refusing a wrong or unreviewed exit artifact and skipping ahead
+// of an un-exited earlier phase. Pure data; running each phase is a later
+// child.
+pub mod immich_pilot_phase;
 // D-VZ-1 (lanes V4 "engine integration" / V6 "graph-native marks") — the native
 // visualization engine's wire op (`VizOp`), gated `viz`. Lives here (not in
 // `eg-viz-core`, which sits in a separate small leaf DAG, not below eg-types) for
