@@ -252,6 +252,90 @@ async fn cost_routing_without_l5_accounting_abstains_naming_the_fact() {
     );
 }
 
+/// EG-DECISION-ENGINE-R035: `graph.decide()` returns a valid typed choice
+/// and its evidence class for declared candidates representative of EVERY
+/// routing category the requirement enumerates (model, prompt, skill,
+/// tool, harness mode, account mode, sandbox configuration), through the
+/// SAME generic `QuestionKind::Route`/declared-candidate mechanism.
+///
+/// This is a contract test, not a new refusal: the wire protocol carries
+/// no field naming WHICH category a `Route` request is choosing among (all
+/// 7 share one `QuestionKind`), so there is nothing for a chokepoint to
+/// gate on the way `IngestionLane`/`EnrichmentSchedule` can. `graph.decide()`
+/// already answers every category through the one mechanism the
+/// requirement asks for; this proves it for all 7, closing R035 on the
+/// contract-test reading of its acceptance criterion rather than inventing
+/// a wire field. With no head published, the deterministic ladder cannot
+/// act, so an Ordinary exploration policy supplies the typed choice
+/// (`Explored`); its evidence class is always `Claim` (never stronger than
+/// a claim for a draw, not a calibrated act).
+#[tokio::test]
+async fn graph_decide_answers_every_execution_routing_category() {
+    use eg_types::decision::statistical::execution_routing::ExecutionRoutingCategory;
+
+    let h = Harness::new().await;
+    let schema_pin = h
+        .publish(
+            "schema-execution-routing",
+            AgentComponentKind::FeatureSchema,
+            "execution routing features",
+            Some(&score_schema()),
+            None,
+        )
+        .unwrap();
+    let policy_pin = h.publish_policy(
+        "policy-execution-routing-explore",
+        &ordinary_exploration_policy(),
+    );
+
+    for category in ExecutionRoutingCategory::ALL {
+        let (a, b) = match category {
+            ExecutionRoutingCategory::Model => ("model:claude", "model:gpt"),
+            ExecutionRoutingCategory::Prompt => ("prompt:concise", "prompt:verbose"),
+            ExecutionRoutingCategory::Skill => ("skill:search", "skill:summarize"),
+            ExecutionRoutingCategory::Tool => ("tool:calculator", "tool:web-search"),
+            ExecutionRoutingCategory::HarnessMode => ("harness:autonomous", "harness:guided"),
+            ExecutionRoutingCategory::AccountMode => ("account:elevated", "account:standard"),
+            ExecutionRoutingCategory::SandboxConfiguration => {
+                ("sandbox:relaxed", "sandbox:strict")
+            }
+        };
+        let request = DecideRequest {
+            tenant_id: TENANT.to_string(),
+            question: StatisticalQuestion {
+                question_id: "route.tools".to_string(),
+                kind: QuestionKind::Route,
+                safety: QuestionSafety::Ordinary,
+            },
+            candidates: CandidateSource::Declared {
+                options: BoundedVec::new(vec![declared(a, 0), declared(b, 1)]).unwrap(),
+            },
+            feature_schema: schema_pin.clone(),
+            head: None,
+            policy: DecisionPolicyRef::Pinned {
+                component: policy_pin.clone(),
+            },
+            params: BoundedVec::default(),
+            max_records: None,
+            belief_as_of: BoundedVec::default(),
+        };
+        let batch = decide(&h, request)
+            .await
+            .unwrap_or_else(|error| panic!("{category:?}: {error}"));
+        let record = &batch.records.as_slice()[0];
+        assert!(
+            matches!(record.outcome, StatisticalOutcome::Explored { .. }),
+            "{category:?}: expected a typed choice, got {:?}",
+            record.outcome
+        );
+        assert_eq!(
+            record.evidence_class,
+            EvidenceClass::Claim,
+            "{category:?}"
+        );
+    }
+}
+
 /// Independent evaluations of the committed assembly `record_id` by "evaluator",
 /// one per `outcomes` entry (EH-012; reused by the EH-523 slate split tests).
 pub(super) async fn evaluate_assembly(

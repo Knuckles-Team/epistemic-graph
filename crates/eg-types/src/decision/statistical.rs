@@ -11,6 +11,7 @@ pub mod body;
 pub mod dataset;
 pub mod declared;
 pub mod errors;
+pub mod execution_routing;
 pub mod features;
 pub mod head;
 pub mod ingestion_lane;
