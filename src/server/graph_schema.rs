@@ -25,6 +25,8 @@ pub(crate) mod terms;
 mod terms_served_tests;
 #[cfg(test)]
 mod test_support;
+#[cfg(all(test, feature = "shacl"))]
+mod virtual_graph_tests;
 #[cfg(test)]
 mod world_model_tests;
 
