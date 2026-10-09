@@ -26,6 +26,9 @@
 ## Dialects and conformance
 
 - [ ] **EG-UNIFIED-DATA-PLANE-R022:** Build native-source differential and CDC replay conformance harness; depends on EG-UNIFIED-DATA-PLANE-R002.
+- [x] **EG-UNIFIED-DATA-PLANE-R022.1:** `DialectConformanceEntry`/`ConformanceReport` typed model plus auto-suppression refusal (`crates/eg-types/src/dialect_conformance.rs`).
+- [ ] **EG-UNIFIED-DATA-PLANE-R022.2:** Containerized matrix runner per adapter/engine version.
+- [ ] **EG-UNIFIED-DATA-PLANE-R022.3:** Change-capture replay comparison against a source snapshot.
 - [ ] **EG-UNIFIED-DATA-PLANE-R013:** Postgres catalog/query/pgoutput/type adapter; depends on EG-UNIFIED-DATA-PLANE-R002.
 - [ ] **EG-UNIFIED-DATA-PLANE-R014:** Separate MySQL and MariaDB query/catalog/binlog/type entries; depends on EG-UNIFIED-DATA-PLANE-R002.
 - [ ] **EG-UNIFIED-DATA-PLANE-R015:** SQLite lock-safe file attach, WITHOUT ROWID and safe WAL/watermark capture; depends on EG-UNIFIED-DATA-PLANE-R002.
