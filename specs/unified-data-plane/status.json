@@ -262,36 +262,79 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R012",
       "title": "Govern write-back to attached sources",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "LANDED",
       "rollup": true,
-      "children": ["EG-UNIFIED-DATA-PLANE-R012.1"],
-      "evidence": []
+      "children": [
+        "EG-UNIFIED-DATA-PLANE-R012.1"
+      ],
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "b3aca9fb42ce9ba82b11835ef64c11bfe4f29d39",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/b3aca9fb42ce9ba82b11835ef64c11bfe4f29d39",
+          "description": "EG-UNIFIED-DATA-PLANE-R012 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R012.1",
       "title": "Typed model for attached-source write-back governance, proved by refusal tests",
       "parent": "EG-UNIFIED-DATA-PLANE-R012",
-      "delivery_state": "IMPLEMENTED-UNVALIDATED",
-      "evidence": ["crates/eg-types/src/attached_source_governance.rs"]
+      "delivery_state": "LANDED",
+      "evidence": [
+        "crates/eg-types/src/attached_source_governance.rs",
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "d0a69c4685f55ff97f17c8a6741ed4b404b5d3db",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/d0a69c4685f55ff97f17c8a6741ed4b404b5d3db",
+          "description": "EG-UNIFIED-DATA-PLANE-R012.1 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R013",
       "title": "Implement the Postgres attached-source adapter",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "6bc4b5668ed0e3d745d2ea3e83a03f2110df4e28",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/6bc4b5668ed0e3d745d2ea3e83a03f2110df4e28",
+          "description": "EG-UNIFIED-DATA-PLANE-R013 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R014",
       "title": "Implement the MySQL and MariaDB attached-source adapters",
-      "delivery_state": "SPECIFIED",
-      "evidence": [],
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "bf6452b7f8d4a11f0a2fa6c1cd6b6771f2792040",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/bf6452b7f8d4a11f0a2fa6c1cd6b6771f2792040",
+          "description": "EG-UNIFIED-DATA-PLANE-R014 merged to the default branch in this commit."
+        }
+      ],
       "remaining": "Split into EG-UNIFIED-DATA-PLANE-R014.1 (typed MySQL/MariaDB dialect-entry model, delivered) and later slices for the driver, SQL rendering, catalog reader and binlog capture, which depend on the shared attached-source registry (EG-UNIFIED-DATA-PLANE-R002, not yet built)."
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R014.1",
       "title": "Typed MySQL/MariaDB dialect-entry model (producer-first split of R014)",
-      "delivery_state": "SPECIFIED",
-      "evidence": [],
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "0e6a4eb8555d7a4adaae690ee3ad884b0bc96a1e",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/0e6a4eb8555d7a4adaae690ee3ad884b0bc96a1e",
+          "description": "EG-UNIFIED-DATA-PLANE-R014.1 merged to the default branch in this commit."
+        }
+      ],
       "remaining": "SqlEngineKind, SqlEngineCaptureSupport and SqlEngineDialectEntry (crates/eg-types/src/attached_source_dialect.rs) prove MySQL and MariaDB stay separate, explicitly declared conformance entries -- never merged or inferred from the dialect name -- with refusal tests for a missing version floor and an unreviewed type-map revision. The driver, SQL rendering, catalog reader and binlog capture parts of the five-part adapter are EG-UNIFIED-DATA-PLANE-R014.2+."
     },
     {
