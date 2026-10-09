@@ -37,6 +37,7 @@
     "EG-UNIFIED-DATA-PLANE-R024",
     "EG-UNIFIED-DATA-PLANE-R024.1",
     "EG-UNIFIED-DATA-PLANE-R025",
+    "EG-UNIFIED-DATA-PLANE-R025.1",
     "EG-UNIFIED-DATA-PLANE-R026",
     "EG-UNIFIED-DATA-PLANE-R027",
     "EG-UNIFIED-DATA-PLANE-R028",
@@ -268,7 +269,13 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R025",
       "title": "Evaluate a pgrx companion extension through a spike",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R025.1",
+      "title": "PgrxSpikeDecision typed model and full-scope-evidence refusal",
+      "delivery_state": "BUILT",
       "evidence": []
     },
     {

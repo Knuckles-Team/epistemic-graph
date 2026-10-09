@@ -61,6 +61,11 @@ pub mod shared_db_platform;
 // confirmed. Pure data; the admission runner, rollback path, and the
 // per-application admission test are later children.
 pub mod platform_admission;
+// EG-UNIFIED-DATA-PLANE-R025.1 — typed pgrx companion-extension spike
+// decision record, refusing an outcome recorded without evidence for every
+// declared scope area. Pure data; running the spike and the ADR review are
+// later children.
+pub mod pgrx_spike;
 // GOC-03 — the cross-domain commit-descriptor/read-barrier currency shared by
 // graph, modality, vector, blob/refcount, time-series, evidence, table/lake, and
 // terminal-analytics-outcome participants. Deliberately a NEW module (not folded
