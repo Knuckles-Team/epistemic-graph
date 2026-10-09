@@ -124,7 +124,16 @@
       "id": "EG-UNIFIED-DATA-PLANE-R012",
       "title": "Govern write-back to attached sources",
       "delivery_state": "SPECIFIED",
+      "rollup": true,
+      "children": ["EG-UNIFIED-DATA-PLANE-R012.1"],
       "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R012.1",
+      "title": "Typed model for attached-source write-back governance, proved by refusal tests",
+      "parent": "EG-UNIFIED-DATA-PLANE-R012",
+      "delivery_state": "IMPLEMENTED-UNVALIDATED",
+      "evidence": ["crates/eg-types/src/attached_source_governance.rs"]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R013",
