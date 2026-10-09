@@ -168,6 +168,7 @@ fn an_eliminated_option_is_never_scored_and_moves_nothing() {
     assert!((legal_mass - ONE).abs() < 8);
 }
 
+// spec: EG-DECISION-ENGINE-R087
 #[test]
 fn the_shortlist_bounds_what_is_scored_and_breaks_ties_by_option_order() {
     // Top two: option 1 (9), then the 5-5 tie between options 0 and 2 goes to
