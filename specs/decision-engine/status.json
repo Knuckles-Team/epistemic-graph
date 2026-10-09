@@ -364,7 +364,8 @@
       "id": "EG-DECISION-ENGINE-R015",
       "title": "No generative model weights inside the decision engine",
       "delivery_state": "UNKNOWN",
-      "evidence": []
+      "evidence": [],
+      "remaining": "Split producer-first (2026-10-09): EG-DECISION-ENGINE-R015.1 adds the typed, closed StatisticalHeadKind::parse (crates/eg-types/src/decision/rapid_r015.rs), refusing any non-fitted-head name including a generative-model label. Still open: wiring the ladder's head registry to construct heads only through this parse."
     },
     {
       "id": "EG-DECISION-ENGINE-R016",
@@ -775,7 +776,8 @@
       "id": "EG-DECISION-ENGINE-R044",
       "title": "A2A task routing through the decision ladder",
       "delivery_state": "SPECIFIED",
-      "evidence": []
+      "evidence": [],
+      "remaining": "Split producer-first (2026-10-09): EG-DECISION-ENGINE-R044.1 adds the typed A2ARoutingResolution::new refusal (crates/eg-types/src/decision/rapid_r044.rs) over the existing ResolutionKind/EvidenceClass. Still open: the A2A task-submission entry point that constructs one per inbound task and an integration test over the served path."
     },
     {
       "id": "EG-DECISION-ENGINE-R045",
@@ -972,7 +974,8 @@
       "id": "EG-DECISION-ENGINE-R056",
       "title": "Statistical-path release of the exact solver",
       "delivery_state": "SPECIFIED",
-      "evidence": []
+      "evidence": [],
+      "remaining": "Split producer-first (2026-10-09): EG-DECISION-ENGINE-R056.1 adds the typed StatisticalSolverCertificate::verify refusal on a mismatched model digest (crates/eg-types/src/decision/rapid_r056.rs). Still open: routing an actual statistical-path solve through the exact 0-1 solver and this certificate shape."
     },
     {
       "id": "EG-DECISION-ENGINE-R057",
