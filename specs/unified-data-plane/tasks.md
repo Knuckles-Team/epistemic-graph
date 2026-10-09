@@ -50,9 +50,15 @@
 - [x] **EG-UNIFIED-DATA-PLANE-R013:** Postgres catalog/query/pgoutput/type adapter; depends on EG-UNIFIED-DATA-PLANE-R002.
 - [x] **EG-UNIFIED-DATA-PLANE-R014:** Separate MySQL and MariaDB query/catalog/binlog/type entries; depends on EG-UNIFIED-DATA-PLANE-R002.
 - [x] **EG-UNIFIED-DATA-PLANE-R014.1:** Add the typed `SqlEngineKind`/`SqlEngineCaptureSupport`/`SqlEngineDialectEntry` model (`crates/eg-types/src/attached_source_dialect.rs`) proving MySQL and MariaDB stay separate, explicitly declared dialect entries, with refusal tests for a missing version floor and an unreviewed type-map revision. The driver, rendering, catalog reader and binlog capture parts are `EG-UNIFIED-DATA-PLANE-R014.2`+ (not in scope for this slice; depend on `EG-UNIFIED-DATA-PLANE-R002`). Test: `crates/eg-types/src/attached_source_dialect.rs::tests::mysql_and_mariadb_are_distinct_entries`.
-- [ ] **EG-UNIFIED-DATA-PLANE-R015:** SQLite lock-safe file attach, WITHOUT ROWID and safe WAL/watermark capture; depends on EG-UNIFIED-DATA-PLANE-R002.
-- [ ] **EG-UNIFIED-DATA-PLANE-R016:** MSSQL catalog/T-SQL/CDC adapter; depends on EG-UNIFIED-DATA-PLANE-R002.
-- [ ] **EG-UNIFIED-DATA-PLANE-R017:** ClickHouse federation/acceleration adapter with explicit no-CDC capability; depends on EG-UNIFIED-DATA-PLANE-R002.
+- [ ] **EG-UNIFIED-DATA-PLANE-R015 (rollup):** SQLite lock-safe file attach, WITHOUT ROWID and safe WAL/watermark capture; depends on EG-UNIFIED-DATA-PLANE-R002.
+  - [x] **EG-UNIFIED-DATA-PLANE-R015.1:** `SqliteSourceCatalog` typed model plus WITHOUT-ROWID capture-safety refusal (`crates/eg-types/src/sqlite_attached_catalog.rs`).
+  - [ ] **EG-UNIFIED-DATA-PLANE-R015.2:** Lock-safe live read-only attach and real WAL-frame tailing/watermark polling.
+- [ ] **EG-UNIFIED-DATA-PLANE-R016 (rollup):** MSSQL catalog/T-SQL/CDC adapter; depends on EG-UNIFIED-DATA-PLANE-R002.
+  - [x] **EG-UNIFIED-DATA-PLANE-R016.1:** `MssqlSourceCatalog` typed model plus bracket-quoting identifier refusal (`crates/eg-types/src/mssql_attached_catalog.rs`).
+  - [ ] **EG-UNIFIED-DATA-PLANE-R016.2:** tiberius driver connection, T-SQL TOP/OFFSET-FETCH rendering, and LSN-polled CDC/Change Tracking capture.
+- [ ] **EG-UNIFIED-DATA-PLANE-R017 (rollup):** ClickHouse federation/acceleration adapter with explicit no-CDC capability; depends on EG-UNIFIED-DATA-PLANE-R002.
+  - [x] **EG-UNIFIED-DATA-PLANE-R017.1:** `ClickHouseSourceCatalog` typed model with always-explicit capture capability (`crates/eg-types/src/clickhouse_attached_catalog.rs`).
+  - [ ] **EG-UNIFIED-DATA-PLANE-R017.2:** HTTP/native client connection and federated query pushdown.
 - [ ] **EG-UNIFIED-DATA-PLANE-R018:** Oracle and Db2 catalog/query through driver/ODBC and Debezium capture; depends on EG-UNIFIED-DATA-PLANE-R021.
 - [x] **EG-UNIFIED-DATA-PLANE-R019:** MongoDB/DocumentDB document catalog and change streams; depends on EG-UNIFIED-DATA-PLANE-R002.
 - [x] **EG-UNIFIED-DATA-PLANE-R019.1:** `DocumentSourceCatalog` typed inferred-shape model plus field-path refusal (`crates/eg-types/src/document_source_catalog.rs`).
