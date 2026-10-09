@@ -95,7 +95,8 @@
     "EG-DURABLE-KERNEL-R033.1",
     "EG-DURABLE-KERNEL-R034.1",
     "EG-DURABLE-KERNEL-R035.1",
-    "EG-DURABLE-KERNEL-R039.1"
+    "EG-DURABLE-KERNEL-R039.1",
+    "EG-DURABLE-KERNEL-R040.1"
   ],
   "delivery_state": "BUILDING",
   "acceptance_state": "NOT_AUDITED",
@@ -628,7 +629,7 @@
     {
       "id": "EG-DURABLE-KERNEL-R040",
       "title": "Pipelined requests commit as a single batch",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
       "evidence": []
     },
     {
@@ -1145,6 +1146,12 @@
     {
       "id": "EG-DURABLE-KERNEL-R039.1",
       "title": "DataStructureKind/AtomicPrimitiveKind/DurabilityDeclaration typed model with always-redb-sole-authority invariant",
+      "delivery_state": "BUILT",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R040.1",
+      "title": "PipelineBatch/BatchCommitDecision typed model: one admission per batch, order-preserving replies, empty-batch refusal",
       "delivery_state": "BUILT",
       "evidence": []
     }
