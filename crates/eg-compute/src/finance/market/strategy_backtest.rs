@@ -8,7 +8,7 @@
 use super::backtest_run::seal;
 use super::{
     BacktestRun, BacktestRunDraft, CostModel, DataRevisionRef, Direction, FillRule, MarketError,
-    MarketResult, TradeFill, UniverseMember, ValidationInputs, INVALID_REQUEST, LOOK_AHEAD,
+    MarketResult, TradeFill, UniverseMember, ValidationInputs, INVALID_REQUEST,
 };
 
 /// Seal a `BacktestRun` for a dollar-cost-averaging-by-fixed-amount strategy
@@ -122,6 +122,6 @@ mod tests {
         let err =
             seal_dca_fixed_amount_backtest(10_000, "demo:ASSET", &dates, universe("other:ASSET"))
                 .unwrap_err();
-        assert_eq!(err.code, super::LOOK_AHEAD);
+        assert_eq!(err.code, super::super::LOOK_AHEAD);
     }
 }

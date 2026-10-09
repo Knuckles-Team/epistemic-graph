@@ -93,7 +93,7 @@ impl std::fmt::Display for MissingFrozenFeature {
 }
 
 /// Refuse a frozen profile that omits a feature the current build enabled.
-fn require_feature_frozen(
+pub fn require_feature_frozen(
     profile: &[&'static str],
     name: &'static str,
     enabled: bool,

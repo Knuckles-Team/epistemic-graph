@@ -104,6 +104,9 @@ required-features = ["contract", "canonical-ledger", "contract-schema"]
 
 [features]
 default = []
+# Marks a build that compiles the Decide surface (EG-DECISION-ENGINE-R078), so the
+# frozen feature profile can name it. Enabled by the root crate's `decide` feature.
+decide = []
 # RF-RULING-003 — the exact profile `gen_contract` regenerates and `--check` verifies.
 #
 # It pulls `eg-types/test-support` because the generated digest vectors are

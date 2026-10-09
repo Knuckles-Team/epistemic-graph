@@ -6,7 +6,9 @@
 //! directional call. Sealing a recommendation into an informational-only
 //! `AnalysisSnapshot` record is a later slice (R009.2+).
 
-use super::{FlipAbstainReason, FlipConfidence};
+#[cfg(test)]
+use super::FlipAbstainReason;
+use super::FlipConfidence;
 
 /// One of the four actions a holding or watchlist item may be recommended.
 /// A recommendation is informational only: it authorises no order.
