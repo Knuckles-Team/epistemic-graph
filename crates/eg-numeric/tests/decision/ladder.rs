@@ -254,6 +254,7 @@ fn an_explored_choice_carries_no_risk_claim() {
 /// determines which options are legal. Disabling the statistical scorer
 /// (no head) must leave the same candidate set in place, and a head that
 /// does act must never introduce an option outside it.
+// spec: EG-DECISION-ENGINE-R089
 #[test]
 fn disabling_the_statistical_scorer_never_changes_the_legal_option_set() {
     let ids = option_ids();
