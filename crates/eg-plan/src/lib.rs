@@ -58,6 +58,9 @@ pub mod cost;
 // EG-UNIFIED-DATA-PLANE-R005 — mapping approval-state machine for named R2RML
 // virtual graphs; an unapproved or model-only mapping refuses to be queried.
 pub mod virtual_graph_mapping;
+// EG-UNIFIED-DATA-PLANE-R006 — typed pushdown decision/fallback-reason,
+// refusing a self-contradictory pushed-down-with-fallback state.
+pub mod pushdown_plan;
 
 /// Structured hierarchical retrieval (CONCEPT:EG-KG.retrieval.bounded-drill) — the LeanRAG method as a
 /// library API over the EG-220 summary tier: retrieve at the summary/abstraction

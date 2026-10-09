@@ -22,6 +22,7 @@
 ## Query, change and write paths
 
 - [ ] **EG-UNIFIED-DATA-PLANE-R006:** Typed OBDA join/aggregate/order/limit pushdown and explicit fallback; depends on EG-UNIFIED-DATA-PLANE-R005.
+- [ ] **EG-UNIFIED-DATA-PLANE-R006.1:** Typed `PushdownDecision`/`PushdownFallbackReason` refusing a contradictory decision; part of EG-UNIFIED-DATA-PLANE-R006 (parent rollup).
 - [ ] **EG-UNIFIED-DATA-PLANE-R007:** Attached table DataFusion providers and dialect-aware sub-plan pushdown; depends on EG-UNIFIED-DATA-PLANE-R002.
 - [ ] **EG-UNIFIED-DATA-PLANE-R008:** Durable source-position CDC, replay, lag and drift; depends on EG-UNIFIED-DATA-PLANE-R002.
 - [ ] **EG-UNIFIED-DATA-PLANE-R008.1:** Typed `ChangeEnvelope`/`ChangeOp` model with source-position and keyless-table refusal rules; part of EG-UNIFIED-DATA-PLANE-R008 (parent rollup).
