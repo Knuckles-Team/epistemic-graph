@@ -18,6 +18,8 @@
     "EG-DECISION-ENGINE-R013",
     "EG-DECISION-ENGINE-R014",
     "EG-DECISION-ENGINE-R015",
+    "EG-DECISION-ENGINE-R015.1",
+    "EG-DECISION-ENGINE-R015.2",
     "EG-DECISION-ENGINE-R016",
     "EG-DECISION-ENGINE-R017",
     "EG-DECISION-ENGINE-R018",
@@ -47,6 +49,8 @@
     "EG-DECISION-ENGINE-R042",
     "EG-DECISION-ENGINE-R043",
     "EG-DECISION-ENGINE-R044",
+    "EG-DECISION-ENGINE-R044.1",
+    "EG-DECISION-ENGINE-R044.2",
     "EG-DECISION-ENGINE-R045",
     "EG-DECISION-ENGINE-R045.1",
     "EG-DECISION-ENGINE-R045.2",
@@ -61,6 +65,8 @@
     "EG-DECISION-ENGINE-R054",
     "EG-DECISION-ENGINE-R055",
     "EG-DECISION-ENGINE-R056",
+    "EG-DECISION-ENGINE-R056.1",
+    "EG-DECISION-ENGINE-R056.2",
     "EG-DECISION-ENGINE-R057",
     "EG-DECISION-ENGINE-R058",
     "EG-DECISION-ENGINE-R059",
@@ -81,6 +87,8 @@
     "EG-DECISION-ENGINE-R073",
     "EG-DECISION-ENGINE-R074",
     "EG-DECISION-ENGINE-R075",
+    "EG-DECISION-ENGINE-R075.1",
+    "EG-DECISION-ENGINE-R075.2",
     "EG-DECISION-ENGINE-R076",
     "EG-DECISION-ENGINE-R077",
     "EG-DECISION-ENGINE-R078",
@@ -93,6 +101,8 @@
     "EG-DECISION-ENGINE-R081",
     "EG-DECISION-ENGINE-R082",
     "EG-DECISION-ENGINE-R083",
+    "EG-DECISION-ENGINE-R083.1",
+    "EG-DECISION-ENGINE-R083.2",
     "EG-DECISION-ENGINE-R084",
     "EG-DECISION-ENGINE-R085",
     "EG-DECISION-ENGINE-R085.1",
@@ -367,7 +377,7 @@
     },
     {
       "id": "EG-DECISION-ENGINE-R015",
-      "title": "No generative model weights inside the decision engine",
+      "title": "No generative model weights inside the decision engine (rollup)",
       "delivery_state": "LANDED",
       "evidence": [
         {
@@ -378,7 +388,29 @@
           "description": "EG-DECISION-ENGINE-R015 merged to the default branch in this commit."
         }
       ],
-      "remaining": "Split producer-first (2026-10-09): EG-DECISION-ENGINE-R015.1 adds the typed, closed StatisticalHeadKind::parse (crates/eg-types/src/decision/rapid_r015.rs), refusing any non-fitted-head name including a generative-model label. Still open: wiring the ladder's head registry to construct heads only through this parse."
+      "remaining": "Split 2026-10-09 into EG-DECISION-ENGINE-R015.1 (typed, closed statisticalheadkind refusing a non-fitted-head name, producer) and EG-DECISION-ENGINE-R015.2 (wire the ladder's head registry through the typed head-kind parse, consumer); see those rows."
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R015.1",
+      "title": "Typed, closed StatisticalHeadKind refusing a non-fitted-head name",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "0fac721690e233c5ab1e51662a1b9245e3731a9e",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/0fac721690e233c5ab1e51662a1b9245e3731a9e",
+          "description": "EG-DECISION-ENGINE-R015.1 merged to the default branch in this commit."
+        }
+      ],
+      "remaining": "Add the typed, closed `StatisticalHeadKind::parse` (`crates/eg-types/src/decision/rapid_r015.rs`), refusing any head-kind name outside the two fitted heads the ladder actually uses -- in particular a generative-model label."
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R015.2",
+      "title": "Wire the ladder's head registry through the typed head-kind parse",
+      "delivery_state": "SPECIFIED",
+      "evidence": [],
+      "remaining": "Remaining scope from the R015 split (2026-10-09): wiring the ladder's head registry to construct heads only through this parse."
     },
     {
       "id": "EG-DECISION-ENGINE-R016",
@@ -787,10 +819,32 @@
     },
     {
       "id": "EG-DECISION-ENGINE-R044",
-      "title": "A2A task routing through the decision ladder",
+      "title": "A2A task routing through the decision ladder (rollup)",
+      "delivery_state": "LANDED",
+      "evidence": [],
+      "remaining": "Split 2026-10-09 into EG-DECISION-ENGINE-R044.1 (typed a2aroutingresolution refusal over resolutionkind/evidenceclass, producer) and EG-DECISION-ENGINE-R044.2 (wire a2a task submission through the typed routing resolution, consumer); see those rows."
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R044.1",
+      "title": "Typed A2ARoutingResolution refusal over ResolutionKind/EvidenceClass",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "0fac721690e233c5ab1e51662a1b9245e3731a9e",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/0fac721690e233c5ab1e51662a1b9245e3731a9e",
+          "description": "EG-DECISION-ENGINE-R044.1 merged to the default branch in this commit."
+        }
+      ],
+      "remaining": "Add the typed `A2ARoutingResolution::new` refusal (`crates/eg-types/src/decision/rapid_r044.rs`) over the existing `ResolutionKind`/`EvidenceClass`, refusing an empty graph id and an abstention claiming proof-grade evidence."
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R044.2",
+      "title": "Wire A2A task submission through the typed routing resolution",
       "delivery_state": "SPECIFIED",
       "evidence": [],
-      "remaining": "Split producer-first (2026-10-09): EG-DECISION-ENGINE-R044.1 adds the typed A2ARoutingResolution::new refusal (crates/eg-types/src/decision/rapid_r044.rs) over the existing ResolutionKind/EvidenceClass. Still open: the A2A task-submission entry point that constructs one per inbound task and an integration test over the served path."
+      "remaining": "Remaining scope from the R044 split (2026-10-09): the A2A task-submission entry point that constructs one of these per inbound task and an integration test over the served path."
     },
     {
       "id": "EG-DECISION-ENGINE-R045",
@@ -985,7 +1039,7 @@
     },
     {
       "id": "EG-DECISION-ENGINE-R056",
-      "title": "Statistical-path release of the exact solver",
+      "title": "Statistical-path release of the exact solver (rollup)",
       "delivery_state": "LANDED",
       "evidence": [
         {
@@ -996,7 +1050,29 @@
           "description": "EG-DECISION-ENGINE-R056 merged to the default branch in this commit."
         }
       ],
-      "remaining": "Split producer-first (2026-10-09): EG-DECISION-ENGINE-R056.1 adds the typed StatisticalSolverCertificate::verify refusal on a mismatched model digest (crates/eg-types/src/decision/rapid_r056.rs). Still open: routing an actual statistical-path solve through the exact 0-1 solver and this certificate shape."
+      "remaining": "Split 2026-10-09 into EG-DECISION-ENGINE-R056.1 (typed statisticalsolvercertificate refusal on a stale model digest, producer) and EG-DECISION-ENGINE-R056.2 (route the statistical path through the exact 0-1 solver and this certificate, consumer); see those rows."
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R056.1",
+      "title": "Typed StatisticalSolverCertificate refusal on a stale model digest",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "0fac721690e233c5ab1e51662a1b9245e3731a9e",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/0fac721690e233c5ab1e51662a1b9245e3731a9e",
+          "description": "EG-DECISION-ENGINE-R056.1 merged to the default branch in this commit."
+        }
+      ],
+      "remaining": "Add the typed `StatisticalSolverCertificate::verify` refusal on a stale model digest (`crates/eg-types/src/decision/rapid_r056.rs`), giving the statistical path the same certificate-verification shape as the core assembly solver."
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R056.2",
+      "title": "Route the statistical path through the exact 0-1 solver and this certificate",
+      "delivery_state": "SPECIFIED",
+      "evidence": [],
+      "remaining": "Remaining scope from the R056 split (2026-10-09): routing an actual statistical-path solve through the exact 0-1 solver and this certificate shape."
     },
     {
       "id": "EG-DECISION-ENGINE-R057",
@@ -1289,7 +1365,7 @@
     },
     {
       "id": "EG-DECISION-ENGINE-R075",
-      "title": "Component-id uniqueness and forbidden decision kinds",
+      "title": "Component-id uniqueness and forbidden decision kinds (rollup)",
       "delivery_state": "LANDED",
       "evidence": [
         {
@@ -1300,7 +1376,29 @@
           "description": "EG-DECISION-ENGINE-R075 merged to the default branch in this commit."
         }
       ],
-      "remaining": "Split producer-first (2026-10-09): EG-DECISION-ENGINE-R075.1 adds check_unique_component_ids (crates/eg-types/src/connector_pack/rapid_r075.rs), the previously-missing duplicate-id rejection (PackEntryKind already structurally excludes decision kinds -- no variant exists for DecisionRecord/DecisionHead/DecisionPolicy). Still open: wiring the check into the real pack-import entry point."
+      "remaining": "Split 2026-10-09 into EG-DECISION-ENGINE-R075.1 (check_unique_component_ids rejects a duplicate component id, producer) and EG-DECISION-ENGINE-R075.2 (wire the duplicate-id check into the real pack-import entry point, consumer); see those rows."
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R075.1",
+      "title": "check_unique_component_ids rejects a duplicate component id",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "e8aaa8ae5ccda3f02f87ea735e5943b7b5dc4519",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/e8aaa8ae5ccda3f02f87ea735e5943b7b5dc4519",
+          "description": "EG-DECISION-ENGINE-R075.1 merged to the default branch in this commit."
+        }
+      ],
+      "remaining": "Add `check_unique_component_ids` (`crates/eg-types/src/connector_pack/rapid_r075.rs`), the duplicate-component-id rejection the existing `PackViolationCode::DuplicateComponentId` code names but no test previously exercised. `PackEntryKind` already structurally excludes decision-owned kinds (no `DecisionRecord`/`DecisionHead`/`DecisionPolicy` variant exists)."
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R075.2",
+      "title": "Wire the duplicate-id check into the real pack-import entry point",
+      "delivery_state": "SPECIFIED",
+      "evidence": [],
+      "remaining": "Remaining scope from the R075 split (2026-10-09): wiring the check into the real pack-import entry point."
     },
     {
       "id": "EG-DECISION-ENGINE-R076",
@@ -1456,7 +1554,7 @@
     },
     {
       "id": "EG-DECISION-ENGINE-R083",
-      "title": "Options encode structured facts, not option-label text",
+      "title": "Options encode structured facts, not option-label text (rollup)",
       "delivery_state": "LANDED",
       "evidence": [
         {
@@ -1467,7 +1565,29 @@
           "description": "EG-DECISION-ENGINE-R083 merged to the default branch in this commit."
         }
       ],
-      "remaining": "Split producer-first (2026-10-09): EG-DECISION-ENGINE-R083.1 adds the typed OptionFacts::encode (crates/eg-numeric/src/decision/rapid_r083.rs), bounded by MAX_OPTION_CAPABILITIES cardinality, with a test scoring a capability set whose label text exceeds a plausible token budget while the encoded width stays fixed. Still open: wiring this into the real FeatureMatrix computation in decision::features."
+      "remaining": "Split 2026-10-09 into EG-DECISION-ENGINE-R083.1 (typed optionfacts encoding bounded by declared capability cardinality, producer) and EG-DECISION-ENGINE-R083.2 (wire optionfacts encoding into the real featurematrix computation, consumer); see those rows."
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R083.1",
+      "title": "Typed OptionFacts encoding bounded by declared capability cardinality",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "e8aaa8ae5ccda3f02f87ea735e5943b7b5dc4519",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/e8aaa8ae5ccda3f02f87ea735e5943b7b5dc4519",
+          "description": "EG-DECISION-ENGINE-R083.1 merged to the default branch in this commit."
+        }
+      ],
+      "remaining": "Add the typed `OptionFacts::encode` (`crates/eg-numeric/src/decision/rapid_r083.rs`), bounded by the declared `MAX_OPTION_CAPABILITIES` cardinality rather than by any text-token budget."
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R083.2",
+      "title": "Wire OptionFacts encoding into the real FeatureMatrix computation",
+      "delivery_state": "SPECIFIED",
+      "evidence": [],
+      "remaining": "Remaining scope from the R083 split (2026-10-09): wiring this encoding into the real `FeatureMatrix` computation in `decision::features`."
     },
     {
       "id": "EG-DECISION-ENGINE-R084",
