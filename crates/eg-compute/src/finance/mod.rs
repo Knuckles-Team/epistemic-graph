@@ -13,6 +13,8 @@
 pub mod derivatives;
 pub mod exchange;
 pub mod forensic;
+pub mod ghostfolio_import;
+pub mod golden_fixture;
 pub mod lot_accounting;
 pub mod leverage;
 pub mod market;
