@@ -414,6 +414,18 @@ $($variants)*
         source: crate::wire::ForeignSourceSpec,
     },
 
+    /// Read mapped columns from this caller's registered SQL or HTTP source. The source
+    /// may push a safe subset of predicates; the engine evaluates every predicate
+    /// locally before returning the requested projection.
+    #[cfg(feature = "federation")]
+    QueryForeignColumns {
+        name: String,
+        #[serde(default)]
+        columns: Vec<String>,
+        #[serde(default)]
+        predicates: Vec<crate::wire::ForeignColumnPredicate>,
+    },
+
 
     // ── WASM-sandboxed UDF / extension model (CONCEPT:EG-KG.query.rowset-execution) ─────────────
     // An agent pushes a custom compute function as a WebAssembly module the engine

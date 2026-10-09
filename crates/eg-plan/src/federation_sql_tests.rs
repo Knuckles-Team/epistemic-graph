@@ -68,6 +68,7 @@ fn sql_foreign_join_with_local_equals_manual_join() {
         query: "SELECT doi, relevance FROM cited WHERE published > 2023".into(),
         id_field: "doi".into(),
         score_field: Some("relevance".into()),
+        columns: Vec::new(),
     };
     let fused = fuse_foreign(local, mock_sql_rows(), true);
 
@@ -144,6 +145,7 @@ fn sql_source_real_dsn_path_errors_cleanly_when_unreachable() {
         query: "SELECT id FROM t".into(),
         id_field: "id".into(),
         score_field: None,
+        columns: Vec::new(),
     };
     let err = crate::federation::source_for(&spec)
         .fetch()
@@ -162,6 +164,7 @@ fn sql_source_unsupported_scheme_errors() {
         query: "SELECT id FROM t".into(),
         id_field: "id".into(),
         score_field: None,
+        columns: Vec::new(),
     };
     let err = crate::federation::source_for(&spec).fetch().unwrap_err();
     assert!(
@@ -184,6 +187,7 @@ fn sql_source_rejects_mutation_stacking_and_locking_before_connect() {
             query: query.into(),
             id_field: "id".into(),
             score_field: None,
+            columns: Vec::new(),
         };
         let err = crate::federation::source_for(&spec).fetch().unwrap_err();
         assert!(
@@ -202,6 +206,7 @@ fn sql_source_errors_never_reflect_connection_secrets_or_query_text() {
         query: format!("DELETE FROM {query_marker}"),
         id_field: "id".into(),
         score_field: None,
+        columns: Vec::new(),
     };
     let err = crate::federation::source_for(&spec).fetch().unwrap_err();
     assert!(!err.contains(secret));

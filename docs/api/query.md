@@ -1,6 +1,6 @@
 # Query API reference
 
-> **GENERATED** by `scripts/gen_api_docs.py` from `contract/methods.json` and `contract/schemas/method.request.json` / `contract/schemas/result.query.json` -- do not hand-edit. Regenerate with `python3 scripts/gen_api_docs.py --write`. 31 methods in this namespace. See also the machine-checked policy ledger at [`capabilities.generated.md`](../capabilities.generated.md) and the [OpenAPI document](../openapi.json) / [Swagger UI](../swagger-ui.md).
+> **GENERATED** by `scripts/gen_api_docs.py` from `contract/methods.json` and `contract/schemas/method.request.json` / `contract/schemas/result.query.json` -- do not hand-edit. Regenerate with `python3 scripts/gen_api_docs.py --write`. 32 methods in this namespace. See also the machine-checked policy ledger at [`capabilities.generated.md`](../capabilities.generated.md) and the [OpenAPI document](../openapi.json) / [Swagger UI](../swagger-ui.md).
 
 ## `CausalCounterfactual`
 
@@ -677,6 +677,40 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Mate
 | `result` | array of array of any | Raw |  |
 
 Full machine-checked schema: `contract/schemas/method.request.json#/methods/NlQuery`, `contract/schemas/result.query.json#/methods/NlQuery`.
+
+## `QueryForeignColumns`
+
+Verified owner-scoped mapped-column read with bounded source fetch and local predicate residual
+
+| Property | Value |
+|---|---|
+| Stability | `stable` |
+| Authz action | `federation:read` |
+| Mutates | `false` |
+| Durability domain | `None` |
+| Idempotent | `true` |
+| Audited | `false` |
+| Emits CDC | `false` |
+| Txn participation | `Snapshot` |
+| Replay class | `NotReplayable` |
+| Consumer profiles | `python` |
+| Error set | `INVALID_ARGUMENT`, `ACCESS_DENIED` |
+
+**Request parameters**
+
+| Parameter | Type | Required | Description |
+|---|---|:---:|---|
+| `columns` | array of string | no |  |
+| `name` | string | yes |  |
+| `predicates` | array of `ForeignColumnPredicate` | no |  |
+
+**Result**
+
+| Body | Type | Encoding | Dynamic |
+|---|---|---|---|
+| `result` | array of `ForeignColumnRow` | Raw |  |
+
+Full machine-checked schema: `contract/schemas/method.request.json#/methods/QueryForeignColumns`, `contract/schemas/result.query.json#/methods/QueryForeignColumns`.
 
 ## `RankByProvenance`
 

@@ -14104,6 +14104,60 @@
       ],
       "type": "string"
     },
+    "ForeignColumnComparison": {
+      "description": "Comparison accepted by the owner-scoped foreign-column read surface.",
+      "enum": [
+        "Eq",
+        "Ne",
+        "Lt",
+        "Le",
+        "Gt",
+        "Ge"
+      ],
+      "type": "string"
+    },
+    "ForeignColumnPredicate": {
+      "description": "A predicate over a column named in the registered source mapping.",
+      "properties": {
+        "column": {
+          "type": "string"
+        },
+        "comparison": {
+          "$ref": "#/$defs/ForeignColumnComparison"
+        },
+        "value": true
+      },
+      "required": [
+        "column",
+        "comparison",
+        "value"
+      ],
+      "type": "object"
+    },
+    "ForeignColumnRow": {
+      "description": "One bounded result row after all local residual predicates and projection.",
+      "properties": {
+        "columns": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "id": {
+          "type": "string"
+        },
+        "score": {
+          "format": "float",
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "columns"
+      ],
+      "type": "object"
+    },
     "ForeignCypherBackend": {
       "description": "External Cypher dialect and transport are a single explicit choice.",
       "enum": [
@@ -14215,6 +14269,14 @@
           "properties": {
             "Sql": {
               "properties": {
+                "columns": {
+                  "default": [],
+                  "description": "Query-selected columns the registering owner permits a column query to\nread. Empty for legacy id/score-only registrations. Names are checked\nas SQL identifiers before projection or filter pushdown (EH-572).",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
                 "dsn": {
                   "description": "The external database DSN (e.g. `postgres://host:5432/db`).",
                   "type": "string"
@@ -19683,7 +19745,7 @@
         },
         {
           "additionalProperties": false,
-          "description": "Labeled + keyset-bounded node fetch: return at most `limit` nodes whose\n`type`/`label`/`labels` matches `label`, ordered by node id. `after` is an\nexclusive node-id cursor (`None` starts at the first id); callers advance\nit to the last id returned. `limit == 0` means no cap. Unlike\n`GetNodes` (which materializes the WHOLE graph), this bounds the wire\npayload to `limit`, so a `MATCH (n:Label) … LIMIT k` no longer pulls every\nnode's properties off the engine. (CONCEPT:EG-KG.txn.per-graph-write-isolation)\n\nAn empty `label` (CONCEPT:EG-KG.query.unlabeled-scan-limit-pushdown) means \"no label filter\" — a bounded scan\nof the whole node store, still honouring `limit`. Use this for an\nunlabeled `MATCH (n) … LIMIT k`: it stays bounded instead of falling back\nto `GetNodes`, which trips the `RESULT_TOO_LARGE` overload guard even when\nthe caller only wanted `k` rows.",
+          "description": "Labeled + keyset-bounded node fetch: return at most `limit` nodes whose\n`type`/`label`/`labels` matches `label`, ordered by node id. `after` is an\nexclusive node-id cursor (`None` starts at the first id); callers advance\nit to the last id returned. Served calls require a positive `limit`\nno greater than the configured response cap. Unlike\n`GetNodes` (which materializes the WHOLE graph), this bounds the wire\npayload to `limit`, so a `MATCH (n:Label) … LIMIT k` no longer pulls every\nnode's properties off the engine. (CONCEPT:EG-KG.txn.per-graph-write-isolation)\n\nAn empty `label` (CONCEPT:EG-KG.query.unlabeled-scan-limit-pushdown) means \"no label filter\" — a bounded scan\nof the whole node store, still honouring `limit`. Use this for an\nunlabeled `MATCH (n) … LIMIT k`: it stays bounded instead of falling back\nto `GetNodes`, which trips the `RESULT_TOO_LARGE` overload guard even when\nthe caller only wanted `k` rows.",
           "properties": {
             "method": {
               "const": "GetNodesByLabel",
@@ -23333,7 +23395,7 @@
         },
         {
           "additionalProperties": false,
-          "description": "Label scan unioned + deduped by node id across `graphs` (limit 0 ⇒ no cap).",
+          "description": "Label scan unioned + deduped by node id across `graphs` (positive,\nresponse-capped limit required by the served handler).",
           "properties": {
             "method": {
               "const": "UnionGetNodesByLabel",
@@ -30901,6 +30963,47 @@
               "required": [
                 "name",
                 "source"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Read mapped columns from this caller's registered SQL source. The source\nmay push a safe subset of predicates; the engine evaluates every predicate\nlocally before returning the requested projection.",
+          "properties": {
+            "method": {
+              "const": "QueryForeignColumns",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "columns": {
+                  "default": [],
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "predicates": {
+                  "default": [],
+                  "items": {
+                    "$ref": "#/$defs/ForeignColumnPredicate"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "name"
               ],
               "type": "object"
             }
@@ -53142,6 +53245,17 @@
           "minimum": 0,
           "type": "integer"
         },
+        "insample": {
+          "description": "In-sample and out-of-sample performance, rows = CV splits, columns = variants.",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "type": "array"
+        },
         "n_groups": {
           "format": "uint32",
           "minimum": 0,
@@ -53158,8 +53272,7 @@
           "minimum": 0,
           "type": "integer"
         },
-        "performance": {
-          "description": "Per-period performance, rows aligned with `BacktestRunDraft::returns`,\ncolumns = strategy variants. The engine derives both sides of every\npurged CPCV split from these same observations.",
+        "oos": {
           "items": {
             "items": {
               "format": "double",
@@ -53181,7 +53294,8 @@
         "purge_window",
         "embargo",
         "n_trials",
-        "performance"
+        "insample",
+        "oos"
       ],
       "type": "object"
     },
@@ -54739,6 +54853,21 @@
                 }
               ],
               "type": "array"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "QueryForeignColumns": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "items": {
+              "$ref": "#/$defs/ForeignColumnRow"
             },
             "type": "array"
           }

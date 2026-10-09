@@ -99,6 +99,7 @@ fn foreign_scan_reads_an_http_json_source_as_a_rowset() {
         field_map: HttpFieldMap {
             id: "ref".into(),
             score: Some("w".into()),
+            columns: Default::default(),
         },
     };
     let rs = crate::federation::source_for(&spec).fetch().unwrap();
@@ -109,6 +110,61 @@ fn foreign_scan_reads_an_http_json_source_as_a_rowset() {
     );
     // The score field is projected too.
     assert_eq!(rs.rows()[0].score, Some(0.7));
+}
+
+#[test]
+fn mapped_http_columns_filter_and_project_after_fetch() {
+    use crate::federation::ForeignSourceRegistry;
+    use crate::federation_opt::{ColumnPredicate, Comparison, FederationSession};
+    use std::collections::BTreeMap;
+
+    let addr = spawn_mock_json(
+        r#"{"data":[{"ref":"a","name":"Ada","age":19},{"ref":"b","name":"Bea","age":42},{"ref":"c","name":"Cam","age":55}]}"#,
+    );
+    let _allow = MockHttpAllowGuard::new(&addr);
+    let mut registry = ForeignSourceRegistry::new();
+    registry.register_spec(
+        "people",
+        ForeignSourceSpec::HttpJson {
+            url: addr,
+            json_path: "data".into(),
+            field_map: HttpFieldMap {
+                id: "ref".into(),
+                score: None,
+                columns: BTreeMap::from([
+                    ("name".into(), "name".into()),
+                    ("age".into(), "age".into()),
+                ]),
+            },
+        },
+    );
+    let rows = registry
+        .query_columns(
+            "people",
+            &["name".into()],
+            &[ColumnPredicate {
+                column: "age".into(),
+                comparison: Comparison::Ge,
+                value: serde_json::json!(40),
+            }],
+            &FederationSession::from_env(),
+        )
+        .unwrap();
+    assert_eq!(
+        rows.rows()
+            .iter()
+            .map(|row| row.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["b", "c"]
+    );
+    assert_eq!(
+        rows.rows()[0].columns,
+        BTreeMap::from([("name".into(), serde_json::json!("Bea"))])
+    );
+    assert_eq!(
+        rows.rows()[1].columns,
+        BTreeMap::from([("name".into(), serde_json::json!("Cam"))])
+    );
 }
 
 /// THE compose proof: a plan that JOINS a foreign HTTP source with the local graph
@@ -133,6 +189,7 @@ fn foreign_join_with_local_equals_manual_join() {
         field_map: HttpFieldMap {
             id: "k".into(),
             score: None,
+            columns: Default::default(),
         },
     };
 
@@ -203,6 +260,7 @@ fn foreign_scan_as_a_pure_source_replaces_the_input() {
         field_map: HttpFieldMap {
             id: "k".into(),
             score: None,
+            columns: Default::default(),
         },
     };
     // Scan would seed all Docs, but the non-join ForeignScan replaces it with {d3,d4}.
