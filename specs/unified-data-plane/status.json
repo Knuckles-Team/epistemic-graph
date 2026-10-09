@@ -24,6 +24,7 @@
     "EG-UNIFIED-DATA-PLANE-R019",
     "EG-UNIFIED-DATA-PLANE-R019.1",
     "EG-UNIFIED-DATA-PLANE-R020",
+    "EG-UNIFIED-DATA-PLANE-R020.1",
     "EG-UNIFIED-DATA-PLANE-R021",
     "EG-UNIFIED-DATA-PLANE-R022",
     "EG-UNIFIED-DATA-PLANE-R023",
@@ -178,7 +179,13 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R020",
       "title": "Federate Snowflake, BigQuery, DuckDB, and Iceberg sources",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R020.1",
+      "title": "WarehouseSourceKind/WarehouseSourceConfig typed model and required-field refusal",
+      "delivery_state": "BUILT",
       "evidence": []
     },
     {
