@@ -27,6 +27,8 @@
 
 - [x] D16 **EG-DECISION-ENGINE-R029 (first slice):** Add the typed `RetrievalPlanKind` registry (leanrag/reciprocal-rank-fusion/direct-sparql) and `RetrievalPlanRequest::check()` refusal for an unregistered plan id (`crates/eg-types/src/decision/statistical/retrieval_plan.rs`). `QuestionKind::RetrievalPlan` candidates still route through the ordinary generic `Decide`/declared-candidate executor (no kind-specific comparison path). Remaining for this requirement: a real retrieval-dispatch call site that builds `CandidateSource::Declared` options from this registry and calls `Decide`, plus an integration test selecting the expected plan for a representative request shape (the requirement's acceptance test).
 
+- [x] D17 **EG-DECISION-ENGINE-R106:** Add `every_standard_shape_has_a_conforming_template` to `src/server/graph_schema/swarm_topology_tests.rs`, proving a minimal template for each of the six standard shapes (single-agent, pipeline, fan-out/join, supervisor-to-workers, critique-loop, council) validates against the `core:swarm-topology-shapes@1` SHACL shapes landed for EG-DECISION-ENGINE-R105. No new Rust topology-contract type was needed; the gap was test coverage of the existing vocabulary and shapes, not missing fact-carrying capacity.
+
 ## Evidence format
 
 For each stable ID, record: `ID | sequence | delivery | acceptance | main SHA | tests/workflow | reviewed date | notes`. Until a row has an exact commit and passing required tests, use `WAITING / NOT_RUN`, `IN_PROGRESS / PARTIAL`, or `SOURCE_LANDED / PARTIAL` as observed; do not infer acceptance from a sequence label. `RETIRED` requires the superseding contract and removal test. Keep evidence records in this repository alongside the spec so external contributors can audit them.
