@@ -44,8 +44,8 @@ mod tests;
 
 pub use budget::{FederationBudget, BUDGET_EXCEEDED, REQUIRES_KEYS, RESULT_INCOMPLETE};
 pub use capability::{
-    FullFetch, KeyLookup, LimitPushdown, PageRequest, Paging, RemoteRequest, SourceCapabilities,
-    SourceRate,
+    ForeignSourceCapability, FullFetch, KeyLookup, LimitPushdown, PageRequest, Paging,
+    PushdownKind, RemoteRequest, SourceCapabilities, SourceCostModel, SourceRate,
 };
 #[cfg(feature = "federation-sql")]
 pub(crate) use columns::render_sql_columns;

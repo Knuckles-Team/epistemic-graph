@@ -132,3 +132,190 @@ impl RemoteRequest {
         }
     }
 }
+
+/// One kind of work the optimizer may push into a foreign source's own request
+/// (design §3; EG-FEDERATED-QUERY-R038.1). The optimizer offers a kind to a source only
+/// when [`ForeignSourceCapability::proves_sound`] says that source's declared capability
+/// proves the kind sound — never by assumption from the source's registered engine kind.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize)]
+pub enum PushdownKind {
+    /// Column selection: the source returns only the columns the plan reads.
+    Projection,
+    /// Row predicates: the source evaluates a filter and returns only matching rows.
+    Filter,
+    /// A row limit and/or an explicit row order (`LIMIT` / `ORDER BY`).
+    LimitOrder,
+    /// Group/aggregate evaluation (`COUNT`, `SUM`, …) inside the source's own request.
+    Aggregate,
+    /// A join between two leaves resolved by the identical source fingerprint, evaluated
+    /// remotely instead of bound locally.
+    SameSourceJoin,
+    /// A batched key lookup (`id IN (…)`); see [`KeyLookup::Batched`].
+    BatchedLookup,
+}
+
+/// A per-query cost estimate for one foreign source fragment: how many rows it is expected
+/// to return, and what evaluating it costs against the query's [`super::FederationBudget`].
+/// Both fields are estimates (from [`super::SourceStats`] or a source's own declared
+/// defaults), never a post-hoc measurement — the optimizer consults them BEFORE it fetches
+/// anything, to decide whether a pushdown is worth attempting under the remaining budget.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize)]
+pub struct SourceCostModel {
+    /// Estimated rows this fragment returns for the current request shape.
+    pub cardinality_estimate: u64,
+    /// Estimated network-budget cost (request + byte credits) one fetch spends.
+    pub network_budget_cost: u64,
+}
+
+impl SourceCostModel {
+    pub const fn new(cardinality_estimate: u64, network_budget_cost: u64) -> Self {
+        Self {
+            cardinality_estimate,
+            network_budget_cost,
+        }
+    }
+}
+
+/// The capability + cost row the optimizer consults before offering ANY [`PushdownKind`] to
+/// a foreign source (EG-FEDERATED-QUERY-R038.1). [`SourceCapabilities`] alone describes the
+/// shape of request a source answers (keys, limit, paging); this additionally proves, per
+/// pushdown kind, whether offering that kind to THIS source is sound — a plain key-value or
+/// fetch-only source proves none of projection/filter/aggregate/same-source-join sound even
+/// though it may still answer batched key lookups.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+pub struct ForeignSourceCapability {
+    pub capabilities: SourceCapabilities,
+    pub cost: SourceCostModel,
+    /// SQL/OBDA, SPARQL and lake-format sources with a query-shaped statement can prove
+    /// projection, filter and aggregate pushdown sound; a plain HTTP/REST or key-value
+    /// fetch-only source cannot.
+    pub proves_projection_filter_aggregate: bool,
+    /// Two leaves resolved by the identical source fingerprint can be joined remotely
+    /// instead of bound locally.
+    pub proves_same_source_join: bool,
+}
+
+impl ForeignSourceCapability {
+    pub const fn new(
+        capabilities: SourceCapabilities,
+        cost: SourceCostModel,
+        proves_projection_filter_aggregate: bool,
+        proves_same_source_join: bool,
+    ) -> Self {
+        Self {
+            capabilities,
+            cost,
+            proves_projection_filter_aggregate,
+            proves_same_source_join,
+        }
+    }
+
+    /// A source that proves nothing beyond what [`SourceCapabilities::fetch_only`] already
+    /// gives: never offer projection/filter/aggregate/same-source-join pushdown.
+    pub const fn fetch_only(cost: SourceCostModel) -> Self {
+        Self::new(SourceCapabilities::fetch_only(), cost, false, false)
+    }
+
+    /// Whether this source's declared capability proves the given pushdown kind sound. A
+    /// `false` return is the optimizer's refusal signal, not an error: an unproven kind is
+    /// simply never offered, and the plan falls back to the local residual / full fetch.
+    pub fn proves_sound(&self, kind: PushdownKind) -> bool {
+        match kind {
+            PushdownKind::Projection | PushdownKind::Filter | PushdownKind::Aggregate => {
+                self.proves_projection_filter_aggregate
+            }
+            PushdownKind::LimitOrder => matches!(self.capabilities.limit, LimitPushdown::Native),
+            PushdownKind::SameSourceJoin => self.proves_same_source_join,
+            PushdownKind::BatchedLookup => {
+                matches!(self.capabilities.key_lookup, KeyLookup::Batched { .. })
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod r038_1_tests {
+    use super::*;
+
+    fn sql_like_capability() -> ForeignSourceCapability {
+        ForeignSourceCapability::new(
+            SourceCapabilities::single_full_fetch(
+                KeyLookup::Batched { max_keys: 500 },
+                LimitPushdown::Native,
+            ),
+            SourceCostModel::new(10_000, 64),
+            true,
+            true,
+        )
+    }
+
+    #[test]
+    fn a_sql_like_capability_proves_every_kind_it_declares_sound() {
+        let cap = sql_like_capability();
+        for kind in [
+            PushdownKind::Projection,
+            PushdownKind::Filter,
+            PushdownKind::Aggregate,
+            PushdownKind::LimitOrder,
+            PushdownKind::SameSourceJoin,
+            PushdownKind::BatchedLookup,
+        ] {
+            assert!(cap.proves_sound(kind), "{kind:?} should be proven sound");
+        }
+    }
+
+    #[test]
+    fn a_fetch_only_capability_refuses_every_kind_but_nothing_panics() {
+        let cap = ForeignSourceCapability::fetch_only(SourceCostModel::new(1, 1));
+        for kind in [
+            PushdownKind::Projection,
+            PushdownKind::Filter,
+            PushdownKind::Aggregate,
+            PushdownKind::LimitOrder,
+            PushdownKind::SameSourceJoin,
+            PushdownKind::BatchedLookup,
+        ] {
+            assert!(
+                !cap.proves_sound(kind),
+                "fetch-only must never prove {kind:?} sound"
+            );
+        }
+    }
+
+    #[test]
+    fn a_key_only_source_proves_batched_lookup_but_not_relational_pushdown() {
+        let cap = ForeignSourceCapability::new(
+            SourceCapabilities::single_full_fetch(
+                KeyLookup::Batched { max_keys: 50 },
+                LimitPushdown::Unsupported,
+            ),
+            SourceCostModel::new(50, 8),
+            false,
+            false,
+        );
+        assert!(cap.proves_sound(PushdownKind::BatchedLookup));
+        assert!(!cap.proves_sound(PushdownKind::Projection));
+        assert!(!cap.proves_sound(PushdownKind::Filter));
+        assert!(!cap.proves_sound(PushdownKind::Aggregate));
+        assert!(!cap.proves_sound(PushdownKind::LimitOrder));
+        assert!(!cap.proves_sound(PushdownKind::SameSourceJoin));
+    }
+
+    #[test]
+    fn same_source_join_is_refused_without_an_explicit_proof() {
+        let cap = ForeignSourceCapability::new(
+            SourceCapabilities::fetch_only(),
+            SourceCostModel::new(0, 0),
+            true,
+            false,
+        );
+        assert!(!cap.proves_sound(PushdownKind::SameSourceJoin));
+    }
+
+    #[test]
+    fn cost_model_carries_the_declared_estimates_unchanged() {
+        let cost = SourceCostModel::new(12_345, 99);
+        assert_eq!(cost.cardinality_estimate, 12_345);
+        assert_eq!(cost.network_budget_cost, 99);
+    }
+}

@@ -41,6 +41,7 @@
     "EG-FEDERATED-QUERY-R036",
     "EG-FEDERATED-QUERY-R037",
     "EG-FEDERATED-QUERY-R038",
+    "EG-FEDERATED-QUERY-R038.1",
     "EG-FEDERATED-QUERY-R039",
     "EG-FEDERATED-QUERY-R040",
     "EG-FEDERATED-QUERY-R041",
@@ -602,6 +603,12 @@
     {
       "id": "EG-FEDERATED-QUERY-R038",
       "title": "Federation optimizer: cost-aware pushdown, freshness-aware cache",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R038.1",
+      "title": "Typed foreign-source capability + cost model proves which pushdown kinds are sound",
       "delivery_state": "SPECIFIED",
       "evidence": []
     },
