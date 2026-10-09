@@ -111,7 +111,7 @@
     {
       "id": "EG-CONTRACT-R003",
       "title": "Privacy scan covers the relocated graph-backends documentation",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -119,6 +119,13 @@
           "commit": "fb1d50d0d7d49096259b8ea2c15f0399ade22448",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/fb1d50d0d7d49096259b8ea2c15f0399ade22448",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "82e1e970c83aee83d1618bbf76dfa3dfbfd966ee",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/82e1e970c83aee83d1618bbf76dfa3dfbfd966ee",
+          "description": "EG-CONTRACT-R003 merged to the default branch in this commit."
         }
       ]
     },
@@ -189,15 +196,31 @@
     {
       "id": "EG-CONTRACT-R008",
       "title": "Repo-parity check validates the resolved checkout",
-      "delivery_state": "SPECIFIED",
-      "evidence": [],
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "1e48414f9e585cbd73e78fd539b3e569419437f0",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/1e48414f9e585cbd73e78fd539b3e569419437f0",
+          "description": "EG-CONTRACT-R008 merged to the default branch in this commit."
+        }
+      ],
       "remaining": "Split into EG-CONTRACT-R008.1 (typed resolved-checkout parity contract, PR open) and EG-CONTRACT-R008.2 (the scripts/check_five_repo_parity.py CLI entry point that wires it in, not yet started)."
     },
     {
       "id": "EG-CONTRACT-R008.1",
       "title": "Typed resolved-checkout parity contract (producer-first split of R008)",
-      "delivery_state": "SPECIFIED",
-      "evidence": [],
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "1e48414f9e585cbd73e78fd539b3e569419437f0",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/1e48414f9e585cbd73e78fd539b3e569419437f0",
+          "description": "EG-CONTRACT-R008.1 merged to the default branch in this commit."
+        }
+      ],
       "remaining": "verify_resolved_checkout and VerifiedRepoRoot/RepoRootMismatchError (scripts/repo_root_parity.py) prove the type-level contract -- a requested and an actual checkout path are each resolved and compared, raising on divergence -- with a negative test (mismatched directories raise), a positive test (identical path passes) and a positive test (symlinked checkout of the same repo passes). The real scripts/check_five_repo_parity.py CLI entry point that calls this from argv is EG-CONTRACT-R008.2."
     },
     {

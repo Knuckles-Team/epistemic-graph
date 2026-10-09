@@ -78,7 +78,7 @@
           "description": "EG-FINANCE-PRIMITIVES-R002 merged to the default branch in this commit."
         }
       ],
-      "remaining": "purged_cpcv_splits, deflated_sharpe_ratio, probability_of_backtest_overfit, diebold_mariano and the FeatureSkill (IC/IR/n_eff) and Brier kernels are rehomed into eg-numeric on main, and FinanceRollingZscore/FinanceEwma were retired. But Ornstein-Uhlenbeck, ADF, and regime-HMM calculations are still …"
+      "remaining": "purged_cpcv_splits, deflated_sharpe_ratio, probability_of_backtest_overfit, diebold_mariano and the FeatureSkill (IC/IR/n_eff) and Brier kernels are rehomed into eg-numeric on main, and FinanceRollingZscore/FinanceEwma were retired. But Ornstein-Uhlenbeck, ADF, and regime-HMM calculations are still \u2026"
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R003",
@@ -216,14 +216,30 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R008",
       "title": "Strategy backtests sealed through BacktestRun",
-      "delivery_state": "BUILDING",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "b96ef8ebd9df8b3e57ec48711555728b87876841",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/b96ef8ebd9df8b3e57ec48711555728b87876841",
+          "description": "EG-FINANCE-PRIMITIVES-R008 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R008.1",
       "title": "Dollar-cost-averaging backtest seals through BacktestRun",
-      "delivery_state": "BUILDING",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "b96ef8ebd9df8b3e57ec48711555728b87876841",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/b96ef8ebd9df8b3e57ec48711555728b87876841",
+          "description": "EG-FINANCE-PRIMITIVES-R008.1 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R009",
@@ -284,15 +300,31 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R011",
       "title": "Finance alerts published through the finance outbox",
-      "delivery_state": "SPECIFIED",
-      "evidence": [],
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "3eeb3126f421366dc657ecfcbaa1fcb5179c0409",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/3eeb3126f421366dc657ecfcbaa1fcb5179c0409",
+          "description": "EG-FINANCE-PRIMITIVES-R011 merged to the default branch in this commit."
+        }
+      ],
       "remaining": "Split into EG-FINANCE-PRIMITIVES-R011.1 (typed finance alert envelope, delivered) and later slices for the transactional outbox append and delivery idempotence (not yet started)."
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R011.1",
       "title": "Typed finance alert envelope (producer-first split of R011)",
-      "delivery_state": "SPECIFIED",
-      "evidence": [],
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "3eeb3126f421366dc657ecfcbaa1fcb5179c0409",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/3eeb3126f421366dc657ecfcbaa1fcb5179c0409",
+          "description": "EG-FINANCE-PRIMITIVES-R011.1 merged to the default branch in this commit."
+        }
+      ],
       "remaining": "FinanceAlertEnvelope and FinanceAlertKind (crates/eg-types/src/finance_event_envelope.rs) prove the type-level contract for price/trend-flip/DCA-due/margin-threshold alerts and their outbox event-schema names, with validation and refusal tests (empty event_id, empty listing_id, non-positive timestamp, empty message). Wiring this envelope into the outbox append path and preserving the existing TrendFlip event id end to end is a later slice of EG-FINANCE-PRIMITIVES-R011."
     },
     {
@@ -341,7 +373,7 @@
           "description": "EG-FINANCE-PRIMITIVES-R015 merged to the default branch in this commit."
         }
       ],
-      "remaining": "AnalysisSnapshot/AnalysisSnapshotDraft (crates/eg-types/src/compute_result/market/snapshot.rs) carries informational_only, excludes_positions and SnapshotNotices, but has no control-lease / share.read link field anywhere in its definition. A generic ControlLease mechanism exists in …"
+      "remaining": "AnalysisSnapshot/AnalysisSnapshotDraft (crates/eg-types/src/compute_result/market/snapshot.rs) carries informational_only, excludes_positions and SnapshotNotices, but has no control-lease / share.read link field anywhere in its definition. A generic ControlLease mechanism exists in \u2026"
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R016",
