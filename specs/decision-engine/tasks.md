@@ -35,6 +35,8 @@
 
 - [x] D17 **EG-DECISION-ENGINE-R106:** Add `every_standard_shape_has_a_conforming_template` to `src/server/graph_schema/swarm_topology_tests.rs`, proving a minimal template for each of the six standard shapes (single-agent, pipeline, fan-out/join, supervisor-to-workers, critique-loop, council) validates against the `core:swarm-topology-shapes@1` SHACL shapes landed for EG-DECISION-ENGINE-R105. No new Rust topology-contract type was needed; the gap was test coverage of the existing vocabulary and shapes, not missing fact-carrying capacity.
 
+- [x] D18 **EG-DECISION-ENGINE-R075:** Add `two_entries_minting_the_same_component_id_are_rejected` (`src/server/handlers/admin/connector_pack/tests/content_model.rs`), proving the already-implemented `PackViolationCode::DuplicateComponentId` check (`validate_identity` in `import/validation.rs`) refuses two pack entries of the same kind and name but different URIs, before any state change. `PackEntryKind` structurally excludes `DecisionRecord`/`DecisionHead`/`DecisionPolicy` already (no variant exists to import); no code change was needed for the reserved-kind half of this requirement, only the duplicate-id test.
+
 ## Evidence format
 
 For each stable ID, record: `ID | sequence | delivery | acceptance | main SHA | tests/workflow | reviewed date | notes`. Until a row has an exact commit and passing required tests, use `WAITING / NOT_RUN`, `IN_PROGRESS / PARTIAL`, or `SOURCE_LANDED / PARTIAL` as observed; do not infer acceptance from a sequence label. `RETIRED` requires the superseding contract and removal test. Keep evidence records in this repository alongside the spec so external contributors can audit them.
