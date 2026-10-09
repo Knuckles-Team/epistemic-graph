@@ -261,9 +261,18 @@ pub(super) struct SqlObdaSource {
 impl SqlObdaSource {
     /// Build a live external source over `table` reachable at `dsn` (the `federation-sql`
     /// path). A build without `federation-sql` returns a clean "rebuild" error.
+    ///
+    /// `EG-UNIFIED-DATA-PLANE-R002.2`: `dsn` runs through the same SSRF-sensitive
+    /// destination gate the SQL federation producer path (`R002.1`,
+    /// `src/server/foreign_catalog.rs`) already runs before registration, so an OBDA
+    /// external source whose DSN names a disallowed destination is refused here —
+    /// before `reg.register` in `sparql_virtual` ever reaches it — instead of only
+    /// failing the first time `run_select` dials out.
     fn connect(dsn: &str, table: &str) -> Result<Self, String> {
         let dialect = obda_dialect(dsn)?;
         eg_plan::sql_text::validate_identifier(table).map_err(|e| format!("obda: {e}"))?;
+        #[cfg(feature = "federation-sql")]
+        eg_plan::federation_ssrf::check_sql_dsn(dsn)?;
         let executor = federation_sql_executor(dsn)?;
         Ok(Self {
             table: table.to_string(),
@@ -415,5 +424,31 @@ struct FederationSqlExecutor {
 impl ObdaSqlExecutor for FederationSqlExecutor {
     fn run_select(&self, sql: &str) -> Result<Vec<eg_rdf::obda::ForeignRow>, String> {
         eg_plan::federation::fetch_sql_columns(&self.dsn, sql)
+    }
+}
+
+/// `EG-UNIFIED-DATA-PLANE-R002.2`: an OBDA external source's DSN runs through the same
+/// SSRF-sensitive destination gate the SQL federation producer path (`R002.1`) runs at
+/// registration time, not only when `run_select` later dials out.
+#[cfg(all(test, feature = "obda", feature = "federation-sql"))]
+mod outbound_verification_tests {
+    use super::SqlObdaSource;
+
+    #[test]
+    fn a_disallowed_obda_destination_is_refused_before_registration() {
+        // Same fixture `crates/eg-plan/src/federation_ssrf.rs` already proves is
+        // refused: loopback on a non-default port, no allow-list entry.
+        let err = SqlObdaSource::connect("postgres://u@127.0.0.1:5433/db", "people")
+            .expect_err("a disallowed OBDA destination must be refused");
+        assert!(err.contains("federation:"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn an_allowed_obda_destination_still_connects() {
+        // Same fixture `crates/eg-plan/src/federation_ssrf.rs` already proves is
+        // admitted: loopback on the dialect's own default port. `connect` only
+        // validates and stores the DSN here; it dials lazily inside `run_select`.
+        SqlObdaSource::connect("postgres://u@127.0.0.1:5432/db", "people")
+            .expect("an allowed OBDA destination must still connect");
     }
 }
