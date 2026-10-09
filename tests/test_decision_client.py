@@ -147,3 +147,27 @@ def test_the_client_sends_through_the_generated_senders() -> None:
     assert asyncio.run(client.decide(request)) == {"records": []}
     asyncio.run(client.log(dc.get_op("tenant-a", "decision:abc")))
     assert [m for m, _ in sent] == ["Decide", "DecisionLog"]
+
+
+def test_decide_can_opt_into_the_nested_pydantic_decision_batch_model() -> None:
+    """EG-DECISION-ENGINE-R076: as_model=True yields the nested DecisionBatch
+    model; the default (as_model=False, exercised above) stays the raw
+    payload, so other callers of this client are unaffected."""
+    from epistemic_graph.generated.models import DecisionBatch
+
+    class _Client:
+        async def _send(self, method: str, params: Any, graph: Any, **_: Any) -> Any:
+            return {
+                "schema_version": 2,
+                "inputs_digest": "sha256:" + "0" * 64,
+                "records": [],
+            }
+
+    client = dc.DecisionClient(_Client(), graph="tenant-a")
+    request = dc.decide_request(
+        "tenant-a", ("q", "route", "ordinary"), dc.declared(_options()), PIN
+    )
+    model = asyncio.run(client.decide(request, as_model=True))
+    assert isinstance(model, DecisionBatch)
+    assert model.schema_version == 2
+    assert model.records == []
