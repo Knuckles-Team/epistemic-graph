@@ -54,6 +54,7 @@ mod tests {
         assert!(certificate.verify("digest-a").is_ok());
     }
 
+    // spec: EG-DECISION-ENGINE-R056.1
     #[test]
     fn refuses_a_stale_model_digest() {
         let certificate = StatisticalSolverCertificate {
