@@ -56,6 +56,11 @@ pub mod dialect_conformance;
 // without logical wal_level and an aliased application role. Pure data;
 // operator wiring, PITR scheduling and the restore drill are later children.
 pub mod shared_db_platform;
+// EG-UNIFIED-DATA-PLANE-R024.1 — typed one-at-a-time application admission
+// stage machine, refusing to retire an ingest connector before parity is
+// confirmed. Pure data; the admission runner, rollback path, and the
+// per-application admission test are later children.
+pub mod platform_admission;
 // GOC-03 — the cross-domain commit-descriptor/read-barrier currency shared by
 // graph, modality, vector, blob/refcount, time-series, evidence, table/lake, and
 // terminal-analytics-outcome participants. Deliberately a NEW module (not folded
