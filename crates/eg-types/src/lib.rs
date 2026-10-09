@@ -271,6 +271,9 @@ pub mod capacity_throttle;
 // EG-UNIFIED-DATA-PLANE-R003 — the typed, hashed attached-source catalog graph
 // (tables/columns) and its ambiguous-table refusal.
 pub mod attached_catalog;
+// EG-UNIFIED-DATA-PLANE-R004 — bounded, policy-gated column-sampling budget
+// for deterministic schema inference.
+pub mod schema_inference;
 // D-VZ-1 (lanes V4 "engine integration" / V6 "graph-native marks") — the native
 // visualization engine's wire op (`VizOp`), gated `viz`. Lives here (not in
 // `eg-viz-core`, which sits in a separate small leaf DAG, not below eg-types) for
