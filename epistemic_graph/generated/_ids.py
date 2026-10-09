@@ -344,6 +344,7 @@ METHOD_IDS = frozenset(
         "GraphQl",
         "KnowledgeStream",
         "UnifiedQuery",
+        "QueryForeignColumns",
         "Uql",
         "ExplainPlan",
         "ExplainProvenance",

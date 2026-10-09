@@ -189,6 +189,7 @@ fn credential_bearing_foreign_specs_are_refused() {
             query: "select 1".into(),
             id_field: "id".into(),
             score_field: None,
+            columns: Vec::new(),
         }),
         join: false,
     }]);

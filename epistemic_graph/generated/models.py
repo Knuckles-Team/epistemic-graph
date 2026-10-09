@@ -5521,6 +5521,31 @@ class ForecastMiningResult(BaseModel):
     written_back: Annotated[int, Field(ge=0)]
 
 
+class ForeignColumnComparison(str, Enum):
+    EQ = "Eq"
+    NE = "Ne"
+    LT = "Lt"
+    LE = "Le"
+    GT = "Gt"
+    GE = "Ge"
+
+
+class ForeignColumnPredicate(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    column: str
+    comparison: ForeignColumnComparison
+    value: Any
+
+
+class ForeignColumnRow(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    columns: dict[str, Any]
+    id: str
+    score: float | None = None
+
+
 class ForeignCypherBackend(str, Enum):
     NEO4J = "Neo4j"
     AGE = "Age"
@@ -5682,6 +5707,7 @@ class ForeignSourceSpecSql(BaseModel):
 class ForeignSourceSpecSqlBody(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
+    columns: list[str] = Field(default_factory=list)
     dsn: str
     id_field: str
     query: str
@@ -10604,6 +10630,13 @@ class MethodRegisterForeignSource(BaseModel):
     params: MethodRegisterForeignSourceParams
 
 
+class MethodQueryForeignColumns(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["QueryForeignColumns"]
+    params: MethodQueryForeignColumnsParams
+
+
 class MethodRegisterUdf(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -11909,6 +11942,7 @@ Method = Annotated[
     | MethodRankByProvenance
     | MethodNlQuery
     | MethodRegisterForeignSource
+    | MethodQueryForeignColumns
     | MethodRegisterUdf
     | MethodRunUdf
     | MethodDistributedCompute
@@ -14502,6 +14536,14 @@ class MethodQueryDevelopmentLaneParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     request: DevelopmentLaneQueryRequest
+
+
+class MethodQueryForeignColumnsParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    columns: list[str] = Field(default_factory=list)
+    name: str
+    predicates: list[ForeignColumnPredicate] = Field(default_factory=list)
 
 
 class MethodQueryWorkItemReservationParams(BaseModel):
@@ -24363,6 +24405,9 @@ PredLiteral = PredLiteralStr | PredLiteralNum | PredLiteralBool
 PropagateModel = Literal["noisy_or"] | PropagateModelCascade
 
 
+QueryForeignColumnsResult = list[ForeignColumnRow]
+
+
 QuestionKind = (
     str
     | Literal["pre_tool_risk"]
@@ -25610,6 +25655,9 @@ __all__ = [
     "FlipRecordStatus",
     "ForecastAlgorithm",
     "ForecastMiningResult",
+    "ForeignColumnComparison",
+    "ForeignColumnPredicate",
+    "ForeignColumnRow",
     "ForeignCypherBackend",
     "ForeignOperationCapabilities",
     "ForeignSourceFreshness",
@@ -26701,6 +26749,8 @@ __all__ = [
     "MethodQuantumParams",
     "MethodQueryDevelopmentLane",
     "MethodQueryDevelopmentLaneParams",
+    "MethodQueryForeignColumns",
+    "MethodQueryForeignColumnsParams",
     "MethodQueryWorkItemReservation",
     "MethodQueryWorkItemReservationParams",
     "MethodRaftAddLearner",
@@ -27360,6 +27410,7 @@ __all__ = [
     "QuantumRankResult",
     "QuantumRankedCandidate",
     "QueryAdapterBody",
+    "QueryForeignColumnsResult",
     "QueryVector",
     "QuestionKind",
     "QuestionSafety",

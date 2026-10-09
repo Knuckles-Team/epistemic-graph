@@ -23,6 +23,7 @@
 mod budget;
 mod cache;
 mod capability;
+mod columns;
 mod engine;
 mod http;
 mod limiter;
@@ -47,6 +48,12 @@ pub use cache::{FragmentCacheScope, SourceWatermark};
 pub use capability::{
     ForeignSourceCapability, FullFetch, KeyLookup, LimitPushdown, PageRequest, Paging,
     PushdownKind, RemoteRequest, SourceCapabilities, SourceCostModel, SourceRate,
+};
+#[cfg(feature = "federation-sql")]
+pub(crate) use columns::render_sql_columns;
+pub use columns::{
+    sql_filter_support, ColumnPlan, ColumnPredicate, Comparison, ForeignRow, ForeignRows,
+    PushdownSupport,
 };
 pub use oq2::{target_capabilities as oq2_target_capabilities, Oq2ReadMode, Oq2TargetCapabilities};
 pub use session::FederationSession;
