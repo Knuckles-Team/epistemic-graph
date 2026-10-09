@@ -60,6 +60,7 @@ fn params() -> Vec<TypedParam> {
     ]
 }
 
+// spec: EG-DECISION-ENGINE-R021
 #[test]
 fn coverage_is_exact_and_unknown_cost_abstains_rather_than_reading_zero() {
     let candidates = vec![
