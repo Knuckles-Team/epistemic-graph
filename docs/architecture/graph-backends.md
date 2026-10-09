@@ -323,7 +323,7 @@ third-party graph as a data source — not just for mirroring:
 
 ```jsonc
 // KG_CONNECTIONS entry — role + a secret reference (kept out of config.json)
-{"name":"prod-neo4j","backend":"neo4j","uri":"bolt://neo4j.example.internal:7687",
+{"name":"prod-neo4j","backend":"neo4j","uri":"bolt://<neo4j-host>:7687",
  "user":"neo4j","password":"vault://agents/kg/neo4j#password","role":"read"}
 ```
 
@@ -361,9 +361,9 @@ engine.
 # Neo4j and FalkorDB. The mirror set names entries declared in KG_CONNECTIONS.
 export GRAPH_MIRROR_TARGETS='["pg-age","prod-neo4j","team-falkor"]'
 export KG_CONNECTIONS='[
-  {"name":"pg-age","backend":"age","uri":"postgresql://u:p@pg.example.internal:5432/agent_kg"},
-  {"name":"prod-neo4j","backend":"neo4j","uri":"bolt://neo4j.example.internal:7687","user":"neo4j","password":"…"},
-  {"name":"team-falkor","backend":"falkordb","host":"falkordb.example.internal","port":6379}
+  {"name":"pg-age","backend":"age","uri":"postgresql://<pg-host>:5432/agent_kg"},
+  {"name":"prod-neo4j","backend":"neo4j","uri":"bolt://<neo4j-host>:7687","user":"neo4j","password":"…"},
+  {"name":"team-falkor","backend":"falkordb","host":"<falkordb-host>","port":6379}
 ]'
 ```
 
