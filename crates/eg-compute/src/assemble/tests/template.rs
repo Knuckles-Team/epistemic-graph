@@ -114,6 +114,7 @@ fn a_two_slot_template_is_filled_with_one_agent_per_slot() {
     assert!(slots.iter().any(|slot| slot.slot.starts_with("worker/")));
 }
 
+// spec: EG-DECISION-ENGINE-R008
 #[test]
 fn the_cheaper_topology_wins_and_the_other_is_explained() {
     let assembly = decide_over(vec![
