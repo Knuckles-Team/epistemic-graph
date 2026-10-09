@@ -49,7 +49,8 @@
     "EG-CONTRACT-R044",
     "EG-CONTRACT-R045",
     "EG-CONTRACT-R046",
-    "EG-CONTRACT-R047"
+    "EG-CONTRACT-R047",
+    "EG-CONTRACT-R048"
   ],
   "delivery_state": "SPECIFIED",
   "acceptance_state": "NOT_AUDITED",
@@ -664,6 +665,12 @@
     {
       "id": "EG-CONTRACT-R047",
       "title": "Main publishes a rolling engine wheel for consumer CI",
+      "delivery_state": "BUILDING",
+      "evidence": []
+    },
+    {
+      "id": "EG-CONTRACT-R048",
+      "title": "Generated work-claim and evidence DTOs refuse coerced, empty and duplicate inputs",
       "delivery_state": "BUILDING",
       "evidence": []
     }

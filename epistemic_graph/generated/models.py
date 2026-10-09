@@ -657,6 +657,12 @@ def _eg_nonblank(value):
     return value
 
 
+def _eg_unique_items(value):
+    if value is not None and len(set(value)) != len(value):
+        raise ValueError("engine list items must be unique")
+    return value
+
+
 class AbstentionResolution(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -1235,7 +1241,7 @@ class ApiKeyIssue(BaseModel):
 
     key_id: str
     principal_id: str
-    scopes: list[str]
+    scopes: Annotated[list[str], AfterValidator(_eg_unique_items)]
     secret: Secret
     session_token: Secret
     ttl_ms: Annotated[int, Field(ge=0)]
@@ -2926,12 +2932,12 @@ class CreateUserRequest(BaseModel):
 
     display_name: str | None = None
     email: str | None = None
-    groups: list[str] = Field(default_factory=list)
+    groups: CreateUserRequestGroups = Field(default_factory=list)
     kind: UserKind
     must_change: bool | None = None
     password: Secret | None = None
     principal_id: str | None = None
-    roles: list[str] = Field(default_factory=list)
+    roles: CreateUserRequestRoles = Field(default_factory=list)
     username: str
 
 
@@ -4238,7 +4244,7 @@ class DirectoryGroup(BaseModel):
     external_id: str | None = None
     group_id: str
     idp_id: str
-    members: list[str] = Field(default_factory=list)
+    members: DirectoryGroupMembers = Field(default_factory=list)
 
 
 class DirectoryGroupQuery(BaseModel):
@@ -4752,11 +4758,11 @@ class EvidenceBundle(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     answer_ref: str | None = None
-    bundle_id: str
+    bundle_id: Annotated[str, AfterValidator(_eg_nonblank)]
     claims: list[EvidenceClaim]
     next_action_refs: list[str]
-    policy_exclusions: list[str]
-    resolved: bool
+    policy_exclusions: Annotated[list[str], AfterValidator(_eg_unique_items)]
+    resolved: Annotated[bool, Field(strict=True)]
     schema_version: EvidenceBundleSchemaVersion
 
 
@@ -6030,7 +6036,7 @@ class GroupRecord(BaseModel):
     members: dict[str, str] | None = None
     mfa_required: bool | None = None
     name: str
-    roles: list[str] = Field(default_factory=list)
+    roles: GroupRecordRoles = Field(default_factory=list)
     source: str
 
 
@@ -6049,7 +6055,7 @@ class GroupUpsert(BaseModel):
     group_id: str
     mfa_required: bool | None = None
     name: str
-    roles: list[str] = Field(default_factory=list)
+    roles: GroupUpsertRoles = Field(default_factory=list)
 
 
 class GrpoResult(BaseModel):
@@ -6132,7 +6138,7 @@ class IdentityActor(BaseModel):
 
     delegated: bool
     principal_id: str
-    scopes: list[str]
+    scopes: Annotated[list[str], AfterValidator(_eg_unique_items)]
 
 
 class IdentityAuditEntry(BaseModel):
@@ -16172,7 +16178,7 @@ class OperationEnvelope(BaseModel):
     method_schema_digest: Digest256
     method_schema_id: str
     serving_principal: str
-    verified_capabilities: list[MutationCapability]
+    verified_capabilities: OperationEnvelopeVerifiedCapabilities
 
 
 class OptimiserSpec(BaseModel):
@@ -17094,15 +17100,15 @@ class PredictedLink(BaseModel):
 class PrincipalResolution(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
-    groups: list[str]
+    groups: Annotated[list[str], AfterValidator(_eg_unique_items)]
     is_bootstrap: bool
     kind: UserKind
     mfa_enrolled: bool
     mfa_required: bool
     principal_id: str
     request_context: RequestContextClaims
-    roles: list[str]
-    scopes: list[str]
+    roles: Annotated[list[str], AfterValidator(_eg_unique_items)]
+    scopes: Annotated[list[str], AfterValidator(_eg_unique_items)]
     session_mfa_pending: bool | None = None
     status: UserStatus
     username: str
@@ -18560,7 +18566,7 @@ class RoleRecord(BaseModel):
     graph_grants: list[RoleGraphGrant] = Field(default_factory=list)
     name: str
     role_id: str
-    scopes: list[str] = Field(default_factory=list)
+    scopes: RoleRecordScopes = Field(default_factory=list)
 
 
 class RoleUpsert(BaseModel):
@@ -18570,7 +18576,7 @@ class RoleUpsert(BaseModel):
     graph_grants: list[RoleGraphGrant] = Field(default_factory=list)
     name: str
     role_id: str
-    scopes: list[str] = Field(default_factory=list)
+    scopes: RoleUpsertScopes = Field(default_factory=list)
 
 
 class RootCauseCandidateRow(BaseModel):
@@ -21333,8 +21339,8 @@ StatechartActionValue = Annotated[
 class StatechartConfiguration(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
-    active: list[str]
-    history: dict[str, list[str]]
+    active: Annotated[list[str], AfterValidator(_eg_unique_items)]
+    history: dict[str, Annotated[list[str], AfterValidator(_eg_unique_items)]]
 
 
 class StatechartDefinitionId(BaseModel):
@@ -22342,7 +22348,7 @@ class UserView(BaseModel):
     last_login_at_ms: Annotated[int, Field(ge=0)] | None = None
     principal_id: str
     recovery_codes_left: Annotated[int, Field(ge=0)]
-    roles: list[str]
+    roles: Annotated[list[str], AfterValidator(_eg_unique_items)]
     source: str
     status: UserStatus
     totp_enrolled: bool
@@ -23222,6 +23228,12 @@ ContextViewEdgesItem = Annotated[
 ControlLeaseStatus = str | Literal["consumed"]
 
 
+CreateUserRequestGroups = Annotated[list[str], AfterValidator(_eg_unique_items)]
+
+
+CreateUserRequestRoles = Annotated[list[str], AfterValidator(_eg_unique_items)]
+
+
 DegreeCentralityAllResultValueItem = Annotated[
     tuple[str, float],
     Field(
@@ -23377,6 +23389,9 @@ DevelopmentLaneIntentWorkspaceRef = Annotated[
     DevelopmentLaneIntentWorkspaceRefValue,
     AfterValidator(_eg_utf8_text(512)),
 ]
+
+
+DirectoryGroupMembers = Annotated[list[str], AfterValidator(_eg_unique_items)]
 
 
 DiscoverResult = list[DiscoverHit]
@@ -23658,6 +23673,12 @@ GraphDiffEdgesRemovedItem = Annotated[
         max_length=2,
     ),
 ]
+
+
+GroupRecordRoles = Annotated[list[str], AfterValidator(_eg_unique_items)]
+
+
+GroupUpsertRoles = Annotated[list[str], AfterValidator(_eg_unique_items)]
 
 
 HasNodesBatchResult = list[bool]
@@ -24039,6 +24060,12 @@ Op = (
 )
 
 
+OperationEnvelopeVerifiedCapabilitiesItem = MutationCapability
+
+
+OperationEnvelopeVerifiedCapabilities = list[OperationEnvelopeVerifiedCapabilitiesItem]
+
+
 PageRankResultValueItem = Annotated[
     tuple[str, float],
     Field(
@@ -24132,6 +24159,12 @@ ResourceSelector = (
     | ResourceSelectorLabel
     | ResourceSelectorGraph
 )
+
+
+RoleRecordScopes = Annotated[list[str], AfterValidator(_eg_unique_items)]
+
+
+RoleUpsertScopes = Annotated[list[str], AfterValidator(_eg_unique_items)]
 
 
 RowRef = str | Annotated[int, Field(ge=0)]

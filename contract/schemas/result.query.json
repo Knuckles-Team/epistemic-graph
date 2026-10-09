@@ -11801,7 +11801,8 @@
           ]
         },
         "bundle_id": {
-          "type": "string"
+          "type": "string",
+          "x-eg-nonblank": true
         },
         "claims": {
           "items": {
@@ -11819,10 +11820,12 @@
           "items": {
             "type": "string"
           },
-          "type": "array"
+          "type": "array",
+          "uniqueItems": true
         },
         "resolved": {
-          "type": "boolean"
+          "type": "boolean",
+          "x-eg-strict-scalar": true
         },
         "schema_version": {
           "$ref": "#/$defs/EvidenceBundleSchemaVersion"

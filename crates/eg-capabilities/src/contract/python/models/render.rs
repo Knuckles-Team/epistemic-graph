@@ -94,6 +94,17 @@ def _eg_nonblank(value):
 "#,
         );
     }
+    if body.contains("_eg_unique_items") {
+        helpers.push_str(
+            r#"
+
+def _eg_unique_items(value):
+    if value is not None and len(set(value)) != len(value):
+        raise ValueError("engine list items must be unique")
+    return value
+"#,
+        );
+    }
     helpers
 }
 

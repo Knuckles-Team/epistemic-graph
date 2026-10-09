@@ -238,6 +238,9 @@ pub(super) fn dto_python_type(node: &serde_json::Value) -> String {
     {
         annotation = format!("Annotated[{annotation}, AfterValidator(_eg_nonblank)]");
     }
+    if node.get("uniqueItems").and_then(serde_json::Value::as_bool) == Some(true) {
+        annotation = format!("Annotated[{annotation}, AfterValidator(_eg_unique_items)]");
+    }
     annotation
 }
 
@@ -338,10 +341,12 @@ fn constrained_annotation(node: &serde_json::Value, annotation: String) -> Strin
         .and_then(serde_json::Value::as_bool)
         == Some(true)
     {
-        assert_eq!(
-            node.get("type").and_then(serde_json::Value::as_str),
-            Some("integer"),
-            "strict scalar metadata currently binds integer fields only"
+        assert!(
+            matches!(
+                node.get("type").and_then(serde_json::Value::as_str),
+                Some("integer" | "boolean")
+            ),
+            "strict scalar metadata binds integer and boolean fields only"
         );
         constraints.push("strict=True".to_string());
     }
