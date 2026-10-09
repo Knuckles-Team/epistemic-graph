@@ -289,8 +289,8 @@
         {
           "kind": "branch",
           "result": "passed",
-          "commit": "PENDING_PUSH",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/pull/PENDING",
+          "commit": "3a14159c376895dafa37b22357f324a6c5fc7082",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/3a14159c376895dafa37b22357f324a6c5fc7082",
           "description": "src/raft/flake_budget.rs adds FlakeBudget::new/validate/backoff_for, refusing a zero-retry, zero-backoff, or inverted-cap budget and refusing a retry attempt beyond max_retries. Not yet merged to the default branch."
         }
       ]
@@ -506,8 +506,8 @@
         {
           "kind": "branch",
           "result": "passed",
-          "commit": "PENDING_PUSH",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/pull/PENDING",
+          "commit": "3a14159c376895dafa37b22357f324a6c5fc7082",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/3a14159c376895dafa37b22357f324a6c5fc7082",
           "description": "crates/eg-types/src/wire_query_modalities.rs adds MirrorTargetSpec::Outbox { consumer }; crates/eg-plan/src/mirror_target.rs wires it through target_for with the same unbound-refusal shape as FanOut/Named. Not yet merged to the default branch."
         }
       ]
@@ -520,8 +520,8 @@
         {
           "kind": "branch",
           "result": "passed",
-          "commit": "PENDING_PUSH",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/pull/PENDING",
+          "commit": "3a14159c376895dafa37b22357f324a6c5fc7082",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/3a14159c376895dafa37b22357f324a6c5fc7082",
           "description": "crates/eg-types/src/wire_query_modalities.rs adds ForeignSourceSpec::BrainGuarded; crates/eg-plan/src/federation_brain_guarded.rs validates its shape then explicitly refuses (no bound guard-evaluation driver yet), same shape as federation_cypher_unbound. Not yet merged to the default branch."
         }
       ]
@@ -555,8 +555,8 @@
         {
           "kind": "branch",
           "result": "passed",
-          "commit": "PENDING_PUSH",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/pull/PENDING",
+          "commit": "3a14159c376895dafa37b22357f324a6c5fc7082",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/3a14159c376895dafa37b22357f324a6c5fc7082",
           "description": "crates/eg-plan/src/federation_spark.rs validates SparkBatch's artifact:// shape then explicitly refuses (no bound Spark artifact-store driver yet), the explicit-registration counterpart to the generic Oq2Unbound dispatch federation::source_for already gives it. Not yet merged to the default branch."
         }
       ]
