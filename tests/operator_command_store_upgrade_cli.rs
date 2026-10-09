@@ -12,18 +12,24 @@
 
 use std::process::{Command, Output};
 
-fn server_bin() -> &'static str {
-    // `cargo test` always defines this; `cargo check --all-targets` may not, so
-    // resolve it without failing the check build.
-    option_env!("CARGO_BIN_EXE_epistemic-graph-server")
-        .expect("cargo test defines CARGO_BIN_EXE_epistemic-graph-server")
+fn server_bin() -> std::path::PathBuf {
+    // `cargo test` defines this at compile time; `cargo check`/`clippy` may not, so
+    // fall back to the binary cargo places next to this test's own executable.
+    if let Some(path) = option_env!("CARGO_BIN_EXE_epistemic-graph-server") {
+        return path.into();
+    }
+    let exe = std::env::current_exe().unwrap_or_default();
+    exe.parent()
+        .and_then(std::path::Path::parent)
+        .unwrap_or_else(|| std::path::Path::new("."))
+        .join("epistemic-graph-server")
 }
 
 fn run(args: &[&str]) -> Output {
     Command::new(server_bin())
         .args(args)
         .output()
-        .unwrap_or_else(|error| panic!("spawn {} {args:?}: {error}", server_bin()))
+        .unwrap_or_else(|error| panic!("spawn {} {args:?}: {error}", server_bin().display()))
 }
 
 #[test]
