@@ -10,6 +10,7 @@ pub mod belief;
 pub mod body;
 pub mod dataset;
 pub mod declared;
+pub mod enrichment_schedule;
 pub mod errors;
 pub mod features;
 pub mod head;
