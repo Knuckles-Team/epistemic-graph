@@ -5,7 +5,8 @@ Tasks are ordered by dependency. Check a task only when its code, tests and exac
 - [x] **F-00 · EG-FINANCE-PRIMITIVES-R001:** Stabilize `BacktestRun` canonical serialization and digest across two supported hosts; check Pine SuperTrend/ATR parity against checked-in bars and consolidate finance ontology classes under `finance-v1`.
 - [ ] **F-01 · EG-FINANCE-PRIMITIVES-R004:** Define v2 asset classes and migration aliases; `Account`, `Activity`, `Lot`, `Position`, `PortfolioGroup`, `StrategySpec`, `StrategyRun`, `LeverageTerms` types and SHACL shapes; reject unknown versions and direct writes to derived projections.
 - [ ] **F-02 · EG-FINANCE-PRIMITIVES-R006:** Implement point-in-time action and exchange-calendar revision resolver; return session/source/as-of for all price paths; add DST, early-close and ticker reuse vectors.
-- [ ] **F-03 · EG-FINANCE-PRIMITIVES-R005:** Implement canonical activity ordering and checked decimal lot engine for FIFO/LIFO/specific/average basis; add correction replay, transfer and split invariants.
+- [x] **F-03.1 · EG-FINANCE-PRIMITIVES-R005.1:** Deterministic fixed-point FIFO/LIFO lot-matching engine (`crates/eg-compute/src/finance/lot_accounting.rs`), pure over an ordered activity slice; oversell/out-of-order/non-positive refusals and a replay-determinism test.
+- [ ] **F-03.2 · EG-FINANCE-PRIMITIVES-R005.2:** Add specific-lot/average-cost elections and transfer/split invariants.
 - [ ] **F-04 · EG-FINANCE-PRIMITIVES-R005:** Add sourced FX, realized/unrealized P&L, TWR, bounded XIRR and benchmark comparison with partial coverage reports.
 - [ ] **F-05 · EG-FINANCE-PRIMITIVES-R007:** Define immutable strategy-spec digest and proposal contract; implement DCA, trend and rebalance evaluators with idempotent cadence/missed-cycle evidence.
 - [ ] **F-06 · EG-FINANCE-PRIMITIVES-R008:** Build common-horizon strategy comparison atop sealed `BacktestRun`; calculate CV, deflated Sharpe and PBO from one verified split matrix with costs.
@@ -28,7 +29,9 @@ Requirement IDs not covered by any task above before this line: none remain — 
 |---|---|---|---|
 | EG-FINANCE-PRIMITIVES-R001 | — | — | NOT_RUN |
 | EG-FINANCE-PRIMITIVES-R004 | — | — | NOT_RUN |
-| EG-FINANCE-PRIMITIVES-R005 | — | — | NOT_RUN |
+| EG-FINANCE-PRIMITIVES-R005 | — | — | NOT_RUN (rollup) |
+| EG-FINANCE-PRIMITIVES-R005.1 | — | `cargo test -p eg-compute --all-features finance::lot_accounting` | PR open; see PR for run result |
+| EG-FINANCE-PRIMITIVES-R005.2 | — | — | NOT_RUN |
 | EG-FINANCE-PRIMITIVES-R006 | — | — | NOT_RUN |
 | EG-FINANCE-PRIMITIVES-R007 | — | — | NOT_RUN |
 | EG-FINANCE-PRIMITIVES-R008 | — | — | NOT_RUN |
