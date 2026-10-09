@@ -134,6 +134,7 @@ fn a_trend_flip_is_never_an_instrument() {
 }
 
 /// EH-517: the trading classes live in finance only, under their unchanged IRIs.
+// spec: EG-FINANCE-PRIMITIVES-R001
 #[test]
 fn the_trading_classes_are_folded_out_of_company_infra() {
     const COMPANY_INFRA: &str =
