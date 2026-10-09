@@ -111,6 +111,7 @@ fn decide_blocking(
         &request.candidates,
         graph_view,
         &principal,
+        request.question.kind,
     )?;
     let pinned = pinned_inputs(ctx, &request.feature_schema, request.head.as_ref())?;
     let policy = resolve_policy(ctx.store, ctx.tenant_id, &request.policy)?;
