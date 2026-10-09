@@ -139,7 +139,7 @@
           "description": "Part of the requirement is implemented on the default branch."
         }
       ],
-      "remaining": "Main dropped the pinned-binaryen wasm-opt reduction in favor of a Rust-only build; committed module is 9,483,622 B (vs prior ~6.2MB optimized target) and no declared size-budget assertion exists anywhere in the script or its tests. Determinism (byte-identical client copies) is proven; size budget …"
+      "remaining": "Main dropped the pinned-binaryen wasm-opt reduction in favor of a Rust-only build; committed module is 9,483,622 B (vs prior ~6.2MB optimized target) and no declared size-budget assertion exists anywhere in the script or its tests. Determinism (byte-identical client copies) is proven; size budget \u2026"
     },
     {
       "id": "EG-CONTRACT-R007",
@@ -671,8 +671,16 @@
     {
       "id": "EG-CONTRACT-R048",
       "title": "Generated work-claim and evidence DTOs refuse coerced, empty and duplicate inputs",
-      "delivery_state": "BUILDING",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "a5b4a1f1f638baed374897578cc061f473e9687b",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/a5b4a1f1f638baed374897578cc061f473e9687b",
+          "description": "Implementation merged to the default branch; the commit names this requirement."
+        }
+      ]
     }
   ]
 }

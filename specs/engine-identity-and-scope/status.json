@@ -75,13 +75,21 @@
       "title": "Semantic workers use one identity across queue classes",
       "delivery_state": "SPECIFIED",
       "evidence": [],
-      "remaining": "src/server/handlers/semantic_index/worker.rs dispatches StageClaim/StageStatus/etc. (different queue classes) all reading ctx.authority.agent_id() from one authenticated request context, which structurally supports a single identity per request, but no integration test was found confirming the SAME …"
+      "remaining": "src/server/handlers/semantic_index/worker.rs dispatches StageClaim/StageStatus/etc. (different queue classes) all reading ctx.authority.agent_id() from one authenticated request context, which structurally supports a single identity per request, but no integration test was found confirming the SAME \u2026"
     },
     {
       "id": "EG-IDENTITY-R006",
       "title": "Tenant roles read the shared commons graph",
-      "delivery_state": "BUILDING",
-      "evidence": [],
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "7622e4b24455e2dbe3c573e0d63727b668774829",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/7622e4b24455e2dbe3c573e0d63727b668774829",
+          "description": "Implementation merged to the default branch; the commit names this requirement."
+        }
+      ],
       "remaining": "Merge the PR. Backfill the grant for tenant roles provisioned before this change (task I-8)."
     }
   ]

@@ -128,7 +128,7 @@
           "description": "Part of the requirement is implemented on the default branch."
         }
       ],
-      "remaining": "rebuild_after_skipped/reject_invalid implement the full-rebuild-on-skipped-event path (recovery.rs, citing X10/PX10b item 7) and a unit test proves a rebuilt index is exempt from the watermark check, but no integration test that injects a dead-lettered/invalid wake-up and confirms the rebuild …"
+      "remaining": "rebuild_after_skipped/reject_invalid implement the full-rebuild-on-skipped-event path (recovery.rs, citing X10/PX10b item 7) and a unit test proves a rebuilt index is exempt from the watermark check, but no integration test that injects a dead-lettered/invalid wake-up and confirms the rebuild \u2026"
     },
     {
       "id": "EG-FEDERATED-QUERY-R005",
@@ -562,7 +562,7 @@
           "description": "Part of the requirement is implemented on the default branch."
         }
       ],
-      "remaining": "The reopen fix (diff-only commits instead of one commit per node) and the pre-existing PARTIAL_MATERIALIZATION/MaterializationPhase readiness signal (src/server/dispatch/graph_pipeline/graph_access.rs) are both present, but no restart-scale integration test (750/1,500/3,000 docs) measuring bounded …"
+      "remaining": "The reopen fix (diff-only commits instead of one commit per node) and the pre-existing PARTIAL_MATERIALIZATION/MaterializationPhase readiness signal (src/server/dispatch/graph_pipeline/graph_access.rs) are both present, but no restart-scale integration test (750/1,500/3,000 docs) measuring bounded \u2026"
     },
     {
       "id": "EG-FEDERATED-QUERY-R037",
@@ -740,7 +740,7 @@
     {
       "id": "EG-FEDERATED-QUERY-R051",
       "title": "Iceberg scans prune manifests using the final pushed predicates",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -748,6 +748,13 @@
           "commit": "b5c387e25505738c9d2185b2f8f14a1e2e01d6f3",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/b5c387e25505738c9d2185b2f8f14a1e2e01d6f3",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "5dd3f1b33fadcdf7dab30ad8ca05640b09a852ee",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/5dd3f1b33fadcdf7dab30ad8ca05640b09a852ee",
+          "description": "Implementation merged to the default branch; the commit names this requirement."
         }
       ],
       "remaining": "An independent reviewer found no test fixture that exercises an effective LIMIT pushed down to the Iceberg scan together with a residual (non-partition) filter present at the same time; the code only skips the pushed LIMIT when a residual filter is present, but that interaction and the plain-LIMIT-with-no-filter case are not proven by a fixture. Add that coverage before claiming this requirement delivered."
@@ -941,7 +948,7 @@
           "description": "Part of the requirement is implemented on the default branch."
         }
       ],
-      "remaining": "DFS compile order (uql/tests/program.rs::let_from_join_builds_a_dag_in_first_reference_order), FUSE inlining, and re-parseable DAG printing are on main and tested. But serving EXPLAIN/PROFILE for a DAG is NOT typed-refused: crates/eg-plan/src/uql/serve/dag.rs implements real per-node …"
+      "remaining": "DFS compile order (uql/tests/program.rs::let_from_join_builds_a_dag_in_first_reference_order), FUSE inlining, and re-parseable DAG printing are on main and tested. But serving EXPLAIN/PROFILE for a DAG is NOT typed-refused: crates/eg-plan/src/uql/serve/dag.rs implements real per-node \u2026"
     },
     {
       "id": "EG-FEDERATED-QUERY-R066",
@@ -984,7 +991,7 @@
           "description": "Implementing commit is on the default branch but is marked work in progress."
         }
       ],
-      "remaining": "WITH PROOF correctly binds premises (crates/eg-plan/src/uql/tests/annotations.rs::a_sparql_source_proves_each_row_with_its_witness, ::a_reason_stage_proves_inferred_membership, both passing). The row-proof wire shape (UqlRow/UqlRowProof in crates/eg-types/src/wire_query_core.rs) and uql/serve/proof.rs carry no source-generation or schema-digest field, unlike EG-FEDERATED-QUERY-R006's OwlExplain contract which does carry one — so WITH PROOF does not bind its results to their source generation as the requirement explicitly demands."
+      "remaining": "WITH PROOF correctly binds premises (crates/eg-plan/src/uql/tests/annotations.rs::a_sparql_source_proves_each_row_with_its_witness, ::a_reason_stage_proves_inferred_membership, both passing). The row-proof wire shape (UqlRow/UqlRowProof in crates/eg-types/src/wire_query_core.rs) and uql/serve/proof.rs carry no source-generation or schema-digest field, unlike EG-FEDERATED-QUERY-R006's OwlExplain contract which does carry one \u2014 so WITH PROOF does not bind its results to their source generation as the requirement explicitly demands."
     },
     {
       "id": "EG-FEDERATED-QUERY-R069",

@@ -143,9 +143,17 @@
     {
       "id": "EG-DURABLE-KERNEL-R006",
       "title": "Engine startup does not block on one store's lazy open",
-      "delivery_state": "SPECIFIED",
-      "evidence": [],
-      "remaining": "Lazy-open structure is real: ServerState.agent_library starts None and is opened only via ensure_agent_library() on first use (never touched in main.rs/server_startup.rs), but no test on main forces agent_library.redb to fail opening and asserts the engine still starts and serves unrelated …"
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "8dbb5bd9de533de9001abef691a051366fa80668",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/8dbb5bd9de533de9001abef691a051366fa80668",
+          "description": "Implementation merged to the default branch; the commit names this requirement."
+        }
+      ],
+      "remaining": "Lazy-open structure is real: ServerState.agent_library starts None and is opened only via ensure_agent_library() on first use (never touched in main.rs/server_startup.rs), but no test on main forces agent_library.redb to fail opening and asserts the engine still starts and serves unrelated \u2026"
     },
     {
       "id": "EG-DURABLE-KERNEL-R007",
@@ -376,7 +384,7 @@
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
         }
       ],
-      "remaining": "A generic ForeignSourceSpec federation mechanism exists (RemoteEngine/HttpJson/Sql kinds), but none of the specifically named legacy backends (fanout, PostgreSQL/AGE, Neo4j/Cypher transpiler, FalkorDB, mirror target, brain_guarded, Trino, Spark) have been migrated in; that work is actively …"
+      "remaining": "A generic ForeignSourceSpec federation mechanism exists (RemoteEngine/HttpJson/Sql kinds), but none of the specifically named legacy backends (fanout, PostgreSQL/AGE, Neo4j/Cypher transpiler, FalkorDB, mirror target, brain_guarded, Trino, Spark) have been migrated in; that work is actively \u2026"
     },
     {
       "id": "EG-DURABLE-KERNEL-R025",
@@ -457,7 +465,7 @@
     {
       "id": "EG-DURABLE-KERNEL-R031",
       "title": "Audit append supports tenant-scoped idempotent reservation",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "merged_head",
@@ -465,6 +473,13 @@
           "commit": "2cc878fb893865d803c42c1fe4cbc72b25974a8d",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/pull/44",
           "description": "Partial slice merged by pull request 44: reservation, outcome, replay, audit-class refusal, interrupted-reservation and writer-unavailable behaviour, with the audit refusals declared and served as their own codes. CI run 37034615432 passed on the tested integration tree 634fe3f5d3da5937aec8f1f418efe28ba8d4b9cf."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "2cc878fb893865d803c42c1fe4cbc72b25974a8d",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/2cc878fb893865d803c42c1fe4cbc72b25974a8d",
+          "description": "Implementation merged to the default branch; the commit names this requirement."
         }
       ],
       "remaining": "Existing graph shards need the offline layout upgrade before they open, and no operator entry point runs that upgrade yet. The per-attempt admission id is generated inside replicated apply, and nothing in CI exercises the append through the replicated path."
@@ -938,7 +953,7 @@
     {
       "id": "EG-DURABLE-KERNEL-R070",
       "title": "Operator command inspects and applies registered offline store upgrades",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -946,6 +961,13 @@
           "commit": "1b976462b17affc8f70cdfba03bead7c817eef16",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/1b976462b17affc8f70cdfba03bead7c817eef16",
           "description": "Implementation commit is published on the branch feat/operator-store-upgrade; not yet merged to the default branch. Exercised by src/server/persistence/store_upgrade/tests.rs and crates/eg-storage/src/owner/offline_upgrade/tests.rs."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "8dbb5bd9de533de9001abef691a051366fa80668",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/8dbb5bd9de533de9001abef691a051366fa80668",
+          "description": "Implementation merged to the default branch; the commit names this requirement."
         }
       ]
     }
