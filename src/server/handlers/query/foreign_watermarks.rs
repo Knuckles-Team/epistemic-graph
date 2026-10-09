@@ -13,6 +13,8 @@
 //!     never reported a watermark, is never cached: a stale hit is a correctness bug.
 
 use std::collections::BTreeSet;
+#[cfg(feature = "federation")]
+use std::collections::HashMap;
 
 use super::*;
 
@@ -39,6 +41,41 @@ impl ForeignWatermarks {
             return Self::NotRead;
         }
         watermark_salt(core, &sources).map_or(Self::Unfresh, Self::Fresh)
+    }
+
+    /// Per-source freshness proof for FO-11. A missing, stale or inline source
+    /// disables fragment caching. Re-evaluate at each served query so advances
+    /// mint new keys and expiry is checked again at every fragment cache probe.
+    #[cfg(feature = "federation")]
+    pub(crate) fn fragment_sources(
+        core: &GraphCore,
+        ops: &[eg_plan::Op],
+    ) -> Option<HashMap<String, eg_plan::federation_opt::SourceWatermark>> {
+        let mut sources = BTreeSet::new();
+        if !ops.iter().all(|op| collect_foreign(op, &mut sources)) || sources.is_empty() {
+            return None;
+        }
+        let now_ms = crate::server::dispatch::authoritative_now_ms();
+        sources
+            .into_iter()
+            .map(|name| {
+                let status = eg_core::freshness::foreign_source_freshness(core, &name, now_ms);
+                let watermark = status.watermark.filter(|_| !status.stale)?;
+                // An unbounded EH-400 watermark is still fresh, but keep resident
+                // fragments for at most a minute before requiring a new query proof.
+                let remaining = status
+                    .max_staleness_ms
+                    .map(|bound| bound.saturating_sub(status.age_ms.unwrap_or(bound)))
+                    .unwrap_or(60_000);
+                Some((
+                    name,
+                    eg_plan::federation_opt::SourceWatermark {
+                        watermark,
+                        valid_through_ms: now_ms.saturating_add(remaining),
+                    },
+                ))
+            })
+            .collect()
     }
 
     /// Whether this leg allows caching at all.
@@ -126,6 +163,8 @@ mod tests {
         let decided = ForeignWatermarks::for_ops(&core, &[foreign("crm")]);
         assert_eq!(decided, ForeignWatermarks::Unfresh);
         assert!(!decided.cacheable());
+        #[cfg(feature = "federation")]
+        assert!(ForeignWatermarks::fragment_sources(&core, &[foreign("crm")]).is_none());
     }
 
     #[test]
@@ -135,6 +174,15 @@ mod tests {
         watermark(&core, "crm", "lsn-1", now);
         let first = ForeignWatermarks::for_ops(&core, &[foreign("crm")]);
         assert!(first.cacheable());
+        #[cfg(feature = "federation")]
+        assert_eq!(
+            ForeignWatermarks::fragment_sources(&core, &[foreign("crm")])
+                .unwrap()
+                .get("crm")
+                .unwrap()
+                .watermark,
+            "lsn-1"
+        );
         watermark(&core, "crm", "lsn-2", now);
         let second = ForeignWatermarks::for_ops(&core, &[foreign("crm")]);
         let (mut a, mut b) = (Vec::new(), Vec::new());
@@ -148,6 +196,8 @@ mod tests {
         let core = GraphCore::new();
         watermark(&core, "crm", "lsn-1", 1);
         assert!(!ForeignWatermarks::for_ops(&core, &[foreign("crm")]).cacheable());
+        #[cfg(feature = "federation")]
+        assert!(ForeignWatermarks::fragment_sources(&core, &[foreign("crm")]).is_none());
     }
 
     #[test]

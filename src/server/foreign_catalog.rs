@@ -97,6 +97,16 @@ pub(crate) struct OwnedForeignRegistry {
 }
 
 impl OwnedForeignRegistry {
+    /// Install the EH-400 freshness proof for this query's named sources.
+    #[cfg(feature = "result-cache")]
+    pub(crate) fn install_fragment_cache(
+        &mut self,
+        sources: std::collections::HashMap<String, eg_plan::federation_opt::SourceWatermark>,
+    ) {
+        self.registry.set_cache_scope(std::sync::Arc::new(
+            eg_plan::federation_opt::FragmentCacheScope::new(self.cache_salt.clone(), sources),
+        ));
+    }
     /// The verified owner (tenant+principal) scope this registry was built for.
     pub(crate) fn owner_scope(&self) -> &str {
         &self.owner_scope
