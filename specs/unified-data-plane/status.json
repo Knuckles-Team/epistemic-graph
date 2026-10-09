@@ -26,6 +26,7 @@
     "EG-UNIFIED-DATA-PLANE-R021",
     "EG-UNIFIED-DATA-PLANE-R022",
     "EG-UNIFIED-DATA-PLANE-R023",
+    "EG-UNIFIED-DATA-PLANE-R023.1",
     "EG-UNIFIED-DATA-PLANE-R024",
     "EG-UNIFIED-DATA-PLANE-R025",
     "EG-UNIFIED-DATA-PLANE-R026",
@@ -189,7 +190,13 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R023",
       "title": "Operate a shared CloudNativePG and MariaDB platform",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R023.1",
+      "title": "SharedPlatformClusterGroup typed model and engine-specific refusal",
+      "delivery_state": "BUILT",
       "evidence": []
     },
     {

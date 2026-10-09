@@ -34,6 +34,11 @@ pub mod capacity_lease;
 // eg-transaction admission boundary. This module grants no executable capability.
 pub mod authority;
 pub mod change_envelope;
+// EG-UNIFIED-DATA-PLANE-R023.1 — typed shared CloudNativePG/MariaDB cluster
+// group and per-application role-set shape, refusing a Postgres group
+// without logical wal_level and an aliased application role. Pure data;
+// operator wiring, PITR scheduling and the restore drill are later children.
+pub mod shared_db_platform;
 // GOC-03 — the cross-domain commit-descriptor/read-barrier currency shared by
 // graph, modality, vector, blob/refcount, time-series, evidence, table/lake, and
 // terminal-analytics-outcome participants. Deliberately a NEW module (not folded
