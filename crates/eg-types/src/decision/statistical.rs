@@ -59,6 +59,12 @@ pub enum QuestionKind {
     RetrievalPlan,
     IngestionLane,
     EnrichmentSchedule,
+    /// Inbound connector-event classification, evaluate-only
+    /// (EG-DECISION-ENGINE-R041): `Decide` returns a proposal and its
+    /// evidence class and takes no action on the connector's behalf -- the
+    /// same evaluate-only guarantee this module's own doc states for every
+    /// kind, named here for the connector-triage use case specifically.
+    ConnectorEventTriage,
 }
 
 /// What is at stake. Exploration is permitted only for
