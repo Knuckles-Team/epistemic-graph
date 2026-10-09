@@ -61,6 +61,7 @@
     "EG-FEDERATED-QUERY-R056",
     "EG-FEDERATED-QUERY-R057",
     "EG-FEDERATED-QUERY-R058",
+    "EG-FEDERATED-QUERY-R058.1",
     "EG-FEDERATED-QUERY-R059",
     "EG-FEDERATED-QUERY-R060",
     "EG-FEDERATED-QUERY-R061",
@@ -913,7 +914,13 @@
       "title": "Natural language runs only as disclosed, read-only typed UQL",
       "delivery_state": "SPECIFIED",
       "evidence": [],
-      "remaining": "The served natural-language result returns rows without the UQL that was executed, and no plan-only operation is exposed to callers."
+      "remaining": "Rollup, split 2026-10-09 (score >6, >2 code roots: eg-plan, eg-types result contract, src/server dispatch). EG-FEDERATED-QUERY-R058.1 (typed disclosure model) built; .2 (wire dispatch + result contract) and .3 (no-cache + no-mutation guards) remain."
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R058.1",
+      "title": "Typed NL→UQL disclosure model (NlQueryResult/NlQueryError/NlQueryBudget)",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
     },
     {
       "id": "EG-FEDERATED-QUERY-R059",
