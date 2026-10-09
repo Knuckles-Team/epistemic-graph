@@ -120,6 +120,7 @@ fn agree(seed: u64, adversarial: bool) {
     }
 }
 
+// spec: EG-DECISION-ENGINE-R052
 #[test]
 fn the_solver_agrees_with_brute_force_on_random_libraries() {
     for seed in 0..12 {
@@ -137,6 +138,7 @@ fn the_solver_agrees_with_brute_force_on_adversarial_libraries() {
 /// Derivation plus solve at the record bound: 64 candidates, and the widest
 /// requirement set the vocabulary allows. Reported, with the node budget as
 /// the real bound (§11.1 latency). Printed with `--nocapture`.
+// spec: EG-DECISION-ENGINE-R052
 #[test]
 fn latency_report_at_the_record_bound() {
     let mut rng = Seeded::new(7);

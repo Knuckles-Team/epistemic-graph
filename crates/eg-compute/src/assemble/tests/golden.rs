@@ -54,6 +54,7 @@ fn cases() -> Vec<Golden> {
 
 // spec: EG-DECISION-ENGINE-R007
 // spec: EG-DECISION-ENGINE-R036
+// spec: EG-DECISION-ENGINE-R052
 #[test]
 fn the_golden_vectors_reproduce_byte_for_byte() {
     let produced = serde_json::to_string_pretty(&cases()).expect("encodes") + "\n";

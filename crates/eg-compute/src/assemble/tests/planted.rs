@@ -40,7 +40,7 @@ fn eliminated(assembly: &Assembly, component_id: &str) -> Option<Violation> {
         .map(|elimination| elimination.violation.clone())
 }
 
-// spec: EG-DECISION-ENGINE-R018
+// spec: EG-DECISION-ENGINE-R018, EG-DECISION-ENGINE-R052
 #[test]
 fn unknown_cost_under_a_strict_budget_is_excluded_never_zero() {
     let mut library = research_library();
