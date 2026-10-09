@@ -176,6 +176,7 @@ fn work_item_mutations() -> Vec<Method> {
     ]
 }
 
+// spec: EG-DURABLE-KERNEL-R009
 #[test]
 fn work_item_mutations_round_trip_through_sealed_native_command() {
     for method in work_item_mutations() {

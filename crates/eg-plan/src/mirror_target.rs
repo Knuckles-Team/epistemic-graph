@@ -173,6 +173,7 @@ mod tests {
         assert!(error.contains("verified registration and bound driver"));
     }
 
+    // spec: EG-DURABLE-KERNEL-R024.2.2
     #[test]
     fn registry_refuses_an_invalid_spec_at_registration_time() {
         let mut registry = MirrorTargetRegistry::new();
@@ -181,6 +182,7 @@ mod tests {
         assert!(registry.is_empty());
     }
 
+    // spec: EG-DURABLE-KERNEL-R024.2.2
     #[test]
     fn registry_send_to_reaches_the_real_validate_and_dispatch_path() {
         let mut registry = MirrorTargetRegistry::new();
@@ -198,6 +200,7 @@ mod tests {
         );
     }
 
+    // spec: EG-DURABLE-KERNEL-R024.2.2
     #[test]
     fn registry_send_to_an_unknown_name_is_a_distinct_clean_error() {
         let registry = MirrorTargetRegistry::new();
