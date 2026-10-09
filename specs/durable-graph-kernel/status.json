@@ -88,7 +88,8 @@
     "EG-DURABLE-KERNEL-R037.2",
     "EG-DURABLE-KERNEL-R041.1",
     "EG-DURABLE-KERNEL-R041.2",
-    "EG-DURABLE-KERNEL-R042.1"
+    "EG-DURABLE-KERNEL-R042.1",
+    "EG-DURABLE-KERNEL-R011.1"
   ],
   "delivery_state": "BUILDING",
   "acceptance_state": "NOT_AUDITED",
@@ -222,7 +223,7 @@
     {
       "id": "EG-DURABLE-KERNEL-R011",
       "title": "Clippy and targeted tests cover the full and all-features builds",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
       "evidence": []
     },
     {
@@ -1096,6 +1097,12 @@
     {
       "id": "EG-DURABLE-KERNEL-R042.1",
       "title": "BenchmarkClaim typed report record with refusal for an unpublished or non-passing claim",
+      "delivery_state": "BUILT",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R011.1",
+      "title": "RequiredTestModuleCategory/RequiredTestModule typed category and validated declaration",
       "delivery_state": "BUILT",
       "evidence": []
     }
