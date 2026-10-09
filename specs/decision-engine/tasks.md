@@ -46,6 +46,8 @@
 
 - [x] D19 **EG-DECISION-ENGINE-R059:** Add `only_independent_outcomes_join_and_a_pool_below_min_support_is_omitted` (`crates/eg-numeric/src/decision/aggregate.rs::tests`), the first test of `aggregate()`/`aggregate_log()` itself. Proves a self-reported evaluation is refused rather than counted as a trial, an independent one is counted, and a pool below `min_support` is omitted entirely from the output rather than reported with low support. The independent-evaluation label rule (`label_use`) was already tested via its two consumers (`stat_reputation.rs`, `stat_slate_attribution.rs`); this closes the gap in the aggregate function itself.
 
+- [ ] D16 **EG-DECISION-ENGINE-R061.1:** Add the shared `test-support` fixture `tool_entry_with_cost_latency` (`crates/eg-types/src/test_support/decision.rs`), with a unit test proving its declared cost/latency survive `CandidateFacts::from_entry`. **EG-DECISION-ENGINE-R061:** build on this fixture with a cross-path test asserting the exact-solver path and `CandidateView::from_component` read the same declared values from the same entry.
+
 ## Evidence format
 
 For each stable ID, record: `ID | sequence | delivery | acceptance | main SHA | tests/workflow | reviewed date | notes`. Until a row has an exact commit and passing required tests, use `WAITING / NOT_RUN`, `IN_PROGRESS / PARTIAL`, or `SOURCE_LANDED / PARTIAL` as observed; do not infer acceptance from a sequence label. `RETIRED` requires the superseding contract and removal test. Keep evidence records in this repository alongside the spec so external contributors can audit them.

@@ -66,6 +66,7 @@
     "EG-DECISION-ENGINE-R059",
     "EG-DECISION-ENGINE-R060",
     "EG-DECISION-ENGINE-R061",
+    "EG-DECISION-ENGINE-R061.1",
     "EG-DECISION-ENGINE-R062",
     "EG-DECISION-ENGINE-R063",
     "EG-DECISION-ENGINE-R064",
@@ -941,7 +942,18 @@
       "title": "Assembly facts extended for the statistical path",
       "delivery_state": "SPECIFIED",
       "evidence": [],
-      "remaining": "AgentComponentFacts (cost/latency/capability) is read by both the exact-solver path and the statistical candidate path (CandidateView::from_component), but no test directly confirms the same typed fact values are readable/consistent across both paths."
+      "remaining": "AgentComponentFacts (cost/latency/capability) is read by both the exact-solver path and the statistical candidate path (CandidateView::from_component), but no test directly confirms the same typed fact values are readable/consistent across both paths.",
+      "rollup": true,
+      "children": [
+        "EG-DECISION-ENGINE-R061.1"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R061.1",
+      "title": "Assembly facts extended for the statistical path \u2014 shared AgentComponentEntry cost/latency fixture slice",
+      "delivery_state": "SPECIFIED",
+      "evidence": [],
+      "depends_on": []
     },
     {
       "id": "EG-DECISION-ENGINE-R062",
