@@ -275,6 +275,30 @@ fn declared_number(option: &DeclaredOption, key: &str) -> i64 {
         .map_or(0, |n| n.q32)
 }
 
+/// Map a question-specific registry check's failure to its wire refusal.
+///
+/// Each such `check()` (`IngestionLaneRequest`, `EnrichmentScheduleRequest`)
+/// reports its MOST SPECIFIC failure as free text prefixed with its own
+/// closed-vocabulary code (e.g. `"UNSUPPORTED_INGESTION_LANE: "`), mirrored
+/// by a matching `StatisticalErrorCode` variant; a less specific failure
+/// (an empty or malformed candidate list) carries no such prefix. Passing
+/// the whole string through `refusal(StatisticalErrorCode::ParameterInvalid,
+/// ...)` regardless would nest a specific code two levels deep
+/// (`"PARAMETER_INVALID: UNSUPPORTED_INGESTION_LANE: ..."`), and
+/// `crate::protocol::Response::err` only ever promotes the FIRST
+/// `"CODE: detail"` segment to the wire-visible `error` field -- the served
+/// response would read `PARAMETER_INVALID`, silently dropping the specific
+/// code a caller needs to branch on (caught by
+/// `consumer_tests::an_unregistered_ingestion_lane_is_refused_through_decide`
+/// and `consumer_tests::a_negative_enrichment_cost_is_refused_through_decide`,
+/// which assert on the served response, not the type's own unit test).
+fn prefixed_refusal(detail: &str, prefix: &str, code: StatisticalErrorCode) -> String {
+    match detail.strip_prefix(prefix) {
+        Some(rest) => refusal(code, rest),
+        None => refusal(StatisticalErrorCode::ParameterInvalid, detail),
+    }
+}
+
 /// Declared candidates: the caller's own options, each fact a claim, visible
 /// to the declaring principal only. Validated before any feature reads them.
 ///
@@ -298,7 +322,7 @@ pub(super) fn declared_candidates(
             candidate_lanes: options.iter().map(|o| o.option_id.clone()).collect(),
         }
         .check()
-        .map_err(|detail| refusal(StatisticalErrorCode::ParameterInvalid, detail))?;
+        .map_err(|detail| prefixed_refusal(&detail, "UNSUPPORTED_INGESTION_LANE: ", StatisticalErrorCode::UnsupportedIngestionLane))?;
     } else if kind == QuestionKind::EnrichmentSchedule {
         let candidates: Vec<EnrichmentCandidate> = options
             .iter()
@@ -310,7 +334,7 @@ pub(super) fn declared_candidates(
             .collect();
         EnrichmentScheduleRequest { candidates }
             .check()
-            .map_err(|detail| refusal(StatisticalErrorCode::ParameterInvalid, detail))?;
+            .map_err(|detail| prefixed_refusal(&detail, "UNSUPPORTED_ENRICHMENT_COST: ", StatisticalErrorCode::UnsupportedEnrichmentCost))?;
     }
     let views = options
         .iter()
