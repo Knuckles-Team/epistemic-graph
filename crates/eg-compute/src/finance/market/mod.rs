@@ -37,7 +37,6 @@ pub mod rollup;
 pub mod scan;
 pub mod signal;
 pub mod snapshot;
-pub mod strategy_backtest;
 pub mod supertrend;
 
 #[cfg(test)]

@@ -23,7 +23,6 @@ Tasks are ordered by dependency. Check a task only when its code, tests and exac
 - [ ] **F-05 · EG-FINANCE-PRIMITIVES-R007:** Define immutable strategy-spec digest and proposal contract; implement DCA, trend and rebalance evaluators with idempotent cadence/missed-cycle evidence.
 - [ ] **F-05.1 · EG-FINANCE-PRIMITIVES-R007.1:** Implement the typed `StrategySpec`/`StrategyKind` wire shape and the dollar-cost-averaging-by-fixed-amount evaluator producing a `ProposedAction`; refuse a non-positive configured amount. Trend-following and rebalancing evaluators remain under F-05.
 - [ ] **F-06 · EG-FINANCE-PRIMITIVES-R008:** Build common-horizon strategy comparison atop sealed `BacktestRun`; calculate CV, deflated Sharpe and PBO from one verified split matrix with costs.
-- [ ] **F-06.1 · EG-FINANCE-PRIMITIVES-R008.1:** Seal a dollar-cost-averaging-by-fixed-amount backtest through the existing `backtest_run::seal` path; refuse a non-positive contribution and an out-of-universe fill. Lump-sum and trend comparisons remain under F-06.
 - [ ] **F-07 · EG-FINANCE-PRIMITIVES-R009:** Implement calibration/abstention and outcome scorecard; seal source-citing informational snapshots.
 - [ ] **F-07.1 · EG-FINANCE-PRIMITIVES-R009.1:** Map a calibrated flip-confidence outcome to accumulate/hold/de-risk/abstain, citing strategy version and evidence. Scorecards and AnalysisSnapshot sealing remain under F-07.
 - [ ] **F-08 · EG-FINANCE-PRIMITIVES-R010:** Add policy-versioned leverage terms and scenario kernels; prove paper default and no implicit live eligibility.
@@ -66,7 +65,6 @@ Requirement IDs not covered by any task above before this line: none remain — 
 | EG-FINANCE-PRIMITIVES-R007 | — | — | NOT_RUN |
 | EG-FINANCE-PRIMITIVES-R007.1 | — | — | NOT_RUN |
 | EG-FINANCE-PRIMITIVES-R008 | — | — | NOT_RUN |
-| EG-FINANCE-PRIMITIVES-R008.1 | — | — | NOT_RUN |
 | EG-FINANCE-PRIMITIVES-R009 | — | — | NOT_RUN |
 | EG-FINANCE-PRIMITIVES-R009.1 | — | — | NOT_RUN |
 | EG-FINANCE-PRIMITIVES-R010 | — | — | NOT_RUN |
