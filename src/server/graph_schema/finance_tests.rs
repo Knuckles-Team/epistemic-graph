@@ -258,4 +258,30 @@ mod shapes {
             assert!(!conforms(data), "{data}");
         }
     }
+
+    /// EG-FINANCE-PRIMITIVES-R004: the canonical asset-class vocabulary, plus the
+    /// deprecated migration aliases preserved for `stock`, `forex` and `commodity`.
+    #[test]
+    fn asset_class_vocabulary_accepts_canonical_and_legacy_values() {
+        for class in [
+            "equity",
+            "etf",
+            "fund",
+            "index",
+            "fx_pair",
+            "commodity_spot",
+            "commodity_future",
+            "crypto",
+            "real_estate",
+            "cash",
+            "stock",
+            "forex",
+            "commodity",
+        ] {
+            let data = format!("ex:btc a :FinancialInstrument ; :assetClass \"{class}\" .");
+            assert!(conforms(&data), "{class} should conform");
+        }
+        // Not in the new canonical list, and never named as a preserved alias.
+        assert!(!conforms("ex:btc a :FinancialInstrument ; :assetClass \"bond\" ."));
+    }
 }

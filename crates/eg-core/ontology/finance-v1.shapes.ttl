@@ -7,11 +7,11 @@
 # violation, not a new category.
 
 :FinancialInstrumentShape a sh:NodeShape ;
-    sh:description "An instrument has at most one asset class, from the closed vocabulary." ;
+    sh:description "An instrument has at most one asset class, from the closed vocabulary. stock, forex and commodity are deprecated migration aliases of equity, fx_pair and commodity_spot." ;
     sh:name "Financial Instrument Shape" ;
-    sh:property [ sh:in ( "crypto" "stock" "etf" "fund" "commodity" "forex" "index" "bond" ) ;
+    sh:property [ sh:in ( "equity" "etf" "fund" "index" "fx_pair" "commodity_spot" "commodity_future" "crypto" "real_estate" "cash" "stock" "forex" "commodity" ) ;
             sh:maxCount 1 ;
-            sh:message "assetClass is crypto, stock, etf, fund, commodity, forex, index or bond." ;
+            sh:message "assetClass is equity, etf, fund, index, fx_pair, commodity_spot, commodity_future, crypto, real_estate or cash (or the deprecated alias stock, forex or commodity)." ;
             sh:path :assetClass ] ;
     sh:targetClass :FinancialInstrument .
 

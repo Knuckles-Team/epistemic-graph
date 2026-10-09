@@ -3,7 +3,9 @@
 Tasks are ordered by dependency. Check a task only when its code, tests and exact-head evidence are linked in this directory.
 
 - [ ] **F-00 · EG-FINANCE-PRIMITIVES-R001:** Stabilize `BacktestRun` canonical serialization and digest across two supported hosts; check Pine SuperTrend/ATR parity against checked-in bars and consolidate finance ontology classes under `finance-v1`.
-- [ ] **F-01 · EG-FINANCE-PRIMITIVES-R004:** Define v2 asset classes and migration aliases; `Account`, `Activity`, `Lot`, `Position`, `PortfolioGroup`, `StrategySpec`, `StrategyRun`, `LeverageTerms` types and SHACL shapes; reject unknown versions and direct writes to derived projections.
+- [x] **F-01.1 · EG-FINANCE-PRIMITIVES-R004.1:** Define the v2 asset-class vocabulary and migration aliases in `finance-v1.ttl`/`finance-v1.shapes.ttl`; tests in `src/server/graph_schema/finance_tests.rs::shapes::asset_class_vocabulary_accepts_canonical_and_legacy_values`.
+- [ ] **F-01.2 · EG-FINANCE-PRIMITIVES-R004.2:** `Account`, `Activity`, `Lot`, `Position`, `PortfolioGroup`, `StrategySpec`, `StrategyRun`, `LeverageTerms` Rust record types in eg-types, validated against the F-01.1 ontology; reject unknown schema versions and direct writes to derived projections.
+- [ ] **F-01.3 · EG-FINANCE-PRIMITIVES-R004.3:** Wire the F-01.2 record types into server handlers and regenerate the contract/generated client surfaces.
 - [ ] **F-02 · EG-FINANCE-PRIMITIVES-R006:** Implement point-in-time action and exchange-calendar revision resolver; return session/source/as-of for all price paths; add DST, early-close and ticker reuse vectors.
 - [ ] **F-03 · EG-FINANCE-PRIMITIVES-R005:** Implement canonical activity ordering and checked decimal lot engine for FIFO/LIFO/specific/average basis; add correction replay, transfer and split invariants.
 - [ ] **F-04 · EG-FINANCE-PRIMITIVES-R005:** Add sourced FX, realized/unrealized P&L, TWR, bounded XIRR and benchmark comparison with partial coverage reports.
@@ -27,7 +29,10 @@ Requirement IDs not covered by any task above before this line: none remain — 
 | ID | Main SHA | Hosted run / command | Result/date |
 |---|---|---|---|
 | EG-FINANCE-PRIMITIVES-R001 | — | — | NOT_RUN |
-| EG-FINANCE-PRIMITIVES-R004 | — | — | NOT_RUN |
+| EG-FINANCE-PRIMITIVES-R004 | — | — | NOT_RUN (rollup) |
+| EG-FINANCE-PRIMITIVES-R004.1 | — | `cargo test -p epistemic-graph --lib server::graph_schema::finance_tests` | PR open; see PR for run result |
+| EG-FINANCE-PRIMITIVES-R004.2 | — | — | NOT_RUN |
+| EG-FINANCE-PRIMITIVES-R004.3 | — | — | NOT_RUN |
 | EG-FINANCE-PRIMITIVES-R005 | — | — | NOT_RUN |
 | EG-FINANCE-PRIMITIVES-R006 | — | — | NOT_RUN |
 | EG-FINANCE-PRIMITIVES-R007 | — | — | NOT_RUN |
