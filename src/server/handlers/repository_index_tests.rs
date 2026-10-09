@@ -223,3 +223,40 @@ fn a_batch_over_the_commit_budget_is_refused_whole() {
         .expect("over-budget batch is refused");
     assert!(error.starts_with(BATCH_TOO_LARGE), "{error}");
 }
+
+/// `count` SYMBOL nodes (no edges), each carrying one property sized
+/// `value_len` bytes -- few operations, many bytes per operation, so the
+/// encoded write-set's SIZE, not its operation count, is what a caller can
+/// push past the budget.
+fn byte_heavy_result(count: usize, value: &str) -> IndexResult {
+    let nodes = (0..count)
+        .map(|index| node(&format!("symbol:{index}"), "SYMBOL", &[("doc", value)]))
+        .collect();
+    IndexResult {
+        nodes,
+        ..Default::default()
+    }
+}
+
+/// EG-REPO-INGEST-R008: past the 64 MiB write-byte ceiling specifically --
+/// not the operation-count budget `a_batch_over_the_commit_budget_is_refused_
+/// whole` above exercises -- the batch is refused whole with the SAME stable
+/// [`BATCH_TOO_LARGE`] code, and halving it (the connector SDK's blind
+/// halve-and-resend retry, which acts on the code alone and never parses the
+/// message) is enough for the resend to commit.
+#[test]
+fn a_batch_over_the_byte_ceiling_is_refused_and_a_halved_resend_succeeds() {
+    let big_value = "x".repeat(300_000);
+    // 200 operations (far under MAX_MUTATION_OPERATIONS) but ~60 MB encoded,
+    // past MAX_WRITE_SET_BYTES (48 MiB): only the byte ceiling can refuse this.
+    let oversized = byte_heavy_result(200, &big_value);
+    let error = lower(&oversized)
+        .err()
+        .expect("a batch past the write-byte ceiling is refused");
+    assert!(error.starts_with(BATCH_TOO_LARGE), "{error}");
+
+    // The halved resend: half the operations, half the bytes, well under the
+    // ceiling -- the retry a stable code (not a parsed message) enables.
+    let halved = byte_heavy_result(100, &big_value);
+    lower(&halved).expect("the halved resend commits under the write-byte ceiling");
+}
