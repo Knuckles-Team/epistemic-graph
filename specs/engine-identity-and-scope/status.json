@@ -24,67 +24,49 @@
     {
       "id": "EG-IDENTITY-R002",
       "title": "Identity and RBAC writes recompute roles and audit atomically",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "f9a69bfe8a9c"
       ],
-      "verified_by": [
-        "crates/eg-capabilities/src/scopes/tests.rs:38",
-        "crates/eg-capabilities/src/scopes/tests.rs:51",
-        "crates/eg-capabilities/src/scopes/tests.rs:65"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-IDENTITY-R003",
       "title": "Identity mode is a durable singleton with CAS transition",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "f9a69bfe8a9c"
       ],
-      "verified_by": [
-        "crates/eg-capabilities/src/scopes/tests.rs:38",
-        "crates/eg-capabilities/src/scopes/tests.rs:51",
-        "crates/eg-capabilities/src/scopes/tests.rs:65"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-IDENTITY-R004",
       "title": "Generated scope registry classifies every capability scope",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "63488a50eefc",
         "a2cbfc473ba2"
       ],
-      "verified_by": [
-        "crates/eg-capabilities/src/scopes/tests.rs:113",
-        "crates/eg-capabilities/src/scopes/tests.rs:73"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-IDENTITY-R005",
       "title": "Semantic workers use one identity across queue classes",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "62bec8a1ae94"
       ],
-      "verified_by": [
-        "src/server/semantic_index/dispatch_pipeline_tests.rs:556",
-        "src/server/semantic_index/dispatch_pipeline_tests.rs:601"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-IDENTITY-R006",
       "title": "Tenant roles read the shared commons graph",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "7622e4b24455",
         "dfb2367561d1"
       ],
-      "verified_by": [
-        "crates/eg-core/src/isolation.rs:1672",
-        "crates/eg-core/src/isolation.rs:1734",
-        "crates/eg-core/src/isolation.rs:1753"
-      ]
+      "verified_by": []
     }
   ]
 }

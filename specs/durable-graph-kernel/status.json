@@ -144,15 +144,11 @@
     {
       "id": "EG-DURABLE-KERNEL-R005",
       "title": "Outbox delivery state remains local to the owning node",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "48abc77ce72e"
       ],
-      "verified_by": [
-        "crates/eg-plan/src/federation_cypher_unbound.rs:119",
-        "crates/eg-plan/src/federation_cypher_unbound.rs:132",
-        "crates/eg-plan/src/federation_cypher_unbound.rs:145"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R006",
@@ -166,15 +162,11 @@
     {
       "id": "EG-DURABLE-KERNEL-R007",
       "title": "Host binary exposes a storage inspect and upgrade command",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "0ce0383a5599"
       ],
-      "verified_by": [
-        "tests/operator_command_store_upgrade_cli.rs:35",
-        "tests/operator_command_store_upgrade_cli.rs:60",
-        "tests/operator_command_store_upgrade_cli.rs:81"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R008",
@@ -206,7 +198,7 @@
     {
       "id": "EG-DURABLE-KERNEL-R011",
       "title": "Clippy and targeted tests cover the full and all-features builds",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "9794030f6459"
       ],
@@ -218,15 +210,11 @@
     {
       "id": "EG-DURABLE-KERNEL-R011.1",
       "title": "`RequiredTestModuleCategory`/`RequiredTestModule` are a typed category and a validated declaration, refusing an unrecognized category name or an unselectable declaration",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "9794030f6459"
       ],
-      "verified_by": [
-        "crates/eg-types/src/pre_merge_test_module.rs:101",
-        "crates/eg-types/src/pre_merge_test_module.rs:118",
-        "crates/eg-types/src/pre_merge_test_module.rs:127"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R012",
@@ -249,7 +237,7 @@
     {
       "id": "EG-DURABLE-KERNEL-R014",
       "title": "Raft cluster tests pass reliably under load",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "3a14159c3768"
       ],
@@ -261,38 +249,29 @@
     {
       "id": "EG-DURABLE-KERNEL-R014.1",
       "title": "A typed flake-budget / retry-policy model bounds how a load-test run retries past a transient failure",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "3a14159c3768"
       ],
-      "verified_by": [
-        "crates/eg-plan/src/federation_brain_guarded.rs:103",
-        "crates/eg-plan/src/federation_brain_guarded.rs:115",
-        "crates/eg-plan/src/federation_brain_guarded.rs:95"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R015",
       "title": "Raft heartbeat flush and batch dispatch avoid head-of-line blocking",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "a595f3a182c3"
       ],
-      "verified_by": [
-        "src/raft/multi.rs:1706",
-        "src/raft/tests.rs:3017"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R016",
       "title": "Raft durability writes are batched to reduce commit latency",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "92943a9ed1bb"
       ],
-      "verified_by": [
-        "src/server/persistence/redb_backend/raft_linger_tests.rs:12"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R017",
@@ -324,13 +303,11 @@
     {
       "id": "EG-DURABLE-KERNEL-R020",
       "title": "Bounded background scrub detects node corruption between restarts",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "461f8c84eb44"
       ],
-      "verified_by": [
-        "crates/eg-storage/src/owner/tests.rs:791"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R021",
@@ -344,28 +321,20 @@
     {
       "id": "EG-DURABLE-KERNEL-R022",
       "title": "Just-in-time RBAC elevation requires two-person approval",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "2f37015096de"
       ],
-      "verified_by": [
-        "crates/eg-capabilities/tests/contract_registry.rs:146",
-        "crates/eg-core/src/isolation/elevation_tests.rs:116",
-        "crates/eg-core/src/isolation/elevation_tests.rs:85"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R023",
       "title": "UQL enforces a read-only guarantee at compile time and by test",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "e1ca1b8fd167"
       ],
-      "verified_by": [
-        "crates/eg-capabilities/tests/contract_registry.rs:146",
-        "crates/eg-capabilities/tests/invariants.rs:483",
-        "crates/eg-capabilities/tests/invariants.rs:510"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R024",
@@ -392,16 +361,12 @@
     {
       "id": "EG-DURABLE-KERNEL-R024.1",
       "title": "PostgreSQL/AGE backend becomes a ForeignSourceSpec source",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "7b7d4a0fb10f",
         "c2dd4c98fe60"
       ],
-      "verified_by": [
-        "crates/eg-plan/src/federation.rs:249",
-        "crates/eg-plan/src/federation_age.rs:219",
-        "crates/eg-plan/src/federation_age.rs:249"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R024.2",
@@ -420,81 +385,57 @@
     {
       "id": "EG-DURABLE-KERNEL-R024.3",
       "title": "Cypher transpiler becomes a ForeignSourceSpec source",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "48abc77ce72e"
       ],
-      "verified_by": [
-        "crates/eg-plan/src/federation_cypher_unbound.rs:119",
-        "crates/eg-plan/src/federation_cypher_unbound.rs:132",
-        "crates/eg-plan/src/federation_cypher_unbound.rs:145"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R024.4",
       "title": "Mirror target becomes a ForeignSourceSpec mirror target",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "48abc77ce72e"
       ],
-      "verified_by": [
-        "crates/eg-plan/src/federation_cypher_unbound.rs:119",
-        "crates/eg-plan/src/federation_cypher_unbound.rs:132",
-        "crates/eg-plan/src/federation_cypher_unbound.rs:145"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R024.5",
       "title": "Outbox-based mirror becomes a `MirrorTargetSpec` mirror target",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "3a14159c3768"
       ],
-      "verified_by": [
-        "crates/eg-plan/src/federation_brain_guarded.rs:103",
-        "crates/eg-plan/src/federation_brain_guarded.rs:115",
-        "crates/eg-plan/src/federation_brain_guarded.rs:95"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R024.6",
       "title": "Brain-guarded backend becomes a ForeignSourceSpec source",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "3a14159c3768"
       ],
-      "verified_by": [
-        "crates/eg-plan/src/federation_brain_guarded.rs:103",
-        "crates/eg-plan/src/federation_brain_guarded.rs:115",
-        "crates/eg-plan/src/federation_brain_guarded.rs:95"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R024.7",
       "title": "Trino backend becomes a ForeignSourceSpec source",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "7b7d4a0fb10f",
         "c2dd4c98fe60"
       ],
-      "verified_by": [
-        "crates/eg-plan/src/federation.rs:249",
-        "crates/eg-plan/src/federation_age.rs:219",
-        "crates/eg-plan/src/federation_age.rs:249"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R024.8",
       "title": "Spark job backend becomes a ForeignSourceSpec source",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "3a14159c3768"
       ],
-      "verified_by": [
-        "crates/eg-plan/src/federation_brain_guarded.rs:103",
-        "crates/eg-plan/src/federation_brain_guarded.rs:115",
-        "crates/eg-plan/src/federation_brain_guarded.rs:95"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R024.2.1",
@@ -508,47 +449,35 @@
     {
       "id": "EG-DURABLE-KERNEL-R024.2.2",
       "title": "`MirrorTargetRegistry` is the one entry point a mirror-sink driver registers under and the outbox fan-out path resolves a name through",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "7a8f87ca8484",
         "9a7674d1bae5"
       ],
-      "verified_by": [
-        "crates/eg-plan/src/mirror_target.rs:147",
-        "crates/eg-plan/src/mirror_target.rs:158",
-        "crates/eg-plan/src/mirror_target.rs:168"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R025",
       "title": "Raft admin follows the current leader and traces are leader-agnostic",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "05bf09d8eee4"
       ],
-      "verified_by": [
-        "src/raft/harness/trace_capture.rs:598",
-        "src/raft/harness/trace_capture.rs:658",
-        "src/raft/tests.rs:2105"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R026",
       "title": "Auth modes share one principal and RBAC evaluation path",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "48abc77ce72e"
       ],
-      "verified_by": [
-        "crates/eg-plan/src/federation_cypher_unbound.rs:119",
-        "crates/eg-plan/src/federation_cypher_unbound.rs:132",
-        "crates/eg-plan/src/federation_cypher_unbound.rs:145"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R027",
       "title": "Schema repair uses a reserved two-person approval lease (rollup)",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "3c618dd255ba",
         "cd899a5c8c20"
@@ -563,56 +492,42 @@
     {
       "id": "EG-DURABLE-KERNEL-R027.1",
       "title": "Governed-change model types",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "3c618dd255ba",
         "6e52c9bcfb57",
         "d768ee483940"
       ],
-      "verified_by": [
-        "crates/eg-capabilities/tests/contract_registry.rs:146",
-        "crates/eg-types/src/control_lease/tests.rs:160",
-        "crates/eg-types/src/control_lease/tests.rs:172"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R027.2",
       "title": "Governed-change dispatch wiring",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "3c618dd255ba",
         "cd899a5c8c20"
       ],
-      "verified_by": [
-        "crates/eg-capabilities/tests/contract_registry.rs:146",
-        "src/raft/command/native/tests.rs:278",
-        "src/server/dispatch.rs:321"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R027.3",
       "title": "Governed-change raft catalog registration",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "3c618dd255ba",
         "cd899a5c8c20"
       ],
-      "verified_by": [
-        "crates/eg-capabilities/tests/contract_registry.rs:146",
-        "src/raft/command/native/tests.rs:278",
-        "src/server/dispatch.rs:321"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R028",
       "title": "WorkItem lifecycle test uses a consistent verified tenant",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "15451958704f"
       ],
-      "verified_by": [
-        "tests/adopt_workitem_metadata_cas_lifecycle.rs:223"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R029",
@@ -626,35 +541,28 @@
     {
       "id": "EG-DURABLE-KERNEL-R030",
       "title": "Reserved RBAC elevation lease kind cannot be issued generically",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "3157bcbb4ac2"
       ],
-      "verified_by": [
-        "tests/test_control_lease_kind_policy.py:155",
-        "tests/test_control_lease_kind_policy.py:161"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R031",
       "title": "Audit append supports tenant-scoped idempotent reservation",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "2cc878fb8938",
         "8628416b1736",
         "8e288da667fc",
         "d372086c5bfe"
       ],
-      "verified_by": [
-        "crates/eg-storage/src/owner/agent_library_upgrade/tests.rs:107",
-        "crates/eg-storage/src/owner/agent_library_upgrade/tests.rs:218",
-        "crates/eg-storage/src/owner/agent_library_upgrade/tests.rs:237"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R032",
       "title": "Native primary-key fast path bypasses the SQL planner",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "49c43fca68d0"
       ],
@@ -666,20 +574,16 @@
     {
       "id": "EG-DURABLE-KERNEL-R032.1",
       "title": "PrimaryKeyOperation and FastPathDecision are typed, and routing refuses rather than silently bypassing checks",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "49c43fca68d0"
       ],
-      "verified_by": [
-        "crates/eg-types/src/fast_path.rs:109",
-        "crates/eg-types/src/fast_path.rs:81",
-        "crates/eg-types/src/fast_path.rs:97"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R033",
       "title": "Hot-store engine choice is evaluated against captured workloads",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "be3fad3f9840"
       ],
@@ -691,20 +595,16 @@
     {
       "id": "EG-DURABLE-KERNEL-R033.1",
       "title": "HotStoreEngine, WorkloadProfile, and BenchmarkResult are typed, and winner selection refuses rather than silently defaulting",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "be3fad3f9840"
       ],
-      "verified_by": [
-        "crates/eg-types/src/hot_store_engine.rs:125",
-        "crates/eg-types/src/hot_store_engine.rs:140",
-        "crates/eg-types/src/hot_store_engine.rs:157"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R034",
       "title": "Cross-store atomicity is proven and scoped to mixed transactions",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "5dc0a601b2cf"
       ],
@@ -716,20 +616,16 @@
     {
       "id": "EG-DURABLE-KERNEL-R034.1",
       "title": "TransactionScope and CommitPath are typed, and a single-store scope structurally can never map to the cross-store commit path",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "5dc0a601b2cf"
       ],
-      "verified_by": [
-        "crates/eg-types/src/cross_store_scope.rs:65",
-        "crates/eg-types/src/cross_store_scope.rs:79",
-        "crates/eg-types/src/cross_store_scope.rs:85"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R035",
       "title": "PostgreSQL wire protocol reaches operational and dump/restore parity",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "de5f096bc0fd"
       ],
@@ -741,7 +637,7 @@
     {
       "id": "EG-DURABLE-KERNEL-R036",
       "title": "Mirror sinks reach fan-out parity and include Postgres table mirroring",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "d833c1d987a6"
       ],
@@ -753,28 +649,20 @@
     {
       "id": "EG-DURABLE-KERNEL-R036.1",
       "title": "MirrorSinkKind and MirrorCursor are typed, and the cursor refuses an empty-string position",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "d833c1d987a6"
       ],
-      "verified_by": [
-        "crates/eg-types/src/mirror_sink.rs:111",
-        "crates/eg-types/src/mirror_sink.rs:121",
-        "crates/eg-types/src/mirror_sink.rs:97"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R035.1",
       "title": "PgOperationalSurface and a fail-closed PgCompatibilityMatrix are typed",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "de5f096bc0fd"
       ],
-      "verified_by": [
-        "crates/eg-types/src/pg_operational_surface.rs:105",
-        "crates/eg-types/src/pg_operational_surface.rs:131",
-        "crates/eg-types/src/pg_operational_surface.rs:140"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R037",
@@ -814,15 +702,11 @@
     {
       "id": "EG-DURABLE-KERNEL-R038.2",
       "title": "The write path's durability selection: `write_plan`/`refuse_if_durable_log_write` are the one entry point a write admission calls",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "1a1ef47cb448"
       ],
-      "verified_by": [
-        "crates/eg-types/src/durability_class.rs:246",
-        "crates/eg-types/src/durability_class.rs:254",
-        "crates/eg-types/src/durability_class.rs:262"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R037.1",
@@ -836,20 +720,16 @@
     {
       "id": "EG-DURABLE-KERNEL-R037.2",
       "title": "`route` is the one dispatch entry point a wire listener calls to decide whether to allocate a DataFusion session",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "add3fe5b1d67"
       ],
-      "verified_by": [
-        "crates/eg-types/src/workload_class.rs:115",
-        "crates/eg-types/src/workload_class.rs:124",
-        "crates/eg-types/src/workload_class.rs:134"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R039",
       "title": "In-memory data structures rebuild from the redb durability log",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "a7372171174e"
       ],
@@ -861,20 +741,16 @@
     {
       "id": "EG-DURABLE-KERNEL-R039.1",
       "title": "Every in-memory structure and atomic primitive is typed and structurally declares redb as its sole durability authority",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "a7372171174e"
       ],
-      "verified_by": [
-        "crates/eg-types/src/atomic_primitive.rs:120",
-        "crates/eg-types/src/atomic_primitive.rs:161",
-        "crates/eg-types/src/atomic_primitive.rs:176"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R040",
       "title": "Pipelined requests commit as a single batch",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "726ee0a3eadf"
       ],
@@ -908,33 +784,25 @@
     {
       "id": "EG-DURABLE-KERNEL-R041.2",
       "title": "`PlanCache::prepare` is the one entry point a SQL statement handler calls at prepare time",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "88496b615981"
       ],
-      "verified_by": [
-        "crates/eg-types/src/plan_cache_key.rs:174",
-        "crates/eg-types/src/plan_cache_key.rs:181",
-        "crates/eg-types/src/plan_cache_key.rs:203"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R040.1",
       "title": "PipelineBatch and BatchCommitDecision are typed, proving one admission maps to exactly one commit with order-preserving replies",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "726ee0a3eadf"
       ],
-      "verified_by": [
-        "crates/eg-types/src/pipeline_batch.rs:101",
-        "crates/eg-types/src/pipeline_batch.rs:78",
-        "crates/eg-types/src/pipeline_batch.rs:92"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R042",
       "title": "Benchmark gate defines and proves performance superiority claims",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "9eac21608e67"
       ],
@@ -946,28 +814,20 @@
     {
       "id": "EG-DURABLE-KERNEL-R042.1",
       "title": "`BenchmarkClaim` is a typed report record that is only accepted as a superiority claim when published with its configuration and a passing result",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "9eac21608e67"
       ],
-      "verified_by": [
-        "crates/eg-types/src/benchmark_claim.rs:101",
-        "crates/eg-types/src/benchmark_claim.rs:109",
-        "crates/eg-types/src/benchmark_claim.rs:118"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R043",
       "title": "MutationBatch is the sole persistent write envelope across stores",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "1d83cf4b704f"
       ],
-      "verified_by": [
-        "crates/eg-core/src/rbac_persist.rs:762",
-        "crates/eg-jobs/src/store.rs:2778",
-        "crates/eg-jobs/src/store.rs:2825"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R044",
@@ -981,15 +841,11 @@
     {
       "id": "EG-DURABLE-KERNEL-R045",
       "title": "A single owner-manifest lineage check governs format upgrades",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "df476f0df010"
       ],
-      "verified_by": [
-        "crates/eg-storage/src/owner/sql_checkpoint_upgrade/preview/bounded.rs:116",
-        "crates/eg-storage/src/owner/sql_checkpoint_upgrade/preview/bounded.rs:90",
-        "crates/eg-storage/src/owner/sql_checkpoint_upgrade/tests.rs:51"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R046",
@@ -1012,26 +868,20 @@
     {
       "id": "EG-DURABLE-KERNEL-R048",
       "title": "Dispatch-ordering guard test reliably locates its target function",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "cfb0a1279595"
       ],
-      "verified_by": [
-        "crates/eg-core/src/compute/semantic_ann_codes/stage_refusal_tests.rs:306"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R049",
       "title": "Idempotent retry of CreateGraph and DeleteGraph succeeds",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "ceec54145720"
       ],
-      "verified_by": [
-        "crates/eg-capabilities/src/catalog.rs:55",
-        "crates/eg-capabilities/src/catalog.rs:75",
-        "crates/eg-capabilities/src/catalog.rs:84"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R050",
@@ -1082,15 +932,11 @@
     {
       "id": "EG-DURABLE-KERNEL-R055",
       "title": "Durable-store registry classifies every .redb literal in the codebase",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "c143146d7855"
       ],
-      "verified_by": [
-        "crates/eg-query/src/tables/store/source_batch/tests.rs:102",
-        "crates/eg-query/src/tables/store/source_batch/tests.rs:680",
-        "crates/eg-query/src/tables/store/source_batch/tests.rs:725"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R056",
@@ -1104,28 +950,20 @@
     {
       "id": "EG-DURABLE-KERNEL-R057",
       "title": "Sealed record classes are protected by a create-only write guard",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "5c2ab50088c4"
       ],
-      "verified_by": [
-        "crates/eg-capabilities/tests/contract_registry.rs:146",
-        "crates/eg-plan/src/text_tests.rs:310",
-        "crates/eg-plan/src/vector_rank_tests.rs:104"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R058",
       "title": "Source-batch publication waiter cancellation is deterministic",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "480766675bd1"
       ],
-      "verified_by": [
-        "crates/eg-capabilities/tests/consistency/checks.rs:220",
-        "crates/eg-capabilities/tests/invariants.rs:39",
-        "crates/eg-capabilities/tests/invariants.rs:9"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R059",
@@ -1139,28 +977,20 @@
     {
       "id": "EG-DURABLE-KERNEL-R060",
       "title": "Unsupported legacy graph-data layouts are not silently migrated",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "9bc78efe95b3"
       ],
-      "verified_by": [
-        "crates/eg-storage/src/owner/lineage_tests.rs:33",
-        "crates/eg-storage/src/owner/lineage_tests.rs:54",
-        "crates/eg-storage/src/owner/lineage_tests.rs:78"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R061",
       "title": "Test threading avoids unbounded channels and dead-time joins",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "c143146d7855"
       ],
-      "verified_by": [
-        "crates/eg-query/src/tables/store/source_batch/tests.rs:102",
-        "crates/eg-query/src/tables/store/source_batch/tests.rs:680",
-        "crates/eg-query/src/tables/store/source_batch/tests.rs:725"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R062",
@@ -1174,39 +1004,29 @@
     {
       "id": "EG-DURABLE-KERNEL-R063",
       "title": "Version-2 control-state rows are lifted losslessly on read",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "f17f47ab300f"
       ],
-      "verified_by": [
-        "crates/eg-capabilities/src/contract/python/tests.rs:201",
-        "crates/eg-capabilities/src/contract/python/tests.rs:224",
-        "crates/eg-capabilities/src/contract/python/tests.rs:523"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R064",
       "title": "Compiled shape memoization is benchmarked against parsing per write",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "bee3dd02e6ed"
       ],
-      "verified_by": [
-        "src/server/graph_schema/compiled_tests.rs:68",
-        "src/server/graph_schema/compiled_tests.rs:79",
-        "src/server/graph_schema/compiled_tests.rs:93"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R065",
       "title": "Signed dispatch commit recovers correctly after an ack-lost fault window",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "57a12eb06632"
       ],
-      "verified_by": [
-        "src/server/handlers/source_ingestion.rs:2362"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R066",
@@ -1220,37 +1040,29 @@
     {
       "id": "EG-DURABLE-KERNEL-R067",
       "title": "Trace capture isolates each test's events from concurrent noise",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "57a12eb06632"
       ],
-      "verified_by": [
-        "src/server/handlers/source_ingestion.rs:2362"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R068",
       "title": "Channel-group leave returns its own result, not a replayed join result",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "cee22e5290b1"
       ],
-      "verified_by": [
-        "src/server/handlers/admin/saga_tests.rs:56",
-        "src/server/handlers/admin/saga_tests.rs:73",
-        "tests/test_service_layer.py:329"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R069",
       "title": "Scrub cursor fixture reliably tests the no-key encryption state",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "be291021dfdc"
       ],
-      "verified_by": [
-        "src/server/persistence/redb_backend/scrub_api_tests.rs:80"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R070",

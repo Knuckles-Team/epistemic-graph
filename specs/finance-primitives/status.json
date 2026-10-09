@@ -43,46 +43,34 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R001",
       "title": "Cross-host BacktestRun digest and Pine parity for finance-core",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "ae7b0d664749"
       ],
-      "verified_by": [
-        "crates/eg-compute/src/finance/market/record_tests.rs:371",
-        "crates/eg-compute/src/finance/market/record_tests.rs:386",
-        "crates/eg-compute/src/finance/quant.rs:258"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002",
       "title": "Rehome generic finance evaluation kernels into eg-numeric",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "31cbdeb6d98b"
       ],
-      "verified_by": [
-        "crates/eg-capabilities/tests/contract_registry.rs:146",
-        "crates/eg-numeric/src/evaluation/backtest.rs:189",
-        "crates/eg-numeric/src/evaluation/backtest.rs:200"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R003",
       "title": "Compute PBO from a BacktestRun's own CSCV splits",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "458eb5bb9475"
       ],
-      "verified_by": [
-        "crates/eg-compute/src/finance/market/record_tests.rs:259",
-        "crates/eg-compute/src/finance/market/record_tests.rs:345",
-        "crates/eg-compute/src/finance/market/record_tests.rs:386"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R004",
       "title": "finance-v1 asset, account, and strategy record types",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "0ae2193fae8d"
       ],
@@ -96,18 +84,16 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R004.1",
       "title": "finance-v1 asset-class controlled vocabulary",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "0ae2193fae8d"
       ],
-      "verified_by": [
-        "src/server/graph_schema/finance_tests.rs:259"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R004.2",
       "title": "finance-v1 Account/Activity/Lot/Position/PortfolioGroup/StrategySpec/StrategyRun/LeverageTerms Rust record types",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "a189dbe4067f",
         "fd0aa73cb7b5"
@@ -121,35 +107,27 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R004.2.1",
       "title": "Account and Position OWL classes and SHACL shapes",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "a189dbe4067f",
         "fd0aa73cb7b5"
       ],
-      "verified_by": [
-        "src/server/graph_schema/finance_tests.rs:191",
-        "src/server/graph_schema/finance_tests.rs:45",
-        "src/server/graph_schema/finance_tests.rs:83"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R004.2.2",
       "title": "Activity and Lot OWL classes and SHACL shapes",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "a189dbe4067f",
         "fd0aa73cb7b5"
       ],
-      "verified_by": [
-        "src/server/graph_schema/finance_tests.rs:191",
-        "src/server/graph_schema/finance_tests.rs:45",
-        "src/server/graph_schema/finance_tests.rs:83"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R004.3",
       "title": "finance-v1 record-type server wiring and contract regeneration",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "fcca865a0505",
         "fd0aa73cb7b5"
@@ -162,15 +140,11 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R004.3.1",
       "title": "The wire boundary refuses an unknown finance-v1 schema version",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "fcca865a0505"
       ],
-      "verified_by": [
-        "crates/eg-compute/src/finance/ghostfolio_import.rs:105",
-        "crates/eg-compute/src/finance/ghostfolio_import.rs:91",
-        "crates/eg-compute/src/finance/ghostfolio_import.rs:97"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R005",
@@ -186,15 +160,11 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R005.1",
       "title": "FIFO/LIFO fixed-point lot-matching engine",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "eee78d6b3d1d"
       ],
-      "verified_by": [
-        "crates/eg-compute/src/finance/lot_accounting.rs:209",
-        "crates/eg-compute/src/finance/lot_accounting.rs:224",
-        "crates/eg-compute/src/finance/lot_accounting.rs:239"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R005.2",
@@ -206,21 +176,17 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R006",
       "title": "Point-in-time corporate actions and exchange session calendars",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "86432b21655e",
         "b9870e23567b"
       ],
-      "verified_by": [
-        "crates/eg-compute/src/finance/market/calendar.rs:460",
-        "crates/eg-compute/src/finance/market/calendar.rs:476",
-        "crates/eg-compute/src/finance/market/calendar.rs:485"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R007",
       "title": "Versioned StrategySpec evaluator with DCA, trend, rebalancing",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "6602649a6bff"
       ],
@@ -232,20 +198,16 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R007.1",
       "title": "DCA-by-fixed-amount default strategy evaluator",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "6602649a6bff"
       ],
-      "verified_by": [
-        "crates/eg-compute/src/finance/strategy.rs:70",
-        "crates/eg-compute/src/finance/strategy.rs:85",
-        "crates/eg-compute/src/finance/strategy.rs:97"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R008",
       "title": "Strategy backtests sealed through BacktestRun",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "b96ef8ebd9df"
       ],
@@ -257,20 +219,16 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R008.1",
       "title": "Dollar-cost-averaging backtest seals through BacktestRun",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "b96ef8ebd9df"
       ],
-      "verified_by": [
-        "crates/eg-compute/src/finance/market/strategy_backtest.rs:112",
-        "crates/eg-compute/src/finance/market/strategy_backtest.rs:121",
-        "crates/eg-compute/src/finance/market/strategy_backtest.rs:97"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R009",
       "title": "Calibrated abstaining recommendations with scorecards",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "e93220a15cd2"
       ],
@@ -282,20 +240,16 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R009.1",
       "title": "Calibrated recommendation decision over flip confidence",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "e93220a15cd2"
       ],
-      "verified_by": [
-        "crates/eg-compute/src/finance/market/recommendation.rs:104",
-        "crates/eg-compute/src/finance/market/recommendation.rs:81",
-        "crates/eg-compute/src/finance/market/recommendation.rs:94"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R010",
       "title": "Leverage risk module with margin, sizing, live-order boundary",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "76107c24568d"
       ],
@@ -307,20 +261,16 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R010.1",
       "title": "Live-order eligibility boundary",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "76107c24568d"
       ],
-      "verified_by": [
-        "crates/eg-compute/src/finance/leverage.rs:113",
-        "crates/eg-compute/src/finance/leverage.rs:131",
-        "crates/eg-compute/src/finance/leverage.rs:98"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R011",
       "title": "Finance alerts published through the finance outbox",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "3eeb3126f421"
       ],
@@ -332,15 +282,11 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R011.1",
       "title": "Typed finance alert envelope (producer-first split of R011)",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "3eeb3126f421"
       ],
-      "verified_by": [
-        "crates/eg-types/src/finance_event_envelope.rs:103",
-        "crates/eg-types/src/finance_event_envelope.rs:111",
-        "crates/eg-types/src/finance_event_envelope.rs:97"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R012",
@@ -356,15 +302,11 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R012.1",
       "title": "A typed gate admits only a one-way Ghostfolio import, never a write-back",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "fcca865a0505"
       ],
-      "verified_by": [
-        "crates/eg-compute/src/finance/ghostfolio_import.rs:105",
-        "crates/eg-compute/src/finance/ghostfolio_import.rs:91",
-        "crates/eg-compute/src/finance/ghostfolio_import.rs:97"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R012.2",
@@ -387,15 +329,11 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R013.1",
       "title": "A golden-fixture figure is refused when its provenance is incomplete",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "fcca865a0505"
       ],
-      "verified_by": [
-        "crates/eg-compute/src/finance/ghostfolio_import.rs:105",
-        "crates/eg-compute/src/finance/ghostfolio_import.rs:91",
-        "crates/eg-compute/src/finance/ghostfolio_import.rs:97"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R013.2",
@@ -407,54 +345,38 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R014",
       "title": "finance-v1 thin instrument and signal module",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "532418b7e55b"
       ],
-      "verified_by": [
-        "crates/eg-capabilities/tests/contract_registry.rs:146",
-        "crates/eg-compute/src/finance/market/calendar.rs:344",
-        "crates/eg-compute/src/finance/market/calendar.rs:356"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R015",
       "title": "AnalysisSnapshot records with share.read control leases",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "3899594fed44"
       ],
-      "verified_by": [
-        "crates/eg-compute/src/finance/market/decimate.rs:301",
-        "crates/eg-compute/src/finance/market/decimate.rs:311",
-        "crates/eg-compute/src/finance/market/decimate.rs:331"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R016",
       "title": "Incremental deterministic indicator kernels with Pine parity",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "532418b7e55b"
       ],
-      "verified_by": [
-        "crates/eg-capabilities/tests/contract_registry.rs:146",
-        "crates/eg-compute/src/finance/market/calendar.rs:344",
-        "crates/eg-compute/src/finance/market/calendar.rs:356"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R017",
       "title": "BacktestRun provenance record with mandatory fields",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "532418b7e55b"
       ],
-      "verified_by": [
-        "crates/eg-capabilities/tests/contract_registry.rs:146",
-        "crates/eg-compute/src/finance/market/calendar.rs:344",
-        "crates/eg-compute/src/finance/market/calendar.rs:356"
-      ]
+      "verified_by": []
     }
   ]
 }
