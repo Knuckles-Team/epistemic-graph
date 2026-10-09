@@ -39,6 +39,7 @@
     "EG-UNIFIED-DATA-PLANE-R025",
     "EG-UNIFIED-DATA-PLANE-R025.1",
     "EG-UNIFIED-DATA-PLANE-R026",
+    "EG-UNIFIED-DATA-PLANE-R026.1",
     "EG-UNIFIED-DATA-PLANE-R027",
     "EG-UNIFIED-DATA-PLANE-R028",
     "EG-UNIFIED-DATA-PLANE-R029",
@@ -282,7 +283,13 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R026",
       "title": "Run the Gramps native-hosting pilot phases P0 through P5",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R026.1",
+      "title": "GrampsPilotProgress typed P0-P5 phase gate and refusal rules",
+      "delivery_state": "BUILT",
       "evidence": []
     },
     {
