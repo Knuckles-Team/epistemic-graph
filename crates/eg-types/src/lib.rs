@@ -58,6 +58,10 @@ pub mod decision;
 // beside the server registry, and the typed projection that joins them with
 // connector-pack `AgentComponent`s. Pure serde; the handler lives in the server.
 pub mod fleet_catalog;
+// EG-DURABLE-KERNEL-R033 — the hot-store engine evaluation's typed model
+// (redb/fjall/RocksDB candidates, workload profiles, validated benchmark
+// results, winner selection). Pure serde, no dep.
+pub mod hot_store_engine;
 // EH-346/EH-347 — capture-first open-weight policy evolution: the capability,
 // capture, model-policy version, training-run and evaluation records EG owns.
 // Pure serde; EG records and relates, it never trains.

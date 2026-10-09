@@ -72,7 +72,8 @@
     "EG-DURABLE-KERNEL-R067",
     "EG-DURABLE-KERNEL-R068",
     "EG-DURABLE-KERNEL-R069",
-    "EG-DURABLE-KERNEL-R070"
+    "EG-DURABLE-KERNEL-R070",
+    "EG-DURABLE-KERNEL-R033.1"
   ],
   "delivery_state": "BUILDING",
   "acceptance_state": "NOT_AUDITED",
@@ -507,7 +508,13 @@
     {
       "id": "EG-DURABLE-KERNEL-R033",
       "title": "Hot-store engine choice is evaluated against captured workloads",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R033.1",
+      "title": "HotStoreEngine/WorkloadProfile/BenchmarkResult typed model with throughput-based winner selection and refusal",
+      "delivery_state": "BUILT",
       "evidence": []
     },
     {
