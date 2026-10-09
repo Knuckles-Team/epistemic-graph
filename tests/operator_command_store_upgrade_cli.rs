@@ -13,7 +13,10 @@
 use std::process::{Command, Output};
 
 fn server_bin() -> &'static str {
-    env!("CARGO_BIN_EXE_epistemic-graph-server")
+    // `cargo test` always defines this; `cargo check --all-targets` may not, so
+    // resolve it without failing the check build.
+    option_env!("CARGO_BIN_EXE_epistemic-graph-server")
+        .expect("cargo test defines CARGO_BIN_EXE_epistemic-graph-server")
 }
 
 fn run(args: &[&str]) -> Output {
