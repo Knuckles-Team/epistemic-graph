@@ -41,6 +41,9 @@
 - [ ] **EG-UNIFIED-DATA-PLANE-R020.2:** Query pushdown per kind (Arrow Flight SQL where offered), extending `eg-query::sql::iceberg_federation` for Iceberg.
 - [ ] **EG-UNIFIED-DATA-PLANE-R020.3:** Conformance entry comparing federated query results against each native warehouse/lake engine.
 - [ ] **EG-UNIFIED-DATA-PLANE-R021:** Debezium Kafka-to-`ChangeEnvelope` bridge; depends on EG-UNIFIED-DATA-PLANE-R008.
+- [x] **EG-UNIFIED-DATA-PLANE-R021.1:** `DebeziumChangeEvent` typed envelope shape plus op-code and before/after refusal (`crates/eg-types/src/debezium_bridge.rs`).
+- [ ] **EG-UNIFIED-DATA-PLANE-R021.2:** Kafka consumer plus real conversion into `ChangeEnvelope` records.
+- [ ] **EG-UNIFIED-DATA-PLANE-R021.3:** Replay test feeding a captured Debezium event stream through the bridge.
 
 ## Platform and app admission
 
