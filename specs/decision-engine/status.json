@@ -131,7 +131,9 @@
     "EG-DECISION-ENGINE-R126",
     "EG-DECISION-ENGINE-R126.1",
     "EG-DECISION-ENGINE-R126.2",
-    "EG-DECISION-ENGINE-R127"
+    "EG-DECISION-ENGINE-R127",
+    "EG-DECISION-ENGINE-R127.1",
+    "EG-DECISION-ENGINE-R127.2"
   ],
   "delivery_state": "BUILDING",
   "acceptance_state": "NOT_AUDITED",
@@ -1795,7 +1797,21 @@
       "id": "EG-DECISION-ENGINE-R127",
       "title": "Guardrail entailment lists the rules a task must follow",
       "delivery_state": "SPECIFIED",
+      "evidence": [],
+      "remaining": "Split into EG-DECISION-ENGINE-R127.1 (producer: the pure entailed_guardrails function, eg-types) and EG-DECISION-ENGINE-R127.2 (consumer: the served query + generated client, backed by a stored rule set). R127 is LANDED when both children are."
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R127.1",
+      "title": "Guardrail entailment is a pure function of a task IRI and a rule set",
+      "delivery_state": "SPECIFIED",
       "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R127.2",
+      "title": "The guardrail-entailment query is served, backed by a stored rule set",
+      "delivery_state": "SPECIFIED",
+      "evidence": [],
+      "remaining": "Depends on EG-DECISION-ENGINE-R127.1 (producer). Also needs a GuardrailRule storage/publish path, not designed yet."
     }
   ]
 }
