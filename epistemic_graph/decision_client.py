@@ -215,9 +215,7 @@ class DecisionClient:
         """
         from epistemic_graph.generated.query import decode_decide, send_decide
 
-        result = await send_decide(
-            self.client, {"request": dict(request)}, self.graph
-        )
+        result = await send_decide(self.client, {"request": dict(request)}, self.graph)
         if as_model:
             return decode_decide(result)
         return _payload(result)

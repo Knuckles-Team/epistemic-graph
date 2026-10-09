@@ -61,6 +61,7 @@ def test_decide_and_pack_client_modules_resolve_outside_the_source_tree(
     silently exercise uncommitted or unreleased source instead."""
     _installed_or_skip()
     module = importlib.import_module(module_name)
+    assert module.__file__ is not None, f"{module_name} has no source file"
     resolved = Path(module.__file__).resolve()
     assert not resolved.is_relative_to(_REPO_ROOT), (
         f"{module_name} resolved to {resolved}, inside the source tree "

@@ -10,8 +10,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::change_envelope::{ChangeCursor, CursorPosition};
 
-/// Debezium's `op` field: `c`reate, `u`pdate, `d`elete, `r`ead (initial
-/// snapshot). Closed — an unrecognized code is refused, never guessed at.
+/// Debezium's `op` field: `c` (create), `u` (update), `d` (delete), `r` (read,
+/// the initial snapshot). Closed — an unrecognized code is refused, never guessed at.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum DebeziumOp {

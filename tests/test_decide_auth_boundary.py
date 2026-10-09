@@ -33,6 +33,8 @@ a further slice.
 
 from __future__ import annotations
 
+from typing import Any
+
 import asyncio
 import os
 
@@ -111,7 +113,7 @@ def test_decide_passes_the_tenant_check_for_a_matching_request_tenant() -> None:
     assert "Decide tenant must match" not in message, message
 
 
-async def _pack_journey(connector: str) -> dict[str, object]:
+async def _pack_journey(connector: str) -> dict[str, Any]:
     """Publish, import and read back one well-formed pack against the live
     engine: the served Agent Library journey named by EG-CONTRACT-R002's
     acceptance text. Reuses ``test_connector_pack_planted``'s served helpers
