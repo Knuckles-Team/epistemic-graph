@@ -1096,6 +1096,7 @@ mod tests {
         assert!(unfiltered.iter().any(|c| c.is_side_effecting()));
     }
 
+    // spec: EG-DECISION-ENGINE-R013
     #[test]
     fn a_search_is_scoped_to_its_tenant() {
         // Searching the HIGHER-sorting tenant proves nothing: the scan is
