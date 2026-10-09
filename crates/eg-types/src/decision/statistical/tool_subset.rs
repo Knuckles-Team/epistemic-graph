@@ -137,6 +137,7 @@ mod tests {
         }
     }
 
+    // spec: EG-DECISION-ENGINE-R045.1
     #[test]
     fn selects_the_single_cheap_tool_that_covers_everything_over_several_narrow_ones() {
         let req = body(
@@ -157,6 +158,7 @@ mod tests {
         );
     }
 
+    // spec: EG-DECISION-ENGINE-R045.1
     #[test]
     fn covers_every_required_capability_with_a_subset_when_no_single_tool_suffices() {
         let req = body(
@@ -184,6 +186,7 @@ mod tests {
         );
     }
 
+    // spec: EG-DECISION-ENGINE-R045.1
     #[test]
     fn refuses_when_no_combination_covers_every_required_capability() {
         let req = body(
@@ -197,6 +200,7 @@ mod tests {
         );
     }
 
+    // spec: EG-DECISION-ENGINE-R045.1
     #[test]
     fn refuses_when_the_only_covering_choice_exceeds_the_context_budget() {
         let req = body(

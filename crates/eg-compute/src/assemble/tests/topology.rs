@@ -92,6 +92,7 @@ fn infeasible_labels(assembly: &Assembly) -> Vec<String> {
         .collect()
 }
 
+// spec: EG-DECISION-ENGINE-R046
 #[test]
 fn demand_sizes_the_fan_out_and_the_plan_leases_it() {
     let assembly = decide(requirements(4), read(10, admitted()));
@@ -111,6 +112,7 @@ fn demand_sizes_the_fan_out_and_the_plan_leases_it() {
     replay_check(&assembly.record).expect("a topology record replays byte for byte");
 }
 
+// spec: EG-DECISION-ENGINE-R046
 #[test]
 fn headroom_below_demand_abstains_naming_the_cell_lease() {
     let assembly = decide(requirements(4), read(3, admitted()));
