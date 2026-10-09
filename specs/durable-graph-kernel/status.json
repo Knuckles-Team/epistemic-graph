@@ -95,7 +95,8 @@
     "EG-DURABLE-KERNEL-R042.1",
     "EG-DURABLE-KERNEL-R011.1",
     "EG-DURABLE-KERNEL-R036.1",
-    "EG-DURABLE-KERNEL-R032.1"
+    "EG-DURABLE-KERNEL-R032.1",
+    "EG-DURABLE-KERNEL-R033.1"
   ],
   "delivery_state": "BUILDING",
   "acceptance_state": "NOT_AUDITED",
@@ -619,7 +620,7 @@
     {
       "id": "EG-DURABLE-KERNEL-R033",
       "title": "Hot-store engine choice is evaluated against captured workloads",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
       "evidence": []
     },
     {
@@ -1166,6 +1167,12 @@
     {
       "id": "EG-DURABLE-KERNEL-R032.1",
       "title": "PrimaryKeyOperation and FastPathDecision typed routing model with authorization/audit-checked invariant and refusal",
+      "delivery_state": "BUILT",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R033.1",
+      "title": "HotStoreEngine/WorkloadProfile/BenchmarkResult typed model with throughput-based winner selection and refusal",
       "delivery_state": "BUILT",
       "evidence": []
     }
