@@ -14,6 +14,8 @@
     "EG-CONTRACT-R006",
     "EG-CONTRACT-R007",
     "EG-CONTRACT-R008",
+    "EG-CONTRACT-R008.1",
+    "EG-CONTRACT-R008.2",
     "EG-CONTRACT-R009",
     "EG-CONTRACT-R010",
     "EG-CONTRACT-R011",
@@ -188,7 +190,22 @@
       "id": "EG-CONTRACT-R008",
       "title": "Repo-parity check validates the resolved checkout",
       "delivery_state": "SPECIFIED",
-      "evidence": []
+      "evidence": [],
+      "remaining": "Split into EG-CONTRACT-R008.1 (typed resolved-checkout parity contract, PR open) and EG-CONTRACT-R008.2 (the scripts/check_five_repo_parity.py CLI entry point that wires it in, not yet started)."
+    },
+    {
+      "id": "EG-CONTRACT-R008.1",
+      "title": "Typed resolved-checkout parity contract (producer-first split of R008)",
+      "delivery_state": "SPECIFIED",
+      "evidence": [],
+      "remaining": "verify_resolved_checkout and VerifiedRepoRoot/RepoRootMismatchError (scripts/repo_root_parity.py) prove the type-level contract -- a requested and an actual checkout path are each resolved and compared, raising on divergence -- with a negative test (mismatched directories raise), a positive test (identical path passes) and a positive test (symlinked checkout of the same repo passes). The real scripts/check_five_repo_parity.py CLI entry point that calls this from argv is EG-CONTRACT-R008.2."
+    },
+    {
+      "id": "EG-CONTRACT-R008.2",
+      "title": "check_five_repo_parity.py CLI wires in the typed parity contract",
+      "delivery_state": "SPECIFIED",
+      "evidence": [],
+      "remaining": "Not started. Needs a scripts/check_five_repo_parity.py CLI that takes the repository root as an explicit argument and calls verify_resolved_checkout (EG-CONTRACT-R008.1) to fail closed on a mismatched resolved checkout."
     },
     {
       "id": "EG-CONTRACT-R009",
