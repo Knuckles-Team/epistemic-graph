@@ -77,6 +77,7 @@ fn mislabelled(data: &LabelledDataset, ids: &[String]) -> LabelledDataset {
     wrong
 }
 
+// spec: EG-DECISION-ENGINE-R040
 #[tokio::test]
 async fn a_scorer_head_is_promoted_only_through_the_protocol_and_then_acts() {
     let h = Harness::new().await;

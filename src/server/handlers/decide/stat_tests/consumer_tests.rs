@@ -209,6 +209,7 @@ async fn declared_options_decide_as_claims_under_the_declaring_principal() {
     assert!(refused.starts_with("PARAMETER_INVALID"), "{refused}");
 }
 
+// spec: EG-DECISION-ENGINE-R037
 #[tokio::test]
 async fn a_logged_abstention_takes_a_resolution_of_its_resolver_class() {
     let h = Harness::new().await;
