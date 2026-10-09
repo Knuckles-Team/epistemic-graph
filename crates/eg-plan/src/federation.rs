@@ -213,10 +213,10 @@ mod operation_bound_source_kinds {
                 let wire = rmp_serde::to_vec_named(&spec).unwrap();
                 let round_trip: ForeignSourceSpec = rmp_serde::from_slice(&wire).unwrap();
                 assert_eq!(round_trip, spec, "{label} did not round-trip");
-                let ForeignSourceSpec::Api { capabilities, .. }
+                let (ForeignSourceSpec::Api { capabilities, .. }
                 | ForeignSourceSpec::Mcp { capabilities, .. }
                 | ForeignSourceSpec::A2a { capabilities, .. }
-                | ForeignSourceSpec::GraphQl { capabilities, .. } = &round_trip
+                | ForeignSourceSpec::GraphQl { capabilities, .. }) = &round_trip
                 else {
                     panic!("{label} is not an operation-bound variant");
                 };

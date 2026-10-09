@@ -16,6 +16,7 @@ fn identity(tag: &str) -> Identity {
     Identity {
         label: tag.to_string(),
         fingerprint: fingerprint(tag.as_bytes()),
+        cache_name: None,
     }
 }
 
