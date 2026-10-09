@@ -39,6 +39,7 @@ Check boxes describe work remaining for this combined contract. They do not cert
 
 - [ ] Serve ontology source selection with premises and add operation-bound API, MCP, A2A and GraphQL source kinds; run F-07 and F-08. **EG-FEDERATED-QUERY-R072, EG-FEDERATED-QUERY-R073**
   - [ ] Typed `CoverageResult`/`SourceSelectionHop`/`Premise` model in `eg-rdf::source_selection`, proved against a fixture (direct mapping, subclass-serves-superclass, uncovered, disconnected). **EG-FEDERATED-QUERY-R072.1**
+  - [ ] Typed `ForeignSourceSpec` variants (`Api`/`Mcp`/`A2a`/`GraphQl`) with declared `ForeignOperationCapabilities`, plus unbound/ungranted and budget-exceeded refusal tests. **EG-FEDERATED-QUERY-R073.1**
 
 ## Acceptance
 
