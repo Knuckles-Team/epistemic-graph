@@ -97,7 +97,8 @@
     "EG-DURABLE-KERNEL-R036.1",
     "EG-DURABLE-KERNEL-R032.1",
     "EG-DURABLE-KERNEL-R033.1",
-    "EG-DURABLE-KERNEL-R034.1"
+    "EG-DURABLE-KERNEL-R034.1",
+    "EG-DURABLE-KERNEL-R035.1"
   ],
   "delivery_state": "BUILDING",
   "acceptance_state": "NOT_AUDITED",
@@ -633,7 +634,7 @@
     {
       "id": "EG-DURABLE-KERNEL-R035",
       "title": "PostgreSQL wire protocol reaches operational and dump/restore parity",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
       "evidence": []
     },
     {
@@ -1180,6 +1181,12 @@
     {
       "id": "EG-DURABLE-KERNEL-R034.1",
       "title": "TransactionScope/CommitPath typed model proving single-store traffic cannot reach the cross-store commit path",
+      "delivery_state": "BUILT",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R035.1",
+      "title": "PgOperationalSurface/PgCompatibilityMatrix typed model, fail-closed, with named-missing-surface refusal",
       "delivery_state": "BUILT",
       "evidence": []
     }
