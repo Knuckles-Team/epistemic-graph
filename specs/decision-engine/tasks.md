@@ -15,6 +15,9 @@
 - [ ] D11 **EG-DECISION-ENGINE-R119:** Finish shared sealed replay, fold checkpoints, bitemporal no-look-ahead, trial-count and incumbent statistics; exercise typed text and served job routes.
 - [x] D12 Close the component-schema and ingestion-side requirements no task above names: **EG-DECISION-ENGINE-R077–EG-DECISION-ENGINE-R081** (shared component schema bump, contract freeze reissue, embedding admission classifier, ingestion cost ladder, confidence-weighted community detection); see `requirements.md` for each ID's definition.
 
+- [ ] D15a **EG-DECISION-ENGINE-R045.1:** Add the typed tool-subset request body and the greedy covering-set selection (`crates/eg-types/src/decision/statistical/tool_subset.rs`), with unit tests proving minimality, coverage and the two refusal reasons. No server wiring yet.
+- [ ] D15b **EG-DECISION-ENGINE-R045.2:** Wire the R045.1 selection into a dedicated `Decide` question kind reading tool candidates from the agent library, with a served test proving the returned subset is minimal, covers every required capability and stays within budget.
+
 - [ ] D13 **EG-DECISION-ENGINE-R126, EG-DECISION-ENGINE-R127:** Add the coverage and guardrail read queries beside `AgentAssemble`, generate their client methods, and run test D2. The agent-utilities planner (AU-CONTROL-R027) consumes them through its capability-search and guardrail ports.
 
 - [x] D14 **EG-DECISION-ENGINE-R017:** Add a regression test for the existing `FORBIDDEN_COMPONENT_KIND` refusal (`validate_publish` in `crates/eg-types/src/agent_component.rs`), exercised through both the bare validator and the public `AgentComponentOp::Publish.validate()` surface, so the previously untested bypass path is covered. Test: `crates/eg-types/src/agent_component.rs::tests::a_decision_record_cannot_be_published_directly`.
