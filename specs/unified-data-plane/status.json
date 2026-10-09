@@ -40,7 +40,8 @@
     "EG-UNIFIED-DATA-PLANE-R035",
     "EG-UNIFIED-DATA-PLANE-R036",
     "EG-UNIFIED-DATA-PLANE-R037",
-    "EG-UNIFIED-DATA-PLANE-R038"
+    "EG-UNIFIED-DATA-PLANE-R038",
+    "EG-UNIFIED-DATA-PLANE-R003.1"
   ],
   "delivery_state": "BUILDING",
   "acceptance_state": "NOT_AUDITED",
@@ -69,7 +70,13 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R003",
       "title": "Extract typed, hashed catalog graphs per dialect",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R003.1",
+      "title": "AttachedCatalogGraph typed, reorder-stable hashed catalog model",
+      "delivery_state": "BUILT",
       "evidence": []
     },
     {
