@@ -18,8 +18,9 @@ use super::LegacyIntegrityPolicy;
 /// as its life, environment and nutrition modules), the core governance-shape
 /// slice, the world-model shapes (35 artifacts, EH-364) and the swarm-topology
 /// vocabulary and shapes (37, ST-1), the finance module and its shapes (39,
-/// EH-411), and the virtual-graph vocabulary and shapes (41,
-/// EG-UNIFIED-DATA-PLANE-R037).  It is deliberately independent of the dynamic
+/// EH-411), the temporal bi-temporal-fact shapes (40, AU-SEMANTIC-R004), and
+/// the virtual-graph vocabulary and shapes (42, EG-UNIFIED-DATA-PLANE-R037).
+/// It is deliberately independent of the dynamic
 /// 32-source tenant quota, and equal to the wire bound
 /// `eg_types::graph_schema::MAX_CORE_GRAPH_SCHEMA_SOURCES`.
 pub const MAX_CORE_SCHEMA_SOURCES: usize = 64;
@@ -794,6 +795,16 @@ fn core_specs() -> &'static [CoreSpec] {
             shapes: None,
             ontology: Some(include_str!("../../ontology/worldview-v1.ttl")),
         },
+        // AU-SEMANTIC-R004: bi-temporal fact invariants (validity window,
+        // contradiction/superseded-closure) over the engine's own
+        // :TemporalFact vocabulary (core-foundation@1). Shapes-only, same
+        // pattern as governance-shapes/world-model-shapes.
+        CoreSpec {
+            module: "temporal-shapes",
+            version: 1,
+            shapes: Some(include_str!("../../ontology/temporal-v1.shapes.ttl")),
+            ontology: None,
+        },
         CoreSpec {
             module: "virtual-graph",
             version: 1,
@@ -880,7 +891,7 @@ mod tests {
     fn core_catalog_has_one_version_per_module_and_is_outside_dynamic_quota() {
         let sources = GraphSchemaSources::default();
         sources.validate().unwrap();
-        assert_eq!(sources.core.len(), 41);
+        assert_eq!(sources.core.len(), 42);
         assert!(sources.dynamic.is_empty());
         assert!(sources.core.keys().all(|id| id.starts_with("core:")));
     }
@@ -1296,6 +1307,10 @@ mod tests {
             (
                 "worldview",
                 "1c42096ed2fdbd70d2f65b1f7b0a40bba7f7c83f4929a8cc5f16090ba1903fb1",
+            ),
+            (
+                "temporal-shapes",
+                "9bb13dd655059b6757b33621446f960bd6992bcb5aea31d5a85f4483c86bba59",
             ),
         ];
         let catalog = current_core_catalog();
