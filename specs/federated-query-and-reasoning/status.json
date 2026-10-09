@@ -728,7 +728,7 @@
     {
       "id": "EG-FEDERATED-QUERY-R047",
       "title": "Federation enforces per-source parallelism caps and rate limits",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -736,6 +736,13 @@
           "commit": "e36b760f1a108d9961c68ad8e4feb097a2381f26",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/e36b760f1a108d9961c68ad8e4feb097a2381f26",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "321aa24de7c04b3b63c35f83c5a69eaaecfbf9a1",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/321aa24de7c04b3b63c35f83c5a69eaaecfbf9a1",
+          "description": "EG-FEDERATED-QUERY-R047 merged to the default branch in this commit."
         }
       ]
     },
@@ -762,8 +769,16 @@
     {
       "id": "EG-FEDERATED-QUERY-R050",
       "title": "SPARQL SERVICE uses bind joins and pushes FILTER/LIMIT",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "3d00361f3191a8caf30bbb9250d9ca0a92c04c1d",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/3d00361f3191a8caf30bbb9250d9ca0a92c04c1d",
+          "description": "EG-FEDERATED-QUERY-R050 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R051",
@@ -833,7 +848,7 @@
     {
       "id": "EG-FEDERATED-QUERY-R054",
       "title": "SPARQL SERVICE and peer federation share the one outbound SSRF guard",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -841,6 +856,13 @@
           "commit": "e36b760f1a108d9961c68ad8e4feb097a2381f26",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/e36b760f1a108d9961c68ad8e4feb097a2381f26",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "70c5421663b9bed2570b3e143cf3470636353c5f",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/70c5421663b9bed2570b3e143cf3470636353c5f",
+          "description": "EG-FEDERATED-QUERY-R054 merged to the default branch in this commit."
         }
       ]
     },
