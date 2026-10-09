@@ -155,6 +155,17 @@ pub mod nl;
 // the remote-engine / HTTP-JSON kinds backing `Op::ForeignScan`. Implies `query`.
 #[cfg(feature = "federation")]
 pub mod federation;
+/// AGE graph reads bound to the existing guarded PostgreSQL federation transport
+/// (EG-DURABLE-KERNEL-R024.1).
+#[cfg(feature = "federation-sql")]
+pub mod federation_age;
+/// The Neo4j/FalkorDb halves of the Cypher transpiler source
+/// (EG-DURABLE-KERNEL-R024.3): typed shape validation plus an explicit,
+/// named refusal, since no bound Bolt/RESP driver exists yet. AGE (the
+/// third Cypher dialect) is bound in `federation_age` behind
+/// `federation-sql`.
+#[cfg(feature = "federation")]
+pub mod federation_cypher_unbound;
 /// The federation optimizer (EH-563): capability-driven pushdown of keys, limits and pages
 /// into foreign sources, bind joins, the per-query network budget and the fragment trace.
 #[cfg(feature = "federation")]
@@ -162,10 +173,10 @@ pub mod federation_opt;
 /// The one outbound-destination gate for federation (HTTP URLs, SQL DSN hosts).
 #[cfg(feature = "federation")]
 pub mod federation_ssrf;
-/// AGE graph reads bound to the existing guarded PostgreSQL federation transport
-/// (EG-DURABLE-KERNEL-R024.1).
-#[cfg(feature = "federation-sql")]
-pub mod federation_age;
+/// Learned, provenanced join cardinality statistics for ordering joins across foreign
+/// sources (EG-FEDERATED-QUERY-R048.1 — typed-model slice of R048).
+#[cfg(feature = "federation")]
+pub mod federation_stats;
 /// Explicitly bound, probed Trino client protocol source (EH-580).
 #[cfg(feature = "federation-sql")]
 pub mod federation_trino;
@@ -174,10 +185,6 @@ pub mod federation_trino;
 /// driver. Mirrors `federation`'s read-side `ForeignSource` seam.
 #[cfg(feature = "federation")]
 pub mod mirror_target;
-/// Learned, provenanced join cardinality statistics for ordering joins across foreign
-/// sources (EG-FEDERATED-QUERY-R048.1 — typed-model slice of R048).
-#[cfg(feature = "federation")]
-pub mod federation_stats;
 /// The cross-modal cost-based optimizer (CONCEPT:EG-KG.query.xmodal-cost-optimizer) — Lane A's
 /// rule engine over the logical `Vec<Op>` that [`exec::plan_optimize`] calls to reorder
 /// operators across modalities into a cheaper-but-equivalent plan. Compiled under `query`;

@@ -34,6 +34,13 @@ pub fn target_for(spec: &MirrorTargetSpec) -> Result<Box<dyn MirrorTarget + '_>,
             kind: "fan-out",
             target_count: targets.len(),
         })),
+        // EG-DURABLE-KERNEL-R024.4: a single, directly-addressable mirror
+        // target. Same unbound refusal shape as `FanOut` until a driver
+        // registers under this name.
+        MirrorTargetSpec::Named { .. } => Ok(Box::new(MirrorUnbound {
+            kind: "named",
+            target_count: 1,
+        })),
     }
 }
 
@@ -69,7 +76,11 @@ impl MirrorTargetRegistry {
 
     /// Register a spec under `name`. Refuses an invalid spec (for example an
     /// empty `FanOut`) at registration time, before any send is attempted.
-    pub fn register(&mut self, name: impl Into<String>, spec: MirrorTargetSpec) -> Result<(), String> {
+    pub fn register(
+        &mut self,
+        name: impl Into<String>,
+        spec: MirrorTargetSpec,
+    ) -> Result<(), String> {
         spec.validate().map_err(|error| error.to_string())?;
         self.specs.insert(name.into(), spec);
         Ok(())
@@ -170,7 +181,10 @@ mod tests {
         // closed-failure path `target_for` proves directly, now reached
         // through the registry's name-resolution entry point.
         let error = registry.send_to("lake-mirror", b"row").unwrap_err();
-        assert!(error.contains("verified registration and bound driver"), "{error}");
+        assert!(
+            error.contains("verified registration and bound driver"),
+            "{error}"
+        );
     }
 
     #[test]
@@ -178,5 +192,42 @@ mod tests {
         let registry = MirrorTargetRegistry::new();
         let error = registry.send_to("missing", b"row").unwrap_err();
         assert!(error.contains("no mirror target registered"), "{error}");
+    }
+
+    // EG-DURABLE-KERNEL-R024.4: the single, directly-addressable mirror
+    // target. Same shape as the `FanOut` coverage above.
+
+    fn named(name: &str) -> MirrorTargetSpec {
+        MirrorTargetSpec::Named {
+            name: name.to_string(),
+        }
+    }
+
+    #[test]
+    fn named_spec_round_trips_and_validates() {
+        let spec = named("warehouse");
+        spec.validate().unwrap();
+        let wire = rmp_serde::to_vec_named(&spec).unwrap();
+        let round_trip: MirrorTargetSpec = rmp_serde::from_slice(&wire).unwrap();
+        assert_eq!(round_trip, spec);
+    }
+
+    #[test]
+    fn empty_named_target_is_refused() {
+        let spec = named("");
+        assert!(spec.validate().is_err());
+        let Err(error) = target_for(&spec) else {
+            panic!("the named spec must be refused");
+        };
+        assert!(error.contains("no downstream target"), "{error}");
+    }
+
+    #[test]
+    fn unbound_named_target_fails_closed_without_reaching_any_target() {
+        let spec = named("warehouse");
+        let target = target_for(&spec).unwrap();
+        let error = target.send(b"row").unwrap_err();
+        assert!(error.contains("named"), "{error}");
+        assert!(error.contains("verified registration and bound driver"));
     }
 }

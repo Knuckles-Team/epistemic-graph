@@ -532,6 +532,15 @@ pub enum MirrorTargetSpec {
         /// pure DTO.
         targets: Vec<String>,
     },
+    /// A single, directly-addressable downstream mirror target
+    /// (EG-DURABLE-KERNEL-R024.4) — the one-destination counterpart to
+    /// `FanOut`'s many. Resolved the same way `ForeignSourceSpec::Named`
+    /// resolves a foreign source: through the executor's registry, never by
+    /// this pure DTO.
+    Named {
+        /// The registry key naming the one pre-registered mirror target.
+        name: String,
+    },
 }
 
 #[cfg(feature = "federation")]
@@ -555,6 +564,12 @@ impl MirrorTargetSpec {
                 }
                 Ok(())
             }
+            Self::Named { name } => {
+                if name.is_empty() {
+                    return Err(MirrorTargetSpecError::EmptyNamedTarget);
+                }
+                Ok(())
+            }
         }
     }
 }
@@ -565,6 +580,7 @@ impl MirrorTargetSpec {
 pub enum MirrorTargetSpecError {
     EmptyFanOut,
     DuplicateFanOutTarget(String),
+    EmptyNamedTarget,
 }
 
 #[cfg(feature = "federation")]
@@ -576,6 +592,9 @@ impl std::fmt::Display for MirrorTargetSpecError {
             }
             Self::DuplicateFanOutTarget(name) => {
                 write!(f, "fan-out mirror target spec names {name:?} more than once")
+            }
+            Self::EmptyNamedTarget => {
+                f.write_str("named mirror target spec names no downstream target")
             }
         }
     }
