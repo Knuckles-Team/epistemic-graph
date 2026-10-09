@@ -20,8 +20,11 @@ use std::collections::BTreeMap;
 use eg_numeric::decision::candidate::CandidateView;
 use eg_types::agent_component::{AgentComponentEntry, AgentComponentSearchRequest};
 use eg_types::decision::statistical::declared::{check_declared, DeclaredOption};
+use eg_types::decision::statistical::enrichment_schedule::{
+    EnrichmentCandidate, EnrichmentScheduleRequest, COST_KEY, EXPECTED_VALUE_KEY,
+};
 use eg_types::decision::statistical::log::RecordVisibility;
-use eg_types::decision::statistical::{CandidateSource, StatisticalErrorCode};
+use eg_types::decision::statistical::{CandidateSource, QuestionKind, StatisticalErrorCode};
 use eg_types::decision::{CandidateSourceRecord, LibraryCandidateScope, MAX_ASSEMBLY_CANDIDATES};
 
 use super::stat_classes::{current_rules, derive, DerivedClasses};
@@ -260,14 +263,45 @@ pub(super) fn graph_candidates(
     })
 }
 
+/// The Q32 fact named `key` on `option`, or 0 when the option does not
+/// carry it -- absence is a feature-reading concern elsewhere, not a shape
+/// refusal here.
+fn declared_number(option: &DeclaredOption, key: &str) -> i64 {
+    option
+        .numbers
+        .iter()
+        .find(|n| n.key == key)
+        .map_or(0, |n| n.q32)
+}
+
 /// Declared candidates: the caller's own options, each fact a claim, visible
 /// to the declaring principal only. Validated before any feature reads them.
+///
+/// `kind` additionally gates a question-specific declared-option check where
+/// one exists: `QuestionKind::EnrichmentSchedule` candidates may not declare
+/// a negative `enrichment.cost_q32` -- it has no meaning on that scale and
+/// would let a candidate manufacture unbounded net value
+/// (EG-DECISION-ENGINE-R031).
 pub(super) fn declared_candidates(
     options: &[DeclaredOption],
     principal: &str,
+    kind: QuestionKind,
 ) -> Result<ReadCandidates, String> {
     check_declared(options)
         .map_err(|detail| refusal(StatisticalErrorCode::ParameterInvalid, detail))?;
+    if kind == QuestionKind::EnrichmentSchedule {
+        let candidates: Vec<EnrichmentCandidate> = options
+            .iter()
+            .map(|option| EnrichmentCandidate {
+                work_id: option.option_id.clone(),
+                expected_value_q32: declared_number(option, EXPECTED_VALUE_KEY),
+                cost_q32: declared_number(option, COST_KEY),
+            })
+            .collect();
+        EnrichmentScheduleRequest { candidates }
+            .check()
+            .map_err(|detail| refusal(StatisticalErrorCode::ParameterInvalid, detail))?;
+    }
     let views = options
         .iter()
         .map(|option| {
@@ -306,16 +340,21 @@ pub(super) fn declared_candidates(
 
 /// Read the options `source` names. Graph candidates need the caller's
 /// filtered snapshot, which [`super::stat_decide`] takes under the state lock.
+/// `kind` is the question's kind, passed through to [`declared_candidates`]
+/// for its question-specific checks.
 pub(super) fn read_candidates(
     store: &AgentLibraryStore,
     tenant_id: &str,
     source: &CandidateSource,
     graph_view: Option<&eg_core::graph::GraphView>,
     principal: &str,
+    kind: QuestionKind,
 ) -> Result<ReadCandidates, String> {
     match source {
         CandidateSource::AgentLibrary { scope } => library_candidates(store, tenant_id, scope),
-        CandidateSource::Declared { options } => declared_candidates(options.as_slice(), principal),
+        CandidateSource::Declared { options } => {
+            declared_candidates(options.as_slice(), principal, kind)
+        }
         CandidateSource::Graph { graph, plan } => {
             let view = graph_view.ok_or_else(|| {
                 refusal(

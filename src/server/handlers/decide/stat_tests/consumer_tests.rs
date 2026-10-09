@@ -5,6 +5,7 @@
 
 use super::*;
 use eg_types::decision::statistical::declared::{DeclaredNumber, DeclaredOption};
+use eg_types::decision::statistical::enrichment_schedule::{COST_KEY, EXPECTED_VALUE_KEY};
 use eg_types::decision::statistical::log::{
     AbstentionResolution, AbstentionResolver, StoredResolution,
 };
@@ -17,6 +18,27 @@ fn declared(id: &str, score: i64) -> DeclaredOption {
             key: "score".to_string(),
             q32: score,
         }])
+        .unwrap(),
+        texts: BoundedVec::default(),
+    }
+}
+
+/// One enrichment candidate's declared option: expected value and cost on
+/// the Q32 scale, under the keys `candidates::declared_candidates` reads.
+fn enrichment_option(id: &str, expected_value_q32: i64, cost_q32: i64) -> DeclaredOption {
+    DeclaredOption {
+        option_id: id.to_string(),
+        classification: BoundedVec::default(),
+        numbers: BoundedVec::new(vec![
+            DeclaredNumber {
+                key: EXPECTED_VALUE_KEY.to_string(),
+                q32: expected_value_q32,
+            },
+            DeclaredNumber {
+                key: COST_KEY.to_string(),
+                q32: cost_q32,
+            },
+        ])
         .unwrap(),
         texts: BoundedVec::default(),
     }
@@ -250,6 +272,42 @@ async fn cost_routing_without_l5_accounting_abstains_naming_the_fact() {
             field: "l5.observed_cost".to_string(),
         }]
     );
+}
+
+/// EG-DECISION-ENGINE-R031: an enrichment-schedule decision refuses a
+/// declared candidate with a negative cost, through the real served
+/// `Decide` path (`handle_decide`, the same handler `Method::Decide`
+/// dispatches to) -- not just the typed request's own unit check. The
+/// refusal is structural (`candidates::declared_candidates`), so it
+/// happens before the feature schema is ever resolved; this request's
+/// schema pin is intentionally unpublished.
+#[tokio::test]
+async fn a_negative_enrichment_cost_is_refused_through_decide() {
+    let h = Harness::new().await;
+    let unresolved_schema = ComponentDependency {
+        component_id: "schema:unused".to_string(),
+        kind: AgentComponentKind::FeatureSchema,
+        definition_digest: format!("sha256:{}", "0".repeat(64)),
+    };
+    let request = DecideRequest {
+        tenant_id: TENANT.to_string(),
+        question: StatisticalQuestion {
+            question_id: "au.enrichment-schedule".to_string(),
+            kind: QuestionKind::EnrichmentSchedule,
+            safety: QuestionSafety::Ordinary,
+        },
+        candidates: CandidateSource::Declared {
+            options: BoundedVec::new(vec![enrichment_option("work-a", 10, -1)]).unwrap(),
+        },
+        feature_schema: unresolved_schema,
+        head: None,
+        policy: DecisionPolicyRef::Default,
+        params: BoundedVec::default(),
+        max_records: None,
+        belief_as_of: BoundedVec::default(),
+    };
+    let error = decide(&h, request).await.expect_err("must be refused");
+    assert!(error.contains("UNSUPPORTED_ENRICHMENT_COST"), "got: {error}");
 }
 
 /// Independent evaluations of the committed assembly `record_id` by "evaluator",
