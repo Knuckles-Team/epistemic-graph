@@ -5519,6 +5519,12 @@ class ForecastMiningResult(BaseModel):
     written_back: Annotated[int, Field(ge=0)]
 
 
+class ForeignCypherBackend(str, Enum):
+    NEO4J = "Neo4j"
+    AGE = "Age"
+    FALKORDB = "FalkorDb"
+
+
 class ForeignSourceFreshness(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -5527,6 +5533,23 @@ class ForeignSourceFreshness(BaseModel):
     name: str
     stale: bool
     watermark: str | None = None
+
+
+class ForeignSourceSpecCypher(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    Cypher: ForeignSourceSpecCypherBody
+
+
+class ForeignSourceSpecCypherBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    backend: ForeignCypherBackend
+    endpoint: str
+    graph: str
+    id_field: str
+    query: str
+    score_field: str | None = None
 
 
 class ForeignSourceSpecHttpJson(BaseModel):
@@ -5573,6 +5596,20 @@ class ForeignSourceSpecRemoteEngineBody(BaseModel):
     uql: str | None = None
 
 
+class ForeignSourceSpecSparkBatch(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    SparkBatch: ForeignSourceSpecSparkBatchBody
+
+
+class ForeignSourceSpecSparkBatchBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    artifact_ref: str
+    id_field: str
+    score_field: str | None = None
+
+
 class ForeignSourceSpecSql(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -5585,6 +5622,23 @@ class ForeignSourceSpecSqlBody(BaseModel):
     dsn: str
     id_field: str
     query: str
+    score_field: str | None = None
+
+
+class ForeignSourceSpecTrino(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    Trino: ForeignSourceSpecTrinoBody
+
+
+class ForeignSourceSpecTrinoBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    catalog: str
+    endpoint: str
+    id_field: str
+    query: str
+    schema_: str = Field(..., alias="schema")
     score_field: str | None = None
 
 
@@ -23555,6 +23609,9 @@ ForeignSourceSpec = (
     | ForeignSourceSpecHttpJson
     | ForeignSourceSpecSql
     | ForeignSourceSpecNamed
+    | ForeignSourceSpecTrino
+    | ForeignSourceSpecCypher
+    | ForeignSourceSpecSparkBatch
 )
 
 
@@ -25375,16 +25432,23 @@ __all__ = [
     "FlipRecordStatus",
     "ForecastAlgorithm",
     "ForecastMiningResult",
+    "ForeignCypherBackend",
     "ForeignSourceFreshness",
     "ForeignSourceSpec",
+    "ForeignSourceSpecCypher",
+    "ForeignSourceSpecCypherBody",
     "ForeignSourceSpecHttpJson",
     "ForeignSourceSpecHttpJsonBody",
     "ForeignSourceSpecNamed",
     "ForeignSourceSpecNamedBody",
     "ForeignSourceSpecRemoteEngine",
     "ForeignSourceSpecRemoteEngineBody",
+    "ForeignSourceSpecSparkBatch",
+    "ForeignSourceSpecSparkBatchBody",
     "ForeignSourceSpecSql",
     "ForeignSourceSpecSqlBody",
+    "ForeignSourceSpecTrino",
+    "ForeignSourceSpecTrinoBody",
     "ForensicReport",
     "FreshnessFeed",
     "FullLabelMetrics",
