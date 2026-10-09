@@ -30,6 +30,38 @@ pub(super) fn edge_endpoint_not_found(role: &str, id: &str) -> String {
     )
 }
 
+/// The fallback `relation_type` an untyped edge collapses onto when its stored
+/// blob carries neither a `relationship` nor a `type`/`label` field (spec:
+/// EG-REPO-INGEST-R009.1 — edge identity is the `(source, target,
+/// relation_type)` triple, and a migrated edge must never be silently
+/// dropped for lacking a type).
+pub(super) const DEFAULT_RELATION_TYPE: &str = "related_to";
+
+/// Deterministically read the `relation_type` half of an edge's
+/// `(source, target, relation_type)` identity triple out of its stored
+/// property blob (spec: EG-REPO-INGEST-R009.1). Checks, in order, the
+/// canonical `relationship` field written by `GraphTxn::add_typed_edge` /
+/// matched by `GraphTxn::invalidate_edge`, then the untyped-edge `type` and
+/// `label` fields it migrates from, and finally collapses to
+/// [`DEFAULT_RELATION_TYPE`] when none are present or the blob fails to
+/// decode — the same three-field precedence `labels_of` uses for node
+/// labels, so an edge's type is read the same deterministic way every time
+/// rather than by caller-specific heuristics.
+pub(super) fn blob_relation_type(blob: &[u8]) -> String {
+    let Ok(val) = decode_property_value(blob) else {
+        return DEFAULT_RELATION_TYPE.to_string();
+    };
+    let Some(obj) = val.as_object() else {
+        return DEFAULT_RELATION_TYPE.to_string();
+    };
+    for key in ["relationship", "type", "label"] {
+        if let Some(rel) = obj.get(key).and_then(|v| v.as_str()) {
+            return rel.to_string();
+        }
+    }
+    DEFAULT_RELATION_TYPE.to_string()
+}
+
 /// Streams a byte slice as lowercase hex DIRECTLY into a formatter (CONCEPT:AU-KG.backend.b-auto-size).
 ///
 /// `format!("…|{}", hex::encode(&blob))` allocated the 2·N-byte hex String TWICE — once

@@ -36,6 +36,75 @@ impl<'a> GraphTxn<'a> {
         Ok(())
     }
 
+    /// Add (or idempotently overwrite) the edge identified by the
+    /// `(source_id, target_id, relation_type)` triple (spec: EG-REPO-INGEST-R009.1
+    /// — edge identity is this triple, not the bare endpoint pair). Writes
+    /// `relation_type` into the stored blob's canonical `relationship` field,
+    /// overriding any value already present in `properties_msgpack`. If an
+    /// edge already exists between these endpoints whose
+    /// [`blob_relation_type`] equals `relation_type`, its properties are
+    /// overwritten in place instead of pushing a new parallel edge — re-
+    /// adding the same triple is therefore idempotent. A DIFFERENT
+    /// `relation_type` between the same endpoints is left untouched and adds
+    /// its own parallel edge, exactly like `add_edge`.
+    pub fn add_typed_edge(
+        &mut self,
+        source_id: String,
+        target_id: String,
+        relation_type: String,
+        properties_msgpack: Vec<u8>,
+    ) -> Result<(), String> {
+        let mut val =
+            decode_property_value(&properties_msgpack).unwrap_or_else(|_| serde_json::json!({}));
+        let obj = val
+            .as_object_mut()
+            .ok_or_else(|| "INVALID_ARGUMENT: typed edge properties must be an object".to_string())?;
+        obj.insert("relationship".into(), serde_json::json!(relation_type));
+        let reenc = rmp_serde::to_vec_named(&val)
+            .map_err(|e| format!("INTERNAL: failed to encode typed edge properties: {e}"))?;
+
+        let key = (source_id.clone(), target_id.clone());
+        if let Some(mut entry) = self.edge_properties.get_mut(&key) {
+            if let Some(existing) = entry
+                .value_mut()
+                .iter_mut()
+                .find(|blob| blob_relation_type(blob) == relation_type)
+            {
+                *existing = Arc::new(reenc);
+                self.push_ledger(format!(
+                    "ADD_TYPED_EDGE|{}|{}|{}",
+                    source_id, target_id, relation_type
+                ));
+                return Ok(());
+            }
+        }
+        self.add_edge(source_id, target_id, reenc)
+    }
+
+    /// Remove only the edge(s) between `source_id` and `target_id` whose
+    /// [`blob_relation_type`] equals `relation_type`, leaving any other typed
+    /// edge between the same endpoints untouched (spec: EG-REPO-INGEST-R009.1).
+    /// A no-op if no edge of that type exists between these endpoints.
+    pub fn remove_typed_edge(&mut self, source_id: &str, target_id: &str, relation_type: &str) {
+        let key = (source_id.to_string(), target_id.to_string());
+        let removed = {
+            let Some(mut entry) = self.edge_properties.get_mut(&key) else {
+                return;
+            };
+            let before = entry.value().len();
+            entry
+                .value_mut()
+                .retain(|blob| blob_relation_type(blob) != relation_type);
+            before - entry.value().len()
+        };
+        if removed > 0 {
+            self.push_ledger(format!(
+                "REMOVE_TYPED_EDGE|{}|{}|{}",
+                source_id, target_id, relation_type
+            ));
+        }
+    }
+
     pub fn remove_edge(&mut self, source_id: String, target_id: String) {
         if let (Some(&src_idx), Some(&tgt_idx)) = (
             self.topo.node_map.get(&source_id),
