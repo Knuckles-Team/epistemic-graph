@@ -40,7 +40,8 @@
     "EG-UNIFIED-DATA-PLANE-R035",
     "EG-UNIFIED-DATA-PLANE-R036",
     "EG-UNIFIED-DATA-PLANE-R037",
-    "EG-UNIFIED-DATA-PLANE-R038"
+    "EG-UNIFIED-DATA-PLANE-R038",
+    "EG-UNIFIED-DATA-PLANE-R005.1"
   ],
   "delivery_state": "BUILDING",
   "acceptance_state": "NOT_AUDITED",
@@ -81,7 +82,13 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R005",
       "title": "Compile approved relational mappings to named R2RML virtual graphs",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R005.1",
+      "title": "VirtualGraphMapping typed approval-state model",
+      "delivery_state": "BUILT",
       "evidence": []
     },
     {
