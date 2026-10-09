@@ -78,7 +78,6 @@ mod tests {
         PrimaryKeyOperation::CompareAndSwap,
     ];
 
-    // spec: EG-DURABLE-KERNEL-R032.1
     #[test]
     fn operations_round_trip_through_their_wire_name() {
         for (op, name) in [
@@ -94,7 +93,6 @@ mod tests {
         }
     }
 
-    // spec: EG-DURABLE-KERNEL-R032.1
     #[test]
     fn authorized_operation_routes_with_both_checks_true() {
         for op in ALL {
@@ -106,7 +104,6 @@ mod tests {
         }
     }
 
-    // spec: EG-DURABLE-KERNEL-R032.1
     #[test]
     fn unauthorized_operation_is_refused_for_every_variant() {
         for op in ALL {

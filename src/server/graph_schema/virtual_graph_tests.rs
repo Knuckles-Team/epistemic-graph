@@ -49,7 +49,6 @@ fn well_formed() -> String {
     fixture(SOURCE_KIND, NO_EXTRA, ENTITY, KEY_FIELD, PAIR_FIELD)
 }
 
-// spec: EG-UNIFIED-DATA-PLANE-R037
 #[test]
 fn the_virtual_graph_vocabulary_and_shapes_are_core_sources() {
     let sources = GraphSchemaSources::default();

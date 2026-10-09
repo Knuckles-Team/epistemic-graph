@@ -265,7 +265,6 @@ mod tests {
 
     /// EG-DECISION-ENGINE-R059: only independently evaluated outcomes join
     /// the aggregate, and a pool below `min_support` is omitted entirely.
-    // spec: EG-DECISION-ENGINE-R059
     #[test]
     fn only_independent_outcomes_join_and_a_pool_below_min_support_is_omitted() {
         let self_reported =

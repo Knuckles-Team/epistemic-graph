@@ -1995,7 +1995,6 @@ mod tests {
         }
     }
 
-    // spec: EG-DECISION-ENGINE-R017
     #[test]
     fn declaring_a_set_in_another_order_is_the_same_component() {
         // `classification`, `requires` and `declared_capabilities` are SETS -- duplicates are
@@ -2062,7 +2061,6 @@ mod tests {
     /// EG-DECISION-ENGINE-R017: `DecisionCommit` is the sole write authority
     /// for decision records. A direct publish of the kind must be refused,
     /// never silently accepted as an ordinary component write.
-    // spec: EG-DECISION-ENGINE-R017
     #[test]
     fn a_decision_record_cannot_be_published_directly() {
         let request = AgentComponentPublishRequest {

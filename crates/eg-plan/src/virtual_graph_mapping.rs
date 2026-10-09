@@ -77,14 +77,12 @@ mod tests {
         }
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R005.1
     #[test]
     fn an_approved_mapping_is_queryable_by_name() {
         let m = mapping(MappingApprovalState::Approved);
         assert_eq!(m.queryable_name().unwrap(), "gramps_people");
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R005.1
     #[test]
     fn a_proposed_mapping_is_refused() {
         let m = mapping(MappingApprovalState::Proposed);
@@ -93,7 +91,6 @@ mod tests {
         assert!(err.to_string().contains("not approved"));
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R005.1
     #[test]
     fn a_model_suggested_mapping_is_refused() {
         let m = mapping(MappingApprovalState::ModelSuggested);

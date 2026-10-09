@@ -759,7 +759,6 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    // spec: EG-DURABLE-KERNEL-R043
     #[test]
     fn eg303_partial_current_state_fails_closed() {
         let dir = tmp_dir("partial");

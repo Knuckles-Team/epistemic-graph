@@ -99,7 +99,6 @@ fn the_seed_is_unpredictable_without_the_server_key() {
     assert_ne!(seed_commitment(&a), seed_commitment(&b));
 }
 
-// spec: EG-DECISION-ENGINE-R089, EG-DECISION-ENGINE-R090.1, EG-DECISION-ENGINE-R093.1
 #[test]
 fn deterministic_only_abstains_and_advisory_is_labelled_uncalibrated() {
     let ids = option_ids();
@@ -174,7 +173,6 @@ fn uncalibrated_head() -> DecisionHeadBody {
 /// set (`candidate_ids`) the ladder reasons over byte-for-byte identical to
 /// the scorer-present run, and every option any outcome names must come
 /// from that same, unchanged set.
-// spec: EG-DECISION-ENGINE-R089, EG-DECISION-ENGINE-R090.1, EG-DECISION-ENGINE-R093.1
 #[test]
 fn disabling_the_statistical_scorer_leaves_the_legal_option_set_unchanged() {
     let ids = option_ids();

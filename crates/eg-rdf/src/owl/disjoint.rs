@@ -72,14 +72,12 @@ mod tests {
     use super::*;
     use crate::mapping::parse_turtle;
 
-    // spec: EG-FEDERATED-QUERY-R012
     #[test]
     fn pairs_are_every_unordered_pair_once() {
         assert_eq!(unordered_pairs(&[1, 2, 3]), vec![(1, 2), (1, 3), (2, 3)]);
         assert!(unordered_pairs::<u8>(&[7]).is_empty());
     }
 
-    // spec: EG-FEDERATED-QUERY-R012
     #[test]
     fn an_oversized_all_disjoint_axiom_is_refused() {
         let members = |n: usize| {

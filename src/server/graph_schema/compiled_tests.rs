@@ -65,7 +65,6 @@ fn key(byte: u8) -> Digest256 {
     Digest256::sha256(&[byte])
 }
 
-// spec: EG-DURABLE-KERNEL-R064, EG-UNIFIED-DATA-PLANE-R035
 #[test]
 fn a_hit_returns_the_identical_compiled_schema() {
     let cache = CompiledCache::new(4);
@@ -76,7 +75,6 @@ fn a_hit_returns_the_identical_compiled_schema() {
     assert_eq!(cache.compile_count(), 1);
 }
 
-// spec: EG-DURABLE-KERNEL-R064, EG-UNIFIED-DATA-PLANE-R035
 #[test]
 fn two_graphs_composing_the_same_schema_share_one_entry() {
     let cache = CompiledCache::new(4);
@@ -90,7 +88,6 @@ fn two_graphs_composing_the_same_schema_share_one_entry() {
     assert_eq!((cache.len(), cache.compile_count()), (1, 1));
 }
 
-// spec: EG-DURABLE-KERNEL-R064, EG-UNIFIED-DATA-PLANE-R035
 #[test]
 fn attach_detach_and_replace_each_change_the_identity() {
     let cache = CompiledCache::new(4);

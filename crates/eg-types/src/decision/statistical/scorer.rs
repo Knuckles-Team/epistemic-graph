@@ -143,7 +143,6 @@ impl OptionAttentionParams {
 mod budget_tests {
     use super::*;
 
-    // spec: EG-DECISION-ENGINE-R089, EG-DECISION-ENGINE-R090.1, EG-DECISION-ENGINE-R093.1
     #[test]
     fn the_largest_compiled_scorer_fits_the_resident_ceiling() {
         let params = ResidentScorerBudget::largest_compiled_scorer_parameter_count();

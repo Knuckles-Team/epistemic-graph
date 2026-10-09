@@ -395,7 +395,6 @@ mod tests {
         }
     }
 
-    // spec: EG-DECISION-ENGINE-R100, EG-DECISION-ENGINE-R101, EG-TYPED-PACKS-R078
     #[test]
     fn a_fit_moves_the_query_toward_what_was_cited() {
         let train: Vec<JudgedItem> = (0..8).map(|i| item(f64::from(i) * 0.01)).collect();
@@ -414,7 +413,6 @@ mod tests {
         );
     }
 
-    // spec: EG-DECISION-ENGINE-R100, EG-DECISION-ENGINE-R101, EG-TYPED-PACKS-R078
     #[test]
     fn nothing_to_learn_fits_nothing_and_the_body_round_trips() {
         let mut lone = item(0.0);
@@ -431,7 +429,6 @@ mod tests {
         assert!(kernel.apply(&[1.0]).is_none());
     }
 
-    // spec: EG-DECISION-ENGINE-R100, EG-DECISION-ENGINE-R101, EG-TYPED-PACKS-R078
     #[test]
     fn the_wilson_bound_needs_evidence() {
         assert_eq!(wilson_lower(0, 0), 0.0);

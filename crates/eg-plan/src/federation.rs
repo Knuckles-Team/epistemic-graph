@@ -226,7 +226,6 @@ mod operation_bound_source_kinds {
         ]
     }
 
-    // spec: EG-FEDERATED-QUERY-R073.1
     #[test]
     fn each_new_source_kind_wire_round_trips_with_its_declared_capability() {
         for pushdown in [false, true] {
@@ -246,7 +245,6 @@ mod operation_bound_source_kinds {
         }
     }
 
-    // spec: EG-DURABLE-KERNEL-R024.1, EG-DURABLE-KERNEL-R024.7, EG-FEDERATED-QUERY-R041, EG-FEDERATED-QUERY-R042, EG-FEDERATED-QUERY-R043, EG-FEDERATED-QUERY-R045, EG-FEDERATED-QUERY-R052, EG-FEDERATED-QUERY-R054, EG-FEDERATED-QUERY-R055, EG-FEDERATED-QUERY-R069, EG-FEDERATED-QUERY-R071
     #[test]
     fn an_unbound_ungranted_source_of_any_new_kind_refuses_typed_not_panics() {
         for (spec, label) in specs_with_pushdown(true) {
@@ -908,7 +906,6 @@ fn bounded_json_id(value: &serde_json::Value) -> Result<Option<String>, String> 
 mod json_preflight_tests {
     use super::{validate_json_shape, MAX_HTTP_JSON_DEPTH};
 
-    // spec: EG-FEDERATED-QUERY-R041, EG-FEDERATED-QUERY-R042, EG-FEDERATED-QUERY-R043, EG-FEDERATED-QUERY-R049, EG-FEDERATED-QUERY-R055, EG-FEDERATED-QUERY-R069, EG-FEDERATED-QUERY-R071
     #[test]
     fn json_preflight_rejects_excessive_nesting() {
         let mut body = vec![b'['; MAX_HTTP_JSON_DEPTH + 1];

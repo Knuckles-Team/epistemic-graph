@@ -139,7 +139,6 @@ mod tests {
         }
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R015.1, EG-UNIFIED-DATA-PLANE-R016.1, EG-UNIFIED-DATA-PLANE-R017.1
     #[test]
     fn valid_table_round_trips_through_insert() {
         let mut catalog = ClickHouseSourceCatalog::default();
@@ -147,7 +146,6 @@ mod tests {
         assert!(catalog.tables.contains_key("analytics.events"));
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R015.1, EG-UNIFIED-DATA-PLANE-R016.1, EG-UNIFIED-DATA-PLANE-R017.1
     #[test]
     fn capture_capability_is_always_explicitly_unsupported() {
         assert_eq!(
@@ -156,7 +154,6 @@ mod tests {
         );
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R015.1, EG-UNIFIED-DATA-PLANE-R016.1, EG-UNIFIED-DATA-PLANE-R017.1
     #[test]
     fn empty_database_or_table_name_is_refused() {
         let mut bad = table();

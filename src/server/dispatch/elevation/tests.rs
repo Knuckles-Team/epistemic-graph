@@ -97,7 +97,6 @@ fn refused_with(response: &Response, code: &str) -> bool {
     response.error.as_deref().is_some_and(|error| error == code)
 }
 
-// spec: EG-TYPED-PACKS-R018
 #[test]
 fn the_actor_comes_from_the_verified_context_never_the_body() {
     let forged = ElevationActor::from_identities(

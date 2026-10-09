@@ -54,7 +54,6 @@ mod tests {
         candidate.id != "illegal-option"
     }
 
-    // spec: EG-DECISION-ENGINE-R085.1, EG-DECISION-ENGINE-R085.2
     #[test]
     fn a_caller_supplied_option_that_fails_the_admissibility_predicate_is_excluded() {
         let candidates = vec![
@@ -68,7 +67,6 @@ mod tests {
         assert!(!derived.iter().any(|option| option.id == "illegal-option"));
     }
 
-    // spec: EG-DECISION-ENGINE-R085.1, EG-DECISION-ENGINE-R085.2
     #[test]
     fn an_admissible_option_passes_through_to_the_derived_set() {
         let candidates = vec![CandidateOption::new("legal-option")];

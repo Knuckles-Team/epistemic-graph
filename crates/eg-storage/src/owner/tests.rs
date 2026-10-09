@@ -788,7 +788,6 @@ fn write_rejects_missing_or_wrong_type_without_recreating_table() {
     }
 }
 
-// spec: EG-DURABLE-KERNEL-R020
 #[test]
 fn plain_recovery_rejects_every_known_mutation_table_marker() {
     let mut names = ledger_table_names()

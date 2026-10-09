@@ -67,7 +67,6 @@ def test_scanner_contract_versions_and_native_policy_files_exist():
     assert scanners["jscpd_formats"]["bash"] == ["sh", "bash"]
 
 
-@pytest.mark.spec("EG-CONTRACT-R024")
 def test_precommit_hooks_never_install_tools():
     """Hook stages are the config's own business; this pins one real rule."""
 
@@ -223,7 +222,6 @@ def test_release_scanner_job_is_full_history_advisory_and_pinned():
     _assert_runtime_contract_jobs(jobs, security)
 
 
-@pytest.mark.spec("EG-CONTRACT-R009", "EG-CONTRACT-R037")
 def test_ci_uses_central_exact_python_version():
     # A minor-version pin: every hosted runner (Linux, Windows, macOS) resolves
     # its newest 3.12. An exact patch pin failed setup-python wherever that
@@ -414,7 +412,6 @@ def test_scanner_cache_rejects_wrong_version_and_upstream_kiss(tmp_path):
     assert _run_scanner_installer(tmp_path).returncode != 0
 
 
-@pytest.mark.spec("EG-CONTRACT-R037")
 @pytest.mark.parametrize("relative", [False, True])
 def test_scanner_installer_repairs_partial_cache_and_propagates_failure(
     tmp_path, monkeypatch, relative

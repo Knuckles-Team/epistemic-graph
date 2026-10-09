@@ -1669,7 +1669,6 @@ mod tests {
             ));
         }
 
-        // spec: EG-IDENTITY-R006
         #[test]
         fn unregistered_creator_is_not_silently_enrolled() {
             // A creator that was never `RegisterIdentity`'d stays unable to pass
@@ -1731,7 +1730,6 @@ mod tests {
             );
         }
 
-        // spec: EG-IDENTITY-R006
         #[test]
         fn a_second_graph_for_the_same_tenant_reuses_the_one_role() {
             let mut layer = IsolationLayer::new();
@@ -1750,7 +1748,6 @@ mod tests {
             assert_eq!(layer.rbac().grants().len(), 3);
         }
 
-        // spec: EG-IDENTITY-R006
         #[test]
         fn a_tenant_role_reads_but_never_writes_the_shared_commons() {
             // EG-IDENTITY-R006: commons is the union-read layer for every tenant. The

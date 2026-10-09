@@ -102,7 +102,6 @@ impl PgCompatibilityMatrix {
 mod tests {
     use super::*;
 
-    // spec: EG-DURABLE-KERNEL-R035.1
     #[test]
     fn surfaces_round_trip_through_their_wire_name() {
         for (surface, name) in [
@@ -128,7 +127,6 @@ mod tests {
         }
     }
 
-    // spec: EG-DURABLE-KERNEL-R035.1
     #[test]
     fn fresh_matrix_reports_every_surface_unsupported() {
         let matrix = PgCompatibilityMatrix::fail_closed();
@@ -137,7 +135,6 @@ mod tests {
         }
     }
 
-    // spec: EG-DURABLE-KERNEL-R035.1
     #[test]
     fn parity_check_is_refused_and_names_exactly_the_missing_surfaces() {
         let mut matrix = PgCompatibilityMatrix::fail_closed();

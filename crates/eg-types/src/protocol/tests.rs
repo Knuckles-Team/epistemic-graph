@@ -382,7 +382,6 @@ fn test_response_ok() {
     assert!(!json.contains("error"));
 }
 
-// spec: EG-TYPED-PACKS-R087
 #[test]
 fn test_response_err() {
     let resp = Response::err(2, "node not found: private storage key");
@@ -397,7 +396,6 @@ fn test_response_err() {
     assert!(!json.contains("result"));
 }
 
-// spec: EG-TYPED-PACKS-R087
 #[test]
 fn refusal_text_round_trips_code_and_detail() {
     let refused = Response::err(7, "ENGINE_UNAVAILABLE: tsdb store absent");
@@ -417,7 +415,6 @@ fn refusal_text_round_trips_code_and_detail() {
         .is_none());
 }
 
-// spec: EG-FEDERATED-QUERY-R020
 #[test]
 fn declared_response_error_separates_code_and_detail() {
     let response = Response::err(

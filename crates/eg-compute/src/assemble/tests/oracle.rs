@@ -120,7 +120,6 @@ fn agree(seed: u64, adversarial: bool) {
     }
 }
 
-// spec: EG-DECISION-ENGINE-R019, EG-DECISION-ENGINE-R036
 #[test]
 fn the_solver_agrees_with_brute_force_on_random_libraries() {
     for seed in 0..12 {
@@ -128,7 +127,6 @@ fn the_solver_agrees_with_brute_force_on_random_libraries() {
     }
 }
 
-// spec: EG-DECISION-ENGINE-R019, EG-DECISION-ENGINE-R036
 #[test]
 fn the_solver_agrees_with_brute_force_on_adversarial_libraries() {
     for seed in 1_000..1_008 {

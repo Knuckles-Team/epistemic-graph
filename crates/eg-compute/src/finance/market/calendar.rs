@@ -341,7 +341,6 @@ mod tests {
         }
     }
 
-    // spec: EG-DECISION-ENGINE-R103, EG-FEDERATED-QUERY-R019, EG-FINANCE-PRIMITIVES-R014, EG-FINANCE-PRIMITIVES-R016, EG-FINANCE-PRIMITIVES-R017, EG-TYPED-PACKS-R079
     #[test]
     fn civil_dates_round_trip_across_eras_and_leap_days() {
         for days in [-719_468, -1, 0, 59, 11_016, 20_720, 2_932_896] {
@@ -353,7 +352,6 @@ mod tests {
         assert_eq!(weekday(days_from_civil(2026, 9, 21)), 0);
     }
 
-    // spec: EG-DECISION-ENGINE-R103, EG-FEDERATED-QUERY-R019, EG-FINANCE-PRIMITIVES-R014, EG-FINANCE-PRIMITIVES-R016, EG-FINANCE-PRIMITIVES-R017, EG-TYPED-PACKS-R079
     #[test]
     fn utc_buckets_align_to_epoch_day_iso_week_and_month() {
         let ts = at(2026, 9, 24, 13, 47);
@@ -457,7 +455,6 @@ mod tests {
         );
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R006
     #[test]
     fn malformed_calendars_and_widths_are_refused() {
         let TradingCalendar::Exchange { calendar } = nyse() else {
@@ -473,7 +470,6 @@ mod tests {
         assert_eq!(zero.unwrap_err().code, INVALID_REQUEST);
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R006
     #[test]
     fn continuous_calendars_are_always_the_regular_session() {
         assert_eq!(
@@ -482,7 +478,6 @@ mod tests {
         );
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R006
     #[test]
     fn exchange_sessions_classify_pre_regular_post_closed_and_early_close() {
         let cal = nyse();

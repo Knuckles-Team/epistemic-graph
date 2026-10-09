@@ -170,7 +170,6 @@ fn names_come_from_provenance_or_the_unescaped_id() {
     assert_eq!(component_name(&named), "search_issues");
 }
 
-// spec: EG-TYPED-PACKS-R043, EG-TYPED-PACKS-R044, EG-TYPED-PACKS-R064
 #[test]
 fn every_content_kind_projects_its_typed_facts() {
     let Some(FleetCatalogRow::Tool { row: tool_row }) =

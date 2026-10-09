@@ -879,7 +879,6 @@ mod kernel_row_rejection_reason_contract {
     /// the type's own `serde_json::Value::Object` keys, so a field added
     /// later (reason, error, rejected_because, ...) fails this test instead
     /// of silently riding onto every row.
-    // spec: EG-FEDERATED-QUERY-R002
     #[test]
     fn kernel_row_schema_carries_no_rejection_reason_field() {
         let row = UqlRow {
@@ -911,7 +910,6 @@ mod kernel_row_rejection_reason_contract {
 
     /// Negative test: a rejection reason IS observable -- just through the
     /// domain-specific error channel ([`UqlPrintError`]), not the row.
-    // spec: EG-FEDERATED-QUERY-R002
     #[test]
     fn rejection_reason_is_observable_through_the_domain_error_channel() {
         let err = UqlPrintError {

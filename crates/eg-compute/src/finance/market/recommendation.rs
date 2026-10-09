@@ -78,7 +78,6 @@ mod tests {
         }
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R009.1
     #[test]
     fn insufficient_evidence_always_abstains() {
         let confidence = FlipConfidence::Abstained {
@@ -91,7 +90,6 @@ mod tests {
         );
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R009.1
     #[test]
     fn a_non_abstaining_recommendation_cites_strategy_version_and_evidence() {
         let confidence = calibrated(0.82, true);
@@ -101,7 +99,6 @@ mod tests {
         assert_eq!(result.recommendation, Recommendation::Accumulate);
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R009.1
     #[test]
     fn a_bearish_high_confidence_follow_through_recommends_de_risk() {
         assert_eq!(

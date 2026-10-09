@@ -6,7 +6,6 @@ use eg_capabilities::{
 };
 use eg_types::protocol::{CypherMode, Method};
 
-// spec: EG-DURABLE-KERNEL-R058
 #[test]
 fn method_policy_registry_is_unique_and_covers_every_method_variant() {
     use std::collections::HashSet;
@@ -36,7 +35,6 @@ fn method_policy_registry_is_unique_and_covers_every_method_variant() {
     );
 }
 
-// spec: EG-DURABLE-KERNEL-R058
 #[test]
 fn sql_source_batch_policy_is_native_and_audited() {
     let (_, policy, note) = method_policy_entries()
@@ -168,7 +166,6 @@ fn generated_protocol_policy_inventory_covers_every_primitive() {
     );
 }
 
-// spec: EG-DECISION-ENGINE-R001, EG-DECISION-ENGINE-R010, EG-DECISION-ENGINE-R047, EG-DECISION-ENGINE-R074, EG-DECISION-ENGINE-R123
 #[test]
 fn runtime_conditional_policy_uses_query_mode_and_modality_operation() {
     let read = Method::CypherQuery {
@@ -257,7 +254,6 @@ fn runtime_conditional_policy_uses_query_mode_and_modality_operation() {
 /// Table-driven rather than ten near-identical tests: ten copies of the same
 /// three assertions are ten structural clones, and a table makes the ROW the
 /// reviewable thing, which is what actually differs between them.
-// spec: EG-DECISION-ENGINE-R001, EG-DECISION-ENGINE-R010, EG-DECISION-ENGINE-R047, EG-DECISION-ENGINE-R074, EG-DECISION-ENGINE-R123, EG-FEDERATED-QUERY-R004
 #[test]
 fn contract_wave_rows_declare_their_static_policy() {
     let flags = |mutates, domain, action, txn| MethodPolicy {
@@ -393,7 +389,6 @@ fn contract_wave_rows_declare_their_static_policy() {
 /// `DecisionFit`, `DecisionEval` and `MutationOutbox` graduated once their
 /// handlers and generated clients landed: no wave method is still pending, and
 /// a future wave method is listed here until its handler lands.
-// spec: EG-DECISION-ENGINE-R001, EG-DECISION-ENGINE-R010, EG-DECISION-ENGINE-R047, EG-DECISION-ENGINE-R074, EG-DECISION-ENGINE-R123
 #[test]
 fn contract_wave_rows_are_internal_with_no_consumer() {
     let wave: [&str; 0] = [];
@@ -420,7 +415,6 @@ fn contract_wave_rows_are_internal_with_no_consumer() {
 /// The runtime policy of every contract-wave OP follows its own
 /// `is_mutation()` and `authz_action()`, so the ledger and
 /// `server::access::requires_write` cannot disagree about an operation.
-// spec: EG-REPO-INGEST-R006
 #[test]
 fn contract_wave_op_policies_follow_their_ops() {
     use eg_types::test_support::contract_wave::contract_wave_samples;
@@ -480,7 +474,6 @@ fn a_mass_withdrawal_import_needs_the_admin_action() {
 
 /// Publishing one of the four statistical catalog kinds is administrative;
 /// publishing an ordinary component is not.
-// spec: EG-DURABLE-KERNEL-R023, EG-FEDERATED-QUERY-R027, EG-FEDERATED-QUERY-R028
 #[test]
 fn decide_governance_kinds_publish_under_admin_actions() {
     use eg_types::agent_component::AgentComponentKind;
@@ -507,7 +500,6 @@ fn decide_governance_kinds_publish_under_admin_actions() {
 /// UQL-12: every UQL/unified-query surface is READ-ONLY by policy — no mutation, no
 /// durable domain, idempotent, snapshot-isolated. (The executor is read-only by
 /// construction too: `eg_plan`'s op dispatch takes the snapshot by shared reference.)
-// spec: EG-DURABLE-KERNEL-R023
 #[test]
 fn uql_surfaces_are_read_only() {
     let surfaces = ["UnifiedQuery", "Uql"];

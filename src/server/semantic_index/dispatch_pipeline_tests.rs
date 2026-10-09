@@ -553,7 +553,6 @@ async fn dispatch_refuses_a_cross_tenant_semantic_operation() {
 
 /// A claim above the named bound is refused BY THAT NAME, not by a store
 /// message about an anonymous "bounded consumer budget".
-// spec: EG-IDENTITY-R005
 #[tokio::test]
 async fn dispatch_refuses_an_unbounded_stage_claim_by_name() {
     let worker = worker_authority();
@@ -598,7 +597,6 @@ async fn dispatch_refuses_an_unbounded_stage_claim_by_name() {
 /// signature verified, so both classes' leases -- Fast's S1 and Medium's
 /// published S2 successor -- are attributed to the same verified worker,
 /// and the claimed field is never read for authorization.
-// spec: EG-IDENTITY-R005
 #[tokio::test]
 async fn dispatch_attributes_every_queue_class_to_the_one_verified_principal() {
     let worker = worker_authority();

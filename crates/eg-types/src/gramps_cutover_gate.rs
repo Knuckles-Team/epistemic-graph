@@ -98,13 +98,11 @@ mod tests {
         }
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R002.3, EG-UNIFIED-DATA-PLANE-R033.1, EG-UNIFIED-DATA-PLANE-R038.1
     #[test]
     fn well_formed_go_ahead_validates() {
         assert_eq!(validate_go_ahead(&go_ahead()), Ok(()));
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R002.3, EG-UNIFIED-DATA-PLANE-R033.1, EG-UNIFIED-DATA-PLANE-R038.1
     #[test]
     fn go_ahead_citing_wrong_phase_is_refused() {
         let mut bad = go_ahead();
@@ -118,7 +116,6 @@ mod tests {
         ));
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R002.3, EG-UNIFIED-DATA-PLANE-R033.1, EG-UNIFIED-DATA-PLANE-R038.1
     #[test]
     fn go_ahead_citing_unreviewed_p5_exit_is_refused() {
         let mut bad = go_ahead();

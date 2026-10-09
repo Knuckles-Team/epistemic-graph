@@ -70,7 +70,6 @@ impl Default for Budget {
 mod tests {
     use super::*;
 
-    // spec: EG-FEDERATED-QUERY-R021, EG-FEDERATED-QUERY-R024, EG-FEDERATED-QUERY-R070
     #[test]
     fn budgets_refuse_with_a_typed_code() {
         let b = Budget {

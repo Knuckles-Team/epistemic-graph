@@ -18,7 +18,6 @@ fn bound(entity_ref: super::super::EntityRef, rule: &str) -> Resolution {
     }
 }
 
-// spec: EG-DECISION-ENGINE-R125, EG-UNIFIED-DATA-PLANE-R036
 #[test]
 fn every_entity_class_resolves_through_its_declared_key() {
     let directory = directory();
@@ -71,7 +70,6 @@ fn every_entity_class_resolves_through_its_declared_key() {
     }
 }
 
-// spec: EG-UNIFIED-DATA-PLANE-R036
 #[test]
 fn a_server_resolves_by_its_address() {
     let policy = ResolutionPolicy::standard();
@@ -87,7 +85,6 @@ fn a_server_resolves_by_its_address() {
     );
 }
 
-// spec: EG-UNIFIED-DATA-PLANE-R036
 #[test]
 fn resolution_does_not_depend_on_declaration_order() {
     let policy = ResolutionPolicy::standard();

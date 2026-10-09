@@ -88,13 +88,11 @@ pub fn map_ghostfolio_activity(
 mod tests {
     use super::*;
 
-    // spec: EG-FINANCE-PRIMITIVES-R004.3.1, EG-FINANCE-PRIMITIVES-R012.1, EG-FINANCE-PRIMITIVES-R013.1
     #[test]
     fn importing_from_ghostfolio_is_admitted() {
         assert!(admit_ghostfolio_flow(GhostfolioFlowDirection::ImportFromGhostfolio).is_ok());
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R004.3.1, EG-FINANCE-PRIMITIVES-R012.1, EG-FINANCE-PRIMITIVES-R013.1
     #[test]
     fn writing_back_to_ghostfolio_is_always_refused() {
         let refusal =
@@ -102,7 +100,6 @@ mod tests {
         assert!(refusal.reason.contains("one-way"));
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R004.3.1, EG-FINANCE-PRIMITIVES-R012.1, EG-FINANCE-PRIMITIVES-R013.1
     #[test]
     fn a_valid_activity_maps_successfully() {
         let mapped = map_ghostfolio_activity("gf-activity-1", 10 * 100_000_000, 5 * 100_000_000)

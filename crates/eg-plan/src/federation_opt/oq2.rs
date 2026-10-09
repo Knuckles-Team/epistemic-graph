@@ -129,7 +129,6 @@ mod tests {
         ]
     }
 
-    // spec: EG-FEDERATED-QUERY-R053
     #[test]
     fn oq2_kind_rows_are_explicit_and_wire_round_trip() {
         for (spec, label) in sources() {
@@ -149,7 +148,6 @@ mod tests {
         }
     }
 
-    // spec: EG-FEDERATED-QUERY-R053
     #[test]
     fn unbound_oq2_kinds_fail_closed_in_both_execution_paths() {
         use super::super::remote;

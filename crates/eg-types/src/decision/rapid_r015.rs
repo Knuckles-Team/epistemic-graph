@@ -61,7 +61,6 @@ impl StatisticalHeadKind {
 mod tests {
     use super::*;
 
-    // spec: EG-DECISION-ENGINE-R015.1, EG-DECISION-ENGINE-R044.1, EG-DECISION-ENGINE-R056.1
     #[test]
     fn parses_the_two_closed_heads() {
         assert_eq!(
@@ -74,7 +73,6 @@ mod tests {
         );
     }
 
-    // spec: EG-DECISION-ENGINE-R015.1, EG-DECISION-ENGINE-R044.1, EG-DECISION-ENGINE-R056.1
     #[test]
     fn refuses_a_generative_model_name() {
         let refusal = StatisticalHeadKind::parse("generative_llm").unwrap_err();
@@ -86,7 +84,6 @@ mod tests {
         );
     }
 
-    // spec: EG-DECISION-ENGINE-R015.1, EG-DECISION-ENGINE-R044.1, EG-DECISION-ENGINE-R056.1
     #[test]
     fn refuses_an_unknown_name() {
         assert!(StatisticalHeadKind::parse("kolmogorov_arnold").is_err());

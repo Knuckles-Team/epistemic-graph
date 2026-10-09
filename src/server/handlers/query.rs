@@ -1714,7 +1714,6 @@ mod dispatch_write_tests {
     /// `exec_sql_write_delete_nodes` out of `exec_sql_write`'s
     /// `K::UpdateNodes`/`K::DeleteNodes` arms — added per the Phase B
     /// discipline ("write one for a branch nothing covers before moving it").
-    // spec: EG-FEDERATED-QUERY-R020
     #[tokio::test]
     async fn wire_sql_update_then_delete_node_via_dispatch() {
         // Reads the ambient encryption env at its durable open, so the env must hold
@@ -1879,7 +1878,6 @@ mod txn_ryow_dispatch_tests {
 
     // Cross-modal RYOW: staged node + embedding rank in-txn; staged edge is BFS-
     // reachable in-txn; an identical OFF-txn query sees none of it.
-    // spec: EG-FEDERATED-QUERY-R020
     #[tokio::test]
     async fn in_txn_cross_modal_ryow() {
         // Held for the whole test: `state()` provisions `EPISTEMIC_GRAPH_ENCRYPTION_KEY`

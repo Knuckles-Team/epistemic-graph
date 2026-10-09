@@ -104,7 +104,6 @@ fn inspected_bytes_are_rechecked_before_any_upgrade_write() {
     assert!(StorageKernel::open_owner::<AgentLibraryOwner>(&path, identity(), None).is_err());
 }
 
-// spec: EG-DURABLE-KERNEL-R031
 #[test]
 fn earlier_connector_packless_layout_is_not_upgradeable() {
     let directory = private_local_tempdir();
@@ -215,7 +214,6 @@ fn assert_rows_survived_and_tables_were_added(path: &Path, added: &[&str]) {
 
 /// The table contracts the upgrader accepts for each generation are exactly
 /// the ones the recorded build persisted, and hash to its frozen digest.
-// spec: EG-DURABLE-KERNEL-R031
 #[test]
 fn frozen_graph_predecessor_contracts_match_the_recorded_manifests() {
     for generation in &GRAPH_GENERATIONS {
@@ -234,7 +232,6 @@ fn frozen_graph_predecessor_contracts_match_the_recorded_manifests() {
 /// A store at each recorded layout is refused by the ordinary open, upgraded
 /// in place by the explicit offline upgrade with every row kept, gains the
 /// tables it lacked, and then opens normally. The upgrade does not run twice.
-// spec: EG-DURABLE-KERNEL-R031
 #[test]
 fn graph_upgrades_preserve_rows_add_the_missing_tables_and_run_once() {
     for generation in &GRAPH_GENERATIONS {

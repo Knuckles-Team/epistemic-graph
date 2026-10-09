@@ -112,7 +112,6 @@ mod tests {
         assert!(!WorkloadClass::Sql.bypasses_sql_planner());
     }
 
-    // spec: EG-DURABLE-KERNEL-R037.2
     #[test]
     fn unrecognized_operation_kind_is_refused_not_defaulted() {
         for bad in ["GET", "scan", "", "select"] {
@@ -121,7 +120,6 @@ mod tests {
         }
     }
 
-    // spec: EG-DURABLE-KERNEL-R037.2
     #[test]
     fn dispatch_route_never_allocates_a_datafusion_session_for_point_or_structure() {
         for kind in ["get", "set", "hash", "list"] {
@@ -131,7 +129,6 @@ mod tests {
         }
     }
 
-    // spec: EG-DURABLE-KERNEL-R037.2
     #[test]
     fn dispatch_route_allocates_a_datafusion_session_for_sql() {
         let decision = route("sql").unwrap();

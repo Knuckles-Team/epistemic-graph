@@ -202,14 +202,12 @@ impl RowSet {
 mod tests {
     use super::*;
 
-    // spec: EG-FEDERATED-QUERY-R030
     #[test]
     fn dedup_keeps_first_occurrence() {
         let rs = RowSet::from_ids(["a".into(), "b".into(), "a".into()]);
         assert_eq!(rs.ids(), vec!["a", "b"]);
     }
 
-    // spec: EG-FEDERATED-QUERY-R030
     #[test]
     fn intersect_preserves_self_order() {
         let ranked = RowSet::from_scored([("b".into(), 0.9), ("a".into(), 0.5), ("c".into(), 0.1)]);

@@ -319,7 +319,6 @@ fn a_refused_filter_pushdown_falls_back_to_the_original_query_under_silent_too()
     }
 }
 
-// spec: EG-FEDERATED-QUERY-R050
 #[test]
 fn a_refused_limit_pushdown_falls_back_to_the_original_query_under_silent_too() {
     let local = view_of_turtle(FLAGGED_LOCALLY);
@@ -345,7 +344,6 @@ fn a_refused_limit_pushdown_falls_back_to_the_original_query_under_silent_too() 
     }
 }
 
-// spec: EG-FEDERATED-QUERY-R050
 #[test]
 fn silent_hushes_only_the_failure_of_the_original_query() {
     let local = view_of_turtle(FLAGGED_LOCALLY);
@@ -377,7 +375,6 @@ fn silent_hushes_only_the_failure_of_the_original_query() {
     assert_eq!(down.queries().len(), 2, "narrowed, then original");
 }
 
-// spec: EG-FEDERATED-QUERY-R050
 #[test]
 fn a_pushed_limit_reaches_the_endpoint() {
     let local = view_of_turtle(FLAGGED_LOCALLY);

@@ -682,7 +682,6 @@ mod tests {
     /// Pins `try_handle`'s protocol surface: the admin gate, fall-through for
     /// non-CEP methods, the pattern-decode refusal, the missing-CDC refusal, and a
     /// subscribe -> poll -> unsubscribe -> poll lifecycle.
-    // spec: EG-TYPED-PACKS-R018
     #[tokio::test]
     async fn try_handle_pins_admin_gate_refusals_and_lifecycle() {
         let authority = |scopes: &[&str]| {

@@ -734,7 +734,6 @@ mod replacement_parent_tests {
         MutationScopeIdentity, ScopeTenantId,
     };
 
-    // spec: EG-REPO-INGEST-R006
     #[test]
     fn replacement_outbox_is_bound_to_its_zero_operation_committed_parent() {
         let identity = MutationScopeIdentity::graph(

@@ -102,7 +102,6 @@ fn every_declared_result_schema_is_digested() {
     );
 }
 
-// spec: EG-CONTRACT-R044
 #[test]
 fn split_transaction_result_marker_is_collected_by_the_generator() {
     let artifacts = eg_capabilities::contract::render_all(&repo_root());

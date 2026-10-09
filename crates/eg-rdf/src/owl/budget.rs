@@ -133,7 +133,6 @@ mod tests {
 
     /// A 20-axiom chain over 21 classes derives exactly the 210 subsumptions
     /// `Cᵢ ⊑ Cⱼ` with `i < j` (21·20/2); nothing else is a derivation step.
-    // spec: EG-FEDERATED-QUERY-R003
     #[test]
     fn exact_budget_completes_and_one_less_is_exhausted() {
         let triples = chain(20);
@@ -160,7 +159,6 @@ mod tests {
     /// A spent budget stops the completion instead of re-scanning the closure: a
     /// 1,000-class chain (about 500k subsumptions) is refused at the budget, and the
     /// same reasoner then completes unbudgeted to the full closure.
-    // spec: EG-FEDERATED-QUERY-R003, EG-TYPED-PACKS-R084
     #[test]
     fn a_chain_far_past_the_budget_is_refused_at_the_budget() {
         let triples = chain(1_000);

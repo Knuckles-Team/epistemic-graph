@@ -109,7 +109,6 @@ mod tests {
         }
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R027.1
     #[test]
     fn unfixed_feature_with_no_proof_validates() {
         let record = FeatureFixRecord {
@@ -120,7 +119,6 @@ mod tests {
         assert!(!record.is_fixed());
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R027.1
     #[test]
     fn fixed_feature_with_complete_proof_validates() {
         let record = FeatureFixRecord {
@@ -131,7 +129,6 @@ mod tests {
         assert!(record.is_fixed());
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R027.1
     #[test]
     fn proof_with_empty_traffic_ref_is_refused() {
         let mut bad_proof = proof();

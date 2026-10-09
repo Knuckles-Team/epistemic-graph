@@ -2102,7 +2102,6 @@ async fn all_members_observe_leader(
 /// KG-2.268 + KG-2.270: a group is grown from a single-node bootstrap to a 3-VOTER group
 /// spanning three nodes (add_learner → change_membership), a write replicates to the new
 /// voters, and the leader balancer then MOVES leadership to the round-robin target node.
-// spec: EG-DURABLE-KERNEL-R025
 #[tokio::test(flavor = "multi_thread", worker_threads = 6)]
 async fn multi_node_group_join_then_leader_rebalance() {
     // Opens a durable store, so the ambient encryption env must hold still for
@@ -3014,7 +3013,6 @@ mod matview {
 /// redb shard g" holds for every graph, INCLUDING names the durable key `sanitize`s
 /// (`a:b` → `a~3ab`), which the pre-ADR-2 raw-name ring hash would have mis-aligned
 /// against the sanitized storage hash.
-// spec: EG-DURABLE-KERNEL-R015
 #[test]
 fn group_of_equals_durable_shard_index_under_production_ring() {
     use super::multi::GroupRouter;

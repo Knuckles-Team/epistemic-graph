@@ -149,7 +149,6 @@ fn text_incremental_equals_rebuild() {
 
 // ── temporal: incremental ≡ rebuild ──────────────────────────────────────────────
 
-// spec: EG-FEDERATED-QUERY-R036
 #[test]
 fn temporal_incremental_equals_rebuild() {
     let series = tmp_series();
@@ -202,7 +201,6 @@ fn temporal_incremental_equals_rebuild() {
 /// replace EVERY node's series -- one durable commit per node, ~30 ms a document of
 /// restart unavailability. Over a store the write path already keeps current, the
 /// rebuild must commit nothing, and nodes without measurements must never cost one.
-// spec: EG-FEDERATED-QUERY-R036
 #[test]
 fn temporal_rebuild_over_a_current_store_commits_nothing() {
     let series = tmp_series();

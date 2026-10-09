@@ -1515,7 +1515,6 @@ fn reconciliation_entity_pages_are_bounded_and_revision_fenced() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-// spec: EG-FEDERATED-QUERY-R004
 #[test]
 fn complete_reconciliation_tombstone_replaces_completed_prior_revision() {
     let dir = tmp_dir("reconciliation-tombstone-admission");

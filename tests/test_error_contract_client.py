@@ -12,7 +12,6 @@ from epistemic_graph.client import (
 pytestmark = pytest.mark.no_engine
 
 
-@pytest.mark.spec("EG-TYPED-PACKS-R087")
 def test_declared_error_detail_is_visible_without_replacing_code() -> None:
     with pytest.raises(EngineResponseError) as error:
         _raise_send_error(

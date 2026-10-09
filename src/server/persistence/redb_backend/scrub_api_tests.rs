@@ -77,7 +77,6 @@ async fn step(backend: &RedbBackend) -> (u64, Vec<NodeUnreadable>, ScrubCursor) 
 }
 
 #[cfg(feature = "security")]
-// spec: EG-DURABLE-KERNEL-R069
 #[tokio::test(flavor = "multi_thread")]
 async fn scrub_cursor_survives_reopen_and_the_walk_skips_nothing() {
     let _env_lock = crate::crypto::acquire_test_env_lock().await;

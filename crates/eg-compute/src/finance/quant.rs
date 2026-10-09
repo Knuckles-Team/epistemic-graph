@@ -255,7 +255,6 @@ mod tests {
         assert!(q2.withdraw);
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R001
     #[test]
     fn test_glosten_milgrom_and_breakeven() {
         assert!((glosten_milgrom_spread(0.2, 0.5) - 0.1).abs() < 1e-9);

@@ -157,7 +157,6 @@ mod tests {
         }
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R018.1, EG-UNIFIED-DATA-PLANE-R026.1, EG-UNIFIED-DATA-PLANE-R031.1, EG-UNIFIED-DATA-PLANE-R032.1
     #[test]
     fn valid_admission_round_trips_through_admit() {
         let mut registry = ConsolidationIsolationRegistry::default();
@@ -167,7 +166,6 @@ mod tests {
         assert_eq!(registry.len(), 1);
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R018.1, EG-UNIFIED-DATA-PLANE-R026.1, EG-UNIFIED-DATA-PLANE-R031.1, EG-UNIFIED-DATA-PLANE-R032.1
     #[test]
     fn empty_identity_is_refused() {
         let mut bad = admission("tenant-a", "gramps", "alice");
@@ -175,7 +173,6 @@ mod tests {
         assert!(validate_admission(&bad).is_err());
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R018.1, EG-UNIFIED-DATA-PLANE-R026.1, EG-UNIFIED-DATA-PLANE-R031.1, EG-UNIFIED-DATA-PLANE-R032.1
     #[test]
     fn all_zero_quota_is_refused() {
         let mut bad = admission("tenant-a", "gramps", "alice");

@@ -34,7 +34,6 @@ where
 mod tests {
     use super::*;
 
-    // spec: EG-DECISION-ENGINE-R075.1, EG-DECISION-ENGINE-R083.1
     #[test]
     fn accepts_pairwise_unique_ids() {
         let ids = ["comp-a", "comp-b", "comp-c"];

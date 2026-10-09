@@ -55,7 +55,6 @@ fn tool_subset_request(
     }
 }
 
-// spec: EG-DECISION-ENGINE-R045.2
 #[tokio::test]
 async fn tool_subset_question_selects_the_minimal_covering_tools_within_budget() {
     let h = Harness::new().await;
@@ -99,7 +98,6 @@ async fn tool_subset_question_selects_the_minimal_covering_tools_within_budget()
     );
 }
 
-// spec: EG-DECISION-ENGINE-R045.2
 #[tokio::test]
 async fn tool_subset_question_refuses_when_the_budget_cannot_cover_every_capability() {
     let h = Harness::new().await;

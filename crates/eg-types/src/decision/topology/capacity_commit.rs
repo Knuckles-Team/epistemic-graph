@@ -92,7 +92,6 @@ impl CapacitySynthesisCommit {
 mod tests {
     use super::*;
 
-    // spec: EG-DECISION-ENGINE-R102.1, EG-DECISION-ENGINE-R113.1
     #[test]
     fn an_accepted_decision_with_a_lease_and_evidence_commits() {
         let commit = CapacitySynthesisCommit::from_capacity_decision(
@@ -104,7 +103,6 @@ mod tests {
         assert!(matches!(commit, CapacitySynthesisCommit::Committed { .. }));
     }
 
-    // spec: EG-DECISION-ENGINE-R102.1, EG-DECISION-ENGINE-R113.1
     #[test]
     fn a_denied_decision_with_no_lease_and_no_evidence_grants_exactly_one_retry() {
         let commit = CapacitySynthesisCommit::from_capacity_decision(
@@ -119,7 +117,6 @@ mod tests {
         assert_eq!(retry.further_decisions, 1);
     }
 
-    // spec: EG-DECISION-ENGINE-R102.1, EG-DECISION-ENGINE-R113.1
     #[test]
     fn a_denial_holding_a_partial_lease_is_refused() {
         let err = CapacitySynthesisCommit::from_capacity_decision(

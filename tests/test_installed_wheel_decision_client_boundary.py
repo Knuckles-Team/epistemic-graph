@@ -57,7 +57,6 @@ def _installed_or_skip() -> None:
         )
 
 
-@pytest.mark.spec("EG-CONTRACT-R002.3")
 @pytest.mark.parametrize("module_name", _BOUNDARY_MODULES)
 def test_decide_and_pack_client_modules_resolve_outside_the_source_tree(
     module_name: str,
@@ -76,7 +75,6 @@ def test_decide_and_pack_client_modules_resolve_outside_the_source_tree(
     )
 
 
-@pytest.mark.spec("EG-CONTRACT-R002.3", "EG-CONTRACT-R015")
 def test_installed_distribution_matches_the_wheel_not_an_editable_install() -> None:
     """An editable/develop install would report its `RECORD`-less location
     inside the checkout; a real wheel install reports a site-packages path

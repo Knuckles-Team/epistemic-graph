@@ -184,7 +184,6 @@ pub fn term_local_name(iri: &str) -> &str {
 mod tests {
     use super::*;
 
-    // spec: EG-TYPED-PACKS-R077
     #[test]
     fn every_declaring_type_maps_to_one_kind_and_round_trips_its_token() {
         for (iri, kind) in DECLARATIONS {
@@ -197,7 +196,6 @@ mod tests {
         );
     }
 
-    // spec: EG-TYPED-PACKS-R077
     #[test]
     fn a_cursor_round_trips_and_a_foreign_one_is_refused() {
         let position = GraphSchemaTermPosition {
