@@ -94,7 +94,8 @@
     "EG-DURABLE-KERNEL-R032.1",
     "EG-DURABLE-KERNEL-R033.1",
     "EG-DURABLE-KERNEL-R034.1",
-    "EG-DURABLE-KERNEL-R035.1"
+    "EG-DURABLE-KERNEL-R035.1",
+    "EG-DURABLE-KERNEL-R039.1"
   ],
   "delivery_state": "BUILDING",
   "acceptance_state": "NOT_AUDITED",
@@ -621,7 +622,7 @@
     {
       "id": "EG-DURABLE-KERNEL-R039",
       "title": "In-memory data structures rebuild from the redb durability log",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
       "evidence": []
     },
     {
@@ -1138,6 +1139,12 @@
     {
       "id": "EG-DURABLE-KERNEL-R035.1",
       "title": "PgOperationalSurface/PgCompatibilityMatrix typed model, fail-closed, with named-missing-surface refusal",
+      "delivery_state": "BUILT",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R039.1",
+      "title": "DataStructureKind/AtomicPrimitiveKind/DurabilityDeclaration typed model with always-redb-sole-authority invariant",
       "delivery_state": "BUILT",
       "evidence": []
     }
