@@ -33,7 +33,7 @@ pub struct GuardrailRule {
 
 /// One step of an entailment path: `narrower` is a native subclass of
 /// `broader`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct EntailmentStep {
