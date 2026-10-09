@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1320 700" role="img" aria-labelledby="diagram-title diagram-description">
   <title id="diagram-title">Knuckles-Team agent ecosystem runtime architecture</title>
-  <desc id="diagram-description">People use Agent Web UI, Agent Terminal UI, Geniusbot, or messaging channels. MCP, REST, and A2A clients also enter through Graph OS. Graph OS is the governed gateway and composition host, Agent Utilities is the agent control plane, and Epistemic Graph is the durable multimodal knowledge and reasoning engine. Source systems connect through Agent Connector SDK.</desc>
+  <desc id="diagram-description">People use Graph OS web UI, Agent Terminal UI, Geniusbot, or messaging channels. MCP, REST, and A2A clients also enter through Graph OS. Graph OS is the governed gateway and composition host, Agent Utilities is the agent control plane, and Epistemic Graph is the durable multimodal knowledge and reasoning engine. Source systems connect through Agent Connector SDK.</desc>
   <defs>
     <linearGradient id="gateway-light" x1="0" x2="1"><stop stop-color="#e5f4ff"/><stop offset="1" stop-color="#e7fff5"/></linearGradient>
     <linearGradient id="core-light" x1="0" x2="1"><stop stop-color="#eef0ff"/><stop offset="1" stop-color="#f3eaff"/></linearGradient>
@@ -16,7 +16,7 @@
   <rect class="bg" width="1320" height="700" rx="24" fill="none"/>
   <g>
     <rect class="box" x="35" y="35" width="170" height="55" rx="14"/><text class="label" x="120" y="69">People</text>
-    <rect class="entry" x="35" y="135" width="170" height="90" rx="16"/><text class="label" x="120" y="172">Agent Web UI</text><text class="role" x="120" y="198">browser experience</text>
+    <rect class="entry" x="35" y="135" width="170" height="90" rx="16"/><text class="label" x="120" y="172">Graph OS web UI</text><text class="role" x="120" y="198">browser experience</text>
     <rect class="entry" x="225" y="135" width="170" height="90" rx="16"/><text class="label" x="310" y="169">Agent Terminal UI</text><text class="role" x="310" y="198">REST operations</text>
     <rect class="entry" x="415" y="135" width="170" height="90" rx="16"/><text class="label" x="500" y="172">Geniusbot</text><text class="role" x="500" y="198">desktop cockpit</text>
     <rect class="entry" x="605" y="135" width="175" height="90" rx="16"/><text class="label" x="692" y="169">Messaging</text><text class="role" x="692" y="194">chat + voice channels</text><text class="small" x="692" y="214">hosted by Graph OS</text>
