@@ -14,6 +14,8 @@ mod drift;
 mod features;
 #[path = "decision/fit_eval.rs"]
 mod fit_eval;
+#[path = "decision/head_kinds.rs"]
+mod head_kinds;
 #[path = "decision/ladder.rs"]
 mod ladder;
 #[path = "decision/nl.rs"]

@@ -99,6 +99,10 @@ impl BudgetMeter {
         self.budget
     }
 
+    pub(crate) fn narrow(&mut self, requested: FederationBudget) {
+        self.budget = self.budget.narrowed(requested);
+    }
+
     /// Account one round trip before it is sent.
     pub(crate) fn charge_request(&mut self) -> Result<(), String> {
         if self.requests >= self.budget.max_requests {
@@ -137,5 +141,44 @@ impl BudgetMeter {
             return Err(refusal("rows", self.budget.max_rows));
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod exhausted_budget_refusal {
+    //! EG-FEDERATED-QUERY-R073.1 acceptance: "Budget ... cases refuse with typed
+    //! errors." The per-query budget (FQR-04) is enforced uniformly across every
+    //! `ForeignSourceSpec` kind — including the four new operation-bound kinds
+    //! (API/MCP/A2A/GraphQL) added for R073 — so this proves the mechanism itself
+    //! refuses typed, independent of which source kind would have used it.
+    use super::{BudgetMeter, FederationBudget, BUDGET_EXCEEDED};
+
+    #[test]
+    fn a_zero_request_budget_refuses_the_first_round_trip_with_a_typed_error() {
+        let exhausted = FederationBudget {
+            max_requests: 0,
+            ..FederationBudget::default()
+        };
+        let mut meter = BudgetMeter::new(exhausted);
+        let err = meter
+            .charge_request()
+            .expect_err("a zero-request budget must refuse the first round trip");
+        assert!(
+            err.starts_with(BUDGET_EXCEEDED),
+            "budget refusal must carry the typed FEDERATION_BUDGET_EXCEEDED code: {err}"
+        );
+    }
+
+    #[test]
+    fn a_zero_row_budget_refuses_once_any_row_arrives_with_a_typed_error() {
+        let exhausted = FederationBudget {
+            max_rows: 0,
+            ..FederationBudget::default()
+        };
+        let mut meter = BudgetMeter::new(exhausted);
+        let err = meter
+            .charge_rows(1)
+            .expect_err("a zero-row budget must refuse the first row");
+        assert!(err.starts_with(BUDGET_EXCEEDED), "unexpected error: {err}");
     }
 }

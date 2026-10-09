@@ -123,11 +123,25 @@ pub fn statement_to_uql(stmt: &Statement) -> Result<String, UqlPrintError> {
         Body::Dag(nodes) => dag_to_uql(nodes)?,
     };
     let body = format!("{body}{}", annotations_to_uql(&stmt.annotations));
-    Ok(match stmt.mode {
-        Mode::Run => body,
-        Mode::Explain => format!("EXPLAIN {body}"),
-        Mode::Profile => format!("PROFILE {body}"),
-    })
+    let prefix = match stmt.mode {
+        Mode::Run => String::new(),
+        Mode::Explain => "EXPLAIN ".to_string(),
+        Mode::Profile => "PROFILE ".to_string(),
+    };
+    #[cfg(feature = "federation")]
+    let prefix = federation_budget_prefix(prefix, stmt);
+    Ok(format!("{prefix}{body}"))
+}
+
+#[cfg(feature = "federation")]
+fn federation_budget_prefix(prefix: String, stmt: &Statement) -> String {
+    match stmt.federation_budget {
+        Some(budget) => format!(
+            "{prefix}FEDERATION BUDGET (REQUESTS={}, ROWS={}, BIND_KEYS={}, WALL_MS={}) ",
+            budget.max_requests, budget.max_rows, budget.max_bind_keys, budget.max_wall_ms
+        ),
+        None => prefix,
+    }
 }
 
 /// ` WITH PROOF, KNOWLEDGE (a, b)` — empty when the statement has no annotation.

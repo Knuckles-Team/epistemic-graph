@@ -2,6 +2,8 @@
 //! path -- fixed-point kernels, the cross-host golden vector, legality, the
 //! shortlist, encode-once scoring and trajectory-prefix belief.
 
+use std::time::Instant;
+
 use eg_numeric::decision::scorer::fixed::{exp_non_positive, softmax, to_f64, ONE};
 use eg_numeric::decision::scorer::forward::{read, EncodedState, Scorer, EXCLUDED_LOGIT};
 use eg_numeric::decision::scorer::legal::{shortlist, LegalSet};
@@ -10,7 +12,9 @@ use eg_types::decision::digest::digest_text;
 use eg_types::decision::statistical::head::{
     DecisionHeadBody, FeatureStandardisation, FittedRegime, HeadKind, DECISION_HEAD_SCHEMA_VERSION,
 };
-use eg_types::decision::statistical::scorer::OptionAttentionParams;
+use eg_types::decision::statistical::scorer::{
+    OptionAttentionParams, MAX_SCORER_FEATURES, MAX_SCORER_SHORTLIST, MAX_SCORER_WIDTH,
+};
 use eg_types::decision::{QuantScaleTag, QuantisedValue};
 
 use super::common::{bounded, SCHEMA_DIGEST};
@@ -243,4 +247,178 @@ fn trajectory_belief_reads_one_state_over_time() {
     let reversed = [prefixes[2], prefixes[0]];
     let refusal = belief(&head, &reversed, OPTIONS).expect_err("time must increase");
     assert_eq!(refusal.code, "PARAMETER_INVALID");
+}
+
+/// A head shaped at the largest dimensions `OptionAttentionParams::check`
+/// ever admits: `MAX_SCORER_WIDTH`, `MAX_SCORER_FEATURES`, `MAX_SCORER_SHORTLIST`.
+fn largest_legal_head() -> DecisionHeadBody {
+    let width = MAX_SCORER_WIDTH;
+    let features = MAX_SCORER_FEATURES;
+    let spec = FeatureStandardisation {
+        center: q(ONE / 4),
+        scale: q(2 * ONE),
+        lower: q(-8 * ONE),
+        upper: q(8 * ONE),
+    };
+    DecisionHeadBody {
+        schema_version: DECISION_HEAD_SCHEMA_VERSION,
+        kind: HeadKind::OptionAttention,
+        regime: FittedRegime::FullLabel,
+        feature_schema_digest: SCHEMA_DIGEST.to_string(),
+        standardisation: bounded(vec![spec; features]),
+        weights: bounded(pattern(features, 0).into_iter().map(q).collect()),
+        calibration: None,
+        training_records_digest: "sha256:golden".to_string(),
+        n_training: 0,
+        synthetic: true,
+        scorer: Some(Box::new(OptionAttentionParams {
+            width: width as u8,
+            shortlist: MAX_SCORER_SHORTLIST as u8,
+            embed: bounded(pattern(features * width, 1)),
+            embed_bias: bounded(pattern(width, 2)),
+            query: bounded(pattern(width * width, 3)),
+            key: bounded(pattern(width * width, 4)),
+            value: bounded(pattern(width * width, 5)),
+            self_weight: bounded(pattern(width, 6)),
+            context_weight: bounded(pattern(width, 7)),
+        })),
+    }
+}
+
+/// The total scalar parameter count of a head's scorer, the way its wire
+/// bytes actually lay it out (EH-291/EH-300). `weights` is the linear head's
+/// own parameter vector, read by every head kind; `scorer` is additional.
+fn parameter_count(head: &DecisionHeadBody) -> usize {
+    head.weights.len()
+        + head.scorer.as_ref().map_or(0, |p| {
+            p.embed.len()
+                + p.embed_bias.len()
+                + p.query.len()
+                + p.key.len()
+                + p.value.len()
+                + p.self_weight.len()
+                + p.context_weight.len()
+        })
+}
+
+/// EG-DECISION-ENGINE-R090: the resident scorer is a small compiled-in Rust
+/// struct, not a GPU or sidecar model. The largest shape
+/// `OptionAttentionParams::check` ever admits still holds far under the
+/// declared "a few megabytes" footprint, and a served reading over the
+/// largest `Decide` batch (`MAX_DECIDE_RECORDS`) stays at a small fraction of
+/// the declared single-digit-millisecond CPU budget.
+#[test]
+fn the_largest_legal_scorer_stays_inside_its_resident_cpu_and_memory_budget() {
+    const UNIVERSE: usize = 256; // eg_types::decision::statistical::MAX_DECIDE_RECORDS
+    let head = largest_legal_head();
+
+    let params = parameter_count(&head);
+    let footprint_bytes = params * std::mem::size_of::<i64>();
+    assert!(
+        params < 700_000,
+        "the largest legal scorer holds {params} parameters, past the declared budget"
+    );
+    assert!(
+        footprint_bytes < 2 * 1024 * 1024,
+        "the largest legal scorer's resident footprint is {footprint_bytes} bytes, past a few megabytes"
+    );
+
+    let rows: Vec<Vec<i64>> = (0..UNIVERSE)
+        .map(|r| {
+            (0..MAX_SCORER_FEATURES)
+                .map(|f| (((r * 5 + f * 3) % 7) as i64 - 3) << 28)
+                .collect()
+        })
+        .collect();
+    let views: Vec<&[i64]> = rows.iter().map(Vec::as_slice).collect();
+    let legal = LegalSet::derive(UNIVERSE, &[]);
+
+    // Warm the allocator once, then measure the compiled scorer's own
+    // per-decision CPU cost: encode plus every question's attention pass.
+    read(&head, &views, &legal)
+        .expect("reads")
+        .expect("in distribution");
+    const ITERATIONS: u32 = 50;
+    let started = Instant::now();
+    for _ in 0..ITERATIONS {
+        read(&head, &views, &legal)
+            .expect("reads")
+            .expect("in distribution");
+    }
+    let per_decision = started.elapsed() / ITERATIONS;
+    assert!(
+        per_decision.as_millis() < 10,
+        "the largest legal scorer took {per_decision:?} per decision, past single-digit milliseconds"
+    );
+}
+
+/// EG-DECISION-ENGINE-R083: the scorer reads each option's STRUCTURED
+/// feature row only (EH-292) -- never a serialized text label -- so its
+/// per-option width is the feature schema's fixed cardinality. An option
+/// count this large would overrun any plausible text-token budget if an
+/// option were instead described to a model as text; scored from structured
+/// facts, width never depends on option count or label length, and scoring
+/// still succeeds.
+#[test]
+fn a_large_option_set_scores_because_width_is_bounded_by_cardinality_not_text() {
+    const LARGE_OPTION_COUNT: usize = 4_000;
+    // A generous per-option label estimate (a realistic tool/agent summary)
+    // and a common chars-per-token ratio, so the contrast is not an
+    // arbitrarily chosen number.
+    const NOTIONAL_LABEL_CHARS: usize = 120;
+    const CHARS_PER_TOKEN: usize = 4;
+    const PLAUSIBLE_TOKEN_BUDGET: usize = 128_000;
+    let notional_text_tokens = (LARGE_OPTION_COUNT * NOTIONAL_LABEL_CHARS) / CHARS_PER_TOKEN;
+    assert!(
+        notional_text_tokens > PLAUSIBLE_TOKEN_BUDGET,
+        "fixture is not large enough to make the point: {notional_text_tokens} notional tokens"
+    );
+
+    let head = head(8);
+    let rows: Vec<Vec<i64>> = (0..LARGE_OPTION_COUNT)
+        .map(|r| {
+            (0..FEATURES)
+                .map(|f| (((r * 11 + f * 5) % 13) as i64 - 6) << 29)
+                .collect()
+        })
+        .collect();
+    let views: Vec<&[i64]> = rows.iter().map(Vec::as_slice).collect();
+    let legal = LegalSet::derive(LARGE_OPTION_COUNT, &[]);
+
+    let scoring = read(&head, &views, &legal)
+        .expect("reads")
+        .expect("in distribution");
+
+    // Every legal option's standardised row -- all `LARGE_OPTION_COUNT` of
+    // them -- is exactly `FEATURES` wide: the schema's declared cardinality,
+    // never a function of option count or any notional label length.
+    let legal_rows: Vec<&Vec<i64>> = scoring
+        .standardised
+        .iter()
+        .filter(|row| !row.is_empty())
+        .collect();
+    assert_eq!(legal_rows.len(), LARGE_OPTION_COUNT);
+    for row in legal_rows {
+        assert_eq!(
+            row.len(),
+            FEATURES,
+            "feature width must equal the schema's fixed cardinality"
+        );
+    }
+
+    // The shortlist still bounds how many of those legal options are scored,
+    // independent of how many were legal. A scored option's logit is never
+    // `EXCLUDED_LOGIT`; this count is exact (unlike a probability, it is
+    // never at risk of rounding to zero).
+    assert_eq!(scoring.probabilities.len(), LARGE_OPTION_COUNT);
+    assert_eq!(scoring.logits.len(), LARGE_OPTION_COUNT);
+    let scored_count = scoring
+        .logits
+        .iter()
+        .filter(|&&logit| logit != EXCLUDED_LOGIT)
+        .count();
+    assert_eq!(
+        scored_count,
+        usize::from(head.scorer.as_ref().unwrap().shortlist)
+    );
 }

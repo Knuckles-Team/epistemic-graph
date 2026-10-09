@@ -80,6 +80,163 @@ pub fn plan_and_execute_opt(
     }
 }
 
+// ── Disclosed, typed NL→UQL results (CONCEPT:EG-KG.query.core-query-input, EG-FEDERATED-QUERY-R058) ──────
+//
+// A natural-language request is never query authority itself: it is the configured
+// `NlPlanner` that translates it to UQL TEXT, and it is the ENGINE that parses and runs
+// that text — identically to any caller-written query. [`NlQueryResult`] makes that
+// disclosure a typed guarantee: every result (executed or plan-only) carries the exact
+// UQL alongside any data, so a caller never has to trust an opaque NL answer. A planner
+// answer that is over budget or fails to parse is refused with a typed [`NlQueryError`]
+// rather than silently run.
+
+/// A refusal of a planner's output, BEFORE it is treated as query authority
+/// (EG-FEDERATED-QUERY-R058). Every variant is a clean, typed error — never a panic and
+/// never a silent fallback to running unparsed/over-budget text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NlQueryError {
+    /// The planner itself failed (network / model / empty output) — mirrors
+    /// [`NlPlanner::plan`]'s `Err`.
+    Planner(String),
+    /// The planner's produced UQL text exceeded the configured [`NlQueryBudget`] and was
+    /// refused BEFORE it was ever parsed or executed.
+    BudgetExceeded {
+        /// The configured limit (characters) that was exceeded.
+        limit: usize,
+        /// The actual length (characters) of the refused text.
+        actual: usize,
+    },
+    /// The planner's produced text does not parse as UQL under the SAME grammar a
+    /// caller-written query uses. `query` is the refused text; `message` is the
+    /// caret-annotated parse error.
+    ParseFailed {
+        /// The refused UQL candidate text.
+        query: String,
+        /// The caret-annotated parse error.
+        message: String,
+    },
+    /// The produced UQL parsed but failed during execution.
+    Execution {
+        /// The UQL that was executed when it failed.
+        query: String,
+        /// The execution error.
+        message: String,
+    },
+}
+
+impl std::fmt::Display for NlQueryError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Planner(msg) => write!(f, "nl-query: planner failed: {msg}"),
+            Self::BudgetExceeded { limit, actual } => write!(
+                f,
+                "nl-query: planner output refused: {actual} chars exceeds budget of {limit}"
+            ),
+            Self::ParseFailed { message, .. } => write!(f, "nl-query: {message}"),
+            Self::Execution { message, .. } => write!(f, "nl-query: execution failed: {message}"),
+        }
+    }
+}
+
+impl std::error::Error for NlQueryError {}
+
+/// A hard cap on a planner's produced UQL text, enforced BEFORE parsing or execution
+/// (EG-FEDERATED-QUERY-R058). Guards against a runaway or hostile planner answer
+/// consuming parser/execution resources.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NlQueryBudget {
+    /// Maximum length, in characters, of the planner's produced UQL text.
+    pub max_uql_len: usize,
+}
+
+impl Default for NlQueryBudget {
+    /// A generous but bounded default: long enough for any realistic hand-written-style
+    /// UQL statement, short enough to refuse a runaway/hostile planner answer.
+    fn default() -> Self {
+        Self { max_uql_len: 8192 }
+    }
+}
+
+/// Every natural-language result (EG-FEDERATED-QUERY-R058): carries the EXACT UQL text —
+/// executed, or, in plan-only mode, the unexecuted candidate — alongside any data.
+/// `rows` is `None` exactly in plan-only mode, so plan-only mode is a property of the
+/// typed VALUE, not just of the call site that produced it.
+#[derive(Debug, Clone)]
+pub struct NlQueryResult {
+    /// The exact UQL text: executed (normal mode), or the unexecuted candidate
+    /// (plan-only mode).
+    pub uql: String,
+    /// `Some(rows)` when `uql` was executed; `None` in plan-only mode, when no data was
+    /// read at all.
+    pub rows: Option<RowSet>,
+}
+
+impl NlQueryResult {
+    /// `true` when this is an unexecuted plan-only candidate: no data was read.
+    pub fn is_plan_only(&self) -> bool {
+        self.rows.is_none()
+    }
+}
+
+/// Plan `nl` into UQL via `planner`, enforcing `budget` and parsing with the SAME grammar
+/// [`crate::uql::parse`] uses for any caller-written query — but never execute it
+/// (EG-FEDERATED-QUERY-R058). Returns the typed candidate so a caller can review the exact
+/// UQL before it ever touches data. Notably, this function takes no [`PlanCtx`]/view at
+/// all: there is no data for it to read even by accident.
+pub fn plan_only(
+    planner: &dyn NlPlanner,
+    nl: &str,
+    schema_hint: &str,
+    budget: NlQueryBudget,
+) -> Result<NlQueryResult, NlQueryError> {
+    let uql = planner.plan(nl, schema_hint).map_err(NlQueryError::Planner)?;
+    enforce_budget(&uql, budget)?;
+    crate::uql::parse(&uql).map_err(|e| NlQueryError::ParseFailed {
+        message: e.render(&uql),
+        query: uql.clone(),
+    })?;
+    Ok(NlQueryResult { uql, rows: None })
+}
+
+/// The executing counterpart of [`plan_only`]: plan + budget + parse exactly as
+/// [`plan_only`] does, then execute through the engine's EXISTING deterministic pipeline,
+/// returning the EXECUTED UQL alongside the rows (EG-FEDERATED-QUERY-R058 — "every
+/// natural-language result carries the exact UQL that was executed").
+pub fn plan_and_execute_typed(
+    planner: &dyn NlPlanner,
+    nl: &str,
+    schema_hint: &str,
+    budget: NlQueryBudget,
+    ctx: &PlanCtx,
+) -> Result<NlQueryResult, NlQueryError> {
+    let uql = planner.plan(nl, schema_hint).map_err(NlQueryError::Planner)?;
+    enforce_budget(&uql, budget)?;
+    let plan = crate::uql::parse(&uql).map_err(|e| NlQueryError::ParseFailed {
+        message: e.render(&uql),
+        query: uql.clone(),
+    })?;
+    let rows = execute(&plan, ctx).map_err(|message| NlQueryError::Execution {
+        query: uql.clone(),
+        message,
+    })?;
+    Ok(NlQueryResult {
+        uql,
+        rows: Some(rows),
+    })
+}
+
+/// Refuse `uql` BEFORE it is parsed or executed when it exceeds `budget` (character count).
+fn enforce_budget(uql: &str, budget: NlQueryBudget) -> Result<(), NlQueryError> {
+    let actual = uql.chars().count();
+    if actual > budget.max_uql_len {
+        return Err(NlQueryError::BudgetExceeded {
+            limit: budget.max_uql_len,
+            actual,
+        });
+    }
+    Ok(())
+}
+
 // ── The concrete standalone planner (CONCEPT:EG-KG.query.fence-stripper, feature `nl-query`) ─────────────
 
 /// How client credentials are presented AT the OAuth2 token endpoint (RFC 6749 §2.3.1).
@@ -447,6 +604,96 @@ mod tests {
         fn plan(&self, _nl: &str, _hint: &str) -> Result<String, String> {
             Ok(self.canned.clone())
         }
+    }
+
+    // ── EG-FEDERATED-QUERY-R058.1: the typed NL→UQL disclosure model ──────────────────
+
+    /// Plan-only mode (EG-FEDERATED-QUERY-R058) returns the typed candidate UQL without
+    /// ever executing it. [`plan_only`] takes no `PlanCtx`/view at all, so this is a
+    /// structural guarantee, not just an assertion: there is no data for it to read even
+    /// by accident.
+    #[test]
+    fn r058_plan_only_returns_candidate_without_executing() {
+        let planner = MockPlanner {
+            canned: "MATCH (:Doc) WHERE year > 2024 |> LIMIT 5".into(),
+        };
+        let result = plan_only(&planner, "recent docs", "labels: Doc", NlQueryBudget::default())
+            .expect("valid candidate must be accepted");
+        assert_eq!(result.uql, "MATCH (:Doc) WHERE year > 2024 |> LIMIT 5");
+        assert!(result.is_plan_only());
+        assert!(
+            result.rows.is_none(),
+            "plan-only mode must never carry data"
+        );
+    }
+
+    /// The executed result carries the EXACT UQL that ran, alongside the rows
+    /// (EG-FEDERATED-QUERY-R058).
+    #[test]
+    fn r058_executed_result_carries_the_exact_uql_that_ran() {
+        let fx = crate::fixture::build();
+        let ctx = PlanCtx::new(&fx.view, &fx.semantic);
+        let planner = MockPlanner {
+            canned: "MATCH (:Doc) WHERE year > 2024 |> LIMIT 5".into(),
+        };
+        let result =
+            plan_and_execute_typed(&planner, "recent docs", "", NlQueryBudget::default(), &ctx)
+                .expect("plan+execute ok");
+        assert_eq!(result.uql, "MATCH (:Doc) WHERE year > 2024 |> LIMIT 5");
+        assert!(!result.is_plan_only());
+        let rows = result.rows.expect("executed result must carry rows");
+        assert!(rows.id_set().contains("d1"));
+    }
+
+    /// Planner output that fails to parse is refused with a typed `ParseFailed` error —
+    /// never silently run and never a panic (EG-FEDERATED-QUERY-R058).
+    #[test]
+    fn r058_malformed_planner_output_is_refused_not_executed() {
+        let fx = crate::fixture::build();
+        let ctx = PlanCtx::new(&fx.view, &fx.semantic);
+        let planner = MockPlanner {
+            canned: "this is not a query".into(),
+        };
+        let err = plan_and_execute_typed(&planner, "x", "", NlQueryBudget::default(), &ctx)
+            .expect_err("malformed UQL must be refused");
+        match err {
+            NlQueryError::ParseFailed { query, .. } => {
+                assert_eq!(query, "this is not a query");
+            }
+            other => panic!("expected ParseFailed, got {other:?}"),
+        }
+
+        // The plan-only path refuses identically, before ever touching a view.
+        let err = plan_only(&planner, "x", "", NlQueryBudget::default())
+            .expect_err("malformed UQL must be refused in plan-only mode too");
+        assert!(matches!(err, NlQueryError::ParseFailed { .. }));
+    }
+
+    /// Planner output that exceeds the configured budget is refused with a typed
+    /// `BudgetExceeded` error BEFORE it is ever parsed or executed
+    /// (EG-FEDERATED-QUERY-R058).
+    #[test]
+    fn r058_over_budget_candidate_is_refused_before_parse_or_execute() {
+        let fx = crate::fixture::build();
+        let ctx = PlanCtx::new(&fx.view, &fx.semantic);
+        // Syntactically valid UQL, but padded past a tiny configured budget.
+        let huge = format!("MATCH (:Doc) |> LIMIT 1{}", " ".repeat(10_000));
+        let planner = MockPlanner { canned: huge };
+        let budget = NlQueryBudget { max_uql_len: 64 };
+
+        let err = plan_and_execute_typed(&planner, "x", "", budget, &ctx)
+            .expect_err("over-budget output must be refused");
+        assert!(matches!(
+            err,
+            NlQueryError::BudgetExceeded { limit: 64, .. }
+        ));
+
+        let err = plan_only(&planner, "x", "", budget)
+            .expect_err("over-budget output must be refused in plan-only mode too");
+        assert!(matches!(
+            err,
+            NlQueryError::BudgetExceeded { limit: 64, .. }
+        ));
     }
 
     /// CONCEPT:EG-KG.query.core-query-input — NL → (mock planner) → canned UQL → EXISTING uql::parse + execute

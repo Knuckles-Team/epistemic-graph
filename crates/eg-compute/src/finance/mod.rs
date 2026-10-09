@@ -13,6 +13,8 @@
 pub mod derivatives;
 pub mod exchange;
 pub mod forensic;
+pub mod lot_accounting;
+pub mod leverage;
 pub mod market;
 pub mod optimizer;
 pub mod quant;
@@ -21,3 +23,4 @@ pub mod risk;
 pub mod signal_models;
 pub mod signals;
 pub mod statespace;
+pub mod strategy;

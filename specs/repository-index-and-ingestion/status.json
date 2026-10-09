@@ -136,8 +136,16 @@
     {
       "id": "EG-REPO-INGEST-R008",
       "title": "Oversized batches return a stable code for retry",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "504e3109b2b0dc97a231a5558c247431e2c223ff",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/504e3109b2b0dc97a231a5558c247431e2c223ff",
+          "description": "EG-REPO-INGEST-R008 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-REPO-INGEST-R009",

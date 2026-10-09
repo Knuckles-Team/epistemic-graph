@@ -72,6 +72,31 @@ async fn one_changed_tool_revises_only_that_tool() {
     );
 }
 
+/// EG-DECISION-ENGINE-R075: a component id is minted from an entry's
+/// connector, kind and name, not its URI, so two entries of the same kind and
+/// name collide even when their URIs differ. Import must refuse the pack
+/// before any state change, naming `DuplicateComponentId`.
+#[tokio::test]
+async fn two_entries_minting_the_same_component_id_are_rejected() {
+    let served = Served::new();
+    bind(&served, CONNECTOR, ADMIN).await;
+    let first = tool(CONNECTOR, "search", "the first entry to mint this id");
+    let mut second = tool(CONNECTOR, "search", "a second entry minting the same id");
+    second.uri = format!("tool://{CONNECTOR}/search-alias");
+    let pack = build_pack(CONNECTOR, &[first, second]);
+    let result: PackImportResult = ok("Import", import(&served, &pack, None).await);
+    let violations = match result {
+        PackImportResult::Rejected { violations, .. } => violations,
+        other => panic!("import of a duplicate-id pack must be rejected, got {other:?}"),
+    };
+    assert!(
+        violations
+            .iter()
+            .any(|violation| violation.code == PackViolationCode::DuplicateComponentId),
+        "violations must name DuplicateComponentId, got {violations:?}"
+    );
+}
+
 #[tokio::test]
 async fn a_package_release_with_identical_content_is_unchanged() {
     let served = Served::new();

@@ -2032,6 +2032,7 @@ mod tests {
         ("RegisterIdentity", "native rbac.redb MutationBatch shares the RBAC snapshot WTX"),
         ("RbacAdmin", "native rbac.redb MutationBatch shares the RBAC snapshot WTX"),
         ("RbacElevation", "EH-404: native rbac.redb MutationBatch; the elevation ledger is part of the RBAC policy image and shares its snapshot WTX"),
+        ("GovernedChange", "EH-560: native rbac.redb MutationBatch; the governed ledger is part of the RBAC policy image and shares its snapshot WTX"),
         ("Identity", "native rbac.redb MutationBatch; the identity store and its RBAC projection are part of the RBAC policy image and share its snapshot WTX"),
         ("AuditAppend", "self-admits a maintenance group directly against the named graph's own shard (shard::admit_maintenance + ShardWrite), writing the audit-chain entry and its request-id/op idempotency row in one WTX outside the generic (ctx, plan, method, apply) shape, exactly like EdgeIndex's tenant-owner maintenance writes above"),
         ("RegisterForeignSource", "opaque prepared/committed session-control MutationBatch"),
@@ -2377,5 +2378,80 @@ mod tests {
             }),
             ClusterMutationRoute::ReadOnly,
         );
+    }
+
+    /// EG-TYPED-PACKS-R012: `ConnectorPack` and its four agent-layer write
+    /// methods -- the exact set named in the requirement, not the broader
+    /// decision/outbox half of [`LOCAL_ONLY_METHODS`] -- are `LocalOnly` and
+    /// refuse in clustered mode until a separately specified clustered writer
+    /// exists. This is the method-inventory test the requirement calls for:
+    /// it enumerates exactly these five by name and proves each one routes
+    /// `LocalOnly`, the classification `propose_native_mutation` consults
+    /// to refuse with `LOCAL_ONLY_CLUSTER_REFUSAL` before placement, proposal,
+    /// saga or store -- the same classifier
+    /// `source_batch_is_a_local_only_cluster_route` already relies on as its
+    /// clustered-mode proof for `SqlSourceBatch`.
+    #[test]
+    fn pack_and_agent_layer_write_methods_are_the_local_only_five() {
+        let methods: [(&str, Method); 5] = [
+            (
+                "ConnectorPack",
+                Method::ConnectorPack {
+                    op: Box::new(eg_types::connector_pack::ConnectorPackOp::Status {
+                        request: eg_types::connector_pack::ConnectorPackStatusRequest {
+                            tenant_id: "tenant-a".to_string(),
+                            connector: eg_types::test_support::contract_wave::pack::connector(),
+                        },
+                    }),
+                },
+            ),
+            (
+                "AgentComponent",
+                Method::AgentComponent {
+                    op: eg_types::agent_component::AgentComponentOp::Current {
+                        tenant_id: "tenant-a".to_string(),
+                        component_id: "component-a".to_string(),
+                    },
+                },
+            ),
+            (
+                "AgentGraph",
+                Method::AgentGraph {
+                    op: eg_types::agent_graph::AgentGraphOp::Current {
+                        tenant_id: "tenant-a".to_string(),
+                        graph_id: "graph-a".to_string(),
+                    },
+                },
+            ),
+            (
+                "AgentLibrary",
+                Method::AgentLibrary {
+                    op: eg_types::agent_library::AgentLibraryOp::Current {
+                        tenant_id: "tenant-a".to_string(),
+                        agent_id: "agent-a".to_string(),
+                    },
+                },
+            ),
+            (
+                "AgentTemplate",
+                Method::AgentTemplate {
+                    op: eg_types::agent_template::AgentTemplateOp::Current {
+                        tenant_id: "tenant-a".to_string(),
+                        template_id: "template-a".to_string(),
+                    },
+                },
+            ),
+        ];
+        for (name, method) in &methods {
+            assert_eq!(
+                cluster_mutation_route(method),
+                ClusterMutationRoute::LocalOnly,
+                "{name} must route LocalOnly"
+            );
+            assert!(
+                plan::LOCAL_ONLY_METHODS.contains(name),
+                "{name} must be named in LOCAL_ONLY_METHODS"
+            );
+        }
     }
 }

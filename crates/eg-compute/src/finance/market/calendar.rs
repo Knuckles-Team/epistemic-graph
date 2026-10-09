@@ -8,7 +8,7 @@
 //! session's close. No time-zone database is read, so a calendar replays exactly.
 
 use super::{
-    ExchangeCalendar, MarketError, MarketResult, Timeframe, TradingCalendar, CALENDAR,
+    ExchangeCalendar, MarketError, MarketResult, Session, Timeframe, TradingCalendar, CALENDAR,
     INVALID_REQUEST,
 };
 
@@ -99,7 +99,22 @@ pub fn bucket(calendar: &TradingCalendar, timeframe: Timeframe, ts: i64) -> Mark
         TradingCalendar::Utc24x7 => utc_bucket(timeframe, ts),
         TradingCalendar::Exchange { calendar } => {
             validate_exchange(calendar)?;
-            Session::new(calendar).bucket(timeframe, ts)
+            CalendarSession::new(calendar).bucket(timeframe, ts)
+        }
+    }
+}
+
+/// The session `ts` was observed in. Continuous (`Utc24x7`) trading is always
+/// `Regular`; a malformed exchange calendar classifies as `Unknown` rather
+/// than guessing.
+pub fn session_at(calendar: &TradingCalendar, ts: i64) -> Session {
+    match calendar {
+        TradingCalendar::Utc24x7 => Session::Regular,
+        TradingCalendar::Exchange { calendar } => {
+            if validate_exchange(calendar).is_err() {
+                return Session::Unknown;
+            }
+            CalendarSession::new(calendar).session_kind(ts)
         }
     }
 }
@@ -153,12 +168,12 @@ pub fn validate_exchange(calendar: &ExchangeCalendar) -> MarketResult<()> {
     Ok(())
 }
 
-/// Session arithmetic over one validated exchange calendar.
-struct Session<'a> {
+/// Session-bucket arithmetic over one validated exchange calendar.
+struct CalendarSession<'a> {
     calendar: &'a ExchangeCalendar,
 }
 
-impl<'a> Session<'a> {
+impl<'a> CalendarSession<'a> {
     fn new(calendar: &'a ExchangeCalendar) -> Self {
         Self { calendar }
     }
@@ -201,6 +216,43 @@ impl<'a> Session<'a> {
             start: self.utc_of_local(midnight + open),
             end: self.utc_of_local(midnight + close),
         }
+    }
+
+    /// The pre-market span of `day`, if the calendar has one: `[pre-open, session-open)`.
+    fn pre_market(&self, day: i64) -> Option<Bucket> {
+        let open_minute = self.calendar.pre_market_open_minute?;
+        let midnight = day * NS_PER_DAY;
+        let start = self.utc_of_local(midnight + i64::from(open_minute) * NS_PER_MINUTE);
+        let end = self.session(day).start;
+        (start < end).then_some(Bucket { start, end })
+    }
+
+    /// The post-market span of `day`, if the calendar has one: `[session-close, post-close)`.
+    fn post_market(&self, day: i64) -> Option<Bucket> {
+        let close_minute = self.calendar.post_market_close_minute?;
+        let midnight = day * NS_PER_DAY;
+        let start = self.session(day).end;
+        let end = self.utc_of_local(midnight + i64::from(close_minute) * NS_PER_MINUTE);
+        (end > start).then_some(Bucket { start, end })
+    }
+
+    /// Classify `ts` as regular, pre-, post-market or closed on this calendar.
+    fn session_kind(&self, ts: i64) -> Session {
+        let day = (ts + self.offset_ns(ts)).div_euclid(NS_PER_DAY);
+        if !self.is_trading_day(day) {
+            return Session::Closed;
+        }
+        let regular = self.session(day);
+        if ts >= regular.start && ts < regular.end {
+            return Session::Regular;
+        }
+        if self.pre_market(day).is_some_and(|b| ts >= b.start && ts < b.end) {
+            return Session::Pre;
+        }
+        if self.post_market(day).is_some_and(|b| ts >= b.start && ts < b.end) {
+            return Session::Post;
+        }
+        Session::Closed
     }
 
     /// The first session's open and the last session's close over `[first, next)`.
@@ -277,6 +329,8 @@ mod tests {
                     day: days_from_civil(2026, 11, 27) as i32,
                     close_minute: 780,
                 }],
+                pre_market_open_minute: Some(240),
+                post_market_close_minute: Some(1_200),
             },
         }
     }
@@ -408,5 +462,40 @@ mod tests {
         assert!(validate_exchange(&inverted).is_err());
         let zero = bucket(&TradingCalendar::Utc24x7, Timeframe::Minutes { n: 0 }, 0);
         assert_eq!(zero.unwrap_err().code, INVALID_REQUEST);
+    }
+
+    #[test]
+    fn continuous_calendars_are_always_the_regular_session() {
+        assert_eq!(
+            session_at(&TradingCalendar::Utc24x7, at(2026, 9, 24, 13, 47)),
+            Session::Regular
+        );
+    }
+
+    #[test]
+    fn exchange_sessions_classify_pre_regular_post_closed_and_early_close() {
+        let cal = nyse();
+        // EDT regular session (13:30-20:00 UTC that day).
+        assert_eq!(
+            session_at(&cal, at(2026, 10, 30, 15, 0)),
+            Session::Regular
+        );
+        // EST pre-market: 06:00 local (04:00-09:30 local pre-market span).
+        assert_eq!(session_at(&cal, at(2026, 11, 2, 11, 0)), Session::Pre);
+        // EST before the pre-market span opens.
+        assert_eq!(session_at(&cal, at(2026, 11, 2, 7, 0)), Session::Closed);
+        // EST regular session.
+        assert_eq!(session_at(&cal, at(2026, 11, 2, 15, 0)), Session::Regular);
+        // Thanksgiving holiday: closed all day regardless of time of day.
+        assert_eq!(session_at(&cal, at(2026, 11, 26, 15, 0)), Session::Closed);
+        // Weekend: closed.
+        assert_eq!(session_at(&cal, at(2026, 11, 28, 15, 0)), Session::Closed);
+        // Early-close day: still regular just before the 13:00-local early close.
+        assert_eq!(
+            session_at(&cal, at(2026, 11, 27, 17, 45)),
+            Session::Regular
+        );
+        // Early-close day: post-market right after the early close.
+        assert_eq!(session_at(&cal, at(2026, 11, 27, 19, 0)), Session::Post);
     }
 }

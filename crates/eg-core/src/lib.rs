@@ -67,6 +67,11 @@ pub mod interrupt;
 pub mod isolation;
 /// CONCEPT:EG-KG.compute.jsonpath-evaluator — pure-Rust JSONPath evaluator + Postgres-`@>` containment.
 pub mod jsonpath;
+/// CONCEPT:EG-KG.ontology.codegen-from-rust-vocabulary — deterministic ontology/SHACL-shape
+/// text generated from a typed Rust vocabulary, with a byte-equality regeneration test
+/// (EG-TYPED-PACKS-R090.1). The canonical ontology/shape corpus itself is owned by the
+/// typed vocabulary, not hand-edited Turtle.
+pub mod ontology_codegen;
 /// CONCEPT:EG-KG.storage.path-index-store — durable JSONPath index persistence. The dep-free
 /// `PathIndexPersistence` seam + in-memory default are always compiled; the
 /// redb-backed `RedbPathIndexStore` is gated behind the `path-persist` feature.

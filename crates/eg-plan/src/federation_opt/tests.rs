@@ -344,6 +344,7 @@ impl Scripted {
             identity: Identity {
                 label: "scripted".into(),
                 fingerprint: fingerprint(tag.as_bytes()),
+                cache_name: None,
             },
         }
     }
@@ -434,6 +435,7 @@ impl Concurrent {
             identity: Identity {
                 label: "concurrent".into(),
                 fingerprint: fingerprint(tag.as_bytes()),
+                cache_name: None,
             },
             active: AtomicUsize::new(0),
             peak: AtomicUsize::new(0),

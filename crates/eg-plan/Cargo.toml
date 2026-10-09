@@ -97,6 +97,7 @@ federation-sql = [
     "dep:tokio",
     "dep:futures-util",
     "dep:sqlparser",
+    "dep:url",
 ]
 # Spatial / geospatial modality (CONCEPT:EG-083): the `Op::SpatialScan` SOURCE op (an
 # eg-geo packed-Hilbert-R-tree bbox scan over a layer's geometries) + the spatial
@@ -414,6 +415,7 @@ futures-util = { version = "0.3", default-features = false, features = ["std"], 
 # The parser is already present in full/query builds through DataFusion; naming it here
 # makes the security contract direct rather than relying on a transitive dependency.
 sqlparser = { version = "0.62", features = ["visitor"], optional = true }
+url = { version = "2", optional = true }
 # Variable-length-hop TRAVERSE BFS over GraphView's StableDiGraph (EdgeRef). Already
 # linked transitively via eg-core; pin the same minor. NOT a new heavy dep, and the
 # graph leg is dep-free (ships in a default/Pi build).

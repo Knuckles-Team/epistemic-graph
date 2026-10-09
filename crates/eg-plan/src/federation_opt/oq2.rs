@@ -83,6 +83,10 @@ pub(crate) fn kind(spec: &ForeignSourceSpec) -> Option<&'static str> {
             ..
         } => Some("falkordb"),
         ForeignSourceSpec::SparkBatch { .. } => Some("spark-batch"),
+        ForeignSourceSpec::Api { .. } => Some("api"),
+        ForeignSourceSpec::Mcp { .. } => Some("mcp"),
+        ForeignSourceSpec::A2a { .. } => Some("a2a"),
+        ForeignSourceSpec::GraphQl { .. } => Some("graphql"),
         _ => None,
     }
 }

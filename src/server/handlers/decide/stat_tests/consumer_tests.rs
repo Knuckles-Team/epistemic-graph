@@ -282,6 +282,43 @@ async fn cost_routing_without_l5_accounting_abstains_naming_the_fact() {
     );
 }
 
+/// EG-DECISION-ENGINE-R030: an ingestion-lane decision refuses a declared
+/// option outside the fixed lane registry, through the real served `Decide`
+/// path (`handle_decide`, the same handler `Method::Decide` dispatches to;
+/// see `src/server/dispatch/router/decision_plane.rs`) -- not just the
+/// typed request's own unit check. The refusal is structural
+/// (`candidates::declared_candidates`), so it happens before the feature
+/// schema is ever resolved; this request's schema pin is intentionally
+/// unpublished.
+#[tokio::test]
+async fn an_unregistered_ingestion_lane_is_refused_through_decide() {
+    let h = Harness::new().await;
+    let unresolved_schema = ComponentDependency {
+        component_id: "schema:unused".to_string(),
+        kind: AgentComponentKind::FeatureSchema,
+        definition_digest: format!("sha256:{}", "0".repeat(64)),
+    };
+    let request = DecideRequest {
+        tenant_id: TENANT.to_string(),
+        question: StatisticalQuestion {
+            question_id: "au.ingestion-lane".to_string(),
+            kind: QuestionKind::IngestionLane,
+            safety: QuestionSafety::Ordinary,
+        },
+        candidates: CandidateSource::Declared {
+            options: BoundedVec::new(vec![declared("ingestion-lane:glacial", 0)]).unwrap(),
+        },
+        feature_schema: unresolved_schema,
+        head: None,
+        policy: DecisionPolicyRef::Default,
+        params: BoundedVec::default(),
+        max_records: None,
+        belief_as_of: BoundedVec::default(),
+    };
+    let error = decide(&h, request).await.expect_err("must be refused");
+    assert!(error.contains("UNSUPPORTED_INGESTION_LANE"), "got: {error}");
+}
+
 /// Independent evaluations of the committed assembly `record_id` by "evaluator",
 /// one per `outcomes` entry (EH-012; reused by the EH-523 slate split tests).
 pub(super) async fn evaluate_assembly(

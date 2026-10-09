@@ -7,11 +7,11 @@
 # violation, not a new category.
 
 :FinancialInstrumentShape a sh:NodeShape ;
-    sh:description "An instrument has at most one asset class, from the closed vocabulary." ;
+    sh:description "An instrument has at most one asset class, from the closed vocabulary. stock, forex and commodity are deprecated migration aliases of equity, fx_pair and commodity_spot." ;
     sh:name "Financial Instrument Shape" ;
-    sh:property [ sh:in ( "crypto" "stock" "etf" "fund" "commodity" "forex" "index" "bond" ) ;
+    sh:property [ sh:in ( "equity" "etf" "fund" "index" "fx_pair" "commodity_spot" "commodity_future" "crypto" "real_estate" "cash" "stock" "forex" "commodity" ) ;
             sh:maxCount 1 ;
-            sh:message "assetClass is crypto, stock, etf, fund, commodity, forex, index or bond." ;
+            sh:message "assetClass is equity, etf, fund, index, fx_pair, commodity_spot, commodity_future, crypto, real_estate or cash (or the deprecated alias stock, forex or commodity)." ;
             sh:path :assetClass ] ;
     sh:targetClass :FinancialInstrument .
 
@@ -181,3 +181,96 @@
             sh:path :analysisDigest ;
             sh:pattern "^sha256:[0-9a-f]{64}$" ] ;
     sh:targetClass :AnalysisSnapshot .
+
+:AccountShape a sh:NodeShape ;
+    sh:description "An account has exactly one accountId and base currency, and at most one account kind from the closed vocabulary." ;
+    sh:name "Account Shape" ;
+    sh:property [ sh:datatype xsd:string ;
+            sh:maxCount 1 ;
+            sh:message "Account must have exactly one accountId." ;
+            sh:minCount 1 ;
+            sh:path :accountId ],
+        [ sh:datatype xsd:string ;
+            sh:maxCount 1 ;
+            sh:message "Account must have exactly one baseCurrency." ;
+            sh:minCount 1 ;
+            sh:path :baseCurrency ],
+        [ sh:in ( "taxable" "ira" "roth_ira" "401k" "hsa" "custodial" ) ;
+            sh:maxCount 1 ;
+            sh:message "accountKind is taxable, ira, roth_ira, 401k, hsa or custodial." ;
+            sh:path :accountKind ] ;
+    sh:targetClass :Account .
+
+:PositionShape a sh:NodeShape ;
+    sh:description "A position names exactly one account and one instrument, one signed quantity and at most one cost-basis method from the closed vocabulary." ;
+    sh:name "Position Shape" ;
+    sh:property [ sh:maxCount 1 ;
+            sh:message "Position must name exactly one account (positionAccount)." ;
+            sh:minCount 1 ;
+            sh:nodeKind sh:IRI ;
+            sh:path :positionAccount ],
+        [ sh:maxCount 1 ;
+            sh:message "Position must name exactly one instrument (positionInstrument)." ;
+            sh:minCount 1 ;
+            sh:nodeKind sh:IRI ;
+            sh:path :positionInstrument ],
+        [ sh:datatype xsd:decimal ;
+            sh:maxCount 1 ;
+            sh:message "Position must have exactly one positionQuantity." ;
+            sh:minCount 1 ;
+            sh:path :positionQuantity ],
+        [ sh:in ( "fifo" "lifo" "specific_lot" "average_cost" ) ;
+            sh:maxCount 1 ;
+            sh:message "costBasisMethod is fifo, lifo, specific_lot or average_cost." ;
+            sh:path :costBasisMethod ] ;
+    sh:targetClass :Position .
+
+:ActivityShape a sh:NodeShape ;
+    sh:description "An activity names exactly one position, one closed-vocabulary activity kind, one signed quantity and one trade date." ;
+    sh:name "Activity Shape" ;
+    sh:property [ sh:maxCount 1 ;
+            sh:message "Activity must name exactly one position (activityPosition)." ;
+            sh:minCount 1 ;
+            sh:nodeKind sh:IRI ;
+            sh:path :activityPosition ],
+        [ sh:in ( "buy" "sell" "dividend" "transfer_in" "transfer_out" "split" "fee" ) ;
+            sh:maxCount 1 ;
+            sh:message "activityKind is buy, sell, dividend, transfer_in, transfer_out, split or fee." ;
+            sh:minCount 1 ;
+            sh:path :activityKind ],
+        [ sh:datatype xsd:decimal ;
+            sh:maxCount 1 ;
+            sh:message "Activity must have exactly one activityQuantity." ;
+            sh:minCount 1 ;
+            sh:path :activityQuantity ],
+        [ sh:datatype xsd:dateTime ;
+            sh:maxCount 1 ;
+            sh:message "Activity must have exactly one activityTradeDate." ;
+            sh:minCount 1 ;
+            sh:path :activityTradeDate ] ;
+    sh:targetClass :Activity .
+
+:LotShape a sh:NodeShape ;
+    sh:description "A lot names exactly one position and the activity that opened it, and carries one remaining quantity and one unit cost basis." ;
+    sh:name "Lot Shape" ;
+    sh:property [ sh:maxCount 1 ;
+            sh:message "Lot must name exactly one position (lotPosition)." ;
+            sh:minCount 1 ;
+            sh:nodeKind sh:IRI ;
+            sh:path :lotPosition ],
+        [ sh:maxCount 1 ;
+            sh:message "Lot must name exactly one opening activity (lotOpenedBy)." ;
+            sh:minCount 1 ;
+            sh:nodeKind sh:IRI ;
+            sh:path :lotOpenedBy ],
+        [ sh:datatype xsd:decimal ;
+            sh:maxCount 1 ;
+            sh:message "Lot must have exactly one lotQuantity." ;
+            sh:minCount 1 ;
+            sh:path :lotQuantity ],
+        [ sh:datatype xsd:decimal ;
+            sh:maxCount 1 ;
+            sh:message "Lot must have exactly one lotUnitCostBasis." ;
+            sh:minCount 1 ;
+            sh:path :lotUnitCostBasis ] ;
+    sh:targetClass :Lot .

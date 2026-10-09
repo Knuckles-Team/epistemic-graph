@@ -4883,6 +4883,8 @@ class ExchangeCalendar(BaseModel):
     holidays: list[int]
     id: str
     offsets: list[UtcOffsetSpan]
+    post_market_close_minute: Annotated[int, Field(ge=0, le=65535)] | None = None
+    pre_market_open_minute: Annotated[int, Field(ge=0, le=65535)] | None = None
     session_close_minute: Annotated[int, Field(ge=0, le=65535)]
     session_open_minute: Annotated[int, Field(ge=0, le=65535)]
     trading_weekdays: Annotated[int, Field(ge=0, le=255)]
@@ -5519,6 +5521,18 @@ class ForecastMiningResult(BaseModel):
     written_back: Annotated[int, Field(ge=0)]
 
 
+class ForeignCypherBackend(str, Enum):
+    NEO4J = "Neo4j"
+    AGE = "Age"
+    FALKORDB = "FalkorDb"
+
+
+class ForeignOperationCapabilities(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    key_filter_pushdown: bool | None = None
+
+
 class ForeignSourceFreshness(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -5527,6 +5541,64 @@ class ForeignSourceFreshness(BaseModel):
     name: str
     stale: bool
     watermark: str | None = None
+
+
+class ForeignSourceSpecA2a(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    A2a: ForeignSourceSpecA2aBody
+
+
+class ForeignSourceSpecA2aBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    agent: str
+    capabilities: ForeignOperationCapabilities | None = None
+    skill: str
+
+
+class ForeignSourceSpecApi(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    Api: ForeignSourceSpecApiBody
+
+
+class ForeignSourceSpecApiBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    capabilities: ForeignOperationCapabilities | None = None
+    operation: str
+
+
+class ForeignSourceSpecCypher(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    Cypher: ForeignSourceSpecCypherBody
+
+
+class ForeignSourceSpecCypherBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    backend: ForeignCypherBackend
+    endpoint: str
+    graph: str
+    id_field: str
+    query: str
+    score_field: str | None = None
+
+
+class ForeignSourceSpecGraphQl(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    GraphQl: ForeignSourceSpecGraphQlBody
+
+
+class ForeignSourceSpecGraphQlBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    capabilities: ForeignOperationCapabilities | None = None
+    endpoint: str
+    operation: str
 
 
 class ForeignSourceSpecHttpJson(BaseModel):
@@ -5541,6 +5613,20 @@ class ForeignSourceSpecHttpJsonBody(BaseModel):
     field_map: HttpFieldMap
     json_path: str | None = None
     url: str
+
+
+class ForeignSourceSpecMcp(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    Mcp: ForeignSourceSpecMcpBody
+
+
+class ForeignSourceSpecMcpBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    capabilities: ForeignOperationCapabilities | None = None
+    server: str
+    tool: str
 
 
 class ForeignSourceSpecNamed(BaseModel):
@@ -5573,6 +5659,20 @@ class ForeignSourceSpecRemoteEngineBody(BaseModel):
     uql: str | None = None
 
 
+class ForeignSourceSpecSparkBatch(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    SparkBatch: ForeignSourceSpecSparkBatchBody
+
+
+class ForeignSourceSpecSparkBatchBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    artifact_ref: str
+    id_field: str
+    score_field: str | None = None
+
+
 class ForeignSourceSpecSql(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -5585,6 +5685,23 @@ class ForeignSourceSpecSqlBody(BaseModel):
     dsn: str
     id_field: str
     query: str
+    score_field: str | None = None
+
+
+class ForeignSourceSpecTrino(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    Trino: ForeignSourceSpecTrinoBody
+
+
+class ForeignSourceSpecTrinoBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    catalog: str
+    endpoint: str
+    id_field: str
+    query: str
+    schema_: str = Field(..., alias="schema")
     score_field: str | None = None
 
 
@@ -5891,6 +6008,105 @@ class GenerationReceipt(BaseModel):
     ties: Annotated[int, Field(ge=0)]
     win_rate_lower_q16: int
     wins: Annotated[int, Field(ge=0)]
+
+
+class GovernedActor(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    agent_id: str
+    delegated: bool
+    parties: list[str]
+    scopes: Annotated[list[str], AfterValidator(_eg_unique_items)]
+
+
+class GovernedApproval(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    change_id: str
+    digest: str
+
+
+class GovernedChange(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    approved_until_ms: Annotated[int, Field(ge=0)] | None = None
+    approver: str | None = None
+    change_id: str
+    digest: str
+    ended_at_ms: Annotated[int, Field(ge=0)] | None = None
+    justification: str
+    kind: str
+    proposal_expires_at_ms: Annotated[int, Field(ge=0)]
+    proposed_at_ms: Annotated[int, Field(ge=0)]
+    proposer: str
+    proposer_parties: list[str]
+    status: GovernedStatus
+    target: str
+    window_ms: Annotated[int, Field(ge=0)]
+
+
+class GovernedChangeOpPropose(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: Literal["propose"]
+    request: GovernedProposal
+
+
+class GovernedChangeOpApprove(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: Literal["approve"]
+    request: GovernedApproval
+
+
+class GovernedChangeOpRevoke(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    change_id: str
+    op: Literal["revoke"]
+
+
+class GovernedChangeOpGet(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    change_id: str
+    op: Literal["get"]
+
+
+class GovernedChangeOpList(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: Literal["list"]
+
+
+GovernedChangeOp = Annotated[
+    GovernedChangeOpPropose
+    | GovernedChangeOpApprove
+    | GovernedChangeOpRevoke
+    | GovernedChangeOpGet
+    | GovernedChangeOpList,
+    Field(discriminator="op"),
+]
+
+
+class GovernedProposal(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    change_id: str
+    digest: str
+    justification: str
+    kind: str
+    proposal_ttl_ms: Annotated[int, Field(ge=0)]
+    target: str
+    window_ms: Annotated[int, Field(ge=0)]
+
+
+class GovernedStatus(str, Enum):
+    PROPOSED = "proposed"
+    APPROVED = "approved"
+    CONSUMED = "consumed"
+    REVOKED = "revoked"
+    EXPIRED = "expired"
 
 
 class Grant(BaseModel):
@@ -10172,6 +10388,13 @@ class MethodRbacElevation(BaseModel):
     params: MethodRbacElevationParams
 
 
+class MethodGovernedChange(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["GovernedChange"]
+    params: MethodGovernedChangeParams
+
+
 class MethodIdentity(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -11655,6 +11878,7 @@ Method = Annotated[
     | MethodCheckAccess
     | MethodRbacAdmin
     | MethodRbacElevation
+    | MethodGovernedChange
     | MethodIdentity
     | MethodApplyMultisigMutation
     | MethodAnalyticsJob
@@ -13536,6 +13760,13 @@ class MethodGetWorkItemParams(BaseModel):
 
     tenant: str
     work_item_id: str
+
+
+class MethodGovernedChangeParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    actor: GovernedActor | None = None
+    op: GovernedChangeOp
 
 
 class MethodGraphLearnFitParams(BaseModel):
@@ -17426,18 +17657,6 @@ class QueryVector(BaseModel):
 
     q16: BoundedVec_int32_4096
     space_digest: str
-
-
-class QuestionKind(str, Enum):
-    ROUTE = "route"
-    RANK = "rank"
-    CLASSIFY = "classify"
-    RESOLVE_ENTITY = "resolve_entity"
-    SCHEMA_MAPPING = "schema_mapping"
-    TEMPLATE_CHOICE = "template_choice"
-    RETRIEVAL_PLAN = "retrieval_plan"
-    INGESTION_LANE = "ingestion_lane"
-    ENRICHMENT_SCHEDULE = "enrichment_schedule"
 
 
 class QuestionSafety(str, Enum):
@@ -22366,11 +22585,10 @@ class ValidationInputs(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     embargo: Annotated[int, Field(ge=0)]
-    insample: list[list[float]]
     n_groups: Annotated[int, Field(ge=0)]
     n_test_groups: Annotated[int, Field(ge=0)]
     n_trials: Annotated[int, Field(ge=0)]
-    oos: list[list[float]]
+    performance: list[list[float]]
     purge_window: Annotated[int, Field(ge=0)]
 
 
@@ -23555,6 +23773,13 @@ ForeignSourceSpec = (
     | ForeignSourceSpecHttpJson
     | ForeignSourceSpecSql
     | ForeignSourceSpecNamed
+    | ForeignSourceSpecTrino
+    | ForeignSourceSpecCypher
+    | ForeignSourceSpecSparkBatch
+    | ForeignSourceSpecApi
+    | ForeignSourceSpecMcp
+    | ForeignSourceSpecA2a
+    | ForeignSourceSpecGraphQl
 )
 
 
@@ -24136,6 +24361,16 @@ PredLiteral = PredLiteralStr | PredLiteralNum | PredLiteralBool
 
 
 PropagateModel = Literal["noisy_or"] | PropagateModelCascade
+
+
+QuestionKind = (
+    str
+    | Literal["pre_tool_risk"]
+    | Literal["connector_event_triage"]
+    | Literal["connector_tool_choice"]
+    | Literal["connector_write_back"]
+    | Literal["tool_subset"]
+)
 
 
 RbacAdminOp = (
@@ -25375,16 +25610,32 @@ __all__ = [
     "FlipRecordStatus",
     "ForecastAlgorithm",
     "ForecastMiningResult",
+    "ForeignCypherBackend",
+    "ForeignOperationCapabilities",
     "ForeignSourceFreshness",
     "ForeignSourceSpec",
+    "ForeignSourceSpecA2a",
+    "ForeignSourceSpecA2aBody",
+    "ForeignSourceSpecApi",
+    "ForeignSourceSpecApiBody",
+    "ForeignSourceSpecCypher",
+    "ForeignSourceSpecCypherBody",
+    "ForeignSourceSpecGraphQl",
+    "ForeignSourceSpecGraphQlBody",
     "ForeignSourceSpecHttpJson",
     "ForeignSourceSpecHttpJsonBody",
+    "ForeignSourceSpecMcp",
+    "ForeignSourceSpecMcpBody",
     "ForeignSourceSpecNamed",
     "ForeignSourceSpecNamedBody",
     "ForeignSourceSpecRemoteEngine",
     "ForeignSourceSpecRemoteEngineBody",
+    "ForeignSourceSpecSparkBatch",
+    "ForeignSourceSpecSparkBatchBody",
     "ForeignSourceSpecSql",
     "ForeignSourceSpecSqlBody",
+    "ForeignSourceSpecTrino",
+    "ForeignSourceSpecTrinoBody",
     "ForensicReport",
     "FreshnessFeed",
     "FullLabelMetrics",
@@ -25436,6 +25687,17 @@ __all__ = [
     "GetShortestPathResult",
     "GetWorkItemOutcomeResult",
     "GetWorkItemResult",
+    "GovernedActor",
+    "GovernedApproval",
+    "GovernedChange",
+    "GovernedChangeOp",
+    "GovernedChangeOpApprove",
+    "GovernedChangeOpGet",
+    "GovernedChangeOpList",
+    "GovernedChangeOpPropose",
+    "GovernedChangeOpRevoke",
+    "GovernedProposal",
+    "GovernedStatus",
     "Grant",
     "GrantEffect",
     "GraphColoringResult",
@@ -26255,6 +26517,8 @@ __all__ = [
     "MethodGetWorkItemOutcome",
     "MethodGetWorkItemOutcomeParams",
     "MethodGetWorkItemParams",
+    "MethodGovernedChange",
+    "MethodGovernedChangeParams",
     "MethodGraphColoring",
     "MethodGraphLearnFit",
     "MethodGraphLearnFitParams",

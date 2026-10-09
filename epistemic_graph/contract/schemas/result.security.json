@@ -490,6 +490,103 @@
         }
       ]
     },
+    "GovernedChange": {
+      "additionalProperties": false,
+      "description": "One governed change.",
+      "properties": {
+        "approved_until_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "approver": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "change_id": {
+          "type": "string"
+        },
+        "digest": {
+          "type": "string"
+        },
+        "ended_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "justification": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "proposal_expires_at_ms": {
+          "description": "A proposal not approved by then expires unapproved.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "proposed_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "proposer": {
+          "type": "string"
+        },
+        "proposer_parties": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "status": {
+          "$ref": "#/$defs/GovernedStatus"
+        },
+        "target": {
+          "type": "string"
+        },
+        "window_ms": {
+          "description": "The approved window's length, fixed at proposal.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "change_id",
+        "kind",
+        "target",
+        "digest",
+        "justification",
+        "proposer",
+        "proposer_parties",
+        "status",
+        "proposed_at_ms",
+        "proposal_expires_at_ms",
+        "window_ms"
+      ],
+      "type": "object"
+    },
+    "GovernedStatus": {
+      "description": "Where a change is in its one-way lifecycle.",
+      "enum": [
+        "proposed",
+        "approved",
+        "consumed",
+        "revoked",
+        "expired"
+      ],
+      "type": "string"
+    },
     "Grant": {
       "description": "A grant binding a role to an (`resource`, `action`, `effect`) triple\n(CONCEPT:EG-KG.compute.feature).",
       "properties": {
@@ -2035,6 +2132,56 @@
         }
       },
       "selected_by": null
+    },
+    "GovernedChange": {
+      "bodies": {
+        "approve": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/GovernedChange"
+          }
+        },
+        "get": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/GovernedChange"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "list": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "items": {
+              "$ref": "#/$defs/GovernedChange"
+            },
+            "type": "array"
+          }
+        },
+        "propose": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/GovernedChange"
+          }
+        },
+        "revoke": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/GovernedChange"
+          }
+        }
+      },
+      "selected_by": "op"
     },
     "Identity": {
       "bodies": {

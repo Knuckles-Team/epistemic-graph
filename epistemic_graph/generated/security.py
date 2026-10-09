@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     RbacAdminRequest = _models.MethodRbacAdminParams
     RbacElevationRequest = _models.MethodRbacElevationParams
     IdentityRequest = _models.MethodIdentityParams
+    GovernedChangeRequest = _models.MethodGovernedChangeParams
     GetIdentityRequest = _models.MethodGetIdentityParams
     CheckAccessRequest = _models.MethodCheckAccessParams
 
@@ -435,6 +436,46 @@ def decode_identity(result: OpaqueResult) -> _models.IdentityReply:
     return decode_result("Identity", models().IdentityReply, result)
 
 
+async def send_governed_change(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        GovernedChange
+    Authorization:
+        governance:propose
+    Durability:
+        ControlRedb
+    Replay:
+        OperationIdentity
+    Result:
+        one declared body per request op
+    Result schema:
+        contract/schemas/result.security.json
+        #/methods/GovernedChange
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    models().MethodGovernedChangeParams.model_validate(params or {})
+    payload = await client._send(
+        "GovernedChange",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("GovernedChange", payload)
+
+
 async def send_get_identity(
     client: Any,
     params: dict[str, Any] | None = None,
@@ -527,6 +568,7 @@ _REQUEST_METHODS = frozenset(
         "RbacAdmin",
         "RbacElevation",
         "Identity",
+        "GovernedChange",
         "GetIdentity",
         "CheckAccess",
     }

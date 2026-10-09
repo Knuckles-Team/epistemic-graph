@@ -11,6 +11,7 @@ use eg_types::decision::statistical::{
 use eg_types::decision::{ColdStart, ExplorationBudget};
 
 use super::common::{bounded, option_ids, policy, rational, statistical};
+use super::scorer_promotion::{human_scorer, outcome};
 
 fn question(safety: QuestionSafety) -> StatisticalQuestion {
     StatisticalQuestion {
@@ -155,5 +156,55 @@ fn an_explored_choice_carries_no_risk_claim() {
             StatisticalOutcome::Explored { .. }
         ));
         assert!(result.calibration.is_none() && result.audit.is_none());
+    }
+}
+
+/// EG-DECISION-ENGINE-R089: a statistical rung in the decision ladder may
+/// only rank or narrow the legal option set the constraint, entailment and
+/// optimization steps already produced -- it is never the mechanism that
+/// determines which options are legal. Disabling the statistical scorer
+/// (no head) must leave the same candidate set in place, and a head that
+/// does act must never introduce an option outside it.
+#[test]
+fn disabling_the_statistical_scorer_never_changes_the_legal_option_set() {
+    let ids = option_ids();
+    let strict = policy(ColdStart::DeterministicOnly);
+    let stat = statistical();
+    let evaluated = reading();
+    let s = seed("r089");
+
+    // The statistical rung disabled (no head): the ladder is still given the
+    // identical candidate set; disabling scoring neither narrows nor widens it.
+    let disabled = LadderInputs {
+        candidate_ids: &ids,
+        head: None,
+        reading: Some(&evaluated),
+        policy: &strict,
+        statistical: &stat,
+        permit: ExplorationPermit::Off,
+        seed: &s,
+    };
+    let disabled_result = decide(&disabled).expect("decides");
+    assert!(matches!(
+        disabled_result.outcome,
+        StatisticalOutcome::Abstained { .. }
+    ));
+
+    // A real, non-synthetic, calibrated head that acts on some state: it may
+    // narrow (its prediction set is a subset of `ids`) but every id it names
+    // is still drawn from the same legal set the constraint/entailment/
+    // optimization steps produced -- it never names an option outside it.
+    let head = human_scorer();
+    let acting_item = (0..40)
+        .find(|&item| matches!(outcome(&head, item), StatisticalOutcome::Acted { .. }))
+        .expect("the calibrated scorer acts on some state");
+    let StatisticalOutcome::Acted { prediction_set, .. } = outcome(&head, acting_item) else {
+        unreachable!("filtered for Acted above")
+    };
+    for option_id in prediction_set.as_slice() {
+        assert!(
+            ids.contains(option_id),
+            "an acting head's prediction set named {option_id:?}, outside the legal option set {ids:?}"
+        );
     }
 }

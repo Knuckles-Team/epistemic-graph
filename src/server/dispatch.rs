@@ -444,6 +444,7 @@ mod change_envelope;
 mod change_envelope_draft;
 mod consensus;
 mod elevation;
+mod governed;
 mod graph_pipeline;
 #[cfg(feature = "security")]
 mod identity_store;

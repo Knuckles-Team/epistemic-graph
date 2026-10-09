@@ -108,6 +108,9 @@ fn identity_audit_line(method: &Method) -> Option<String> {
         Method::Identity { op, .. } => op.is_mutation().then(|| format!("IDENTITY|{}", op.name())),
         Method::RegisterIdentity { agent_id, .. } => Some(format!("REGISTER_IDENTITY|{agent_id}")),
         Method::RbacAdmin { op } => rbac_admin_audit_line(op),
+        Method::GovernedChange { op, .. } => op
+            .is_mutation()
+            .then(|| format!("GOVERNED_CHANGE|{}", op.name())),
         _ => None,
     }
 }

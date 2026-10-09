@@ -55,6 +55,18 @@
 
 pub mod algebra;
 pub mod cost;
+// EG-UNIFIED-DATA-PLANE-R005 — mapping approval-state machine for named R2RML
+// virtual graphs; an unapproved or model-only mapping refuses to be queried.
+pub mod virtual_graph_mapping;
+// EG-UNIFIED-DATA-PLANE-R006 — typed pushdown decision/fallback-reason,
+// refusing a self-contradictory pushed-down-with-fallback state.
+pub mod pushdown_plan;
+// EG-UNIFIED-DATA-PLANE-R007 — named pushdown operations and a dialect's
+// declared capability set, refusing an unknown operation name.
+pub mod federation_capabilities;
+// EG-UNIFIED-DATA-PLANE-R011 — typed freshness route and a bounded
+// read-your-writes wait, refusing an unbounded (zero-timeout) wait.
+pub mod freshness_router;
 
 /// Structured hierarchical retrieval (CONCEPT:EG-KG.retrieval.bounded-drill) — the LeanRAG method as a
 /// library API over the EG-220 summary tier: retrieve at the summary/abstraction
@@ -150,6 +162,22 @@ pub mod federation_opt;
 /// The one outbound-destination gate for federation (HTTP URLs, SQL DSN hosts).
 #[cfg(feature = "federation")]
 pub mod federation_ssrf;
+/// AGE graph reads bound to the existing guarded PostgreSQL federation transport
+/// (EG-DURABLE-KERNEL-R024.1).
+#[cfg(feature = "federation-sql")]
+pub mod federation_age;
+/// Explicitly bound, probed Trino client protocol source (EH-580).
+#[cfg(feature = "federation-sql")]
+pub mod federation_trino;
+/// The write-side mirror-target seam (EG-DURABLE-KERNEL-R024.2) — the
+/// `MirrorTarget` trait binding a [`eg_types::wire::MirrorTargetSpec`] to a
+/// driver. Mirrors `federation`'s read-side `ForeignSource` seam.
+#[cfg(feature = "federation")]
+pub mod mirror_target;
+/// Learned, provenanced join cardinality statistics for ordering joins across foreign
+/// sources (EG-FEDERATED-QUERY-R048.1 — typed-model slice of R048).
+#[cfg(feature = "federation")]
+pub mod federation_stats;
 /// The cross-modal cost-based optimizer (CONCEPT:EG-KG.query.xmodal-cost-optimizer) — Lane A's
 /// rule engine over the logical `Vec<Op>` that [`exec::plan_optimize`] calls to reorder
 /// operators across modalities into a cheaper-but-equivalent plan. Compiled under `query`;

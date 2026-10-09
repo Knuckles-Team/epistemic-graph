@@ -130,3 +130,86 @@ async fn an_utterance_routes_over_templates_and_an_llm_proposal_is_only_a_claim(
         StatisticalOutcome::Abstained { .. }
     ));
 }
+
+/// EG-DECISION-ENGINE-R098: the Decide ladder excludes generative free-text
+/// models by design. A bound `NlBinding`'s typed slot values are never
+/// free-form generated text: a `Text` slot's value is always a verbatim
+/// substring of the caller's own utterance, never a string invented by the
+/// engine, and an LLM proposal may only pick among already-published, fixed
+/// templates -- it can never supply its own response text, and an id outside
+/// the published set is refused rather than bound.
+#[tokio::test]
+async fn nl_binding_text_slots_are_verbatim_substrings_never_generated_text() {
+    let h = Harness::new().await;
+    h.publish(
+        "nl-build-agent",
+        AgentComponentKind::NlTemplate,
+        "build an agent about {topic}",
+        Some(&template("build an agent about {topic}")),
+        None,
+    )
+    .unwrap();
+    let schema = FeatureSchemaBody {
+        schema_version: FEATURE_SCHEMA_VERSION,
+        features: BoundedVec::new(vec![FeatureSpec {
+            name: "utterance_match".to_string(),
+            kind: FeatureKind::TextBm25 {
+                key: "nl.utterances".to_string(),
+                param: "utterance".to_string(),
+            },
+            missing: MissingValue::Abstain,
+        }])
+        .unwrap(),
+    };
+    let schema_pin = h
+        .publish(
+            "schema-nl-verbatim",
+            AgentComponentKind::FeatureSchema,
+            "template features",
+            Some(&schema),
+            None,
+        )
+        .unwrap();
+
+    // The LLM proposal path names a template id and nothing else -- it has
+    // no field through which to supply response text of its own.
+    let utterance_text = "build an agent about quarterly billing reconciliation";
+    let params = vec![
+        text("llm_producer", "au-nl-planner"),
+        text("llm_prompt_digest", "sha256:prompt"),
+        text("llm_proposal_template", "nl-build-agent"),
+        text("utterance", utterance_text),
+    ];
+    let proposed = decide(&h, nl_request(&schema_pin, params)).await.unwrap();
+    let record = &proposed.records.as_slice()[0];
+    let binding = record.nl_binding.as_ref().expect("the proposal is bound");
+    let topic = binding
+        .params
+        .iter()
+        .find(|p| p.name == "topic")
+        .expect("topic slot filled");
+    let TypedValue::Text(bound_text) = &topic.value else {
+        panic!("topic is a Text-typed slot value");
+    };
+    // The bound value is a byte-identical substring of the caller's own
+    // utterance: it was extracted, never generated.
+    assert!(
+        utterance_text.contains(bound_text.as_str()),
+        "bound text {bound_text:?} must be a verbatim substring of the utterance"
+    );
+
+    // An id outside the published, fixed template set is refused, not bound
+    // to engine-invented content: the LLM can only select among what was
+    // already published, never author the response itself.
+    let bad_params = vec![
+        text("llm_producer", "au-nl-planner"),
+        text("llm_prompt_digest", "sha256:prompt"),
+        text("llm_proposal_template", "nl-does-not-exist"),
+        text("utterance", utterance_text),
+    ];
+    let refused = decide(&h, nl_request(&schema_pin, bad_params)).await;
+    assert!(
+        refused.is_err(),
+        "a proposal naming an unpublished template id must be refused"
+    );
+}

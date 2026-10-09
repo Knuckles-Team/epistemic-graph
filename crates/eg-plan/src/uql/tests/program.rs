@@ -28,6 +28,38 @@ fn version_pragma_and_modes() {
     );
 }
 
+#[cfg(feature = "federation")]
+#[test]
+fn federation_budget_hint_is_typed_and_cannot_disappear_in_pipeline_parse() {
+    use crate::federation_opt::FederationBudget;
+    let text =
+        "PROFILE FEDERATION BUDGET (REQUESTS=2, ROWS=9, BIND_KEYS=3, WALL_MS=40) FOREIGN 'safe'";
+    let parsed = stmt(text);
+    assert_eq!(
+        parsed.federation_budget,
+        Some(FederationBudget {
+            max_requests: 2,
+            max_rows: 9,
+            max_bind_keys: 3,
+            max_wall_ms: 40,
+        })
+    );
+    assert_eq!(stmt(&statement_to_uql(&parsed).unwrap()), parsed);
+    assert_eq!(parse(text).unwrap_err().code, UqlCode::StatementNotPipeline);
+    let repeated = parse_statement(
+        "PROFILE FEDERATION BUDGET (ROWS=1, ROWS=2) FOREIGN 'safe'",
+        &Params::new(),
+    )
+    .unwrap_err();
+    assert_eq!(repeated.code, UqlCode::UnexpectedToken);
+    let bad = parse_statement(
+        "PROFILE FEDERATION BUDGET (ROWS=-1) FOREIGN 'safe'",
+        &Params::new(),
+    )
+    .unwrap_err();
+    assert_eq!(bad.code, UqlCode::ExpectedInteger);
+}
+
 #[test]
 fn let_from_join_builds_a_dag_in_first_reference_order() {
     let s = stmt(

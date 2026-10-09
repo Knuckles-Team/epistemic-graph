@@ -261,9 +261,18 @@ pub(super) struct SqlObdaSource {
 impl SqlObdaSource {
     /// Build a live external source over `table` reachable at `dsn` (the `federation-sql`
     /// path). A build without `federation-sql` returns a clean "rebuild" error.
+    ///
+    /// `EG-UNIFIED-DATA-PLANE-R002.2`: `dsn` runs through the same SSRF-sensitive
+    /// destination gate the SQL federation producer path (`R002.1`,
+    /// `src/server/foreign_catalog.rs`) already runs before registration, so an OBDA
+    /// external source whose DSN names a disallowed destination is refused here —
+    /// before `reg.register` in `sparql_virtual` ever reaches it — instead of only
+    /// failing the first time `run_select` dials out.
     fn connect(dsn: &str, table: &str) -> Result<Self, String> {
         let dialect = obda_dialect(dsn)?;
         eg_plan::sql_text::validate_identifier(table).map_err(|e| format!("obda: {e}"))?;
+        #[cfg(feature = "federation-sql")]
+        eg_plan::federation_ssrf::check_sql_dsn(dsn)?;
         let executor = federation_sql_executor(dsn)?;
         Ok(Self {
             table: table.to_string(),
@@ -283,6 +292,209 @@ impl eg_rdf::obda::ObdaSource for SqlObdaSource {
         let sql = render_obda_select(&self.table, needed, filters, self.dialect)?;
         self.executor.run_select(&sql)
     }
+
+    fn scan_ordered_distinct(
+        &self,
+        needed: &std::collections::BTreeSet<String>,
+        filters: &[eg_rdf::obda::ObdaFilter],
+        order: &eg_rdf::obda::ObdaOrder,
+    ) -> Option<Result<Vec<eg_rdf::obda::ForeignRow>, String>> {
+        if self.dialect != ObdaSqlDialect::Postgres {
+            return None;
+        }
+        let sql = match render_obda_ordered_distinct(&self.table, needed, filters, order) {
+            Ok(sql) => sql,
+            Err(error) => return Some(Err(error)),
+        };
+        let rows = match self.executor.run_select(&sql) {
+            Ok(rows) => rows,
+            Err(error) => return Some(Err(error)),
+        };
+        if rows.len() == 1 && rows[0].get("eg_obda_status").map(String::as_str) == Some("invalid") {
+            return None;
+        }
+        let mut out = Vec::with_capacity(rows.len());
+        for mut row in rows {
+            match row.remove("eg_obda_status").as_deref() {
+                Some("ok") => out.push(row),
+                _ => return Some(Err("obda: ordered DISTINCT status is invalid".into())),
+            }
+        }
+        Some(Ok(out))
+    }
+
+    fn scan_distinct_count(
+        &self,
+        needed: &std::collections::BTreeSet<String>,
+    ) -> Option<Result<u64, String>> {
+        if self.dialect != ObdaSqlDialect::Postgres {
+            return None;
+        }
+        let sql = match render_obda_distinct_count(&self.table, needed) {
+            Ok(sql) => sql,
+            Err(error) => return Some(Err(error)),
+        };
+        let rows = match self.executor.run_select(&sql) {
+            Ok(rows) => rows,
+            Err(error) => return Some(Err(error)),
+        };
+        if rows.len() != 1 {
+            return Some(Err(
+                "obda: DISTINCT count did not return exactly one row".into()
+            ));
+        }
+        match rows[0].get("eg_obda_status").map(String::as_str) {
+            Some("invalid") => None,
+            Some("ok") => Some(
+                rows[0]
+                    .get("eg_obda_count")
+                    .ok_or_else(|| "obda: DISTINCT count column missing".to_string())
+                    .and_then(|value| {
+                        value
+                            .parse::<u64>()
+                            .map_err(|_| "obda: DISTINCT count is invalid".to_string())
+                    }),
+            ),
+            _ => Some(Err("obda: DISTINCT count status is invalid".into())),
+        }
+    }
+}
+
+/// A validity expression evaluated inside the SAME SQL statement/snapshot as the page
+/// or count. A second executor call would race concurrent writes to the foreign table.
+#[cfg(feature = "obda")]
+fn render_obda_invalid_key_cte<'a>(
+    table: &str,
+    columns: impl IntoIterator<Item = &'a str>,
+) -> Result<String, String> {
+    let dialect = ObdaSqlDialect::Postgres;
+    let predicates = columns
+        .into_iter()
+        .map(|column| {
+            let q = quote(column, dialect)?;
+            Ok(format!(
+                "({q} IS NOT NULL AND {q}::text <> '' AND {q}::text !~ '^[A-Za-z0-9._~-]+$')"
+            ))
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    if predicates.is_empty() {
+        return Err("obda: key preflight requires projected columns".into());
+    }
+    Ok(format!(
+        "eg_bad AS (SELECT EXISTS (SELECT 1 FROM {} WHERE {}) AS bad)",
+        quote(table, dialect)?,
+        predicates.join(" OR ")
+    ))
+}
+
+/// Lexical tuples and filters match the rows that the OBDA mapping can turn into
+/// triples; C collation gives Postgres the binary ordering used by SPARQL strings.
+#[cfg(feature = "obda")]
+fn render_obda_lexical_distinct(
+    table: &str,
+    needed: &std::collections::BTreeSet<String>,
+    filters: &[eg_rdf::obda::ObdaFilter],
+) -> Result<String, String> {
+    if needed.is_empty() {
+        return Err("obda: DISTINCT requires projected columns".into());
+    }
+    if needed.contains("eg_obda_status") {
+        return Err("obda: DISTINCT column collides with reserved status".into());
+    }
+    if matches!(table, "eg_bad" | "eg_page" | "eg_obda_rows") {
+        return Err("obda: DISTINCT table collides with reserved SQL alias".into());
+    }
+    let dialect = ObdaSqlDialect::Postgres;
+    let select_list = needed
+        .iter()
+        .map(|column| {
+            let q = quote(column, dialect)?;
+            Ok(format!("{q}::text COLLATE \"C\" AS {q}"))
+        })
+        .collect::<Result<Vec<_>, String>>()?
+        .join(", ");
+    let mut predicates = filters
+        .iter()
+        .map(|filter| render_obda_filter(filter, dialect))
+        .collect::<Result<Vec<_>, _>>()?;
+    for column in needed {
+        let q = quote(column, dialect)?;
+        predicates.push(format!("{q} IS NOT NULL AND {q}::text <> ''"));
+    }
+    Ok(format!(
+        "SELECT DISTINCT {select_list} FROM {} WHERE {}",
+        quote(table, dialect)?,
+        predicates.join(" AND ")
+    ))
+}
+
+#[cfg(feature = "obda")]
+fn render_obda_ordered_distinct(
+    table: &str,
+    needed: &std::collections::BTreeSet<String>,
+    filters: &[eg_rdf::obda::ObdaFilter],
+    order: &eg_rdf::obda::ObdaOrder,
+) -> Result<String, String> {
+    if !needed.contains(&order.column) {
+        return Err("obda: ordered DISTINCT requires a projected ordering column".into());
+    }
+    let start = i64::try_from(order.start)
+        .map_err(|_| "obda: ordered DISTINCT offset exceeds SQL range".to_string())?;
+    let length = i64::try_from(order.length)
+        .map_err(|_| "obda: ordered DISTINCT limit exceeds SQL range".to_string())?;
+    start
+        .checked_add(length)
+        .ok_or_else(|| "obda: ordered DISTINCT page exceeds SQL range".to_string())?;
+    let dialect = ObdaSqlDialect::Postgres;
+    let distinct = render_obda_lexical_distinct(table, needed, filters)?;
+    let bad = render_obda_invalid_key_cte(table, std::iter::once(order.column.as_str()))?;
+    let order_columns = std::iter::once(&order.column)
+        .chain(needed.iter().filter(|column| *column != &order.column))
+        .map(|column| {
+            let q = quote(column, dialect)?;
+            let direction = if column == &order.column && order.descending {
+                "DESC"
+            } else {
+                "ASC"
+            };
+            Ok(format!("{q} {direction}"))
+        })
+        .collect::<Result<Vec<_>, String>>()?
+        .join(", ");
+    let projected_columns = needed
+        .iter()
+        .map(|column| quote(column, dialect))
+        .collect::<Result<Vec<_>, _>>()?
+        .join(", ");
+    let null_columns = needed
+        .iter()
+        .map(|column| Ok(format!("NULL::text AS {}", quote(column, dialect)?)))
+        .collect::<Result<Vec<_>, String>>()?
+        .join(", ");
+    Ok(format!(
+        "WITH {bad}, eg_page AS ({distinct} ORDER BY {order_columns} LIMIT {length} OFFSET {start}) \
+         SELECT 'ok'::text AS \"eg_obda_status\", {projected_columns} FROM eg_page \
+         WHERE NOT (SELECT bad FROM eg_bad) \
+         UNION ALL SELECT 'invalid'::text AS \"eg_obda_status\", {null_columns} \
+         WHERE (SELECT bad FROM eg_bad) ORDER BY {order_columns}"
+    ))
+}
+
+#[cfg(feature = "obda")]
+fn render_obda_distinct_count(
+    table: &str,
+    needed: &std::collections::BTreeSet<String>,
+) -> Result<String, String> {
+    let distinct = render_obda_lexical_distinct(table, needed, &[])?;
+    // Without an explicit subject-key parameter, guard every needed column. This
+    // may choose the materialization fallback for valid non-IRI literal strings.
+    let bad = render_obda_invalid_key_cte(table, needed.iter().map(String::as_str))?;
+    Ok(format!(
+        "WITH {bad} SELECT \
+         CASE WHEN (SELECT bad FROM eg_bad) THEN 'invalid' ELSE 'ok' END::text AS \"eg_obda_status\", \
+         CASE WHEN (SELECT bad FROM eg_bad) THEN NULL::text \
+         ELSE (SELECT COUNT(*)::text FROM ({distinct}) AS eg_obda_rows) END AS \"eg_obda_count\""
+    ))
 }
 
 /// CONCEPT:EG-KG.query.obda-predicate-pushdown — render the read-only `SELECT` a [`SqlObdaSource`]
@@ -415,5 +627,201 @@ struct FederationSqlExecutor {
 impl ObdaSqlExecutor for FederationSqlExecutor {
     fn run_select(&self, sql: &str) -> Result<Vec<eg_rdf::obda::ForeignRow>, String> {
         eg_plan::federation::fetch_sql_columns(&self.dsn, sql)
+    }
+}
+
+/// `EG-UNIFIED-DATA-PLANE-R002.2`: an OBDA external source's DSN runs through the same
+/// SSRF-sensitive destination gate the SQL federation producer path (`R002.1`) runs at
+/// registration time, not only when `run_select` later dials out.
+#[cfg(all(test, feature = "obda", feature = "federation-sql"))]
+mod outbound_verification_tests {
+    use super::SqlObdaSource;
+
+    #[test]
+    fn a_disallowed_obda_destination_is_refused_before_registration() {
+        // Same fixture `crates/eg-plan/src/federation_ssrf.rs` already proves is
+        // refused: loopback on a non-default port, no allow-list entry.
+        let Err(err) = SqlObdaSource::connect("postgres://u@127.0.0.1:5433/db", "people") else {
+            panic!("a disallowed OBDA destination must be refused");
+        };
+        assert!(err.contains("federation:"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn an_allowed_obda_destination_still_connects() {
+        // Same fixture `crates/eg-plan/src/federation_ssrf.rs` already proves is
+        // admitted: loopback on the dialect's own default port. `connect` only
+        // validates and stores the DSN here; it dials lazily inside `run_select`.
+        SqlObdaSource::connect("postgres://u@127.0.0.1:5432/db", "people")
+            .expect("an allowed OBDA destination must still connect");
+    }
+}
+
+#[cfg(all(test, feature = "obda"))]
+mod ordered_distinct_tests {
+    use super::{
+        render_obda_distinct_count, render_obda_invalid_key_cte, render_obda_ordered_distinct,
+        ObdaSqlDialect, ObdaSqlExecutor, SqlObdaSource,
+    };
+    use eg_rdf::obda::{ObdaOrder, ObdaSource};
+    use std::collections::BTreeSet;
+    use std::sync::{Arc, Mutex};
+
+    #[derive(Default)]
+    struct RecordingExecutor {
+        queries: Mutex<Vec<String>>,
+        invalid_key: bool,
+        empty_page: bool,
+        malformed_status: bool,
+    }
+
+    impl RecordingExecutor {
+        fn response_rows(&self, sql: &str) -> Vec<eg_rdf::obda::ForeignRow> {
+            if self.invalid_key {
+                return vec![[("eg_obda_status".into(), "invalid".into())]
+                    .into_iter()
+                    .collect()];
+            }
+            if sql.contains("eg_obda_count") {
+                return vec![[
+                    ("eg_obda_status".into(), "ok".into()),
+                    ("eg_obda_count".into(), "3".into()),
+                ]
+                .into_iter()
+                .collect()];
+            }
+            if self.empty_page {
+                return Vec::new();
+            }
+            let status = if self.malformed_status {
+                "unknown"
+            } else {
+                "ok"
+            };
+            vec![[
+                ("eg_obda_status".into(), status.into()),
+                ("id".into(), "a".into()),
+            ]
+            .into_iter()
+            .collect()]
+        }
+    }
+
+    impl ObdaSqlExecutor for RecordingExecutor {
+        fn run_select(&self, sql: &str) -> Result<Vec<eg_rdf::obda::ForeignRow>, String> {
+            self.queries.lock().unwrap().push(sql.to_string());
+            Ok(self.response_rows(sql))
+        }
+    }
+
+    #[test]
+    fn ordered_page_and_count_share_filtered_lexical_distinct() {
+        let needed = BTreeSet::from(["id".into(), "name".into()]);
+        let order = ObdaOrder {
+            column: "id".into(),
+            descending: false,
+            start: 4,
+            length: 7,
+        };
+        let page = render_obda_ordered_distinct("people", &needed, &[], &order).unwrap();
+        let count = render_obda_distinct_count("people", &needed).unwrap();
+        assert!(page.starts_with("WITH eg_bad AS ("), "{page}");
+        assert!(page.contains("eg_page AS (SELECT DISTINCT"), "{page}");
+        assert!(page.contains("\"id\"::text COLLATE \"C\" AS \"id\""));
+        assert!(page.contains("\"name\" IS NOT NULL AND \"name\"::text <> ''"));
+        assert!(page.contains("ORDER BY \"id\" ASC, \"name\" ASC LIMIT 7 OFFSET 4"));
+        assert!(page.contains("UNION ALL SELECT 'invalid'::text"));
+        assert!(page.ends_with("ORDER BY \"id\" ASC, \"name\" ASC"));
+        assert!(count.contains("FROM (SELECT DISTINCT"), "{count}");
+        assert!(count.contains("\"id\"::text COLLATE \"C\" AS \"id\""));
+        assert!(count.contains("\"name\" IS NOT NULL AND \"name\"::text <> ''"));
+    }
+
+    #[test]
+    fn invalid_key_guard_is_in_same_statement_and_rejects_bad_identifiers() {
+        let probe = render_obda_invalid_key_cte("people", ["id", "name"]).unwrap();
+        assert!(
+            probe.starts_with("eg_bad AS (SELECT EXISTS (SELECT 1"),
+            "{probe}"
+        );
+        assert!(probe.contains("\"id\"::text !~ '^[A-Za-z0-9._~-]+$'"));
+        assert!(probe.contains("\"name\"::text !~ '^[A-Za-z0-9._~-]+$'"));
+        assert!(render_obda_invalid_key_cte("people; DROP TABLE users", ["id"]).is_err());
+        assert!(render_obda_invalid_key_cte("people", ["id; DROP"]).is_err());
+    }
+
+    #[test]
+    fn postgres_statement_falls_back_on_invalid_key_and_mysql_declines() {
+        let needed = BTreeSet::from(["id".into()]);
+        let order = ObdaOrder {
+            column: "id".into(),
+            descending: false,
+            start: 0,
+            length: 1,
+        };
+        let invalid = Arc::new(RecordingExecutor {
+            invalid_key: true,
+            ..RecordingExecutor::default()
+        });
+        let mut source = SqlObdaSource {
+            table: "people".into(),
+            dialect: ObdaSqlDialect::Postgres,
+            executor: invalid.clone(),
+        };
+        assert!(source.scan_ordered_distinct(&needed, &[], &order).is_none());
+        assert!(source.scan_distinct_count(&needed).is_none());
+        assert_eq!(invalid.queries.lock().unwrap().len(), 2);
+        source.dialect = ObdaSqlDialect::MySql;
+        assert!(source.scan_ordered_distinct(&needed, &[], &order).is_none());
+        assert_eq!(invalid.queries.lock().unwrap().len(), 2);
+
+        let valid = Arc::new(RecordingExecutor::default());
+        source.dialect = ObdaSqlDialect::Postgres;
+        source.executor = valid.clone();
+        assert!(source
+            .scan_ordered_distinct(&needed, &[], &order)
+            .unwrap()
+            .is_ok());
+        assert_eq!(source.scan_distinct_count(&needed).unwrap().unwrap(), 3);
+        assert_eq!(valid.queries.lock().unwrap().len(), 2);
+        assert!(render_obda_ordered_distinct("eg_bad", &needed, &[], &order).is_err());
+        assert!(render_obda_distinct_count("eg_page", &needed).is_err());
+        let reserved = BTreeSet::from(["eg_obda_status".into()]);
+        assert!(render_obda_distinct_count("people", &reserved).is_err());
+    }
+
+    #[test]
+    fn postgres_empty_page_and_malformed_status_are_distinguished() {
+        let needed = BTreeSet::from(["id".into()]);
+        let order = ObdaOrder {
+            column: "id".into(),
+            descending: false,
+            start: 0,
+            length: 1,
+        };
+        let empty = Arc::new(RecordingExecutor {
+            empty_page: true,
+            ..RecordingExecutor::default()
+        });
+        let mut source = SqlObdaSource {
+            table: "people".into(),
+            dialect: ObdaSqlDialect::Postgres,
+            executor: empty.clone(),
+        };
+        assert!(source
+            .scan_ordered_distinct(&needed, &[], &order)
+            .unwrap()
+            .unwrap()
+            .is_empty());
+        assert_eq!(empty.queries.lock().unwrap().len(), 1);
+
+        source.executor = Arc::new(RecordingExecutor {
+            malformed_status: true,
+            ..RecordingExecutor::default()
+        });
+        assert!(source
+            .scan_ordered_distinct(&needed, &[], &order)
+            .unwrap()
+            .is_err());
     }
 }

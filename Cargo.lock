@@ -3041,6 +3041,7 @@ dependencies = [
  "tokio",
  "tracing",
  "ureq 2.12.1",
+ "url",
  "wat",
  "webpki-roots 0.26.11",
 ]

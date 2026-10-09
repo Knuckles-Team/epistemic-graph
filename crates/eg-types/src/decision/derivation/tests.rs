@@ -135,6 +135,47 @@ fn the_coverage_chain_is_the_shortest_and_re_checks() {
     );
 }
 
+#[test]
+fn capability_coverage_joins_derived_library_coverage_with_self_declared_a2a_coverage() {
+    // EG-DECISION-ENGINE-R126: reuses required_capabilities/coverage_chain
+    // rather than any new derivation rule.
+    let required =
+        required_capabilities(&requirements(&[], &["eg:capability/retrieval"]), ONTOLOGY)
+            .expect("a direct capability resolves");
+    let web = candidate("tool-web", &["eg:capability/retrieval/web-search"]);
+    let unrelated = candidate("tool-unrelated", &[]);
+    let a2a_cards = vec![
+        (
+            "card-a".to_string(),
+            vec!["eg:capability/retrieval".to_string()],
+        ),
+        (
+            "card-b".to_string(),
+            vec!["eg:capability/unrelated".to_string()],
+        ),
+    ];
+    let answer = capability_coverage(&required, &[web, unrelated], &a2a_cards);
+    assert_eq!(answer.len(), 1);
+    let entry = &answer[0];
+    assert_eq!(entry.capability_iri, "eg:capability/retrieval");
+    assert_eq!(entry.because.class, PremiseClass::Definition);
+    assert_eq!(
+        entry.library.len(),
+        1,
+        "only the covering candidate is listed, never the unrelated one"
+    );
+    assert_eq!(
+        entry.library[0].derivation.covered_by.as_deref(),
+        Some("tool-web")
+    );
+    assert_eq!(
+        entry.library[0].evidence_class,
+        EvidenceClass::Claim,
+        "a component's own classification is a claim, never a proof"
+    );
+    assert_eq!(entry.a2a_card_ids, vec!["card-a".to_string()]);
+}
+
 fn tampered(edit: impl FnOnce(&mut Vec<DerivationEdge>)) -> CoverageDerivation {
     let web = candidate("tool-web", &["eg:capability/retrieval/web-search"]);
     let mut chain = coverage_chain("eg:capability", &web).expect("covers");
