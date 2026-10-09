@@ -416,8 +416,8 @@
         {
           "kind": "branch",
           "result": "passed",
-          "commit": "PENDING_PUSH",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/pull/PENDING",
+          "commit": "c2dd4c98fe60f1d371d4f3565f53d4821c5c1512",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/pull/109",
           "description": "crates/eg-plan/src/federation_age.rs ported from the never-merged commit bfa1cabd8494accef2ae87892bdd63d8358eec93 (branch codex/t6-eh508-cypher-20260926), re-verified against current origin/main; not yet merged to the default branch."
         }
       ]
