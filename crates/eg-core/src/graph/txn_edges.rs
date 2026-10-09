@@ -1,4 +1,5 @@
 use super::*;
+use super::core_helpers::blob_relation_type;
 
 impl<'a> GraphTxn<'a> {
     // ── Edge CRUD (under the held topology write guard) ──────────────────
