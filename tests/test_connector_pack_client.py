@@ -405,6 +405,40 @@ def test_transport_loss_retry_reuses_the_exact_import_operation_key() -> None:
     assert import_keys[0] == import_keys[1]
 
 
+def test_import_key_excludes_the_request_id() -> None:
+    """R092: the import idempotency key ignores request_id entirely.
+
+    The retry test above holds every context field, including request_id,
+    fixed across both calls, so it cannot distinguish "the key is stable
+    because it excludes request_id" from "the key is stable because the
+    whole context happens to be unchanged." This test varies only
+    request_id and proves the resulting operation key does not move.
+    """
+
+    async def exercise(request_id: int) -> str:
+        transport = _Client()
+        client = ConnectorPackClient(transport)
+        await client.import_pack(
+            _built_archive(),
+            connector="connector-a",
+            server_package_version="2.3.1",
+            producer=PackProducer(name="agent-connector-sdk", version="0.1.0"),
+            catalog=_catalog(),
+            context=_context().model_copy(update={"request_id": request_id}),
+            blob_digest="already-uploaded",
+        )
+        pack_call = next(
+            call
+            for call in transport.sent
+            if call[0] == "ConnectorPack" and call[1]["op"]["op"] == "import"
+        )
+        return pack_call[3]
+
+    first_key = asyncio.run(exercise(1))
+    second_key = asyncio.run(exercise(2))
+    assert first_key == second_key
+
+
 def test_public_wheel_surface_exports_the_connector_pack_client() -> None:
     import epistemic_graph
 
