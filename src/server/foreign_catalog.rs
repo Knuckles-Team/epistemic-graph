@@ -41,6 +41,17 @@
 //! Registrations live in memory only. `RegisterForeignSource` is a `ControlRedb`
 //! session-control saga whose durable record is an opaque receipt; the endpoint
 //! configuration is never persisted, so there is no stored key shape to migrate.
+//!
+//! **Outbound verification at registration time (`EG-UNIFIED-DATA-PLANE-R002.1`).**
+//! A `Sql` spec's DSN is checked against the existing SSRF-sensitive destination gate
+//! ([`eg_plan::federation_ssrf::check_sql_dsn`], already enforced at query time by
+//! `crates/eg-plan/src/federation.rs`) BEFORE the entry is inserted, so a disallowed
+//! destination is refused at `RegisterForeignSource` time rather than only failing
+//! later when a plan tries to use it. Other [`ForeignSourceSpec`] variants are
+//! unaffected; their own outbound gates (`HttpJson`'s `validate_http_json_target`,
+//! `RemoteEngine`'s dial-time checks) run where they already ran before this change —
+//! unifying every variant's registration-time gate is tracked separately as
+//! `EG-UNIFIED-DATA-PLANE-R002.2`/`.3`.
 
 use std::sync::Arc;
 
@@ -105,13 +116,24 @@ impl OwnedForeignRegistry {
 impl ForeignSourceCatalog {
     /// Record (or replace) `owner`'s source `name`. Another owner's entry under the
     /// same name is a different key, so it can be neither read nor overwritten here.
-    pub(crate) fn register(&self, owner: &CarrierAuthority, name: String, spec: ForeignSourceSpec) {
+    ///
+    /// `EG-UNIFIED-DATA-PLANE-R002.1`: a `Sql` spec's DSN is checked against the
+    /// outbound destination gate FIRST; a disallowed destination is refused (`Err`)
+    /// and nothing is inserted, so an unverified endpoint never reaches the catalog.
+    pub(crate) fn register(
+        &self,
+        owner: &CarrierAuthority,
+        name: String,
+        spec: ForeignSourceSpec,
+    ) -> Result<(), String> {
+        verify_outbound_before_register(&spec)?;
         let key = CatalogKey {
             owner_scope: owner.owner_scope().to_string(),
             name,
         };
         let owner_agent = owner.agent_id().to_string();
         self.entries.insert(key, OwnedSpec { owner_agent, spec });
+        Ok(())
     }
 
     /// THE scoping chokepoint: the executor registry holding `caller`'s own
@@ -214,6 +236,20 @@ pub(crate) async fn served_foreign_leg(
     )
 }
 
+/// `EG-UNIFIED-DATA-PLANE-R002.1` — the registration-time outbound gate. A `Sql` spec's
+/// DSN must pass the same SSRF-sensitive destination check `crates/eg-plan/src/federation.rs`
+/// already runs at query time, so a disallowed destination is refused before persistence
+/// rather than only when a plan later tries to use it. Other variants are untouched here;
+/// their own gates still run where they ran before (see the module doc).
+fn verify_outbound_before_register(spec: &ForeignSourceSpec) -> Result<(), String> {
+    #[cfg(feature = "federation-sql")]
+    if let ForeignSourceSpec::Sql { dsn, .. } = spec {
+        return eg_plan::federation_ssrf::check_sql_dsn(dsn);
+    }
+    let _ = spec;
+    Ok(())
+}
+
 /// Length-prefixed SHA-256 over the owner scope and every resolved `(name, spec)`.
 fn resolved_digest<'a>(
     owner_scope: &str,
@@ -273,8 +309,12 @@ mod tests {
         let (a, b) = (carrier("agent-a"), carrier("agent-b"));
         assert_eq!(a.tenant_scope(), b.tenant_scope(), "one engine, one tenant");
         let catalog = ForeignSourceCatalog::default();
-        catalog.register(&a, "src".into(), http_spec("http://a.invalid/"));
-        catalog.register(&b, "src".into(), http_spec("http://b.invalid/"));
+        catalog
+            .register(&a, "src".into(), http_spec("http://a.invalid/"))
+            .expect("http sources are not outbound-gated here");
+        catalog
+            .register(&b, "src".into(), http_spec("http://b.invalid/"))
+            .expect("http sources are not outbound-gated here");
         assert_eq!(
             catalog.spec_for(&a, "src"),
             Some(http_spec("http://a.invalid/"))
@@ -295,7 +335,9 @@ mod tests {
     fn another_owners_name_resolves_as_not_registered() {
         let (a, b) = (carrier("agent-a"), carrier("agent-b"));
         let catalog = ForeignSourceCatalog::default();
-        catalog.register(&a, "secret_src".into(), http_spec("http://a.invalid/"));
+        catalog
+            .register(&a, "secret_src".into(), http_spec("http://a.invalid/"))
+            .expect("http sources are not outbound-gated here");
         let scoped = catalog
             .resolve_for_plan(
                 &foreign_plan("secret_src"),
@@ -327,5 +369,59 @@ mod tests {
             catalog.resolve_for_plan(&local, None, &IsolationLayer::new()),
             Ok(None)
         ));
+    }
+
+    /// `EG-UNIFIED-DATA-PLANE-R002.1`: a `Sql` spec's DSN runs through the same
+    /// SSRF-sensitive destination gate `crates/eg-plan/src/federation.rs` runs at
+    /// query time, but now BEFORE the entry is inserted into the catalog.
+    #[cfg(feature = "federation-sql")]
+    mod outbound_verification {
+        use super::*;
+
+        fn sql_spec(dsn: &str) -> ForeignSourceSpec {
+            ForeignSourceSpec::Sql {
+                dsn: dsn.into(),
+                query: "SELECT id FROM t".into(),
+                id_field: "id".into(),
+                score_field: None,
+            }
+        }
+
+        #[test]
+        fn a_disallowed_sql_destination_is_refused_and_never_persisted() {
+            let a = carrier("agent-a");
+            let catalog = ForeignSourceCatalog::default();
+            // Same fixture `crates/eg-plan/src/federation_ssrf.rs` already proves is
+            // refused: loopback on a non-default port, no allow-list entry.
+            let err = catalog
+                .register(
+                    &a,
+                    "bad_sql".into(),
+                    sql_spec("postgres://u@127.0.0.1:5433/db"),
+                )
+                .expect_err("a disallowed SQL destination must be refused");
+            assert!(!err.is_empty());
+            assert_eq!(
+                catalog.spec_for(&a, "bad_sql"),
+                None,
+                "a refused registration must not reach the catalog"
+            );
+        }
+
+        #[test]
+        fn an_allowed_sql_destination_still_registers() {
+            let a = carrier("agent-a");
+            let catalog = ForeignSourceCatalog::default();
+            // Same fixture `crates/eg-plan/src/federation_ssrf.rs` already proves is
+            // admitted: loopback on the dialect's own default port.
+            catalog
+                .register(
+                    &a,
+                    "ok_sql".into(),
+                    sql_spec("postgres://u@127.0.0.1:5432/db"),
+                )
+                .expect("an allowed SQL destination must still register");
+            assert!(catalog.spec_for(&a, "ok_sql").is_some());
+        }
     }
 }

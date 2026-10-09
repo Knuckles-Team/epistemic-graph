@@ -5,6 +5,9 @@
   "requirement_ids": [
     "EG-UNIFIED-DATA-PLANE-R001",
     "EG-UNIFIED-DATA-PLANE-R002",
+    "EG-UNIFIED-DATA-PLANE-R002.1",
+    "EG-UNIFIED-DATA-PLANE-R002.2",
+    "EG-UNIFIED-DATA-PLANE-R002.3",
     "EG-UNIFIED-DATA-PLANE-R003",
     "EG-UNIFIED-DATA-PLANE-R004",
     "EG-UNIFIED-DATA-PLANE-R005",
@@ -54,7 +57,25 @@
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R002",
-      "title": "Unify attached-source registration into one owner-scoped registry",
+      "title": "Unify attached-source registration into one owner-scoped registry (rollup)",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R002.1",
+      "title": "Verify outbound target before persisting a ForeignSourceSpec::Sql registration (producer path)",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R002.2",
+      "title": "Verify outbound target before persisting an OBDA external_sources registration (consumer path)",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R002.3",
+      "title": "Verify outbound target before persisting a kernel mirror-target registration (sink path)",
       "delivery_state": "SPECIFIED",
       "evidence": []
     },
