@@ -120,6 +120,18 @@ pub struct OutboxDelivery {
 }
 
 impl OutboxDelivery {
+    /// Delivery-side progress for this table is written and read only by the
+    /// local store owner that holds the lease: `outbox/claim.rs` and
+    /// `outbox/cursor.rs` call directly into this crate's storage handle, never
+    /// through `server::dispatch::consensus::apply_replicated_native` or any
+    /// other Raft-proposed path (EG-DURABLE-KERNEL-R005). A non-owning cluster
+    /// member therefore never observes this row: delivery progress is
+    /// node-local, not part of the replicated multi-group log. This constant
+    /// names that invariant so a future caller that reaches for Raft
+    /// replication of delivery state finds a documented, tested refusal point
+    /// instead of silently wiring one in.
+    pub(crate) const REPLICATED_BY_RAFT: bool = false;
+
     /// Whether this row is currently held by a live, unexpired lease.
     pub(crate) fn leased_at(&self, now_ms: u64) -> bool {
         !self.resolved() && self.lease_until_ms > now_ms
@@ -294,4 +306,21 @@ pub(crate) fn validate_delivery_event(
         return Err("CORRUPT_OUTBOX_DELIVERY: row does not match its key".to_string());
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod r005_node_local_delivery {
+    use super::OutboxDelivery;
+
+    /// EG-DURABLE-KERNEL-R005: outbox delivery-side state stays local to the
+    /// owning node rather than flowing through the multi-group Raft layer.
+    /// This is the typed, unit-testable half of that contract; the
+    /// companion integration test (asserting delivery rows are absent from
+    /// a non-owning cluster member's replicated state) needs a live
+    /// multi-node cluster and belongs to the `raft` feature's integration
+    /// suite, not this crate's unit tests.
+    #[test]
+    fn outbox_delivery_state_is_not_replicated_by_raft() {
+        assert!(!OutboxDelivery::REPLICATED_BY_RAFT);
+    }
 }

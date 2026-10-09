@@ -159,6 +159,13 @@ pub mod federation;
 /// (EG-DURABLE-KERNEL-R024.1).
 #[cfg(feature = "federation-sql")]
 pub mod federation_age;
+/// The Neo4j/FalkorDb halves of the Cypher transpiler source
+/// (EG-DURABLE-KERNEL-R024.3): typed shape validation plus an explicit,
+/// named refusal, since no bound Bolt/RESP driver exists yet. AGE (the
+/// third Cypher dialect) is bound in `federation_age` behind
+/// `federation-sql`.
+#[cfg(feature = "federation")]
+pub mod federation_cypher_unbound;
 /// The federation optimizer (EH-563): capability-driven pushdown of keys, limits and pages
 /// into foreign sources, bind joins, the per-query network budget and the fragment trace.
 #[cfg(feature = "federation")]

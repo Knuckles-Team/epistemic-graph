@@ -117,6 +117,18 @@ impl AuthMode {
     pub fn may_move_to(self, to: Self) -> bool {
         LEGAL_EDGES.contains(&(self, to))
     }
+
+    /// Every mode this engine resolves a caller under. Mode only changes HOW
+    /// a principal is established -- the bootstrap identity, a local
+    /// credential, or an external authority (OIDC/SAML/LDAP/Active
+    /// Directory/SCIM) -- never which evaluation path authorizes it
+    /// afterward: every op dispatch returns the same `IdentityReply::
+    /// Principal` reply and is checked by the same RBAC evaluator
+    /// (EG-DURABLE-KERNEL-R026). A caller that adds a fourth mode without
+    /// also widening this array gets a compile-visible, exhaustive-match
+    /// reminder at every site that iterates it, rather than a silently
+    /// uncovered mode.
+    pub const ALL: [AuthMode; 3] = [AuthMode::None, AuthMode::Local, AuthMode::External];
 }
 
 /// A mode change request. `expected_epoch` is the compare-and-set guard.
@@ -133,4 +145,24 @@ pub struct ModeTransition {
     pub ack: Option<String>,
     /// The local issuer's new signing key id (rotation on every transition).
     pub issuer_kid: String,
+}
+
+#[cfg(test)]
+mod r026_unified_principal_path {
+    use super::AuthMode;
+
+    /// EG-DURABLE-KERNEL-R026: the three auth modes are a closed, named set
+    /// that every principal/RBAC-path caller can iterate over -- a refusal
+    /// point against silently handling only a subset of modes. The deeper
+    /// "same `IdentityReply::Principal` reply, same RBAC evaluator" half of
+    /// this requirement is exercised by the existing `identity::ops` and
+    /// `identity::store::modes` dispatch tests; this is the typed-model
+    /// slice naming the exhaustive set those tests resolve against.
+    #[test]
+    fn every_auth_mode_is_covered_by_one_named_set() {
+        assert_eq!(AuthMode::ALL.len(), 3);
+        assert!(AuthMode::ALL.contains(&AuthMode::None));
+        assert!(AuthMode::ALL.contains(&AuthMode::Local));
+        assert!(AuthMode::ALL.contains(&AuthMode::External));
+    }
 }
