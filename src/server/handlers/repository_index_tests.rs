@@ -215,6 +215,7 @@ fn a_repository_sized_batch_is_one_envelope_with_a_bounded_notice() {
 
 /// Past the mutation batch's operation budget the batch is refused whole,
 /// with a code the source transport acts on, never committed in parts.
+// spec: EG-REPO-INGEST-R008
 #[test]
 fn a_batch_over_the_commit_budget_is_refused_whole() {
     let limit = eg_types::mutation_batch::MAX_MUTATION_OPERATIONS;
@@ -244,6 +245,7 @@ fn byte_heavy_result(count: usize, value: &str) -> IndexResult {
 /// [`BATCH_TOO_LARGE`] code, and halving it (the connector SDK's blind
 /// halve-and-resend retry, which acts on the code alone and never parses the
 /// message) is enough for the resend to commit.
+// spec: EG-REPO-INGEST-R008
 #[test]
 fn a_batch_over_the_byte_ceiling_is_refused_and_a_halved_resend_succeeds() {
     let big_value = "x".repeat(300_000);

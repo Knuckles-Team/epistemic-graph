@@ -48,6 +48,7 @@ fn predecessor(path: &Path, old: &crate::owner::persisted_layout::LayoutPredeces
     write.commit().unwrap();
 }
 
+// spec: EG-DURABLE-KERNEL-R045
 #[test]
 fn exact_predecessor_contracts_match_the_frozen_historical_digests() {
     for (old, pinned) in [

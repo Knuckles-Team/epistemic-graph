@@ -104,6 +104,7 @@ mod tests {
         PgrxSpikeArea::ALL.into_iter().map(evidence).collect()
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R025.1
     #[test]
     fn complete_decision_validates_with_its_outcome() {
         let decision = PgrxSpikeDecision {
@@ -113,6 +114,7 @@ mod tests {
         assert_eq!(decision.validate(), Ok(PgrxSpikeOutcome::NoGo));
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R025.1
     #[test]
     fn missing_area_is_refused_and_named() {
         let mut evidence = full_evidence();
@@ -128,6 +130,7 @@ mod tests {
         );
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R025.1
     #[test]
     fn decision_without_outcome_is_refused() {
         let decision = PgrxSpikeDecision {

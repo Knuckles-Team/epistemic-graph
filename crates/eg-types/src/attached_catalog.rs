@@ -114,6 +114,7 @@ mod tests {
         }
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R003.1
     #[test]
     fn content_hash_is_stable_under_table_and_column_reordering() {
         let a = AttachedCatalogGraph {
@@ -141,6 +142,7 @@ mod tests {
         assert_eq!(a.content_hash(), b.content_hash());
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R003.1
     #[test]
     fn content_hash_changes_with_the_catalog() {
         let a = AttachedCatalogGraph {
@@ -154,6 +156,7 @@ mod tests {
         assert_ne!(a.content_hash(), b.content_hash());
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R003.1
     #[test]
     fn a_catalog_with_one_table_per_name_validates() {
         let graph = AttachedCatalogGraph {

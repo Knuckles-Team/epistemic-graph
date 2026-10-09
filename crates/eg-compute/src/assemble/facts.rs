@@ -143,6 +143,7 @@ mod cross_path_consistency_tests {
     use eg_types::decision::CandidateFacts;
     use eg_types::test_support::decision::tool_entry_with_cost_latency;
 
+    // spec: EG-DECISION-ENGINE-R061.1
     #[test]
     fn the_exact_solver_path_and_the_statistical_path_read_the_same_declared_values() {
         let entry = tool_entry_with_cost_latency(

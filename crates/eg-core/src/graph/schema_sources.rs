@@ -1022,6 +1022,7 @@ mod tests {
         assert!(sources.dynamic.is_empty());
     }
 
+    // spec: EG-TYPED-PACKS-R058
     #[test]
     fn imported_replacements_are_monotonic_or_byte_identical() {
         let pack = |record_id: &str, document: &'static str| {
@@ -1097,6 +1098,7 @@ mod tests {
             .unwrap());
     }
 
+    // spec: EG-TYPED-PACKS-R058, EG-TYPED-PACKS-R073
     #[test]
     fn empty_pack_head_is_a_monotonic_withdrawal_tombstone() {
         let pack = |record_id: &str, ontology: Option<&'static str>| {
@@ -1136,6 +1138,7 @@ mod tests {
             .contains("SCHEMA_SOURCE_REGRESSION"));
     }
 
+    // spec: EG-TYPED-PACKS-R073
     #[test]
     fn core_catalog_cannot_be_partially_installed() {
         let mut sources = GraphSchemaSources::default();
@@ -1146,6 +1149,7 @@ mod tests {
             .contains("immutable catalog"));
     }
 
+    // spec: EG-TYPED-PACKS-R058, EG-TYPED-PACKS-R071, EG-TYPED-PACKS-R073
     #[test]
     fn core_artifact_bytes_and_legacy_iri_namespace_are_pinned() {
         // Pin the exact bytes compiled by `include_str!`, rather than a

@@ -80,6 +80,7 @@ impl IngestionLaneRequest {
 mod tests {
     use super::*;
 
+    // spec: EG-DECISION-ENGINE-R030
     #[test]
     fn every_lane_option_id_resolves_back_to_its_lane() {
         for lane in IngestionLane::ALL {
@@ -87,6 +88,7 @@ mod tests {
         }
     }
 
+    // spec: EG-DECISION-ENGINE-R030
     #[test]
     fn a_request_naming_only_registered_lanes_is_accepted() {
         let request = IngestionLaneRequest {
@@ -98,6 +100,7 @@ mod tests {
         assert!(request.check().is_ok());
     }
 
+    // spec: EG-DECISION-ENGINE-R030
     #[test]
     fn a_request_naming_an_unregistered_lane_is_refused() {
         let request = IngestionLaneRequest {

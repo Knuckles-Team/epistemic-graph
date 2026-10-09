@@ -464,6 +464,7 @@ def test_hook_handles_newline_in_staged_rust_path(
         ('include!("child.rs");\n', "src/child.rs"),
     ],
 )
+@pytest.mark.spec("EG-CONTRACT-R024")
 def test_hook_rejects_nested_module_or_include_symlink(
     repository: tuple[Path, Path, Path], declaration: str, child_path: str
 ) -> None:
@@ -486,6 +487,7 @@ def test_hook_rejects_nested_module_or_include_symlink(
     assert not log.exists()
 
 
+@pytest.mark.spec("EG-CONTRACT-R024")
 def test_hook_uses_staged_config_and_scanner_contract_module(
     repository: tuple[Path, Path, Path],
 ) -> None:

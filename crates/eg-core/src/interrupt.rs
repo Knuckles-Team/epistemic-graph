@@ -58,12 +58,14 @@ mod tests {
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
 
+    // spec: EG-TYPED-PACKS-R084
     #[test]
     fn outside_a_scope_nothing_is_requested() {
         assert!(!requested());
         assert!(!due(0));
     }
 
+    // spec: EG-TYPED-PACKS-R084
     #[test]
     fn the_probe_is_read_on_stride_boundaries_and_restored_on_exit() {
         let flag = Arc::new(AtomicBool::new(false));

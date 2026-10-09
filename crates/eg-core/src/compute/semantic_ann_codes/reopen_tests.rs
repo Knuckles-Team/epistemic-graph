@@ -34,6 +34,7 @@ fn status(codes: &SemanticCodeStore) -> eg_types::mutation_outbox::MutationOutbo
     }
 }
 
+// spec: EG-FEDERATED-QUERY-R004
 #[test]
 fn a_reopened_owner_answers_the_same_outbox_and_still_writes() {
     let dir = tmp_dir("operator-reopen");

@@ -209,11 +209,13 @@ mod tests {
         assert!(plan.if_not_exists);
     }
 
+    // spec: EG-FEDERATED-QUERY-R009
     #[test]
     fn eg116_non_ann_index_is_not_recognized() {
         assert!(parse_create_ann_index("CREATE INDEX ON t USING btree (a)").is_none());
     }
 
+    // spec: EG-FEDERATED-QUERY-R009
     #[test]
     fn drop_index_is_recognized_with_its_options() {
         let parsed = |sql| parse_drop_ann_index(sql);

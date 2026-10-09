@@ -105,6 +105,7 @@ mod tests {
         }
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R019.1
     #[test]
     fn valid_path_round_trips_through_insert() {
         let mut shape = DocumentCollectionShape {
@@ -115,6 +116,7 @@ mod tests {
         assert!(shape.fields.contains_key("address.city"));
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R019.1
     #[test]
     fn empty_path_is_refused() {
         assert_eq!(
@@ -123,6 +125,7 @@ mod tests {
         );
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R019.1
     #[test]
     fn leading_or_trailing_dot_is_refused() {
         assert!(validate_field_path(".a").is_err());

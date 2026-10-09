@@ -76,6 +76,7 @@ def test_graph_router_call_removal_fails_closed() -> None:
         module.check_inventory(parts)
 
 
+@pytest.mark.spec("EG-CONTRACT-R007", "EG-CONTRACT-R017")
 def test_legacy_coalescer_subset_proof_fails_closed() -> None:
     module = _gate_module()
     parts = copy.deepcopy(module.sources())
@@ -129,6 +130,7 @@ def test_post_lock_router_order_swap_fails_closed() -> None:
         module.check_routing_and_coalescing(parts)
 
 
+@pytest.mark.spec("EG-CONTRACT-R007", "EG-CONTRACT-R017")
 def test_consensus_fail_open_catch_all_fails_closed() -> None:
     module = _gate_module()
     parts = module.sources()
@@ -142,6 +144,7 @@ def test_consensus_fail_open_catch_all_fails_closed() -> None:
         module.check_consensus_exhaustiveness(parts)
 
 
+@pytest.mark.spec("EG-CONTRACT-R007", "EG-CONTRACT-R017")
 def test_undeclared_dispatch_module_is_an_orphan(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

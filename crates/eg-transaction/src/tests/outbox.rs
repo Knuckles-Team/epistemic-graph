@@ -1483,6 +1483,7 @@ fn a_consumer_may_not_change_the_topic_its_cursor_already_names() {
         .is_err());
 }
 
+// spec: EG-TYPED-PACKS-R055
 #[test]
 fn one_scopes_claims_never_reach_another_scopes_rows() {
     let dir = tempfile::tempdir().unwrap();
@@ -1514,6 +1515,7 @@ fn one_scopes_claims_never_reach_another_scopes_rows() {
         .is_err());
 }
 
+// spec: EG-TYPED-PACKS-R055
 #[test]
 fn an_invalid_consumer_name_can_never_key_a_durable_row() {
     let dir = tempfile::tempdir().unwrap();
@@ -1528,6 +1530,7 @@ fn an_invalid_consumer_name_can_never_key_a_durable_row() {
     }
 }
 
+// spec: EG-TYPED-PACKS-R055
 #[test]
 fn a_claim_budget_needs_a_real_limit_and_a_real_lease() {
     assert!(OutboxClaimBudget::new(0, 1, 0).is_err());

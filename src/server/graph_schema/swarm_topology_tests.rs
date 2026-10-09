@@ -30,6 +30,7 @@ fn projection(fan_nodes: &str, worker_widths: (u8, u8), stop: &str, resource: &s
 const FAN: &str = " ; swarm:nodeKind \"fanout\", \"join\"";
 const MAX_ROUNDS: &str = "swarm:MaxRoundsStop ; swarm:n 1";
 
+// spec: EG-DECISION-ENGINE-R105
 #[test]
 fn the_swarm_vocabulary_and_shapes_are_core_sources() {
     let sources = GraphSchemaSources::default();
@@ -48,6 +49,7 @@ fn the_swarm_vocabulary_and_shapes_are_core_sources() {
         .is_some_and(|d| d.contains("TemplateTopologyShape")));
 }
 
+// spec: EG-DECISION-ENGINE-R105
 #[test]
 fn a_well_formed_template_projection_conforms() {
     assert!(conforms(&projection(
@@ -58,6 +60,7 @@ fn a_well_formed_template_projection_conforms() {
     )));
 }
 
+// spec: EG-DECISION-ENGINE-R106
 #[test]
 fn each_planted_template_defect_is_flagged() {
     let plants = [
@@ -125,6 +128,7 @@ fn peer_projection(class: &str, peers: u8, with_verifier: bool, stop: &str) -> S
     plain_projection(class, &slots, stop)
 }
 
+// spec: EG-DECISION-ENGINE-R106
 #[test]
 fn every_standard_shape_has_a_conforming_template() {
     // EG-DECISION-ENGINE-R106: the standard agent arrangement shapes --

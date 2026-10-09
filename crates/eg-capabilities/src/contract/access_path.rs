@@ -42,6 +42,7 @@ pub fn admit_call_path(path: &ConsumerCallPath) -> Result<(), CallPathRefusal> {
 mod tests {
     use super::*;
 
+    // spec: EG-DECISION-ENGINE-R116.1, EG-DECISION-ENGINE-R126.1, EG-DECISION-ENGINE-R126.2, EG-DECISION-ENGINE-R127.1, EG-DECISION-ENGINE-R127.2
     #[test]
     fn the_published_contract_path_is_admitted() {
         let path = ConsumerCallPath::Contract {
@@ -50,6 +51,7 @@ mod tests {
         assert!(admit_call_path(&path).is_ok());
     }
 
+    // spec: EG-DECISION-ENGINE-R116.1, EG-DECISION-ENGINE-R126.1, EG-DECISION-ENGINE-R126.2, EG-DECISION-ENGINE-R127.1, EG-DECISION-ENGINE-R127.2
     #[test]
     fn a_bespoke_facade_is_always_refused() {
         let path = ConsumerCallPath::BespokeFacade {
@@ -59,6 +61,7 @@ mod tests {
         assert!(refusal.reason.contains("bespoke facade"));
     }
 
+    // spec: EG-DECISION-ENGINE-R116.1, EG-DECISION-ENGINE-R126.1, EG-DECISION-ENGINE-R126.2, EG-DECISION-ENGINE-R127.1, EG-DECISION-ENGINE-R127.2
     #[test]
     fn an_empty_contract_version_is_refused() {
         let path = ConsumerCallPath::Contract {

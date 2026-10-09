@@ -80,6 +80,7 @@ fn assert_close(a: &[f64], b: &[f64], tol: f64) {
     }
 }
 
+// spec: EG-FEDERATED-QUERY-R031
 #[test]
 fn exact_matches_brute_force_permutations() {
     for n in 1..=7 {
@@ -89,6 +90,7 @@ fn exact_matches_brute_force_permutations() {
     }
 }
 
+// spec: EG-FEDERATED-QUERY-R031
 #[test]
 fn exact_satisfies_efficiency_symmetry_null_and_additivity() {
     let n = 6;
@@ -128,6 +130,7 @@ fn exact_satisfies_efficiency_symmetry_null_and_additivity() {
     assert_close(&lhs, &rhs, 1e-9);
 }
 
+// spec: EG-FEDERATED-QUERY-R031
 #[test]
 fn the_sum_game_splits_to_each_value_by_every_method() {
     let values = vec![3.0, -1.5, 0.25, 7.0, 2.0];
@@ -337,6 +340,7 @@ fn factor_ols_refuses_a_collinear_design() {
     assert_eq!(error.code, AttributionCode::Singular);
 }
 
+// spec: EG-DECISION-ENGINE-R118
 #[test]
 fn the_normal_quantile_matches_its_reference_values() {
     assert!((normal_quantile(0.975).unwrap() - 1.959_963_984_540_054).abs() < 1e-12);
@@ -348,6 +352,7 @@ fn logged(players: usize, values: &[(u64, f64)]) -> LoggedGame {
     LoggedGame::new(players, values.iter().copied().collect()).unwrap()
 }
 
+// spec: EG-DECISION-ENGINE-R118
 #[test]
 fn a_fully_logged_game_has_the_tables_shapley_value() {
     let table = TableGame::random(4, 17);
@@ -357,6 +362,7 @@ fn a_fully_logged_game_has_the_tables_shapley_value() {
     assert_close(&shapley_exact(&game, BUDGET).unwrap().phi, &expected, 1e-12);
 }
 
+// spec: EG-DECISION-ENGINE-R118
 #[test]
 fn an_unobserved_coalition_is_refused_not_interpolated() {
     let game = logged(2, &[(0b01, 0.4), (0b11, 0.9)]);

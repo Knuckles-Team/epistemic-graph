@@ -69,6 +69,7 @@ impl std::error::Error for InvalidAccelerationPolicy {}
 mod tests {
     use super::*;
 
+    // spec: EG-UNIFIED-DATA-PLANE-R010.1
     #[test]
     fn an_enabled_policy_with_a_positive_lag_objective_validates() {
         let policy = AccelerationPolicy {
@@ -79,6 +80,7 @@ mod tests {
         policy.validate().unwrap();
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R010.1
     #[test]
     fn a_disabled_policy_with_no_lag_objective_validates() {
         let policy = AccelerationPolicy {
@@ -89,6 +91,7 @@ mod tests {
         policy.validate().unwrap();
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R010.1
     #[test]
     fn an_empty_table_name_is_refused_regardless_of_enabled() {
         for enabled in [true, false] {

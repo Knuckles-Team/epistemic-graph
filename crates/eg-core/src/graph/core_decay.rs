@@ -204,6 +204,7 @@ mod sealed_record_tests {
     /// EH-558: belief maintenance leaves sealed records byte-identical — a decay sweep
     /// neither decays nor prunes them and a touch does not restamp them — while an
     /// ordinary node beside them is still decayed, pruned and touched.
+    // spec: EG-FEDERATED-QUERY-R035
     #[test]
     fn decay_and_touch_skip_sealed_records_but_not_beliefs() {
         let g = GraphCore::new();

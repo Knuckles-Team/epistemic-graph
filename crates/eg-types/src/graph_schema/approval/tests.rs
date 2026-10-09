@@ -103,6 +103,7 @@ fn an_approval_of_another_kind_target_or_candidate_is_a_mismatch() {
     assert!(refusal(Some(&bare)).starts_with("SCHEMA_APPROVAL_MISMATCH"));
 }
 
+// spec: EG-TYPED-PACKS-R083
 #[test]
 fn the_candidate_digest_binds_the_key_and_the_typed_contract() {
     let base = candidate();
@@ -118,6 +119,7 @@ fn the_candidate_digest_binds_the_key_and_the_typed_contract() {
     );
 }
 
+// spec: EG-TYPED-PACKS-R083
 #[test]
 fn the_candidate_digest_matches_its_documented_framing() {
     // The AU proposer computes the same bytes from the same typed contract
@@ -138,6 +140,7 @@ fn approved_op(source_id: &str, lease_id: &str) -> GraphSchemaOp {
     }
 }
 
+// spec: EG-TYPED-PACKS-R083
 #[test]
 fn attach_approved_requires_its_namespace_a_lease_id_and_a_contract() {
     approved_op(SOURCE, "action_approval:1").validate().unwrap();

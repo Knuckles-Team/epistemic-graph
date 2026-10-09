@@ -87,6 +87,7 @@ impl StorageBackend for BoundedPreviewBackend {
 mod tests {
     use super::*;
 
+    // spec: EG-DURABLE-KERNEL-R045
     #[test]
     fn growth_and_overflow_are_refused_before_modifying_preview() {
         let directory = tempfile::tempdir().unwrap();
@@ -112,6 +113,7 @@ mod tests {
         }
     }
 
+    // spec: EG-DURABLE-KERNEL-R045
     #[test]
     fn delegated_io_failure_survives_backend_drop() {
         let directory = tempfile::tempdir().unwrap();

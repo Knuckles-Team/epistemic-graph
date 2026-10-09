@@ -142,6 +142,7 @@ fn eg_317_delta_remove_tombstones_file() {
 }
 
 /// CONCEPT:EG-KG.storage.lsn-as-snapshot-returns — the LSN as-of snapshot returns a consistent point-in-time file set.
+// spec: EG-CONTRACT-R038
 #[test]
 fn eg_317_lsn_as_of_snapshot_is_consistent() {
     let mut table = LakeTable::new("market", "quotes", sample_schema(), "s3://lake/quotes");
@@ -164,6 +165,7 @@ fn eg_317_lsn_as_of_snapshot_is_consistent() {
     assert!(table.snapshot.files_as_of(Lsn(0)).is_empty());
 }
 
+// spec: EG-CONTRACT-R038
 #[test]
 fn public_iceberg_builders_project_populated_snapshot_logs() {
     let schema = sample_schema();
@@ -213,6 +215,7 @@ fn public_iceberg_builders_project_populated_snapshot_logs() {
 /// [`eg_lake::AsOfLsnResolver`] closure to the exact historical snapshot committed at
 /// or before it — the CALLER this seam previously had none of (`iceberg_as_of` itself
 /// existed and was tested, but nothing in the engine tree invoked it).
+// spec: EG-CONTRACT-R038
 #[test]
 fn bug_224_iceberg_as_of_ts_resolves_through_the_caller_closure() {
     let mut table = LakeTable::new("market", "quotes", sample_schema(), "s3://lake/quotes");

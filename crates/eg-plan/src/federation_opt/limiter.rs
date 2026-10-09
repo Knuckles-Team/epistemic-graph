@@ -192,6 +192,7 @@ mod tests {
         );
     }
 
+    // spec: EG-FEDERATED-QUERY-R047
     #[test]
     fn a_passed_deadline_is_refused_without_waiting() {
         let source = fingerprint(b"limiter-deadline-passed");
@@ -200,6 +201,7 @@ mod tests {
         assert!(started.elapsed() < Duration::from_secs(10));
     }
 
+    // spec: EG-FEDERATED-QUERY-R047
     #[test]
     fn a_full_registry_drops_idle_limiters_and_keeps_the_ones_in_use() {
         let now = Instant::now();
@@ -229,6 +231,7 @@ mod tests {
         assert_eq!(registry.limiters.len(), 1, "everything idle was dropped");
     }
 
+    // spec: EG-FEDERATED-QUERY-R047
     #[test]
     fn a_limiter_inside_its_pacing_window_is_not_idle() {
         let now = Instant::now();

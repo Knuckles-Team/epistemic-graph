@@ -1366,6 +1366,7 @@ mod tests {
     /// [`DEFAULT_TOP_K`] (not the raw node count), and a candidate-restricted rerank
     /// costs strictly more than a bare pass-through would.
     #[cfg(feature = "text")]
+    // spec: EG-FEDERATED-QUERY-R035
     #[test]
     fn bm25_rank_text_gets_a_real_cost_model() {
         let fx = crate::fixture::build();

@@ -118,6 +118,7 @@ mod tests {
         }
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R022.1
     #[test]
     fn green_entry_without_deviation_validates() {
         let entry = DialectConformanceEntry {
@@ -129,6 +130,7 @@ mod tests {
         assert_eq!(entry.validate(), Ok(()));
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R022.1
     #[test]
     fn deviated_entry_with_reviewed_deviation_validates() {
         let entry = DialectConformanceEntry {
@@ -140,6 +142,7 @@ mod tests {
         assert_eq!(entry.validate(), Ok(()));
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R022.1
     #[test]
     fn deviated_entry_without_deviation_is_refused() {
         let entry = DialectConformanceEntry {

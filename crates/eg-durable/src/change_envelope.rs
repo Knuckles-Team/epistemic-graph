@@ -110,6 +110,7 @@ impl ChangeEnvelope {
 mod tests {
     use super::*;
 
+    // spec: EG-UNIFIED-DATA-PLANE-R008.1
     #[test]
     fn insert_with_no_key_on_a_keyed_table_validates() {
         let envelope = ChangeEnvelope {
@@ -122,6 +123,7 @@ mod tests {
         assert_eq!(envelope.validate(), Ok(()));
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R008.1
     #[test]
     fn update_with_a_key_on_a_keyed_table_validates() {
         let mut key = BTreeMap::new();
@@ -136,6 +138,7 @@ mod tests {
         assert_eq!(envelope.validate(), Ok(()));
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R008.1
     #[test]
     fn empty_source_position_is_refused() {
         let envelope = ChangeEnvelope {

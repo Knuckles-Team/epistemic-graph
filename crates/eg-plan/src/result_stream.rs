@@ -553,6 +553,7 @@ mod tests {
         }
     }
 
+    // spec: EG-FEDERATED-QUERY-R062
     #[test]
     fn duplicate_score_names_are_rejected_for_large_schemas() {
         let mut names: Vec<String> = (0..1_024).map(|index| format!("score_{index}")).collect();

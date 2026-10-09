@@ -303,6 +303,7 @@ fn s1_admission_names_why_existing_progress_refuses_it() {
     );
 }
 
+// spec: EG-DURABLE-KERNEL-R048
 #[test]
 fn a_stage_lease_is_fenced_by_its_record_consumer_expiry_owner_and_event() {
     let pipeline = Pipeline::start("refusal-lease-fence");

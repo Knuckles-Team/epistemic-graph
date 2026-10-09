@@ -99,6 +99,7 @@ fn fresh_nonce_replay_after_later_batches_keeps_original_epoch_and_has_no_duplic
     assert_eq!(epoch(store), before_epoch);
 }
 
+// spec: EG-DURABLE-KERNEL-R055, EG-DURABLE-KERNEL-R061
 #[test]
 fn checkpoint_compare_and_swap_is_serialized_across_distinct_admitted_owner_scopes() {
     let (fixture, request) = seeded();
@@ -676,6 +677,7 @@ fn omitted_default_amplification_is_refused_without_any_publication() {
     assert_eq!(snapshot.rows[0].row_id, 0);
 }
 
+// spec: EG-DURABLE-KERNEL-R055, EG-DURABLE-KERNEL-R061
 #[test]
 fn aggregate_materialization_reservation_accepts_its_boundary_and_rejects_one_byte_more() {
     // Per row: <=5-byte array header, <=32-byte Int cell and Text's 32-byte
@@ -720,6 +722,7 @@ const _: () = assert!(
     1024 * (5 + 32 + 1023 * 8) < eg_types::storage_wire::source_batch::MAX_SQL_SOURCE_BATCH_BYTES
 );
 
+// spec: EG-DURABLE-KERNEL-R055, EG-DURABLE-KERNEL-R061
 #[test]
 fn wide_omitted_null_rows_are_rejected_by_structural_expansion_before_cloning_cells() {
     let mut columns = vec![Column::new("id", ColumnType::BigInt, false, true)];

@@ -39,6 +39,7 @@ def _bundle() -> dict[str, Any]:
     }
 
 
+@pytest.mark.spec("EG-CONTRACT-R048")
 def test_valid_inputs_are_accepted() -> None:
     models.ClaimWorkItemRequest.model_validate(_claim())
     models.EvidenceBundle.model_validate(_bundle())
@@ -54,6 +55,7 @@ def test_valid_inputs_are_accepted() -> None:
         ("max_tenant_in_flight", 4097),
     ],
 )
+@pytest.mark.spec("EG-CONTRACT-R048")
 def test_claim_request_refuses(field: str, value: Any) -> None:
     with pytest.raises(ValidationError):
         models.ClaimWorkItemRequest.model_validate({**_claim(), field: value})
@@ -69,6 +71,7 @@ def test_claim_request_refuses(field: str, value: Any) -> None:
         ("bundle_id", "   "),
     ],
 )
+@pytest.mark.spec("EG-CONTRACT-R048")
 def test_evidence_bundle_refuses(field: str, value: Any) -> None:
     with pytest.raises(ValidationError):
         models.EvidenceBundle.model_validate({**_bundle(), field: value})

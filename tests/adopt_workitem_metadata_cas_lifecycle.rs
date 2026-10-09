@@ -220,6 +220,7 @@ fn cas_priority_request(lease: CasWorkItemMetadataLeaseFence, now_ms: u64) -> Me
     }
 }
 
+// spec: EG-DURABLE-KERNEL-R028
 #[tokio::test]
 async fn workitem_metadata_cas_full_lifecycle_survives_restart() {
     let dir = std::env::temp_dir().join(format!(

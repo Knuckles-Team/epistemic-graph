@@ -243,6 +243,7 @@ fn encode_keys(keys: &[String]) -> String {
 mod tests {
     use super::*;
 
+    // spec: EG-FEDERATED-QUERY-R041, EG-FEDERATED-QUERY-R042, EG-FEDERATED-QUERY-R043, EG-FEDERATED-QUERY-R055, EG-FEDERATED-QUERY-R069, EG-FEDERATED-QUERY-R071
     #[test]
     fn placeholders_are_only_recognised_in_the_query_string() {
         assert!(Placeholders::of("https://api.example/{keys}/x").is_err());

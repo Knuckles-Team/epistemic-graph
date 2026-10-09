@@ -92,6 +92,7 @@ fn infeasible_labels(assembly: &Assembly) -> Vec<String> {
         .collect()
 }
 
+// spec: EG-DECISION-ENGINE-R018, EG-DECISION-ENGINE-R107, EG-DECISION-ENGINE-R108, EG-DECISION-ENGINE-R109, EG-DECISION-ENGINE-R110, EG-DECISION-ENGINE-R111, EG-DECISION-ENGINE-R112, EG-DECISION-ENGINE-R114, EG-DECISION-ENGINE-R115
 #[test]
 fn demand_sizes_the_fan_out_and_the_plan_leases_it() {
     let assembly = decide(requirements(4), read(10, admitted()));
@@ -111,6 +112,7 @@ fn demand_sizes_the_fan_out_and_the_plan_leases_it() {
     replay_check(&assembly.record).expect("a topology record replays byte for byte");
 }
 
+// spec: EG-DECISION-ENGINE-R018, EG-DECISION-ENGINE-R107, EG-DECISION-ENGINE-R108, EG-DECISION-ENGINE-R109, EG-DECISION-ENGINE-R110, EG-DECISION-ENGINE-R111, EG-DECISION-ENGINE-R112, EG-DECISION-ENGINE-R114, EG-DECISION-ENGINE-R115
 #[test]
 fn headroom_below_demand_abstains_naming_the_cell_lease() {
     let assembly = decide(requirements(4), read(3, admitted()));
@@ -123,6 +125,7 @@ fn headroom_below_demand_abstains_naming_the_cell_lease() {
     );
 }
 
+// spec: EG-DECISION-ENGINE-R018, EG-DECISION-ENGINE-R107, EG-DECISION-ENGINE-R108, EG-DECISION-ENGINE-R109, EG-DECISION-ENGINE-R110, EG-DECISION-ENGINE-R111, EG-DECISION-ENGINE-R112, EG-DECISION-ENGINE-R114, EG-DECISION-ENGINE-R115
 #[test]
 fn a_request_that_widens_the_policy_caps_is_refused() {
     let mut asked = requirements(4);

@@ -109,6 +109,7 @@ fn outcome(method: &Method) -> (BTreeMap<String, f64>, Vec<String>) {
     (map, options.assess.clone())
 }
 
+// spec: EG-FEDERATED-QUERY-R032
 #[test]
 fn cone_only_recompute_equals_a_full_recompute() {
     let view = view("open");
@@ -131,6 +132,7 @@ fn cone_only_recompute_equals_a_full_recompute() {
     assert!((partial["web"] - web).abs() < 1e-12);
 }
 
+// spec: EG-FEDERATED-QUERY-R032
 #[test]
 fn a_resolved_seed_clears_its_region() {
     let view = view("resolved");
@@ -152,6 +154,7 @@ fn a_resolved_seed_clears_its_region() {
         .is_none());
 }
 
+// spec: EG-FEDERATED-QUERY-R032
 #[test]
 fn an_unwatched_graph_leaves_no_state_and_labels_filter_once_loaded() {
     let hub = ImpactWatchHub::new(["g".to_string()].into(), Duration::ZERO);

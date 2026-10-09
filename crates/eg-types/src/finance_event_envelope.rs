@@ -94,11 +94,13 @@ mod tests {
         }
     }
 
+    // spec: EG-FINANCE-PRIMITIVES-R011.1
     #[test]
     fn a_well_formed_envelope_validates() {
         assert!(valid().validate().is_ok());
     }
 
+    // spec: EG-FINANCE-PRIMITIVES-R011.1
     #[test]
     fn an_empty_event_id_is_refused() {
         let mut envelope = valid();
@@ -106,6 +108,7 @@ mod tests {
         assert!(envelope.validate().is_err());
     }
 
+    // spec: EG-FINANCE-PRIMITIVES-R011.1
     #[test]
     fn an_empty_listing_id_is_refused() {
         let mut envelope = valid();

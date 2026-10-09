@@ -259,6 +259,7 @@ fn spawn_mock_json(body: &'static str) -> String {
 /// and equals the hand-wired join (local-filtered ∩ foreign, vector-ranked). Reuses the
 /// canonical `crate::fixture` (Docs d1..d5 with years + embeddings).
 #[cfg(feature = "federation")]
+// spec: EG-FEDERATED-QUERY-R045
 #[test]
 fn federation_sparql_local_vector_foreign_sql_one_plan_eg385() {
     use eg_types::wire::{ForeignSourceSpec, HttpFieldMap};

@@ -154,6 +154,7 @@ mod schema_migration_tests {
         assert_eq!(live.schema_sources(), before);
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R034
     #[test]
     fn oversized_v2_policy_is_a_typed_decode_error_not_a_panic() {
         let legacy = LegacyGraphSnapshot {

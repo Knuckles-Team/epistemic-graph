@@ -299,6 +299,7 @@ mod tests {
             .with_mapping("Person", "source-b-people", "source-b", 3)
     }
 
+    // spec: EG-FEDERATED-QUERY-R072.1
     #[test]
     fn direct_mapping_is_covered_with_source_generation_premise() {
         let fixture = two_source_fixture();
@@ -320,6 +321,7 @@ mod tests {
         }
     }
 
+    // spec: EG-FEDERATED-QUERY-R072.1
     #[test]
     fn subclass_mapping_serves_its_superclass() {
         let fixture = two_source_fixture();
@@ -345,6 +347,7 @@ mod tests {
         }
     }
 
+    // spec: EG-FEDERATED-QUERY-R072.1
     #[test]
     fn reachable_unmapped_class_is_uncovered() {
         let fixture = two_source_fixture();

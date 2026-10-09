@@ -777,6 +777,7 @@ mod tests {
     /// overlay `unifiedQuery` threads reads the txn's own uncommitted points (UQL has no
     /// `TSSCAN` source, so the plan is built directly — the overlay path is identical).
     #[cfg(feature = "crossmodal-tsdb")]
+    // spec: EG-FEDERATED-QUERY-R030
     #[test]
     fn cross_modal_txn_measurement_staged_series_ryow() {
         use eg_plan::{Op, Plan};

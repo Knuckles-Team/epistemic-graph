@@ -21,6 +21,7 @@ fn connector_event_request(schema: &ComponentDependency) -> DecideRequest {
     asked
 }
 
+// spec: EG-DECISION-ENGINE-R041
 #[tokio::test]
 async fn connector_event_triage_is_evaluate_only_and_logs_a_sampled_fraction() {
     let h = Harness::new().await;

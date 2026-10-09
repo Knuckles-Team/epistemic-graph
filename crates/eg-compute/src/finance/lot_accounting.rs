@@ -206,6 +206,7 @@ mod tests {
         }
     }
 
+    // spec: EG-FINANCE-PRIMITIVES-R005.1
     #[test]
     fn fifo_closes_the_oldest_lot_first() {
         let activities = [act(1, 10, 100), act(2, 5, 110), act(3, 12, 120)];
@@ -220,6 +221,7 @@ mod tests {
         assert_eq!(ledger.open[0].remaining_ticks, 3 * SCALE);
     }
 
+    // spec: EG-FINANCE-PRIMITIVES-R005.1
     #[test]
     fn lifo_closes_the_newest_lot_first() {
         let activities = [act(1, 10, 100), act(2, 5, 110), act(3, 12, 120)];
@@ -234,6 +236,7 @@ mod tests {
         assert_eq!(ledger.open[0].remaining_ticks, 3 * SCALE);
     }
 
+    // spec: EG-FINANCE-PRIMITIVES-R005.1
     #[test]
     fn realized_gain_is_proceeds_minus_cost_times_quantity() {
         let activities = [act(1, 10, 100), act(2, 10, 150)];

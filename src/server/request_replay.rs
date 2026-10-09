@@ -415,6 +415,7 @@ fn presented(nonce: &str, timestamp: u64, now: u64) -> PresentedNonce<'_> {
 mod window_tests {
     use super::*;
 
+    // spec: EG-REPO-INGEST-R005
     #[test]
     fn nothing_at_or_below_the_floor_is_accepted() {
         let mut window = NonceWindow::with_floor(1_000);
@@ -424,6 +425,7 @@ mod window_tests {
 
     /// Cap eviction forgets nonces, so it must raise the floor over every one
     /// it forgot: none of them may become replayable.
+    // spec: EG-REPO-INGEST-R005
     #[test]
     fn cap_eviction_raises_the_floor_over_what_it_forgot() {
         let mut window = NonceWindow::with_floor(0);
@@ -468,6 +470,7 @@ mod durable_tests {
         eg_transaction::version(&ledger.durable.read().unwrap()).unwrap()
     }
 
+    // spec: EG-REPO-INGEST-R005
     #[test]
     fn a_nonce_is_accepted_once_and_refused_after() {
         let (ledger, dir) = ledger("once");

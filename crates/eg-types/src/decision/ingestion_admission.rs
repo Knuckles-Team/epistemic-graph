@@ -77,6 +77,7 @@ impl ContentClass {
 mod tests {
     use super::*;
 
+    // spec: EG-DECISION-ENGINE-R079.1
     #[test]
     fn ingestion_admission_classifier_excludes_every_excluded_class() {
         for class in [
@@ -92,6 +93,7 @@ mod tests {
         }
     }
 
+    // spec: EG-DECISION-ENGINE-R079.1
     #[test]
     fn ingestion_admission_classifier_admits_every_eligible_class() {
         for class in [
@@ -103,6 +105,7 @@ mod tests {
         }
     }
 
+    // spec: EG-DECISION-ENGINE-R079.1
     #[test]
     fn ingestion_admission_classifier_registry_partitions_with_no_overlap() {
         let admitted = ContentClass::ALL

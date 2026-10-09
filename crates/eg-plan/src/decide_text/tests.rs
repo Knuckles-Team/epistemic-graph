@@ -29,6 +29,7 @@ const DECIDE: &str = r#"CANDIDATES AGENT LIBRARY KINDS [tool, skill] UNDER <eg:c
 |> VALIDATE POLICY "policy-a" AT "sha256:p"
 |> DECIDE route QUESTION "route.tools" SAFETY ordinary FEATURES "schema-a" AT "sha256:s" HEAD "head-a" AT "sha256:h" MAX 4"#;
 
+// spec: EG-DECISION-ENGINE-R064, EG-DECISION-ENGINE-R104, EG-FEDERATED-QUERY-R068
 #[test]
 fn a_decide_clause_parses_to_a_typed_decide_request() {
     let DecideTextRequest::Decide(request) = parse(DECIDE, "tenant-a", &params()).expect("parses")
@@ -60,6 +61,7 @@ fn a_decide_clause_parses_to_a_typed_decide_request() {
     );
 }
 
+// spec: EG-DECISION-ENGINE-R064, EG-DECISION-ENGINE-R104, EG-FEDERATED-QUERY-R068
 #[test]
 fn an_assemble_clause_parses_to_an_assembly_request() {
     let text = "CANDIDATES AGENT LIBRARY KINDS [tool] |> COVERS $plan_capabilities |> ASSEMBLE MAX COMPONENTS 3";

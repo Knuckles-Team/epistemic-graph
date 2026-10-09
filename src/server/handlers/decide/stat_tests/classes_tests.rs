@@ -24,6 +24,7 @@ fn model_profile(h: &Harness, id: &str, supports_tools: bool) {
 }
 
 #[cfg(feature = "owl")]
+// spec: EG-DECISION-ENGINE-R058
 #[tokio::test]
 async fn derived_classes_select_candidates_as_claims_under_a_pinned_rule_set() {
     let h = Harness::new().await;

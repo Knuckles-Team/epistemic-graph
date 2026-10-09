@@ -341,6 +341,7 @@ mod tests {
             .is_none());
     }
 
+    // spec: EG-TYPED-PACKS-R018
     #[test]
     fn a_false_acknowledgement_is_a_lost_race_not_a_success() {
         let ok = Response::ok(1, ResultPayload::Bool(true));

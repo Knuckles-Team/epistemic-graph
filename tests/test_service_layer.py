@@ -326,6 +326,7 @@ def test_service_channel_p2p(service, client_factory):
     asyncio.run(_test())
 
 
+@pytest.mark.spec("EG-DURABLE-KERNEL-R068")
 @pytest.mark.concept("CONCEPT:AU-KG.query.object-graph-mapper")
 def test_service_channel_group(service, client_factory):
     """Test group channel join/leave/close lifecycle."""

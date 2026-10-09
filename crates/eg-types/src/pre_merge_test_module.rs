@@ -98,6 +98,7 @@ impl std::error::Error for InvalidRequiredTestModule {}
 mod tests {
     use super::*;
 
+    // spec: EG-DURABLE-KERNEL-R011.1
     #[test]
     fn the_three_named_categories_parse() {
         assert_eq!(
@@ -114,6 +115,7 @@ mod tests {
         );
     }
 
+    // spec: EG-DURABLE-KERNEL-R011.1
     #[test]
     fn an_unrecognized_category_name_is_refused() {
         for bad in ["Raft", "raft ", "smoke", ""] {
@@ -122,6 +124,7 @@ mod tests {
         }
     }
 
+    // spec: EG-DURABLE-KERNEL-R011.1
     #[test]
     fn a_complete_declaration_validates() {
         let module = RequiredTestModule {

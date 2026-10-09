@@ -116,6 +116,7 @@ mod tests {
     /// EG-TYPED-PACKS-R090.1: regenerating the Turtle text from the typed vocabulary
     /// twice produces byte-identical output, and that output is byte-identical to
     /// the checked-in fixture.
+    // spec: EG-TYPED-PACKS-R090.1
     #[test]
     fn regeneration_is_byte_identical_across_runs_and_to_checked_in_output() {
         let first = CODEGEN_SELFTEST_V1.to_turtle();
@@ -129,6 +130,7 @@ mod tests {
 
     /// A changed vocabulary (different label) must NOT match the checked-in fixture —
     /// confirms the byte-equality check is not vacuously true.
+    // spec: EG-TYPED-PACKS-R090.1
     #[test]
     fn a_different_module_does_not_match_the_checked_in_fixture() {
         let mut mutated = CODEGEN_SELFTEST_V1;

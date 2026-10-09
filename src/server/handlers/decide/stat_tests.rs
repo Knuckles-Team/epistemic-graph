@@ -566,6 +566,7 @@ async fn route_fixture(h: &Harness) -> RouteFixture {
     }
 }
 
+// spec: EG-DECISION-ENGINE-R037, EG-DECISION-ENGINE-R058, EG-DECISION-ENGINE-R062, EG-DECISION-ENGINE-R122
 #[tokio::test]
 async fn fit_evaluate_publish_and_decide_end_to_end() {
     let h = Harness::new().await;
@@ -976,6 +977,7 @@ async fn foreign_tenants_and_graph_candidates_are_refused() {
 /// caller's RLS-filtered snapshot; a ranking stage is refused and an
 /// unregistered caller is refused by the graph ACL before any row is read.
 #[cfg(feature = "query")]
+// spec: EG-DECISION-ENGINE-R038, EG-DECISION-ENGINE-R041, EG-DECISION-ENGINE-R042, EG-DECISION-ENGINE-R043, EG-DECISION-ENGINE-R045.2
 #[tokio::test]
 async fn graph_candidates_are_read_through_acl_rls_and_a_select_only_plan() {
     let h = Harness::with_isolation(ServerState::test_isolation("decider")).await;

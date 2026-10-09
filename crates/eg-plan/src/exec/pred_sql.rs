@@ -177,6 +177,7 @@ fn pred_sql(p: &Pred, at: Position) -> Result<String, String> {
 mod tests {
     use super::*;
 
+    // spec: EG-FEDERATED-QUERY-R021, EG-FEDERATED-QUERY-R024, EG-FEDERATED-QUERY-R070
     #[test]
     fn wire_supplied_identifiers_and_literals_cannot_escape_sql() {
         let clause = where_clause(&[Pred::Eq {

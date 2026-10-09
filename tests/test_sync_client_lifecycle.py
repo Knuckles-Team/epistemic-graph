@@ -40,6 +40,7 @@ class _CapabilityAsyncClient(_AsyncClient):
         return operation in self.advertised
 
 
+@pytest.mark.spec("EG-CONTRACT-R021")
 def test_sync_supports_matches_async_capability_probe() -> None:
     """The sync wrapper exposes the same fail-closed capability result."""
     loop = asyncio.new_event_loop()
@@ -60,6 +61,7 @@ def test_sync_supports_matches_async_capability_probe() -> None:
         client.close()
 
 
+@pytest.mark.spec("EG-CONTRACT-R021")
 def test_sync_deadline_cancels_blocked_graph_future_without_asyncio_run_tail() -> None:
     """A probe deadline cancels its graph future and releases its worker promptly."""
     loop = asyncio.new_event_loop()
@@ -104,6 +106,7 @@ def test_sync_deadline_cancels_blocked_graph_future_without_asyncio_run_tail() -
     } == baseline_workers
 
 
+@pytest.mark.spec("EG-CONTRACT-R021")
 def test_failed_sync_connect_releases_its_loop_resources(monkeypatch) -> None:
     """A failed async dial must not strand the loop thread or selector FDs."""
 

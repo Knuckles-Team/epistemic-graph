@@ -219,6 +219,7 @@ mod direct_wire_security_tests {
         assert!(validate_direct_wire_security("127.0.0.1:7687", "bolt-wire", true).is_ok());
     }
 
+    // spec: EG-FEDERATED-QUERY-R013
     #[test]
     fn broker_actor_reference_is_stable_opaque_and_secret_bound() {
         let actor = pseudonymous_broker_actor("secret", "human-readable-name").unwrap();
@@ -931,6 +932,7 @@ mod ca17_feature_stub_contract {
 
     /// The point of the stub commit is that the shared module lists already carry every
     /// gate, so no later lane has to touch them. Pin that the gate lines are present.
+    // spec: EG-FEDERATED-QUERY-R013
     #[test]
     fn every_reserved_module_gate_is_already_declared_in_its_shared_module_list() {
         for (file, source, gate, module) in [
@@ -2198,6 +2200,7 @@ mod tests {
     /// the MANUAL join done by hand. This is the cross-engine federation seam: ONE plan,
     /// TWO engines, no Python round-trip. (CONCEPT:EG-KG.query.query-federation)
     #[cfg(feature = "federation")]
+    // spec: EG-FEDERATED-QUERY-R013
     #[tokio::test]
     async fn test_federated_query_two_engines_equals_manual_join() {
         // Reads the ambient encryption env at its durable open, so the env must hold

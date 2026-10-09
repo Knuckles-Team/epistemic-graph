@@ -275,6 +275,7 @@ fn assert_native_round_trip(method: Method, expected_domain: NativeMutationDomai
     assert_eq!(rmp_serde::to_vec_named(&opened).unwrap(), expected);
 }
 
+// spec: EG-DURABLE-KERNEL-R027.2, EG-DURABLE-KERNEL-R027.3
 #[test]
 fn native_catalog_is_complete_unique_and_has_domain_representatives() {
     let unique = NATIVE_CONSENSUS_METHODS

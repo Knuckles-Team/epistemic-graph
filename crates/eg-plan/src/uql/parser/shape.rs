@@ -128,6 +128,7 @@ mod tests {
         ));
     }
 
+    // spec: EG-FEDERATED-QUERY-R022, EG-FEDERATED-QUERY-R023, EG-FEDERATED-QUERY-R061, EG-FEDERATED-QUERY-R064, EG-FEDERATED-QUERY-R065, EG-FEDERATED-QUERY-R067
     #[test]
     fn using_is_optional_and_a_bad_keep_is_a_positioned_error() {
         // No USING ⇒ empty shapes ⇒ the graph's GraphSchema shapes (bound server-side).

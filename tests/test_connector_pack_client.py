@@ -405,6 +405,7 @@ def test_transport_loss_retry_reuses_the_exact_import_operation_key() -> None:
     assert import_keys[0] == import_keys[1]
 
 
+@pytest.mark.spec("EG-TYPED-PACKS-R092")
 def test_import_key_excludes_the_request_id() -> None:
     """R092: the import idempotency key ignores request_id entirely.
 

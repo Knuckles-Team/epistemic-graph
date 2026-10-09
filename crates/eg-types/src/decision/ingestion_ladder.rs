@@ -61,6 +61,7 @@ mod tests {
         }
     }
 
+    // spec: EG-DECISION-ENGINE-R080.1
     #[test]
     fn the_lowest_sufficient_rung_wins_with_the_matching_provenance_tag() {
         let resolved = resolve_rung(None, fact("fn foo()", ProvenanceRung::AstExtraction));
@@ -68,6 +69,7 @@ mod tests {
         assert_eq!(resolved.value, "fn foo()");
     }
 
+    // spec: EG-DECISION-ENGINE-R080.1
     #[test]
     fn a_higher_rung_never_overwrites_an_existing_deterministic_fact() {
         let deterministic = fact(
@@ -85,6 +87,7 @@ mod tests {
         );
     }
 
+    // spec: EG-DECISION-ENGINE-R080.1
     #[test]
     fn a_lower_rung_offered_later_replaces_a_higher_rungs_guess() {
         let guess = fact(

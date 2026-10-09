@@ -1703,6 +1703,7 @@ async fn serve_conn(
 mod placement_identity_tests {
     use super::placement::PlacementCatalog;
 
+    // spec: EG-DURABLE-KERNEL-R015
     #[test]
     fn identical_methods_from_distinct_plans_get_distinct_child_keys() {
         let method = PlacementCatalog::epoch_cas_method(4, 5);

@@ -98,6 +98,7 @@ mod tests {
         }
     }
 
+    // spec: EG-DURABLE-KERNEL-R042.1
     #[test]
     fn a_published_passing_report_is_accepted() {
         claim("workload A, 8 shards", "p99 3.2ms vs 5.1ms", true)
@@ -105,6 +106,7 @@ mod tests {
             .unwrap();
     }
 
+    // spec: EG-DURABLE-KERNEL-R042.1
     #[test]
     fn missing_configuration_is_refused() {
         let err = claim("", "p99 3.2ms", true)
@@ -113,6 +115,7 @@ mod tests {
         assert_eq!(err, RefusedBenchmarkClaim::MissingConfiguration);
     }
 
+    // spec: EG-DURABLE-KERNEL-R042.1
     #[test]
     fn missing_measured_result_is_refused() {
         let err = claim("workload A", "   ", true)
