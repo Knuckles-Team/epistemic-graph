@@ -120,31 +120,31 @@
     {
       "id": "EG-REPO-INGEST-R003.7",
       "title": "EG is sole home for migrated trace-ontology observability",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
       "evidence": []
     },
     {
       "id": "EG-REPO-INGEST-R003.8",
       "title": "EG is sole home for migrated self-ingestion observability",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
       "evidence": []
     },
     {
       "id": "EG-REPO-INGEST-R003.9",
       "title": "EG is sole home for migrated audit-logging observability",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
       "evidence": []
     },
     {
       "id": "EG-REPO-INGEST-R003.10",
       "title": "EG is sole home for migrated relational-authority governance",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
       "evidence": []
     },
     {
       "id": "EG-REPO-INGEST-R003.11",
       "title": "EG is sole home for migrated placement-mining research",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
       "evidence": []
     },
     {
