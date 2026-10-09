@@ -30,6 +30,9 @@
     "EG-DURABLE-KERNEL-R025",
     "EG-DURABLE-KERNEL-R026",
     "EG-DURABLE-KERNEL-R027",
+    "EG-DURABLE-KERNEL-R027.1",
+    "EG-DURABLE-KERNEL-R027.2",
+    "EG-DURABLE-KERNEL-R027.3",
     "EG-DURABLE-KERNEL-R028",
     "EG-DURABLE-KERNEL-R029",
     "EG-DURABLE-KERNEL-R030",
@@ -422,17 +425,35 @@
     },
     {
       "id": "EG-DURABLE-KERNEL-R027",
-      "title": "Schema repair uses a reserved two-person approval lease",
-      "delivery_state": "BUILT",
+      "title": "Schema repair uses a reserved two-person approval lease (rollup)",
+      "delivery_state": "BUILDING",
       "evidence": [
         {
           "kind": "branch",
           "result": "passed",
           "commit": "bc43de58a9da5983dbbb927da3276dada7772593",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/bc43de58a9da5983dbbb927da3276dada7772593",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+          "description": "Original never-merged implementation commit; superseded by the EG-DURABLE-KERNEL-R027.1/.2/.3 split ported against current main."
         }
       ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R027.1",
+      "title": "Governed-change model types",
+      "delivery_state": "BUILDING",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R027.2",
+      "title": "Governed-change dispatch wiring",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R027.3",
+      "title": "Governed-change raft catalog registration",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R028",
