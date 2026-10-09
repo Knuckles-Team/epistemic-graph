@@ -65,12 +65,23 @@
 
 - [x] D18 **EG-DECISION-ENGINE-R015.1 (producer slice):** Add the typed, closed `StatisticalHeadKind::parse` (`crates/eg-types/src/decision/rapid_r015.rs`), refusing any head-kind name outside the two fitted heads the ladder actually uses -- in particular a generative-model label. Test: `crates/eg-types/src/decision/rapid_r015.rs::tests::refuses_a_generative_model_name`.
 
+- [ ] D18 **EG-DECISION-ENGINE-R015.2:** Remaining scope from the R015 split (2026-10-09): wiring the ladder's head registry to construct heads only through this parse.
+
 - [x] D18 **EG-DECISION-ENGINE-R044.1 (producer slice):** Add the typed `A2ARoutingResolution::new` refusal (`crates/eg-types/src/decision/rapid_r044.rs`) over the existing `ResolutionKind`/`EvidenceClass`, refusing an empty graph id and an abstention claiming proof-grade evidence. Remaining: the A2A task-submission entry point that constructs one of these per inbound task. Test: `crates/eg-types/src/decision/rapid_r044.rs::tests::refuses_an_abstention_claiming_proof_grade_evidence`.
 
+- [ ] D18 **EG-DECISION-ENGINE-R044.2:** Remaining scope from the R044 split (2026-10-09): the A2A task-submission entry point that constructs one of these per inbound task and an integration test over the served path.
+
 - [x] D18 **EG-DECISION-ENGINE-R056.1 (producer slice):** Add the typed `StatisticalSolverCertificate::verify` refusal on a stale model digest (`crates/eg-types/src/decision/rapid_r056.rs`), giving the statistical path the same certificate-verification shape as the core assembly solver. Remaining: routing an actual statistical-path solve through the exact 0-1 solver and this certificate. Test: `crates/eg-types/src/decision/rapid_r056.rs::tests::refuses_a_stale_model_digest`.
+
+- [ ] D18 **EG-DECISION-ENGINE-R056.2:** Remaining scope from the R056 split (2026-10-09): routing an actual statistical-path solve through the exact 0-1 solver and this certificate shape.
+
 - [x] D18 **EG-DECISION-ENGINE-R075.1 (producer slice):** Add `check_unique_component_ids` (`crates/eg-types/src/connector_pack/rapid_r075.rs`), the duplicate-component-id rejection the existing `PackViolationCode::DuplicateComponentId` code names but no test previously exercised. `PackEntryKind` already structurally excludes decision-owned kinds (no `DecisionRecord`/`DecisionHead`/`DecisionPolicy` variant exists), so that half of the requirement needed no new code. Remaining: wire the check into the real pack-import entry point. Test: `crates/eg-types/src/connector_pack/rapid_r075.rs::tests::refuses_a_duplicate_component_id`.
 
+- [ ] D18 **EG-DECISION-ENGINE-R075.2:** Remaining scope from the R075 split (2026-10-09): wiring the check into the real pack-import entry point.
+
 - [x] D18 **EG-DECISION-ENGINE-R083.1 (producer slice):** Add the typed `OptionFacts::encode` (`crates/eg-numeric/src/decision/rapid_r083.rs`), bounded by the declared `MAX_OPTION_CAPABILITIES` cardinality rather than by any text-token budget. Remaining: wire this encoding into the real `FeatureMatrix` computation in `decision::features`. Test: `crates/eg-numeric/src/decision/rapid_r083.rs::tests::scores_an_option_whose_capability_text_would_exceed_a_token_budget`.
+
+- [ ] D18 **EG-DECISION-ENGINE-R083.2:** Remaining scope from the R083 split (2026-10-09): wiring this encoding into the real `FeatureMatrix` computation in `decision::features`.
 
 - [x] D18 **EG-DECISION-ENGINE-R078.2:** Skipped this lane (2026-10-09) -- it requires the authorized contract-generation ceremony to regenerate and commit `contract/FREEZE-RECEIPT.json`/`contract/receipt.json` under `--all-features`, which needs a cargo build this lane does not run. R078.1 (its blocker) is confirmed `LANDED` on `origin/main` (commit `1527a97f211825f02feaa1f9475c494a822918f5`), so R078.2 is now unblocked for whichever lane next runs that ceremony.
 

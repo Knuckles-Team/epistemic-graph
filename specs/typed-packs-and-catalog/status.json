@@ -387,8 +387,16 @@
     {
       "id": "EG-TYPED-PACKS-R020",
       "title": "A tenant-profile administrative capability defect is out of EG scope",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "08a2b1958cc3d6d181fe0971e761387381250a72",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/08a2b1958cc3d6d181fe0971e761387381250a72",
+          "description": "EG-TYPED-PACKS-R020: The tenant-profile administrative capability defect is owned and tested by the dependency that defines tenant profiles; no pack-write code path in this repository depends on it, so this spec's own release gate is the full proof that no corresponding change was made here (test-spec.md boundary note)."
+        }
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R021",
@@ -947,8 +955,16 @@
     {
       "id": "EG-TYPED-PACKS-R060",
       "title": "Manifest-read refusal precedes dependent import paths",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "08a2b1958cc3d6d181fe0971e761387381250a72",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/08a2b1958cc3d6d181fe0971e761387381250a72",
+          "description": "EG-TYPED-PACKS-R060: Manifest-read refusal for an incompatible owner layout precedes any import path relying on it; this ordering is exercised by the same incompatible-layout refusal coverage TP-06 already asserts (test-spec.md boundary note)."
+        }
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R061",
@@ -981,8 +997,16 @@
     {
       "id": "EG-TYPED-PACKS-R063",
       "title": "Agent-layer row types affected by a schema bump are enumerated",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "08a2b1958cc3d6d181fe0971e761387381250a72",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/08a2b1958cc3d6d181fe0971e761387381250a72",
+          "description": "EG-TYPED-PACKS-R063: TP-10's generated-contract fixpoint and committed-artifact comparison is the existing check this enumeration must pass; a bump without an explicit per-type list fails TP-10 rather than passing silently (test-spec.md boundary note)."
+        }
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R064",
@@ -1263,14 +1287,14 @@
     {
       "id": "EG-TYPED-PACKS-R082",
       "title": "EG-generated types replace hand-written graph-schema DTOs",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
-          "kind": "branch",
+          "kind": "merged_head",
           "result": "passed",
-          "commit": "fd8f47c6aaf2fbceabdf8d185b97ed1733ed9f42",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/fd8f47c6aaf2fbceabdf8d185b97ed1733ed9f42",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+          "commit": "08a2b1958cc3d6d181fe0971e761387381250a72",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/08a2b1958cc3d6d181fe0971e761387381250a72",
+          "description": "EG-TYPED-PACKS-R082: TP-13 (migrate a representative ontology object, schema pack DTO and schema-drift candidate through EG typed/generated APIs, compare prior read/write behavior) is this row's EG-side proof; the named hand-written DTO modules are agent-utilities' own cross-repo migration target (test-spec.md boundary note)."
         }
       ]
     },

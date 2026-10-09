@@ -390,8 +390,16 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R016.1",
       "title": "MssqlSourceCatalog typed model plus bracket-quoting identifier refusal",
-      "delivery_state": "BUILT",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "37003f28164f97e9d94ed4aebba737f630845b40",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/37003f28164f97e9d94ed4aebba737f630845b40",
+          "description": "EG-UNIFIED-DATA-PLANE-R016.1 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R017",
@@ -402,8 +410,16 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R017.1",
       "title": "ClickHouseSourceCatalog typed model with always-explicit capture capability",
-      "delivery_state": "BUILT",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "37003f28164f97e9d94ed4aebba737f630845b40",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/37003f28164f97e9d94ed4aebba737f630845b40",
+          "description": "EG-UNIFIED-DATA-PLANE-R017.1 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R018",
@@ -778,8 +794,16 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R031.1",
       "title": "ApplicationAdmission/ConsolidationIsolationRegistry typed model plus identity/quota refusals",
-      "delivery_state": "BUILT",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "eb058c53407ef6f8e2d1366bd5adee7fef7f5cd6",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/eb058c53407ef6f8e2d1366bd5adee7fef7f5cd6",
+          "description": "EG-UNIFIED-DATA-PLANE-R031.1 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R032",
@@ -790,8 +814,16 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R032.1",
       "title": "ImmichPilotProgress typed phase-gate model (I0-I6) plus exit-artifact and skip-ahead refusals",
-      "delivery_state": "BUILT",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "eb058c53407ef6f8e2d1366bd5adee7fef7f5cd6",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/eb058c53407ef6f8e2d1366bd5adee7fef7f5cd6",
+          "description": "EG-UNIFIED-DATA-PLANE-R032.1 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R033",
@@ -886,8 +918,16 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R038.1",
       "title": "MetadataContract/AccelerationPolicy typed model plus capability refusal and watermark-missing live fallback",
-      "delivery_state": "BUILT",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "9a7674d1bae5700d726af3744e47b97d1a2ca36b",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/9a7674d1bae5700d726af3744e47b97d1a2ca36b",
+          "description": "EG-UNIFIED-DATA-PLANE-R038.1 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R010.1",
