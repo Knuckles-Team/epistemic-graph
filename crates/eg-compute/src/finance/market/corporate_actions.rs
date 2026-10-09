@@ -151,17 +151,18 @@ mod tests {
             },
             ..split("L-new", 10 * DAY, 0, 10 * DAY)
         };
-        let old_only = resolve(&[delisted.clone(), reused.clone()], None)
-            .unwrap()
-            .into_iter()
+        let resolved = resolve(&[delisted.clone(), reused.clone()], None).unwrap();
+        let old_only: Vec<_> = resolved
+            .iter()
             .filter(|a| a.listing_id == "L-old")
-            .collect::<Vec<_>>();
-        assert_eq!(old_only, vec![delisted]);
-        let new_only = resolve(&[delisted, reused.clone()], None)
-            .unwrap()
-            .into_iter()
+            .cloned()
+            .collect();
+        let new_only: Vec<_> = resolved
+            .iter()
             .filter(|a| a.listing_id == "L-new")
-            .collect::<Vec<_>>();
+            .cloned()
+            .collect();
+        assert_eq!(old_only, vec![delisted]);
         assert_eq!(new_only, vec![reused]);
     }
 }
