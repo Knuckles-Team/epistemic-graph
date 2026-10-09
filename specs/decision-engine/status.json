@@ -1268,7 +1268,7 @@
       "title": "Component-id uniqueness and forbidden decision kinds",
       "delivery_state": "SPECIFIED",
       "evidence": [],
-      "remaining": "PackViolationCode::DuplicateComponentId rejects duplicate ids and PackEntryKind structurally excludes decision kinds, but no test exercising the duplicate-id rejection was located."
+      "remaining": "Split producer-first (2026-10-09): EG-DECISION-ENGINE-R075.1 adds check_unique_component_ids (crates/eg-types/src/connector_pack/rapid_r075.rs), the previously-missing duplicate-id rejection (PackEntryKind already structurally excludes decision kinds -- no variant exists for DecisionRecord/DecisionHead/DecisionPolicy). Still open: wiring the check into the real pack-import entry point."
     },
     {
       "id": "EG-DECISION-ENGINE-R076",
@@ -1419,7 +1419,7 @@
       "title": "Options encode structured facts, not option-label text",
       "delivery_state": "SPECIFIED",
       "evidence": [],
-      "remaining": "Scorer encodes fixed-width numeric feature rows, not text labels, so cardinality bounds width; but no test scores an option set sized to exceed a plausible text-token budget, as the acceptance specifically requires."
+      "remaining": "Split producer-first (2026-10-09): EG-DECISION-ENGINE-R083.1 adds the typed OptionFacts::encode (crates/eg-numeric/src/decision/rapid_r083.rs), bounded by MAX_OPTION_CAPABILITIES cardinality, with a test scoring a capability set whose label text exceeds a plausible token budget while the encoded width stays fixed. Still open: wiring this into the real FeatureMatrix computation in decision::features."
     },
     {
       "id": "EG-DECISION-ENGINE-R084",

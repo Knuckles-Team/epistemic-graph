@@ -23,6 +23,7 @@ pub mod digest;
 pub mod ids;
 pub mod index;
 pub mod ops;
+pub mod rapid_r075;
 pub mod record;
 pub mod result;
 pub mod self_served_catalog;
