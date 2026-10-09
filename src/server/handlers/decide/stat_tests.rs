@@ -867,6 +867,7 @@ async fn fit_evaluate_publish_and_decide_end_to_end() {
     retention_retires(&h, record).await;
 }
 
+// spec: EG-DECISION-ENGINE-R020
 #[tokio::test]
 async fn exploration_on_a_security_question_is_refused_by_the_served_path() {
     let h = Harness::new().await;

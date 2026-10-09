@@ -98,11 +98,14 @@
     {
       "id": "EG-FEDERATED-QUERY-R002",
       "title": "Rejection reasons stay out of the core kernel row schema",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "2b3e2738b5ff"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/wire_query_core.rs:882",
+        "crates/eg-types/src/wire_query_core.rs:914"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R003",
@@ -134,11 +137,15 @@
     {
       "id": "EG-FEDERATED-QUERY-R006",
       "title": "Proof-carrying results for SPARQL and rule-derived queries",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "8bbe95351da3"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-rdf/src/rules/tests.rs:348",
+        "crates/eg-rdf/src/rules/tests.rs:376",
+        "crates/eg-rdf/src/rules/tests.rs:386"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R007",
@@ -226,11 +233,13 @@
     {
       "id": "EG-FEDERATED-QUERY-R016",
       "title": "UQL AS OF uses Unix-second timestamps, not ISO dates",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "a3ad18c91bc5"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-plan/src/uql/tests/legacy.rs:297"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R017",
@@ -289,11 +298,13 @@
     {
       "id": "EG-FEDERATED-QUERY-R023",
       "title": "Every query modality has a published UQL spelling",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "8451d7eecf02"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-plan/src/uql/tests/contract.rs:58"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R024",
@@ -343,48 +354,68 @@
     {
       "id": "EG-FEDERATED-QUERY-R029",
       "title": "UQL text from graph-exploration clients matches the grammar",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "cb0a4dfcf4a5"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-plan/src/uql/tests/scrubber.rs:16",
+        "crates/eg-plan/src/uql/tests/scrubber.rs:38",
+        "crates/eg-plan/src/uql/tests/scrubber.rs:53"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R030",
       "title": "TSSCAN preserves per-series row identity and full precision",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "79fb60a33ee0"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-plan/src/rowset.rs:219",
+        "crates/eg-plan/src/rowset.rs:243",
+        "crates/eg-plan/src/tsdb_scan_tests.rs:693"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R031",
       "title": "Contribution attribution kernels exposed through UQL ATTRIBUTE",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "7940beedc463"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-numeric/src/attribution/tests.rs:133",
+        "crates/eg-numeric/src/attribution/tests.rs:83",
+        "crates/eg-numeric/src/attribution/tests.rs:93"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R032",
       "title": "Probabilistic impact propagation with cone-scoped recomputation",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "c06e903d0def"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/impact_watch/tests.rs:112",
+        "src/server/impact_watch/tests.rs:135",
+        "src/server/impact_watch/tests.rs:157"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R033",
       "title": "Barrier-hit and time-to-exhaustion derivations, one shared CDF",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "a0fbd9c05adf",
         "c98e58397fcc"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-compute/src/graph_algos/impact/tests.rs:101",
+        "crates/eg-compute/src/graph_algos/impact/tests.rs:117",
+        "crates/eg-compute/src/graph_algos/impact/tests.rs:87"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R034",

@@ -162,11 +162,15 @@
     {
       "id": "EG-DURABLE-KERNEL-R007",
       "title": "Host binary exposes a storage inspect and upgrade command",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "0ce0383a5599"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/operator_command_store_upgrade_cli.rs:35",
+        "tests/operator_command_store_upgrade_cli.rs:60",
+        "tests/operator_command_store_upgrade_cli.rs:81"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R008",
@@ -180,11 +184,13 @@
     {
       "id": "EG-DURABLE-KERNEL-R009",
       "title": "Native raft commands are sealed as their bare method",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "b43f33569dd4"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/raft/command/native/tests.rs:179"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R010",
@@ -198,7 +204,7 @@
     {
       "id": "EG-DURABLE-KERNEL-R011",
       "title": "Clippy and targeted tests cover the full and all-features builds",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "9794030f6459"
       ],
@@ -210,11 +216,17 @@
     {
       "id": "EG-DURABLE-KERNEL-R011.1",
       "title": "`RequiredTestModuleCategory`/`RequiredTestModule` are a typed category and a validated declaration, refusing an unrecognized category name or an unselectable declaration",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "9794030f6459"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/pre_merge_test_module.rs:101",
+        "crates/eg-types/src/pre_merge_test_module.rs:118",
+        "crates/eg-types/src/pre_merge_test_module.rs:127",
+        "crates/eg-types/src/pre_merge_test_module.rs:138",
+        "crates/eg-types/src/pre_merge_test_module.rs:152"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R012",
@@ -237,7 +249,7 @@
     {
       "id": "EG-DURABLE-KERNEL-R014",
       "title": "Raft cluster tests pass reliably under load",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "3a14159c3768"
       ],
@@ -249,11 +261,17 @@
     {
       "id": "EG-DURABLE-KERNEL-R014.1",
       "title": "A typed flake-budget / retry-policy model bounds how a load-test run retries past a transient failure",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "3a14159c3768"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/raft/flake_budget.rs:105",
+        "src/raft/flake_budget.rs:112",
+        "src/raft/flake_budget.rs:120",
+        "src/raft/flake_budget.rs:128",
+        "src/raft/flake_budget.rs:85"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R015",
@@ -267,11 +285,13 @@
     {
       "id": "EG-DURABLE-KERNEL-R016",
       "title": "Raft durability writes are batched to reduce commit latency",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "92943a9ed1bb"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/persistence/redb_backend/raft_linger_tests.rs:12"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R017",
@@ -330,11 +350,13 @@
     {
       "id": "EG-DURABLE-KERNEL-R023",
       "title": "UQL enforces a read-only guarantee at compile time and by test",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "e1ca1b8fd167"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-capabilities/tests/invariants.rs:503"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R024",
@@ -449,12 +471,16 @@
     {
       "id": "EG-DURABLE-KERNEL-R024.2.2",
       "title": "`MirrorTargetRegistry` is the one entry point a mirror-sink driver registers under and the outbox fan-out path resolves a name through",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "7a8f87ca8484",
         "9a7674d1bae5"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-plan/src/mirror_target.rs:176",
+        "crates/eg-plan/src/mirror_target.rs:185",
+        "crates/eg-plan/src/mirror_target.rs:203"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R025",

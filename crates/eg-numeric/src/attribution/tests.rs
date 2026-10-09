@@ -80,6 +80,7 @@ fn assert_close(a: &[f64], b: &[f64], tol: f64) {
     }
 }
 
+// spec: EG-FEDERATED-QUERY-R031
 #[test]
 fn exact_matches_brute_force_permutations() {
     for n in 1..=7 {
@@ -89,6 +90,7 @@ fn exact_matches_brute_force_permutations() {
     }
 }
 
+// spec: EG-FEDERATED-QUERY-R031
 #[test]
 fn exact_satisfies_efficiency_symmetry_null_and_additivity() {
     let n = 6;
@@ -128,6 +130,7 @@ fn exact_satisfies_efficiency_symmetry_null_and_additivity() {
     assert_close(&lhs, &rhs, 1e-9);
 }
 
+// spec: EG-FEDERATED-QUERY-R031
 #[test]
 fn the_sum_game_splits_to_each_value_by_every_method() {
     let values = vec![3.0, -1.5, 0.25, 7.0, 2.0];

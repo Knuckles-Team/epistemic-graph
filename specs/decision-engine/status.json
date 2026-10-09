@@ -175,12 +175,14 @@
     {
       "id": "EG-DECISION-ENGINE-R002",
       "title": "Evidence class recorded on every decision record",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "2a0d6eae0918",
         "52f333ca756e"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-compute/src/assemble/tests/planted.rs:170"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R003",
@@ -364,12 +366,15 @@
     {
       "id": "EG-DECISION-ENGINE-R018",
       "title": "Unknown facts never default to zero in the solver",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "52f333ca756e",
         "c0edc96d1e10"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-compute/src/assemble/tests/planted.rs:43",
+        "crates/eg-compute/src/assemble/tests/topology.rs:140"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R019",
@@ -384,12 +389,14 @@
     {
       "id": "EG-DECISION-ENGINE-R020",
       "title": "Bounded, keyed exploration excluded from sensitive questions",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "2a0d6eae0918",
         "52f333ca756e"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/handlers/decide/stat_tests.rs:870"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R021",
@@ -454,12 +461,15 @@
     {
       "id": "EG-DECISION-ENGINE-R027",
       "title": "WeightedFeatures and ListwiseLogistic fitted decision heads",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "2a0d6eae0918",
         "52f333ca756e"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-numeric/tests/decision/fit_eval.rs:49",
+        "crates/eg-numeric/tests/decision/fit_eval.rs:75"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R028",
@@ -902,12 +912,14 @@
     {
       "id": "EG-DECISION-ENGINE-R062",
       "title": "NlTemplate selection without a language model",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "1e9ea1ef3790",
         "2ffc3594800b"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/handlers/decide/stat_tests/nl_tests.rs:58"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R063",
@@ -1064,12 +1076,14 @@
     {
       "id": "EG-DECISION-ENGINE-R076",
       "title": "Opt-in nested models for decision result markers",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "1e9ea1ef3790",
         "bad0283526ba"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_decision_client.py:152"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R077",
@@ -1143,7 +1157,7 @@
     {
       "id": "EG-DECISION-ENGINE-R080",
       "title": "Ingestion cost ladder with provenance rungs",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "1e0050b97b3a",
         "1e9ea1ef3790"
@@ -1156,11 +1170,15 @@
     {
       "id": "EG-DECISION-ENGINE-R080.1",
       "title": "Typed provenance-rung model and overwrite-protection rule",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "1e0050b97b3a"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/decision/ingestion_ladder.rs:64",
+        "crates/eg-types/src/decision/ingestion_ladder.rs:72",
+        "crates/eg-types/src/decision/ingestion_ladder.rs:90"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R081",
@@ -1293,13 +1311,15 @@
     {
       "id": "EG-DECISION-ENGINE-R089",
       "title": "Learned ranking never replaces the constraint-first decision ladder",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "19b44d216062",
         "1e9ea1ef3790",
         "aaef8290c8e2"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-numeric/tests/decision/ladder.rs:257"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R090",

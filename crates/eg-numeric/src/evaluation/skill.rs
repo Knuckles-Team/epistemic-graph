@@ -234,6 +234,7 @@ mod tests {
         )
     }
 
+    // spec: EG-FINANCE-PRIMITIVES-R002
     #[test]
     fn skill_peaks_at_the_true_lead_and_the_interval_is_reproducible() {
         let (feature, outcome) = leading(400);

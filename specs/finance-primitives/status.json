@@ -43,20 +43,27 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R001",
       "title": "Cross-host BacktestRun digest and Pine parity for finance-core",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "ae7b0d664749"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-compute/src/finance/market/record_tests.rs:369",
+        "src/server/graph_schema/finance_tests.rs:137"
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002",
       "title": "Rehome generic finance evaluation kernels into eg-numeric",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "31cbdeb6d98b"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-numeric/src/evaluation/backtest.rs:189",
+        "crates/eg-numeric/src/evaluation/backtest.rs:200",
+        "crates/eg-numeric/src/evaluation/skill.rs:237"
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R003",
@@ -89,7 +96,7 @@
         "0ae2193fae8d"
       ],
       "verified_by": [
-        "src/server/graph_schema/finance_tests.rs:294"
+        "src/server/graph_schema/finance_tests.rs:295"
       ]
     },
     {
@@ -178,12 +185,14 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R006",
       "title": "Point-in-time corporate actions and exchange session calendars",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "86432b21655e",
         "b9870e23567b"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-compute/src/finance/market/resolve.rs:167"
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R007",

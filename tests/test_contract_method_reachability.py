@@ -49,6 +49,7 @@ def _plant_protocol(root: Path, *, declare_chunk: bool, chunk: str) -> None:
     )
 
 
+@pytest.mark.spec("EG-CONTRACT-R044")
 def test_method_variants_include_declared_children_and_ignore_comment_spoof(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -76,6 +77,7 @@ def test_method_variants_include_declared_children_and_ignore_comment_spoof(
     assert gate.protocol_variants() == {"Alpha"}
 
 
+@pytest.mark.spec("EG-CONTRACT-R044")
 def test_omitted_declared_child_fails_closed(tmp_path: Path, monkeypatch) -> None:
     gate = _script()
     _plant_protocol(

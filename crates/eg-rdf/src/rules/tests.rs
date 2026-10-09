@@ -345,6 +345,7 @@ fn fact<'a>(resp: &'a RuleReasonResponse, args: &[String]) -> &'a RuleFact {
 
 /// EH-197: an explained fact carries the rule that set its confidence and the ground
 /// body facts it fired over, recursively, down to asserted leaves.
+// spec: EG-FEDERATED-QUERY-R006
 #[test]
 fn explained_facts_carry_their_derivation_down_to_asserted_leaves() {
     let resp = run_rule_reasoning(&family_request(true)).unwrap();
@@ -372,6 +373,7 @@ fn explained_facts_carry_their_derivation_down_to_asserted_leaves() {
 
 /// Without `explain` the response carries no proofs — the opt-in keeps the default
 /// response the size it always was.
+// spec: EG-FEDERATED-QUERY-R006
 #[test]
 fn unexplained_facts_carry_no_proof() {
     let resp = run_rule_reasoning(&family_request(false)).unwrap();
@@ -381,6 +383,7 @@ fn unexplained_facts_carry_no_proof() {
 
 /// A proof is always the derivation behind the confidence the fact REPORTS: when a
 /// second rule later raises a fact's confidence, the proof switches to that rule.
+// spec: EG-FEDERATED-QUERY-R006
 #[test]
 fn the_proof_explains_the_reported_maximum_confidence() {
     let ttl = r#"

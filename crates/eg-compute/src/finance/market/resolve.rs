@@ -164,6 +164,7 @@ mod tests {
         }
     }
 
+    // spec: EG-FINANCE-PRIMITIVES-R006
     #[test]
     fn the_as_of_view_picks_the_revision_known_then() {
         let original = bar(0, 101, 0, HOUR);

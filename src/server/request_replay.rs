@@ -415,6 +415,7 @@ fn presented(nonce: &str, timestamp: u64, now: u64) -> PresentedNonce<'_> {
 mod window_tests {
     use super::*;
 
+    // spec: EG-REPO-INGEST-R005
     #[test]
     fn nothing_at_or_below_the_floor_is_accepted() {
         let mut window = NonceWindow::with_floor(1_000);
@@ -424,6 +425,7 @@ mod window_tests {
 
     /// Cap eviction forgets nonces, so it must raise the floor over every one
     /// it forgot: none of them may become replayable.
+    // spec: EG-REPO-INGEST-R005
     #[test]
     fn cap_eviction_raises_the_floor_over_what_it_forgot() {
         let mut window = NonceWindow::with_floor(0);
@@ -481,6 +483,7 @@ mod durable_tests {
     /// restart must not make an accepted envelope usable again. The reopened
     /// ledger refuses the replay (and anything else signed in that second),
     /// and accepts envelopes signed after it.
+    // spec: EG-REPO-INGEST-R005
     #[test]
     fn an_accepted_nonce_is_refused_after_a_reopen() {
         let dir = crate::test_support::temp_dir("eg-request-replay", "reopen");

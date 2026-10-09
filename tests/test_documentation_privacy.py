@@ -65,6 +65,7 @@ def test_cluster_runbook_is_environment_neutral() -> None:
     ],
     ids=["private-ip", "home-path", "local-dns", "host-alias"],
 )
+@pytest.mark.spec("EG-CONTRACT-R003")
 def test_public_surface_rejects_private_content(
     relative: str,
     private_text: str,

@@ -127,12 +127,14 @@
     {
       "id": "EG-CONTRACT-R003",
       "title": "Privacy scan covers the relocated graph-backends documentation",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "82e1e970c83a",
         "86532dc7e65a"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_documentation_privacy.py:68"
+      ]
     },
     {
       "id": "EG-CONTRACT-R004",
@@ -270,11 +272,13 @@
     {
       "id": "EG-CONTRACT-R016",
       "title": "Consumer-profile allowlist covers all generated PolicyEvolution senders",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "ad14dd57f95b"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_generated_client_contract.py:234"
+      ]
     },
     {
       "id": "EG-CONTRACT-R017",
@@ -306,11 +310,13 @@
     {
       "id": "EG-CONTRACT-R020",
       "title": "Topology test names avoid version-number suffixes",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "40b49253d3b9"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_no_version_suffixes.py:185"
+      ]
     },
     {
       "id": "EG-CONTRACT-R021",
@@ -448,11 +454,15 @@
     {
       "id": "EG-CONTRACT-R036",
       "title": "Pinned-reference gate anchors each layer to its own admission step",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "b43f33569dd4"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_pinned_reference_resolution.py:144",
+        "tests/test_pinned_reference_resolution.py:155",
+        "tests/test_pinned_reference_resolution.py:99"
+      ]
     },
     {
       "id": "EG-CONTRACT-R037",
@@ -520,20 +530,25 @@
     {
       "id": "EG-CONTRACT-R044",
       "title": "Contract gate discovers Method variants structurally",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "acc9d32155b3"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_contract_method_reachability.py:52",
+        "tests/test_contract_method_reachability.py:80"
+      ]
     },
     {
       "id": "EG-CONTRACT-R045",
       "title": "Method enum size pinned and proven stable",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "a1bb9fb9503e"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/tests/contract_wave.rs:255"
+      ]
     },
     {
       "id": "EG-CONTRACT-R046",

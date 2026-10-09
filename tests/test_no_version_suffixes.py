@@ -25,6 +25,8 @@ import re
 import unittest
 from pathlib import Path
 
+import pytest
+
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
@@ -180,6 +182,7 @@ class NoVersionSuffixesTest(unittest.TestCase):
         else Path(__file__).resolve().parents[1]
     )
 
+    @pytest.mark.spec("EG-CONTRACT-R020")
     def test_no_stray_version_suffixed_names(self):
         violations = find_violations(self.ROOT)
         if violations:
