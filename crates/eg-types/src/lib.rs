@@ -101,6 +101,9 @@ pub mod benchmark_claim;
 // EG-DURABLE-KERNEL-R011 — the required pre-merge test-module category
 // (raft/backup/persistence) and a validated declaration within one.
 pub mod pre_merge_test_module;
+// EG-DURABLE-KERNEL-R036 — the mirror-sink side: sink kind (fan-out/postgres)
+// and durable per-mirror cursor with a non-empty-position guard. Pure serde, no dep.
+pub mod mirror_sink;
 // CONCEPT:EG-KG.compute.epistemic-operations-protocol — strict shared DTOs for
 // RequestContext, mutation/ingestion, work, artifact, query, job, and trace outcomes.
 pub mod epistemic_operations;
