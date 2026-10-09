@@ -89,6 +89,7 @@ fn document_score(
 mod tests {
     use super::*;
 
+    // spec: EG-DECISION-ENGINE-R028
     #[test]
     fn a_matching_document_outscores_a_non_matching_one() {
         let docs = ["search the web for papers", "write a file to disk"];
