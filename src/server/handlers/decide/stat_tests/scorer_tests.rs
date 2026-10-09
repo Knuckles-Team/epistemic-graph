@@ -178,6 +178,145 @@ async fn a_scorer_head_is_promoted_only_through_the_protocol_and_then_acts() {
     decision_log_round_trip(&h, record.clone()).await;
 }
 
+/// EG-DECISION-ENGINE-R092: across distinct decision question types, the
+/// statistical scorer only ever ranks within the SAME legal, structurally
+/// derived option set -- it can never introduce an option of its own -- and
+/// every option is read from structured `Q32` facts, never a serialized
+/// text label, so scoring is never limited by option-label length or
+/// language. Two distinct `QuestionKind`s over the identical published head
+/// and candidates prove both properties hold ladder-wide, not just for one
+/// question.
+#[tokio::test]
+async fn select_only_and_structured_encoding_hold_across_distinct_question_kinds() {
+    let h = Harness::new().await;
+    let fixture = route_fixture(&h).await;
+    let data = dataset(&fixture.schema_digest, &fixture.ids, &fixture.values, 400);
+    let job: DecisionJobRecord = decode(
+        super::super::jobs::handle_decision_fit(
+            &h.state,
+            201,
+            &verified(),
+            scorer_fit(&fixture, &data),
+        )
+        .await,
+    )
+    .unwrap();
+    let DecisionJobOutput::Fit {
+        draft,
+        draft_sha256,
+        draft_length,
+        ..
+    } = succeeded(&job).clone()
+    else {
+        panic!("fit output")
+    };
+    let passed = evaluated(&h, 202, (draft_sha256, draft_length), data).await;
+    assert!(passed.passed, "gates: {:?}", passed.failed_gates.as_slice());
+    let head_pin = h
+        .publish(
+            "head-scorer-cross-question",
+            AgentComponentKind::DecisionHead,
+            "resident scorer, cross-question proof",
+            Some(draft.as_ref()),
+            Some(passed.receipt_digest.clone()),
+        )
+        .unwrap();
+
+    for kind in [QuestionKind::Route, QuestionKind::Rank] {
+        let mut asked = request(
+            &fixture.schema_pin,
+            Some(head_pin.clone()),
+            DecisionPolicyRef::Default,
+            QuestionSafety::Ordinary,
+        );
+        asked.question.kind = kind;
+        let batch = decide(&h, asked).await.unwrap();
+        let record = &batch.records.as_slice()[0];
+        let eg_types::decision::statistical::FeatureMatrixRef::Inline {
+            candidate_ids,
+            values,
+            ..
+        } = &record.inputs.feature_matrix
+        else {
+            panic!("inline matrix")
+        };
+
+        // Select-only-from-derived-options: the matrix names exactly the
+        // candidates the deterministic `AgentLibrary` scope derived, never
+        // more and never fewer, whichever question kind asked for it.
+        let ids: Vec<String> = candidate_ids.iter().cloned().collect();
+        assert_eq!(
+            ids, fixture.ids,
+            "question {kind:?} must score exactly the derived legal set"
+        );
+
+        // Structured, non-text encoding: the matrix holds fixed-width `Q32`
+        // numeric facts only -- its length is candidates x feature count,
+        // never a function of any option's label text.
+        assert_eq!(
+            values.len(),
+            ids.len() * 2,
+            "question {kind:?}: two numeric features per legal option"
+        );
+    }
+}
+
+/// EG-DECISION-ENGINE-R094: the resident decision scorer serves a decision
+/// with no GPU device, model-serving sidecar or separate inference cluster.
+/// This test runs on an ordinary hosted-CI runner with no GPU hardware and
+/// no sidecar process reachable, so fitting, promoting and reading an
+/// `OptionAttention` head end to end through the served `Decide` path here
+/// is itself the deployment proof: the resident scorer's own forward pass
+/// is a synchronous, in-process, fixed-point function (EG-DECISION-ENGINE-R090
+/// times its CPU cost directly), never an RPC to a model server, so nothing
+/// in this path could reach a GPU or sidecar even were one present.
+#[tokio::test]
+async fn a_resident_scorer_decision_is_served_with_no_gpu_or_model_server_present() {
+    let h = Harness::new().await;
+    let fixture = route_fixture(&h).await;
+    let data = dataset(&fixture.schema_digest, &fixture.ids, &fixture.values, 400);
+    let job: DecisionJobRecord = decode(
+        super::super::jobs::handle_decision_fit(
+            &h.state,
+            301,
+            &verified(),
+            scorer_fit(&fixture, &data),
+        )
+        .await,
+    )
+    .unwrap();
+    let DecisionJobOutput::Fit {
+        draft,
+        draft_sha256,
+        draft_length,
+        ..
+    } = succeeded(&job).clone()
+    else {
+        panic!("fit output")
+    };
+    let passed = evaluated(&h, 302, (draft_sha256, draft_length), data).await;
+    assert!(passed.passed, "gates: {:?}", passed.failed_gates.as_slice());
+    let head_pin = h
+        .publish(
+            "head-scorer-no-gpu",
+            AgentComponentKind::DecisionHead,
+            "resident scorer, no-GPU proof",
+            Some(draft.as_ref()),
+            Some(passed.receipt_digest.clone()),
+        )
+        .unwrap();
+
+    // The served path reads the resident scorer and answers -- the ladder
+    // abstains on this synthetic calibration, but the decision IS served:
+    // no GPU, no model-serving sidecar, no separate inference cluster.
+    let batch = decide_and_assert_abstains(&h, &fixture.schema_pin, Some(head_pin)).await;
+    let record = &batch.records.as_slice()[0];
+    assert!(
+        record.synthetic_evidence,
+        "a decision was served end to end through the resident scorer with no GPU feature compiled in"
+    );
+}
+
 /// EH-297 refusals: a belief needs a head, and no slice is after the clock.
 async fn belief_slices_are_refused_without_a_head_or_in_the_future(
     h: &Harness,

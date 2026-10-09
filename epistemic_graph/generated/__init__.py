@@ -320,6 +320,7 @@ SEND_BY_METHOD = {
     "GetSuccessors": graph.send_get_successors,
     "GetWorkItem": coordination.send_get_work_item,
     "GetWorkItemOutcome": coordination.send_get_work_item_outcome,
+    "GovernedChange": security.send_governed_change,
     "GraphColoring": compute.send_graph_coloring,
     "GraphLearnFit": compute.send_graph_learn_fit,
     "GraphLearnPredict": compute.send_graph_learn_predict,

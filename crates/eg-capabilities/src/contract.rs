@@ -66,11 +66,38 @@ fn feature_profile() -> Vec<&'static str> {
         ("quantum", cfg!(feature = "quantum")),
         ("asr-native", cfg!(feature = "asr-native")),
         ("viz", cfg!(feature = "viz")),
+        ("decide", cfg!(feature = "decide")),
     ]
     .into_iter()
     .filter(|(_, on)| *on)
     .map(|(name, _)| name)
     .collect()
+}
+
+/// A build-selected feature this freeze must name but does not (EG-DECISION-ENGINE-R078).
+///
+/// `feature_profile` is a hand-maintained enumeration: a feature can ship without ever
+/// being added to it, so a reissued freeze silently drops it. This type makes that gap
+/// a typed, testable refusal instead of a manual review step.
+#[derive(Debug, PartialEq, Eq)]
+pub struct MissingFrozenFeature(pub &'static str);
+
+impl std::fmt::Display for MissingFrozenFeature {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "frozen feature profile omits enabled feature {:?}", self.0)
+    }
+}
+
+/// Refuse a frozen profile that omits a feature the current build enabled.
+fn require_feature_frozen(
+    profile: &[&'static str],
+    name: &'static str,
+    enabled: bool,
+) -> Result<(), MissingFrozenFeature> {
+    if enabled && !profile.contains(&name) {
+        return Err(MissingFrozenFeature(name));
+    }
+    Ok(())
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
@@ -519,6 +546,37 @@ pub fn check(root: &Path) -> Result<usize, Vec<String>> {
         Ok(artifacts.len())
     } else {
         Err(drift)
+    }
+}
+
+#[cfg(test)]
+mod decide_feature_freeze_tests {
+    use super::*;
+
+    #[test]
+    fn refuses_a_profile_missing_an_enabled_feature() {
+        let err = require_feature_frozen(&["contract", "jobs"], "decide", true).unwrap_err();
+        assert_eq!(err, MissingFrozenFeature("decide"));
+        assert!(err.to_string().contains("decide"));
+    }
+
+    #[test]
+    fn allows_a_profile_missing_a_disabled_feature() {
+        assert!(require_feature_frozen(&["contract", "jobs"], "decide", false).is_ok());
+    }
+
+    #[test]
+    fn allows_a_profile_already_naming_an_enabled_feature() {
+        assert!(require_feature_frozen(&["contract", "decide"], "decide", true).is_ok());
+    }
+
+    /// Wiring proof for R078: this build's own `feature_profile()` must satisfy the
+    /// same refusal when `decide` is compiled in, not just the synthetic cases above.
+    #[cfg(feature = "decide")]
+    #[test]
+    fn compiled_decide_feature_is_reflected_in_the_frozen_profile() {
+        require_feature_frozen(&feature_profile(), "decide", true)
+            .expect("decide is compiled in but feature_profile() omits it");
     }
 }
 

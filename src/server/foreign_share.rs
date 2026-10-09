@@ -179,7 +179,8 @@ mod tests {
     fn a_shared_source_needs_an_exact_grant_and_revocation_stops_use() {
         let mut isolation = crate::server::state::ServerState::test_isolation("share-admin");
         let catalog = ForeignSourceCatalog::default();
-        catalog.register(&carrier("agent-a"), "src".into(), spec());
+        catalog.register(&carrier("agent-a"), "src".into(), spec())
+            .expect("registering the shared source succeeds");
         provision_share_role(&mut isolation, "agent-a", "src").unwrap();
         provision_share_role(&mut isolation, "agent-a", "src").unwrap();
         set_roles(&mut isolation, "agent-b", Vec::new());

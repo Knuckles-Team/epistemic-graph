@@ -1,11 +1,12 @@
 //! The per-query federation state: budget meter, fragment trace, and the LIMIT hints the
 //! lookahead pass derived from the plan about to run.
 
-use std::sync::{Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use crate::algebra::Op;
 
 use super::budget::{BudgetMeter, FederationBudget};
+use super::cache::FragmentCacheScope;
 use super::trace::FragmentTrace;
 
 /// One foreign source op of the plan and the limit that immediately follows EVERY
@@ -22,6 +23,7 @@ struct SessionState {
     meter: BudgetMeter,
     trace: Vec<FragmentTrace>,
     hints: Vec<Hint>,
+    cache_scope: Option<Arc<FragmentCacheScope>>,
 }
 
 /// One federated query's optimizer state, bound on the `PlanCtx` with
@@ -40,6 +42,7 @@ impl FederationSession {
                 meter: BudgetMeter::new(budget),
                 trace: Vec::new(),
                 hints: Vec::new(),
+                cache_scope: None,
             }),
         }
     }
@@ -60,6 +63,22 @@ impl FederationSession {
     /// The budget this session enforces.
     pub fn budget(&self) -> FederationBudget {
         self.lock().meter.budget()
+    }
+
+    /// Attach the verified caller's fresh source checkpoints. Standalone plans
+    /// retain no cache authority, even when they register a source by name.
+    pub fn set_cache_scope(&self, scope: Option<Arc<FragmentCacheScope>>) {
+        self.lock().cache_scope = scope;
+    }
+
+    pub(super) fn cache_scope(&self) -> Option<Arc<FragmentCacheScope>> {
+        self.lock().cache_scope.clone()
+    }
+
+    /// Apply an untrusted request hint only as a field-wise reduction of the server cap.
+    /// UQL calls this before its first fragment; no hint can grant extra network work.
+    pub fn narrow_budget(&self, requested: FederationBudget) {
+        self.lock().meter.narrow(requested);
     }
 
     /// Every fragment executed so far, in execution order.

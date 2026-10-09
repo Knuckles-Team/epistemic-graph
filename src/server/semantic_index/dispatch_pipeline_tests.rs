@@ -583,3 +583,202 @@ async fn dispatch_refuses_an_unbounded_stage_claim_by_name() {
     );
     let _ = commit_sql_change;
 }
+
+/// EG-IDENTITY-R005: a worker presents ONE verified identity across every
+/// queue class it processes, rather than switching principals per class.
+///
+/// Every op below carries a client-claimed `consumer` field naming a
+/// DIFFERENT, unverified principal for each class -- exactly what a
+/// compromised or misconfigured caller would send. If the handler ever
+/// trusted that field, the two classes' durable leases would be attributed
+/// to two different principals. They are not: `claim()` and `subscribe()`
+/// (src/server/handlers/semantic_index/worker.rs) derive the lease owner
+/// solely from `ctx.authority.agent_id()`, the one identity the envelope
+/// signature verified, so both classes' leases -- Fast's S1 and Medium's
+/// published S2 successor -- are attributed to the same verified worker,
+/// and the claimed field is never read for authorization.
+#[tokio::test]
+async fn dispatch_attributes_every_queue_class_to_the_one_verified_principal() {
+    let worker = worker_authority();
+    let fixture = dispatch_table_fixture(&worker, TENANT);
+    let draft = binding_draft(&worker, &fixture.snapshot);
+    let binding_id = draft.binding_id.clone();
+    let state = dispatch_state(&fixture.persist_dir);
+
+    let _: serde_json::Value = ok(
+        "AdmitBinding",
+        crate::server::dispatch::dispatch(
+            &state,
+            signed(
+                940,
+                SemanticIndexOp::AdmitBinding {
+                    tenant_id: TENANT.to_string(),
+                    binding_id: binding_id.clone(),
+                    draft: Box::new(draft.clone()),
+                    idempotency_key: "semantic-identity-admit".to_string(),
+                },
+            ),
+        )
+        .await,
+    );
+    let _: serde_json::Value = ok(
+        "AdmitSourceRecord",
+        crate::server::dispatch::dispatch(
+            &state,
+            signed(
+                941,
+                SemanticIndexOp::AdmitSourceRecord {
+                    tenant_id: TENANT.to_string(),
+                    binding_id: binding_id.clone(),
+                    record: Box::new(fixture.dirty.clone()),
+                },
+            ),
+        )
+        .await,
+    );
+    let _: serde_json::Value = ok(
+        "TransitionBinding",
+        crate::server::dispatch::dispatch(
+            &state,
+            signed(
+                942,
+                SemanticIndexOp::TransitionBinding {
+                    tenant_id: TENANT.to_string(),
+                    binding_id: binding_id.clone(),
+                    expected_generation: draft.generation,
+                    next_state: SemanticBindingState::Building,
+                    idempotency_key: "semantic-identity-build".to_string(),
+                },
+            ),
+        )
+        .await,
+    );
+    // Every envelope below is signed by the SAME verified principal
+    // (`worker_authority()`'s WORKER), but the op body itself names a
+    // DIFFERENT, unverified consumer per call -- the thing an identity
+    // defect would let through.
+    let _: serde_json::Value = ok(
+        "SubscribeStageConsumer",
+        crate::server::dispatch::dispatch(
+            &state,
+            signed(
+                943,
+                SemanticIndexOp::SubscribeStageConsumer {
+                    tenant_id: TENANT.to_string(),
+                    binding_id: binding_id.clone(),
+                    consumer: "claimed-fast-identity".to_string(),
+                },
+            ),
+        )
+        .await,
+    );
+
+    // ---- Fast leg: claim S1 under a spoofed `consumer` field -----------
+    let fast: SemanticStageLeasePage = ok(
+        "ClaimStageLeases(Fast)",
+        crate::server::dispatch::dispatch(
+            &state,
+            signed(
+                944,
+                SemanticIndexOp::ClaimStageLeases {
+                    tenant_id: TENANT.to_string(),
+                    binding_id: binding_id.clone(),
+                    consumer: "claimed-fast-identity".to_string(),
+                    queue_class: SemanticQueueClass::Fast,
+                    limit: 8,
+                    lease_ms: 60_000,
+                },
+            ),
+        )
+        .await,
+    );
+    assert_eq!(fast.entries.len(), 1, "the admitted S1 is claimable");
+    let fast_entry = fast.entries.into_iter().next().unwrap();
+    let fast_parts =
+        eg_core::compute::semantic_ann_codes::stage_consumer_parts(&fast_entry.lease.consumer)
+            .expect("a leased row's consumer is `<worker>#<class>`");
+    assert_eq!(
+        fast_parts.0, WORKER,
+        "the Fast lease is attributed to the verified envelope principal, \
+         never the op body's claimed `consumer` field"
+    );
+    assert_eq!(fast_parts.1, SemanticQueueClass::Fast);
+
+    // ---- complete S1, publishing its Medium S2 successor ---------------
+    let s1_intent = fast_entry.intent.clone();
+    let s1_transition = SemanticStageTransition {
+        intent: s1_intent.clone(),
+        receipt: SemanticStageReceipt {
+            intent_digest: s1_intent.intent_digest,
+            output_digest: fixture.source_digest,
+            cursor: "sql-source:identity-complete".to_string(),
+            completed_at: format!("unix-ms:{}", future_ms()),
+            outcome: SemanticStageOutcome::Completed,
+        },
+        generation_checkpoint: None,
+    };
+    let _: serde_json::Value = ok(
+        "CompleteSqlSourceStage",
+        crate::server::dispatch::dispatch(
+            &state,
+            signed(
+                945,
+                SemanticIndexOp::CompleteSqlSourceStage {
+                    tenant_id: TENANT.to_string(),
+                    binding_id: binding_id.clone(),
+                    lease: Box::new(fast_entry.lease.clone()),
+                    transition: Box::new(s1_transition),
+                    successor: None,
+                    page_cursor: None,
+                },
+            ),
+        )
+        .await,
+    );
+
+    // ---- Medium leg: claim S2 under a DIFFERENT spoofed `consumer` -----
+    let medium: SemanticStageLeasePage = ok(
+        "ClaimStageLeases(Medium)",
+        crate::server::dispatch::dispatch(
+            &state,
+            signed(
+                946,
+                SemanticIndexOp::ClaimStageLeases {
+                    tenant_id: TENANT.to_string(),
+                    binding_id: binding_id.clone(),
+                    consumer: "claimed-medium-identity".to_string(),
+                    queue_class: SemanticQueueClass::Medium,
+                    limit: 8,
+                    lease_ms: 60_000,
+                },
+            ),
+        )
+        .await,
+    );
+    assert_eq!(
+        medium.entries.len(),
+        1,
+        "completing S1 publishes its S2 successor onto the Medium queue"
+    );
+    let medium_entry = medium.entries.into_iter().next().unwrap();
+    let medium_parts =
+        eg_core::compute::semantic_ann_codes::stage_consumer_parts(&medium_entry.lease.consumer)
+            .expect("a leased row's consumer is `<worker>#<class>`");
+    assert_eq!(
+        medium_parts.0, WORKER,
+        "the Medium lease is attributed to the verified envelope principal, \
+         never the op body's claimed `consumer` field"
+    );
+    assert_eq!(medium_parts.1, SemanticQueueClass::Medium);
+
+    // ---- the one assertion this requirement is actually about ----------
+    // Fast and Medium are different topics, claimed under different spoofed
+    // `consumer` fields, yet the durable record of who did the work names
+    // the SAME verified principal for both -- one identity across every
+    // queue class, not one identity per class.
+    assert_eq!(
+        fast_parts.0, medium_parts.0,
+        "a worker processing multiple queue classes must present the same \
+         verified principal in its audit records for each class"
+    );
+}

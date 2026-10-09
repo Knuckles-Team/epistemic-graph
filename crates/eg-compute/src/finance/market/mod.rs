@@ -3,6 +3,9 @@
 //! * [`codec`], [`resolve`], [`calendar`], [`rollup`] — the typed OHLCV bar-series
 //!   contract over the time-series store: point layout, as-of revision
 //!   resolution, trading calendars and bar-to-bar rollup (EH-413).
+//! * [`corporate_actions`] — point-in-time split/dividend/symbol-change/delisting
+//!   facts, resolved the same way as bars; `calendar::session_at` tags every
+//!   resolved price with the session it was observed in (EG-FINANCE-PRIMITIVES-R006).
 //! * [`kernels`], [`supertrend`], [`indicators`] — incremental integer kernels,
 //!   one step per closed bar (EH-414).
 //! * [`signal`], [`scan`], [`events`] — per-bar signal advance, bitemporal replay
@@ -21,12 +24,14 @@ pub mod backtest_run;
 pub mod calendar;
 pub mod codec;
 pub mod confidence;
+pub mod corporate_actions;
 pub mod decimate;
 pub mod digest;
 pub mod events;
 pub mod fixed;
 pub mod indicators;
 pub mod kernels;
+pub mod recommendation;
 pub mod resolve;
 pub mod rollup;
 pub mod scan;

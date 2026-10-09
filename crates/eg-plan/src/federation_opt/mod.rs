@@ -21,6 +21,7 @@
 //! oracle).
 
 mod budget;
+mod cache;
 mod capability;
 mod columns;
 mod engine;
@@ -43,9 +44,10 @@ mod engine_peer_tests;
 mod tests;
 
 pub use budget::{FederationBudget, BUDGET_EXCEEDED, REQUIRES_KEYS, RESULT_INCOMPLETE};
+pub use cache::{FragmentCacheScope, SourceWatermark};
 pub use capability::{
-    FullFetch, KeyLookup, LimitPushdown, PageRequest, Paging, RemoteRequest, SourceCapabilities,
-    SourceRate,
+    ForeignSourceCapability, FullFetch, KeyLookup, LimitPushdown, PageRequest, Paging,
+    PushdownKind, RemoteRequest, SourceCapabilities, SourceCostModel, SourceRate,
 };
 #[cfg(feature = "federation-sql")]
 pub(crate) use columns::render_sql_columns;
@@ -56,6 +58,7 @@ pub use columns::{
 pub use oq2::{target_capabilities as oq2_target_capabilities, Oq2ReadMode, Oq2TargetCapabilities};
 pub use session::FederationSession;
 pub use stats::{stats_snapshot, SourceStats};
+pub(crate) use trace::redacted_label;
 pub use trace::{render_trace, EstimateProvenance, FetchStrategy, FragmentTrace};
 
 pub(crate) use run::{foreign_named, foreign_scan};
@@ -73,6 +76,19 @@ pub fn enabled() -> bool {
             .as_deref(),
         Some("0")
     )
+}
+
+/// The plan-only source identity for EXPLAIN. This uses the same fingerprint as
+/// execution while omitting registered names, URLs, DSNs and credentials.
+pub(crate) fn explain_source(op: &crate::algebra::Op) -> Option<String> {
+    let identity = match op {
+        crate::algebra::Op::Foreign { name } => {
+            remote::Identity::of_spec(&ForeignSourceSpec::Named { name: name.clone() }, None)
+        }
+        crate::algebra::Op::ForeignScan { source, .. } => remote::Identity::of_spec(source, None),
+        _ => return None,
+    };
+    Some(trace::redacted_label(&identity.label))
 }
 
 /// Record the LIMIT hints of the plan about to run on the ctx's session, if one is bound.

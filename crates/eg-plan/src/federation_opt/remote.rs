@@ -41,6 +41,7 @@ pub(crate) trait RemoteFetch {
 pub(crate) struct Identity {
     pub(crate) label: String,
     pub(crate) fingerprint: Fingerprint,
+    pub(crate) cache_name: Option<String>,
 }
 
 impl Identity {
@@ -56,6 +57,10 @@ impl Identity {
             | ForeignSourceSpec::Cypher { .. }
             | ForeignSourceSpec::SparkBatch { .. } => super::oq2::kind(spec).unwrap(),
             ForeignSourceSpec::Named { .. } => "named",
+            ForeignSourceSpec::Api { .. } => "api",
+            ForeignSourceSpec::Mcp { .. } => "mcp",
+            ForeignSourceSpec::A2a { .. } => "a2a",
+            ForeignSourceSpec::GraphQl { .. } => "graphql",
         };
         Self::labelled(kind, name, fp)
     }
@@ -71,7 +76,11 @@ impl Identity {
             Some(name) => format!("{kind}:{name}#{}", short(&fingerprint)),
             None => format!("{kind}#{}", short(&fingerprint)),
         };
-        Self { label, fingerprint }
+        Self {
+            label,
+            fingerprint,
+            cache_name: name.map(str::to_owned),
+        }
     }
 }
 

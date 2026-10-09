@@ -143,7 +143,11 @@ pub fn source_for(spec: &ForeignSourceSpec) -> Box<dyn ForeignSource + '_> {
         } => sql_source(dsn, query, id_field, score_field.as_deref()),
         ForeignSourceSpec::Trino { .. }
         | ForeignSourceSpec::Cypher { .. }
-        | ForeignSourceSpec::SparkBatch { .. } => Box::new(Oq2Unbound {
+        | ForeignSourceSpec::SparkBatch { .. }
+        | ForeignSourceSpec::Api { .. }
+        | ForeignSourceSpec::Mcp { .. }
+        | ForeignSourceSpec::A2a { .. }
+        | ForeignSourceSpec::GraphQl { .. } => Box::new(Oq2Unbound {
             kind: crate::federation_opt::oq2::kind(spec).unwrap(),
         }),
         // CONCEPT:EG-KG.query.closure-backed-source — a `Named` spec is a REFERENCE, not a self-describing source:
@@ -167,6 +171,90 @@ impl ForeignSource for Oq2Unbound {
             "federation: {} source requires a verified registration and bound driver",
             self.kind
         ))
+    }
+}
+
+#[cfg(test)]
+mod operation_bound_source_kinds {
+    //! EG-FEDERATED-QUERY-R073.1 — typed model only: the four new operation-bound
+    //! `ForeignSourceSpec` kinds (API, MCP, A2A, GraphQL) wire-round-trip with their
+    //! declared `ForeignOperationCapabilities`, and an unbound/ungranted spec of any of
+    //! these kinds refuses with a typed error rather than a panic or a silent empty
+    //! result. The recording-mock pushed/unpushed equal-rows proof and the budget-wired
+    //! dispatch are later children (FQR-11); this child proves the budget mechanism
+    //! itself (FQR-04) refuses with a typed error, independent of source kind.
+    use super::source_for;
+    use eg_types::wire::{ForeignOperationCapabilities, ForeignSourceSpec};
+
+    fn specs_with_pushdown(key_filter_pushdown: bool) -> Vec<(ForeignSourceSpec, &'static str)> {
+        let capabilities = ForeignOperationCapabilities {
+            key_filter_pushdown,
+        };
+        vec![
+            (
+                ForeignSourceSpec::Api {
+                    operation: "list_objects".into(),
+                    capabilities,
+                },
+                "api",
+            ),
+            (
+                ForeignSourceSpec::Mcp {
+                    server: "objects-mcp".into(),
+                    tool: "list_objects".into(),
+                    capabilities,
+                },
+                "mcp",
+            ),
+            (
+                ForeignSourceSpec::A2a {
+                    agent: "objects-agent".into(),
+                    skill: "list_objects".into(),
+                    capabilities,
+                },
+                "a2a",
+            ),
+            (
+                ForeignSourceSpec::GraphQl {
+                    endpoint: "objects-graphql".into(),
+                    operation: "listObjects".into(),
+                    capabilities,
+                },
+                "graphql",
+            ),
+        ]
+    }
+
+    #[test]
+    fn each_new_source_kind_wire_round_trips_with_its_declared_capability() {
+        for pushdown in [false, true] {
+            for (spec, label) in specs_with_pushdown(pushdown) {
+                let wire = rmp_serde::to_vec_named(&spec).unwrap();
+                let round_trip: ForeignSourceSpec = rmp_serde::from_slice(&wire).unwrap();
+                assert_eq!(round_trip, spec, "{label} did not round-trip");
+                let (ForeignSourceSpec::Api { capabilities, .. }
+                | ForeignSourceSpec::Mcp { capabilities, .. }
+                | ForeignSourceSpec::A2a { capabilities, .. }
+                | ForeignSourceSpec::GraphQl { capabilities, .. }) = &round_trip
+                else {
+                    panic!("{label} is not an operation-bound variant");
+                };
+                assert_eq!(capabilities.key_filter_pushdown, pushdown);
+            }
+        }
+    }
+
+    #[test]
+    fn an_unbound_ungranted_source_of_any_new_kind_refuses_typed_not_panics() {
+        for (spec, label) in specs_with_pushdown(true) {
+            let err = source_for(&spec)
+                .fetch()
+                .expect_err(&format!("{label} must refuse, not silently succeed"));
+            assert!(
+                err.contains("requires a verified registration"),
+                "{label}: unexpected error shape: {err}"
+            );
+        }
     }
 }
 
@@ -829,7 +917,7 @@ mod json_preflight_tests {
 
 #[cfg(feature = "federation-sql")]
 #[derive(Clone, Copy)]
-enum SqlDialect {
+pub(crate) enum SqlDialect {
     Postgres,
     MySql,
 }
@@ -839,7 +927,7 @@ enum SqlDialect {
 /// nested statement, and locking/`SELECT INTO` write-shaped queries are rejected.
 /// The database read-only transaction below remains the authoritative second layer.
 #[cfg(feature = "federation-sql")]
-fn validate_federated_sql(query: &str, dialect: SqlDialect) -> Result<(), String> {
+pub(crate) fn validate_federated_sql(query: &str, dialect: SqlDialect) -> Result<(), String> {
     use core::ops::ControlFlow;
     use sqlparser::ast::{Query, Select, Statement, Visit, Visitor};
     use sqlparser::dialect::{MySqlDialect, PostgreSqlDialect};
@@ -1399,12 +1487,23 @@ pub struct ForeignSourceRegistry {
     /// The self-describing spec behind each `register_spec` entry — what lets the federation
     /// optimizer push keys / limits into a named source (EH-563).
     specs: HashMap<String, ForeignSourceSpec>,
+    cache_scope: Option<Arc<crate::federation_opt::FragmentCacheScope>>,
 }
 
 impl ForeignSourceRegistry {
     /// A new, empty registry (no foreign sources bound). CONCEPT:EG-KG.query.closure-backed-source.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Bound only by the served, verified owner registry after EH-400 checks the
+    /// queried graph's named-source checkpoints.
+    pub fn set_cache_scope(&mut self, scope: Arc<crate::federation_opt::FragmentCacheScope>) {
+        self.cache_scope = Some(scope);
+    }
+
+    pub fn cache_scope(&self) -> Option<&Arc<crate::federation_opt::FragmentCacheScope>> {
+        self.cache_scope.as_ref()
     }
 
     /// Register (or replace) a source under `name`. CONCEPT:EG-KG.query.closure-backed-source.

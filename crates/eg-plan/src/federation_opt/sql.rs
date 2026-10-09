@@ -317,6 +317,7 @@ mod tests {
         let identity = || Identity {
             label: "sql#test".into(),
             fingerprint: [0; 32],
+            cache_name: None,
         };
         let spec = |dsn: &'static str, id_field: &'static str| SqlSpec {
             dsn,

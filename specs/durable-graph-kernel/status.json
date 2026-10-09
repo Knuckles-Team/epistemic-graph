@@ -27,9 +27,20 @@
     "EG-DURABLE-KERNEL-R022",
     "EG-DURABLE-KERNEL-R023",
     "EG-DURABLE-KERNEL-R024",
+    "EG-DURABLE-KERNEL-R024.1",
+    "EG-DURABLE-KERNEL-R024.2",
+    "EG-DURABLE-KERNEL-R024.3",
+    "EG-DURABLE-KERNEL-R024.4",
+    "EG-DURABLE-KERNEL-R024.5",
+    "EG-DURABLE-KERNEL-R024.6",
+    "EG-DURABLE-KERNEL-R024.7",
+    "EG-DURABLE-KERNEL-R024.8",
     "EG-DURABLE-KERNEL-R025",
     "EG-DURABLE-KERNEL-R026",
     "EG-DURABLE-KERNEL-R027",
+    "EG-DURABLE-KERNEL-R027.1",
+    "EG-DURABLE-KERNEL-R027.2",
+    "EG-DURABLE-KERNEL-R027.3",
     "EG-DURABLE-KERNEL-R028",
     "EG-DURABLE-KERNEL-R029",
     "EG-DURABLE-KERNEL-R030",
@@ -72,7 +83,24 @@
     "EG-DURABLE-KERNEL-R067",
     "EG-DURABLE-KERNEL-R068",
     "EG-DURABLE-KERNEL-R069",
-    "EG-DURABLE-KERNEL-R070"
+    "EG-DURABLE-KERNEL-R070",
+    "EG-DURABLE-KERNEL-R038.1",
+    "EG-DURABLE-KERNEL-R038.2",
+    "EG-DURABLE-KERNEL-R024.2.1",
+    "EG-DURABLE-KERNEL-R024.2.2",
+    "EG-DURABLE-KERNEL-R037.1",
+    "EG-DURABLE-KERNEL-R037.2",
+    "EG-DURABLE-KERNEL-R041.1",
+    "EG-DURABLE-KERNEL-R041.2",
+    "EG-DURABLE-KERNEL-R042.1",
+    "EG-DURABLE-KERNEL-R011.1",
+    "EG-DURABLE-KERNEL-R036.1",
+    "EG-DURABLE-KERNEL-R032.1",
+    "EG-DURABLE-KERNEL-R033.1",
+    "EG-DURABLE-KERNEL-R034.1",
+    "EG-DURABLE-KERNEL-R035.1",
+    "EG-DURABLE-KERNEL-R039.1",
+    "EG-DURABLE-KERNEL-R040.1"
   ],
   "delivery_state": "BUILDING",
   "acceptance_state": "NOT_AUDITED",
@@ -206,8 +234,16 @@
     {
       "id": "EG-DURABLE-KERNEL-R011",
       "title": "Clippy and targeted tests cover the full and all-features builds",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "9794030f6459514445f6aa3940a2e0f0981b4bfc",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/9794030f6459514445f6aa3940a2e0f0981b4bfc",
+          "description": "EG-DURABLE-KERNEL-R011 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R012",
@@ -388,7 +424,7 @@
     {
       "id": "EG-DURABLE-KERNEL-R024",
       "title": "External graph and database backends become EG federation sources",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -396,9 +432,94 @@
           "commit": "bfa1cabd8494accef2ae87892bdd63d8358eec93",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/bfa1cabd8494accef2ae87892bdd63d8358eec93",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "3ddc77c97ef8e34dab8fc7460153d9021b998676",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/3ddc77c97ef8e34dab8fc7460153d9021b998676",
+          "description": "EG-DURABLE-KERNEL-R024 merged to the default branch in this commit."
         }
       ],
-      "remaining": "A generic ForeignSourceSpec federation mechanism exists (RemoteEngine/HttpJson/Sql kinds), but none of the specifically named legacy backends (fanout, PostgreSQL/AGE, Neo4j/Cypher transpiler, FalkorDB, mirror target, brain_guarded, Trino, Spark) have been migrated in; that work is actively \u2026"
+      "remaining": "Split per the 2026-10-09 sizing rule: 8 named backends, each its own code root in crates/eg-plan. Rollup LANDED only once every child EG-DURABLE-KERNEL-R024.1-.8 is LANDED."
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R024.1",
+      "title": "PostgreSQL/AGE backend becomes a ForeignSourceSpec source",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "c2dd4c98fe60f1d371d4f3565f53d4821c5c1512",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/pull/109",
+          "description": "crates/eg-plan/src/federation_age.rs ported from the never-merged commit bfa1cabd8494accef2ae87892bdd63d8358eec93 (branch codex/t6-eh508-cypher-20260926), re-verified against current origin/main; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "7b7d4a0fb10fb4e63c18dee28fd094a22502dc2e",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/7b7d4a0fb10fb4e63c18dee28fd094a22502dc2e",
+          "description": "EG-DURABLE-KERNEL-R024.1 merged to the default branch in this commit."
+        }
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R024.2",
+      "title": "Fan-out backend becomes a MirrorTargetSpec federation mirror target",
+      "delivery_state": "BUILDING",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R024.3",
+      "title": "Cypher transpiler becomes a ForeignSourceSpec source",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R024.4",
+      "title": "Mirror target becomes a ForeignSourceSpec mirror target",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R024.5",
+      "title": "Outbox-based mirror becomes a ForeignSourceSpec mirror target",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R024.6",
+      "title": "Brain-guarded backend becomes a ForeignSourceSpec source",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R024.7",
+      "title": "Trino backend becomes a ForeignSourceSpec source",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "7b7d4a0fb10fb4e63c18dee28fd094a22502dc2e",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/pull/112",
+          "description": "crates/eg-plan/src/federation_trino.rs ported from the never-merged commit 453133015bda39904352236ee5378794c1b4be54 (same abandoned branch as EG-DURABLE-KERNEL-R024.1's AGE source), re-verified against current origin/main; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "7b7d4a0fb10fb4e63c18dee28fd094a22502dc2e",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/7b7d4a0fb10fb4e63c18dee28fd094a22502dc2e",
+          "description": "EG-DURABLE-KERNEL-R024.7 merged to the default branch in this commit."
+        }
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R024.8",
+      "title": "Spark job backend becomes a ForeignSourceSpec source",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R025",
@@ -431,6 +552,55 @@
           "commit": "bc43de58a9da5983dbbb927da3276dada7772593",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/bc43de58a9da5983dbbb927da3276dada7772593",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "bc43de58a9da5983dbbb927da3276dada7772593",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/bc43de58a9da5983dbbb927da3276dada7772593",
+          "description": "Original never-merged implementation commit; superseded by the EG-DURABLE-KERNEL-R027.1/.2/.3 split ported against current main."
+        }
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R027.1",
+      "title": "Governed-change model types",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "3c618dd255ba8ce5bae2a29bb8b9f086766e64a6",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/3c618dd255ba8ce5bae2a29bb8b9f086766e64a6",
+          "description": "EG-DURABLE-KERNEL-R027.1 merged to the default branch in this commit."
+        }
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R027.2",
+      "title": "Governed-change dispatch wiring",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "cd899a5c8c20b871c7150e30e6af48ad4910dd96",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/cd899a5c8c20b871c7150e30e6af48ad4910dd96",
+          "description": "EG-DURABLE-KERNEL-R027.2 merged to the default branch in this commit."
+        }
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R027.3",
+      "title": "Governed-change raft catalog registration",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "cd899a5c8c20b871c7150e30e6af48ad4910dd96",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/cd899a5c8c20b871c7150e30e6af48ad4910dd96",
+          "description": "EG-DURABLE-KERNEL-R027.3 merged to the default branch in this commit."
         }
       ]
     },
@@ -501,68 +671,156 @@
     {
       "id": "EG-DURABLE-KERNEL-R032",
       "title": "Native primary-key fast path bypasses the SQL planner",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "49c43fca68d0c3f43881c5179707dec2745a9f2a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/49c43fca68d0c3f43881c5179707dec2745a9f2a",
+          "description": "EG-DURABLE-KERNEL-R032 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R033",
       "title": "Hot-store engine choice is evaluated against captured workloads",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "be3fad3f98405b8b6069cb3e3172267ad271b201",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/be3fad3f98405b8b6069cb3e3172267ad271b201",
+          "description": "EG-DURABLE-KERNEL-R033 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R034",
       "title": "Cross-store atomicity is proven and scoped to mixed transactions",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "5dc0a601b2cf04dd705990f9ab2775326beae40a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/5dc0a601b2cf04dd705990f9ab2775326beae40a",
+          "description": "EG-DURABLE-KERNEL-R034 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R035",
       "title": "PostgreSQL wire protocol reaches operational and dump/restore parity",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "de5f096bc0fdda9333a24622d8197e6c073151ce",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/de5f096bc0fdda9333a24622d8197e6c073151ce",
+          "description": "EG-DURABLE-KERNEL-R035 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R036",
       "title": "Mirror sinks reach fan-out parity and include Postgres table mirroring",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "d833c1d987a69202de69f98265ba5ddbe6f7b8ec",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/d833c1d987a69202de69f98265ba5ddbe6f7b8ec",
+          "description": "EG-DURABLE-KERNEL-R036 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R037",
       "title": "Workload classifier routes point operations around the SQL planner",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "4ed831ced92fec55808c0e1edc9cbb8952d35a56",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/4ed831ced92fec55808c0e1edc9cbb8952d35a56",
+          "description": "EG-DURABLE-KERNEL-R037 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R038",
       "title": "KV namespaces declare an explicit, enforced durability class",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "2146c76bc6f873dadc6640046e3d474e1adbbc01",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/2146c76bc6f873dadc6640046e3d474e1adbbc01",
+          "description": "EG-DURABLE-KERNEL-R038 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R039",
       "title": "In-memory data structures rebuild from the redb durability log",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "a7372171174e7ce8d08537f3faac7418cdaf1e75",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/a7372171174e7ce8d08537f3faac7418cdaf1e75",
+          "description": "EG-DURABLE-KERNEL-R039 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R040",
       "title": "Pipelined requests commit as a single batch",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "726ee0a3eadf47842ec56dc634f10efb2a9fe0c6",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/726ee0a3eadf47842ec56dc634f10efb2a9fe0c6",
+          "description": "EG-DURABLE-KERNEL-R040 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R041",
       "title": "SQL plan cache keyed by statement digest and schema version",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "aaf7113fe427a2753ee8f95623b104173a076ded",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/aaf7113fe427a2753ee8f95623b104173a076ded",
+          "description": "EG-DURABLE-KERNEL-R041 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R042",
       "title": "Benchmark gate defines and proves performance superiority claims",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "9eac21608e67841330023e2272e38c1849594cc5",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/9eac21608e67841330023e2272e38c1849594cc5",
+          "description": "EG-DURABLE-KERNEL-R042 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R043",
@@ -982,6 +1240,244 @@
           "commit": "8dbb5bd9de533de9001abef691a051366fa80668",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/8dbb5bd9de533de9001abef691a051366fa80668",
           "description": "Implementation merged to the default branch; the commit names this requirement."
+        }
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R038.1",
+      "title": "DurabilityClass typed enum, declared loss-window bound, and refusal for an unrecognized class name",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "2146c76bc6f873dadc6640046e3d474e1adbbc01",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/2146c76bc6f873dadc6640046e3d474e1adbbc01",
+          "description": "EG-DURABLE-KERNEL-R038.1 merged to the default branch in this commit."
+        }
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R038.2",
+      "title": "DurabilityClass write-path entry point: write_plan and refuse_if_durable_log_write",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "1a1ef47cb448fc1709b87041d534e7ed7939189f",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/1a1ef47cb448fc1709b87041d534e7ed7939189f",
+          "description": "EG-DURABLE-KERNEL-R038.2 merged to the default branch in this commit."
+        }
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R024.2.1",
+      "title": "MirrorTargetSpec::FanOut typed spec, validation, and registration refusal",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "3ddc77c97ef8e34dab8fc7460153d9021b998676",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/3ddc77c97ef8e34dab8fc7460153d9021b998676",
+          "description": "EG-DURABLE-KERNEL-R024.2.1 merged to the default branch in this commit."
+        }
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R024.2.2",
+      "title": "MirrorTargetRegistry registration and name-resolution entry point",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "7a8f87ca84846dbba9bed03c1742abce71576145",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/7a8f87ca84846dbba9bed03c1742abce71576145",
+          "description": "EG-DURABLE-KERNEL-R024.2.2 merged to the default branch in this commit."
+        }
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R037.1",
+      "title": "WorkloadClass typed classifier with refusal for an unrecognized operation kind",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "4ed831ced92fec55808c0e1edc9cbb8952d35a56",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/4ed831ced92fec55808c0e1edc9cbb8952d35a56",
+          "description": "EG-DURABLE-KERNEL-R037.1 merged to the default branch in this commit."
+        }
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R037.2",
+      "title": "route dispatch entry point deciding DataFusion session allocation",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "add3fe5b1d673c0f5738d1404d337fda72330227",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/add3fe5b1d673c0f5738d1404d337fda72330227",
+          "description": "EG-DURABLE-KERNEL-R037.2 merged to the default branch in this commit."
+        }
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R041.1",
+      "title": "PlanCacheKey/PlanCacheLookup typed key and pure lookup decision with stale-schema refusal",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "aaf7113fe427a2753ee8f95623b104173a076ded",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/aaf7113fe427a2753ee8f95623b104173a076ded",
+          "description": "EG-DURABLE-KERNEL-R041.1 merged to the default branch in this commit."
+        }
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R041.2",
+      "title": "PlanCache::prepare entry point at the SQL prepare site",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "88496b6159811cdef657c1508443f0cc34c13476",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/88496b6159811cdef657c1508443f0cc34c13476",
+          "description": "EG-DURABLE-KERNEL-R041.2 merged to the default branch in this commit."
+        }
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R042.1",
+      "title": "BenchmarkClaim typed report record with refusal for an unpublished or non-passing claim",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "9eac21608e67841330023e2272e38c1849594cc5",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/9eac21608e67841330023e2272e38c1849594cc5",
+          "description": "EG-DURABLE-KERNEL-R042.1 merged to the default branch in this commit."
+        }
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R011.1",
+      "title": "RequiredTestModuleCategory/RequiredTestModule typed category and validated declaration",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "9794030f6459514445f6aa3940a2e0f0981b4bfc",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/9794030f6459514445f6aa3940a2e0f0981b4bfc",
+          "description": "EG-DURABLE-KERNEL-R011.1 merged to the default branch in this commit."
+        }
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R036.1",
+      "title": "MirrorSinkKind/MirrorCursor typed model with non-empty-position guard on construction and advance",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "d833c1d987a69202de69f98265ba5ddbe6f7b8ec",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/d833c1d987a69202de69f98265ba5ddbe6f7b8ec",
+          "description": "EG-DURABLE-KERNEL-R036.1 merged to the default branch in this commit."
+        }
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R032.1",
+      "title": "PrimaryKeyOperation and FastPathDecision typed routing model with authorization/audit-checked invariant and refusal",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "49c43fca68d0c3f43881c5179707dec2745a9f2a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/49c43fca68d0c3f43881c5179707dec2745a9f2a",
+          "description": "EG-DURABLE-KERNEL-R032.1 merged to the default branch in this commit."
+        }
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R033.1",
+      "title": "HotStoreEngine/WorkloadProfile/BenchmarkResult typed model with throughput-based winner selection and refusal",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "be3fad3f98405b8b6069cb3e3172267ad271b201",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/be3fad3f98405b8b6069cb3e3172267ad271b201",
+          "description": "EG-DURABLE-KERNEL-R033.1 merged to the default branch in this commit."
+        }
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R034.1",
+      "title": "TransactionScope/CommitPath typed model proving single-store traffic cannot reach the cross-store commit path",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "5dc0a601b2cf04dd705990f9ab2775326beae40a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/5dc0a601b2cf04dd705990f9ab2775326beae40a",
+          "description": "EG-DURABLE-KERNEL-R034.1 merged to the default branch in this commit."
+        }
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R035.1",
+      "title": "PgOperationalSurface/PgCompatibilityMatrix typed model, fail-closed, with named-missing-surface refusal",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "de5f096bc0fdda9333a24622d8197e6c073151ce",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/de5f096bc0fdda9333a24622d8197e6c073151ce",
+          "description": "EG-DURABLE-KERNEL-R035.1 merged to the default branch in this commit."
+        }
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R039.1",
+      "title": "DataStructureKind/AtomicPrimitiveKind/DurabilityDeclaration typed model with always-redb-sole-authority invariant",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "a7372171174e7ce8d08537f3faac7418cdaf1e75",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/a7372171174e7ce8d08537f3faac7418cdaf1e75",
+          "description": "EG-DURABLE-KERNEL-R039.1 merged to the default branch in this commit."
+        }
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R040.1",
+      "title": "PipelineBatch/BatchCommitDecision typed model: one admission per batch, order-preserving replies, empty-batch refusal",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "726ee0a3eadf47842ec56dc634f10efb2a9fe0c6",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/726ee0a3eadf47842ec56dc634f10efb2a9fe0c6",
+          "description": "EG-DURABLE-KERNEL-R040.1 merged to the default branch in this commit."
         }
       ]
     }
