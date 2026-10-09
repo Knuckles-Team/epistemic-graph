@@ -55,6 +55,9 @@
 
 pub mod algebra;
 pub mod cost;
+// EG-UNIFIED-DATA-PLANE-R011 — typed freshness route and a bounded
+// read-your-writes wait, refusing an unbounded (zero-timeout) wait.
+pub mod freshness_router;
 
 /// Structured hierarchical retrieval (CONCEPT:EG-KG.retrieval.bounded-drill) — the LeanRAG method as a
 /// library API over the EG-220 summary tier: retrieve at the summary/abstraction

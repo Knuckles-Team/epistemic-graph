@@ -40,7 +40,8 @@
     "EG-UNIFIED-DATA-PLANE-R035",
     "EG-UNIFIED-DATA-PLANE-R036",
     "EG-UNIFIED-DATA-PLANE-R037",
-    "EG-UNIFIED-DATA-PLANE-R038"
+    "EG-UNIFIED-DATA-PLANE-R038",
+    "EG-UNIFIED-DATA-PLANE-R011.1"
   ],
   "delivery_state": "BUILDING",
   "acceptance_state": "NOT_AUDITED",
@@ -117,7 +118,13 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R011",
       "title": "Route queries by freshness across native, live, and accelerated paths",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R011.1",
+      "title": "FreshnessRoute/ReadYourWritesWait typed bounded-wait model",
+      "delivery_state": "BUILT",
       "evidence": []
     },
     {
