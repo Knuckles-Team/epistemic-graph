@@ -310,6 +310,13 @@
         "value": "1"
       }
     ],
+    "FINANCE_V1_SCHEMA_VERSION": [
+      {
+        "file": "crates/eg-types/src/wire_finance.rs",
+        "scope": "",
+        "value": "\"finance-v1\""
+      }
+    ],
     "FLEET_CATALOG_SCHEMA_VERSION": [
       {
         "file": "crates/eg-types/src/fleet_catalog.rs",

@@ -130,7 +130,7 @@ impl OutboxDelivery {
     /// names that invariant so a future caller that reaches for Raft
     /// replication of delivery state finds a documented, tested refusal point
     /// instead of silently wiring one in.
-    pub(crate) const REPLICATED_BY_RAFT: bool = false;
+    pub const REPLICATED_BY_RAFT: bool = false;
 
     /// Whether this row is currently held by a live, unexpired lease.
     pub(crate) fn leased_at(&self, now_ms: u64) -> bool {
@@ -319,8 +319,6 @@ mod r005_node_local_delivery {
     /// a non-owning cluster member's replicated state) needs a live
     /// multi-node cluster and belongs to the `raft` feature's integration
     /// suite, not this crate's unit tests.
-    #[test]
-    fn outbox_delivery_state_is_not_replicated_by_raft() {
-        assert!(!OutboxDelivery::REPLICATED_BY_RAFT);
-    }
+    // Checked at compile time: flipping the invariant fails the build.
+    const _: () = assert!(!OutboxDelivery::REPLICATED_BY_RAFT);
 }
