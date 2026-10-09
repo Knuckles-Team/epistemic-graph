@@ -54,6 +54,7 @@ impl<'a> SqlRemote<'a> {
             query,
             id_field: self.spec.id_field.to_string(),
             score_field: self.spec.score_field.map(str::to_string),
+            columns: Vec::new(),
         };
         let source = crate::federation::source_for(&spec);
         source.fetch()

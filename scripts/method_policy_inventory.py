@@ -92,6 +92,7 @@ class MethodPolicyRow:
 # `FinanceRollingZscore` and `FinanceEwma`, now served as UQL `DERIVE` /
 # SQL `eg_zscore` / `eg_ewma`.
 # 455 -> 456: EH-558's `RetireSealedRecord`, the owning op of a sealed record.
+# 456 -> 457: EH-572's owner-scoped `QueryForeignColumns` read.
 EXPECTED_DOMAIN_MODULES = (
     "cluster",
     "compute",

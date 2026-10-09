@@ -96,6 +96,7 @@ pub fn uql_sample_op(kind: OpKind) -> Op {
                 field_map: HttpFieldMap {
                     id: "doi".into(),
                     score: Some("rank".into()),
+                    columns: Default::default(),
                 },
             }),
             join: true,

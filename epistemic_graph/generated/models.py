@@ -5519,6 +5519,37 @@ class ForecastMiningResult(BaseModel):
     written_back: Annotated[int, Field(ge=0)]
 
 
+class ForeignColumnComparison(str, Enum):
+    EQ = "Eq"
+    NE = "Ne"
+    LT = "Lt"
+    LE = "Le"
+    GT = "Gt"
+    GE = "Ge"
+
+
+class ForeignColumnPredicate(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    column: str
+    comparison: ForeignColumnComparison
+    value: Any
+
+
+class ForeignColumnRow(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    columns: dict[str, Any]
+    id: str
+    score: float | None = None
+
+
+class ForeignCypherBackend(str, Enum):
+    NEO4J = "Neo4j"
+    AGE = "Age"
+    FALKORDB = "FalkorDb"
+
+
 class ForeignSourceFreshness(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -5527,6 +5558,23 @@ class ForeignSourceFreshness(BaseModel):
     name: str
     stale: bool
     watermark: str | None = None
+
+
+class ForeignSourceSpecCypher(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    Cypher: ForeignSourceSpecCypherBody
+
+
+class ForeignSourceSpecCypherBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    backend: ForeignCypherBackend
+    endpoint: str
+    graph: str
+    id_field: str
+    query: str
+    score_field: str | None = None
 
 
 class ForeignSourceSpecHttpJson(BaseModel):
@@ -5573,6 +5621,20 @@ class ForeignSourceSpecRemoteEngineBody(BaseModel):
     uql: str | None = None
 
 
+class ForeignSourceSpecSparkBatch(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    SparkBatch: ForeignSourceSpecSparkBatchBody
+
+
+class ForeignSourceSpecSparkBatchBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    artifact_ref: str
+    id_field: str
+    score_field: str | None = None
+
+
 class ForeignSourceSpecSql(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -5582,9 +5644,27 @@ class ForeignSourceSpecSql(BaseModel):
 class ForeignSourceSpecSqlBody(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
+    columns: list[str] = Field(default_factory=list)
     dsn: str
     id_field: str
     query: str
+    score_field: str | None = None
+
+
+class ForeignSourceSpecTrino(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    Trino: ForeignSourceSpecTrinoBody
+
+
+class ForeignSourceSpecTrinoBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    catalog: str
+    endpoint: str
+    id_field: str
+    query: str
+    schema_: str = Field(..., alias="schema")
     score_field: str | None = None
 
 
@@ -10381,6 +10461,13 @@ class MethodRegisterForeignSource(BaseModel):
     params: MethodRegisterForeignSourceParams
 
 
+class MethodQueryForeignColumns(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["QueryForeignColumns"]
+    params: MethodQueryForeignColumnsParams
+
+
 class MethodRegisterUdf(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -11685,6 +11772,7 @@ Method = Annotated[
     | MethodRankByProvenance
     | MethodNlQuery
     | MethodRegisterForeignSource
+    | MethodQueryForeignColumns
     | MethodRegisterUdf
     | MethodRunUdf
     | MethodDistributedCompute
@@ -14271,6 +14359,14 @@ class MethodQueryDevelopmentLaneParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     request: DevelopmentLaneQueryRequest
+
+
+class MethodQueryForeignColumnsParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    columns: list[str] = Field(default_factory=list)
+    name: str
+    predicates: list[ForeignColumnPredicate] = Field(default_factory=list)
 
 
 class MethodQueryWorkItemReservationParams(BaseModel):
@@ -23555,6 +23651,9 @@ ForeignSourceSpec = (
     | ForeignSourceSpecHttpJson
     | ForeignSourceSpecSql
     | ForeignSourceSpecNamed
+    | ForeignSourceSpecTrino
+    | ForeignSourceSpecCypher
+    | ForeignSourceSpecSparkBatch
 )
 
 
@@ -24136,6 +24235,9 @@ PredLiteral = PredLiteralStr | PredLiteralNum | PredLiteralBool
 
 
 PropagateModel = Literal["noisy_or"] | PropagateModelCascade
+
+
+QueryForeignColumnsResult = list[ForeignColumnRow]
 
 
 RbacAdminOp = (
@@ -25375,16 +25477,26 @@ __all__ = [
     "FlipRecordStatus",
     "ForecastAlgorithm",
     "ForecastMiningResult",
+    "ForeignColumnComparison",
+    "ForeignColumnPredicate",
+    "ForeignColumnRow",
+    "ForeignCypherBackend",
     "ForeignSourceFreshness",
     "ForeignSourceSpec",
+    "ForeignSourceSpecCypher",
+    "ForeignSourceSpecCypherBody",
     "ForeignSourceSpecHttpJson",
     "ForeignSourceSpecHttpJsonBody",
     "ForeignSourceSpecNamed",
     "ForeignSourceSpecNamedBody",
     "ForeignSourceSpecRemoteEngine",
     "ForeignSourceSpecRemoteEngineBody",
+    "ForeignSourceSpecSparkBatch",
+    "ForeignSourceSpecSparkBatchBody",
     "ForeignSourceSpecSql",
     "ForeignSourceSpecSqlBody",
+    "ForeignSourceSpecTrino",
+    "ForeignSourceSpecTrinoBody",
     "ForensicReport",
     "FreshnessFeed",
     "FullLabelMetrics",
@@ -26437,6 +26549,8 @@ __all__ = [
     "MethodQuantumParams",
     "MethodQueryDevelopmentLane",
     "MethodQueryDevelopmentLaneParams",
+    "MethodQueryForeignColumns",
+    "MethodQueryForeignColumnsParams",
     "MethodQueryWorkItemReservation",
     "MethodQueryWorkItemReservationParams",
     "MethodRaftAddLearner",
@@ -27096,6 +27210,7 @@ __all__ = [
     "QuantumRankResult",
     "QuantumRankedCandidate",
     "QueryAdapterBody",
+    "QueryForeignColumnsResult",
     "QueryVector",
     "QuestionKind",
     "QuestionSafety",

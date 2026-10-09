@@ -140,6 +140,7 @@ fn from_spec<'a>(spec: &'a ForeignSourceSpec, name: Option<&'a str>) -> Box<dyn 
             query,
             id_field,
             score_field,
+            ..
         } => Box::new(super::sql::SqlRemote::new(
             super::sql::SqlSpec {
                 dsn,
