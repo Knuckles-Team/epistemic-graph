@@ -53,14 +53,14 @@ fn attach_list_and_detach_share_one_authoritative_source_set() {
             _ => None,
         })
         .collect();
-    // The listing reports exactly the immutable core catalog: all 41 core
+    // The listing reports exactly the immutable core catalog: all 42 core
     // artifacts (35 ontologies, the governance, world-model, swarm-topology,
-    // finance and virtual-graph shapes).
+    // finance, virtual-graph and temporal shapes).
     let catalog = core.schema_sources();
     let catalog_ids: std::collections::BTreeSet<_> =
         catalog.core.keys().map(String::as_str).collect();
     assert_eq!(core_ids, catalog_ids);
-    assert_eq!(core_ids.len(), 41);
+    assert_eq!(core_ids.len(), 42);
     for anchor in [
         "core:catalog@1",
         "core:foundation@1",
