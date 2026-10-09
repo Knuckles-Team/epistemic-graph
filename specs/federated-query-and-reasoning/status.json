@@ -77,7 +77,7 @@
     "EG-FEDERATED-QUERY-R072",
     "EG-FEDERATED-QUERY-R073"
   ],
-  "delivery_state": "SPECIFIED",
+  "delivery_state": "BUILDING",
   "acceptance_state": "NOT_AUDITED",
   "evidence": [],
   "requirements": [
@@ -118,7 +118,7 @@
     {
       "id": "EG-FEDERATED-QUERY-R004",
       "title": "Reasoning projection rebuilds after any skipped event",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "implementation",
@@ -126,6 +126,13 @@
           "commit": "49b749980bf2428fbf351404e573c1e261058911",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/49b749980bf2428fbf351404e573c1e261058911",
           "description": "Part of the requirement is implemented on the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "49b749980bf2428fbf351404e573c1e261058911",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/49b749980bf2428fbf351404e573c1e261058911",
+          "description": "EG-FEDERATED-QUERY-R004 merged to the default branch in this commit."
         }
       ],
       "remaining": "rebuild_after_skipped/reject_invalid implement the full-rebuild-on-skipped-event path (recovery.rs, citing X10/PX10b item 7) and a unit test proves a rebuilt index is exempt from the watermark check, but no integration test that injects a dead-lettered/invalid wake-up and confirms the rebuild \u2026"
@@ -509,7 +516,7 @@
     {
       "id": "EG-FEDERATED-QUERY-R033",
       "title": "Barrier-hit and time-to-exhaustion derivations, one shared CDF",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "implementation",
@@ -517,6 +524,13 @@
           "commit": "a0fbd9c05adfaa80d22c4ffb8cafed4fcbcff5a9",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/a0fbd9c05adfaa80d22c4ffb8cafed4fcbcff5a9",
           "description": "Part of the requirement is implemented on the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "a0fbd9c05adfaa80d22c4ffb8cafed4fcbcff5a9",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/a0fbd9c05adfaa80d22c4ffb8cafed4fcbcff5a9",
+          "description": "EG-FEDERATED-QUERY-R033 merged to the default branch in this commit."
         }
       ],
       "remaining": "The eg-numeric kernel (ABM inverse-Gaussian + GBM log-barrier first passage, MLE fit, bootstrap CI, shared stats::norm_cdf) is implemented and tested, and exposed over PromQL (eg-tsdb/src/promql/barrier.rs), but no UQL `DERIVE barrier_hit(...)`/`DERIVE tte(...)` stage was found."
@@ -552,7 +566,7 @@
     {
       "id": "EG-FEDERATED-QUERY-R036",
       "title": "Bounded, observable graph reopen after a restart",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "implementation",
@@ -560,6 +574,13 @@
           "commit": "bcbbe09c7e76af00960236a4a8f5d9597336edf9",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/bcbbe09c7e76af00960236a4a8f5d9597336edf9",
           "description": "Part of the requirement is implemented on the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "bcbbe09c7e76af00960236a4a8f5d9597336edf9",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/bcbbe09c7e76af00960236a4a8f5d9597336edf9",
+          "description": "EG-FEDERATED-QUERY-R036 merged to the default branch in this commit."
         }
       ],
       "remaining": "The reopen fix (diff-only commits instead of one commit per node) and the pre-existing PARTIAL_MATERIALIZATION/MaterializationPhase readiness signal (src/server/dispatch/graph_pipeline/graph_access.rs) are both present, but no restart-scale integration test (750/1,500/3,000 docs) measuring bounded \u2026"
@@ -587,7 +608,7 @@
     {
       "id": "EG-FEDERATED-QUERY-R039",
       "title": "Mixed traversal and vector queries return k or a typed shortfall",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "implementation",
@@ -595,6 +616,13 @@
           "commit": "5c2ab50088c49261a6588380ef0d7c13d49e129c",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/5c2ab50088c49261a6588380ef0d7c13d49e129c",
           "description": "Part of the requirement is implemented on the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "5c2ab50088c49261a6588380ef0d7c13d49e129c",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/5c2ab50088c49261a6588380ef0d7c13d49e129c",
+          "description": "EG-FEDERATED-QUERY-R039 merged to the default branch in this commit."
         }
       ],
       "remaining": "Vector rank over a filtered/traversed candidate set was made exact (not ANN-approximate), so it structurally can no longer undercount below min(k, eligible) and this is tested, but no typed shortfall result naming the match count was found for the genuinely-eligible-less-than-k case."
@@ -762,7 +790,7 @@
     {
       "id": "EG-FEDERATED-QUERY-R052",
       "title": "RemoteEngine sources receive pushed key filters and bounded LIMIT",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -770,6 +798,13 @@
           "commit": "70c5421663b9bed2570b3e143cf3470636353c5f",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/70c5421663b9bed2570b3e143cf3470636353c5f",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "70c5421663b9bed2570b3e143cf3470636353c5f",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/70c5421663b9bed2570b3e143cf3470636353c5f",
+          "description": "EG-FEDERATED-QUERY-R052 merged to the default branch in this commit."
         }
       ],
       "remaining": "An independent reviewer found that the peer-engine pushdown test only proves pushdown against an enforcing mock peer; it is not a proof that a real served engine enforces authentication/authorization on these pushed requests. A served-authentication proof is still needed before this requirement can be marked delivered."
@@ -938,7 +973,7 @@
     {
       "id": "EG-FEDERATED-QUERY-R065",
       "title": "Named UQL sub-plans compile to an ordered plan DAG",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "implementation",
@@ -946,6 +981,13 @@
           "commit": "8451d7eecf02ce936f686fa4b11d08c04a431a44",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/8451d7eecf02ce936f686fa4b11d08c04a431a44",
           "description": "Part of the requirement is implemented on the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "8451d7eecf02ce936f686fa4b11d08c04a431a44",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/8451d7eecf02ce936f686fa4b11d08c04a431a44",
+          "description": "EG-FEDERATED-QUERY-R065 merged to the default branch in this commit."
         }
       ],
       "remaining": "DFS compile order (uql/tests/program.rs::let_from_join_builds_a_dag_in_first_reference_order), FUSE inlining, and re-parseable DAG printing are on main and tested. But serving EXPLAIN/PROFILE for a DAG is NOT typed-refused: crates/eg-plan/src/uql/serve/dag.rs implements real per-node \u2026"
@@ -981,7 +1023,7 @@
     {
       "id": "EG-FEDERATED-QUERY-R068",
       "title": "UQL supports WITH PROOF for proof-carrying results",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "implementation",
@@ -989,6 +1031,13 @@
           "commit": "857e20c63775b37833a21a58ba4e13a85ef53d39",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/857e20c63775b37833a21a58ba4e13a85ef53d39",
           "description": "Implementing commit is on the default branch but is marked work in progress."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "857e20c63775b37833a21a58ba4e13a85ef53d39",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/857e20c63775b37833a21a58ba4e13a85ef53d39",
+          "description": "EG-FEDERATED-QUERY-R068 merged to the default branch in this commit."
         }
       ],
       "remaining": "WITH PROOF correctly binds premises (crates/eg-plan/src/uql/tests/annotations.rs::a_sparql_source_proves_each_row_with_its_witness, ::a_reason_stage_proves_inferred_membership, both passing). The row-proof wire shape (UqlRow/UqlRowProof in crates/eg-types/src/wire_query_core.rs) and uql/serve/proof.rs carry no source-generation or schema-digest field, unlike EG-FEDERATED-QUERY-R006's OwlExplain contract which does carry one \u2014 so WITH PROOF does not bind its results to their source generation as the requirement explicitly demands."

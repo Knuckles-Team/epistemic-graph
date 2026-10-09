@@ -42,7 +42,7 @@
     "EG-UNIFIED-DATA-PLANE-R037",
     "EG-UNIFIED-DATA-PLANE-R038"
   ],
-  "delivery_state": "SPECIFIED",
+  "delivery_state": "BUILDING",
   "acceptance_state": "NOT_AUDITED",
   "evidence": [],
   "requirements": [
