@@ -52,7 +52,8 @@
     "EG-UNIFIED-DATA-PLANE-R038",
     "EG-UNIFIED-DATA-PLANE-R010.1",
     "EG-UNIFIED-DATA-PLANE-R008.1",
-    "EG-UNIFIED-DATA-PLANE-R003.1"
+    "EG-UNIFIED-DATA-PLANE-R003.1",
+    "EG-UNIFIED-DATA-PLANE-R004.1"
   ],
   "delivery_state": "BUILDING",
   "acceptance_state": "NOT_AUDITED",
@@ -105,7 +106,7 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R004",
       "title": "Infer schema structure deterministically from attached catalogs",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
       "evidence": []
     },
     {
@@ -387,6 +388,12 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R003.1",
       "title": "AttachedCatalogGraph typed, reorder-stable hashed catalog model",
+      "delivery_state": "BUILT",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R004.1",
+      "title": "ColumnSamplingBudget bounded, policy-gated typed model",
       "delivery_state": "BUILT",
       "evidence": []
     }
