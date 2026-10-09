@@ -69,10 +69,16 @@
 //! `DurableRun`, via `agent_utilities.knowledge_graph.durable_execution_kg`
 //! (reached over the engine RPC boundary, not this crate).
 
+// EG-UNIFIED-DATA-PLANE-R008.1 — typed ChangeEnvelope model + validation/refusal
+// tests only (child of EG-UNIFIED-DATA-PLANE-R008, "Normalize change capture into
+// a durable, replayable framework"). No CdcHub, durable position storage, or
+// replay here — see `change_envelope`'s module doc for exact scope.
+pub mod change_envelope;
 pub mod mirror;
 pub mod project;
 pub mod route;
 
+pub use change_envelope::{ChangeEnvelope, ChangeOp, InvalidChangeEnvelope};
 pub use mirror::DurableExecutionUnitMirror;
 pub use project::{project, unit_node_id, KgEdge, KgNode, KgProjection};
 pub use route::{
