@@ -40,7 +40,8 @@
     "EG-UNIFIED-DATA-PLANE-R035",
     "EG-UNIFIED-DATA-PLANE-R036",
     "EG-UNIFIED-DATA-PLANE-R037",
-    "EG-UNIFIED-DATA-PLANE-R038"
+    "EG-UNIFIED-DATA-PLANE-R038",
+    "EG-UNIFIED-DATA-PLANE-R008.1"
   ],
   "delivery_state": "BUILDING",
   "acceptance_state": "NOT_AUDITED",
@@ -99,7 +100,7 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R008",
       "title": "Normalize change capture into a durable, replayable framework",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
       "evidence": []
     },
     {
@@ -304,6 +305,12 @@
       "id": "EG-UNIFIED-DATA-PLANE-R038",
       "title": "Materialize metadata and hot subsets; virtualize the rest",
       "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R008.1",
+      "title": "ChangeEnvelope/ChangeOp typed change-capture record and validated refusal rule",
+      "delivery_state": "BUILT",
       "evidence": []
     }
   ]
