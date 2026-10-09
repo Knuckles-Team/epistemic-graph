@@ -313,8 +313,16 @@
     {
       "id": "EG-TYPED-PACKS-R016",
       "title": "Server pin follows declared contract, not package version",
-      "delivery_state": "SPECIFIED",
-      "evidence": [],
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "daa948722eca04bc799dc1297ef7f0028773d0e5",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/daa948722eca04bc799dc1297ef7f0028773d0e5",
+          "description": "Implementation merged to the default branch; the commit names this requirement."
+        }
+      ],
       "remaining": "a_package_release_with_identical_content_is_unchanged proves package-version-only changes are pin-equal (Unchanged), but no test was located confirming a contract_version/name/instructions-only change produces a new pin/revision."
     },
     {
@@ -418,7 +426,7 @@
           "description": "Part of the requirement is implemented on the default branch."
         }
       ],
-      "remaining": "Overlap, uncovered-byte gaps and checked-arithmetic offset overflow are planted and tested with MALFORMED_SECTIONS; no planted case exercises a compressed archive specifically -- PackArchiveRef/PackSection carry no compression flag, so uncompressed storage is a structural property of the format …"
+      "remaining": "Overlap, uncovered-byte gaps and checked-arithmetic offset overflow are planted and tested with MALFORMED_SECTIONS; no planted case exercises a compressed archive specifically -- PackArchiveRef/PackSection carry no compression flag, so uncompressed storage is a structural property of the format \u2026"
     },
     {
       "id": "EG-TYPED-PACKS-R026",
@@ -1172,7 +1180,7 @@
     {
       "id": "EG-TYPED-PACKS-R081",
       "title": "Ontology object model migrated into EG's kg/ontology package",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "merged_head",
@@ -1180,6 +1188,13 @@
           "commit": "64b30a5187f36807a012400906ace764019de212",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/pull/47",
           "description": "One bounded slice merged by pull request 47: the object-path shortest-path utility with four focused tests. Full CI run 37035237661 passed on the integration with the previous main; the merged tree dc8c657f5edfb2c75230aa16d764a62396105cf1 was verified conflict-free with no changed-file overlap, without a full CI re-run on that exact tree."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "64b30a5187f36807a012400906ace764019de212",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/64b30a5187f36807a012400906ace764019de212",
+          "description": "Implementation merged to the default branch; the commit names this requirement."
         }
       ],
       "remaining": "Only the object-path utility is on main and nothing served imports it. The rest of the ontology object model named by this requirement (object sets, property types, derived properties, links and the remaining modules) and its importers are not migrated."
@@ -1230,7 +1245,7 @@
     {
       "id": "EG-TYPED-PACKS-R085",
       "title": "Identity domain operations with Argon2id and redacted views",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -1238,6 +1253,13 @@
           "commit": "b0d79a2d9e7d48d15bb3b1066e441d1f36f32868",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/b0d79a2d9e7d48d15bb3b1066e441d1f36f32868",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "0035f9fac382af6b158a03ebef2899b16297fe28",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/0035f9fac382af6b158a03ebef2899b16297fe28",
+          "description": "Implementation merged to the default branch; the commit names this requirement."
         }
       ]
     },
@@ -1403,8 +1425,16 @@
     {
       "id": "EG-TYPED-PACKS-R099",
       "title": "Best-matching prototype by cosine similarity in the numeric kernel",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "157b4417eb246e2fef4d5d574aefaac3ca7d4859",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/157b4417eb246e2fef4d5d574aefaac3ca7d4859",
+          "description": "Implementation merged to the default branch; the commit names this requirement."
+        }
+      ]
     }
   ]
 }
