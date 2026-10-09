@@ -47,6 +47,10 @@ pub mod warehouse_federation;
 // shape and its op-code/before-after refusal rules. Pure data; the Kafka
 // consumer and the real ChangeEnvelope conversion are later children.
 pub mod debezium_bridge;
+// EG-UNIFIED-DATA-PLANE-R022.1 — typed per-dialect conformance report entry
+// and deviation shape, refusing an auto-suppressed (unreviewed) deviation.
+// Pure data; running the containerized matrix is a later child.
+pub mod dialect_conformance;
 // GOC-03 — the cross-domain commit-descriptor/read-barrier currency shared by
 // graph, modality, vector, blob/refcount, time-series, evidence, table/lake, and
 // terminal-analytics-outcome participants. Deliberately a NEW module (not folded
