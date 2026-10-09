@@ -78,7 +78,11 @@
     "EG-FEDERATED-QUERY-R070",
     "EG-FEDERATED-QUERY-R071",
     "EG-FEDERATED-QUERY-R072",
-    "EG-FEDERATED-QUERY-R073"
+    "EG-FEDERATED-QUERY-R072.1",
+    "EG-FEDERATED-QUERY-R073",
+    "EG-FEDERATED-QUERY-R073.1",
+    "EG-FEDERATED-QUERY-R058.2",
+    "EG-FEDERATED-QUERY-R058.3"
   ],
   "delivery_state": "BUILDING",
   "acceptance_state": "NOT_AUDITED",
@@ -146,7 +150,7 @@
           "description": "EG-FEDERATED-QUERY-R004 merged to the default branch in this commit."
         }
       ],
-      "remaining": "rebuild_after_skipped/reject_invalid implement the full-rebuild-on-skipped-event path (recovery.rs, citing X10/PX10b item 7) and a unit test proves a rebuilt index is exempt from the watermark check, but no integration test that injects a dead-lettered/invalid wake-up and confirms the rebuild \u2026"
+      "remaining": "rebuild_after_skipped/reject_invalid implement the full-rebuild-on-skipped-event path (recovery.rs, citing X10/PX10b item 7) and a unit test proves a rebuilt index is exempt from the watermark check, but no integration test that injects a dead-lettered/invalid wake-up and confirms the rebuild …"
     },
     {
       "id": "EG-FEDERATED-QUERY-R005",
@@ -610,7 +614,7 @@
           "description": "EG-FEDERATED-QUERY-R036 merged to the default branch in this commit."
         }
       ],
-      "remaining": "The reopen fix (diff-only commits instead of one commit per node) and the pre-existing PARTIAL_MATERIALIZATION/MaterializationPhase readiness signal (src/server/dispatch/graph_pipeline/graph_access.rs) are both present, but no restart-scale integration test (750/1,500/3,000 docs) measuring bounded \u2026"
+      "remaining": "The reopen fix (diff-only commits instead of one commit per node) and the pre-existing PARTIAL_MATERIALIZATION/MaterializationPhase readiness signal (src/server/dispatch/graph_pipeline/graph_access.rs) are both present, but no restart-scale integration test (750/1,500/3,000 docs) measuring bounded …"
     },
     {
       "id": "EG-FEDERATED-QUERY-R037",
@@ -819,8 +823,16 @@
     {
       "id": "EG-FEDERATED-QUERY-R048",
       "title": "Join ordering across foreign sources uses learned, provenanced statistics",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "f708d6e7728fa5723b5bd37d317deadf48f35e5e",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/f708d6e7728fa5723b5bd37d317deadf48f35e5e",
+          "description": "EG-FEDERATED-QUERY-R048.1 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R048.1",
@@ -1009,7 +1021,7 @@
     {
       "id": "EG-FEDERATED-QUERY-R058",
       "title": "Natural language runs only as disclosed, read-only typed UQL",
-      "delivery_state": "LANDED",
+      "delivery_state": "BUILDING",
       "evidence": [
         {
           "kind": "merged_head",
@@ -1023,7 +1035,7 @@
     },
     {
       "id": "EG-FEDERATED-QUERY-R058.1",
-      "title": "Typed NL\u2192UQL disclosure model (NlQueryResult/NlQueryError/NlQueryBudget)",
+      "title": "Typed NL→UQL disclosure model (NlQueryResult/NlQueryError/NlQueryBudget)",
       "delivery_state": "LANDED",
       "evidence": [
         {
@@ -1139,7 +1151,7 @@
           "description": "EG-FEDERATED-QUERY-R065 merged to the default branch in this commit."
         }
       ],
-      "remaining": "DFS compile order (uql/tests/program.rs::let_from_join_builds_a_dag_in_first_reference_order), FUSE inlining, and re-parseable DAG printing are on main and tested. But serving EXPLAIN/PROFILE for a DAG is NOT typed-refused: crates/eg-plan/src/uql/serve/dag.rs implements real per-node \u2026"
+      "remaining": "DFS compile order (uql/tests/program.rs::let_from_join_builds_a_dag_in_first_reference_order), FUSE inlining, and re-parseable DAG printing are on main and tested. But serving EXPLAIN/PROFILE for a DAG is NOT typed-refused: crates/eg-plan/src/uql/serve/dag.rs implements real per-node …"
     },
     {
       "id": "EG-FEDERATED-QUERY-R066",
@@ -1196,7 +1208,7 @@
           "description": "EG-FEDERATED-QUERY-R068 merged to the default branch in this commit."
         }
       ],
-      "remaining": "WITH PROOF correctly binds premises (crates/eg-plan/src/uql/tests/annotations.rs::a_sparql_source_proves_each_row_with_its_witness, ::a_reason_stage_proves_inferred_membership, both passing). The row-proof wire shape (UqlRow/UqlRowProof in crates/eg-types/src/wire_query_core.rs) and uql/serve/proof.rs carry no source-generation or schema-digest field, unlike EG-FEDERATED-QUERY-R006's OwlExplain contract which does carry one \u2014 so WITH PROOF does not bind its results to their source generation as the requirement explicitly demands."
+      "remaining": "WITH PROOF correctly binds premises (crates/eg-plan/src/uql/tests/annotations.rs::a_sparql_source_proves_each_row_with_its_witness, ::a_reason_stage_proves_inferred_membership, both passing). The row-proof wire shape (UqlRow/UqlRowProof in crates/eg-types/src/wire_query_core.rs) and uql/serve/proof.rs carry no source-generation or schema-digest field, unlike EG-FEDERATED-QUERY-R006's OwlExplain contract which does carry one — so WITH PROOF does not bind its results to their source generation as the requirement explicitly demands."
     },
     {
       "id": "EG-FEDERATED-QUERY-R069",
@@ -1305,6 +1317,18 @@
           "description": "EG-FEDERATED-QUERY-R073.1 merged to the default branch in this commit."
         }
       ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R058.2",
+      "title": "Remaining scope of EG-FEDERATED-QUERY-R058 (slice .2): Natural language runs only as disclosed, read-only typed UQL",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R058.3",
+      "title": "Remaining scope of EG-FEDERATED-QUERY-R058 (slice .3): Natural language runs only as disclosed, read-only typed UQL",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
     }
   ]
 }

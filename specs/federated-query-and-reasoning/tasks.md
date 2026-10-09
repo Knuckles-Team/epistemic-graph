@@ -49,3 +49,8 @@ Check boxes describe work remaining for this combined contract. They do not cert
 - [x] Add the typed `NlQueryResult`/`NlQueryError`/`NlQueryBudget` disclosure model (`plan_only`, `plan_and_execute_typed`) to `eg-plan`, with refusal and plan-only tests. **EG-FEDERATED-QUERY-R058.1**
 - [ ] Wire `Method::NlQuery`'s dispatch handler and result contract to the typed disclosure model so the served result carries the executed UQL, and expose a plan-only entry point to callers. **EG-FEDERATED-QUERY-R058.2**
 - [ ] Confirm natural-language results are never cached on the NL text and that no mutating/side-effecting operation is reachable from the NL surface. **EG-FEDERATED-QUERY-R058.3**
+
+## Decomposition children (tracked)
+
+- [x] **EG-FEDERATED-QUERY-R048:** Join ordering across foreign sources uses learned, provenanced statistics
+- [x] **EG-FEDERATED-QUERY-R058:** Natural language runs only as disclosed, read-only typed UQL

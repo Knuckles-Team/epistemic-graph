@@ -92,3 +92,23 @@ For each stable ID, record: `ID | sequence | delivery | acceptance | main SHA | 
 ## Initial known evidence and unresolved qualification
 
 Existing source modules and tests provide foundations, but this spec does not assign new `ACCEPTED` states from historical branch notes. The first implementation task must inspect current published main and fill the evidence table. The decision ladder may already be source landed in part; served, hosted, replay and security proofs remain separate checks.
+
+## Decomposition children (tracked)
+
+- [x] **EG-DECISION-ENGINE-R015:** No generative model weights inside the decision engine (rollup)
+- [x] **EG-DECISION-ENGINE-R044:** A2A task routing through the decision ladder (rollup)
+- [x] **EG-DECISION-ENGINE-R045:** Smallest covering tool subset within a context budget
+- [x] **EG-DECISION-ENGINE-R056:** Statistical-path release of the exact solver (rollup)
+- [x] **EG-DECISION-ENGINE-R083:** Options encode structured facts, not option-label text (rollup)
+- [x] **EG-DECISION-ENGINE-R085:** Legal option sets are derived from the ontology, never received as-is
+- [x] **EG-DECISION-ENGINE-R090:** Resident native decision-scorer head in eg-decision
+- [x] **EG-DECISION-ENGINE-R090.1:** Typed resident-scorer budget (producer-first split of R090)
+- [x] **EG-DECISION-ENGINE-R093:** Resident scorer is trained from the served synthetic-episode generator
+- [x] **EG-DECISION-ENGINE-R093.1:** Typed served-path provenance and ground-truth verification
+- [x] **EG-DECISION-ENGINE-R102:** Schema repair proposals pass a decided mapping and shadow-branch check
+- [x] **EG-DECISION-ENGINE-R102.1:** Typed schema-repair activation gate (producer-first split of R102)
+- [x] **EG-DECISION-ENGINE-R113:** EG commits capacity acquisition atomically with synthesis evidence
+- [x] **EG-DECISION-ENGINE-R113.1:** Typed atomic capacity/synthesis-evidence commit outcome (producer-first split of R113)
+- [ ] **EG-DECISION-ENGINE-R116:** Consumers reach EG only through the versioned client contract
+- [x] **EG-DECISION-ENGINE-R116.1:** A typed gate admits only the published client-contract call path
+- [ ] **EG-DECISION-ENGINE-R116.2:** Every generated client method is wired through the contract-only gate
