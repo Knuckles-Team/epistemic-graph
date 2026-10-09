@@ -34,6 +34,11 @@ pub mod capacity_lease;
 // eg-transaction admission boundary. This module grants no executable capability.
 pub mod authority;
 pub mod change_envelope;
+// EG-UNIFIED-DATA-PLANE-R026.1 — typed Gramps native-hosting pilot phase
+// gate (P0-P5), refusing a wrong or unreviewed exit artifact and skipping
+// ahead of an un-exited earlier phase. Pure data; running each phase is a
+// later child.
+pub mod gramps_pilot_phase;
 // GOC-03 — the cross-domain commit-descriptor/read-barrier currency shared by
 // graph, modality, vector, blob/refcount, time-series, evidence, table/lake, and
 // terminal-analytics-outcome participants. Deliberately a NEW module (not folded
