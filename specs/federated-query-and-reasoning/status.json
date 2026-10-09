@@ -91,6 +91,7 @@
       "title": "Bounded derivation steps in EL+/RL and tableau reasoning",
       "delivery_state": "LANDED",
       "landed_in": [
+        "0265d3a41baf",
         "57a12eb06632"
       ],
       "verified_by": []
@@ -98,17 +99,22 @@
     {
       "id": "EG-FEDERATED-QUERY-R002",
       "title": "Rejection reasons stay out of the core kernel row schema",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "0265d3a41baf",
         "2b3e2738b5ff"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/wire_query_core.rs:882",
+        "crates/eg-types/src/wire_query_core.rs:914"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R003",
       "title": "Derivation-step budget is enforced once, not duplicated per path",
       "delivery_state": "LANDED",
       "landed_in": [
+        "0265d3a41baf",
         "73069c650dcd"
       ],
       "verified_by": []
@@ -118,6 +124,7 @@
       "title": "Reasoning projection rebuilds after any skipped event",
       "delivery_state": "LANDED",
       "landed_in": [
+        "0265d3a41baf",
         "49b749980bf2"
       ],
       "verified_by": []
@@ -127,6 +134,7 @@
       "title": "UQL VALIDATE SHAPE stage",
       "delivery_state": "LANDED",
       "landed_in": [
+        "0265d3a41baf",
         "a1bb9fb9503e"
       ],
       "verified_by": []
@@ -134,26 +142,35 @@
     {
       "id": "EG-FEDERATED-QUERY-R006",
       "title": "Proof-carrying results for SPARQL and rule-derived queries",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "0265d3a41baf",
         "8bbe95351da3"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-rdf/src/rules/tests.rs:348",
+        "crates/eg-rdf/src/rules/tests.rs:376",
+        "crates/eg-rdf/src/rules/tests.rs:386"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R007",
       "title": "Semantic-index reconciliation tombstones only on a complete proof",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "0265d3a41baf",
         "be0f1acb05c6"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-core/src/compute/semantic_index_service/reconciliation_regression.rs:343"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R008",
       "title": "Edge-native text and vector search with stable identity",
       "delivery_state": "LANDED",
       "landed_in": [
+        "0265d3a41baf",
         "834aca5df713"
       ],
       "verified_by": []
@@ -163,6 +180,7 @@
       "title": "Durable user-managed graph-index lifecycle",
       "delivery_state": "LANDED",
       "landed_in": [
+        "0265d3a41baf",
         "e99a95cc842d"
       ],
       "verified_by": []
@@ -172,6 +190,7 @@
       "title": "Tableau reasoning stays bounded on the shipped core schema",
       "delivery_state": "LANDED",
       "landed_in": [
+        "0265d3a41baf",
         "57a12eb06632"
       ],
       "verified_by": []
@@ -181,6 +200,7 @@
       "title": "EL+/RL reasoning is sound against the shipped ontology corpus",
       "delivery_state": "LANDED",
       "landed_in": [
+        "0265d3a41baf",
         "f17f47ab300f"
       ],
       "verified_by": []
@@ -190,6 +210,7 @@
       "title": "Tableau honors AllDisjointClasses and core disjointness facts",
       "delivery_state": "LANDED",
       "landed_in": [
+        "0265d3a41baf",
         "42aeb6436568"
       ],
       "verified_by": []
@@ -199,6 +220,7 @@
       "title": "Foreign-source resolution is scoped to the owning principal",
       "delivery_state": "LANDED",
       "landed_in": [
+        "0265d3a41baf",
         "a3e0c9984c67"
       ],
       "verified_by": []
@@ -208,6 +230,7 @@
       "title": "Explicit grant-based sharing of a registered foreign source",
       "delivery_state": "LANDED",
       "landed_in": [
+        "0265d3a41baf",
         "a1bb9fb9503e"
       ],
       "verified_by": []
@@ -217,6 +240,7 @@
       "title": "Read-only enforcement at the shared SQL execution path",
       "delivery_state": "LANDED",
       "landed_in": [
+        "0265d3a41baf",
         "a1bb9fb9503e"
       ],
       "verified_by": []
@@ -224,17 +248,21 @@
     {
       "id": "EG-FEDERATED-QUERY-R016",
       "title": "UQL AS OF uses Unix-second timestamps, not ISO dates",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "0265d3a41baf",
         "a3ad18c91bc5"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-plan/src/uql/tests/legacy.rs:297"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R017",
       "title": "Dependency tracking covers edge-type and embedding generations",
       "delivery_state": "LANDED",
       "landed_in": [
+        "0265d3a41baf",
         "10177f908dd0"
       ],
       "verified_by": []
@@ -244,6 +272,7 @@
       "title": "Class-level volatility drives invalidation and cache freshness",
       "delivery_state": "LANDED",
       "landed_in": [
+        "0265d3a41baf",
         "10177f908dd0"
       ],
       "verified_by": []
@@ -253,6 +282,7 @@
       "title": "Per-bar signal-state advancement with revisable trend records",
       "delivery_state": "LANDED",
       "landed_in": [
+        "0265d3a41baf",
         "532418b7e55b"
       ],
       "verified_by": []
@@ -262,6 +292,7 @@
       "title": "One query-text method surface, with the legacy method retired",
       "delivery_state": "LANDED",
       "landed_in": [
+        "0265d3a41baf",
         "bd27155934dc"
       ],
       "verified_by": []
@@ -271,6 +302,7 @@
       "title": "Full UQL predicate algebra with SQL-consistent evaluation",
       "delivery_state": "LANDED",
       "landed_in": [
+        "0265d3a41baf",
         "e93f988eae07"
       ],
       "verified_by": []
@@ -280,6 +312,7 @@
       "title": "UQL source clauses are first-class, with typed empty-result cases",
       "delivery_state": "LANDED",
       "landed_in": [
+        "0265d3a41baf",
         "8451d7eecf02"
       ],
       "verified_by": []
@@ -287,17 +320,21 @@
     {
       "id": "EG-FEDERATED-QUERY-R023",
       "title": "Every query modality has a published UQL spelling",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "0265d3a41baf",
         "8451d7eecf02"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-plan/src/uql/tests/contract.rs:58"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R024",
       "title": "Traversal syntax compiles to one canonical Expand encoding",
       "delivery_state": "LANDED",
       "landed_in": [
+        "0265d3a41baf",
         "e93f988eae07"
       ],
       "verified_by": []
@@ -307,6 +344,7 @@
       "title": "Typed parameter binding end-to-end through the Python client",
       "delivery_state": "LANDED",
       "landed_in": [
+        "0265d3a41baf",
         "4e0570f079f5"
       ],
       "verified_by": []
@@ -316,6 +354,7 @@
       "title": "UQL documentation is test-verified with an embedded grammar",
       "delivery_state": "LANDED",
       "landed_in": [
+        "0265d3a41baf",
         "7b9ba5708638"
       ],
       "verified_by": []
@@ -325,6 +364,7 @@
       "title": "EXPLAIN, PROFILE and RETURN support multi-stage UQL programs",
       "delivery_state": "LANDED",
       "landed_in": [
+        "0265d3a41baf",
         "681de5cb1968"
       ],
       "verified_by": []
@@ -334,6 +374,7 @@
       "title": "KnowledgeSet is reachable from UQL",
       "delivery_state": "LANDED",
       "landed_in": [
+        "0265d3a41baf",
         "681de5cb1968"
       ],
       "verified_by": []
@@ -341,54 +382,80 @@
     {
       "id": "EG-FEDERATED-QUERY-R029",
       "title": "UQL text from graph-exploration clients matches the grammar",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "0265d3a41baf",
         "cb0a4dfcf4a5"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-plan/src/uql/tests/scrubber.rs:16",
+        "crates/eg-plan/src/uql/tests/scrubber.rs:38",
+        "crates/eg-plan/src/uql/tests/scrubber.rs:53"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R030",
       "title": "TSSCAN preserves per-series row identity and full precision",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "0265d3a41baf",
         "79fb60a33ee0"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-plan/src/rowset.rs:219",
+        "crates/eg-plan/src/rowset.rs:243",
+        "crates/eg-plan/src/tsdb_scan_tests.rs:693"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R031",
       "title": "Contribution attribution kernels exposed through UQL ATTRIBUTE",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "0265d3a41baf",
         "7940beedc463"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-numeric/src/attribution/tests.rs:133",
+        "crates/eg-numeric/src/attribution/tests.rs:83",
+        "crates/eg-numeric/src/attribution/tests.rs:93"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R032",
       "title": "Probabilistic impact propagation with cone-scoped recomputation",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "0265d3a41baf",
         "c06e903d0def"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/impact_watch/tests.rs:112",
+        "src/server/impact_watch/tests.rs:135",
+        "src/server/impact_watch/tests.rs:157"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R033",
       "title": "Barrier-hit and time-to-exhaustion derivations, one shared CDF",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "0265d3a41baf",
         "a0fbd9c05adf",
         "c98e58397fcc"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-compute/src/graph_algos/impact/tests.rs:101",
+        "crates/eg-compute/src/graph_algos/impact/tests.rs:117",
+        "crates/eg-compute/src/graph_algos/impact/tests.rs:87"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R034",
       "title": "Motif and discord search over time series, batch and streaming",
       "delivery_state": "LANDED",
       "landed_in": [
+        "0265d3a41baf",
         "1625e507f6fc"
       ],
       "verified_by": []
@@ -398,6 +465,7 @@
       "title": "Filtered text search evaluates within the filtered candidate set",
       "delivery_state": "LANDED",
       "landed_in": [
+        "0265d3a41baf",
         "4dfe7beb589b"
       ],
       "verified_by": []
@@ -414,11 +482,15 @@
     {
       "id": "EG-FEDERATED-QUERY-R037",
       "title": "Rolling window statistics are both O(1) and numerically exact",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "1ee2319ee506"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-numeric/src/series/streaming_tests.rs:63",
+        "crates/eg-numeric/src/series/streaming_tests.rs:76",
+        "crates/eg-numeric/src/series/streaming_tests.rs:87"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R038",
@@ -499,11 +571,15 @@
     {
       "id": "EG-FEDERATED-QUERY-R045",
       "title": "Foreign rows carry typed columns for filter and projection pushdown",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "6ffff56cecff"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-plan/src/federation_opt/columns.rs:285",
+        "crates/eg-plan/src/federation_opt/columns.rs:311",
+        "crates/eg-plan/src/federation_opt/columns.rs:334"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R046",
@@ -547,12 +623,15 @@
     {
       "id": "EG-FEDERATED-QUERY-R049",
       "title": "Foreign query fragment cache is freshness-aware and owner-salted",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "33c1fd51757d",
         "b0124203865d"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-plan/src/federation_opt/cache.rs:162",
+        "crates/eg-plan/src/federation_opt/run.rs:502"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R050",
@@ -566,24 +645,28 @@
     {
       "id": "EG-FEDERATED-QUERY-R051",
       "title": "Iceberg scans prune manifests using the final pushed predicates",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "56d3663f4bf8",
         "5dd3f1b33fad",
         "8676a7f3af87"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-query/tests/iceberg_federation_scan.rs:384"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R052",
       "title": "RemoteEngine sources receive pushed key filters and bounded LIMIT",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "70c5421663b9",
         "8676a7f3af87",
         "a854dd78481d"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-plan/src/federation_opt/engine_peer_tests.rs:277"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R053",
@@ -689,11 +772,14 @@
     {
       "id": "EG-FEDERATED-QUERY-R061",
       "title": "One grammar table drives UQL docs, prompts and error messages",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "8451d7eecf02"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-plan/src/uql/tests/contract.rs:46",
+        "crates/eg-plan/src/uql/tests/contract.rs:58"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R062",
@@ -770,11 +856,13 @@
     {
       "id": "EG-FEDERATED-QUERY-R070",
       "title": "UQL execution budgets are enforced and reported in EXPLAIN/PROFILE",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "e93f988eae07"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-plan/src/budget.rs:73"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R071",

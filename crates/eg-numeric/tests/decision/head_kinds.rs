@@ -72,6 +72,7 @@ fn matrix() -> FeatureMatrix {
     }
 }
 
+// spec: EG-DECISION-ENGINE-R015
 #[test]
 fn every_head_kind_produces_only_numeric_output_never_free_text() {
     for kind in [

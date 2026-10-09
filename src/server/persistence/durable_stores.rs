@@ -624,6 +624,7 @@ mod tests {
         names
     }
 
+    // spec: EG-DURABLE-KERNEL-R055
     #[test]
     fn registry_covers_every_redb_store() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));

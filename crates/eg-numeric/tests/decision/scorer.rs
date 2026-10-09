@@ -106,6 +106,7 @@ fn the_fixed_point_kernels_are_accurate_where_it_matters() {
     assert!(p[3] > p[0] && p[0] > p[1] && p[1] > p[2]);
 }
 
+// spec: EG-DECISION-ENGINE-R091
 #[test]
 fn the_golden_vector_is_bit_identical_across_hosts() {
     let head = head(3);
@@ -136,6 +137,7 @@ fn the_golden_vector_is_bit_identical_across_hosts() {
     );
 }
 
+// spec: EG-DECISION-ENGINE-R009
 #[test]
 fn an_eliminated_option_is_never_scored_and_moves_nothing() {
     let head = head(8);

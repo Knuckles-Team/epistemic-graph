@@ -123,6 +123,7 @@ mod tests {
         }
     }
 
+    // spec: EG-DECISION-ENGINE-R031
     #[test]
     fn net_value_is_expected_value_minus_cost() {
         assert_eq!(candidate("a", 10, 3).net_value_q32(), 7);

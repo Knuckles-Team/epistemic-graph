@@ -425,6 +425,7 @@ def test_complexity_terms_require_zero_is_opt_in_and_fails_actionable_backlog(
     assert "REAL BACKLOG" in capsys.readouterr().out
 
 
+@pytest.mark.spec("EG-CONTRACT-R034")
 def test_complexity_terms_keeps_accepted_dispatch_visible_and_zero_gate_passes(
     tmp_path, capsys
 ):

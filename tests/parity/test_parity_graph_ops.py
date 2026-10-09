@@ -71,6 +71,7 @@ async def test_has_node_false_for_absent_node_is_parity_checked(
     assert has_result is False
 
 
+@pytest.mark.spec("EG-TYPED-PACKS-R088")
 @pytest.mark.asyncio
 async def test_get_node_properties_rls_isolation(
     pair_factory, owner_agent_id, other_agent_id, parity_graph

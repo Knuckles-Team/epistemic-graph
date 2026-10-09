@@ -146,6 +146,7 @@ fn bool_response(response: Result<super::RaftResponse, String>) -> bool {
 // same epoch CAS concurrently. Exactly one receipt may be true. The winner's
 // stored boolean must be replayable with a fresh caller nonce, while reusing the
 // consumed nonce must fail before the replay shortcut can answer it.
+// spec: EG-DURABLE-KERNEL-R054
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn placement_state_machine_binds_plan_identity_and_replay_nonce() {
     // Opens a durable store, so the ambient encryption env must hold still for

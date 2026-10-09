@@ -198,6 +198,7 @@ mod tests {
             .any(|(position, _)| term_local_name(&position.iri) == "Document"));
     }
 
+    // spec: EG-TYPED-PACKS-R077
     #[test]
     fn an_attached_source_contributes_its_terms_with_its_own_source_id() {
         let sources = with_admin_source();
@@ -227,6 +228,7 @@ mod tests {
         assert_eq!(page.composed_digest, sources.composed_digest().to_hex());
     }
 
+    // spec: EG-TYPED-PACKS-R077
     #[test]
     fn a_paged_walk_returns_every_term_once_in_order_at_one_digest() {
         let sources = with_admin_source();

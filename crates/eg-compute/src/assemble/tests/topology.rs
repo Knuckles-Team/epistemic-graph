@@ -137,6 +137,7 @@ fn a_request_that_widens_the_policy_caps_is_refused() {
     assert_eq!(error.code, DecisionErrorCode::PolicyLoosening);
 }
 
+// spec: EG-DECISION-ENGINE-R018
 #[test]
 fn an_unknown_p95_under_a_deadline_is_an_unknown_fact_not_zero() {
     let mut topology = facts();

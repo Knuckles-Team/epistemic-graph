@@ -366,6 +366,7 @@ fn a_backtest_run_seals_with_mandatory_outputs_and_verifies_by_replay() {
 const PINNED_RUN_DIGEST: &str =
     "sha256:991112d2c9fe33d30edab5e67a0a522a0d30a3521c5d0e91138a0c8992b814bc";
 
+// spec: EG-FINANCE-PRIMITIVES-R001
 #[test]
 fn a_sealed_backtest_run_digest_is_pinned_across_hosts() {
     let run = seal(&draft()).unwrap();

@@ -282,6 +282,7 @@ mod tests {
         ])
     }
 
+    // spec: EG-FEDERATED-QUERY-R045
     #[test]
     fn inexact_remote_superset_matches_naive_residual() {
         let exposed = BTreeSet::from(["age".into(), "name".into()]);
@@ -307,6 +308,7 @@ mod tests {
         assert_eq!(naive.into_rowset().ids(), vec!["b", "c"]);
     }
 
+    // spec: EG-FEDERATED-QUERY-R045
     #[test]
     fn unsupported_filter_stays_local_and_unexposed_column_fails() {
         let exposed = BTreeSet::from(["age".into(), "name".into()]);
@@ -329,6 +331,7 @@ mod tests {
         );
     }
 
+    // spec: EG-FEDERATED-QUERY-R045
     #[test]
     fn missing_column_does_not_match_null_or_ordered_predicate() {
         let absent = BTreeMap::new();

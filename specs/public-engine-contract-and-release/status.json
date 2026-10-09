@@ -71,7 +71,7 @@
     {
       "id": "EG-CONTRACT-R002",
       "title": "Served Agent Library test coverage for pack import and Decide",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "4f364b55e0dc",
         "52f2f3e347a3",
@@ -87,42 +87,51 @@
     {
       "id": "EG-CONTRACT-R002.1",
       "title": "Served Decide tenant auth-boundary refusal",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "4f364b55e0dc",
         "52f2f3e347a3",
         "c047e6602b42"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_decide_auth_boundary.py:81"
+      ]
     },
     {
       "id": "EG-CONTRACT-R002.2",
       "title": "Served Decide authorized-tenant path and pack-import journey",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "4f364b55e0dc",
         "52f2f3e347a3"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_decide_auth_boundary.py:100",
+        "tests/test_decide_auth_boundary.py:145"
+      ]
     },
     {
       "id": "EG-CONTRACT-R002.3",
       "title": "Installed-wheel / no-source-tree-import check for the Decide and pack-import client surface",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "52f2f3e347a3"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_installed_wheel_decision_client_boundary.py:60"
+      ]
     },
     {
       "id": "EG-CONTRACT-R003",
       "title": "Privacy scan covers the relocated graph-backends documentation",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "82e1e970c83a",
         "86532dc7e65a"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_documentation_privacy.py:68"
+      ]
     },
     {
       "id": "EG-CONTRACT-R004",
@@ -247,20 +256,24 @@
     {
       "id": "EG-CONTRACT-R015",
       "title": "Wheel ships the method, error and scope contract with callability flags",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "5738b6093ea7"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_wheel_contract_surface.py:461"
+      ]
     },
     {
       "id": "EG-CONTRACT-R016",
       "title": "Consumer-profile allowlist covers all generated PolicyEvolution senders",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "ad14dd57f95b"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_generated_client_contract.py:234"
+      ]
     },
     {
       "id": "EG-CONTRACT-R017",
@@ -292,11 +305,13 @@
     {
       "id": "EG-CONTRACT-R020",
       "title": "Topology test names avoid version-number suffixes",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "40b49253d3b9"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_no_version_suffixes.py:185"
+      ]
     },
     {
       "id": "EG-CONTRACT-R021",
@@ -333,11 +348,13 @@
     {
       "id": "EG-CONTRACT-R025",
       "title": "UDS bind-error test uses a short, environment-independent path",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "b43f33569dd4"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/transport/tests.rs:323"
+      ]
     },
     {
       "id": "EG-CONTRACT-R026",
@@ -414,11 +431,13 @@
     {
       "id": "EG-CONTRACT-R034",
       "title": "Complexity test derives its residual from the dispatch arm count",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "cba884075803"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_scanner_wrappers.py:428"
+      ]
     },
     {
       "id": "EG-CONTRACT-R035",
@@ -430,11 +449,15 @@
     {
       "id": "EG-CONTRACT-R036",
       "title": "Pinned-reference gate anchors each layer to its own admission step",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "b43f33569dd4"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_pinned_reference_resolution.py:144",
+        "tests/test_pinned_reference_resolution.py:155",
+        "tests/test_pinned_reference_resolution.py:99"
+      ]
     },
     {
       "id": "EG-CONTRACT-R037",
@@ -502,20 +525,25 @@
     {
       "id": "EG-CONTRACT-R044",
       "title": "Contract gate discovers Method variants structurally",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "acc9d32155b3"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_contract_method_reachability.py:52",
+        "tests/test_contract_method_reachability.py:80"
+      ]
     },
     {
       "id": "EG-CONTRACT-R045",
       "title": "Method enum size pinned and proven stable",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "a1bb9fb9503e"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/tests/contract_wave.rs:255"
+      ]
     },
     {
       "id": "EG-CONTRACT-R046",
@@ -538,12 +566,16 @@
     {
       "id": "EG-CONTRACT-R048",
       "title": "Generated work-claim and evidence DTOs refuse coerced, empty and duplicate inputs",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "677e430cb3bc",
         "a5b4a1f1f638"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_generated_dto_strictness.py:42",
+        "tests/test_generated_dto_strictness.py:58",
+        "tests/test_generated_dto_strictness.py:74"
+      ]
     }
   ]
 }

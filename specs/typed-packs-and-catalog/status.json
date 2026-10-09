@@ -245,11 +245,13 @@
     {
       "id": "EG-TYPED-PACKS-R016",
       "title": "Server pin follows declared contract, not package version",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "daa948722eca"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/agent_component.rs:1257"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R017",
@@ -281,11 +283,13 @@
     {
       "id": "EG-TYPED-PACKS-R020",
       "title": "A tenant-profile administrative capability defect is out of EG scope",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "08a2b1958cc3"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_connector_pack_planted.py:216"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R021",
@@ -497,11 +501,13 @@
     {
       "id": "EG-TYPED-PACKS-R044",
       "title": "EG-computed tool schema digests",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "7be444b032de"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/handlers/admin/connector_pack/import/facts.rs:207"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R045",
@@ -585,20 +591,24 @@
     {
       "id": "EG-TYPED-PACKS-R054",
       "title": "One topic per Agent Library outbox consumer",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "ceec54145720"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-transaction/src/tests/outbox.rs:1466"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R055",
       "title": "Outbox retry never collateral dead-letters unrelated events",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "7704b8d7294f"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-transaction/src/tests/outbox.rs:2256"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R056",
@@ -612,11 +622,13 @@
     {
       "id": "EG-TYPED-PACKS-R057",
       "title": "Ontology withdrawal removes a whole source, not per-triple",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "f17f47ab300f"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/graph_schema/compiled_tests.rs:91"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R058",
@@ -675,11 +687,13 @@
     {
       "id": "EG-TYPED-PACKS-R064",
       "title": "Output-schema digest recorded on tool pins",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "7be444b032de"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/handlers/admin/connector_pack/import/facts.rs:208"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R065",
@@ -711,11 +725,13 @@
     {
       "id": "EG-TYPED-PACKS-R068",
       "title": "Contract regeneration packages the complete generated set",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "a1bb9fb9503e"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-capabilities/src/catalog.rs:82"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R069",
@@ -729,11 +745,13 @@
     {
       "id": "EG-TYPED-PACKS-R070",
       "title": "Committed contract artifacts match generated content, not size",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "be0f1acb05c6"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-capabilities/tests/contract_generated.rs:25"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R071",
@@ -756,11 +774,14 @@
     {
       "id": "EG-TYPED-PACKS-R073",
       "title": "Raise the core schema source bound to 64 and split world_model",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "a4c80c2b6f90"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/graph_schema/world_model_tests.rs:106",
+        "src/server/graph_schema/world_model_tests.rs:245"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R074",
@@ -792,11 +813,14 @@
     {
       "id": "EG-TYPED-PACKS-R077",
       "title": "GraphSchemaClasses exposes canonical class and property names",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "2068ec01a667"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/graph_schema/terms.rs:201",
+        "src/server/graph_schema/terms.rs:231"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R078",
@@ -855,11 +879,13 @@
     {
       "id": "EG-TYPED-PACKS-R084",
       "title": "Request deadlines propagate into long-running pack operations",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "147959ad6f13"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/handlers/admin/connector_pack/tests/ontology.rs:87"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R085",
@@ -891,20 +917,24 @@
     {
       "id": "EG-TYPED-PACKS-R088",
       "title": "Embedded engine enforces graph-level access control",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "88499bb6424b"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/parity/test_parity_graph_ops.py:74"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R089",
       "title": "Blob-layout table for pack body holder rows",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "b43f33569dd4"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-storage/src/owner/tests.rs:18"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R090",
@@ -939,12 +969,15 @@
     {
       "id": "EG-TYPED-PACKS-R092",
       "title": "Python client idempotency key excludes the request ID",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "b43f33569dd4",
         "f097533e52c8"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_connector_pack_client.py:365",
+        "tests/test_connector_pack_client.py:409"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R093",
@@ -1015,12 +1048,16 @@
     {
       "id": "EG-TYPED-PACKS-R099",
       "title": "Best-matching prototype by cosine similarity in the numeric kernel",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "157b4417eb24",
         "3fe75684934d"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-numeric/src/prototype.rs:45",
+        "crates/eg-numeric/src/prototype.rs:60",
+        "crates/eg-numeric/src/prototype.rs:70"
+      ]
     }
   ]
 }

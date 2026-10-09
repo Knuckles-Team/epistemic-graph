@@ -26,6 +26,8 @@ import unittest
 from pathlib import Path
 from typing import TypedDict
 
+import pytest
+
 
 class _FixtureManifest(TypedDict):
     contract_version: int
@@ -456,6 +458,7 @@ class WheelContractSurface(unittest.TestCase):
         """Resource isolation proof only; does not build or install a wheel."""
         self._probe_outside_checkout(sys.executable, staged=True)
 
+    @pytest.mark.spec("EG-CONTRACT-R015")
     @unittest.skipUnless(
         os.environ.get("EG_CONTRACT_INSTALLED_PYTHON"),
         "set EG_CONTRACT_INSTALLED_PYTHON for independent installed-wheel proof",

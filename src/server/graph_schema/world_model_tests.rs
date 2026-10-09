@@ -103,6 +103,7 @@ fn materialized() -> eg_rdf::rules::RuleReasonResult {
     eg_rdf::rules::reason_triples(&triples, &ontology, &Default::default())
 }
 
+// spec: EG-TYPED-PACKS-R073
 #[test]
 fn world_model_modules_are_core_modules_within_the_catalog_bound() {
     assert_core_catalog(&["life", "environment", "nutrition", "world-model-shapes"]);
@@ -241,6 +242,7 @@ fn a_taxon_is_never_an_organism() {
 /// Mappings, not imports: every native class a world-model module declares carries at
 /// least one skos mapping to an external ontology or Wikidata, and each module imports
 /// only the EG documents it builds on.
+// spec: EG-TYPED-PACKS-R073
 #[test]
 fn every_world_model_class_is_mapped_and_nothing_external_is_imported() {
     for (module, document, expected_imports) in WORLD_MODEL_MODULES {

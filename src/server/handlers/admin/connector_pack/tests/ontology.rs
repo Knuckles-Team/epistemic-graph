@@ -84,6 +84,7 @@ fn subclass_chain(length: usize) -> String {
 /// the G14 reasoning runs stops at the next derivation step and frees the
 /// tenant's pack lock -- the next pack write is answered, not queued behind the
 /// abandoned import.
+// spec: EG-TYPED-PACKS-R084
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_cancelled_import_does_not_block_the_next_bind() {
     use crate::server::request_scope::{scope, RequestCancel, CANCELLED};

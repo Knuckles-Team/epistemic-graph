@@ -172,11 +172,15 @@
     {
       "id": "EG-REPO-INGEST-R005",
       "title": "Replay-protection nonces commit in batches for throughput",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "7d1bf0006b94"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/request_replay.rs:418",
+        "src/server/request_replay.rs:428",
+        "src/server/request_replay.rs:486"
+      ]
     },
     {
       "id": "EG-REPO-INGEST-R006",
