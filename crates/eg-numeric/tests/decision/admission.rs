@@ -29,6 +29,7 @@ fn with_logged(edit: impl FnOnce(&mut LoggedOutcome)) -> LabelledItem {
     item
 }
 
+// spec: EG-DECISION-ENGINE-R022
 #[test]
 fn every_planted_label_defect_is_refused_by_name() {
     let approved = vec!["approved".to_string()];
@@ -82,6 +83,7 @@ fn every_planted_label_defect_is_refused_by_name() {
     assert_eq!(exclusion(&logged_item(0), &bandit), None);
 }
 
+// spec: EG-DECISION-ENGINE-R022
 #[test]
 fn an_llm_resolved_abstention_never_enters_the_calibration_set() {
     let full = rules(Regime::FullLabel, &[]);
