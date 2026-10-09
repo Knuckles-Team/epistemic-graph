@@ -25,6 +25,7 @@ pub mod retrieval_generation;
 pub mod retrieval_plan;
 pub mod retrieval_pointer;
 pub mod scorer;
+pub mod tool_subset;
 
 use serde::{Deserialize, Serialize};
 

@@ -25,6 +25,10 @@
 - [x] D13c **EG-DECISION-ENGINE-R127.1 (producer):** Add `decision::guardrail::entailed_guardrails` (`crates/eg-types/src/decision/guardrail.rs`), deciding which `GuardrailRule`s apply to a task IRI by task-class subsumption (reusing `agent_ontology::broader_chain`, the same primitive `coverage_chain` uses for capability coverage). No server surface. Test: `crates/eg-types/src/decision/guardrail.rs::tests`.
 
 - [ ] D13d **EG-DECISION-ENGINE-R127.2 (consumer):** Design and add a `GuardrailRule` storage/publish path, then the served read-only query beside `AgentAssemble` that reads a tenant's published rules and calls `EG-DECISION-ENGINE-R127.1`'s `entailed_guardrails`; generate its client method; run the fixture (entailed rules for a subclassed task, no rule for an unrelated task, stable premises after restart).
+- [ ] D15a **EG-DECISION-ENGINE-R045.1:** Add the typed tool-subset request body and the greedy covering-set selection (`crates/eg-types/src/decision/statistical/tool_subset.rs`), with unit tests proving minimality, coverage and the two refusal reasons. No server wiring yet.
+- [ ] D15b **EG-DECISION-ENGINE-R045.2:** Wire the R045.1 selection into a dedicated `Decide` question kind reading tool candidates from the agent library, with a served test proving the returned subset is minimal, covers every required capability and stays within budget.
+
+- [ ] D13 **EG-DECISION-ENGINE-R126, EG-DECISION-ENGINE-R127:** Add the coverage and guardrail read queries beside `AgentAssemble`, generate their client methods, and run test D2. The agent-utilities planner (AU-CONTROL-R027) consumes them through its capability-search and guardrail ports.
 
 - [x] D14 **EG-DECISION-ENGINE-R017:** Add a regression test for the existing `FORBIDDEN_COMPONENT_KIND` refusal (`validate_publish` in `crates/eg-types/src/agent_component.rs`), exercised through both the bare validator and the public `AgentComponentOp::Publish.validate()` surface, so the previously untested bypass path is covered. Test: `crates/eg-types/src/agent_component.rs::tests::a_decision_record_cannot_be_published_directly`.
 
