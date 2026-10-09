@@ -340,6 +340,17 @@ jobs:
           cd "$(mktemp -d)"
           PYTHONNOUSERSITE=1 "$REPO/.gates-wheel-venv/bin/python" -c \
             "import epistemic_graph.engine as e; print('engine kernel OK:', e.__file__, '| __engine__=', getattr(e, '__engine__', None))"
+      # EG-CONTRACT-R002.3: the Decide/pack-import client surface EG-CONTRACT-
+      # R002.1/.2's served tests exercise must itself resolve from this
+      # installed wheel, not the source tree -- same shadowing-avoidance
+      # discipline as the numeric/engine smoke steps above (mktemp cwd, the
+      # gates venv's interpreter).
+      - name: installed-wheel no-source-tree-import check (EG-CONTRACT-R002.3)
+        run: |
+          REPO="$PWD"
+          cd "$(mktemp -d)"
+          PYTHONNOUSERSITE=1 "$REPO/.gates-wheel-venv/bin/python" -m pytest \
+            "$REPO/tests/test_installed_wheel_decision_client_boundary.py" --noconftest -q
 
 
   # ── STAGE 1 (continued): the release-critical cargo selections are split

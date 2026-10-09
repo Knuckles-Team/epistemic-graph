@@ -7,6 +7,7 @@
     "EG-CONTRACT-R002",
     "EG-CONTRACT-R002.1",
     "EG-CONTRACT-R002.2",
+    "EG-CONTRACT-R002.3",
     "EG-CONTRACT-R003",
     "EG-CONTRACT-R004",
     "EG-CONTRACT-R005",
@@ -96,6 +97,12 @@
     {
       "id": "EG-CONTRACT-R002.2",
       "title": "Served Decide authorized-tenant path and pack-import journey",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-CONTRACT-R002.3",
+      "title": "Installed-wheel / no-source-tree-import check for the Decide and pack-import client surface",
       "delivery_state": "SPECIFIED",
       "evidence": []
     },
