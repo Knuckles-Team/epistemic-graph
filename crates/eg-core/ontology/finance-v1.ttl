@@ -474,3 +474,65 @@
     rdfs:comment "normal, warning, critical, regime_shift." ;
     rdfs:domain :RiskSnapshot ;
     rdfs:range xsd:string .
+
+# ── Portfolio accounting: account and position records (EG-FINANCE-PRIMITIVES-R004.2.1) ──
+#
+# finance-v1's portfolio-accounting records, producer-first after the R004.1 asset-class
+# vocabulary. Distinct from :PortfolioPosition above (an exchange-execution position folded
+# from company_infra, EH-517, held on an :ExchangeBackend): these are lot-accounting records
+# of a portfolio owner's own ledger, independent of which exchange backend (if any) executed
+# the trades that produced them.
+
+:Account a owl:Class ;
+    rdfs:label "Account" ;
+    rdfs:comment "A brokerage, exchange or custodial account holding positions and recording activity for one portfolio owner. BFO:GenericallyDependentContinuant." ;
+    rdfs:subClassOf bfo:0000031 ;
+    skos:relatedMatch wd:Q676459 .
+
+:accountId a owl:DatatypeProperty ;
+    rdfs:label "account id" ;
+    rdfs:comment "The account's stable external identifier (broker account number or wallet address)." ;
+    rdfs:domain :Account ;
+    rdfs:range xsd:string .
+
+:baseCurrency a owl:DatatypeProperty ;
+    rdfs:label "base currency" ;
+    rdfs:comment "The ISO 4217 currency code (or asset symbol) the account's valuations are reported in." ;
+    rdfs:domain :Account ;
+    rdfs:range xsd:string .
+
+:accountKind a owl:DatatypeProperty ;
+    rdfs:label "account kind" ;
+    rdfs:comment "taxable, ira, roth_ira, 401k, hsa or custodial." ;
+    rdfs:domain :Account ;
+    rdfs:range xsd:string .
+
+:Position a owl:Class ;
+    rdfs:label "Position" ;
+    rdfs:comment "An account's current holding of one financial instrument: a signed quantity and cost basis derived from its activity under one lot-accounting method. A portfolio-accounting record, not a live trading position. BFO:GenericallyDependentContinuant." ;
+    rdfs:subClassOf bfo:0000031 ;
+    skos:closeMatch wd:Q3399648 .
+
+:positionAccount a owl:ObjectProperty ;
+    rdfs:label "position account" ;
+    rdfs:comment "The account a position is held in." ;
+    rdfs:domain :Position ;
+    rdfs:range :Account .
+
+:positionInstrument a owl:ObjectProperty ;
+    rdfs:label "position instrument" ;
+    rdfs:comment "The financial instrument a position is a holding of." ;
+    rdfs:domain :Position ;
+    rdfs:range :FinancialInstrument .
+
+:positionQuantity a owl:DatatypeProperty ;
+    rdfs:label "position quantity" ;
+    rdfs:comment "Signed held quantity: positive long, negative short, in the instrument's native unit." ;
+    rdfs:domain :Position ;
+    rdfs:range xsd:decimal .
+
+:costBasisMethod a owl:DatatypeProperty ;
+    rdfs:label "cost basis method" ;
+    rdfs:comment "fifo, lifo, specific_lot or average_cost." ;
+    rdfs:domain :Position ;
+    rdfs:range xsd:string .

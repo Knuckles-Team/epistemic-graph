@@ -181,3 +181,46 @@
             sh:path :analysisDigest ;
             sh:pattern "^sha256:[0-9a-f]{64}$" ] ;
     sh:targetClass :AnalysisSnapshot .
+
+:AccountShape a sh:NodeShape ;
+    sh:description "An account has exactly one accountId and base currency, and at most one account kind from the closed vocabulary." ;
+    sh:name "Account Shape" ;
+    sh:property [ sh:datatype xsd:string ;
+            sh:maxCount 1 ;
+            sh:message "Account must have exactly one accountId." ;
+            sh:minCount 1 ;
+            sh:path :accountId ],
+        [ sh:datatype xsd:string ;
+            sh:maxCount 1 ;
+            sh:message "Account must have exactly one baseCurrency." ;
+            sh:minCount 1 ;
+            sh:path :baseCurrency ],
+        [ sh:in ( "taxable" "ira" "roth_ira" "401k" "hsa" "custodial" ) ;
+            sh:maxCount 1 ;
+            sh:message "accountKind is taxable, ira, roth_ira, 401k, hsa or custodial." ;
+            sh:path :accountKind ] ;
+    sh:targetClass :Account .
+
+:PositionShape a sh:NodeShape ;
+    sh:description "A position names exactly one account and one instrument, one signed quantity and at most one cost-basis method from the closed vocabulary." ;
+    sh:name "Position Shape" ;
+    sh:property [ sh:maxCount 1 ;
+            sh:message "Position must name exactly one account (positionAccount)." ;
+            sh:minCount 1 ;
+            sh:nodeKind sh:IRI ;
+            sh:path :positionAccount ],
+        [ sh:maxCount 1 ;
+            sh:message "Position must name exactly one instrument (positionInstrument)." ;
+            sh:minCount 1 ;
+            sh:nodeKind sh:IRI ;
+            sh:path :positionInstrument ],
+        [ sh:datatype xsd:decimal ;
+            sh:maxCount 1 ;
+            sh:message "Position must have exactly one positionQuantity." ;
+            sh:minCount 1 ;
+            sh:path :positionQuantity ],
+        [ sh:in ( "fifo" "lifo" "specific_lot" "average_cost" ) ;
+            sh:maxCount 1 ;
+            sh:message "costBasisMethod is fifo, lifo, specific_lot or average_cost." ;
+            sh:path :costBasisMethod ] ;
+    sh:targetClass :Position .

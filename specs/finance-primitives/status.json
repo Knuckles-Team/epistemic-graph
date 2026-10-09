@@ -22,7 +22,9 @@
     "EG-FINANCE-PRIMITIVES-R014",
     "EG-FINANCE-PRIMITIVES-R015",
     "EG-FINANCE-PRIMITIVES-R016",
-    "EG-FINANCE-PRIMITIVES-R017"
+    "EG-FINANCE-PRIMITIVES-R017",
+    "EG-FINANCE-PRIMITIVES-R004.2.1",
+    "EG-FINANCE-PRIMITIVES-R004.2.2"
   ],
   "delivery_state": "BUILDING",
   "acceptance_state": "NOT_AUDITED",
@@ -70,7 +72,7 @@
           "description": "EG-FINANCE-PRIMITIVES-R002 merged to the default branch in this commit."
         }
       ],
-      "remaining": "purged_cpcv_splits, deflated_sharpe_ratio, probability_of_backtest_overfit, diebold_mariano and the FeatureSkill (IC/IR/n_eff) and Brier kernels are rehomed into eg-numeric on main, and FinanceRollingZscore/FinanceEwma were retired. But Ornstein-Uhlenbeck, ADF, and regime-HMM calculations are still \u2026"
+      "remaining": "purged_cpcv_splits, deflated_sharpe_ratio, probability_of_backtest_overfit, diebold_mariano and the FeatureSkill (IC/IR/n_eff) and Brier kernels are rehomed into eg-numeric on main, and FinanceRollingZscore/FinanceEwma were retired. But Ornstein-Uhlenbeck, ADF, and regime-HMM calculations are still …"
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R003",
@@ -199,7 +201,7 @@
           "description": "EG-FINANCE-PRIMITIVES-R015 merged to the default branch in this commit."
         }
       ],
-      "remaining": "AnalysisSnapshot/AnalysisSnapshotDraft (crates/eg-types/src/compute_result/market/snapshot.rs) carries informational_only, excludes_positions and SnapshotNotices, but has no control-lease / share.read link field anywhere in its definition. A generic ControlLease mechanism exists in \u2026"
+      "remaining": "AnalysisSnapshot/AnalysisSnapshotDraft (crates/eg-types/src/compute_result/market/snapshot.rs) carries informational_only, excludes_positions and SnapshotNotices, but has no control-lease / share.read link field anywhere in its definition. A generic ControlLease mechanism exists in …"
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R016",
@@ -228,6 +230,18 @@
           "description": "Implemented on the default branch; exercised by crates/eg-compute/src/finance/market/record_tests.rs::look_ahead_fills_and_missing_outputs_are_refused"
         }
       ]
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R004.2.1",
+      "title": "Account and Position OWL classes and SHACL shapes",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R004.2.2",
+      "title": "Activity and Lot OWL classes and SHACL shapes",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
     }
   ]
 }

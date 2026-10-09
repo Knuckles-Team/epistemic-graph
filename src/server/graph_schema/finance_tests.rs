@@ -65,6 +65,8 @@ fn finance_is_a_core_module_within_the_catalog_bound_and_the_corpus_stays_cohere
         ("MacroEvent", "0000015"),
         ("TradingStrategy", "0000015"),
         ("TradingDebate", "0000015"),
+        ("Account", "0000031"),
+        ("Position", "0000031"),
     ];
     for (class, category) in placed {
         assert!(
@@ -79,7 +81,7 @@ fn finance_is_a_core_module_within_the_catalog_bound_and_the_corpus_stays_cohere
 fn every_finance_class_is_mapped_and_nothing_external_is_imported() {
     let triples = eg_rdf::mapping::parse_turtle(FINANCE).unwrap();
     let declared = declared_classes(&triples);
-    assert_eq!(declared.len(), 18);
+    assert_eq!(declared.len(), 20);
     let unmapped = unmapped_classes(&triples);
     assert!(unmapped.is_empty(), "unmapped classes {unmapped:?}");
     let imports: BTreeSet<&str> = triples
@@ -196,6 +198,8 @@ fn finance_shapes_are_their_own_document() {
             "TrendFlip",
             "MacroEvent",
             "AnalysisSnapshot",
+            "Account",
+            "Position",
         ],
     );
 }
@@ -231,7 +235,11 @@ mod shapes {
                :flipEffectiveAt \"2026-09-24T00:00:00Z\"^^xsd:dateTime ; :flipEventId \"{HASH}\" .\n\
              ex:m a :MacroEvent ; :policyAction \"hold\" ; \
                :announcedAt \"2026-09-17T18:00:00Z\"^^xsd:dateTime .\n\
-             ex:a a :AnalysisSnapshot ; :analysisOf ex:l ; :analysisDigest \"{HASH}\" ."
+             ex:a a :AnalysisSnapshot ; :analysisOf ex:l ; :analysisDigest \"{HASH}\" .\n\
+             ex:acc a :Account ; :accountId \"acc-1\" ; :baseCurrency \"USD\" ; \
+               :accountKind \"taxable\" .\n\
+             ex:pos a :Position ; :positionAccount ex:acc ; :positionInstrument ex:btc ; \
+               :positionQuantity \"1.5\"^^xsd:decimal ; :costBasisMethod \"fifo\" ."
         );
         assert!(conforms(&data));
     }
@@ -253,6 +261,12 @@ mod shapes {
             "ex:a a :AnalysisSnapshot ; :analysisOf ex:l ; :analysisDigest \"sha1:00\" .",
             "ex:btc a :FinancialInstrument ; :assetClass \"crypto-ish\" .",
             "ex:a a :AnalysisSnapshot ; :analysisDigest \"sha256:0000000000000000000000000000000000000000000000000000000000000000\" .",
+            "ex:acc a :Account ; :baseCurrency \"USD\" .",
+            "ex:acc a :Account ; :accountId \"acc-1\" ; :baseCurrency \"USD\" ; \
+               :accountKind \"checking\" .",
+            "ex:pos a :Position ; :positionInstrument ex:btc ; :positionQuantity \"1.5\"^^xsd:decimal .",
+            "ex:pos a :Position ; :positionAccount ex:acc ; :positionInstrument ex:btc ; \
+               :positionQuantity \"1.5\"^^xsd:decimal ; :costBasisMethod \"lowest_cost\" .",
         ];
         for data in refused {
             assert!(!conforms(data), "{data}");
