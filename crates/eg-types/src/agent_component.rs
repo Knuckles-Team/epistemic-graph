@@ -2086,4 +2086,54 @@ mod tests {
         let error = op.validate().expect_err("must be refused");
         assert!(error.contains("FORBIDDEN_COMPONENT_KIND"), "got: {error}");
     }
+
+    /// EG-DECISION-ENGINE-R077: the component schema bump to version 3 is
+    /// agreed by every writer, and the two things the bump actually added --
+    /// a decision-engine component kind and the `Withdrawn` lifecycle -- must
+    /// decode unchanged through the bumped schema, not merely construct
+    /// without error.
+    // spec: EG-DECISION-ENGINE-R077
+    #[test]
+    fn the_schema_bump_is_agreed_and_new_kinds_and_withdrawn_round_trip() {
+        let policy_entry = AgentComponentEntry::publish(
+            draft(
+                "decision-policy:default",
+                AgentComponentKind::DecisionPolicy,
+            ),
+            1,
+            10,
+        )
+        .expect("a decision-engine component kind publishes under the bumped schema");
+        assert_eq!(policy_entry.schema_version, AGENT_COMPONENT_SCHEMA_VERSION);
+        let encoded = serde_json::to_string(&policy_entry).expect("encodes");
+        let decoded: AgentComponentEntry =
+            serde_json::from_str(&encoded).expect("a new decision kind decodes");
+        assert_eq!(
+            decoded, policy_entry,
+            "a decision-kind entry must decode unchanged from the bumped schema"
+        );
+        decoded
+            .validate()
+            .expect("the decoded entry still agrees it is schema version 3");
+
+        let withdrawn = AgentComponentEntry::create(
+            draft("mcp:connector-a/tool/search", AgentComponentKind::Tool),
+            2,
+            AgentLibraryLifecycle::Withdrawn,
+            10,
+            20,
+        )
+        .expect("a connector pack member may be withdrawn");
+        assert_eq!(withdrawn.schema_version, AGENT_COMPONENT_SCHEMA_VERSION);
+        let encoded = serde_json::to_string(&withdrawn).expect("encodes");
+        let decoded: AgentComponentEntry =
+            serde_json::from_str(&encoded).expect("a withdrawn entry decodes");
+        assert_eq!(
+            decoded, withdrawn,
+            "a withdrawn entry must decode unchanged from the bumped schema"
+        );
+        decoded
+            .validate()
+            .expect("the decoded withdrawn entry still agrees it is schema version 3");
+    }
 }

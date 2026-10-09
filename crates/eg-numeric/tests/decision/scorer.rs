@@ -188,6 +188,7 @@ fn the_shortlist_bounds_what_is_scored_and_breaks_ties_by_option_order() {
     assert_eq!(scored, 2, "a shortlist of two scores two options");
 }
 
+// spec: EG-DECISION-ENGINE-R082
 #[test]
 fn one_encode_serves_several_questions_exactly() {
     let head = head(4);
