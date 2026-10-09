@@ -72,6 +72,9 @@ pub mod embedding;
 // CONCEPT:EG-KG.compute.uncertainty-values — probabilistic / uncertainty VALUE (distribution-valued
 // properties). A stored value at the bottom of the DAG, NOT a wire `Op`.
 pub mod distribution;
+// EG-DURABLE-KERNEL-R011 — the required pre-merge test-module category
+// (raft/backup/persistence) and a validated declaration within one.
+pub mod pre_merge_test_module;
 // CONCEPT:EG-KG.compute.epistemic-operations-protocol — strict shared DTOs for
 // RequestContext, mutation/ingestion, work, artifact, query, job, and trace outcomes.
 pub mod epistemic_operations;

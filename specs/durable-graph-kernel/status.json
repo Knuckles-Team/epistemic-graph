@@ -72,7 +72,8 @@
     "EG-DURABLE-KERNEL-R067",
     "EG-DURABLE-KERNEL-R068",
     "EG-DURABLE-KERNEL-R069",
-    "EG-DURABLE-KERNEL-R070"
+    "EG-DURABLE-KERNEL-R070",
+    "EG-DURABLE-KERNEL-R011.1"
   ],
   "delivery_state": "BUILDING",
   "acceptance_state": "NOT_AUDITED",
@@ -206,7 +207,7 @@
     {
       "id": "EG-DURABLE-KERNEL-R011",
       "title": "Clippy and targeted tests cover the full and all-features builds",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
       "evidence": []
     },
     {
@@ -984,6 +985,12 @@
           "description": "Implementation merged to the default branch; the commit names this requirement."
         }
       ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R011.1",
+      "title": "RequiredTestModuleCategory/RequiredTestModule typed category and validated declaration",
+      "delivery_state": "BUILT",
+      "evidence": []
     }
   ]
 }
