@@ -368,8 +368,16 @@
     {
       "id": "EG-DECISION-ENGINE-R015",
       "title": "No generative model weights inside the decision engine",
-      "delivery_state": "UNKNOWN",
-      "evidence": [],
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "40ea81e3e512bcb9cfba75d077877c749bb0d04f",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/40ea81e3e512bcb9cfba75d077877c749bb0d04f",
+          "description": "EG-DECISION-ENGINE-R015 merged to the default branch in this commit."
+        }
+      ],
       "remaining": "Split producer-first (2026-10-09): EG-DECISION-ENGINE-R015.1 adds the typed, closed StatisticalHeadKind::parse (crates/eg-types/src/decision/rapid_r015.rs), refusing any non-fitted-head name including a generative-model label. Still open: wiring the ladder's head registry to construct heads only through this parse."
     },
     {
@@ -978,8 +986,16 @@
     {
       "id": "EG-DECISION-ENGINE-R056",
       "title": "Statistical-path release of the exact solver",
-      "delivery_state": "SPECIFIED",
-      "evidence": [],
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "65afe57d3c4e82fd749ef6e14c6cecc55afee621",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/65afe57d3c4e82fd749ef6e14c6cecc55afee621",
+          "description": "EG-DECISION-ENGINE-R056 merged to the default branch in this commit."
+        }
+      ],
       "remaining": "Split producer-first (2026-10-09): EG-DECISION-ENGINE-R056.1 adds the typed StatisticalSolverCertificate::verify refusal on a mismatched model digest (crates/eg-types/src/decision/rapid_r056.rs). Still open: routing an actual statistical-path solve through the exact 0-1 solver and this certificate shape."
     },
     {
@@ -1274,8 +1290,16 @@
     {
       "id": "EG-DECISION-ENGINE-R075",
       "title": "Component-id uniqueness and forbidden decision kinds",
-      "delivery_state": "SPECIFIED",
-      "evidence": [],
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "0ea0a0dcfa62310e27bba20209a191f881202dc7",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/0ea0a0dcfa62310e27bba20209a191f881202dc7",
+          "description": "EG-DECISION-ENGINE-R075 merged to the default branch in this commit."
+        }
+      ],
       "remaining": "Split producer-first (2026-10-09): EG-DECISION-ENGINE-R075.1 adds check_unique_component_ids (crates/eg-types/src/connector_pack/rapid_r075.rs), the previously-missing duplicate-id rejection (PackEntryKind already structurally excludes decision kinds -- no variant exists for DecisionRecord/DecisionHead/DecisionPolicy). Still open: wiring the check into the real pack-import entry point."
     },
     {
@@ -1433,8 +1457,16 @@
     {
       "id": "EG-DECISION-ENGINE-R083",
       "title": "Options encode structured facts, not option-label text",
-      "delivery_state": "SPECIFIED",
-      "evidence": [],
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "e9da9f0a77e1d3a1bb1a221d6b2d98b7b7758c75",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/e9da9f0a77e1d3a1bb1a221d6b2d98b7b7758c75",
+          "description": "EG-DECISION-ENGINE-R083 merged to the default branch in this commit."
+        }
+      ],
       "remaining": "Split producer-first (2026-10-09): EG-DECISION-ENGINE-R083.1 adds the typed OptionFacts::encode (crates/eg-numeric/src/decision/rapid_r083.rs), bounded by MAX_OPTION_CAPABILITIES cardinality, with a test scoring a capability set whose label text exceeds a plausible token budget while the encoded width stays fixed. Still open: wiring this into the real FeatureMatrix computation in decision::features."
     },
     {
@@ -1556,8 +1588,16 @@
     {
       "id": "EG-DECISION-ENGINE-R090",
       "title": "Resident native decision-scorer head in eg-decision",
-      "delivery_state": "SPECIFIED",
-      "evidence": [],
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "548cf5451a256eacafa286ae6fa4864b71f539ab",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/548cf5451a256eacafa286ae6fa4864b71f539ab",
+          "description": "EG-DECISION-ENGINE-R090 merged to the default branch in this commit."
+        }
+      ],
       "remaining": "Resident CPU-only Rust option-attention scorer exists with no GPU/Python/sidecar dependency, but no benchmark test measures per-decision latency or compiled footprint against the declared budget."
     },
     {

@@ -86,8 +86,16 @@
     {
       "id": "EG-CONTRACT-R002",
       "title": "Served Agent Library test coverage for pack import and Decide",
-      "delivery_state": "SPECIFIED",
-      "evidence": [],
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "52f2f3e347a3381b8d4e19e794099b42ad2f7b00",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/52f2f3e347a3381b8d4e19e794099b42ad2f7b00",
+          "description": "EG-CONTRACT-R002 merged to the default branch in this commit."
+        }
+      ],
       "remaining": "Rollup of EG-CONTRACT-R002.1 (Decide tenant auth-boundary refusal test), .2 (authorized-tenant path + pack-import journey) and .3 (installed-wheel check). LANDED when every child is LANDED."
     },
     {
