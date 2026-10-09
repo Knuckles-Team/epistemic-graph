@@ -641,8 +641,9 @@ mod outbound_verification_tests {
     fn a_disallowed_obda_destination_is_refused_before_registration() {
         // Same fixture `crates/eg-plan/src/federation_ssrf.rs` already proves is
         // refused: loopback on a non-default port, no allow-list entry.
-        let err = SqlObdaSource::connect("postgres://u@127.0.0.1:5433/db", "people")
-            .expect_err("a disallowed OBDA destination must be refused");
+        let Err(err) = SqlObdaSource::connect("postgres://u@127.0.0.1:5433/db", "people") else {
+            panic!("a disallowed OBDA destination must be refused");
+        };
         assert!(err.contains("federation:"), "unexpected error: {err}");
     }
 
