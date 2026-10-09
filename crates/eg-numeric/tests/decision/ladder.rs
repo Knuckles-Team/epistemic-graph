@@ -1,7 +1,7 @@
 //! The act/abstain ladder, keyed exploration and audit sampling (EH-020,
 //! EH-026), including the propensity and exploration negative fixtures.
 
-use eg_numeric::decision::exploration::{permit, plan, ExplorationPermit};
+use eg_numeric::decision::exploration::{audit, permit, plan, ExplorationPermit};
 use eg_numeric::decision::head_eval::Evaluated;
 use eg_numeric::decision::ladder::{decide, LadderInputs};
 use eg_types::decision::statistical::head::{
@@ -297,4 +297,50 @@ fn disabling_the_statistical_scorer_never_changes_the_legal_option_set() {
             "an acting head's prediction set named {option_id:?}, outside the legal option set {ids:?}"
         );
     }
+}
+
+// spec: EG-DECISION-ENGINE-R025
+#[test]
+fn an_out_of_distribution_reading_abstains_even_when_advisory_is_allowed() {
+    let ids = option_ids();
+    let stat = statistical();
+    let permissive = policy(ColdStart::AdvisoryUncalibrated);
+    let s = seed("d");
+    let inputs = LadderInputs {
+        candidate_ids: &ids,
+        head: None,
+        // `None` is what the served ladder receives when the head's reading
+        // was out of distribution (see tests/decision/drift.rs).
+        reading: None,
+        policy: &permissive,
+        statistical: &stat,
+        permit: ExplorationPermit::Off,
+        seed: &s,
+    };
+    assert!(matches!(
+        decide(&inputs).expect("decides").outcome,
+        StatisticalOutcome::Abstained { .. }
+    ));
+}
+
+// spec: EG-DECISION-ENGINE-R026
+#[test]
+fn audit_sampling_flags_decisions_at_the_fixed_five_percent_rate() {
+    let rate = rational(1, 20);
+    let mut sampled = false;
+    let mut not_sampled = false;
+    for n in 0..200 {
+        let draw = audit(&seed(&format!("audit{n}")), rate);
+        assert_eq!(draw.inclusion_probability.numerator(), rate.numerator());
+        assert_eq!(draw.inclusion_probability.denominator(), rate.denominator());
+        if draw.sampled {
+            sampled = true;
+        } else {
+            not_sampled = true;
+        }
+    }
+    assert!(
+        sampled && not_sampled,
+        "the audit flag varies across keyed draws at the configured rate, usable downstream"
+    );
 }

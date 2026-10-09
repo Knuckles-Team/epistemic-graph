@@ -5,12 +5,16 @@ use eg_numeric::decision::admission::{admit, AdmissionRules, Regime};
 use eg_numeric::decision::evaluate::{evaluate, EvalSpec};
 use eg_numeric::decision::fit::{fit, FitSpec};
 use eg_types::decision::jobs::{OpeEstimatorKind, OptimiserSpec};
-use eg_types::decision::statistical::dataset::LabelledDataset;
+use eg_types::decision::statistical::dataset::{
+    ItemLabel, LabelSource, LabelledDataset, LabelledItem,
+};
 use eg_types::decision::statistical::head::{DecisionHeadBody, HeadKind};
+use eg_types::decision::statistical::CalibrationMethod;
 use eg_types::decision::{QuantScaleTag, QuantisedValue, TraceFidelityLevel};
 
 use super::common::{
-    approved, dataset, gold_dataset, logged_item, statistical, window, SCHEMA_DIGEST,
+    approved, dataset, gold_dataset, gold_item, logged, logged_item, statistical, window,
+    SCHEMA_DIGEST,
 };
 
 pub(super) fn optimiser() -> OptimiserSpec {
@@ -185,4 +189,72 @@ fn an_off_policy_estimate_on_unsupported_actions_blocks_promotion() {
         evaluate(&head, &logs, &admitted.items, admitted.exclusions, &spec).expect("evaluates");
     assert!(!receipt.passed);
     assert!(receipt.failed_gates.iter().any(|g| g == "unsupported_mass"));
+}
+
+fn support_item(i: usize, executed: usize, success: bool) -> LabelledItem {
+    let mut outcome = logged(executed);
+    outcome.evaluation.success = Some(success);
+    LabelledItem {
+        item_id: format!("support-{i:04}"),
+        label: ItemLabel::Logged(Box::new(outcome)),
+        ..gold_item(i, 0, LabelSource::Human)
+    }
+}
+
+// spec: EG-DECISION-ENGINE-R023
+#[test]
+fn a_pool_below_min_support_is_excluded_and_cannot_support_promotion() {
+    let head = fitted(HeadKind::ListwiseLogistic, &gold_dataset(200, 0));
+    // "option-0" is pooled across 6 trials (>= the fixture's min_support of
+    // 5); "option-1" is pooled across only 2 (below it) and must not appear.
+    let mut items: Vec<LabelledItem> = (0..6).map(|i| support_item(i, 0, true)).collect();
+    items.extend((6..8).map(|i| support_item(i, 1, true)));
+    let logs = dataset(items);
+    let who = approved();
+    let admitted = admit(&logs, &rules(Regime::BanditLabel, &who));
+    assert_eq!(admitted.items.len(), 8, "every planted item is admitted");
+    let stat = statistical();
+    let spec = EvalSpec {
+        regime: Regime::BanditLabel,
+        statistical: &stat,
+        estimators: &[OpeEstimatorKind::Ips],
+        head_digest: "sha256:head",
+        policy_digest: "sha256:policy",
+    };
+    let receipt =
+        evaluate(&head, &logs, &admitted.items, admitted.exclusions, &spec).expect("evaluates");
+    assert!(
+        receipt.pooled.iter().any(|p| p.option_id == "option-0"),
+        "the option at or above min_support is pooled and reported"
+    );
+    assert!(
+        receipt.pooled.iter().all(|p| p.option_id != "option-1"),
+        "a pool below the configured minimum sample size cannot support promotion"
+    );
+}
+
+// spec: EG-DECISION-ENGINE-R024
+#[test]
+fn the_eval_receipt_records_the_calibration_method() {
+    let head = fitted(HeadKind::ListwiseLogistic, &gold_dataset(200, 0));
+    let holdout = gold_dataset(200, 1);
+    let stat = statistical();
+    let admitted = admit(&holdout, &rules(Regime::FullLabel, &[]));
+    let spec = EvalSpec {
+        regime: Regime::FullLabel,
+        statistical: &stat,
+        estimators: &[],
+        head_digest: "sha256:head",
+        policy_digest: "sha256:policy",
+    };
+    let receipt =
+        evaluate(&head, &holdout, &admitted.items, admitted.exclusions, &spec).expect("evaluates");
+    let calibration = receipt
+        .calibration
+        .expect("a calibrated head's eval receipt records its calibration output");
+    assert_ne!(
+        calibration.method,
+        CalibrationMethod::None,
+        "the calibration method is recorded on the receipt"
+    );
 }
