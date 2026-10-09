@@ -34,6 +34,11 @@ pub mod capacity_lease;
 // eg-transaction admission boundary. This module grants no executable capability.
 pub mod authority;
 pub mod change_envelope;
+// EG-UNIFIED-DATA-PLANE-R025.1 — typed pgrx companion-extension spike
+// decision record, refusing an outcome recorded without evidence for every
+// declared scope area. Pure data; running the spike and the ADR review are
+// later children.
+pub mod pgrx_spike;
 // GOC-03 — the cross-domain commit-descriptor/read-barrier currency shared by
 // graph, modality, vector, blob/refcount, time-series, evidence, table/lake, and
 // terminal-analytics-outcome participants. Deliberately a NEW module (not folded
