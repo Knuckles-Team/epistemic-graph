@@ -8,6 +8,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use super::Session;
+
 /// Whether a bar's period has closed and its values are settled.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -96,6 +98,12 @@ pub struct ExchangeCalendar {
     /// Local civil days without a session, as days since 1970-01-01.
     pub holidays: Vec<i32>,
     pub early_closes: Vec<EarlyClose>,
+    /// Pre-market span start, minutes after local midnight; `None` if the
+    /// exchange has no pre-market session.
+    pub pre_market_open_minute: Option<u16>,
+    /// Post-market span end, minutes after local midnight; `None` if the
+    /// exchange has no post-market session.
+    pub post_market_close_minute: Option<u16>,
 }
 
 /// The calendar bars align to.
@@ -117,6 +125,20 @@ pub enum TradingCalendar {
 pub enum FinalityFilter {
     FinalOnly,
     IncludeProvisional,
+}
+
+/// A resolved bar together with the session, source and as-of time it was
+/// observed under: the price-result envelope a point-in-time query returns.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct PricedBar {
+    pub bar: BarRecord,
+    pub session: Session,
+    pub source: String,
+    /// The as-of time the view was resolved at (the query's own `as_of`, or
+    /// the bar's own `known_at` for an unbounded view).
+    pub as_of: i64,
 }
 
 /// One time-series store point exactly as `TsAppend`/`TsRange` carry it: the
