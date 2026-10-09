@@ -50,7 +50,8 @@
     "EG-UNIFIED-DATA-PLANE-R037",
     "EG-UNIFIED-DATA-PLANE-R038",
     "EG-UNIFIED-DATA-PLANE-R010.1",
-    "EG-UNIFIED-DATA-PLANE-R008.1"
+    "EG-UNIFIED-DATA-PLANE-R008.1",
+    "EG-UNIFIED-DATA-PLANE-R003.1"
   ],
   "delivery_state": "BUILDING",
   "acceptance_state": "NOT_AUDITED",
@@ -97,7 +98,7 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R003",
       "title": "Extract typed, hashed catalog graphs per dialect",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
       "evidence": []
     },
     {
@@ -373,6 +374,12 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R008.1",
       "title": "ChangeEnvelope/ChangeOp typed change-capture record and validated refusal rule",
+      "delivery_state": "BUILT",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R003.1",
+      "title": "AttachedCatalogGraph typed, reorder-stable hashed catalog model",
       "delivery_state": "BUILT",
       "evidence": []
     }
