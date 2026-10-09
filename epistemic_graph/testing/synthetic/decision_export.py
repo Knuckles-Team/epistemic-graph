@@ -20,13 +20,23 @@ Two exports, one per label regime (DECIDE-LAYER-DESIGN §6.2):
 Rows are ``Q32`` integers computed with exact integer arithmetic, in the same
 column order as :data:`ASSEMBLY_FEATURE_SCHEMA` / :data:`OUTCOME_FEATURE_SCHEMA`,
 whose content digests the datasets pin.
+
+Training the resident decision scorer from this corpus (EG-DECISION-ENGINE-
+R093) requires every item it trains on to carry a *verifiable* ground-truth
+label, not merely a label. :data:`SOURCE_SERVED` marks an item whose
+acceptability set was produced by driving the real served request path (the
+engine that will run the trained scorer), distinct from :data:`SOURCE_IN_PROCESS`
+construction; :func:`verify_ground_truth` refuses an item that claims the
+served-path source but whose acceptable set is empty or not a subset of its
+own candidates -- an unverifiable label a training run must not silently
+learn from.
 """
 
 from __future__ import annotations
 
 import json
 import sys
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -38,6 +48,46 @@ from .outcomes import OutcomeRecord, OutcomeStream
 
 Q32 = ds.Q32_ONE
 MAX_DATASET_ITEMS = 4_096
+#: A gold item's acceptability set was built in-process, from the generator's
+#: own model of the plan (the pre-existing, historical source).
+SOURCE_IN_PROCESS = "synthetic_construction"
+#: A gold item's acceptability set was produced by driving the real served
+#: request path (EG-DECISION-ENGINE-R093) -- the same engine the trained
+#: scorer runs inside, rather than the generator's in-process model of it.
+SOURCE_SERVED = "synthetic_served"
+
+
+class UnverifiableGroundTruthError(ValueError):
+    """An item claims :data:`SOURCE_SERVED` provenance but its label carries
+    no verifiable ground truth. Training on it would silently teach the
+    resident scorer from noise instead of from the served engine's own
+    answer (EG-DECISION-ENGINE-R093)."""
+
+
+def verify_ground_truth(item: Mapping[str, Any]) -> None:
+    """Refuse ``item`` if its label claims :data:`SOURCE_SERVED` provenance
+    without a verifiable acceptability set: one that is non-empty and wholly
+    contained in the item's own ``candidate_ids``. An item sourced
+    ``SOURCE_IN_PROCESS`` (or any other source) is not this function's
+    concern and always passes -- only a served-path claim is held to this
+    bar, because only it stands in for the engine's served ground truth."""
+    label = item["label"]
+    if label.get("source") != SOURCE_SERVED:
+        return
+    item_id = item["item_id"]
+    acceptable = label.get("acceptable") or []
+    if not acceptable:
+        raise UnverifiableGroundTruthError(
+            f"{item_id}: served-path item has no acceptable set to train on"
+        )
+    candidates = set(item["candidate_ids"])
+    if not set(acceptable) <= candidates:
+        raise UnverifiableGroundTruthError(
+            f"{item_id}: acceptable set {sorted(set(acceptable) - candidates)} "
+            "is not a subset of this item's own candidates"
+        )
+
+
 ASSEMBLY_FEATURE_SCHEMA = ds.feature_schema_body(
     [
         ds.feature("coverage", ds.coverage_fraction("needs")),
@@ -123,7 +173,7 @@ def _gold_item(item: PlanItem, solved: Solved) -> dict[str, Any] | None:
         "label": {
             "label": "gold",
             "acceptable": acceptable,
-            "source": "synthetic_construction",
+            "source": SOURCE_IN_PROCESS,
         },
         "audit_inclusion": None,
     }
