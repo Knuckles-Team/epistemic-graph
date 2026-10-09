@@ -114,14 +114,14 @@ pub(super) fn encode_for_uri(s: &str) -> String {
 
 /// Decomposed xsd:dateTime / xsd:date fields for the accessor built-ins.
 pub(super) struct DateTimeParts {
-    year: i64,
-    month: u32,
-    day: u32,
-    hour: u32,
-    minute: u32,
-    second: f64,
+    pub(super) year: i64,
+    pub(super) month: u32,
+    pub(super) day: u32,
+    pub(super) hour: u32,
+    pub(super) minute: u32,
+    pub(super) second: f64,
     /// The timezone lexical exactly as written (`""`, `"Z"`, `"+01:00"`, `"-05:00"`).
-    tz: String,
+    pub(super) tz: String,
 }
 
 /// Parse an xsd:dateTime (or xsd:date) lexical enough to serve YEAR..SECONDS/TZ/TIMEZONE.
