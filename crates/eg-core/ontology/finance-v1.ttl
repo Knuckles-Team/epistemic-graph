@@ -33,7 +33,7 @@
 
 :assetClass a owl:DatatypeProperty ;
     rdfs:label "asset class" ;
-    rdfs:comment "The market an instrument belongs to: crypto, stock, etf, fund, commodity, forex, index or bond. A closed vocabulary checked by the finance shapes." ;
+    rdfs:comment "The market an instrument belongs to (EG-FINANCE-PRIMITIVES-R004): equity, etf, fund, index, fx_pair, commodity_spot, commodity_future, crypto, real_estate or cash. A closed vocabulary checked by the finance shapes. Migration aliases stock, forex and commodity remain valid for one deprecation window and mean equity, fx_pair and commodity_spot respectively; new records use the canonical value." ;
     rdfs:domain :FinancialInstrument ;
     rdfs:range xsd:string .
 
