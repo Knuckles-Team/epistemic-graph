@@ -598,6 +598,7 @@ mod community_tests {
     /// endpoints (not by the exact overall partition shape, which a
     /// disproportionately heavy single edge is free to reshape in ways
     /// beyond "everyone merges", e.g. isolating the bridge pair itself).
+    // spec: EG-DECISION-ENGINE-R096
     #[test]
     fn higher_confidence_edge_binds_communities_harder_than_lower_confidence() {
         let nodes: Vec<String> = ["a", "b", "c", "x", "y", "z"]
@@ -651,6 +652,7 @@ mod community_tests {
     /// on the ephemeral path must agree EXACTLY with calling `leiden` directly
     /// with `QualityFunction::Cpm` on the identical adjacency, proving
     /// faithful passthrough rather than a reimplementation.
+    // spec: EG-DECISION-ENGINE-R096
     #[test]
     fn quality_function_selector_reaches_the_kernel() {
         let nodes: Vec<String> = (0..6).map(|i| format!("n{i}")).collect();

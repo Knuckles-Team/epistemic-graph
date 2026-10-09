@@ -205,6 +205,7 @@ async fn attest_private(h: &Harness, template_entry: &DecisionLogEntry) {
     assert!(learn(h, "decider", attest(private)).await.is_ok());
 }
 
+// spec: EG-DECISION-ENGINE-R100
 #[tokio::test]
 async fn outcomes_teach_nothing_until_an_independent_verdict_joins_them() {
     let h = Harness::new().await;
