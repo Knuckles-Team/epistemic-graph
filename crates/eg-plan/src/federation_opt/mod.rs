@@ -43,8 +43,8 @@ mod tests;
 
 pub use budget::{FederationBudget, BUDGET_EXCEEDED, REQUIRES_KEYS, RESULT_INCOMPLETE};
 pub use capability::{
-    FullFetch, KeyLookup, LimitPushdown, PageRequest, Paging, RemoteRequest, SourceCapabilities,
-    SourceRate,
+    ForeignSourceCapability, FullFetch, KeyLookup, LimitPushdown, PageRequest, Paging,
+    PushdownKind, RemoteRequest, SourceCapabilities, SourceCostModel, SourceRate,
 };
 pub use oq2::{target_capabilities as oq2_target_capabilities, Oq2ReadMode, Oq2TargetCapabilities};
 pub use session::FederationSession;

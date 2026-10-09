@@ -13,6 +13,7 @@ Check boxes describe work remaining for this combined contract. They do not cert
 ## Federation and virtual graphs
 
 - [x] Qualify capability model, shared renderer, typed budgets and optimized/full-fetch oracle on the exact public head. **EG-FEDERATED-QUERY-R038, EG-FEDERATED-QUERY-R041–EG-FEDERATED-QUERY-R043**
+- [ ] Add a typed `ForeignSourceCapability`/cost-model struct (cardinality estimate, network-budget cost, which of projection/filter/limit-order/aggregate/same-source-join/batched-lookup pushdown kinds the source's declared capability proves sound) plus construction and refusal tests. **EG-FEDERATED-QUERY-R038.1**
 - [ ] Expose redacted trace and caller-lowered budget in served UQL `EXPLAIN`/`PROFILE`; verify no URL/DSN leakage. **EG-FEDERATED-QUERY-R044**
 - [ ] Add typed column-carrying foreign rows and exact/inexact/unsupported residual handling; validate foreign-only predicates, projection dependencies and schema drift against a full-fetch oracle. **EG-FEDERATED-QUERY-R045**
 - [x] Execute approved OBDA virtual-graph solutions with typed ORDER/LIMIT/aggregate/join pushdown and sound fallback. **EG-FEDERATED-QUERY-R046, EG-FEDERATED-QUERY-R055**
