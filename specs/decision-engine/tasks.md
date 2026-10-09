@@ -52,6 +52,8 @@
 
 - [x] D16 **EG-DECISION-ENGINE-R079.1 (producer slice of R079):** Add the typed `ContentClass` taxonomy (prose/document/comment eligible; generated/lockfile/vendored/minified excluded) and its pure `admits()` gate (`crates/eg-types/src/decision/ingestion_admission.rs`). No real ingestion call site, embedding client, cheaper-index skip, entropy/hash dedup, size bound, SQL-column cardinality rule, or retrieval-telemetry feedback is wired yet -- those remain open under `EG-DECISION-ENGINE-R079` as later `.2`/`.3`+ slices.
 
+- [x] D16 **EG-DECISION-ENGINE-R080.1 (first slice of R080):** Add the typed `ProvenanceRung` six-level enum and the pure `resolve_rung` overwrite-protection rule (`crates/eg-types/src/decision/ingestion_ladder.rs`). Remaining for `EG-DECISION-ENGINE-R080`: the real per-rung extractors (AST walking, symbol resolution, statistical/community derivation, classical ML/NER, embeddings, an LLM call) and an ingestion call site that tags each derived fact through `resolve_rung`.
+
 ## Evidence format
 
 For each stable ID, record: `ID | sequence | delivery | acceptance | main SHA | tests/workflow | reviewed date | notes`. Until a row has an exact commit and passing required tests, use `WAITING / NOT_RUN`, `IN_PROGRESS / PARTIAL`, or `SOURCE_LANDED / PARTIAL` as observed; do not infer acceptance from a sequence label. `RETIRED` requires the superseding contract and removal test. Keep evidence records in this repository alongside the spec so external contributors can audit them.

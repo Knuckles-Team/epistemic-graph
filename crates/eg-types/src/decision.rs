@@ -26,6 +26,7 @@ pub mod digest;
 pub mod errors;
 pub mod guardrail;
 pub mod ingestion_admission;
+pub mod ingestion_ladder;
 pub mod jobs;
 pub mod numeric;
 pub mod policy;
