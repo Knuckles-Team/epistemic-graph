@@ -71,7 +71,7 @@ pub struct GovernedActor {
 impl GovernedActor {
     /// Build an actor from raw verified identities (hashed, never stored).
     pub fn from_identities<'a>(
-        agent_id: &str,
+        agent_id: &'a str,
         identities: impl IntoIterator<Item = &'a str>,
         delegated: bool,
         scopes: BTreeSet<String>,
