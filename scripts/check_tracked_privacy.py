@@ -422,7 +422,22 @@ _CREDENTIAL_PLACEHOLDER_TOKENS = frozenset(
     }
 )
 _HOST_IDENTITY_RE = re.compile(r"(?i)\bssh://(?!\$\{)[^\s/@]+@")
-_MACHINE_HOST_ID_RE = re.compile(r"(?i)(?<![a-z0-9])(?:rw?|host)[0-9]{3,}(?![a-z0-9])")
+# D-EG-PRIVACY-R001-FALSEPOS (2026-10-09): this pattern's job is a bare host
+# alias (`r710`, `r820`, `host123`), but with no lookbehind on `-` it ALSO
+# matched the tail of this fleet's own hyphen-joined requirement-ID
+# convention (`EG-UNIFIED-DATA-PLANE-R001`, `EG-DECISION-ENGINE-R118`,
+# `AU-SEMANTIC-R004`, ...) whenever the "R" + 3-or-more-digit requirement
+# number happened to follow a hyphen -- a false-positive flood from ordinary
+# spec/ADR prose (docs/architecture/unified_data_plane_adr.md's own seven
+# genuine requirement-ID citations), not a leak. Every verified host-alias
+# occurrence in this repo (scripts/eg_coverage_report.sh,
+# tests/test_bounded_test_runner_contract.py, ...) is preceded by
+# whitespace, an arrow or a backtick, never a hyphen, so excluding a
+# hyphen-preceded match keeps every real host alias caught while letting the
+# requirement-ID convention alone. See
+# tests/test_documentation_privacy.py::
+# test_public_surface_allows_requirement_id_citations for the regression.
+_MACHINE_HOST_ID_RE = re.compile(r"(?i)(?<![a-z0-9-])(?:rw?|host)[0-9]{3,}(?![a-z0-9])")
 
 # EH-312 (2026-09-19): this workspace's own standing convention (CLAUDE.md /
 # eg-publish-lane-rules.md) bans a small set of literal scratch/build-host
