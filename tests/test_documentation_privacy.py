@@ -18,6 +18,11 @@ PUBLIC_SURFACES = (
     "AGENTS.md",
     "docs/architecture/cluster_deployment.md",
     "docs/deploy/binary_promotion.md",
+    # Relocated from agent-utilities (RF-ADR-009, EH-366): AU's own
+    # equivalent gate (tests/gates/test_public_example_privacy.py)
+    # dropped this file from its PUBLIC_EXAMPLES tuple on the assumption
+    # this file already covered it -- it did not, until now.
+    "docs/architecture/graph-backends.md",
 )
 PRIVATE_IPV4 = re.compile(
     r"\b(?:10(?:\.\d{1,3}){3}|192\.168(?:\.\d{1,3}){2}|"
@@ -28,7 +33,13 @@ MACHINE_HOME = re.compile(
     r"/(?:home|Users)/[^/\s]+|/mnt/[A-Z]/Users/[^/\s]+)"
 )
 ENVIRONMENT_DNS = re.compile(r"(?i)\b(?:[A-Za-z0-9-]+\.)+(?:arpa|local)\b")
-MACHINE_HOST_ALIAS = re.compile(r"(?i)\b(?:rw?|host)\d{3,}\b")
+# EH-366: agent-utilities' equivalent regex
+# (ENVIRONMENT_DERIVED_HOST_ALIAS, tests/gates/test_public_example_privacy.py)
+# is `(?:rw?|gr)\d{3,}` -- it catches `gr`-prefixed aliases (e.g. `gr1080`,
+# a real homelab host referenced by this lane's own tooling) that this
+# pattern's `host` alternative did not. Union both vocabularies rather than
+# swap one for the other, so neither repo's alias convention regresses.
+MACHINE_HOST_ALIAS = re.compile(r"(?i)\b(?:rw?|gr|host)\d{3,}\b")
 
 
 def test_cluster_runbook_is_environment_neutral() -> None:
