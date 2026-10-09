@@ -73,6 +73,7 @@ mod tests {
         );
     }
 
+    // spec: EG-DECISION-ENGINE-R015.1
     #[test]
     fn refuses_a_generative_model_name() {
         let refusal = StatisticalHeadKind::parse("generative_llm").unwrap_err();
