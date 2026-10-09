@@ -1,0 +1,110 @@
+# Virtual-graph vocabulary (EG-UNIFIED-DATA-PLANE-R037).
+#
+# An EG core schema source (`core:virtual-graph@1`) naming the metadata-discovery
+# contract every attached source kind shares: a connection, the contract one
+# discovery run produced for it, and the mappings an operator approved from that
+# contract onto the core ontology. Discovery and mapping are declarative facts in
+# the graph; the engine's read/write paths (OBDA pushdown, DataFusion federation,
+# the accelerated copy) consume them but are specified elsewhere in this spec.
+
+@prefix vg:   <http://knuckles.team/kg/virtual-graph#> .
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+
+<http://knuckles.team/kg/virtual-graph> a owl:Ontology ;
+    rdfs:label "Virtual graph" ;
+    rdfs:comment "Attached-source connections, their discovered metadata contracts, and the approved mappings onto the core ontology." ;
+    owl:imports <http://knuckles.team/kg/core> .
+
+# --- Properties --------------------------------------------------------------
+
+vg:sourceKind a owl:DatatypeProperty ;
+    rdfs:comment "api, mcp, a2a, graphql, sql, iceberg, warehouse or sparql. A closed vocabulary checked by the virtual-graph shapes." ;
+    rdfs:domain vg:SourceConnection ;
+    rdfs:range xsd:string .
+vg:endpointRef a owl:ObjectProperty ;
+    rdfs:comment "The connection's endpoint, as a node carrying no credential: secrets are referenced elsewhere, never placed in the graph." ;
+    rdfs:domain vg:SourceConnection ;
+    rdfs:range vg:EndpointRef .
+vg:url a owl:DatatypeProperty ;
+    rdfs:comment "The endpoint reference's one address or DSN, with any credential stripped." ;
+    rdfs:domain vg:EndpointRef ;
+    rdfs:range xsd:string .
+vg:declaredCapability a owl:DatatypeProperty ;
+    rdfs:comment "One capability a connection declares (e.g. read, cdc, write-back)." ;
+    rdfs:domain vg:SourceConnection ;
+    rdfs:range xsd:string .
+
+vg:contractSource a owl:ObjectProperty ;
+    rdfs:comment "The SourceConnection one MetadataContract was discovered from." ;
+    rdfs:domain vg:MetadataContract ;
+    rdfs:range vg:SourceConnection .
+vg:schemaVersion a owl:DatatypeProperty ;
+    rdfs:comment "The source-reported schema version this contract was discovered at." ;
+    rdfs:domain vg:MetadataContract ;
+    rdfs:range xsd:string .
+vg:contentDigest a owl:DatatypeProperty ;
+    rdfs:comment "sha256:<64 hex> over the discovered contract content." ;
+    rdfs:domain vg:MetadataContract ;
+    rdfs:range xsd:string .
+vg:discoveredEntity a owl:DatatypeProperty ;
+    rdfs:comment "The name of one entity discovery found at this contract." ;
+    rdfs:domain vg:MetadataContract ;
+    rdfs:range xsd:string .
+vg:discoveredField a owl:DatatypeProperty ;
+    rdfs:comment "The name of one field discovery found at this contract." ;
+    rdfs:domain vg:MetadataContract ;
+    rdfs:range xsd:string .
+vg:discoveredRelationship a owl:DatatypeProperty ;
+    rdfs:comment "The name of one relationship discovery found at this contract." ;
+    rdfs:domain vg:MetadataContract ;
+    rdfs:range xsd:string .
+vg:discoveredOperation a owl:DatatypeProperty ;
+    rdfs:comment "The name of one callable operation discovery found at this contract (API/MCP/A2A sources)." ;
+    rdfs:domain vg:MetadataContract ;
+    rdfs:range xsd:string .
+
+vg:mapsContract a owl:ObjectProperty ;
+    rdfs:comment "The MetadataContract a VirtualMapping was approved against." ;
+    rdfs:domain vg:VirtualMapping ;
+    rdfs:range vg:MetadataContract .
+vg:mapsOntologyClass a owl:ObjectProperty ;
+    rdfs:comment "The one core ontology class this mapping projects a discovered entity onto." ;
+    rdfs:domain vg:VirtualMapping .
+vg:mapsEntity a owl:DatatypeProperty ;
+    rdfs:comment "The discovered entity name this mapping binds, which must be one of its contract's discoveredEntity values." ;
+    rdfs:domain vg:VirtualMapping ;
+    rdfs:range xsd:string .
+vg:keyField a owl:DatatypeProperty ;
+    rdfs:comment "The discovered field name identifying one row/record/document of the mapped entity." ;
+    rdfs:domain vg:VirtualMapping ;
+    rdfs:range xsd:string .
+vg:hasPredicateFieldPair a owl:ObjectProperty ;
+    rdfs:comment "One ontology-predicate-to-discovered-field binding this mapping declares." ;
+    rdfs:domain vg:VirtualMapping ;
+    rdfs:range vg:PredicateFieldPair .
+vg:predicate a owl:ObjectProperty ;
+    rdfs:comment "The core ontology predicate one PredicateFieldPair projects a field onto." ;
+    rdfs:domain vg:PredicateFieldPair .
+vg:field a owl:DatatypeProperty ;
+    rdfs:comment "The discovered field name one PredicateFieldPair reads, which must be one of its mapping's contract's discoveredField values." ;
+    rdfs:domain vg:PredicateFieldPair ;
+    rdfs:range xsd:string .
+vg:approved a owl:DatatypeProperty ;
+    rdfs:comment "True once an operator approved this mapping. Only an approved mapping may serve reads." ;
+    rdfs:domain vg:VirtualMapping ;
+    rdfs:range xsd:boolean .
+
+# --- Classes -------------------------------------------------------------------
+
+vg:SourceConnection a owl:Class ;
+    rdfs:comment "One attached source: its kind, its endpoint reference and its declared capabilities." .
+vg:EndpointRef a owl:Class ;
+    rdfs:comment "A connection's endpoint address, deliberately shaped to carry no credential." .
+vg:MetadataContract a owl:Class ;
+    rdfs:comment "One source's discovered entities, fields, relationships and operations at one schema version, under one content digest." .
+vg:VirtualMapping a owl:Class ;
+    rdfs:comment "One approved binding of a core ontology class to a discovered entity, keyed and projected field by field." .
+vg:PredicateFieldPair a owl:Class ;
+    rdfs:comment "One ontology-predicate-to-discovered-field binding inside a VirtualMapping." .

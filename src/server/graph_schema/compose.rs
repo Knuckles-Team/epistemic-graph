@@ -713,7 +713,11 @@ ex:parent a owl:AsymmetricProperty .
         // analysis-snapshot record (EH-420/EH-421).
         // +9: the skos mappings of the eight trading classes folded from company_infra
         // into finance (EH-517); the fold itself moves triples without adding any.
-        assert_eq!(composed.ontology.len(), 13_568);
+        // +88: the virtual-graph module -- `core:virtual-graph@1`'s SourceConnection/
+        // MetadataContract/VirtualMapping classes and properties plus
+        // `core:virtual-graph-shapes@1`'s SHACL shapes (EG-UNIFIED-DATA-PLANE-R037),
+        // and their catalog import.
+        assert_eq!(composed.ontology.len(), 13_656);
 
         let ontology_subjects: BTreeSet<String> = composed
             .ontology
@@ -743,15 +747,21 @@ ex:parent a owl:AsymmetricProperty .
         // `/core` foundation and generated aggregate catalog. Every domain
         // axiom remains in the immutable catalog; only those 71 document-level
         // authority triples change.
-        assert_eq!(ontology_subjects.len(), 35);
-        assert_eq!(imports, 71);
+        // +1 (EG-UNIFIED-DATA-PLANE-R037): the virtual-graph module's own
+        // `owl:Ontology` header subject (its shapes pack's prefix-declaration
+        // subject is not itself one).
+        assert_eq!(ontology_subjects.len(), 36);
+        // +1 (EG-UNIFIED-DATA-PLANE-R037): the virtual-graph module's own
+        // `owl:imports <.../core>`.
+        assert_eq!(imports, 72);
         // +20 (EH-408/409/410): infrastructure :BehaviourObservation,
         // :ConformanceViolation, :Deployment, :K8sService and :SwarmService,
         // 4 axioms each; +5: the :scheduledBy property. +24 (EH-410): the six feed
         // classes, 4 axioms each; +5: `:pipelineEventOf`. +118: the swarm-topology module.
         // +178: the finance module (EH-411); +30: EH-420/EH-421 finance records.
         // +9: EH-517 trading-class skos mappings.
-        assert_eq!(semantic_axioms, 13_386);
+        // +84: the virtual-graph module (EG-UNIFIED-DATA-PLANE-R037).
+        assert_eq!(semantic_axioms, 13_470);
 
         let count_type = |object: &str| {
             composed
