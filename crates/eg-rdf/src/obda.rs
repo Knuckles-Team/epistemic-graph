@@ -65,9 +65,12 @@ use std::sync::Arc;
 
 use oxrdf::{Literal, NamedNode, NamedOrBlankNode, Term, Triple};
 
-use crate::sparql::{Projection, QueryOutcome, SparqlResult};
+use crate::sparql::{Binding, Projection, QueryOutcome, Solution, SparqlResult};
 
 // EH-563 FO-04 — pattern-aware scan groups, key lookups and semi-join reduction.
+mod direct;
+mod eval;
+use self::eval::{bool_result, query_pattern, run_materialized_virtual, wanted_predicates};
 mod pushdown;
 
 /// The `rdf:type` predicate IRI (bare — used to emit `subject rdf:type <class>`).
@@ -82,6 +85,19 @@ pub type ForeignSourceName = String;
 /// Kept as strings — the lexical value is what R2RML templates and literal object maps
 /// consume; typed literals are a documented follow-up.
 pub type ForeignRow = HashMap<String, String>;
+
+/// A deliberately narrow direct-solution capability. The caller only requests this
+/// for a single mapped triple pattern ordered by its injective subject key. The
+/// source must return DISTINCT projected rows with every projected cell present and
+/// nonempty before applying the slice. `None` declines the optimization; `Err`
+/// reports a source failure and must never be retried through a wider scan.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ObdaOrder {
+    pub column: String,
+    pub descending: bool,
+    pub start: usize,
+    pub length: usize,
+}
 
 /// CONCEPT:EG-KG.query.obda-predicate-pushdown — a comparison operator for a row-level
 /// predicate pushed down INTO an [`ObdaSource`].
@@ -181,6 +197,24 @@ pub trait ObdaSource: Send + Sync {
         needed: &BTreeSet<String>,
         filters: &[ObdaFilter],
     ) -> Result<Vec<ForeignRow>, String>;
+
+    /// Return a source-sliced set of RDF-ready rows, or decline without scanning.
+    /// This opt-in contract lets SQL push ORDER/OFFSET/LIMIT while in-memory and
+    /// unknown sources retain the established materialization path.
+    fn scan_ordered_distinct(
+        &self,
+        _needed: &BTreeSet<String>,
+        _filters: &[ObdaFilter],
+        _order: &ObdaOrder,
+    ) -> Option<Result<Vec<ForeignRow>, String>> {
+        None
+    }
+
+    /// Count distinct mapped rows for the same single-triple eligibility shape.
+    /// A SQL source can aggregate before shipping; unknown sources decline.
+    fn scan_distinct_count(&self, _needed: &BTreeSet<String>) -> Option<Result<u64, String>> {
+        None
+    }
 }
 
 /// A boxed, thread-safe [`ObdaSource`] stored by name in an [`ObdaSourceRegistry`].
@@ -731,118 +765,10 @@ pub fn run_outcome_virtual(
         }
     }
 
-    // (2)+(3) scan the backing source(s) on demand for only the needed columns, applying
-    // the pushed-down FILTERs, and materialize the query-relevant triples via the TriplesMaps.
-    let triples = vg.materialize(reg, &wanted, &filters)?;
-
-    // (4) load into a TRANSIENT view and run the existing evaluator (joins/filters/…).
-    let view = build_view(triples)?;
-    crate::sparql::execute(
-        &crate::sparql::Dataset::new(&view, Vec::new()),
-        query_str,
-        proj,
-        None,
+    direct::try_direct_outcome(vg, reg, &query, proj)?.map_or_else(
+        || run_materialized_virtual(vg, reg, query_str, proj, &wanted, &filters),
+        Ok,
     )
-}
-
-/// Build a transient [`GraphView`] from materialized triples (nothing persisted).
-fn build_view(triples: Vec<Triple>) -> Result<eg_core::graph::GraphView, String> {
-    let core = eg_core::graph::GraphCore::new();
-    let mut iris = crate::mapping::IriStore::default();
-    crate::mapping::load_triples(&core, &mut iris, "__obda_virtual__", triples)?;
-    Ok(core.analysis_snapshot())
-}
-
-/// A one-row boolean result table (`ASK` over a virtual graph).
-fn bool_result(b: bool) -> SparqlResult {
-    let mut sol = HashMap::new();
-    sol.insert(
-        "_ask".to_string(),
-        crate::sparql::Binding::Literal(b.to_string()),
-    );
-    SparqlResult {
-        vars: vec!["_ask".to_string()],
-        solutions: vec![sol],
-    }
-}
-
-/// CONCEPT:EG-KG.ontology.foreign-source-seam — the set of predicate IRIs a query's triple patterns reference, or
-/// `None` when the pushdown cannot be narrowed (a variable predicate, a property path, or
-/// an unrecognized algebra node) — in which case EVERY predicate is materialized so the
-/// answer stays complete. This is the projection/predicate pushdown key.
-fn wanted_predicates(query: &spargebra::Query) -> Option<BTreeSet<String>> {
-    let pattern = query_pattern(query);
-    let mut preds = BTreeSet::new();
-    let mut unrestricted = false;
-    collect_predicates(pattern, &mut preds, &mut unrestricted);
-    if unrestricted {
-        None
-    } else {
-        Some(preds)
-    }
-}
-
-fn query_pattern(query: &spargebra::Query) -> &spargebra::algebra::GraphPattern {
-    use spargebra::Query;
-    match query {
-        Query::Select { pattern, .. }
-        | Query::Construct { pattern, .. }
-        | Query::Describe { pattern, .. }
-        | Query::Ask { pattern, .. } => pattern,
-    }
-}
-
-/// Walk the algebra collecting constant predicate IRIs from every BGP; set `unrestricted`
-/// on a variable predicate, a property path, or an unrecognized node (so materialization
-/// falls back to "all predicates" and completeness is preserved).
-fn collect_predicates(
-    p: &spargebra::algebra::GraphPattern,
-    preds: &mut BTreeSet<String>,
-    unrestricted: &mut bool,
-) {
-    use spargebra::algebra::GraphPattern as G;
-    use spargebra::term::NamedNodePattern;
-    // The trailing `_` arm is only reachable when spargebra's `sep-0006` `Lateral`
-    // variant (or a future variant) is compiled in; without it the match is already
-    // exhaustive, so silence the resulting unreachable-pattern lint.
-    #[allow(unreachable_patterns)]
-    match p {
-        G::Bgp { patterns } => {
-            for tp in patterns {
-                match &tp.predicate {
-                    NamedNodePattern::NamedNode(n) => {
-                        preds.insert(n.as_str().to_string());
-                    }
-                    // A `?p` predicate can match ANY predicate → cannot narrow.
-                    NamedNodePattern::Variable(_) => *unrestricted = true,
-                }
-            }
-        }
-        // A property path can traverse arbitrary predicates (closures, alternatives) —
-        // conservatively materialize everything.
-        G::Path { .. } => *unrestricted = true,
-        G::Join { left, right } | G::Union { left, right } | G::Minus { left, right } => {
-            collect_predicates(left, preds, unrestricted);
-            collect_predicates(right, preds, unrestricted);
-        }
-        G::LeftJoin { left, right, .. } => {
-            collect_predicates(left, preds, unrestricted);
-            collect_predicates(right, preds, unrestricted);
-        }
-        G::Filter { inner, .. }
-        | G::Extend { inner, .. }
-        | G::OrderBy { inner, .. }
-        | G::Project { inner, .. }
-        | G::Distinct { inner }
-        | G::Reduced { inner }
-        | G::Slice { inner, .. }
-        | G::Group { inner, .. }
-        | G::Graph { inner, .. }
-        | G::Service { inner, .. } => collect_predicates(inner, preds, unrestricted),
-        G::Values { .. } => {}
-        // `Lateral` (feature `sep-0006`) and any future variant we cannot see into.
-        _ => *unrestricted = true,
-    }
 }
 
 // ── FILTER → row-level predicate pushdown (CONCEPT:EG-KG.query.obda-predicate-pushdown) ──────────────
@@ -1646,6 +1572,268 @@ fn parse_object_map(index: &R2rmlDoc, om_key: &str) -> Option<ObjectMap> {
 mod tests {
     use super::*;
 
+    /// An external-source oracle that implements the exact ordered DISTINCT
+    /// contract and records the number of rows shipped after LIMIT.
+    struct OrderedSource {
+        table: TableSource,
+        shipped: std::sync::Mutex<Vec<usize>>,
+        counted: std::sync::Mutex<Vec<u64>>,
+    }
+
+    impl ObdaSource for OrderedSource {
+        fn scan(
+            &self,
+            needed: &BTreeSet<String>,
+            filters: &[ObdaFilter],
+        ) -> Result<Vec<ForeignRow>, String> {
+            self.table.scan(needed, filters)
+        }
+
+        fn scan_ordered_distinct(
+            &self,
+            needed: &BTreeSet<String>,
+            filters: &[ObdaFilter],
+            order: &ObdaOrder,
+        ) -> Option<Result<Vec<ForeignRow>, String>> {
+            let mut rows = self.table.scan(needed, filters).ok()?;
+            rows.retain(|row| {
+                needed
+                    .iter()
+                    .all(|col| row.get(col).is_some_and(|v| !v.is_empty()))
+            });
+            let mut seen = std::collections::HashSet::new();
+            rows.retain(|row| {
+                seen.insert(
+                    needed
+                        .iter()
+                        .map(|col| row[col].clone())
+                        .collect::<Vec<_>>(),
+                )
+            });
+            rows.sort_by(|a, b| {
+                let cmp = a[&order.column].cmp(&b[&order.column]);
+                if order.descending {
+                    cmp.reverse()
+                } else {
+                    cmp
+                }
+            });
+            let rows: Vec<_> = rows
+                .into_iter()
+                .skip(order.start)
+                .take(order.length)
+                .collect();
+            self.shipped.lock().unwrap().push(rows.len());
+            Some(Ok(rows))
+        }
+
+        fn scan_distinct_count(&self, needed: &BTreeSet<String>) -> Option<Result<u64, String>> {
+            let rows = self.table.scan(needed, &[]).ok()?;
+            let unique: std::collections::HashSet<Vec<&str>> = rows
+                .iter()
+                .filter_map(|row| {
+                    needed
+                        .iter()
+                        .map(|col| row.get(col).filter(|v| !v.is_empty()).map(String::as_str))
+                        .collect::<Option<Vec<_>>>()
+                })
+                .collect();
+            let count = unique.len() as u64;
+            self.counted.lock().unwrap().push(count);
+            Some(Ok(count))
+        }
+    }
+
+    #[test]
+    fn eh573_direct_ordered_slice_matches_materialized_results_and_ships_less() {
+        let table = TableSource::from_records(
+            ["id", "name"].map(String::from),
+            [
+                vec!["3".into(), "Carol".into()],
+                vec!["1".into(), "Alice".into()],
+                vec!["2".into(), "Bob".into()],
+                vec!["2".into(), "Bob".into()], // duplicate source row is one RDF triple
+                vec!["4".into(), "".into()],    // absent RDF object is never sliced in
+                vec!["".into(), "Nobody".into()], // absent subject is never sliced in
+            ],
+        );
+        let vg = VirtualGraph::new().with_map(
+            TriplesMap::new("people", "http://example.org/person/{id}")
+                .add_column("http://example.org/name", "name"),
+        );
+        let query = "SELECT ?s ?o WHERE { ?s <http://example.org/name> ?o } ORDER BY ?s LIMIT 2";
+        let mut baseline = ObdaSourceRegistry::new();
+        baseline.register_table("people", table.clone());
+        let expected = run_virtual(&vg, &baseline, query).unwrap().to_rows();
+
+        let source = Arc::new(OrderedSource {
+            table,
+            shipped: std::sync::Mutex::new(Vec::new()),
+            counted: std::sync::Mutex::new(Vec::new()),
+        });
+        let mut optimized = ObdaSourceRegistry::new();
+        optimized.register("people", source.clone());
+        let actual = run_virtual(&vg, &optimized, query).unwrap().to_rows();
+        assert_eq!(actual, expected);
+        assert_eq!(*source.shipped.lock().unwrap(), vec![2]);
+        let all_query =
+            "SELECT ?s ?o WHERE { ?s <http://example.org/name> ?o } ORDER BY ?s LIMIT 4";
+        let all_expected = run_virtual(&vg, &baseline, all_query).unwrap().to_rows();
+        let all_actual = run_virtual(&vg, &optimized, all_query).unwrap().to_rows();
+        assert_eq!(all_actual, all_expected);
+        assert_eq!(all_actual.1.len(), 3);
+        assert_eq!(*source.shipped.lock().unwrap(), vec![2, 3]);
+        assert!(
+            source.shipped.lock().unwrap()[0]
+                < baseline
+                    .get("people")
+                    .unwrap()
+                    .scan(&BTreeSet::new(), &[])
+                    .unwrap()
+                    .len()
+        );
+    }
+
+    #[test]
+    fn eh573_ordered_suffix_template_falls_back_to_rdf_sort() {
+        let table = TableSource::from_records(
+            ["id", "name"].map(String::from),
+            [vec!["a".into(), "A".into()], vec!["aa".into(), "AA".into()]],
+        );
+        let vg = VirtualGraph::new().with_map(
+            TriplesMap::new("people", "http://example.org/person/{id}z")
+                .add_column("http://example.org/name", "name"),
+        );
+        let query =
+            "SELECT ?s ?o WHERE { ?s <http://example.org/name> ?o } ORDER BY ?s LIMIT 1 OFFSET 0";
+        let mut baseline = ObdaSourceRegistry::new();
+        baseline.register_table("people", table.clone());
+        let expected = run_virtual(&vg, &baseline, query).unwrap().to_rows();
+        assert_eq!(expected.1.len(), 1);
+        assert_eq!(
+            expected.1[0][0].as_deref(),
+            Some("<http://example.org/person/aaz>")
+        );
+
+        let source = Arc::new(OrderedSource {
+            table,
+            shipped: std::sync::Mutex::new(Vec::new()),
+            counted: std::sync::Mutex::new(Vec::new()),
+        });
+        let mut optimized = ObdaSourceRegistry::new();
+        optimized.register("people", source.clone());
+        assert_eq!(
+            run_virtual(&vg, &optimized, query).unwrap().to_rows(),
+            expected
+        );
+        assert!(source.shipped.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn eh573_direct_count_matches_materialized_distinct_triples() {
+        let table = TableSource::from_records(
+            ["id", "name"].map(String::from),
+            [
+                vec!["1".into(), "Alice".into()],
+                vec!["1".into(), "Alice".into()],
+                vec!["2".into(), "Bob".into()],
+                vec!["3".into(), "".into()],
+                vec!["".into(), "Nobody".into()],
+            ],
+        );
+        let vg = VirtualGraph::new().with_map(
+            TriplesMap::new("people", "http://example.org/person/{id}")
+                .add_column("http://example.org/name", "name"),
+        );
+        let query = "SELECT (COUNT(*) AS ?n) WHERE { ?s <http://example.org/name> ?o }";
+        let mut baseline = ObdaSourceRegistry::new();
+        baseline.register_table("people", table.clone());
+        let expected = run_virtual(&vg, &baseline, query).unwrap().to_rows();
+        assert_eq!(expected.1, vec![vec![Some("2".into())]]);
+
+        let source = Arc::new(OrderedSource {
+            table,
+            shipped: std::sync::Mutex::new(Vec::new()),
+            counted: std::sync::Mutex::new(Vec::new()),
+        });
+        let mut optimized = ObdaSourceRegistry::new();
+        optimized.register("people", source.clone());
+        let actual = run_virtual(&vg, &optimized, query).unwrap().to_rows();
+        assert_eq!(actual, expected);
+        assert_eq!(*source.counted.lock().unwrap(), vec![2]);
+    }
+
+    #[test]
+    fn eh573_rejects_ambiguous_map_without_invoking_ordered_source() {
+        let source = Arc::new(OrderedSource {
+            table: TableSource::from_records(
+                ["id", "name", "alias"].map(String::from),
+                [vec!["1".into(), "Alice".into(), "A".into()]],
+            ),
+            shipped: std::sync::Mutex::new(Vec::new()),
+            counted: std::sync::Mutex::new(Vec::new()),
+        });
+        let vg = VirtualGraph::new().with_map(
+            TriplesMap::new("people", "http://example.org/person/{id}")
+                .add_column("http://example.org/name", "name")
+                .add_column("http://example.org/name", "alias"),
+        );
+        let mut reg = ObdaSourceRegistry::new();
+        reg.register("people", source.clone());
+        let result = run_virtual(
+            &vg,
+            &reg,
+            "SELECT ?s ?o WHERE { ?s <http://example.org/name> ?o } ORDER BY ?s LIMIT 1",
+        )
+        .unwrap();
+        assert_eq!(result.solutions.len(), 1);
+        assert!(source.shipped.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn eh573_rdf_type_class_and_column_fall_back_to_materialization() {
+        let table = TableSource::from_records(
+            ["id", "kind"].map(String::from),
+            [vec!["1".into(), "Custom".into()]],
+        );
+        let vg = VirtualGraph::new().with_map(
+            TriplesMap::new("people", "http://example.org/person/{id}")
+                .with_class("http://example.org/Person")
+                .add_column(RDF_TYPE_IRI, "kind"),
+        );
+        let count_query = format!("SELECT (COUNT(*) AS ?n) WHERE {{ ?s <{RDF_TYPE_IRI}> ?o }}");
+        let page_query =
+            format!("SELECT ?s ?o WHERE {{ ?s <{RDF_TYPE_IRI}> ?o }} ORDER BY ?s LIMIT 2");
+        let mut baseline = ObdaSourceRegistry::new();
+        baseline.register_table("people", table.clone());
+        let expected_count = run_virtual(&vg, &baseline, &count_query).unwrap().to_rows();
+        let (expected_vars, mut expected_rows) =
+            run_virtual(&vg, &baseline, &page_query).unwrap().to_rows();
+        expected_rows.sort();
+        assert_eq!(expected_rows.len(), 2);
+
+        let source = Arc::new(OrderedSource {
+            table,
+            shipped: std::sync::Mutex::new(Vec::new()),
+            counted: std::sync::Mutex::new(Vec::new()),
+        });
+        let mut optimized = ObdaSourceRegistry::new();
+        optimized.register("people", source.clone());
+        assert_eq!(
+            run_virtual(&vg, &optimized, &count_query)
+                .unwrap()
+                .to_rows(),
+            expected_count
+        );
+        let (actual_vars, mut actual_rows) =
+            run_virtual(&vg, &optimized, &page_query).unwrap().to_rows();
+        actual_rows.sort();
+        assert_eq!(actual_vars, expected_vars);
+        assert_eq!(actual_rows, expected_rows);
+        assert!(source.counted.lock().unwrap().is_empty());
+        assert!(source.shipped.lock().unwrap().is_empty());
+    }
+
     /// A `people` source: id, name, age, plus a `friend_id` reference column.
     fn people_registry() -> ObdaSourceRegistry {
         let table = TableSource::from_records(
@@ -2004,11 +2192,11 @@ mod tests {
 
         let reg = people_registry();
         let res = run_virtual(
-            &vg,
-            &reg,
-            "PREFIX ex: <http://example.org/> SELECT ?name WHERE { ?p a ex:Person ; ex:name ?name }",
-        )
-        .unwrap();
+        &vg,
+        &reg,
+        "PREFIX ex: <http://example.org/> SELECT ?name WHERE { ?p a ex:Person ; ex:name ?name }",
+    )
+    .unwrap();
         assert_eq!(res.solutions.len(), 3);
     }
 
