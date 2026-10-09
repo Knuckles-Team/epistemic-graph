@@ -47,7 +47,7 @@ pub enum IssuerTrustRefusal {
 /// every entry allows at least one principal kind; [`IssuerTrustList::new`]
 /// is the only way to obtain one, so a validated list can never be
 /// constructed around bad data.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct IssuerTrustList {
     entries: Vec<IssuerTrustEntry>,
 }
