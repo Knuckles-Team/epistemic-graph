@@ -20,6 +20,7 @@
     "EG-UNIFIED-DATA-PLANE-R012",
     "EG-UNIFIED-DATA-PLANE-R013",
     "EG-UNIFIED-DATA-PLANE-R014",
+    "EG-UNIFIED-DATA-PLANE-R014.1",
     "EG-UNIFIED-DATA-PLANE-R015",
     "EG-UNIFIED-DATA-PLANE-R016",
     "EG-UNIFIED-DATA-PLANE-R017",
@@ -283,7 +284,15 @@
       "id": "EG-UNIFIED-DATA-PLANE-R014",
       "title": "Implement the MySQL and MariaDB attached-source adapters",
       "delivery_state": "SPECIFIED",
-      "evidence": []
+      "evidence": [],
+      "remaining": "Split into EG-UNIFIED-DATA-PLANE-R014.1 (typed MySQL/MariaDB dialect-entry model, delivered) and later slices for the driver, SQL rendering, catalog reader and binlog capture, which depend on the shared attached-source registry (EG-UNIFIED-DATA-PLANE-R002, not yet built)."
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R014.1",
+      "title": "Typed MySQL/MariaDB dialect-entry model (producer-first split of R014)",
+      "delivery_state": "SPECIFIED",
+      "evidence": [],
+      "remaining": "SqlEngineKind, SqlEngineCaptureSupport and SqlEngineDialectEntry (crates/eg-types/src/attached_source_dialect.rs) prove MySQL and MariaDB stay separate, explicitly declared conformance entries -- never merged or inferred from the dialect name -- with refusal tests for a missing version floor and an unreviewed type-map revision. The driver, SQL rendering, catalog reader and binlog capture parts of the five-part adapter are EG-UNIFIED-DATA-PLANE-R014.2+."
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R015",
