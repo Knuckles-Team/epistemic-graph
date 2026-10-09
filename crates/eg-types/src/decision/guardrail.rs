@@ -79,9 +79,36 @@ pub fn entailed_guardrails(task_iri: &str, rules: &[GuardrailRule]) -> Vec<Entai
         .collect()
 }
 
+/// EG-DECISION-ENGINE-R127.2: the guardrail-entailment query's single entry
+/// point -- the one call a served method, backed by a stored
+/// [`GuardrailRule`] set, and its generated client invoke. Depends on
+/// EG-DECISION-ENGINE-R127.1's [`entailed_guardrails`]; validates the task
+/// IRI itself (something a pure function need not do) before delegating,
+/// refusing an empty one rather than silently answering with an empty rule
+/// set.
+pub fn guardrail_entailment_query(
+    task_iri: &str,
+    rules: &[GuardrailRule],
+) -> Result<Vec<EntailedGuardrail>, String> {
+    if task_iri.is_empty() {
+        return Err("guardrail entailment requires a non-empty task IRI".to_string());
+    }
+    Ok(entailed_guardrails(task_iri, rules))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_empty_task_iri_is_refused_rather_than_silently_answering_empty() {
+        let rules = vec![rule("governance:audit-trail", "eg:task")];
+        let outcome = guardrail_entailment_query("", &rules);
+        assert!(
+            outcome.is_err(),
+            "an empty task IRI must refuse, not silently answer with no rules"
+        );
+    }
 
     fn rule(id: &str, applies_to: &str) -> GuardrailRule {
         GuardrailRule {

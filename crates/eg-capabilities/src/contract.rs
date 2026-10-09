@@ -14,6 +14,7 @@ use sha2::{Digest, Sha256};
 
 use crate::{ConsumerProfile, MethodDescriptor, Stability};
 
+pub mod access_path;
 mod errors;
 mod format_identity;
 mod method_bodies;
