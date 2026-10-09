@@ -1463,6 +1463,7 @@ fn status_reports_liveness_lag_and_the_oldest_pending_age() {
     assert_eq!(live.oldest_pending_age_ms, 4_000);
 }
 
+// spec: EG-TYPED-PACKS-R054
 #[test]
 fn a_consumer_may_not_change_the_topic_its_cursor_already_names() {
     let dir = tempfile::tempdir().unwrap();
@@ -2252,6 +2253,7 @@ fn assert_topic_b_attempts(fixture: &Fixture, owner: &OwnedStoreHandle<LedgerOnl
     );
 }
 
+// spec: EG-TYPED-PACKS-R055
 #[test]
 fn two_topics_retry_exhaustion_preserves_other_topic_attempts_and_progress() {
     let dir = tempfile::tempdir().unwrap();

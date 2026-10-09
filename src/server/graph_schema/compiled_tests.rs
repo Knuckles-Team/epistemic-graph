@@ -88,6 +88,7 @@ fn two_graphs_composing_the_same_schema_share_one_entry() {
     assert_eq!((cache.len(), cache.compile_count()), (1, 1));
 }
 
+// spec: EG-TYPED-PACKS-R057
 #[test]
 fn attach_detach_and_replace_each_change_the_identity() {
     let cache = CompiledCache::new(4);
