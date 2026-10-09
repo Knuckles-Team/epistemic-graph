@@ -252,6 +252,7 @@ fn the_content_op_is_a_read_that_names_its_tenant() {
 ///
 /// The literal is MEASURED on the build host and written here deliberately: a
 /// computed bound would move with the thing it is supposed to pin.
+// spec: EG-CONTRACT-R045
 #[test]
 fn the_method_enum_did_not_grow() {
     assert_eq!(

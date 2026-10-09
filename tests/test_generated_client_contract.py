@@ -16,6 +16,8 @@ import json
 import unittest
 from pathlib import Path
 
+import pytest
+
 _ROOT = Path(__file__).resolve().parent.parent
 _CONTRACT = _ROOT / "contract" / "methods.json"
 _GENERATED = _ROOT / "epistemic_graph" / "generated"
@@ -229,6 +231,7 @@ class GeneratedClientContract(unittest.TestCase):
         self.trees = _module_trees()
         self.sends = _generated_sends(self.trees)
 
+    @pytest.mark.spec("EG-CONTRACT-R016")
     def test_every_python_profile_method_has_exactly_one_generated_function(
         self,
     ) -> None:

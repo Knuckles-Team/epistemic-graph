@@ -96,6 +96,7 @@ def test_every_edge_resolves_on_the_real_tree(gate, monkeypatch, real):
     assert _unresolved(gate, monkeypatch, real, real["bodies"]) == set()
 
 
+@pytest.mark.spec("EG-CONTRACT-R036")
 def test_each_layer_is_anchored_on_its_own_admission_step(gate, real):
     anchors = gate._admitted_writes(real["bodies"], real["layers"])
     assert anchors == EXPECTED_ANCHORS
@@ -140,6 +141,7 @@ def test_nested_write_closure_does_not_anchor_outer_function(gate):
     ) == {"prepare_component_entry"}
 
 
+@pytest.mark.spec("EG-CONTRACT-R036")
 def test_removing_the_library_resolver_is_reported(gate, monkeypatch, real):
     planted = _without_call(
         real["bodies"], "prepare_publish_entry", "admit_entry_references_in_write"
@@ -150,6 +152,7 @@ def test_removing_the_library_resolver_is_reported(gate, monkeypatch, real):
     }
 
 
+@pytest.mark.spec("EG-CONTRACT-R036")
 def test_removing_the_template_resolver_is_reported(gate, monkeypatch, real):
     planted = _without_call(
         real["bodies"], "prepare_template_entry", "admit_entry_references_in_write"
