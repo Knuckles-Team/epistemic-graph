@@ -186,6 +186,7 @@ async fn a_scorer_head_is_promoted_only_through_the_protocol_and_then_acts() {
 /// language. Two distinct `QuestionKind`s over the identical published head
 /// and candidates prove both properties hold ladder-wide, not just for one
 /// question.
+// spec: EG-DECISION-ENGINE-R092
 #[tokio::test]
 async fn select_only_and_structured_encoding_hold_across_distinct_question_kinds() {
     let h = Harness::new().await;
@@ -270,6 +271,7 @@ async fn select_only_and_structured_encoding_hold_across_distinct_question_kinds
 /// is a synchronous, in-process, fixed-point function (EG-DECISION-ENGINE-R090
 /// times its CPU cost directly), never an RPC to a model server, so nothing
 /// in this path could reach a GPU or sidecar even were one present.
+// spec: EG-DECISION-ENGINE-R094
 #[tokio::test]
 async fn a_resident_scorer_decision_is_served_with_no_gpu_or_model_server_present() {
     let h = Harness::new().await;
