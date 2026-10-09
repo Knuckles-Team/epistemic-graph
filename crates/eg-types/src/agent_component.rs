@@ -2086,4 +2086,31 @@ mod tests {
         let error = op.validate().expect_err("must be refused");
         assert!(error.contains("FORBIDDEN_COMPONENT_KIND"), "got: {error}");
     }
+
+    /// EG-DECISION-ENGINE-R060: a fitted head is promoted only through the
+    /// component-publish-plus-receipt path. Publishing a `DecisionHead`
+    /// without the evaluation receipt digest that qualified it is refused,
+    /// never silently accepted as an ordinary component write.
+    // spec: EG-DECISION-ENGINE-R060
+    #[test]
+    fn promoting_a_decision_head_without_its_evaluation_receipt_is_refused() {
+        let request = AgentComponentPublishRequest {
+            context: mutation_context(),
+            component: draft("decision-head-a", AgentComponentKind::DecisionHead),
+            evaluation_receipt_digest: None,
+        };
+        let error = validate_publish(&request).expect_err("must be refused");
+        assert!(
+            error.contains("EVALUATION_RECEIPT_REQUIRED"),
+            "got: {error}"
+        );
+
+        // With a well-formed receipt digest present, the same kind check
+        // passes: the gate is the missing receipt, not the kind itself.
+        let gated = AgentComponentPublishRequest {
+            evaluation_receipt_digest: Some(digest('3')),
+            ..request
+        };
+        validate_publish(&gated).expect("a present receipt digest clears the gate");
+    }
 }

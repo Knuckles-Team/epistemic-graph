@@ -176,6 +176,7 @@ fn an_abstention_is_returned_when_the_calibrated_coverage_bound_fails() {
     ));
 }
 
+// spec: EG-DECISION-ENGINE-R060
 #[test]
 fn the_promotion_protocol_measures_every_metric_and_passes_a_sound_scorer() {
     let head = scorer();
