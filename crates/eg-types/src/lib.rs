@@ -72,6 +72,9 @@ pub mod embedding;
 // CONCEPT:EG-KG.compute.uncertainty-values — probabilistic / uncertainty VALUE (distribution-valued
 // properties). A stored value at the bottom of the DAG, NOT a wire `Op`.
 pub mod distribution;
+// EG-DURABLE-KERNEL-R038 — the declared durability class (ephemeral/async/sync)
+// a KV namespace or table carries. Pure serde, no dep.
+pub mod durability_class;
 // CONCEPT:EG-KG.compute.epistemic-operations-protocol — strict shared DTOs for
 // RequestContext, mutation/ingestion, work, artifact, query, job, and trace outcomes.
 pub mod epistemic_operations;

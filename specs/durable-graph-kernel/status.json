@@ -72,7 +72,8 @@
     "EG-DURABLE-KERNEL-R067",
     "EG-DURABLE-KERNEL-R068",
     "EG-DURABLE-KERNEL-R069",
-    "EG-DURABLE-KERNEL-R070"
+    "EG-DURABLE-KERNEL-R070",
+    "EG-DURABLE-KERNEL-R038.1"
   ],
   "delivery_state": "BUILDING",
   "acceptance_state": "NOT_AUDITED",
@@ -537,7 +538,7 @@
     {
       "id": "EG-DURABLE-KERNEL-R038",
       "title": "KV namespaces declare an explicit, enforced durability class",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
       "evidence": []
     },
     {
@@ -984,6 +985,12 @@
           "description": "Implementation merged to the default branch; the commit names this requirement."
         }
       ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R038.1",
+      "title": "DurabilityClass typed enum, declared loss-window bound, and refusal for an unrecognized class name",
+      "delivery_state": "BUILT",
+      "evidence": []
     }
   ]
 }
