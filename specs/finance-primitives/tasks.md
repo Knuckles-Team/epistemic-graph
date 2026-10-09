@@ -19,6 +19,10 @@ Tasks are ordered by dependency. Check a task only when its code, tests and exac
 - [ ] **F-14 · EG-FINANCE-PRIMITIVES-R003:** Bind PBO to the sealed CSCV split matrix with deterministic median/tie behavior, verify skilled/overfit fixtures and reject mismatched caller summaries.
 - [x] **F-15 · EG-FINANCE-PRIMITIVES-R014, EG-FINANCE-PRIMITIVES-R016:** Align the existing `finance-v1` instrument/signal module (`Instrument`, `Listing`, `Venue`, `BarSeries`, `IndicatorSpec`, `SignalState`, `TrendFlip`, `MacroEvent`) to FIBO and prove incremental, deterministic ATR/SuperTrend/SMA/EMA/200-week-SMA/20-21-band/Heikin-Ashi kernels against Pine parity fixtures.
 - [x] **F-16 · EG-FINANCE-PRIMITIVES-R015, EG-FINANCE-PRIMITIVES-R017:** Attach a `share.read` control-lease link and informational-only notice to every sealed `AnalysisSnapshot`, and require every sealed `BacktestRun` to carry fill rule, point-in-time universe and no-look-ahead evidence alongside its mandatory CV/Sharpe/PBO/cost fields.
+- [ ] **F-13 · EG-FINANCE-PRIMITIVES-R002:** Audit and consolidate shared evaluation/calibration kernels in `eg-numeric`, convert finance methods to thin aliases or migrate callers, qualify UQL and regenerate method/client counts.
+- [x] **F-14 · EG-FINANCE-PRIMITIVES-R003:** Bind PBO to the sealed CSCV split matrix with deterministic median/tie behavior, verify skilled/overfit fixtures and reject mismatched caller summaries.
+- [ ] **F-15 · EG-FINANCE-PRIMITIVES-R014, EG-FINANCE-PRIMITIVES-R016:** Align the existing `finance-v1` instrument/signal module (`Instrument`, `Listing`, `Venue`, `BarSeries`, `IndicatorSpec`, `SignalState`, `TrendFlip`, `MacroEvent`) to FIBO and prove incremental, deterministic ATR/SuperTrend/SMA/EMA/200-week-SMA/20-21-band/Heikin-Ashi kernels against Pine parity fixtures.
+- [ ] **F-16 · EG-FINANCE-PRIMITIVES-R015, EG-FINANCE-PRIMITIVES-R017:** Attach a `share.read` control-lease link and informational-only notice to every sealed `AnalysisSnapshot`, and require every sealed `BacktestRun` to carry fill rule, point-in-time universe and no-look-ahead evidence alongside its mandatory CV/Sharpe/PBO/cost fields.
 
 Requirement IDs not covered by any task above before this line: none remain — EG-FINANCE-PRIMITIVES-R014 through EG-FINANCE-PRIMITIVES-R017 are closed by F-15 and F-16.
 
@@ -38,4 +42,4 @@ Requirement IDs not covered by any task above before this line: none remain — 
 | EG-FINANCE-PRIMITIVES-R012 | — | — | NOT_RUN |
 | EG-FINANCE-PRIMITIVES-R013 | — | — | NOT_RUN |
 | EG-FINANCE-PRIMITIVES-R002 | — | — | NOT_RUN |
-| EG-FINANCE-PRIMITIVES-R003 | — | — | NOT_RUN |
+| EG-FINANCE-PRIMITIVES-R003 | — | `cargo test -p eg-compute -p eg-types --all-features --lib market` (eg-lane-run `eg-finance-r003-20261009035243-b5a404398`) | PR open; see run id for result |
