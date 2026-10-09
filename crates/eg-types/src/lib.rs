@@ -58,6 +58,10 @@ pub mod decision;
 // beside the server registry, and the typed projection that joins them with
 // connector-pack `AgentComponent`s. Pure serde; the handler lives in the server.
 pub mod fleet_catalog;
+// EG-DURABLE-KERNEL-R039 — in-memory structure/atomic-primitive kinds and a
+// durability declaration that always names redb as sole durability
+// authority. Pure serde, no dep.
+pub mod atomic_primitive;
 // EH-346/EH-347 — capture-first open-weight policy evolution: the capability,
 // capture, model-policy version, training-run and evaluation records EG owns.
 // Pure serde; EG records and relates, it never trains.
