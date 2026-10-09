@@ -43,6 +43,10 @@ pub mod document_source_catalog;
 // refusal. Pure data; query pushdown and the conformance entry are later
 // children.
 pub mod warehouse_federation;
+// EG-UNIFIED-DATA-PLANE-R021.1 — typed Debezium Kafka change-event envelope
+// shape and its op-code/before-after refusal rules. Pure data; the Kafka
+// consumer and the real ChangeEnvelope conversion are later children.
+pub mod debezium_bridge;
 // GOC-03 — the cross-domain commit-descriptor/read-barrier currency shared by
 // graph, modality, vector, blob/refcount, time-series, evidence, table/lake, and
 // terminal-analytics-outcome participants. Deliberately a NEW module (not folded

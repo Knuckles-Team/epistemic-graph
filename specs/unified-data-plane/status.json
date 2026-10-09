@@ -29,6 +29,7 @@
     "EG-UNIFIED-DATA-PLANE-R020",
     "EG-UNIFIED-DATA-PLANE-R020.1",
     "EG-UNIFIED-DATA-PLANE-R021",
+    "EG-UNIFIED-DATA-PLANE-R021.1",
     "EG-UNIFIED-DATA-PLANE-R022",
     "EG-UNIFIED-DATA-PLANE-R023",
     "EG-UNIFIED-DATA-PLANE-R024",
@@ -212,7 +213,13 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R021",
       "title": "Bridge Debezium Kafka events into ChangeEnvelope",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R021.1",
+      "title": "DebeziumChangeEvent typed envelope shape and op-code/before-after refusal",
+      "delivery_state": "BUILT",
       "evidence": []
     },
     {
