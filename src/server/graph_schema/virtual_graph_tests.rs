@@ -6,7 +6,7 @@
 //! reference, an unknown source kind, an undiscovered mapped entity, an undiscovered
 //! key field and an undiscovered predicate-field-pair field -- is flagged.
 
-use super::compose::validate_and_compose;
+use super::test_support::conforms;
 use crate::graph::GraphSchemaSources;
 
 const VG_SOURCE: &str = "core:virtual-graph@1";
@@ -41,14 +41,6 @@ const PAIR_FIELD: &str = "Patient.name";
 
 fn well_formed() -> String {
     fixture(SOURCE_KIND, NO_EXTRA, ENTITY, KEY_FIELD, PAIR_FIELD)
-}
-
-fn conforms(data: &str) -> bool {
-    let composed = validate_and_compose(&GraphSchemaSources::default()).unwrap();
-    let data = eg_shacl::graph_from_turtle(data).unwrap();
-    eg_shacl::validate(&composed.shapes, &data)
-        .unwrap()
-        .conforms
 }
 
 #[test]
