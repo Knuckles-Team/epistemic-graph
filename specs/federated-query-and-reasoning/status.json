@@ -1138,6 +1138,15 @@
       "id": "EG-FEDERATED-QUERY-R072",
       "title": "The ontology selects the sources for a cross-source question",
       "delivery_state": "SPECIFIED",
+      "rollup": true,
+      "children": ["EG-FEDERATED-QUERY-R072.1"],
+      "evidence": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R072.1",
+      "title": "Typed model for cross-source coverage, proved against a fixture",
+      "parent": "EG-FEDERATED-QUERY-R072",
+      "delivery_state": "SPECIFIED",
       "evidence": []
     },
     {

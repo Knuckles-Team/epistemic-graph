@@ -38,6 +38,7 @@ Check boxes describe work remaining for this combined contract. They do not cert
 - [x] Close the remaining requirements no task above names: community-detection quality function and naming/connectivity (**EG-FEDERATED-QUERY-R060, EG-FEDERATED-QUERY-R063**), streaming memory test isolation (**EG-FEDERATED-QUERY-R062**), SPARQL evaluator file-size split (**EG-FEDERATED-QUERY-R066**), and SQL/HTTP pushdown batching and pagination (**EG-FEDERATED-QUERY-R069, EG-FEDERATED-QUERY-R071**); see `requirements.md` for each ID's definition.
 
 - [ ] Serve ontology source selection with premises and add operation-bound API, MCP, A2A and GraphQL source kinds; run F-07 and F-08. **EG-FEDERATED-QUERY-R072, EG-FEDERATED-QUERY-R073**
+  - [ ] Typed `CoverageResult`/`SourceSelectionHop`/`Premise` model in `eg-rdf::source_selection`, proved against a fixture (direct mapping, subclass-serves-superclass, uncovered, disconnected). **EG-FEDERATED-QUERY-R072.1**
 
 ## Acceptance
 
