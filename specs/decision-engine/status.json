@@ -115,6 +115,7 @@
     "EG-DECISION-ENGINE-R100",
     "EG-DECISION-ENGINE-R101",
     "EG-DECISION-ENGINE-R102",
+    "EG-DECISION-ENGINE-R102.1",
     "EG-DECISION-ENGINE-R103",
     "EG-DECISION-ENGINE-R104",
     "EG-DECISION-ENGINE-R105",
@@ -126,6 +127,7 @@
     "EG-DECISION-ENGINE-R111",
     "EG-DECISION-ENGINE-R112",
     "EG-DECISION-ENGINE-R113",
+    "EG-DECISION-ENGINE-R113.1",
     "EG-DECISION-ENGINE-R114",
     "EG-DECISION-ENGINE-R115",
     "EG-DECISION-ENGINE-R116",
@@ -1721,6 +1723,13 @@
       "remaining": "Mapping to a typed candidate contract, SHACL render/validate-without-attach, and approval-gated attach are implemented and tested; no explicit 'ingested on a shadow branch' step (validating the candidate against actually-ingested data before approval) was located."
     },
     {
+      "id": "EG-DECISION-ENGINE-R102.1",
+      "title": "Typed schema-repair activation gate (producer-first split of R102)",
+      "parent": "EG-DECISION-ENGINE-R102",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
       "id": "EG-DECISION-ENGINE-R103",
       "title": "Calibrated per-horizon flip confidence with conformal abstention",
       "delivery_state": "LANDED",
@@ -1892,6 +1901,13 @@
       "delivery_state": "SPECIFIED",
       "evidence": [],
       "remaining": "EG supplies the capacity-headroom premise and an AcquireCapacity/ReleaseCapacity primitive, but the evaluate-\u2192commit-\u2192publish-with-synthesis_evidence orchestration, the all-or-nothing acquisition sequencing, and the 'exactly one further re-decide on denial' rule are implemented in graph-os \u2026"
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R113.1",
+      "title": "Typed atomic capacity/synthesis-evidence commit outcome (producer-first split of R113)",
+      "parent": "EG-DECISION-ENGINE-R113",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
     },
     {
       "id": "EG-DECISION-ENGINE-R114",
