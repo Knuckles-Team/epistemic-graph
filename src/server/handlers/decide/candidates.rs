@@ -20,6 +20,9 @@ use std::collections::BTreeMap;
 use eg_numeric::decision::candidate::CandidateView;
 use eg_types::agent_component::{AgentComponentEntry, AgentComponentSearchRequest};
 use eg_types::decision::statistical::declared::{check_declared, DeclaredOption};
+use eg_types::decision::statistical::enrichment_schedule::{
+    EnrichmentCandidate, EnrichmentScheduleRequest, COST_KEY, EXPECTED_VALUE_KEY,
+};
 use eg_types::decision::statistical::ingestion_lane::IngestionLaneRequest;
 use eg_types::decision::statistical::log::RecordVisibility;
 use eg_types::decision::statistical::{CandidateSource, QuestionKind, StatisticalErrorCode};
@@ -261,6 +264,17 @@ pub(super) fn graph_candidates(
     })
 }
 
+/// The Q32 fact named `key` on `option`, or 0 when the option does not
+/// carry it -- absence is a feature-reading concern elsewhere, not a shape
+/// refusal here.
+fn declared_number(option: &DeclaredOption, key: &str) -> i64 {
+    option
+        .numbers
+        .iter()
+        .find(|n| n.key == key)
+        .map_or(0, |n| n.q32)
+}
+
 /// Declared candidates: the caller's own options, each fact a claim, visible
 /// to the declaring principal only. Validated before any feature reads them.
 ///
@@ -268,7 +282,10 @@ pub(super) fn graph_candidates(
 /// where one exists: `QuestionKind::IngestionLane` candidates must each name
 /// a registered [`eg_types::decision::statistical::ingestion_lane::IngestionLane`],
 /// refused here rather than discovered later as an opaque abstention
-/// (EG-DECISION-ENGINE-R030).
+/// (EG-DECISION-ENGINE-R030). `QuestionKind::EnrichmentSchedule` candidates
+/// may not declare a negative `enrichment.cost_q32` -- it has no meaning on
+/// that scale and would let a candidate manufacture unbounded net value
+/// (EG-DECISION-ENGINE-R031).
 pub(super) fn declared_candidates(
     options: &[DeclaredOption],
     principal: &str,
@@ -282,6 +299,18 @@ pub(super) fn declared_candidates(
         }
         .check()
         .map_err(|detail| refusal(StatisticalErrorCode::ParameterInvalid, detail))?;
+    } else if kind == QuestionKind::EnrichmentSchedule {
+        let candidates: Vec<EnrichmentCandidate> = options
+            .iter()
+            .map(|option| EnrichmentCandidate {
+                work_id: option.option_id.clone(),
+                expected_value_q32: declared_number(option, EXPECTED_VALUE_KEY),
+                cost_q32: declared_number(option, COST_KEY),
+            })
+            .collect();
+        EnrichmentScheduleRequest { candidates }
+            .check()
+            .map_err(|detail| refusal(StatisticalErrorCode::ParameterInvalid, detail))?;
     }
     let views = options
         .iter()
