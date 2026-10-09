@@ -22,6 +22,7 @@ fn repo_root() -> PathBuf {
         .to_path_buf()
 }
 
+// spec: EG-TYPED-PACKS-R070
 #[test]
 fn committed_contract_artifacts_match_the_registry() {
     match eg_capabilities::contract::check(&repo_root()) {

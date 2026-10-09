@@ -1748,6 +1748,7 @@ mod tests {
             assert_eq!(layer.rbac().grants().len(), 3);
         }
 
+        // spec: EG-IDENTITY-R006
         #[test]
         fn a_tenant_role_reads_but_never_writes_the_shared_commons() {
             // EG-IDENTITY-R006: commons is the union-read layer for every tenant. The

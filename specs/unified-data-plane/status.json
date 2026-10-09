@@ -411,11 +411,13 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R014.1",
       "title": "Typed MySQL/MariaDB dialect-entry model (producer-first split of R014)",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "0e6a4eb8555d"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/attached_source_dialect.rs:96"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R014.2",

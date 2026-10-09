@@ -87,23 +87,28 @@
     {
       "id": "EG-CONTRACT-R002.1",
       "title": "Served Decide tenant auth-boundary refusal",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "4f364b55e0dc",
         "52f2f3e347a3",
         "c047e6602b42"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_decide_auth_boundary.py:81"
+      ]
     },
     {
       "id": "EG-CONTRACT-R002.2",
       "title": "Served Decide authorized-tenant path and pack-import journey",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "4f364b55e0dc",
         "52f2f3e347a3"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_decide_auth_boundary.py:100",
+        "tests/test_decide_auth_boundary.py:145"
+      ]
     },
     {
       "id": "EG-CONTRACT-R002.3",
@@ -333,11 +338,13 @@
     {
       "id": "EG-CONTRACT-R025",
       "title": "UDS bind-error test uses a short, environment-independent path",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "b43f33569dd4"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/transport/tests.rs:323"
+      ]
     },
     {
       "id": "EG-CONTRACT-R026",
@@ -414,11 +421,13 @@
     {
       "id": "EG-CONTRACT-R034",
       "title": "Complexity test derives its residual from the dispatch arm count",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "cba884075803"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_scanner_wrappers.py:428"
+      ]
     },
     {
       "id": "EG-CONTRACT-R035",
