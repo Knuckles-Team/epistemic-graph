@@ -29,14 +29,20 @@ fn enrichment_option(id: &str, expected_value_q32: i64, cost_q32: i64) -> Declar
     DeclaredOption {
         option_id: id.to_string(),
         classification: BoundedVec::default(),
+        // check_declared requires fact keys strictly sorted; COST_KEY
+        // ("enrichment.cost_q32") sorts before EXPECTED_VALUE_KEY
+        // ("enrichment.expected_value_q32"), so it must come first here or
+        // every call is refused PARAMETER_INVALID at the generic
+        // check_declared gate before the EG-DECISION-ENGINE-R031-specific
+        // negative-cost check ever runs.
         numbers: BoundedVec::new(vec![
-            DeclaredNumber {
-                key: EXPECTED_VALUE_KEY.to_string(),
-                q32: expected_value_q32,
-            },
             DeclaredNumber {
                 key: COST_KEY.to_string(),
                 q32: cost_q32,
+            },
+            DeclaredNumber {
+                key: EXPECTED_VALUE_KEY.to_string(),
+                q32: expected_value_q32,
             },
         ])
         .unwrap(),
