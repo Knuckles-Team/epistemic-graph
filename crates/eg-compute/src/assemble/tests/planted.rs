@@ -40,6 +40,7 @@ fn eliminated(assembly: &Assembly, component_id: &str) -> Option<Violation> {
         .map(|elimination| elimination.violation.clone())
 }
 
+// spec: EG-DECISION-ENGINE-R018
 #[test]
 fn unknown_cost_under_a_strict_budget_is_excluded_never_zero() {
     let mut library = research_library();
@@ -166,6 +167,7 @@ fn a_request_that_loosens_the_policy_is_refused() {
     assert_eq!(error.code, DecisionErrorCode::PolicyLoosening);
 }
 
+// spec: EG-DECISION-ENGINE-R002
 #[test]
 fn a_pack_annotated_capability_is_shown_as_a_claim() {
     let assembly = decide(request(&["eg:task/research"], &[]), research_library());

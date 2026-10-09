@@ -46,6 +46,7 @@ pub(super) fn fitted(kind: HeadKind, data: &LabelledDataset) -> DecisionHeadBody
     fit(data, &admitted.items, &spec).expect("fits")
 }
 
+// spec: EG-DECISION-ENGINE-R027
 #[test]
 fn a_fit_is_bit_for_bit_reproducible_and_certifies_an_act_threshold() {
     let data = gold_dataset(200, 0);
@@ -71,6 +72,7 @@ fn a_fit_is_bit_for_bit_reproducible_and_certifies_an_act_threshold() {
     );
 }
 
+// spec: EG-DECISION-ENGINE-R027
 #[test]
 fn a_weighted_features_head_is_advisory_and_never_calibrated() {
     let head = fitted(HeadKind::WeightedFeatures, &gold_dataset(60, 0));

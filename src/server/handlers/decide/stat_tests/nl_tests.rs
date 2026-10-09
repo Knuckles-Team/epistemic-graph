@@ -55,7 +55,7 @@ fn nl_request(schema: &ComponentDependency, params: Vec<TypedParam>) -> DecideRe
     }
 }
 
-// spec: EG-DECISION-ENGINE-R098
+// spec: EG-DECISION-ENGINE-R098, EG-DECISION-ENGINE-R062
 #[tokio::test]
 async fn an_utterance_routes_over_templates_and_an_llm_proposal_is_only_a_claim() {
     let h = Harness::new().await;
