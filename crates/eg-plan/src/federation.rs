@@ -122,12 +122,32 @@ pub fn source_for(spec: &ForeignSourceSpec) -> Box<dyn ForeignSource + '_> {
             id_field,
             score_field,
         } => sql_source(dsn, query, id_field, score_field.as_deref()),
+        ForeignSourceSpec::Trino { .. }
+        | ForeignSourceSpec::Cypher { .. }
+        | ForeignSourceSpec::SparkBatch { .. } => Box::new(Oq2Unbound {
+            kind: crate::federation_opt::oq2::kind(spec).unwrap(),
+        }),
         // CONCEPT:EG-KG.query.closure-backed-source — a `Named` spec is a REFERENCE, not a self-describing source:
         // it resolves through the executor's `ForeignSourceRegistry`, which `source_for`
         // (a pure spec→source builder with no registry) cannot reach. Hand-off is via
         // the executor / `ForeignSourceRegistry::resolve`; calling `source_for` on a
         // `Named` yields a clean error rather than a silent empty set.
         ForeignSourceSpec::Named { name } => Box::new(NamedUnresolved { name }),
+    }
+}
+
+/// An OQ-2 spec alone has no verified credential lease, catalog probe, or
+/// bound driver. Never silently use a generic SQL/Cypher transport for it.
+struct Oq2Unbound {
+    kind: &'static str,
+}
+
+impl ForeignSource for Oq2Unbound {
+    fn fetch(&self) -> Result<RowSet, String> {
+        Err(format!(
+            "federation: {} source requires a verified registration and bound driver",
+            self.kind
+        ))
     }
 }
 
