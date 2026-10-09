@@ -12,6 +12,7 @@ pub(crate) mod identity_view;
 pub use denial_sample::spawn_flusher as spawn_denial_sample_flusher;
 pub(crate) mod auth;
 pub(crate) mod authority_context;
+pub(crate) mod issuer_trust;
 pub(crate) mod request_replay;
 pub(crate) mod request_scope;
 #[cfg(any(feature = "mysql-wire", feature = "pgwire"))]
