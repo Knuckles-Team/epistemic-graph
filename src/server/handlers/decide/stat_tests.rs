@@ -1074,6 +1074,7 @@ mod classes_tests;
 
 mod a2a_tests;
 
+mod tool_subset_tests;
 mod consumer_tests;
 
 #[cfg(feature = "query")]

@@ -84,6 +84,12 @@ pub enum QuestionKind {
     /// outside the connector's own deterministic authorization step, which
     /// alone approves the write.
     ConnectorWriteBack,
+    /// The smallest tool subset covering every required capability within a
+    /// context-token budget (EG-DECISION-ENGINE-R045). Candidates are
+    /// declared (`CandidateSource::Declared`); required capabilities and the
+    /// budget are typed request params (`required_capabilities`,
+    /// `context_budget_tokens`). See `stat_tool_subset`.
+    ToolSubset,
 }
 
 /// What is at stake. Exploration is permitted only for
