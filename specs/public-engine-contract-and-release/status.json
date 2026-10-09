@@ -6,6 +6,7 @@
     "EG-CONTRACT-R001",
     "EG-CONTRACT-R002",
     "EG-CONTRACT-R002.1",
+    "EG-CONTRACT-R002.2",
     "EG-CONTRACT-R003",
     "EG-CONTRACT-R004",
     "EG-CONTRACT-R005",
@@ -84,11 +85,17 @@
       "title": "Served Agent Library test coverage for pack import and Decide",
       "delivery_state": "SPECIFIED",
       "evidence": [],
-      "remaining": "Rollup of EG-CONTRACT-R002.1 (Decide tenant auth-boundary refusal test) and .2 (authorized Decide success, pack-import journey, installed-wheel check). LANDED when every child is LANDED."
+      "remaining": "Rollup of EG-CONTRACT-R002.1 (Decide tenant auth-boundary refusal test), .2 (authorized-tenant path + pack-import journey) and .3 (installed-wheel check). LANDED when every child is LANDED."
     },
     {
       "id": "EG-CONTRACT-R002.1",
       "title": "Served Decide tenant auth-boundary refusal",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-CONTRACT-R002.2",
+      "title": "Served Decide authorized-tenant path and pack-import journey",
       "delivery_state": "SPECIFIED",
       "evidence": []
     },
