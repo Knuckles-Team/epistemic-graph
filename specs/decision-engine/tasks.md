@@ -21,6 +21,8 @@
 
 - [x] D15 **EG-DECISION-ENGINE-R030 (first slice):** Add the typed `IngestionLane` registry (fast/medium/slow) and `IngestionLaneRequest::check()` refusal for an unregistered lane id (`crates/eg-types/src/decision/statistical/ingestion_lane.rs`). `QuestionKind::IngestionLane` candidates still route through the ordinary generic `Decide`/declared-candidate executor (no kind-specific scoring path). Remaining for this requirement: a real ingestion call site that builds `CandidateSource::Declared` options from this registry and calls `Decide`, plus an integration test selecting the expected lane for a representative input (the requirement's acceptance test).
 
+- [ ] D16 **EG-DECISION-ENGINE-R061.1:** Add the shared `test-support` fixture `tool_entry_with_cost_latency` (`crates/eg-types/src/test_support/decision.rs`), with a unit test proving its declared cost/latency survive `CandidateFacts::from_entry`. **EG-DECISION-ENGINE-R061:** build on this fixture with a cross-path test asserting the exact-solver path and `CandidateView::from_component` read the same declared values from the same entry.
+
 ## Evidence format
 
 For each stable ID, record: `ID | sequence | delivery | acceptance | main SHA | tests/workflow | reviewed date | notes`. Until a row has an exact commit and passing required tests, use `WAITING / NOT_RUN`, `IN_PROGRESS / PARTIAL`, or `SOURCE_LANDED / PARTIAL` as observed; do not infer acceptance from a sequence label. `RETIRED` requires the superseding contract and removal test. Keep evidence records in this repository alongside the spec so external contributors can audit them.
