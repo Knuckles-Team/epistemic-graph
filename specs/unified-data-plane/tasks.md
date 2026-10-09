@@ -35,6 +35,9 @@
 - [ ] **EG-UNIFIED-DATA-PLANE-R019:** MongoDB/DocumentDB document catalog and change streams; depends on EG-UNIFIED-DATA-PLANE-R002.
 - [ ] **EG-UNIFIED-DATA-PLANE-R020:** Snowflake, BigQuery, DuckDB and Iceberg federation; depends on EG-UNIFIED-DATA-PLANE-R007.
 - [ ] **EG-UNIFIED-DATA-PLANE-R021:** Debezium Kafka-to-`ChangeEnvelope` bridge; depends on EG-UNIFIED-DATA-PLANE-R008.
+- [x] **EG-UNIFIED-DATA-PLANE-R021.1:** `DebeziumChangeEvent` typed envelope shape plus op-code and before/after refusal (`crates/eg-types/src/debezium_bridge.rs`).
+- [ ] **EG-UNIFIED-DATA-PLANE-R021.2:** Kafka consumer plus real conversion into `ChangeEnvelope` records.
+- [ ] **EG-UNIFIED-DATA-PLANE-R021.3:** Replay test feeding a captured Debezium event stream through the bridge.
 
 ## Platform and app admission
 
