@@ -213,6 +213,9 @@ pub mod work_market;
 // EH-404 -- just-in-time RBAC elevation: an `rbac.elevation` control lease the
 // graph-access chokepoint consults (two-person, exact-scope, hard expiry).
 pub mod rbac_elevation;
+// EH-560 -- governed changes: reserved control-lease kinds whose approval EG
+// proves two-person (approver != proposer, exact digest, single use).
+pub mod governed_change;
 // EH-406 -- error-budget adaptive (AIMD) throttling on a capacity cell:
 // automatic steps only narrow or give back what they narrowed.
 pub mod capacity_throttle;
