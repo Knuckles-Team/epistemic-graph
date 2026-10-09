@@ -732,7 +732,7 @@
     {
       "id": "EG-FEDERATED-QUERY-R045",
       "title": "Foreign rows carry typed columns for filter and projection pushdown",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -740,6 +740,13 @@
           "commit": "c190f20c7cc83ee2a6a2d814f534e89dc156f7c6",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/c190f20c7cc83ee2a6a2d814f534e89dc156f7c6",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "6ffff56cecffa102aa0040ce02b587e01feb327e",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/6ffff56cecffa102aa0040ce02b587e01feb327e",
+          "description": "EG-FEDERATED-QUERY-R045 merged to the default branch in this commit."
         }
       ]
     },

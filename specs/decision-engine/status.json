@@ -639,8 +639,16 @@
     {
       "id": "EG-DECISION-ENGINE-R035",
       "title": "Decision-based routing for execution configuration",
-      "delivery_state": "SPECIFIED",
-      "evidence": [],
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "7db76f6142e32b1e8071c2937a3ede133ece831c",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/7db76f6142e32b1e8071c2937a3ede133ece831c",
+          "description": "EG-DECISION-ENGINE-R035 merged to the default branch in this commit."
+        }
+      ],
       "remaining": "The generic graph.decide()/Declared-candidate mechanism exists and is tested, but no type or contract test names the 7 specific routing categories (model/prompt/skill/tool/harness/account-mode/sandbox); no account_mode/harness_mode/sandbox_mode types found anywhere."
     },
     {
@@ -1560,8 +1568,16 @@
     {
       "id": "EG-DECISION-ENGINE-R093",
       "title": "Resident scorer is trained from the served synthetic-episode generator",
-      "delivery_state": "SPECIFIED",
-      "evidence": [],
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "163a1e6bc8adc9ffd9669c536274d59565b30fa2",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/163a1e6bc8adc9ffd9669c536274d59565b30fa2",
+          "description": "EG-DECISION-ENGINE-R093 merged to the default branch in this commit."
+        }
+      ],
       "remaining": "Only a manual CLI example wires training to an FX-SYNTH-exported corpus; no automated test confirms a training run consumes episodes from the synthetic generator's served path with verifiable ground-truth labels."
     },
     {
