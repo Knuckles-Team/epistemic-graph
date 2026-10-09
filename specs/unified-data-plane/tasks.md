@@ -74,6 +74,9 @@ Native storage and wire work (EG-DURABLE-KERNEL-R032/EG-DURABLE-KERNEL-R033/EG-D
 - [ ] **EG-UNIFIED-DATA-PLANE-R025.2:** Run the spike across its declared scope areas.
 - [ ] **EG-UNIFIED-DATA-PLANE-R025.3:** Review the spike's results and recorded decision; produce the approved ADR.
 - [ ] **EG-UNIFIED-DATA-PLANE-R026 / Gramps P0–P5:** Baseline, real-Postgres control, unmodified EG replay, pilot fixes, restores and OBDA understanding; depends on EG-DURABLE-KERNEL-R036. Implement P0–P5 and their exit artifacts as defined in [spec.md](spec.md) and [test-spec.md](test-spec.md).
+- [x] **EG-UNIFIED-DATA-PLANE-R026.1:** `GrampsPilotProgress`/`PhaseExitArtifact` typed P0-P5 gate plus wrong/unreviewed/out-of-order refusal (`crates/eg-types/src/gramps_pilot_phase.rs`).
+- [ ] **EG-UNIFIED-DATA-PLANE-R026.2:** Run P0-P2 (baseline digest, Postgres control, unmodified corpus replay).
+- [ ] **EG-UNIFIED-DATA-PLANE-R026.3:** Run P3-P5 (proven-gap fixes, restore verification, schema-understanding demonstration).
 - [ ] **EG-UNIFIED-DATA-PLANE-R027:** Fix Postgres features only when captured app traffic proves need; include B-tree indexes, collation, regex, bytea, sequences, savepoints, locks, notify, triggers/functions, JSONB, isolation, startup, SQLSTATE, schemas, constraints, types, materialized views, large objects and timezone; depends on EG-UNIFIED-DATA-PLANE-R026.
 - [ ] **EG-UNIFIED-DATA-PLANE-R028:** Differential Postgres regression, generated and captured-traffic corpora with reviewed deviations and no ratchet; depends on EG-UNIFIED-DATA-PLANE-R022.
 - [ ] **EG-UNIFIED-DATA-PLANE-R033 / Gramps P6:** Separate explicitly authorized production cutover, replica, independent nightly export and 30-day read-only SQLite fallback; depends on EG-UNIFIED-DATA-PLANE-R026 and every P0–P5 acceptance artifact.
