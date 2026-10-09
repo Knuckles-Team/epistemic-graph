@@ -22,8 +22,11 @@
     "EG-UNIFIED-DATA-PLANE-R014",
     "EG-UNIFIED-DATA-PLANE-R014.1",
     "EG-UNIFIED-DATA-PLANE-R015",
+    "EG-UNIFIED-DATA-PLANE-R015.1",
     "EG-UNIFIED-DATA-PLANE-R016",
+    "EG-UNIFIED-DATA-PLANE-R016.1",
     "EG-UNIFIED-DATA-PLANE-R017",
+    "EG-UNIFIED-DATA-PLANE-R017.1",
     "EG-UNIFIED-DATA-PLANE-R018",
     "EG-UNIFIED-DATA-PLANE-R019",
     "EG-UNIFIED-DATA-PLANE-R019.1",
@@ -340,19 +343,37 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R015",
       "title": "Implement the SQLite file attached-source adapter",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R015.1",
+      "title": "SqliteSourceCatalog typed model plus WITHOUT-ROWID capture-safety refusal",
+      "delivery_state": "BUILT",
       "evidence": []
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R016",
       "title": "Implement the Microsoft SQL Server attached-source adapter",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R016.1",
+      "title": "MssqlSourceCatalog typed model plus bracket-quoting identifier refusal",
+      "delivery_state": "BUILT",
       "evidence": []
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R017",
       "title": "Implement the ClickHouse attached-source adapter",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R017.1",
+      "title": "ClickHouseSourceCatalog typed model with always-explicit capture capability",
+      "delivery_state": "BUILT",
       "evidence": []
     },
     {

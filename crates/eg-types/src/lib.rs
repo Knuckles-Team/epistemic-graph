@@ -339,6 +339,21 @@ pub mod attached_catalog;
 // EG-UNIFIED-DATA-PLANE-R004 — bounded, policy-gated column-sampling budget
 // for deterministic schema inference.
 pub mod schema_inference;
+// EG-UNIFIED-DATA-PLANE-R015.1 — typed SQLite attached-source catalog model:
+// WITHOUT ROWID handling and its WAL-tailing/watermark capture-mode
+// refusal. Pure data; the live read-only attach and real capture are later
+// children.
+pub mod sqlite_attached_catalog;
+// EG-UNIFIED-DATA-PLANE-R016.1 — typed SQL Server attached-source catalog
+// model: two-part schema.table entries and the bracket-quoting identifier
+// refusal. Pure data; the tiberius connection and T-SQL rendering are later
+// children.
+pub mod mssql_attached_catalog;
+// EG-UNIFIED-DATA-PLANE-R017.1 — typed ClickHouse attached-source catalog
+// model, with its change-capture capability always reported as the
+// explicit Unsupported value. Pure data; the HTTP/native client connection
+// is a later child.
+pub mod clickhouse_attached_catalog;
 // D-VZ-1 (lanes V4 "engine integration" / V6 "graph-native marks") — the native
 // visualization engine's wire op (`VizOp`), gated `viz`. Lives here (not in
 // `eg-viz-core`, which sits in a separate small leaf DAG, not below eg-types) for
