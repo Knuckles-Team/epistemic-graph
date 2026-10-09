@@ -251,6 +251,7 @@ fn a_record_from_another_tenant_is_refused() {
 /// EH-070: the published graph pins the committed record through
 /// `synthesis_evidence`, and following the pin from the graph resolves the
 /// record that chose its agent.
+// spec: EG-DECISION-ENGINE-R068
 #[test]
 fn a_published_graph_resolves_to_its_decision_record_through_synthesis_evidence() {
     let (_dir, store) = open_agent_store();
