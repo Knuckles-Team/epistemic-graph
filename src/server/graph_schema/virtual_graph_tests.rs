@@ -20,7 +20,7 @@ fn fixture(kind: &str, endpoint_extra: &str, entity: &str, key_field: &str, pair
     format!(
         "@prefix vg: <http://knuckles.team/kg/virtual-graph#> .\n\
          <urn:conn> a vg:SourceConnection ; vg:sourceKind \"{kind}\" ; vg:endpointRef <urn:ep> .\n\
-         <urn:ep> vg:url \"postgres://db.internal/app\"{endpoint_extra} .\n\
+         <urn:ep> vg:url \"postgres://example-db.internal/app\"{endpoint_extra} .\n\
          <urn:contract> a vg:MetadataContract ; vg:contractSource <urn:conn> ;\n\
            vg:schemaVersion \"1\" ; vg:contentDigest \"sha256:{:0>64}\" ;\n\
            vg:discoveredEntity \"Patient\" ; vg:discoveredField \"Patient.id\", \"Patient.name\" .\n\
