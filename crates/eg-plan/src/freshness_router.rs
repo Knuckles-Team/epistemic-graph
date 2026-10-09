@@ -30,7 +30,10 @@ pub struct UnboundedWait;
 
 impl fmt::Display for UnboundedWait {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "a read-your-writes wait must declare a positive bounded timeout, not zero")
+        write!(
+            f,
+            "a read-your-writes wait must declare a positive bounded timeout, not zero"
+        )
     }
 }
 
