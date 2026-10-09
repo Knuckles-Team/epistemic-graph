@@ -16,6 +16,8 @@
 - [ ] **EG-UNIFIED-DATA-PLANE-R005:** Approve and version R2RML named virtual graphs; depends on EG-UNIFIED-DATA-PLANE-R004 and EG-DECISION-ENGINE-R033.
 - [ ] **EG-UNIFIED-DATA-PLANE-R005.1:** Typed `MappingApprovalState`/`VirtualGraphMapping` refusing an unapproved query; part of EG-UNIFIED-DATA-PLANE-R005 (parent rollup).
 - [ ] **EG-UNIFIED-DATA-PLANE-R029:** Expose `schema_context` through Graph OS; depends on EG-UNIFIED-DATA-PLANE-R004.
+- [x] **EG-UNIFIED-DATA-PLANE-R029.1:** `SchemaContextCatalog`/`SchemaContextAnswer` typed model plus unknown-table refusal (`crates/eg-types/src/schema_context.rs`).
+- [ ] **EG-UNIFIED-DATA-PLANE-R029.2:** Wire the real `schema_context` query entry point through Graph OS, following the `code_context` pattern.
 - [ ] **EG-UNIFIED-DATA-PLANE-R030:** Add cross-app entity proposals, approval and evidence; depends on EG-UNIFIED-DATA-PLANE-R005.
 - [ ] **EG-UNIFIED-DATA-PLANE-R031:** Define isolation, quotas, compatibility, native admission and rollback; depends on EG-UNIFIED-DATA-PLANE-R002.
 
