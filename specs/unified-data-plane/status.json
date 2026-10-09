@@ -87,20 +87,44 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R002",
       "title": "Unify attached-source registration into one owner-scoped registry (rollup)",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "e8695518196e0b0a0bf1fce59a7bc19b7f21fe68",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/e8695518196e0b0a0bf1fce59a7bc19b7f21fe68",
+          "description": "EG-UNIFIED-DATA-PLANE-R002 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R002.1",
       "title": "Verify outbound target before persisting a ForeignSourceSpec::Sql registration (producer path)",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "23ba8c7eab2ad76cdb99c914d0e52d8cea79110a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/23ba8c7eab2ad76cdb99c914d0e52d8cea79110a",
+          "description": "EG-UNIFIED-DATA-PLANE-R002.1 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R002.2",
       "title": "Verify outbound target before persisting an OBDA external_sources registration (consumer path)",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "23ba8c7eab2ad76cdb99c914d0e52d8cea79110a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/23ba8c7eab2ad76cdb99c914d0e52d8cea79110a",
+          "description": "EG-UNIFIED-DATA-PLANE-R002.2 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R002.3",
@@ -111,56 +135,128 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R003",
       "title": "Extract typed, hashed catalog graphs per dialect",
-      "delivery_state": "BUILDING",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "8ef8d8e817b755fadf3f1324b4a89589b3871ee0",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/8ef8d8e817b755fadf3f1324b4a89589b3871ee0",
+          "description": "EG-UNIFIED-DATA-PLANE-R003 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R004",
       "title": "Infer schema structure deterministically from attached catalogs",
-      "delivery_state": "BUILDING",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "1970815332922abb76fc2b7953198e9d0af793ab",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/1970815332922abb76fc2b7953198e9d0af793ab",
+          "description": "EG-UNIFIED-DATA-PLANE-R004 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R005",
       "title": "Compile approved relational mappings to named R2RML virtual graphs",
-      "delivery_state": "BUILDING",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "79ba71d072a572ce0954c1d56b6180c59f5deaaf",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/79ba71d072a572ce0954c1d56b6180c59f5deaaf",
+          "description": "EG-UNIFIED-DATA-PLANE-R005 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R006",
       "title": "Push down virtual-graph queries to source SQL",
-      "delivery_state": "BUILDING",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "545b68818f0b770602b1f4709286709283ffc32e",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/545b68818f0b770602b1f4709286709283ffc32e",
+          "description": "EG-UNIFIED-DATA-PLANE-R006 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R007",
       "title": "Federate attached tables as DataFusion table providers",
-      "delivery_state": "BUILDING",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "bff86f252aa4e6e500e2945a7b109fc801910a19",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/bff86f252aa4e6e500e2945a7b109fc801910a19",
+          "description": "EG-UNIFIED-DATA-PLANE-R007 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R008",
       "title": "Normalize change capture into a durable, replayable framework",
-      "delivery_state": "BUILDING",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "343ebb9c7c6a63a5bbcb305a32ee50da6c3162ee",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/343ebb9c7c6a63a5bbcb305a32ee50da6c3162ee",
+          "description": "EG-UNIFIED-DATA-PLANE-R008 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R009",
       "title": "Drive consumers from change capture idempotently",
-      "delivery_state": "BUILDING",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "79ba71d072a572ce0954c1d56b6180c59f5deaaf",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/79ba71d072a572ce0954c1d56b6180c59f5deaaf",
+          "description": "EG-UNIFIED-DATA-PLANE-R009 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R010",
       "title": "Maintain an accelerated local copy of attached data",
-      "delivery_state": "BUILDING",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "343ebb9c7c6a63a5bbcb305a32ee50da6c3162ee",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/343ebb9c7c6a63a5bbcb305a32ee50da6c3162ee",
+          "description": "EG-UNIFIED-DATA-PLANE-R010 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R011",
       "title": "Route queries by freshness across native, live, and accelerated paths",
-      "delivery_state": "BUILDING",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "bff86f252aa4e6e500e2945a7b109fc801910a19",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/bff86f252aa4e6e500e2945a7b109fc801910a19",
+          "description": "EG-UNIFIED-DATA-PLANE-R011 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R012",
@@ -207,146 +303,338 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R019",
       "title": "Implement the MongoDB and DocumentDB attached-source adapter",
-      "delivery_state": "BUILDING",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "211962e9c8465846ea5c78aedce7e1cf93fb4d7d",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/211962e9c8465846ea5c78aedce7e1cf93fb4d7d",
+          "description": "EG-UNIFIED-DATA-PLANE-R019 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R019.1",
       "title": "DocumentSourceCatalog typed inferred-shape model and field-path refusal",
-      "delivery_state": "BUILT",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "211962e9c8465846ea5c78aedce7e1cf93fb4d7d",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/211962e9c8465846ea5c78aedce7e1cf93fb4d7d",
+          "description": "EG-UNIFIED-DATA-PLANE-R019.1 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R020",
       "title": "Federate Snowflake, BigQuery, DuckDB, and Iceberg sources",
-      "delivery_state": "BUILDING",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "74870676b1cc706804c7a6a8207b369ed10c181e",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/74870676b1cc706804c7a6a8207b369ed10c181e",
+          "description": "EG-UNIFIED-DATA-PLANE-R020 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R020.1",
       "title": "WarehouseSourceKind/WarehouseSourceConfig typed model and required-field refusal",
-      "delivery_state": "BUILT",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "74870676b1cc706804c7a6a8207b369ed10c181e",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/74870676b1cc706804c7a6a8207b369ed10c181e",
+          "description": "EG-UNIFIED-DATA-PLANE-R020.1 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R021",
       "title": "Bridge Debezium Kafka events into ChangeEnvelope",
-      "delivery_state": "BUILDING",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "9cb571fb74aa33e2997b1627b928893831ca59ae",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/9cb571fb74aa33e2997b1627b928893831ca59ae",
+          "description": "EG-UNIFIED-DATA-PLANE-R021 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R021.1",
       "title": "DebeziumChangeEvent typed envelope shape and op-code/before-after refusal",
-      "delivery_state": "BUILT",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "9cb571fb74aa33e2997b1627b928893831ca59ae",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/9cb571fb74aa33e2997b1627b928893831ca59ae",
+          "description": "EG-UNIFIED-DATA-PLANE-R021.1 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R022",
       "title": "Build a per-dialect conformance harness",
-      "delivery_state": "BUILDING",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "23769c3ec0f982b748e2f97a0c14033f1634052c",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/23769c3ec0f982b748e2f97a0c14033f1634052c",
+          "description": "EG-UNIFIED-DATA-PLANE-R022 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R022.1",
       "title": "DialectConformanceEntry/ConformanceReport typed model and auto-suppression refusal",
-      "delivery_state": "BUILT",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "23769c3ec0f982b748e2f97a0c14033f1634052c",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/23769c3ec0f982b748e2f97a0c14033f1634052c",
+          "description": "EG-UNIFIED-DATA-PLANE-R022.1 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R023",
       "title": "Operate a shared CloudNativePG and MariaDB platform",
-      "delivery_state": "BUILDING",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "03439e243c80f7055d426d009957708da8fa096f",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/03439e243c80f7055d426d009957708da8fa096f",
+          "description": "EG-UNIFIED-DATA-PLANE-R023 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R023.1",
       "title": "SharedPlatformClusterGroup typed model and engine-specific refusal",
-      "delivery_state": "BUILT",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "03439e243c80f7055d426d009957708da8fa096f",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/03439e243c80f7055d426d009957708da8fa096f",
+          "description": "EG-UNIFIED-DATA-PLANE-R023.1 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R024",
       "title": "Admit applications to the shared platform with rollback",
-      "delivery_state": "BUILDING",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "1b3cc2f03fa28d280f26dbab32f68ea4a14e4551",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/1b3cc2f03fa28d280f26dbab32f68ea4a14e4551",
+          "description": "EG-UNIFIED-DATA-PLANE-R024 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R024.1",
       "title": "ApplicationAdmission typed stage machine and early-retirement refusal",
-      "delivery_state": "BUILT",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "1b3cc2f03fa28d280f26dbab32f68ea4a14e4551",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/1b3cc2f03fa28d280f26dbab32f68ea4a14e4551",
+          "description": "EG-UNIFIED-DATA-PLANE-R024.1 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R025",
       "title": "Evaluate a pgrx companion extension through a spike",
-      "delivery_state": "BUILDING",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "e265a52820f500566f0b6258eec168fe69c41e40",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/e265a52820f500566f0b6258eec168fe69c41e40",
+          "description": "EG-UNIFIED-DATA-PLANE-R025 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R025.1",
       "title": "PgrxSpikeDecision typed model and full-scope-evidence refusal",
-      "delivery_state": "BUILT",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "e265a52820f500566f0b6258eec168fe69c41e40",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/e265a52820f500566f0b6258eec168fe69c41e40",
+          "description": "EG-UNIFIED-DATA-PLANE-R025.1 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R026",
       "title": "Run the Gramps native-hosting pilot phases P0 through P5",
-      "delivery_state": "BUILDING",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "30af64b172d48a3565fd19b48575d0d280f99d48",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/30af64b172d48a3565fd19b48575d0d280f99d48",
+          "description": "EG-UNIFIED-DATA-PLANE-R026 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R026.1",
       "title": "GrampsPilotProgress typed P0-P5 phase gate and refusal rules",
-      "delivery_state": "BUILT",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "30af64b172d48a3565fd19b48575d0d280f99d48",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/30af64b172d48a3565fd19b48575d0d280f99d48",
+          "description": "EG-UNIFIED-DATA-PLANE-R026.1 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R027",
       "title": "Fix Postgres compatibility gaps proven by captured traffic",
-      "delivery_state": "BUILDING",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "5873d340b4ded1e69f4dfff69f558f934157c105",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/5873d340b4ded1e69f4dfff69f558f934157c105",
+          "description": "EG-UNIFIED-DATA-PLANE-R027 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R027.1",
       "title": "FeatureFixRecord typed inventory and incomplete-proof refusal",
-      "delivery_state": "BUILT",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "5873d340b4ded1e69f4dfff69f558f934157c105",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/5873d340b4ded1e69f4dfff69f558f934157c105",
+          "description": "EG-UNIFIED-DATA-PLANE-R027.1 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R028",
       "title": "Build the Postgres-equivalence differential harness",
-      "delivery_state": "BUILDING",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "2f94e96c512903a3b3f28c352717a81670925aa1",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/2f94e96c512903a3b3f28c352717a81670925aa1",
+          "description": "EG-UNIFIED-DATA-PLANE-R028 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R028.1",
       "title": "DeviationBaseline typed model and no-silent-drop refusal",
-      "delivery_state": "BUILT",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "2f94e96c512903a3b3f28c352717a81670925aa1",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/2f94e96c512903a3b3f28c352717a81670925aa1",
+          "description": "EG-UNIFIED-DATA-PLANE-R028.1 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R029",
       "title": "Expose a schema_context query surface",
-      "delivery_state": "BUILDING",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "d9b702c9e7e250f4ebbbfe071aee3f4b33052404",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/d9b702c9e7e250f4ebbbfe071aee3f4b33052404",
+          "description": "EG-UNIFIED-DATA-PLANE-R029 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R029.1",
       "title": "SchemaContextCatalog typed model and unknown-table refusal",
-      "delivery_state": "BUILT",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "d9b702c9e7e250f4ebbbfe071aee3f4b33052404",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/d9b702c9e7e250f4ebbbfe071aee3f4b33052404",
+          "description": "EG-UNIFIED-DATA-PLANE-R029.1 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R030",
       "title": "Resolve entities across attached applications",
-      "delivery_state": "BUILDING",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "648e9b47f700b3383c95768b0895c6e0a52153d6",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/648e9b47f700b3383c95768b0895c6e0a52153d6",
+          "description": "EG-UNIFIED-DATA-PLANE-R030 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R030.1",
       "title": "EntityLinkProposal typed model and unapproved/non-Match refusal",
-      "delivery_state": "BUILT",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "648e9b47f700b3383c95768b0895c6e0a52153d6",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/648e9b47f700b3383c95768b0895c6e0a52153d6",
+          "description": "EG-UNIFIED-DATA-PLANE-R030.1 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R031",
@@ -411,8 +699,16 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R037",
       "title": "Virtual-graph vocabulary is an EG core schema source",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "9b6036853937376c1b4c7137d42c9c62cb23ee59",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/9b6036853937376c1b4c7137d42c9c62cb23ee59",
+          "description": "EG-UNIFIED-DATA-PLANE-R037 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R038",
@@ -423,56 +719,128 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R010.1",
       "title": "AccelerationPolicy typed per-table policy and validated declaration",
-      "delivery_state": "BUILT",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "343ebb9c7c6a63a5bbcb305a32ee50da6c3162ee",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/343ebb9c7c6a63a5bbcb305a32ee50da6c3162ee",
+          "description": "EG-UNIFIED-DATA-PLANE-R010.1 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R008.1",
       "title": "ChangeEnvelope/ChangeOp typed change-capture record and validated refusal rule",
-      "delivery_state": "BUILT",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "64f76c5b320951fe7c2d83148b0d7262df2a3b90",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/64f76c5b320951fe7c2d83148b0d7262df2a3b90",
+          "description": "EG-UNIFIED-DATA-PLANE-R008.1 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R003.1",
       "title": "AttachedCatalogGraph typed, reorder-stable hashed catalog model",
-      "delivery_state": "BUILT",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "dc9533466828ac87dea14c12f55eb5d944022d9b",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/dc9533466828ac87dea14c12f55eb5d944022d9b",
+          "description": "EG-UNIFIED-DATA-PLANE-R003.1 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R004.1",
       "title": "ColumnSamplingBudget bounded, policy-gated typed model",
-      "delivery_state": "BUILT",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "8ef8d8e817b755fadf3f1324b4a89589b3871ee0",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/8ef8d8e817b755fadf3f1324b4a89589b3871ee0",
+          "description": "EG-UNIFIED-DATA-PLANE-R004.1 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R005.1",
       "title": "VirtualGraphMapping typed approval-state model",
-      "delivery_state": "BUILT",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "1970815332922abb76fc2b7953198e9d0af793ab",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/1970815332922abb76fc2b7953198e9d0af793ab",
+          "description": "EG-UNIFIED-DATA-PLANE-R005.1 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R006.1",
       "title": "PushdownDecision typed fallback-reason model",
-      "delivery_state": "BUILT",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "545b68818f0b770602b1f4709286709283ffc32e",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/545b68818f0b770602b1f4709286709283ffc32e",
+          "description": "EG-UNIFIED-DATA-PLANE-R006.1 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R007.1",
       "title": "DialectPushdownCapabilities typed operation-set model",
-      "delivery_state": "BUILT",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "e8695518196e0b0a0bf1fce59a7bc19b7f21fe68",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/e8695518196e0b0a0bf1fce59a7bc19b7f21fe68",
+          "description": "EG-UNIFIED-DATA-PLANE-R007.1 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R009.1",
       "title": "ConsumerCheckpoint typed idempotent-apply model",
-      "delivery_state": "BUILT",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "79ba71d072a572ce0954c1d56b6180c59f5deaaf",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/79ba71d072a572ce0954c1d56b6180c59f5deaaf",
+          "description": "EG-UNIFIED-DATA-PLANE-R009.1 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R011.1",
       "title": "FreshnessRoute/ReadYourWritesWait typed bounded-wait model",
-      "delivery_state": "BUILT",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "bff86f252aa4e6e500e2945a7b109fc801910a19",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/bff86f252aa4e6e500e2945a7b109fc801910a19",
+          "description": "EG-UNIFIED-DATA-PLANE-R011.1 merged to the default branch in this commit."
+        }
+      ]
     }
   ]
 }

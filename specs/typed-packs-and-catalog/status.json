@@ -274,8 +274,16 @@
     {
       "id": "EG-TYPED-PACKS-R012",
       "title": "Pack and agent-layer write methods are local-only in clustered mode",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "321e6ae98be4465c52910bae99f5915e2833092f",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/321e6ae98be4465c52910bae99f5915e2833092f",
+          "description": "EG-TYPED-PACKS-R012 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R013",
@@ -1374,15 +1382,31 @@
     {
       "id": "EG-TYPED-PACKS-R090",
       "title": "Canonical ontology and SHACL artifacts generated from Rust",
-      "delivery_state": "SPECIFIED",
-      "evidence": [],
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "080677a31fdd0338113590e04daec978efe4bd61",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/080677a31fdd0338113590e04daec978efe4bd61",
+          "description": "EG-TYPED-PACKS-R090 merged to the default branch in this commit."
+        }
+      ],
       "remaining": "Rollup; delivered by child requirements. R090.1 lands the typed-vocabulary-to-Turtle generator mechanism (byte-equality regen test); later children migrate the existing crates/eg-core/ontology/*.ttl corpus onto it."
     },
     {
       "id": "EG-TYPED-PACKS-R090.1",
       "title": "A typed-vocabulary-to-Turtle generator reproduces checked-in output byte-for-byte",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "080677a31fdd0338113590e04daec978efe4bd61",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/080677a31fdd0338113590e04daec978efe4bd61",
+          "description": "EG-TYPED-PACKS-R090.1 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R091",
@@ -1471,15 +1495,31 @@
     {
       "id": "EG-TYPED-PACKS-R097",
       "title": "Domain vocabularies ship as typed domain packs",
-      "delivery_state": "SPECIFIED",
-      "evidence": [],
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "6a1a0e46d99f5dd38b4787b0532109b6822901da",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/6a1a0e46d99f5dd38b4787b0532109b6822901da",
+          "description": "EG-TYPED-PACKS-R097 merged to the default branch in this commit."
+        }
+      ],
       "remaining": "Rollup; delivered by child requirements. R097.1 lands the typed HR DomainPack model and its validation + round-trip test; later children cover legal/medical/government and the agent-utilities caller cutover."
     },
     {
       "id": "EG-TYPED-PACKS-R097.1",
       "title": "HR domain vocabulary ships as a typed domain pack",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "6a1a0e46d99f5dd38b4787b0532109b6822901da",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/6a1a0e46d99f5dd38b4787b0532109b6822901da",
+          "description": "EG-TYPED-PACKS-R097.1 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R098",
