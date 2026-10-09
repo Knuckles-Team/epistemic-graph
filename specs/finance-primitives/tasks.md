@@ -9,6 +9,7 @@ Tasks are ordered by dependency. Check a task only when its code, tests and exac
 - [ ] **F-04 · EG-FINANCE-PRIMITIVES-R005:** Add sourced FX, realized/unrealized P&L, TWR, bounded XIRR and benchmark comparison with partial coverage reports.
 - [ ] **F-05 · EG-FINANCE-PRIMITIVES-R007:** Define immutable strategy-spec digest and proposal contract; implement DCA, trend and rebalance evaluators with idempotent cadence/missed-cycle evidence.
 - [ ] **F-06 · EG-FINANCE-PRIMITIVES-R008:** Build common-horizon strategy comparison atop sealed `BacktestRun`; calculate CV, deflated Sharpe and PBO from one verified split matrix with costs.
+- [ ] **F-06.1 · EG-FINANCE-PRIMITIVES-R008.1:** Seal a dollar-cost-averaging-by-fixed-amount backtest through the existing `backtest_run::seal` path; refuse a non-positive contribution and an out-of-universe fill. Lump-sum and trend comparisons remain under F-06.
 - [ ] **F-07 · EG-FINANCE-PRIMITIVES-R009:** Implement calibration/abstention and outcome scorecard; seal source-citing informational snapshots.
 - [ ] **F-08 · EG-FINANCE-PRIMITIVES-R010:** Add policy-versioned leverage terms and scenario kernels; prove paper default and no implicit live eligibility.
 - [ ] **F-09 · EG-FINANCE-PRIMITIVES-R011:** Add stable finance event envelopes and transactional outbox append, preserving existing flip IDs.
@@ -32,6 +33,7 @@ Requirement IDs not covered by any task above before this line: none remain — 
 | EG-FINANCE-PRIMITIVES-R006 | — | — | NOT_RUN |
 | EG-FINANCE-PRIMITIVES-R007 | — | — | NOT_RUN |
 | EG-FINANCE-PRIMITIVES-R008 | — | — | NOT_RUN |
+| EG-FINANCE-PRIMITIVES-R008.1 | — | — | NOT_RUN |
 | EG-FINANCE-PRIMITIVES-R009 | — | — | NOT_RUN |
 | EG-FINANCE-PRIMITIVES-R010 | — | — | NOT_RUN |
 | EG-FINANCE-PRIMITIVES-R011 | — | — | NOT_RUN |
