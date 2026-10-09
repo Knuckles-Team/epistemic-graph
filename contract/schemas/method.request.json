@@ -11048,6 +11048,26 @@
           },
           "type": "array"
         },
+        "post_market_close_minute": {
+          "description": "Post-market span end, minutes after local midnight; `None` if the\nexchange has no post-market session.",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "pre_market_open_minute": {
+          "description": "Pre-market span start, minutes after local midnight; `None` if the\nexchange has no pre-market session.",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "session_close_minute": {
           "description": "Session close, minutes after local midnight (after the open).",
           "format": "uint16",
@@ -12797,6 +12817,17 @@
       ],
       "type": "string"
     },
+    "ForeignOperationCapabilities": {
+      "description": "Declared capabilities of an operation-bound foreign source\n(CONCEPT:EG-KG.query.query-federation, FQR-11): what the REGISTRATION asserts the\nbound operation can do, never introspected from the caller's request. A key filter\nis pushed into the remote request only when `key_filter_pushdown` is true; EG always\nkeeps the exact local residual filter regardless, so an under-declaring source never\nreturns wrong rows — only a less-pushed-down request.",
+      "properties": {
+        "key_filter_pushdown": {
+          "default": false,
+          "description": "The bound operation accepts a server-side key filter (e.g. `id IN (...)`).",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
     "ForeignSourceSpec": {
       "description": "A FOREIGN (external) RowSet source for the federation `Op::ForeignScan`\n(CONCEPT:EG-KG.query.query-federation, Lane P). A federated query reads rows from a source OUTSIDE\nthe local engine and composes them with the local graph/vector/SQL ops — so a\n`ForeignScan` is just another RowSet leaf, like `Scan`/`Reason`/`SparqlBgp`.\nSource kinds share one wire enum; the `ForeignSource` trait in eg-plan turns each into\na [`crate::RowSet`].",
       "oneOf": [
@@ -13072,6 +13103,128 @@
           },
           "required": [
             "SparkBatch"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "An operation-bound REST/HTTP API source (CONCEPT:EG-KG.query.query-federation,\nFQR-11). Unlike [`ForeignSourceSpec::HttpJson`] (a raw, inline, unbound GET), an\n`Api` spec names a REGISTERED operation that a mapped entity reads through; the\nregistry resolves `operation` to a concrete, capability-probed endpoint. Never\ncarries a credential.",
+          "properties": {
+            "Api": {
+              "properties": {
+                "capabilities": {
+                  "$ref": "#/$defs/ForeignOperationCapabilities",
+                  "default": {
+                    "key_filter_pushdown": false
+                  },
+                  "description": "What this operation declares it can do — notably whether a key filter may\nbe pushed into the request (CONCEPT:EG-KG.query.query-federation)."
+                },
+                "operation": {
+                  "description": "The registered operation name a mapped entity's read resolves to.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "operation"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "Api"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "An operation-bound MCP tool call (CONCEPT:EG-KG.query.query-federation, FQR-11).\n`server` names the registered MCP server; `tool` the tool a mapped entity's\ndiscovered operation invokes.",
+          "properties": {
+            "Mcp": {
+              "properties": {
+                "capabilities": {
+                  "$ref": "#/$defs/ForeignOperationCapabilities",
+                  "default": {
+                    "key_filter_pushdown": false
+                  }
+                },
+                "server": {
+                  "type": "string"
+                },
+                "tool": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "server",
+                "tool"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "Mcp"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "An operation-bound A2A agent skill invocation (CONCEPT:EG-KG.query.query-federation,\nFQR-11). `agent` names the registered A2A agent; `skill` the skill a mapped\nentity's discovered operation invokes.",
+          "properties": {
+            "A2a": {
+              "properties": {
+                "agent": {
+                  "type": "string"
+                },
+                "capabilities": {
+                  "$ref": "#/$defs/ForeignOperationCapabilities",
+                  "default": {
+                    "key_filter_pushdown": false
+                  }
+                },
+                "skill": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "agent",
+                "skill"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "A2a"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "An operation-bound GraphQL source (CONCEPT:EG-KG.query.query-federation, FQR-11).\n`endpoint` names the registered GraphQL endpoint; `operation` the named query\na mapped entity's discovered operation runs.",
+          "properties": {
+            "GraphQl": {
+              "properties": {
+                "capabilities": {
+                  "$ref": "#/$defs/ForeignOperationCapabilities",
+                  "default": {
+                    "key_filter_pushdown": false
+                  }
+                },
+                "endpoint": {
+                  "type": "string"
+                },
+                "operation": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "endpoint",
+                "operation"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "GraphQl"
           ],
           "type": "object"
         }
@@ -13536,6 +13689,188 @@
         "top_k",
         "min_eval_items",
         "max_score_psi_q16"
+      ],
+      "type": "object"
+    },
+    "GovernedActor": {
+      "additionalProperties": false,
+      "description": "Who acted, stamped from the verified request context at the boundary.",
+      "properties": {
+        "agent_id": {
+          "type": "string"
+        },
+        "delegated": {
+          "type": "boolean"
+        },
+        "parties": {
+          "description": "One-way ids of the principal, the effective agent and every\ndelegation hop (sorted, unique) -- the two-person comparison set.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "scopes": {
+          "description": "The actor's exact `governance:*` scopes.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "agent_id",
+        "parties",
+        "delegated",
+        "scopes"
+      ],
+      "type": "object"
+    },
+    "GovernedApproval": {
+      "additionalProperties": false,
+      "description": "`approve`: approve the change whose candidate digest is `digest`.",
+      "properties": {
+        "change_id": {
+          "type": "string"
+        },
+        "digest": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "change_id",
+        "digest"
+      ],
+      "type": "object"
+    },
+    "GovernedChangeOp": {
+      "description": "Every governed-change operation. Consumption is NOT a wire op: only the\nengine path that applies the change (e.g. the approved schema attach)\nconsumes, through `IsolationLayer::try_consume_governed_change`.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "op": {
+              "const": "propose",
+              "type": "string"
+            },
+            "request": {
+              "$ref": "#/$defs/GovernedProposal"
+            }
+          },
+          "required": [
+            "op",
+            "request"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "op": {
+              "const": "approve",
+              "type": "string"
+            },
+            "request": {
+              "$ref": "#/$defs/GovernedApproval"
+            }
+          },
+          "required": [
+            "op",
+            "request"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "change_id": {
+              "type": "string"
+            },
+            "op": {
+              "const": "revoke",
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "change_id"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "change_id": {
+              "type": "string"
+            },
+            "op": {
+              "const": "get",
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "change_id"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "op": {
+              "const": "list",
+              "type": "string"
+            }
+          },
+          "required": [
+            "op"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "GovernedProposal": {
+      "additionalProperties": false,
+      "description": "`propose`.",
+      "properties": {
+        "change_id": {
+          "type": "string"
+        },
+        "digest": {
+          "description": "The digest of the exact candidate.",
+          "type": "string"
+        },
+        "justification": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "proposal_ttl_ms": {
+          "description": "How long the proposal waits for an approval.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "target": {
+          "description": "What the change applies to (for schema repair: the approved-source key).",
+          "type": "string"
+        },
+        "window_ms": {
+          "description": "How long an approval stays consumable.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "change_id",
+        "kind",
+        "target",
+        "digest",
+        "justification",
+        "proposal_ttl_ms",
+        "window_ms"
       ],
       "type": "object"
     },
@@ -28392,6 +28727,43 @@
         },
         {
           "additionalProperties": false,
+          "description": "Governed changes (EH-560): propose, approve (two-person, exact scope,\nexact digest), revoke, get or list a reserved `governed.*` change.\n`actor` is SERVER-STAMPED from the verified request context at the\nrequest boundary; a caller-supplied value is overwritten.",
+          "properties": {
+            "method": {
+              "const": "GovernedChange",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "actor": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/GovernedActor"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "op": {
+                  "$ref": "#/$defs/GovernedChangeOp"
+                }
+              },
+              "required": [
+                "op"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
           "description": "The engine-owned identity store: principals, credentials,\nsessions, second factors, roles, groups, identity providers and the\nauth-mode singleton. `stamp` is SERVER-DERIVED at the request boundary\n(the verified actor plus every hash, verdict and sealed value the op\nneeds) and every plaintext secret in `op` is cleared there, so neither\nthe replicated command nor a log ever carries one; a caller-supplied\nstamp is always overwritten.",
           "properties": {
             "method": {
@@ -40665,18 +41037,47 @@
     },
     "QuestionKind": {
       "description": "What class of question this is. The kind selects the executor; it never\nselects the guarantee.",
-      "enum": [
-        "route",
-        "rank",
-        "classify",
-        "resolve_entity",
-        "schema_mapping",
-        "template_choice",
-        "retrieval_plan",
-        "ingestion_lane",
-        "enrichment_schedule"
-      ],
-      "type": "string"
+      "oneOf": [
+        {
+          "enum": [
+            "route",
+            "rank",
+            "classify",
+            "resolve_entity",
+            "schema_mapping",
+            "template_choice",
+            "retrieval_plan",
+            "ingestion_lane",
+            "enrichment_schedule"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "pre_tool_risk",
+          "description": "An advisory risk score for a candidate tool invocation, read before\nthe call (EG-DECISION-ENGINE-R038). `Decide` is evaluate-only for\nevery kind (see this module's own doc), so the score it returns can\nonly ever inform a caller's own authorization step -- it carries no\nmechanism to itself gate or block the invocation.",
+          "type": "string"
+        },
+        {
+          "const": "connector_event_triage",
+          "description": "Inbound connector-event classification, evaluate-only\n(EG-DECISION-ENGINE-R041): `Decide` returns a proposal and its\nevidence class and takes no action on the connector's behalf -- the\nsame evaluate-only guarantee this module's own doc states for every\nkind, named here for the connector-triage use case specifically.",
+          "type": "string"
+        },
+        {
+          "const": "connector_tool_choice",
+          "description": "Which internal tool a connector should use for a task, advisory only\n(EG-DECISION-ENGINE-R042): `Decide` returns a proposal with evidence;\nthe connector's own deterministic authorization path, never `Decide`,\ngoverns whether a resulting write-back actually occurs.",
+          "type": "string"
+        },
+        {
+          "const": "connector_write_back",
+          "description": "A write-back proposal for a connector action, with supporting\nevidence (EG-DECISION-ENGINE-R043): the proposal never authorizes the\nwrite itself. Any exploration or statistical head behind it stays\noutside the connector's own deterministic authorization step, which\nalone approves the write.",
+          "type": "string"
+        },
+        {
+          "const": "tool_subset",
+          "description": "The smallest tool subset covering every required capability within a\ncontext-token budget (EG-DECISION-ENGINE-R045). Candidates are\ndeclared (`CandidateSource::Declared`); required capabilities and the\nbudget are typed request params (`required_capabilities`,\n`context_budget_tokens`). See `stat_tool_subset`.",
+          "type": "string"
+        }
+      ]
     },
     "QuestionSafety": {
       "description": "What is at stake. Exploration is permitted only for\n[`QuestionSafety::Ordinary`]; everything else must be decided on evidence\nalready in hand or abstained.",
@@ -60761,6 +61162,43 @@
           "required": [
             "tenant",
             "work_item_id"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    "GovernedChange": {
+      "additionalProperties": false,
+      "description": "Governed changes (EH-560): propose, approve (two-person, exact scope,\nexact digest), revoke, get or list a reserved `governed.*` change.\n`actor` is SERVER-STAMPED from the verified request context at the\nrequest boundary; a caller-supplied value is overwritten.",
+      "properties": {
+        "method": {
+          "const": "GovernedChange",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": false,
+          "properties": {
+            "actor": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/GovernedActor"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "op": {
+              "$ref": "#/$defs/GovernedChangeOp"
+            }
+          },
+          "required": [
+            "op"
           ],
           "type": "object"
         }

@@ -1,7 +1,7 @@
 {
   "contract_version": 1,
   "generator": "eg-capabilities/gen_contract",
-  "method_count": 462,
+  "method_count": 463,
   "methods": [
     {
       "consumer_profiles": [
@@ -25786,6 +25786,89 @@
         "kind": "declared",
         "schema": "contract/schemas/result.security.json#/methods/Identity",
         "selected_by": null
+      },
+      "stability": "stable"
+    },
+    {
+      "consumer_profiles": [
+        "python"
+      ],
+      "domain": "security",
+      "error_set": [
+        "ACCESS_DENIED",
+        "AUTHENTICATION_REQUIRED",
+        "AUTH_AUDIENCE_MISMATCH",
+        "AUTH_POLICY_VERSION_MISMATCH",
+        "AUTH_TENANT_MISMATCH",
+        "BUSY",
+        "CANCELLED",
+        "CAPACITY_DENIED",
+        "CONFLICT",
+        "CORRUPT_MUTATION_LEDGER",
+        "ENGINE_DEADLINE_EXCEEDED",
+        "ENGINE_INTERNAL_METHOD",
+        "ENGINE_RESOURCE_EXHAUSTED",
+        "ENGINE_UNAVAILABLE",
+        "IDEMPOTENCY_CONFLICT",
+        "INTERNAL",
+        "INVALID_ARGUMENT",
+        "METHOD_NOT_YET_SERVED",
+        "NODE_MISMATCH",
+        "OPERATION_REDIRECTED",
+        "POLICY_NATIVE_AUTHORITY_REQUIRED",
+        "READ_ONLY",
+        "REDIRECTED",
+        "STALE_OUTBOX_LEASE",
+        "STALE_ROUTE",
+        "TIMEOUT"
+      ],
+      "format_identities": [
+        "RBAC_SCOPE_INCARNATION",
+        "CONSENSUS_TRANSACTION_SCHEMA_VERSION"
+      ],
+      "id": "GovernedChange",
+      "is_wire_callable": true,
+      "note": "EH-560 governed changes, runtime-conditional: get/list are reads (governance:read); propose needs the kind's EXACT proposer scope, approve the kind's EXACT approver scope from a direct principal sharing no identity with the proposer, bound to the exact candidate digest; consumption is engine-internal and single-use; every transition is hash-chain audited in the ledger that shares the rbac.redb policy WTX; generic IssueControlLease refuses the governed. prefix",
+      "policy": {
+        "audited": true,
+        "authz_action": "governance:propose",
+        "durability_domain": "ControlRedb",
+        "emits_cdc": false,
+        "idempotent": false,
+        "mutates": true,
+        "txn_participation": "Atomic"
+      },
+      "replay_class": "OperationIdentity",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/GovernedChange"
+      },
+      "result_schema": {
+        "bodies": {
+          "approve": {
+            "dynamic": null,
+            "encoding": "Json"
+          },
+          "get": {
+            "dynamic": null,
+            "encoding": "Json"
+          },
+          "list": {
+            "dynamic": null,
+            "encoding": "Json"
+          },
+          "propose": {
+            "dynamic": null,
+            "encoding": "Json"
+          },
+          "revoke": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.security.json#/methods/GovernedChange",
+        "selected_by": "op"
       },
       "stability": "stable"
     },
