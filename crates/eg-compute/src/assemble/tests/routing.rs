@@ -181,6 +181,7 @@ fn every_routing_item_answers_inside_its_acceptability_set() {
     }
 }
 
+// spec: EG-DECISION-ENGINE-R048
 #[test]
 fn a_solved_record_carries_premises_derivations_and_a_claim_class() {
     let assembly = assemble(

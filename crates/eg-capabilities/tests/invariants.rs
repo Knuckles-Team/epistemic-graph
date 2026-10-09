@@ -254,6 +254,7 @@ fn runtime_conditional_policy_uses_query_mode_and_modality_operation() {
 /// Table-driven rather than ten near-identical tests: ten copies of the same
 /// three assertions are ten structural clones, and a table makes the ROW the
 /// reviewable thing, which is what actually differs between them.
+// spec: EG-DECISION-ENGINE-R047
 #[test]
 fn contract_wave_rows_declare_their_static_policy() {
     let flags = |mutates, domain, action, txn| MethodPolicy {

@@ -215,6 +215,7 @@ fn a_tampered_chain_is_refused_at_the_step_that_lies() {
     ));
 }
 
+// spec: EG-DECISION-ENGINE-R048
 #[test]
 fn the_weakest_premise_classifies_and_a_definition_never_weakens() {
     assert_eq!(weakest([]), EvidenceClass::Proof);
