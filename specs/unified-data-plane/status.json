@@ -58,7 +58,8 @@
     "EG-UNIFIED-DATA-PLANE-R003.1",
     "EG-UNIFIED-DATA-PLANE-R004.1",
     "EG-UNIFIED-DATA-PLANE-R005.1",
-    "EG-UNIFIED-DATA-PLANE-R006.1"
+    "EG-UNIFIED-DATA-PLANE-R006.1",
+    "EG-UNIFIED-DATA-PLANE-R007.1"
   ],
   "delivery_state": "BUILDING",
   "acceptance_state": "NOT_AUDITED",
@@ -129,7 +130,7 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R007",
       "title": "Federate attached tables as DataFusion table providers",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
       "evidence": []
     },
     {
@@ -429,6 +430,12 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R006.1",
       "title": "PushdownDecision typed fallback-reason model",
+      "delivery_state": "BUILT",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R007.1",
+      "title": "DialectPushdownCapabilities typed operation-set model",
       "delivery_state": "BUILT",
       "evidence": []
     }
