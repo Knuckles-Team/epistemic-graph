@@ -17,8 +17,9 @@ use super::LegacyIntegrityPolicy;
 /// contains the aggregate document, foundation, 31 domain TBoxes (the world model
 /// as its life, environment and nutrition modules), the core governance-shape
 /// slice, the world-model shapes (35 artifacts, EH-364) and the swarm-topology
-/// vocabulary and shapes (37, ST-1) and the finance module and its shapes (39,
-/// EH-411) and the temporal bi-temporal-fact shapes (40, AU-SEMANTIC-R004).
+/// vocabulary and shapes (37, ST-1), the finance module and its shapes (39,
+/// EH-411), the temporal bi-temporal-fact shapes (40, AU-SEMANTIC-R004), and
+/// the virtual-graph vocabulary and shapes (42, EG-UNIFIED-DATA-PLANE-R037).
 /// It is deliberately independent of the dynamic
 /// 32-source tenant quota, and equal to the wire bound
 /// `eg_types::graph_schema::MAX_CORE_GRAPH_SCHEMA_SOURCES`.
@@ -804,6 +805,18 @@ fn core_specs() -> &'static [CoreSpec] {
             shapes: Some(include_str!("../../ontology/temporal-v1.shapes.ttl")),
             ontology: None,
         },
+        CoreSpec {
+            module: "virtual-graph",
+            version: 1,
+            shapes: None,
+            ontology: Some(include_str!("../../ontology/virtual_graph-v1.ttl")),
+        },
+        CoreSpec {
+            module: "virtual-graph-shapes",
+            version: 1,
+            shapes: Some(include_str!("../../ontology/virtual_graph-v1.shapes.ttl")),
+            ontology: None,
+        },
     ];
     SPECS
 }
@@ -878,7 +891,7 @@ mod tests {
     fn core_catalog_has_one_version_per_module_and_is_outside_dynamic_quota() {
         let sources = GraphSchemaSources::default();
         sources.validate().unwrap();
-        assert_eq!(sources.core.len(), 40);
+        assert_eq!(sources.core.len(), 42);
         assert!(sources.dynamic.is_empty());
         assert!(sources.core.keys().all(|id| id.starts_with("core:")));
     }

@@ -194,6 +194,7 @@ pub(crate) const ACCESS_RS_COVERAGE_GAP: &[(&str, &str, &str)] = &[
     ("RaftChangeMembership", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely (self-routes in dispatch.rs before dispatch_graph_op, like Reshard/CatalogAssign)"),
     ("RbacAdmin", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     ("RbacElevation", "UNASSIGNED", "EH-404: an RBAC policy write in rbac.redb, not a graph write; like RbacAdmin it is absent from access.rs::requires_write, and its request/approve/revoke authority is the op's own action plus the ledger's two-person rule"),
+    ("GovernedChange", "UNASSIGNED", "EH-560: a governed-change ledger write in rbac.redb, not a graph write; like RbacElevation it is absent from access.rs::requires_write, and its authority is the kind's exact proposer/approver scope plus the ledger's two-person rule"),
     ("Identity", "UNASSIGNED", "an identity-store write in the rbac.redb image, not a graph write; like RbacAdmin it is absent from access.rs::requires_write, and its authority is the op's EXACT identity:* scope checked against the boundary-stamped actor"),
     ("RebalanceExecute", "UNASSIGNED", "mutates per policy/semantics, but absent from access.rs::requires_write entirely"),
     // Pre-existing gap (predates the statechart work): `RecomputeMaterialization`

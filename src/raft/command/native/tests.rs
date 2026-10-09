@@ -400,6 +400,13 @@ fn native_catalog_is_complete_unique_and_has_domain_representatives() {
         NativeMutationDomain::Identity,
     );
     assert_native_round_trip(
+        Method::GovernedChange {
+            op: eg_types::governed_change::GovernedChangeOp::List,
+            actor: None,
+        },
+        NativeMutationDomain::Identity,
+    );
+    assert_native_round_trip(
         Method::Restore {
             source: "backup".to_string(),
             target_shards: 1,

@@ -17,6 +17,8 @@ mod generators;
 mod model_validation;
 #[path = "solve/planted.rs"]
 mod planted;
+#[path = "solve/statistical_feature_set.rs"]
+mod statistical_feature_set;
 #[path = "solve/support.rs"]
 mod support;
 #[path = "solve/tamper_proof.rs"]

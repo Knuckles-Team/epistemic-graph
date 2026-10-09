@@ -5,7 +5,7 @@
 //! projection conforms under the COMPOSED shapes (the shapes-omitted
 //! `ShaclValidate` path) and each planted defect is flagged.
 
-use super::compose::validate_and_compose;
+use super::test_support::conforms;
 use crate::graph::GraphSchemaSources;
 
 const SWARM_SOURCE: &str = "core:swarm-topology@1";
@@ -29,14 +29,6 @@ fn projection(fan_nodes: &str, worker_widths: (u8, u8), stop: &str, resource: &s
 
 const FAN: &str = " ; swarm:nodeKind \"fanout\", \"join\"";
 const MAX_ROUNDS: &str = "swarm:MaxRoundsStop ; swarm:n 1";
-
-fn conforms(data: &str) -> bool {
-    let composed = validate_and_compose(&GraphSchemaSources::default()).unwrap();
-    let data = eg_shacl::graph_from_turtle(data).unwrap();
-    eg_shacl::validate(&composed.shapes, &data)
-        .unwrap()
-        .conforms
-}
 
 #[test]
 fn the_swarm_vocabulary_and_shapes_are_core_sources() {
@@ -99,4 +91,76 @@ fn each_planted_template_defect_is_flagged() {
     for (name, data) in plants {
         assert!(!conforms(&data), "{name} must not conform");
     }
+}
+
+/// A template for a non-fan-out, non-peer-team shape: one or more slots
+/// whose roles are never `Child` (that role's SPARQL check is scoped to any
+/// slot with that role, not only `FanOutJoin`) and never trigger the
+/// peer-team round check (`PeerTeam`, `Debate`, `Council`, `CritiqueLoop`).
+fn plain_projection(class: &str, slots: &[(&str, &str)], stop: &str) -> String {
+    let slot_iris: Vec<String> = (0..slots.len()).map(|i| format!("<urn:s{i}>")).collect();
+    let mut data = format!(
+        "@prefix swarm: <http://knuckles.team/kg/swarm#> .\n\
+         <urn:t> a swarm:TopologyTemplate ; swarm:class swarm:{class} ;\n\
+           swarm:hasSlot {} ; swarm:hasStopRule <urn:stop> .\n",
+        slot_iris.join(", ")
+    );
+    for (i, (role, node_id)) in slots.iter().enumerate() {
+        data += &format!(
+            "<urn:s{i}> a swarm:Slot ; swarm:nodeId \"{node_id}\" ; swarm:role swarm:{role} ;\n\
+               swarm:minWidth 1 ; swarm:maxWidth 1 ; swarm:maxRounds 1 .\n"
+        );
+    }
+    data += &format!("<urn:stop> a swarm:StopRule, {stop} .\n");
+    data
+}
+
+/// A peer-team template (`Council`, `CritiqueLoop`): `Peer` slots, plus a
+/// `Verifier` slot when the stop rule is `VerifierPassStop`.
+fn peer_projection(class: &str, peers: u8, with_verifier: bool, stop: &str) -> String {
+    let mut slots: Vec<(&str, &str)> = (0..peers).map(|_| ("Peer", "peer")).collect();
+    if with_verifier {
+        slots.push(("Verifier", "verifier"));
+    }
+    plain_projection(class, &slots, stop)
+}
+
+#[test]
+fn every_standard_shape_has_a_conforming_template() {
+    // EG-DECISION-ENGINE-R106: the standard agent arrangement shapes --
+    // single-agent, pipeline, fan-out/join, supervisor-to-workers,
+    // critique-loop and council -- each validate against the swarm-topology
+    // SHACL shapes with a minimal, otherwise-unremarkable template.
+    let single = plain_projection("Single", &[("Parent", "solo")], MAX_ROUNDS);
+    assert!(conforms(&single), "Single must conform");
+
+    let pipeline = plain_projection(
+        "Pipeline",
+        &[("Parent", "stage1"), ("Aggregator", "stage2")],
+        MAX_ROUNDS,
+    );
+    assert!(conforms(&pipeline), "Pipeline must conform");
+
+    assert!(
+        conforms(&projection(FAN, (1, 4), MAX_ROUNDS, "gpu")),
+        "FanOutJoin must conform"
+    );
+
+    let supervisor_workers = plain_projection(
+        "SupervisorWorkers",
+        &[("Parent", "supervisor"), ("Peer", "worker")],
+        MAX_ROUNDS,
+    );
+    assert!(conforms(&supervisor_workers), "SupervisorWorkers must conform");
+
+    let critique_loop = peer_projection("CritiqueLoop", 1, true, "swarm:VerifierPassStop");
+    assert!(conforms(&critique_loop), "CritiqueLoop must conform");
+
+    let council = peer_projection(
+        "Council",
+        3,
+        false,
+        "swarm:QuorumStop ; swarm:k 2 ; swarm:n 3",
+    );
+    assert!(conforms(&council), "Council must conform");
 }

@@ -59,7 +59,7 @@
     {
       "id": "EG-IDENTITY-R004",
       "title": "Generated scope registry classifies every capability scope",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -67,14 +67,29 @@
           "commit": "5ad487bf2efcd2f1e4559453c9277637bfdde04b",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/5ad487bf2efcd2f1e4559453c9277637bfdde04b",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "a2cbfc473ba296f412cffdddf04afa5c79d67b58",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/a2cbfc473ba296f412cffdddf04afa5c79d67b58",
+          "description": "EG-IDENTITY-R004 merged to the default branch in this commit."
         }
       ]
     },
     {
       "id": "EG-IDENTITY-R005",
       "title": "Semantic workers use one identity across queue classes",
-      "delivery_state": "SPECIFIED",
-      "evidence": [],
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "62bec8a1ae9459629b435a6b05ffd9dffd48f7e3",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/62bec8a1ae9459629b435a6b05ffd9dffd48f7e3",
+          "description": "EG-IDENTITY-R005 merged to the default branch in this commit."
+        }
+      ],
       "remaining": "src/server/handlers/semantic_index/worker.rs dispatches StageClaim/StageStatus/etc. (different queue classes) all reading ctx.authority.agent_id() from one authenticated request context, which structurally supports a single identity per request, but no integration test was found confirming the SAME \u2026"
     },
     {

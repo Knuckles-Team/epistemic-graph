@@ -65,6 +65,10 @@ fn finance_is_a_core_module_within_the_catalog_bound_and_the_corpus_stays_cohere
         ("MacroEvent", "0000015"),
         ("TradingStrategy", "0000015"),
         ("TradingDebate", "0000015"),
+        ("Account", "0000031"),
+        ("Position", "0000031"),
+        ("Activity", "0000031"),
+        ("Lot", "0000031"),
     ];
     for (class, category) in placed {
         assert!(
@@ -79,7 +83,7 @@ fn finance_is_a_core_module_within_the_catalog_bound_and_the_corpus_stays_cohere
 fn every_finance_class_is_mapped_and_nothing_external_is_imported() {
     let triples = eg_rdf::mapping::parse_turtle(FINANCE).unwrap();
     let declared = declared_classes(&triples);
-    assert_eq!(declared.len(), 18);
+    assert_eq!(declared.len(), 22);
     let unmapped = unmapped_classes(&triples);
     assert!(unmapped.is_empty(), "unmapped classes {unmapped:?}");
     let imports: BTreeSet<&str> = triples
@@ -196,6 +200,10 @@ fn finance_shapes_are_their_own_document() {
             "TrendFlip",
             "MacroEvent",
             "AnalysisSnapshot",
+            "Account",
+            "Position",
+            "Activity",
+            "Lot",
         ],
     );
 }
@@ -231,7 +239,16 @@ mod shapes {
                :flipEffectiveAt \"2026-09-24T00:00:00Z\"^^xsd:dateTime ; :flipEventId \"{HASH}\" .\n\
              ex:m a :MacroEvent ; :policyAction \"hold\" ; \
                :announcedAt \"2026-09-17T18:00:00Z\"^^xsd:dateTime .\n\
-             ex:a a :AnalysisSnapshot ; :analysisOf ex:l ; :analysisDigest \"{HASH}\" ."
+             ex:a a :AnalysisSnapshot ; :analysisOf ex:l ; :analysisDigest \"{HASH}\" .\n\
+             ex:acc a :Account ; :accountId \"acc-1\" ; :baseCurrency \"USD\" ; \
+               :accountKind \"taxable\" .\n\
+             ex:pos a :Position ; :positionAccount ex:acc ; :positionInstrument ex:btc ; \
+               :positionQuantity \"1.5\"^^xsd:decimal ; :costBasisMethod \"fifo\" .\n\
+             ex:act a :Activity ; :activityPosition ex:pos ; :activityKind \"buy\" ; \
+               :activityQuantity \"1.5\"^^xsd:decimal ; \
+               :activityTradeDate \"2026-09-24T00:00:00Z\"^^xsd:dateTime .\n\
+             ex:lot a :Lot ; :lotPosition ex:pos ; :lotOpenedBy ex:act ; \
+               :lotQuantity \"1.5\"^^xsd:decimal ; :lotUnitCostBasis \"42000.00\"^^xsd:decimal ."
         );
         assert!(conforms(&data));
     }
@@ -253,9 +270,48 @@ mod shapes {
             "ex:a a :AnalysisSnapshot ; :analysisOf ex:l ; :analysisDigest \"sha1:00\" .",
             "ex:btc a :FinancialInstrument ; :assetClass \"crypto-ish\" .",
             "ex:a a :AnalysisSnapshot ; :analysisDigest \"sha256:0000000000000000000000000000000000000000000000000000000000000000\" .",
+            "ex:acc a :Account ; :baseCurrency \"USD\" .",
+            "ex:acc a :Account ; :accountId \"acc-1\" ; :baseCurrency \"USD\" ; \
+               :accountKind \"checking\" .",
+            "ex:pos a :Position ; :positionInstrument ex:btc ; :positionQuantity \"1.5\"^^xsd:decimal .",
+            "ex:pos a :Position ; :positionAccount ex:acc ; :positionInstrument ex:btc ; \
+               :positionQuantity \"1.5\"^^xsd:decimal ; :costBasisMethod \"lowest_cost\" .",
+            "ex:act a :Activity ; :activityKind \"buy\" ; :activityQuantity \"1.5\"^^xsd:decimal ; \
+               :activityTradeDate \"2026-09-24T00:00:00Z\"^^xsd:dateTime .",
+            "ex:act a :Activity ; :activityPosition ex:pos ; :activityKind \"deposit\" ; \
+               :activityQuantity \"1.5\"^^xsd:decimal ; \
+               :activityTradeDate \"2026-09-24T00:00:00Z\"^^xsd:dateTime .",
+            "ex:lot a :Lot ; :lotOpenedBy ex:act ; :lotQuantity \"1.5\"^^xsd:decimal ; \
+               :lotUnitCostBasis \"42000.00\"^^xsd:decimal .",
         ];
         for data in refused {
             assert!(!conforms(data), "{data}");
         }
+    }
+
+    /// EG-FINANCE-PRIMITIVES-R004: the canonical asset-class vocabulary, plus the
+    /// deprecated migration aliases preserved for `stock`, `forex` and `commodity`.
+    #[test]
+    fn asset_class_vocabulary_accepts_canonical_and_legacy_values() {
+        for class in [
+            "equity",
+            "etf",
+            "fund",
+            "index",
+            "fx_pair",
+            "commodity_spot",
+            "commodity_future",
+            "crypto",
+            "real_estate",
+            "cash",
+            "stock",
+            "forex",
+            "commodity",
+        ] {
+            let data = format!("ex:btc a :FinancialInstrument ; :assetClass \"{class}\" .");
+            assert!(conforms(&data), "{class} should conform");
+        }
+        // Not in the new canonical list, and never named as a preserved alias.
+        assert!(!conforms("ex:btc a :FinancialInstrument ; :assetClass \"bond\" ."));
     }
 }

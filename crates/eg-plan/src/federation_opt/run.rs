@@ -411,6 +411,23 @@ fn fetch_one(
     caps: SourceCapabilities,
     request: &RemoteRequest,
 ) -> Attempt {
+    let cache_scope = session.cache_scope();
+    let cache_name = remote.identity().cache_name.as_deref();
+    if let (Some(scope), Some(name)) = (cache_scope.as_deref(), cache_name) {
+        if let Some(rows) = scope.get(name, &remote.fingerprint(), request) {
+            if let Err(error) = session.with_meter(|meter| {
+                meter.check_wall()?;
+                meter.charge_rows(rows.len())
+            }) {
+                return Attempt::refused(error);
+            }
+            return Attempt {
+                requests: 0,
+                rows: 0,
+                result: Ok(rows),
+            };
+        }
+    }
     if let Err(e) = session.with_meter(|m| m.charge_request()) {
         return Attempt::refused(e);
     }
@@ -425,6 +442,9 @@ fn fetch_one(
     let rows = result.as_ref().map_or(0, RowSet::len);
     let result = result.and_then(|rows| {
         session.with_meter(|m| m.charge_rows(rows.len()))?;
+        if let (Some(scope), Some(name)) = (cache_scope.as_deref(), cache_name) {
+            scope.insert(name, &remote.fingerprint(), request, &rows);
+        }
         Ok(rows)
     });
     Attempt {
@@ -447,4 +467,79 @@ fn source_strategy(limit: Option<usize>, paging: Paging) -> FetchStrategy {
 /// naive read keeps; it is refilled from a full read.
 fn needs_refill(limit: Option<usize>, paging: Paging, rows: &RowSet) -> bool {
     paging == Paging::Single && limit.is_some_and(|k| rows.len() < k)
+}
+
+#[cfg(test)]
+mod cache_tests {
+    use std::collections::HashMap;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    use super::*;
+    use crate::federation_opt::cache::{now_ms, FragmentCacheScope, SourceWatermark};
+    use crate::federation_opt::remote::Identity;
+
+    struct Counted {
+        identity: Identity,
+        calls: AtomicUsize,
+    }
+
+    impl RemoteFetch for Counted {
+        fn capabilities(&self) -> SourceCapabilities {
+            SourceCapabilities::fetch_only()
+        }
+
+        fn identity(&self) -> &Identity {
+            &self.identity
+        }
+
+        fn fetch(&self, _request: &RemoteRequest) -> Result<RowSet, String> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            Ok(RowSet::from_rows(vec![("row".into(), None)]))
+        }
+    }
+
+    #[test]
+    fn served_fragment_reuses_only_fresh_named_owner_scope() {
+        let remote = Counted {
+            identity: Identity {
+                label: "counted:crm".into(),
+                fingerprint: [19; 32],
+                cache_name: Some("crm".into()),
+            },
+            calls: AtomicUsize::new(0),
+        };
+        let scope = |owner: &str, watermark: &str, expiry| {
+            Arc::new(FragmentCacheScope::new(
+                owner.into(),
+                HashMap::from([(
+                    "crm".into(),
+                    SourceWatermark {
+                        watermark: watermark.into(),
+                        valid_through_ms: expiry,
+                    },
+                )]),
+            ))
+        };
+        let session = FederationSession::new(crate::federation_opt::FederationBudget::default());
+        session.set_cache_scope(Some(scope("owner-one", "lsn-1", now_ms() + 30_000)));
+        let request = RemoteRequest::keys(vec!["needle".into()]);
+        let caps = remote.capabilities();
+        let first = fetch_one(&remote, &session, caps, &request);
+        assert_eq!(first.requests, 1);
+        assert!(first.result.is_ok());
+        let hit = fetch_one(&remote, &session, caps, &request);
+        assert_eq!(hit.requests, 0);
+        assert_eq!(remote.calls.load(Ordering::SeqCst), 1);
+
+        session.set_cache_scope(Some(scope("owner-two", "lsn-1", now_ms() + 30_000)));
+        assert_eq!(fetch_one(&remote, &session, caps, &request).requests, 1);
+        session.set_cache_scope(Some(scope("owner-one", "lsn-2", now_ms() + 30_000)));
+        assert_eq!(fetch_one(&remote, &session, caps, &request).requests, 1);
+        session.set_cache_scope(Some(scope("owner-one", "lsn-1", now_ms() - 1)));
+        assert_eq!(fetch_one(&remote, &session, caps, &request).requests, 1);
+        session.set_cache_scope(None);
+        assert_eq!(fetch_one(&remote, &session, caps, &request).requests, 1);
+        assert_eq!(remote.calls.load(Ordering::SeqCst), 5);
+    }
 }
