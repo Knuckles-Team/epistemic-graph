@@ -76,6 +76,19 @@ pub mod pgrx_spike;
 // ahead of an un-exited earlier phase. Pure data; running each phase is a
 // later child.
 pub mod gramps_pilot_phase;
+// EG-UNIFIED-DATA-PLANE-R033.1 — typed Gramps production-cutover go-ahead
+// (pilot phase P6), reusing gramps_pilot_phase's P5 exit and refusing a
+// go-ahead that cites the wrong phase, an invalid P5 exit, no approver, or
+// a fallback window shorter than the required 30 days. Pure data; the real
+// cutover (Postgres replica, nightly export, rehearsed failover) is a
+// later child.
+pub mod gramps_cutover_gate;
+// EG-UNIFIED-DATA-PLANE-R038.1 — typed metadata contract and acceleration
+// policy, refusing a hot-subset predicate declared without source copy
+// capability and falling a missing freshness watermark back to a live
+// read. Pure data; real discovery, the copy pipeline, and EXPLAIN's
+// per-fragment reporting are later children.
+pub mod metadata_acceleration;
 // EG-UNIFIED-DATA-PLANE-R027.1 — typed Postgres compatibility-feature
 // inventory and fix-proof shape, refusing a fix recorded without a complete
 // captured-traffic/failing-test/passing-test proof. Pure data;

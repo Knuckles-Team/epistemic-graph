@@ -115,12 +115,16 @@ Native storage and wire work (EG-DURABLE-KERNEL-R032/EG-DURABLE-KERNEL-R033/EG-D
 - [x] **EG-UNIFIED-DATA-PLANE-R028.1:** `DeviationBaseline`/`PostgresDeviation` typed model plus no-silent-drop refusal (`crates/eg-types/src/pg_diff_baseline.rs`).
 - [ ] **EG-UNIFIED-DATA-PLANE-R028.2:** Run the Postgres regression suite and SQLancer-style generated corpora against EG.
 - [ ] **EG-UNIFIED-DATA-PLANE-R028.3:** Run the captured-application-traffic corpus and publish the harness report.
-- [x] **EG-UNIFIED-DATA-PLANE-R033 / Gramps P6:** Separate explicitly authorized production cutover, replica, independent nightly export and 30-day read-only SQLite fallback; depends on EG-UNIFIED-DATA-PLANE-R026 and every P0–P5 acceptance artifact.
+- [ ] **EG-UNIFIED-DATA-PLANE-R033 (rollup) / Gramps P6:** Separate explicitly authorized production cutover, replica, independent nightly export and 30-day read-only SQLite fallback; depends on EG-UNIFIED-DATA-PLANE-R026 and every P0–P5 acceptance artifact.
+  - [x] **EG-UNIFIED-DATA-PLANE-R033.1:** `GrampsCutoverGoAhead` typed model plus P5-exit/approver/fallback-window refusals (`crates/eg-types/src/gramps_cutover_gate.rs`).
+  - [ ] **EG-UNIFIED-DATA-PLANE-R033.2:** Real production cutover: Postgres replica, nightly independent XML export, and the rehearsed failover test.
 
 ## Virtual graphs
 
 - [x] **EG-UNIFIED-DATA-PLANE-R037:** Ship `core:virtual-graph@1` with SHACL shapes and positive and negative fixtures.
-- [ ] **EG-UNIFIED-DATA-PLANE-R038:** Write a hashed `MetadataContract` for every source kind; add the acceleration policy; prove live reads by default and copy only for declared hot subsets.
+- [ ] **EG-UNIFIED-DATA-PLANE-R038 (rollup):** Write a hashed `MetadataContract` for every source kind; add the acceleration policy; prove live reads by default and copy only for declared hot subsets.
+  - [x] **EG-UNIFIED-DATA-PLANE-R038.1:** `MetadataContract`/`AccelerationPolicy` typed model plus capability refusal and watermark-missing live fallback (`crates/eg-types/src/metadata_acceleration.rs`).
+  - [ ] **EG-UNIFIED-DATA-PLANE-R038.2:** Real per-source-kind discovery writing the contract, the copy pipeline, and EXPLAIN's per-fragment live/copy reporting.
 
 ## Completion record for each row
 

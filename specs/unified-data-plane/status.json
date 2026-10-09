@@ -58,11 +58,13 @@
     "EG-UNIFIED-DATA-PLANE-R032",
     "EG-UNIFIED-DATA-PLANE-R032.1",
     "EG-UNIFIED-DATA-PLANE-R033",
+    "EG-UNIFIED-DATA-PLANE-R033.1",
     "EG-UNIFIED-DATA-PLANE-R034",
     "EG-UNIFIED-DATA-PLANE-R035",
     "EG-UNIFIED-DATA-PLANE-R036",
     "EG-UNIFIED-DATA-PLANE-R037",
     "EG-UNIFIED-DATA-PLANE-R038",
+    "EG-UNIFIED-DATA-PLANE-R038.1",
     "EG-UNIFIED-DATA-PLANE-R010.1",
     "EG-UNIFIED-DATA-PLANE-R008.1",
     "EG-UNIFIED-DATA-PLANE-R003.1",
@@ -754,7 +756,13 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R033",
       "title": "Cut over Gramps to EG-backed storage in production",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R033.1",
+      "title": "GrampsCutoverGoAhead typed model plus P5-exit/approver/fallback-window refusals",
+      "delivery_state": "BUILT",
       "evidence": []
     },
     {
@@ -816,7 +824,13 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R038",
       "title": "Materialize metadata and hot subsets; virtualize the rest",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R038.1",
+      "title": "MetadataContract/AccelerationPolicy typed model plus capability refusal and watermark-missing live fallback",
+      "delivery_state": "BUILT",
       "evidence": []
     },
     {
