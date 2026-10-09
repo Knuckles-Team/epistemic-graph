@@ -58,6 +58,10 @@ pub mod decision;
 // beside the server registry, and the typed projection that joins them with
 // connector-pack `AgentComponent`s. Pure serde; the handler lives in the server.
 pub mod fleet_catalog;
+// EG-DURABLE-KERNEL-R040 — pipelined RESP/pgwire-extended batch admission:
+// one admission maps to exactly one commit with order-preserving replies.
+// Pure serde, no dep.
+pub mod pipeline_batch;
 // EH-346/EH-347 — capture-first open-weight policy evolution: the capability,
 // capture, model-policy version, training-run and evaluation records EG owns.
 // Pure serde; EG records and relates, it never trains.

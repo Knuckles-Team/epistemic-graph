@@ -72,7 +72,8 @@
     "EG-DURABLE-KERNEL-R067",
     "EG-DURABLE-KERNEL-R068",
     "EG-DURABLE-KERNEL-R069",
-    "EG-DURABLE-KERNEL-R070"
+    "EG-DURABLE-KERNEL-R070",
+    "EG-DURABLE-KERNEL-R040.1"
   ],
   "delivery_state": "BUILDING",
   "acceptance_state": "NOT_AUDITED",
@@ -549,7 +550,13 @@
     {
       "id": "EG-DURABLE-KERNEL-R040",
       "title": "Pipelined requests commit as a single batch",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R040.1",
+      "title": "PipelineBatch/BatchCommitDecision typed model: one admission per batch, order-preserving replies, empty-batch refusal",
+      "delivery_state": "BUILT",
       "evidence": []
     },
     {
