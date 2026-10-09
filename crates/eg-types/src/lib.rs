@@ -50,6 +50,11 @@ pub mod contract;
 // results and the durable import record. Pure serde; the importer and its
 // validation rules live in the server.
 pub mod connector_pack;
+// EG-TYPED-PACKS-R097.1 — one typed, versioned domain vocabulary (classes,
+// enumerations, properties, alignment to an upper ontology), published through
+// the pack import boundary above `connector_pack`. Pure data; validation lives
+// here, import wiring lands in a later child requirement.
+pub mod domain_pack;
 // RF-ADR-010 — the Decide layer's wire contract: assembly requests and records,
 // the decision policy, the statistical surface and the two admin jobs. Pure
 // data; every algorithm lives above this crate.
