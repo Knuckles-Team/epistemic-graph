@@ -1,5 +1,5 @@
-use super::*;
 use super::core_helpers::blob_relation_type;
+use super::*;
 
 impl GraphCore {
     // ── Edge CRUD (one-shot convenience over `txn`) ──────────────────────

@@ -1,5 +1,5 @@
-use super::*;
 use super::core_helpers::blob_relation_type;
+use super::*;
 
 impl<'a> GraphTxn<'a> {
     // ── Edge CRUD (under the held topology write guard) ──────────────────
@@ -57,9 +57,9 @@ impl<'a> GraphTxn<'a> {
     ) -> Result<(), String> {
         let mut val =
             decode_property_value(&properties_msgpack).unwrap_or_else(|_| serde_json::json!({}));
-        let obj = val
-            .as_object_mut()
-            .ok_or_else(|| "INVALID_ARGUMENT: typed edge properties must be an object".to_string())?;
+        let obj = val.as_object_mut().ok_or_else(|| {
+            "INVALID_ARGUMENT: typed edge properties must be an object".to_string()
+        })?;
         obj.insert("relationship".into(), serde_json::json!(relation_type));
         let reenc = rmp_serde::to_vec_named(&val)
             .map_err(|e| format!("INTERNAL: failed to encode typed edge properties: {e}"))?;
