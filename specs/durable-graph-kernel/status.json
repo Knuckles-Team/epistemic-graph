@@ -83,7 +83,9 @@
     "EG-DURABLE-KERNEL-R070",
     "EG-DURABLE-KERNEL-R024.2",
     "EG-DURABLE-KERNEL-R024.2.1",
-    "EG-DURABLE-KERNEL-R024.2.2"
+    "EG-DURABLE-KERNEL-R024.2.2",
+    "EG-DURABLE-KERNEL-R037.1",
+    "EG-DURABLE-KERNEL-R037.2"
   ],
   "delivery_state": "BUILDING",
   "acceptance_state": "NOT_AUDITED",
@@ -164,7 +166,7 @@
           "description": "Implementation merged to the default branch; the commit names this requirement."
         }
       ],
-      "remaining": "Lazy-open structure is real: ServerState.agent_library starts None and is opened only via ensure_agent_library() on first use (never touched in main.rs/server_startup.rs), but no test on main forces agent_library.redb to fail opening and asserts the engine still starts and serves unrelated \u2026"
+      "remaining": "Lazy-open structure is real: ServerState.agent_library starts None and is opened only via ensure_agent_library() on first use (never touched in main.rs/server_startup.rs), but no test on main forces agent_library.redb to fail opening and asserts the engine still starts and serves unrelated …"
     },
     {
       "id": "EG-DURABLE-KERNEL-R007",
@@ -419,8 +421,8 @@
     },
     {
       "id": "EG-DURABLE-KERNEL-R024.2",
-      "title": "Fan-out backend becomes a ForeignSourceSpec source",
-      "delivery_state": "SPECIFIED",
+      "title": "Fan-out backend becomes a MirrorTargetSpec federation mirror target",
+      "delivery_state": "BUILDING",
       "evidence": []
     },
     {
@@ -598,7 +600,7 @@
     {
       "id": "EG-DURABLE-KERNEL-R037",
       "title": "Workload classifier routes point operations around the SQL planner",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
       "evidence": []
     },
     {
@@ -1053,12 +1055,6 @@
       ]
     },
     {
-      "id": "EG-DURABLE-KERNEL-R024.2",
-      "title": "Fan-out backend becomes a MirrorTargetSpec federation mirror target",
-      "delivery_state": "BUILDING",
-      "evidence": []
-    },
-    {
       "id": "EG-DURABLE-KERNEL-R024.2.1",
       "title": "MirrorTargetSpec::FanOut typed spec, validation, and registration refusal",
       "delivery_state": "BUILT",
@@ -1067,6 +1063,18 @@
     {
       "id": "EG-DURABLE-KERNEL-R024.2.2",
       "title": "MirrorTargetRegistry registration and name-resolution entry point",
+      "delivery_state": "BUILT",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R037.1",
+      "title": "WorkloadClass typed classifier with refusal for an unrecognized operation kind",
+      "delivery_state": "BUILT",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R037.2",
+      "title": "route dispatch entry point deciding DataFusion session allocation",
       "delivery_state": "BUILT",
       "evidence": []
     }
