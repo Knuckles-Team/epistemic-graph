@@ -15,9 +15,9 @@ use super::{column_eq_literal, scalar_to_key, IndexKey};
 /// dedicated 2-column classifier is the simplest correct fit — not a second
 /// generic [`PushdownRegistry`] instance.
 #[derive(Debug, Default, Clone)]
-struct EdgeEquality {
-    src: Option<String>,
-    dst: Option<String>,
+pub(super) struct EdgeEquality {
+    pub(super) src: Option<String>,
+    pub(super) dst: Option<String>,
 }
 
 impl EdgeEquality {
@@ -26,7 +26,7 @@ impl EdgeEquality {
     /// holding is enough to narrow; [`EdgesTableProvider::scan`] still returns
     /// `Inexact`, so a redundant/contradictory second equality on the same column
     /// is re-checked correctly by the Filter DataFusion keeps above the scan).
-    fn from_filters(filters: &[Expr]) -> Self {
+    pub(super) fn from_filters(filters: &[Expr]) -> Self {
         let mut eq = Self::default();
         for f in filters {
             let Some((col, val)) = edge_column_eq(f) else {
@@ -57,7 +57,7 @@ impl EdgeEquality {
 /// equality is carried entirely by the ordinary Filter DataFusion keeps above the
 /// scan (see `EdgesTableProvider::supports_filters_pushdown`'s doc for the
 /// `Inexact`-vs-`Unsupported` classification this mirrors).
-fn edge_column_eq(expr: &Expr) -> Option<(String, IndexKey)> {
+pub(super) fn edge_column_eq(expr: &Expr) -> Option<(String, IndexKey)> {
     let (col, lit) = column_eq_literal(expr)?;
     if !matches!(col.name.as_str(), "src" | "dst") {
         return None;
