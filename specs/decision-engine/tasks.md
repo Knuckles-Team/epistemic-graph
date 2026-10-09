@@ -50,6 +50,8 @@
 
 - [x] D16 **EG-DECISION-ENGINE-R078 split (2026-10-09):** `feature_profile()` in `crates/eg-capabilities/src/contract.rs` never named the `decide` feature, so a reissued contract freeze would silently omit it; `package_surface_is_complete_identical_and_receipt_bound` would fail under `--all-features` against the committed artifacts, which an authorized generation ceremony must resolve. Split into **EG-DECISION-ENGINE-R078.1** (typed `MissingFrozenFeature`/`require_feature_frozen` refusal, plus the `decide` entry, producer) and **EG-DECISION-ENGINE-R078.2** (reissue `contract/FREEZE-RECEIPT.json` and `contract/receipt.json`, consumer, blocked on R078.1).
 
+- [x] D16 **EG-DECISION-ENGINE-R079.1 (producer slice of R079):** Add the typed `ContentClass` taxonomy (prose/document/comment eligible; generated/lockfile/vendored/minified excluded) and its pure `admits()` gate (`crates/eg-types/src/decision/ingestion_admission.rs`). No real ingestion call site, embedding client, cheaper-index skip, entropy/hash dedup, size bound, SQL-column cardinality rule, or retrieval-telemetry feedback is wired yet -- those remain open under `EG-DECISION-ENGINE-R079` as later `.2`/`.3`+ slices.
+
 ## Evidence format
 
 For each stable ID, record: `ID | sequence | delivery | acceptance | main SHA | tests/workflow | reviewed date | notes`. Until a row has an exact commit and passing required tests, use `WAITING / NOT_RUN`, `IN_PROGRESS / PARTIAL`, or `SOURCE_LANDED / PARTIAL` as observed; do not infer acceptance from a sequence label. `RETIRED` requires the superseding contract and removal test. Keep evidence records in this repository alongside the spec so external contributors can audit them.
