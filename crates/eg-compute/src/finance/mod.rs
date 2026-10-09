@@ -14,6 +14,7 @@ pub mod derivatives;
 pub mod exchange;
 pub mod forensic;
 pub mod lot_accounting;
+pub mod leverage;
 pub mod market;
 pub mod optimizer;
 pub mod quant;

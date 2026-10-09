@@ -27,6 +27,7 @@ Tasks are ordered by dependency. Check a task only when its code, tests and exac
 - [ ] **F-07 · EG-FINANCE-PRIMITIVES-R009:** Implement calibration/abstention and outcome scorecard; seal source-citing informational snapshots.
 - [ ] **F-07.1 · EG-FINANCE-PRIMITIVES-R009.1:** Map a calibrated flip-confidence outcome to accumulate/hold/de-risk/abstain, citing strategy version and evidence. Scorecards and AnalysisSnapshot sealing remain under F-07.
 - [ ] **F-08 · EG-FINANCE-PRIMITIVES-R010:** Add policy-versioned leverage terms and scenario kernels; prove paper default and no implicit live eligibility.
+- [ ] **F-08.1 · EG-FINANCE-PRIMITIVES-R010.1:** Implement the live-order eligibility boundary (per-instrument policy, designated approver, paper default, US-retail CFD refusal). Margin-call/liquidation/sizing scenario kernels remain under F-08.
 - [ ] **F-09 · EG-FINANCE-PRIMITIVES-R011:** Add stable finance event envelopes and transactional outbox append, preserving existing flip IDs.
 - [ ] **F-10 · EG-FINANCE-PRIMITIVES-R012:** Implement optional read-only attached-source mapping with dedupe, corrections and schema-drift quarantine using disposable fixtures.
 - [ ] **F-11 · EG-FINANCE-PRIMITIVES-R013:** Add independent statement, corporate-action, DST/session, daily-reset and futures-roll goldens plus property tests; record provenance for each vector.
@@ -69,6 +70,7 @@ Requirement IDs not covered by any task above before this line: none remain — 
 | EG-FINANCE-PRIMITIVES-R009 | — | — | NOT_RUN |
 | EG-FINANCE-PRIMITIVES-R009.1 | — | — | NOT_RUN |
 | EG-FINANCE-PRIMITIVES-R010 | — | — | NOT_RUN |
+| EG-FINANCE-PRIMITIVES-R010.1 | — | — | NOT_RUN |
 | EG-FINANCE-PRIMITIVES-R011 | — | — | NOT_RUN |
 | EG-FINANCE-PRIMITIVES-R012 | — | — | NOT_RUN |
 | EG-FINANCE-PRIMITIVES-R013 | — | — | NOT_RUN |
