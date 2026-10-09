@@ -72,6 +72,9 @@ pub mod embedding;
 // CONCEPT:EG-KG.compute.uncertainty-values — probabilistic / uncertainty VALUE (distribution-valued
 // properties). A stored value at the bottom of the DAG, NOT a wire `Op`.
 pub mod distribution;
+// EG-DURABLE-KERNEL-R036 — the mirror-sink side: sink kind (fan-out/postgres)
+// and durable per-mirror cursor with a non-empty-position guard. Pure serde, no dep.
+pub mod mirror_sink;
 // CONCEPT:EG-KG.compute.epistemic-operations-protocol — strict shared DTOs for
 // RequestContext, mutation/ingestion, work, artifact, query, job, and trace outcomes.
 pub mod epistemic_operations;

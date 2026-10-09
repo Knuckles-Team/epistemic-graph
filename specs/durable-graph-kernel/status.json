@@ -72,7 +72,8 @@
     "EG-DURABLE-KERNEL-R067",
     "EG-DURABLE-KERNEL-R068",
     "EG-DURABLE-KERNEL-R069",
-    "EG-DURABLE-KERNEL-R070"
+    "EG-DURABLE-KERNEL-R070",
+    "EG-DURABLE-KERNEL-R036.1"
   ],
   "delivery_state": "BUILDING",
   "acceptance_state": "NOT_AUDITED",
@@ -525,7 +526,13 @@
     {
       "id": "EG-DURABLE-KERNEL-R036",
       "title": "Mirror sinks reach fan-out parity and include Postgres table mirroring",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R036.1",
+      "title": "MirrorSinkKind/MirrorCursor typed model with non-empty-position guard on construction and advance",
+      "delivery_state": "BUILT",
       "evidence": []
     },
     {
