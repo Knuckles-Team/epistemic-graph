@@ -399,6 +399,7 @@ mod tests {
             }
         }
 
+        // spec: EG-UNIFIED-DATA-PLANE-R002.1
         #[test]
         fn a_disallowed_sql_destination_is_refused_and_never_persisted() {
             let a = carrier("agent-a");
@@ -420,6 +421,7 @@ mod tests {
             );
         }
 
+        // spec: EG-UNIFIED-DATA-PLANE-R002.1
         #[test]
         fn an_allowed_sql_destination_still_registers() {
             let a = carrier("agent-a");

@@ -89,11 +89,13 @@ mod tests {
         }
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R012.1
     #[test]
     fn fully_approved_idempotent_app_api_write_is_accepted() {
         assert!(approved_request().validate().is_ok());
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R012.1
     #[test]
     fn write_without_approval_is_refused() {
         let mut request = approved_request();
@@ -104,6 +106,7 @@ mod tests {
         );
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R012.1
     #[test]
     fn write_without_audit_reservation_is_refused() {
         let mut request = approved_request();
@@ -114,6 +117,7 @@ mod tests {
         );
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R012.1
     #[test]
     fn write_without_idempotency_key_is_refused() {
         let mut request = approved_request();
@@ -124,6 +128,7 @@ mod tests {
         );
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R012.1
     #[test]
     fn direct_write_to_a_source_with_its_own_business_logic_is_refused() {
         let mut request = approved_request();
@@ -134,6 +139,7 @@ mod tests {
         );
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R012.1
     #[test]
     fn direct_write_to_a_source_without_business_logic_is_accepted() {
         let mut request = approved_request();

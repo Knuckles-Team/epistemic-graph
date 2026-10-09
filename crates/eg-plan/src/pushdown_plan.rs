@@ -67,6 +67,7 @@ impl PushdownDecision {
 mod tests {
     use super::*;
 
+    // spec: EG-UNIFIED-DATA-PLANE-R006.1
     #[test]
     fn a_pushed_down_decision_with_no_fallback_validates() {
         let decision = PushdownDecision {
@@ -76,6 +77,7 @@ mod tests {
         decision.validate().unwrap();
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R006.1
     #[test]
     fn a_fallback_decision_validates() {
         let decision = PushdownDecision {
@@ -85,6 +87,7 @@ mod tests {
         decision.validate().unwrap();
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R006.1
     #[test]
     fn a_contradictory_decision_is_refused() {
         let decision = PushdownDecision {

@@ -57,11 +57,13 @@ mod tests {
         }
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R009.1
     #[test]
     fn a_named_checkpoint_validates() {
         checkpoint(0).validate().unwrap();
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R009.1
     #[test]
     fn an_empty_consumer_id_is_refused() {
         let mut bad = checkpoint(0);
@@ -69,6 +71,7 @@ mod tests {
         assert_eq!(bad.validate().unwrap_err(), EmptyConsumerId);
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R009.1
     #[test]
     fn a_strictly_newer_position_applies() {
         let mut cp = checkpoint(10);
@@ -76,6 +79,7 @@ mod tests {
         assert_eq!(cp.position, 11);
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R009.1
     #[test]
     fn replaying_the_same_position_is_an_idempotent_no_op() {
         let mut cp = checkpoint(10);

@@ -68,6 +68,7 @@ impl DialectPushdownCapabilities {
 mod tests {
     use super::*;
 
+    // spec: EG-UNIFIED-DATA-PLANE-R007.1
     #[test]
     fn all_five_names_parse() {
         for (name, op) in [
@@ -81,12 +82,14 @@ mod tests {
         }
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R007.1
     #[test]
     fn an_unknown_name_is_refused() {
         let err = PushdownOperation::parse("explode").unwrap_err();
         assert!(err.to_string().contains("not a known pushdown operation"));
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R007.1
     #[test]
     fn declaring_all_valid_names_succeeds() {
         let caps = DialectPushdownCapabilities::declare(&[
@@ -100,6 +103,7 @@ mod tests {
         assert_eq!(caps.supported.len(), 5);
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R007.1
     #[test]
     fn declaring_one_bad_name_refuses_the_whole_set() {
         let err = DialectPushdownCapabilities::declare(&["projection", "explode"]).unwrap_err();

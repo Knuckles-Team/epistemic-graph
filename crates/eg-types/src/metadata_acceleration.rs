@@ -118,11 +118,13 @@ mod tests {
         }
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R038.1
     #[test]
     fn well_formed_contract_validates() {
         assert_eq!(validate_contract(&contract()), Ok(()));
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R038.1
     #[test]
     fn contract_with_empty_source_kind_is_refused() {
         let mut bad = contract();
@@ -130,6 +132,7 @@ mod tests {
         assert!(validate_contract(&bad).is_err());
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R038.1
     #[test]
     fn fully_declared_policy_resolves_to_copy() {
         let p = policy(
@@ -141,18 +144,21 @@ mod tests {
         assert_eq!(p.resolve_mode(), FragmentExecutionMode::Copy);
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R038.1
     #[test]
     fn missing_watermark_falls_back_to_live() {
         let p = policy(true, "updated_at > now() - interval '1 day'", None);
         assert_eq!(p.resolve_mode(), FragmentExecutionMode::Live);
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R038.1
     #[test]
     fn cold_mapping_with_no_predicate_is_live() {
         let p = policy(true, "", None);
         assert_eq!(p.resolve_mode(), FragmentExecutionMode::Live);
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R038.1
     #[test]
     fn predicate_without_copy_capability_is_refused() {
         let p = policy(

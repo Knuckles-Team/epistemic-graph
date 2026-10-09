@@ -49,6 +49,7 @@ fn well_formed() -> String {
     fixture(SOURCE_KIND, NO_EXTRA, ENTITY, KEY_FIELD, PAIR_FIELD)
 }
 
+// spec: EG-UNIFIED-DATA-PLANE-R037
 #[test]
 fn the_virtual_graph_vocabulary_and_shapes_are_core_sources() {
     let sources = GraphSchemaSources::default();
@@ -70,11 +71,13 @@ fn the_virtual_graph_vocabulary_and_shapes_are_core_sources() {
         .is_some_and(|d| d.contains("VirtualMappingShape")));
 }
 
+// spec: EG-UNIFIED-DATA-PLANE-R037
 #[test]
 fn a_well_formed_connection_contract_and_approved_mapping_conforms() {
     assert!(conforms(&well_formed()));
 }
 
+// spec: EG-UNIFIED-DATA-PLANE-R037
 #[test]
 fn each_planted_defect_is_flagged() {
     let plants = [
