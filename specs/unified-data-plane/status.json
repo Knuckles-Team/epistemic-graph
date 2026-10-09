@@ -42,6 +42,7 @@
     "EG-UNIFIED-DATA-PLANE-R028",
     "EG-UNIFIED-DATA-PLANE-R028.1",
     "EG-UNIFIED-DATA-PLANE-R029",
+    "EG-UNIFIED-DATA-PLANE-R029.1",
     "EG-UNIFIED-DATA-PLANE-R030",
     "EG-UNIFIED-DATA-PLANE-R031",
     "EG-UNIFIED-DATA-PLANE-R032",
@@ -303,7 +304,13 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R029",
       "title": "Expose a schema_context query surface",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R029.1",
+      "title": "SchemaContextCatalog typed model and unknown-table refusal",
+      "delivery_state": "BUILT",
       "evidence": []
     },
     {
