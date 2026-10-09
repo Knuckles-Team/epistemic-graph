@@ -1389,6 +1389,12 @@
     },
     {
       "class": "decision",
+      "code": "UNSUPPORTED_ENRICHMENT_COST",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "decision",
       "code": "UNSUPPORTED_INGESTION_LANE",
       "http_status_hint": 400,
       "retryable": false

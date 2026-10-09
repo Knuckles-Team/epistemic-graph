@@ -1,7 +1,7 @@
 {
   "contract_version": 1,
   "generator": "eg-capabilities/gen_contract",
-  "method_count": 463,
+  "method_count": 464,
   "methods": [
     {
       "consumer_profiles": [
@@ -13634,6 +13634,7 @@
         "STALE_ROUTE",
         "TIMEOUT",
         "TRIALS_UNDERSTATED",
+        "UNSUPPORTED_ENRICHMENT_COST",
         "UNSUPPORTED_INGESTION_LANE"
       ],
       "format_identities": [
@@ -13740,6 +13741,7 @@
         "STALE_ROUTE",
         "TIMEOUT",
         "TRIALS_UNDERSTATED",
+        "UNSUPPORTED_ENRICHMENT_COST",
         "UNSUPPORTED_INGESTION_LANE"
       ],
       "format_identities": [
@@ -13858,6 +13860,7 @@
         "STALE_ROUTE",
         "TIMEOUT",
         "TRIALS_UNDERSTATED",
+        "UNSUPPORTED_ENRICHMENT_COST",
         "UNSUPPORTED_INGESTION_LANE"
       ],
       "format_identities": [
@@ -22640,6 +22643,71 @@
         "BUSY",
         "CANCELLED",
         "CAPACITY_DENIED",
+        "ENGINE_DEADLINE_EXCEEDED",
+        "ENGINE_INTERNAL_METHOD",
+        "ENGINE_RESOURCE_EXHAUSTED",
+        "ENGINE_UNAVAILABLE",
+        "INTERNAL",
+        "INVALID_ARGUMENT",
+        "METHOD_NOT_YET_SERVED",
+        "NODE_MISMATCH",
+        "OPERATION_REDIRECTED",
+        "RESULT_TOO_LARGE",
+        "SQL_OWNER_REPAIR_PENDING",
+        "STALE_OUTBOX_LEASE",
+        "STALE_ROUTE",
+        "TIMEOUT",
+        "UQL_BUDGET_EXCEEDED",
+        "UQL_CREDENTIAL_BEARING_SPEC",
+        "UQL_UNSUPPORTED"
+      ],
+      "format_identities": [],
+      "id": "QueryForeignColumns",
+      "is_wire_callable": true,
+      "note": "Verified owner-scoped mapped-column read with bounded source fetch and local predicate residual",
+      "policy": {
+        "audited": false,
+        "authz_action": "federation:read",
+        "durability_domain": "None",
+        "emits_cdc": false,
+        "idempotent": true,
+        "mutates": false,
+        "txn_participation": "Snapshot"
+      },
+      "replay_class": "NotReplayable",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/QueryForeignColumns"
+      },
+      "result_schema": {
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.query.json#/methods/QueryForeignColumns",
+        "selected_by": null
+      },
+      "stability": "stable"
+    },
+    {
+      "consumer_profiles": [
+        "python"
+      ],
+      "domain": "query",
+      "error_set": [
+        "ACCESS_DENIED",
+        "AST_INPUT_INVALID",
+        "AST_INPUT_LIMIT",
+        "AUTHENTICATION_REQUIRED",
+        "AUTH_AUDIENCE_MISMATCH",
+        "AUTH_POLICY_VERSION_MISMATCH",
+        "AUTH_TENANT_MISMATCH",
+        "BUSY",
+        "CANCELLED",
+        "CAPACITY_DENIED",
         "DECISION_CLAUSE_IN_UQL",
         "ENGINE_DEADLINE_EXCEEDED",
         "ENGINE_INTERNAL_METHOD",
@@ -24118,6 +24186,7 @@
         "TIMEOUT",
         "TRIALS_UNDERSTATED",
         "UNSUPPORTED_COALITION",
+        "UNSUPPORTED_ENRICHMENT_COST",
         "UNSUPPORTED_INGESTION_LANE",
         "UQL_BUDGET_EXCEEDED",
         "UQL_CREDENTIAL_BEARING_SPEC",
@@ -26838,6 +26907,7 @@
         "STALE_ROUTE",
         "TIMEOUT",
         "TRIALS_UNDERSTATED",
+        "UNSUPPORTED_ENRICHMENT_COST",
         "UNSUPPORTED_INGESTION_LANE"
       ],
       "format_identities": [

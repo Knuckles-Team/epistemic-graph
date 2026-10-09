@@ -14352,6 +14352,13 @@
     "HttpFieldMap": {
       "description": "Which JSON element fields become a RowSet row's id / score (for\n[`ForeignSourceSpec::HttpJson`]).",
       "properties": {
+        "columns": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Mapping-approved output column name to JSON element field. Existing\nid/score-only registrations deserialize with no exposed columns.",
+          "type": "object"
+        },
         "id": {
           "description": "The element field whose value is the row id (stringified).",
           "type": "string"
@@ -18464,7 +18471,7 @@
         },
         {
           "additionalProperties": false,
-          "description": "Labeled + keyset-bounded node fetch: return at most `limit` nodes whose\n`type`/`label`/`labels` matches `label`, ordered by node id. `after` is an\nexclusive node-id cursor (`None` starts at the first id); callers advance\nit to the last id returned. Served calls require a positive `limit`\nno greater than the configured response cap. Unlike\n`GetNodes` (which materializes the WHOLE graph), this bounds the wire\npayload to `limit`, so a `MATCH (n:Label) … LIMIT k` no longer pulls every\nnode's properties off the engine. (CONCEPT:EG-KG.txn.per-graph-write-isolation)\n\nAn empty `label` (CONCEPT:EG-KG.query.unlabeled-scan-limit-pushdown) means \"no label filter\" — a bounded scan\nof the whole node store, still honouring `limit`. Use this for an\nunlabeled `MATCH (n) … LIMIT k`: it stays bounded instead of falling back\nto `GetNodes`, which trips the `RESULT_TOO_LARGE` overload guard even when\nthe caller only wanted `k` rows.",
+          "description": "Labeled + keyset-bounded node fetch: return at most `limit` nodes whose\n`type`/`label`/`labels` matches `label`, ordered by node id. `after` is an\nexclusive node-id cursor (`None` starts at the first id); callers advance\nit to the last id returned. `limit == 0` means no cap. Unlike\n`GetNodes` (which materializes the WHOLE graph), this bounds the wire\npayload to `limit`, so a `MATCH (n:Label) … LIMIT k` no longer pulls every\nnode's properties off the engine. (CONCEPT:EG-KG.txn.per-graph-write-isolation)\n\nAn empty `label` (CONCEPT:EG-KG.query.unlabeled-scan-limit-pushdown) means \"no label filter\" — a bounded scan\nof the whole node store, still honouring `limit`. Use this for an\nunlabeled `MATCH (n) … LIMIT k`: it stays bounded instead of falling back\nto `GetNodes`, which trips the `RESULT_TOO_LARGE` overload guard even when\nthe caller only wanted `k` rows.",
           "properties": {
             "method": {
               "const": "GetNodesByLabel",
@@ -22114,7 +22121,7 @@
         },
         {
           "additionalProperties": false,
-          "description": "Label scan unioned + deduped by node id across `graphs` (positive,\nresponse-capped limit required by the served handler).",
+          "description": "Label scan unioned + deduped by node id across `graphs` (limit 0 ⇒ no cap).",
           "properties": {
             "method": {
               "const": "UnionGetNodesByLabel",
@@ -29731,7 +29738,7 @@
         },
         {
           "additionalProperties": false,
-          "description": "Read mapped columns from this caller's registered SQL source. The source\nmay push a safe subset of predicates; the engine evaluates every predicate\nlocally before returning the requested projection.",
+          "description": "Read mapped columns from this caller's registered SQL or HTTP source. The source\nmay push a safe subset of predicates; the engine evaluates every predicate\nlocally before returning the requested projection.",
           "properties": {
             "method": {
               "const": "QueryForeignColumns",
@@ -61026,7 +61033,7 @@
     },
     "GetNodesByLabel": {
       "additionalProperties": false,
-      "description": "Labeled + keyset-bounded node fetch: return at most `limit` nodes whose\n`type`/`label`/`labels` matches `label`, ordered by node id. `after` is an\nexclusive node-id cursor (`None` starts at the first id); callers advance\nit to the last id returned. Served calls require a positive `limit`\nno greater than the configured response cap. Unlike\n`GetNodes` (which materializes the WHOLE graph), this bounds the wire\npayload to `limit`, so a `MATCH (n:Label) … LIMIT k` no longer pulls every\nnode's properties off the engine. (CONCEPT:EG-KG.txn.per-graph-write-isolation)\n\nAn empty `label` (CONCEPT:EG-KG.query.unlabeled-scan-limit-pushdown) means \"no label filter\" — a bounded scan\nof the whole node store, still honouring `limit`. Use this for an\nunlabeled `MATCH (n) … LIMIT k`: it stays bounded instead of falling back\nto `GetNodes`, which trips the `RESULT_TOO_LARGE` overload guard even when\nthe caller only wanted `k` rows.",
+      "description": "Labeled + keyset-bounded node fetch: return at most `limit` nodes whose\n`type`/`label`/`labels` matches `label`, ordered by node id. `after` is an\nexclusive node-id cursor (`None` starts at the first id); callers advance\nit to the last id returned. `limit == 0` means no cap. Unlike\n`GetNodes` (which materializes the WHOLE graph), this bounds the wire\npayload to `limit`, so a `MATCH (n:Label) … LIMIT k` no longer pulls every\nnode's properties off the engine. (CONCEPT:EG-KG.txn.per-graph-write-isolation)\n\nAn empty `label` (CONCEPT:EG-KG.query.unlabeled-scan-limit-pushdown) means \"no label filter\" — a bounded scan\nof the whole node store, still honouring `limit`. Use this for an\nunlabeled `MATCH (n) … LIMIT k`: it stays bounded instead of falling back\nto `GetNodes`, which trips the `RESULT_TOO_LARGE` overload guard even when\nthe caller only wanted `k` rows.",
       "properties": {
         "method": {
           "const": "GetNodesByLabel",
@@ -65395,7 +65402,7 @@
     },
     "QueryForeignColumns": {
       "additionalProperties": false,
-      "description": "Read mapped columns from this caller's registered SQL source. The source\nmay push a safe subset of predicates; the engine evaluates every predicate\nlocally before returning the requested projection.",
+      "description": "Read mapped columns from this caller's registered SQL or HTTP source. The source\nmay push a safe subset of predicates; the engine evaluates every predicate\nlocally before returning the requested projection.",
       "properties": {
         "method": {
           "const": "QueryForeignColumns",
@@ -69316,7 +69323,7 @@
     },
     "UnionGetNodesByLabel": {
       "additionalProperties": false,
-      "description": "Label scan unioned + deduped by node id across `graphs` (positive,\nresponse-capped limit required by the served handler).",
+      "description": "Label scan unioned + deduped by node id across `graphs` (limit 0 ⇒ no cap).",
       "properties": {
         "method": {
           "const": "UnionGetNodesByLabel",

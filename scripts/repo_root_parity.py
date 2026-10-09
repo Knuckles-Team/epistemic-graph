@@ -1,4 +1,6 @@
-"""Typed contract for resolved-checkout parity (producer-first split of EG-CONTRACT-R008).
+"""Typed contract for resolved-checkout parity.
+
+Producer-first split of EG-CONTRACT-R008.
 
 ``EG-CONTRACT-R008`` requires that a repo-parity check validate the *resolved*
 checkout, not merely the path string a caller happened to pass: a symlink, a

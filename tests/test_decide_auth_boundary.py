@@ -33,10 +33,9 @@ a further slice.
 
 from __future__ import annotations
 
-from typing import Any
-
 import asyncio
 import os
+from typing import Any
 
 import pytest
 from conftest import TEST_TENANT, request_context

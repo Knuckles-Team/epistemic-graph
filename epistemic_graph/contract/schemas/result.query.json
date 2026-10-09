@@ -14124,6 +14124,60 @@
       ],
       "type": "string"
     },
+    "ForeignColumnComparison": {
+      "description": "Comparison accepted by the owner-scoped foreign-column read surface.",
+      "enum": [
+        "Eq",
+        "Ne",
+        "Lt",
+        "Le",
+        "Gt",
+        "Ge"
+      ],
+      "type": "string"
+    },
+    "ForeignColumnPredicate": {
+      "description": "A predicate over a column named in the registered source mapping.",
+      "properties": {
+        "column": {
+          "type": "string"
+        },
+        "comparison": {
+          "$ref": "#/$defs/ForeignColumnComparison"
+        },
+        "value": true
+      },
+      "required": [
+        "column",
+        "comparison",
+        "value"
+      ],
+      "type": "object"
+    },
+    "ForeignColumnRow": {
+      "description": "One bounded result row after all local residual predicates and projection.",
+      "properties": {
+        "columns": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "id": {
+          "type": "string"
+        },
+        "score": {
+          "format": "float",
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "columns"
+      ],
+      "type": "object"
+    },
     "ForeignCypherBackend": {
       "description": "External Cypher dialect and transport are a single explicit choice.",
       "enum": [
@@ -14246,6 +14300,14 @@
           "properties": {
             "Sql": {
               "properties": {
+                "columns": {
+                  "default": [],
+                  "description": "Query-selected columns the registering owner permits a column query to\nread. Empty for legacy id/score-only registrations. Names are checked\nas SQL identifiers before projection or filter pushdown (EH-572).",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
                 "dsn": {
                   "description": "The external database DSN (e.g. `postgres://host:5432/db`).",
                   "type": "string"
@@ -15630,6 +15692,13 @@
     "HttpFieldMap": {
       "description": "Which JSON element fields become a RowSet row's id / score (for\n[`ForeignSourceSpec::HttpJson`]).",
       "properties": {
+        "columns": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Mapping-approved output column name to JSON element field. Existing\nid/score-only registrations deserialize with no exposed columns.",
+          "type": "object"
+        },
         "id": {
           "description": "The element field whose value is the row id (stringified).",
           "type": "string"
@@ -31273,6 +31342,47 @@
               "required": [
                 "name",
                 "source"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Read mapped columns from this caller's registered SQL or HTTP source. The source\nmay push a safe subset of predicates; the engine evaluates every predicate\nlocally before returning the requested projection.",
+          "properties": {
+            "method": {
+              "const": "QueryForeignColumns",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "columns": {
+                  "default": [],
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "predicates": {
+                  "default": [],
+                  "items": {
+                    "$ref": "#/$defs/ForeignColumnPredicate"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "name"
               ],
               "type": "object"
             }
@@ -55140,6 +55250,21 @@
                 }
               ],
               "type": "array"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "QueryForeignColumns": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "items": {
+              "$ref": "#/$defs/ForeignColumnRow"
             },
             "type": "array"
           }

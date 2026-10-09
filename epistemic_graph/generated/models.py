@@ -5558,12 +5558,6 @@ class ForeignOperationCapabilities(BaseModel):
     key_filter_pushdown: bool | None = None
 
 
-class ForeignCypherBackend(str, Enum):
-    NEO4J = "Neo4j"
-    AGE = "Age"
-    FALKORDB = "FalkorDb"
-
-
 class ForeignSourceFreshness(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -5630,23 +5624,6 @@ class ForeignSourceSpecGraphQlBody(BaseModel):
     capabilities: ForeignOperationCapabilities | None = None
     endpoint: str
     operation: str
-
-
-class ForeignSourceSpecCypher(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
-
-    Cypher: ForeignSourceSpecCypherBody
-
-
-class ForeignSourceSpecCypherBody(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
-
-    backend: ForeignCypherBackend
-    endpoint: str
-    graph: str
-    id_field: str
-    query: str
-    score_field: str | None = None
 
 
 class ForeignSourceSpecHttpJson(BaseModel):
@@ -6386,6 +6363,7 @@ class HealthReport(BaseModel):
 class HttpFieldMap(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
+    columns: dict[str, str] | None = None
     id: str
     score: str | None = None
 
@@ -23845,9 +23823,6 @@ ForeignSourceSpec = (
     | ForeignSourceSpecMcp
     | ForeignSourceSpecA2a
     | ForeignSourceSpecGraphQl
-    | ForeignSourceSpecTrino
-    | ForeignSourceSpecCypher
-    | ForeignSourceSpecSparkBatch
 )
 
 
@@ -25686,7 +25661,6 @@ __all__ = [
     "ForeignColumnRow",
     "ForeignCypherBackend",
     "ForeignOperationCapabilities",
-    "ForeignCypherBackend",
     "ForeignSourceFreshness",
     "ForeignSourceSpec",
     "ForeignSourceSpecA2a",
@@ -25697,8 +25671,6 @@ __all__ = [
     "ForeignSourceSpecCypherBody",
     "ForeignSourceSpecGraphQl",
     "ForeignSourceSpecGraphQlBody",
-    "ForeignSourceSpecCypher",
-    "ForeignSourceSpecCypherBody",
     "ForeignSourceSpecHttpJson",
     "ForeignSourceSpecHttpJsonBody",
     "ForeignSourceSpecMcp",
