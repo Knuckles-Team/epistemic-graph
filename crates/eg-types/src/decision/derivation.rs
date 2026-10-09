@@ -432,5 +432,47 @@ pub fn verify_record(record: &DecisionRecord) -> Result<(), DerivationDefect> {
     Ok(())
 }
 
+/// EG-DECISION-ENGINE-R126.2: the capability-coverage query's single entry
+/// point -- the one call a served method and its generated client invoke.
+/// Composes [`required_capabilities`] (the task closure, with its abstain
+/// reasons) with [`capability_coverage`] (EG-DECISION-ENGINE-R126.1) so the
+/// serving layer has exactly one function to call. Depends on
+/// EG-DECISION-ENGINE-R126.1; adds no new derivation rule.
+pub fn capability_coverage_query(
+    requirements: &AssemblyRequirements,
+    ontology_digest: &str,
+    library_candidates: &[CandidateFacts],
+    a2a_cards: &[(String, Vec<String>)],
+) -> Result<Vec<CapabilityCoverage>, Vec<AbstainReason>> {
+    let required = required_capabilities(requirements, ontology_digest)?;
+    Ok(capability_coverage(
+        &required,
+        library_candidates,
+        a2a_cards,
+    ))
+}
+
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod capability_coverage_query_tests {
+    use super::*;
+    use crate::decision::request::AssemblyRequirements;
+
+    #[test]
+    fn an_unresolved_capability_iri_is_refused_before_any_coverage_is_computed() {
+        let requirements = AssemblyRequirements {
+            capabilities: crate::contract::BoundedVec::new(vec![
+                "not-a-real-capability".to_string()
+            ])
+            .unwrap(),
+            ..Default::default()
+        };
+        let outcome = capability_coverage_query(&requirements, "digest-1", &[], &[]);
+        assert!(
+            outcome.is_err(),
+            "an unresolvable capability IRI must refuse, not silently yield empty coverage"
+        );
+    }
+}
