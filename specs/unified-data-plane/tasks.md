@@ -11,6 +11,9 @@
 - [ ] **EG-UNIFIED-DATA-PLANE-R005:** Approve and version R2RML named virtual graphs; depends on EG-UNIFIED-DATA-PLANE-R004 and EG-DECISION-ENGINE-R033.
 - [ ] **EG-UNIFIED-DATA-PLANE-R029:** Expose `schema_context` through Graph OS; depends on EG-UNIFIED-DATA-PLANE-R004.
 - [ ] **EG-UNIFIED-DATA-PLANE-R030:** Add cross-app entity proposals, approval and evidence; depends on EG-UNIFIED-DATA-PLANE-R005.
+- [x] **EG-UNIFIED-DATA-PLANE-R030.1:** `EntityLinkProposal` typed model plus unapproved/non-Match assertion refusal (`crates/eg-types/src/entity_link_proposal.rs`).
+- [ ] **EG-UNIFIED-DATA-PLANE-R030.2:** Blocking and field-similarity candidate generation across Gramps/Immich/Twenty/Firefly.
+- [ ] **EG-UNIFIED-DATA-PLANE-R030.3:** Real Fellegi-Sunter scoring and the approval workflow.
 - [ ] **EG-UNIFIED-DATA-PLANE-R031:** Define isolation, quotas, compatibility, native admission and rollback; depends on EG-UNIFIED-DATA-PLANE-R002.
 
 ## Query, change and write paths

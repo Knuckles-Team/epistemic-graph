@@ -34,6 +34,11 @@ pub mod capacity_lease;
 // eg-transaction admission boundary. This module grants no executable capability.
 pub mod authority;
 pub mod change_envelope;
+// EG-UNIFIED-DATA-PLANE-R030.1 — typed cross-application entity-link
+// proposal, refusing an owl:sameAs assertion before approval or for a
+// non-Match classification. Pure data; blocking, field-similarity scoring
+// and the real Fellegi-Sunter model are later children.
+pub mod entity_link_proposal;
 // GOC-03 — the cross-domain commit-descriptor/read-barrier currency shared by
 // graph, modality, vector, blob/refcount, time-series, evidence, table/lake, and
 // terminal-analytics-outcome participants. Deliberately a NEW module (not folded
