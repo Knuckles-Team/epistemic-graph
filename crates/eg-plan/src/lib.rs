@@ -153,6 +153,11 @@ pub mod federation_ssrf;
 /// Explicitly bound, probed Trino client protocol source (EH-580).
 #[cfg(feature = "federation-sql")]
 pub mod federation_trino;
+/// The write-side mirror-target seam (EG-DURABLE-KERNEL-R024.2) — the
+/// `MirrorTarget` trait binding a [`eg_types::wire::MirrorTargetSpec`] to a
+/// driver. Mirrors `federation`'s read-side `ForeignSource` seam.
+#[cfg(feature = "federation")]
+pub mod mirror_target;
 /// The cross-modal cost-based optimizer (CONCEPT:EG-KG.query.xmodal-cost-optimizer) — Lane A's
 /// rule engine over the logical `Vec<Op>` that [`exec::plan_optimize`] calls to reorder
 /// operators across modalities into a cheaper-but-equivalent plan. Compiled under `query`;
