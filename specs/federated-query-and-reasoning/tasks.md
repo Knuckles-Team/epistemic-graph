@@ -17,7 +17,8 @@ Check boxes describe work remaining for this combined contract. They do not cert
 - [ ] Add typed column-carrying foreign rows and exact/inexact/unsupported residual handling; validate foreign-only predicates, projection dependencies and schema drift against a full-fetch oracle. **EG-FEDERATED-QUERY-R045**
 - [ ] Execute approved OBDA virtual-graph solutions with typed ORDER/LIMIT/aggregate/join pushdown and sound fallback. **EG-FEDERATED-QUERY-R046, EG-FEDERATED-QUERY-R055**
 - [ ] Bound source concurrency, learn/persist provenance-tagged stats, and cache only with fresh owner-bound watermarks. **EG-FEDERATED-QUERY-R018, EG-FEDERATED-QUERY-R047–EG-FEDERATED-QUERY-R049**
-- [ ] Qualify SPARQL SERVICE bind join, Iceberg pruning, RemoteEngine pushdown and extra source kinds under the one outbound gate. **EG-FEDERATED-QUERY-R050–EG-FEDERATED-QUERY-R054**
+- [ ] Qualify SPARQL SERVICE bind join, Iceberg pruning, RemoteEngine pushdown and the SSRF guard under the one outbound gate. **EG-FEDERATED-QUERY-R050, EG-FEDERATED-QUERY-R051, EG-FEDERATED-QUERY-R052, EG-FEDERATED-QUERY-R054**
+- [x] Register Trino, Cypher and Spark as typed `ForeignSourceSpec` kinds with per-kind capability sets; Spark is batch-only. **EG-FEDERATED-QUERY-R053**
 - [ ] Prove RemoteEngine key/LIMIT UQL pushdown against a recording second engine, including signed owner context, exact residual, pagination and bounded fallback. **EG-FEDERATED-QUERY-R052**
 - [ ] Integrate the local [unified-data-plane](../unified-data-plane/spec.md) source identity and approved mapping contract without duplicating its registry or dialect work. **EG-UNIFIED-DATA-PLANE-R002, EG-UNIFIED-DATA-PLANE-R005–EG-UNIFIED-DATA-PLANE-R007 interface only**
 

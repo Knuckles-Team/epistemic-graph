@@ -52,6 +52,9 @@ impl Identity {
             ForeignSourceSpec::RemoteEngine { .. } => "remote-engine",
             ForeignSourceSpec::HttpJson { .. } => "http-json",
             ForeignSourceSpec::Sql { .. } => "sql",
+            ForeignSourceSpec::Trino { .. }
+            | ForeignSourceSpec::Cypher { .. }
+            | ForeignSourceSpec::SparkBatch { .. } => super::oq2::kind(spec).unwrap(),
             ForeignSourceSpec::Named { .. } => "named",
         };
         Self::labelled(kind, name, fp)
