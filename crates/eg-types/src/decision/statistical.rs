@@ -13,6 +13,7 @@ pub mod declared;
 pub mod errors;
 pub mod features;
 pub mod head;
+pub mod ingestion_lane;
 pub mod keyed;
 pub mod log;
 pub mod nl;
