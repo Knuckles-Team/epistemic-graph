@@ -72,6 +72,9 @@ pub mod embedding;
 // CONCEPT:EG-KG.compute.uncertainty-values — probabilistic / uncertainty VALUE (distribution-valued
 // properties). A stored value at the bottom of the DAG, NOT a wire `Op`.
 pub mod distribution;
+// EG-DURABLE-KERNEL-R041 — the SQL plan cache key (statement digest + schema
+// version) and its lookup decision. Pure, no dep beyond `contract::Digest256`.
+pub mod plan_cache_key;
 // CONCEPT:EG-KG.compute.epistemic-operations-protocol — strict shared DTOs for
 // RequestContext, mutation/ingestion, work, artifact, query, job, and trace outcomes.
 pub mod epistemic_operations;

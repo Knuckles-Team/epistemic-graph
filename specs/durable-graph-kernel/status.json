@@ -72,7 +72,8 @@
     "EG-DURABLE-KERNEL-R067",
     "EG-DURABLE-KERNEL-R068",
     "EG-DURABLE-KERNEL-R069",
-    "EG-DURABLE-KERNEL-R070"
+    "EG-DURABLE-KERNEL-R070",
+    "EG-DURABLE-KERNEL-R041.1"
   ],
   "delivery_state": "BUILDING",
   "acceptance_state": "NOT_AUDITED",
@@ -555,7 +556,7 @@
     {
       "id": "EG-DURABLE-KERNEL-R041",
       "title": "SQL plan cache keyed by statement digest and schema version",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
       "evidence": []
     },
     {
@@ -984,6 +985,12 @@
           "description": "Implementation merged to the default branch; the commit names this requirement."
         }
       ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R041.1",
+      "title": "PlanCacheKey/PlanCacheLookup typed key and pure lookup decision with stale-schema refusal",
+      "delivery_state": "BUILT",
+      "evidence": []
     }
   ]
 }
