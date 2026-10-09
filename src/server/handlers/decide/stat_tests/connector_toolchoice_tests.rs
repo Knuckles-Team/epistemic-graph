@@ -21,6 +21,7 @@ fn connector_tool_choice_request(schema: &ComponentDependency) -> DecideRequest 
     asked
 }
 
+// spec: EG-DECISION-ENGINE-R042
 #[tokio::test]
 async fn connector_tool_choice_is_a_proposal_that_cannot_itself_trigger_a_write_back() {
     let h = Harness::new().await;
