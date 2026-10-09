@@ -2038,4 +2038,47 @@ mod tests {
                 .definition_digest
         );
     }
+
+    fn mutation_context() -> crate::agent_library::AgentLibraryMutationContext {
+        crate::agent_library::AgentLibraryMutationContext {
+            request_id: 1,
+            principal: format!("principal:sha256:{}", "a".repeat(64)),
+            caller_principal: format!("principal:sha256:{}", "b".repeat(64)),
+            attempt_nonce: crate::contract::Nonce::from_bytes([9; 32]),
+            tenant_id: "tenant-a".into(),
+            actor_scope: "agent-builder".into(),
+            purpose_id: "agent-construction".into(),
+            policy_revision: "policy-v1".into(),
+            policy_digest: digest('7'),
+            policy_decision_id: "decision:1".into(),
+            idempotency_key: "request:1".into(),
+            expected_revision: Some(0),
+            trace_id: Some("trace:1".into()),
+            created_at_ms: 10,
+        }
+    }
+
+    /// EG-DECISION-ENGINE-R017: `DecisionCommit` is the sole write authority
+    /// for decision records. A direct publish of the kind must be refused,
+    /// never silently accepted as an ordinary component write.
+    #[test]
+    fn a_decision_record_cannot_be_published_directly() {
+        let request = AgentComponentPublishRequest {
+            context: mutation_context(),
+            // Not under a reserved id prefix (`decision:`/`mcp:`): this test is
+            // about the KIND check, not the separate reserved-id refusal.
+            component: draft("catalog:bypass-decision-record", AgentComponentKind::DecisionRecord),
+            evaluation_receipt_digest: None,
+        };
+        let error = validate_publish(&request).expect_err("must be refused");
+        assert!(error.contains("FORBIDDEN_COMPONENT_KIND"), "got: {error}");
+
+        // The same refusal holds through the public operation surface, the
+        // one path a caller actually drives.
+        let op = AgentComponentOp::Publish {
+            request: Box::new(request),
+        };
+        let error = op.validate().expect_err("must be refused");
+        assert!(error.contains("FORBIDDEN_COMPONENT_KIND"), "got: {error}");
+    }
 }
