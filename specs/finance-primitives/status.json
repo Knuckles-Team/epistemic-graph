@@ -7,6 +7,11 @@
     "EG-FINANCE-PRIMITIVES-R002",
     "EG-FINANCE-PRIMITIVES-R003",
     "EG-FINANCE-PRIMITIVES-R004",
+    "EG-FINANCE-PRIMITIVES-R004.1",
+    "EG-FINANCE-PRIMITIVES-R004.2",
+    "EG-FINANCE-PRIMITIVES-R004.2.1",
+    "EG-FINANCE-PRIMITIVES-R004.2.2",
+    "EG-FINANCE-PRIMITIVES-R004.3",
     "EG-FINANCE-PRIMITIVES-R005",
     "EG-FINANCE-PRIMITIVES-R006",
     "EG-FINANCE-PRIMITIVES-R007",
@@ -86,6 +91,38 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R004",
       "title": "finance-v1 asset, account, and strategy record types",
+      "delivery_state": "SPECIFIED",
+      "evidence": [],
+      "remaining": "Rollup of EG-FINANCE-PRIMITIVES-R004.1 (ontology/SHACL asset-class vocabulary), .2 (Rust record types) and .3 (server wiring and contract regeneration), split by code root. LANDED when every child is LANDED."
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R004.1",
+      "title": "finance-v1 asset-class controlled vocabulary",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R004.2",
+      "title": "finance-v1 Account/Activity/Lot/Position/PortfolioGroup/StrategySpec/StrategyRun/LeverageTerms Rust record types",
+      "delivery_state": "SPECIFIED",
+      "evidence": [],
+      "remaining": "Rollup of EG-FINANCE-PRIMITIVES-R004.2.1 (Account, Position) and .2.2 (Activity, Lot); further children needed for PortfolioGroup, StrategySpec, StrategyRun and LeverageTerms. LANDED when every child is LANDED."
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R004.2.1",
+      "title": "Account and Position OWL classes and SHACL shapes",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R004.2.2",
+      "title": "Activity and Lot OWL classes and SHACL shapes",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R004.3",
+      "title": "finance-v1 record-type server wiring and contract regeneration",
       "delivery_state": "SPECIFIED",
       "evidence": []
     },
