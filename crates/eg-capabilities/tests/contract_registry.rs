@@ -143,7 +143,6 @@ fn descriptor_ids() -> Vec<String> {
 /// `canonical-ledger` does not select fails this test loudly, which is the correct
 /// outcome -- the canonical ledger would no longer be the complete inventory.
 #[cfg(feature = "canonical-ledger")]
-// spec: EG-DECISION-ENGINE-R064, EG-DECISION-ENGINE-R103, EG-DECISION-ENGINE-R104, EG-DURABLE-KERNEL-R022, EG-DURABLE-KERNEL-R023, EG-DURABLE-KERNEL-R027.1, EG-DURABLE-KERNEL-R027.2, EG-DURABLE-KERNEL-R027.3, EG-DURABLE-KERNEL-R057, EG-FEDERATED-QUERY-R017, EG-FEDERATED-QUERY-R018, EG-FEDERATED-QUERY-R019, EG-FEDERATED-QUERY-R039, EG-FEDERATED-QUERY-R045, EG-FEDERATED-QUERY-R068, EG-FINANCE-PRIMITIVES-R002, EG-FINANCE-PRIMITIVES-R014, EG-FINANCE-PRIMITIVES-R016, EG-FINANCE-PRIMITIVES-R017, EG-TYPED-PACKS-R077, EG-TYPED-PACKS-R079, EG-TYPED-PACKS-R098
 #[test]
 fn every_wire_variant_has_exactly_one_descriptor_and_vice_versa() {
     let ids = descriptor_ids();

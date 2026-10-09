@@ -122,7 +122,6 @@ pub fn render_trace(trace: &[FragmentTrace]) -> String {
 mod tests {
     use super::{render_trace, FetchStrategy, FragmentTrace};
 
-    // spec: EG-FEDERATED-QUERY-R044
     #[test]
     fn telemetry_trace_redacts_registered_names_and_keeps_counts() {
         let mut fragment = FragmentTrace::new(
@@ -142,7 +141,6 @@ mod tests {
         assert!(!output.contains("redact-me") && !output.contains("example.invalid"));
     }
 
-    // spec: EG-FEDERATED-QUERY-R044
     #[test]
     fn telemetry_trace_fails_closed_for_malformed_source_labels() {
         let fragment = FragmentTrace::new("untrusted:redact-me".into(), FetchStrategy::FullFetch);

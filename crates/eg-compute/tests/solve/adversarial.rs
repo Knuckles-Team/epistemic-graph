@@ -5,7 +5,6 @@ use eg_compute::solve::{BoundProof, LeafProof, ProofNode, Scalar, SolveStatus, V
 
 use super::support::{config, model, odd_cycle_cover, parity_equality, solve_and_verify};
 
-// spec: EG-DECISION-ENGINE-R049
 #[test]
 fn exhausted_budget_above_the_accepted_gap_is_unresolved() {
     let cover = model(&odd_cycle_cover(12, 5));
@@ -30,7 +29,6 @@ fn exhausted_budget_above_the_accepted_gap_is_unresolved() {
     );
 }
 
-// spec: EG-DECISION-ENGINE-R049
 #[test]
 fn exhausted_budget_within_the_accepted_gap_reports_a_certified_gap() {
     let cover = model(&odd_cycle_cover(12, 5));
@@ -54,7 +52,6 @@ fn exhausted_budget_within_the_accepted_gap_reports_a_certified_gap() {
     );
 }
 
-// spec: EG-DECISION-ENGINE-R049
 #[test]
 fn parity_exhausts_the_budget_without_an_incumbent() {
     let parity = model(&parity_equality(41));

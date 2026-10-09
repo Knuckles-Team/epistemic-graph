@@ -433,7 +433,6 @@ mod tests {
     }
 
     /// Two unconnected individuals are two components; a role edge joins them.
-    // spec: EG-FEDERATED-QUERY-R012
     #[test]
     fn unconnected_individuals_are_decided_separately() {
         let mut ont = DlOntology::default();
@@ -479,7 +478,6 @@ mod tests {
 
     /// The pack check names what is wrong: an unsatisfiable class, an inconsistent
     /// individual, or a spent budget.
-    // spec: EG-TYPED-PACKS-R086
     #[test]
     fn check_pack_ontology_reports_a_typed_refusal() {
         let ttl = |body: &str| {
@@ -511,7 +509,6 @@ mod tests {
         );
     }
 
-    // spec: EG-TYPED-PACKS-R086
     #[test]
     fn explicit_subclass_preflight_counts_only_forced_distinct_pairs() {
         let mut ttl = String::from("@prefix ex: <http://example.org/> .\n@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .\n");

@@ -106,21 +106,18 @@ mod tests {
         }
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R030.1
     #[test]
     fn approved_match_asserts() {
         let proposal = proposal(MatchClass::Match, Some("alice"));
         assert!(proposal.assert_same_as().is_ok());
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R030.1
     #[test]
     fn unapproved_match_is_refused() {
         let proposal = proposal(MatchClass::Match, None);
         assert_eq!(proposal.assert_same_as(), Err(CannotAssert::NotApproved));
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R030.1
     #[test]
     fn approved_non_match_is_refused() {
         let proposal = proposal(MatchClass::NonMatch, Some("alice"));

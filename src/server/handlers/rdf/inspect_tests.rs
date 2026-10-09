@@ -33,7 +33,6 @@ fn inline(documents: &[&str]) -> Result<OntologyInspection, String> {
     inspect(&GraphCore::new(), &documents, &[])
 }
 
-// spec: EG-TYPED-PACKS-R098
 #[test]
 fn a_compiled_connector_manifest_keeps_its_pinned_canonical_digest() {
     let view = inline(&[ARR_MANIFEST]).unwrap();
@@ -50,7 +49,6 @@ fn a_compiled_connector_manifest_keeps_its_pinned_canonical_digest() {
     assert_eq!(album.label.as_deref(), Some("Album"));
 }
 
-// spec: EG-TYPED-PACKS-R098
 #[test]
 fn the_vocabulary_view_names_classes_properties_and_targets() {
     let view = inline(&[VOCABULARY]).unwrap();

@@ -33,28 +33,20 @@
     {
       "id": "EG-REPO-INGEST-R001",
       "title": "Reconcile mode re-admits stranded semantic intents",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "ac5638477288"
       ],
-      "verified_by": [
-        "crates/eg-ann/src/hnsw.rs:424",
-        "crates/eg-ann/src/hnsw.rs:456",
-        "crates/eg-ann/src/hnsw.rs:486"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-REPO-INGEST-R002",
       "title": "SourceIngest is sole owner of migrated ingestion capabilities",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "f17f47ab300f"
       ],
-      "verified_by": [
-        "crates/eg-capabilities/src/contract/python/tests.rs:201",
-        "crates/eg-capabilities/src/contract/python/tests.rs:224",
-        "crates/eg-capabilities/src/contract/python/tests.rs:523"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-REPO-INGEST-R003",
@@ -81,27 +73,21 @@
     {
       "id": "EG-REPO-INGEST-R003.1",
       "title": "EG is sole home for migrated standardization processing (excluding drift detection)",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "ae0f93b6bf70",
         "e72ee15e11bb"
       ],
-      "verified_by": [
-        "crates/eg-types/src/source_ingestion/tests.rs:341",
-        "crates/eg-types/src/source_ingestion/tests.rs:357",
-        "crates/eg-types/src/source_ingestion/tests.rs:367"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-REPO-INGEST-R003.2",
       "title": "EG is sole home for migrated infrastructure processing",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "f70de8c33b4f"
       ],
-      "verified_by": [
-        "crates/eg-types/src/source_ingestion/tests.rs:384"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-REPO-INGEST-R003.3",
@@ -127,26 +113,20 @@
     {
       "id": "EG-REPO-INGEST-R003.6",
       "title": "EG is sole home for migrated ecosystem concept extraction",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "f70de8c33b4f"
       ],
-      "verified_by": [
-        "crates/eg-types/src/source_ingestion/tests.rs:527"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-REPO-INGEST-R003.7",
       "title": "EG is sole home for migrated trace-ontology observability",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "fb19bf6ab789"
       ],
-      "verified_by": [
-        "crates/eg-types/src/source_ingestion/tests.rs:384",
-        "crates/eg-types/src/source_ingestion/tests.rs:395",
-        "crates/eg-types/src/source_ingestion/tests.rs:405"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-REPO-INGEST-R003.8",
@@ -172,80 +152,58 @@
     {
       "id": "EG-REPO-INGEST-R003.11",
       "title": "EG is sole home for migrated placement-mining research",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "ae0f93b6bf70",
         "fb19bf6ab789",
         "fd9e20bc998d"
       ],
-      "verified_by": [
-        "crates/eg-types/src/source_ingestion/tests.rs:341",
-        "crates/eg-types/src/source_ingestion/tests.rs:357",
-        "crates/eg-types/src/source_ingestion/tests.rs:367"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-REPO-INGEST-R004",
       "title": "Derived series maintained incrementally with lineage",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "2b8c0364ebb7"
       ],
-      "verified_by": [
-        "crates/eg-plan/src/tsdb_scan_tests.rs:693",
-        "src/server/handlers/timeseries/derived_tests.rs:205"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-REPO-INGEST-R005",
       "title": "Replay-protection nonces commit in batches for throughput",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "7d1bf0006b94"
       ],
-      "verified_by": [
-        "src/server/request_replay.rs:418",
-        "src/server/request_replay.rs:428",
-        "src/server/request_replay.rs:473"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-REPO-INGEST-R006",
       "title": "Native ingestion commits fast; heavy enrichment deferred",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "6bb88b0a90cc"
       ],
-      "verified_by": [
-        "crates/eg-capabilities/tests/invariants.rs:423",
-        "crates/eg-storage/src/recovery/validate.rs:737",
-        "crates/eg-transaction/src/tests/supersede.rs:64"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-REPO-INGEST-R007",
       "title": "Large ingestion batches refuse atomically with a stable code",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "33c5c6459154"
       ],
-      "verified_by": [
-        "crates/eg-compute/src/parser/branch_index_tests.rs:102",
-        "crates/eg-compute/src/parser/branch_index_tests.rs:319",
-        "crates/eg-compute/src/parser/branch_index_tests.rs:345"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-REPO-INGEST-R008",
       "title": "Oversized batches return a stable code for retry",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "504e3109b2b0"
       ],
-      "verified_by": [
-        "src/server/handlers/repository_index_tests.rs:218",
-        "src/server/handlers/repository_index_tests.rs:248"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-REPO-INGEST-R009",
@@ -291,15 +249,11 @@
     {
       "id": "EG-REPO-INGEST-R011",
       "title": "Ingestion community detection uses pure Leiden",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "b5fe3c140c21"
       ],
-      "verified_by": [
-        "crates/eg-compute/src/algorithms/tests.rs:112",
-        "crates/eg-compute/src/algorithms/tests.rs:141",
-        "crates/eg-compute/src/algorithms/tests.rs:192"
-      ]
+      "verified_by": []
     }
   ]
 }

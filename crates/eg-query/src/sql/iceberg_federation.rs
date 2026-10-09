@@ -631,7 +631,6 @@ mod tests {
         assert!(!props.contains_key("token"));
     }
 
-    // spec: EG-FEDERATED-QUERY-R051
     #[test]
     fn missing_catalog_uri_errors_clearly_never_silently_empty() {
         // SAFETY: single-threaded test process env mutation, scoped to this test only.
@@ -642,7 +641,6 @@ mod tests {
         assert!(err.to_string().contains(ICEBERG_FEDERATION_CATALOG_URI_ENV));
     }
 
-    // spec: EG-FEDERATED-QUERY-R051
     #[test]
     fn the_runtime_bridges_a_sync_caller_and_drops_inside_another_runtime() {
         let runtime = FederationRuntime::start().unwrap();

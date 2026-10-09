@@ -117,7 +117,6 @@ mod tests {
     use super::*;
     use std::collections::HashSet;
 
-    // spec: EG-DURABLE-KERNEL-R039.1
     #[test]
     fn kinds_round_trip_through_their_wire_name() {
         for (kind, name) in [
@@ -158,7 +157,6 @@ mod tests {
         }
     }
 
-    // spec: EG-DURABLE-KERNEL-R039.1
     #[test]
     fn declaration_always_reports_redb_as_sole_authority() {
         for namespace in [Namespace::Ephemeral, Namespace::Async] {
@@ -173,7 +171,6 @@ mod tests {
         }
     }
 
-    // spec: EG-DURABLE-KERNEL-R039.1
     #[test]
     fn declare_all_covers_every_structure_and_primitive_exactly_once() {
         for namespace in [Namespace::Ephemeral, Namespace::Async] {

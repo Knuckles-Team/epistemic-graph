@@ -7,7 +7,6 @@ import pytest
 from scripts.repo_root_parity import RepoRootMismatchError, verify_resolved_checkout
 
 
-@pytest.mark.spec("EG-CONTRACT-R008.1")
 def test_mismatched_resolved_checkout_fails_closed(tmp_path: Path) -> None:
     requested = tmp_path / "requested-repo"
     resolved = tmp_path / "a-different-repo"

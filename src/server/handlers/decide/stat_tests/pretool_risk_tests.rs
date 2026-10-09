@@ -23,7 +23,6 @@ fn pretool_risk_request(schema: &ComponentDependency) -> DecideRequest {
     asked
 }
 
-// spec: EG-DECISION-ENGINE-R038
 #[tokio::test]
 async fn a_pretool_risk_question_is_served_as_advisory_only_never_as_an_act() {
     let h = Harness::new().await;

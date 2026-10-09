@@ -421,7 +421,6 @@ mod tests {
 
     /// THE BAR (CONCEPT:EG-KG.retrieval.hnsw-vector-index): recall@10 ≥ 0.9 vs the exact [`FlatIndex`] ground
     /// truth on a random set at a reasonable `ef`.
-    // spec: EG-REPO-INGEST-R001, EG-TYPED-PACKS-R014, EG-TYPED-PACKS-R039
     #[test]
     fn eg301_recall_at_10_meets_target_vs_flat() {
         let dim = 32;
@@ -453,7 +452,6 @@ mod tests {
     /// splits a nearest-only graph into per-cluster islands. The diversified
     /// neighbour selection keeps inter-cluster bridges, so a search that enters
     /// the wrong cluster can still leave it (RF-019).
-    // spec: EG-REPO-INGEST-R001, EG-TYPED-PACKS-R014, EG-TYPED-PACKS-R039
     #[test]
     fn recall_holds_on_separated_clusters_with_outlying_queries() {
         let dim = 8;
@@ -483,7 +481,6 @@ mod tests {
         );
     }
 
-    // spec: EG-REPO-INGEST-R001, EG-TYPED-PACKS-R014, EG-TYPED-PACKS-R039
     #[test]
     fn eg301_recall_holds_for_cosine_metric() {
         let dim = 24;

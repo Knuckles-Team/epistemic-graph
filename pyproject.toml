@@ -149,8 +149,7 @@ markers = [
     "concept(id): tag a test with the ecosystem CONCEPT id it covers",
     "exact_artifact: opt-in exact-binary process-fault/restart certification",
     "no_engine: static test that must not build or start the shared native engine",
-
-    "spec: binds a test to a spec requirement ID",]
+]
 
 [tool.ruff]
 line-length = 88

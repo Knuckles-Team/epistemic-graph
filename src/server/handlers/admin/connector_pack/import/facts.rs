@@ -204,7 +204,6 @@ mod tests {
 
     /// D18 (EH-198): both schema digests are the `sha256:<hex>` of the pack's
     /// sections; an absent output section is "declares none".
-    // spec: EG-TYPED-PACKS-R043, EG-TYPED-PACKS-R044, EG-TYPED-PACKS-R064
     #[test]
     fn tool_facts_carry_both_section_digests() {
         let (input, output) = schema_digests(&tool_entry(Some(section(0x03))));

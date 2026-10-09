@@ -318,7 +318,6 @@ mod resource_status_privacy_tests {
         assert_eq!(redacted.held_process_slots, 0);
     }
 
-    // spec: EG-DURABLE-KERNEL-R027.2, EG-DURABLE-KERNEL-R027.3
     #[test]
     fn aggregate_reader_keeps_shared_host_totals_and_ordinary_relation_is_redacted() {
         let aggregate = decode(

@@ -47,7 +47,6 @@ impl ReplayPolicy for Oracle<'_> {
     }
 }
 
-// spec: EG-DECISION-ENGINE-R119
 #[test]
 fn walk_forward_purges_embargoes_and_never_overlaps_tests() {
     let folds = walk_forward(40, &spec(10, 5, 5, 2, 3)).unwrap();
@@ -70,7 +69,6 @@ fn walk_forward_purges_embargoes_and_never_overlaps_tests() {
     }
 }
 
-// spec: EG-DECISION-ENGINE-R119
 #[test]
 fn walk_forward_refuses_overlapping_or_empty_folds() {
     assert!(walk_forward(40, &spec(10, 5, 4, 0, 0)).is_err());
@@ -79,7 +77,6 @@ fn walk_forward_refuses_overlapping_or_empty_folds() {
     assert_eq!(refused.code, "REPLAY_SPEC_INVALID");
 }
 
-// spec: EG-DECISION-ENGINE-R119
 #[test]
 fn proportional_allocation_respects_the_cap_and_the_ratios() {
     let applied = proportional(&[3.0, -1.0, 4.0], 2.0);

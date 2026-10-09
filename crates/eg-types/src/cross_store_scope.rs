@@ -62,7 +62,6 @@ pub const fn commit_path_for(scope: TransactionScope) -> CommitPath {
 mod tests {
     use super::*;
 
-    // spec: EG-DURABLE-KERNEL-R034.1
     #[test]
     fn scopes_round_trip_through_their_wire_name() {
         for (scope, name) in [
@@ -76,13 +75,11 @@ mod tests {
         }
     }
 
-    // spec: EG-DURABLE-KERNEL-R034.1
     #[test]
     fn classifying_zero_stores_is_refused() {
         assert_eq!(classify_scope(0), Err(EmptyTransaction));
     }
 
-    // spec: EG-DURABLE-KERNEL-R034.1
     #[test]
     fn one_store_is_single_store_and_more_is_cross_store() {
         assert_eq!(classify_scope(1), Ok(TransactionScope::SingleStore));

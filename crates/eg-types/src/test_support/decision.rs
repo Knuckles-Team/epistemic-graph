@@ -125,7 +125,6 @@ mod tests {
     use super::tool_entry_with_cost_latency;
     use crate::decision::CandidateFacts;
 
-    // spec: EG-DECISION-ENGINE-R061.1
     #[test]
     fn the_fixture_entry_converts_to_candidate_facts_with_its_declared_cost_intact() {
         let entry = tool_entry_with_cost_latency(

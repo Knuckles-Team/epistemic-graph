@@ -171,14 +171,12 @@ mod tests {
         assert_eq!(lookup(&requested, Some(&cached)), PlanCacheLookup::Miss);
     }
 
-    // spec: EG-DURABLE-KERNEL-R041.2
     #[test]
     fn key_is_deterministic_across_separate_digest_computations() {
         assert_eq!(key(b"SELECT 1", 7), key(b"SELECT 1", 7));
         assert_ne!(key(b"SELECT 1", 7), key(b"SELECT 1", 8));
     }
 
-    // spec: EG-DURABLE-KERNEL-R041.2
     #[test]
     fn prepare_compiles_once_then_reuses_the_cached_plan() {
         let mut cache: PlanCache<u32> = PlanCache::new();
@@ -200,7 +198,6 @@ mod tests {
         assert_eq!(cache.len(), 1);
     }
 
-    // spec: EG-DURABLE-KERNEL-R041.2
     #[test]
     fn prepare_recompiles_after_the_schema_version_advances() {
         let mut cache: PlanCache<u32> = PlanCache::new();

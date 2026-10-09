@@ -55,7 +55,6 @@ fn nl_request(schema: &ComponentDependency, params: Vec<TypedParam>) -> DecideRe
     }
 }
 
-// spec: EG-DECISION-ENGINE-R062, EG-DECISION-ENGINE-R098
 #[tokio::test]
 async fn an_utterance_routes_over_templates_and_an_llm_proposal_is_only_a_claim() {
     let h = Harness::new().await;
@@ -139,7 +138,6 @@ async fn an_utterance_routes_over_templates_and_an_llm_proposal_is_only_a_claim(
 /// engine, and an LLM proposal may only pick among already-published, fixed
 /// templates -- it can never supply its own response text, and an id outside
 /// the published set is refused rather than bound.
-// spec: EG-DECISION-ENGINE-R098
 #[tokio::test]
 async fn nl_binding_text_slots_are_verbatim_substrings_never_generated_text() {
     let h = Harness::new().await;

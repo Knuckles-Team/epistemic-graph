@@ -217,7 +217,6 @@ fn print_known_divergence_report() {
 }
 
 #[cfg(feature = "canonical-ledger")]
-// spec: EG-DURABLE-KERNEL-R058
 #[test]
 fn generated_ledger_is_not_stale() {
     let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))

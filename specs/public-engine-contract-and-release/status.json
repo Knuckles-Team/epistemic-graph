@@ -71,7 +71,7 @@
     {
       "id": "EG-CONTRACT-R002",
       "title": "Served Agent Library test coverage for pack import and Decide",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "4f364b55e0dc",
         "52f2f3e347a3",
@@ -87,43 +87,32 @@
     {
       "id": "EG-CONTRACT-R002.1",
       "title": "Served Decide tenant auth-boundary refusal",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "4f364b55e0dc",
         "52f2f3e347a3",
         "c047e6602b42"
       ],
-      "verified_by": [
-        "tests/test_decide_auth_boundary.py:100",
-        "tests/test_decide_auth_boundary.py:145",
-        "tests/test_decide_auth_boundary.py:81"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-CONTRACT-R002.2",
       "title": "Served Decide authorized-tenant path and pack-import journey",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "4f364b55e0dc",
         "52f2f3e347a3"
       ],
-      "verified_by": [
-        "tests/test_decide_auth_boundary.py:100",
-        "tests/test_decide_auth_boundary.py:145",
-        "tests/test_decide_auth_boundary.py:81"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-CONTRACT-R002.3",
       "title": "Installed-wheel / no-source-tree-import check for the Decide and pack-import client surface",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "52f2f3e347a3"
       ],
-      "verified_by": [
-        "tests/test_installed_wheel_decision_client_boundary.py:60",
-        "tests/test_installed_wheel_decision_client_boundary.py:79"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-CONTRACT-R003",
@@ -147,15 +136,11 @@
     {
       "id": "EG-CONTRACT-R005",
       "title": "One generated model per wire shape, with typed SPARQL decode",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "e2b2f1cfa8ee"
       ],
-      "verified_by": [
-        "crates/eg-capabilities/src/contract/python/surfaces/tests.rs:117",
-        "crates/eg-capabilities/src/contract/python/surfaces/tests.rs:97",
-        "tests/test_generated_union_variants.py:25"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-CONTRACT-R006",
@@ -169,20 +154,16 @@
     {
       "id": "EG-CONTRACT-R007",
       "title": "Dispatch decomposition test is current and runs in CI",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "43137cbf0f6b"
       ],
-      "verified_by": [
-        "tests/test_dispatch_decomposition.py:133",
-        "tests/test_dispatch_decomposition.py:147",
-        "tests/test_dispatch_decomposition.py:79"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-CONTRACT-R008",
       "title": "Repo-parity check validates the resolved checkout",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "1e48414f9e58"
       ],
@@ -195,39 +176,30 @@
     {
       "id": "EG-CONTRACT-R008.1",
       "title": "Typed resolved-checkout parity contract (producer-first split of R008)",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "1e48414f9e58",
         "fb6841592a83"
       ],
-      "verified_by": [
-        "scripts/tests/test_check_five_repo_parity.py:19",
-        "scripts/tests/test_check_five_repo_parity.py:9",
-        "scripts/tests/test_repo_root_parity.py:10"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-CONTRACT-R008.2",
       "title": "check_five_repo_parity.py CLI wires in the typed parity contract",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "fb6841592a83"
       ],
-      "verified_by": [
-        "scripts/tests/test_check_five_repo_parity.py:19",
-        "scripts/tests/test_check_five_repo_parity.py:9"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-CONTRACT-R009",
       "title": "Release workflow runs the full root Python test suite",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "c835ce794b21"
       ],
-      "verified_by": [
-        "tests/test_scanner_distribution.py:226"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-CONTRACT-R010",
@@ -248,52 +220,38 @@
     {
       "id": "EG-CONTRACT-R012",
       "title": "Complexity scanner resolves modules declared in inline mod blocks",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "78e5f2103219"
       ],
-      "verified_by": [
-        "tests/test_kiss_config_keys.py:19",
-        "tests/test_kiss_config_keys.py:25",
-        "tests/test_kiss_config_keys.py:36"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-CONTRACT-R013",
       "title": "KISS config keys migrated to avoid a silently dropped section",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "78e5f2103219"
       ],
-      "verified_by": [
-        "tests/test_kiss_config_keys.py:19",
-        "tests/test_kiss_config_keys.py:25",
-        "tests/test_kiss_config_keys.py:36"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-CONTRACT-R014",
       "title": "Generated error catalog with stable auth-mismatch codes",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "19d0663aaf5c"
       ],
-      "verified_by": [
-        "crates/eg-capabilities/src/contract/errors.rs:211",
-        "crates/eg-capabilities/src/contract/errors.rs:234",
-        "crates/eg-capabilities/src/contract/errors.rs:266"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-CONTRACT-R015",
       "title": "Wheel ships the method, error and scope contract with callability flags",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "5738b6093ea7"
       ],
-      "verified_by": [
-        "tests/test_installed_wheel_decision_client_boundary.py:79"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-CONTRACT-R016",
@@ -307,15 +265,11 @@
     {
       "id": "EG-CONTRACT-R017",
       "title": "Dispatch census pins cover the current compiler-declared modules",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "43137cbf0f6b"
       ],
-      "verified_by": [
-        "tests/test_dispatch_decomposition.py:133",
-        "tests/test_dispatch_decomposition.py:147",
-        "tests/test_dispatch_decomposition.py:79"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-CONTRACT-R018",
@@ -329,39 +283,29 @@
     {
       "id": "EG-CONTRACT-R019",
       "title": "Dispatch reachability gate follows the current FOREIGN paths",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "a8cfd0978c58"
       ],
-      "verified_by": [
-        "tests/test_batch_binary_client.py:313",
-        "tests/test_current_only_architecture.py:34",
-        "tests/test_current_only_architecture.py:69"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-CONTRACT-R020",
       "title": "Topology test names avoid version-number suffixes",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "40b49253d3b9"
       ],
-      "verified_by": [
-        "crates/eg-types/src/decision/topology/tests.rs:56"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-CONTRACT-R021",
       "title": "Failed-connect test checks its own teardown, not process counts",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "1bd79a8991ea"
       ],
-      "verified_by": [
-        "tests/test_sync_client_lifecycle.py:109",
-        "tests/test_sync_client_lifecycle.py:43",
-        "tests/test_sync_client_lifecycle.py:64"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-CONTRACT-R022",
@@ -380,15 +324,11 @@
     {
       "id": "EG-CONTRACT-R024",
       "title": "Pre-commit and codespell configuration finalized and locked",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "c65a2566a170"
       ],
-      "verified_by": [
-        "tests/test_kiss_staged.py:467",
-        "tests/test_kiss_staged.py:490",
-        "tests/test_scanner_distribution.py:70"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-CONTRACT-R025",
@@ -420,15 +360,11 @@
     {
       "id": "EG-CONTRACT-R028",
       "title": "SQLite-format and speech-recognition differential tests run in CI",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "7798ab372b1e"
       ],
-      "verified_by": [
-        "crates/eg-viz-kernels/src/simd.rs:307",
-        "crates/eg-viz-kernels/src/simd.rs:327",
-        "tests/txn_reconcile_ack_lost_retry.rs:221"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-CONTRACT-R029",
@@ -478,13 +414,11 @@
     {
       "id": "EG-CONTRACT-R034",
       "title": "Complexity test derives its residual from the dispatch arm count",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "cba884075803"
       ],
-      "verified_by": [
-        "tests/test_scanner_wrappers.py:428"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-CONTRACT-R035",
@@ -505,38 +439,29 @@
     {
       "id": "EG-CONTRACT-R037",
       "title": "Clippy is warning-free across every release profile",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "04a134298236"
       ],
-      "verified_by": [
-        "tests/test_scanner_distribution.py:226",
-        "tests/test_scanner_distribution.py:417"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-CONTRACT-R038",
       "title": "Contract receipt freshness is checked before merge",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "2688cddd2f7f"
       ],
-      "verified_by": [
-        "crates/eg-lake/tests/ltap.rs:145",
-        "crates/eg-lake/tests/ltap.rs:168",
-        "crates/eg-lake/tests/ltap.rs:218"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-CONTRACT-R039",
       "title": "Duplication gate runs against the full combined diff, not per-change",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "57a12eb06632"
       ],
-      "verified_by": [
-        "src/server/handlers/source_ingestion.rs:2362"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-CONTRACT-R040",
@@ -577,13 +502,11 @@
     {
       "id": "EG-CONTRACT-R044",
       "title": "Contract gate discovers Method variants structurally",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "acc9d32155b3"
       ],
-      "verified_by": [
-        "crates/eg-capabilities/tests/contract_generated.rs:105"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-CONTRACT-R045",
@@ -615,16 +538,12 @@
     {
       "id": "EG-CONTRACT-R048",
       "title": "Generated work-claim and evidence DTOs refuse coerced, empty and duplicate inputs",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "677e430cb3bc",
         "a5b4a1f1f638"
       ],
-      "verified_by": [
-        "tests/test_generated_dto_strictness.py:42",
-        "tests/test_generated_dto_strictness.py:58",
-        "tests/test_generated_dto_strictness.py:74"
-      ]
+      "verified_by": []
     }
   ]
 }

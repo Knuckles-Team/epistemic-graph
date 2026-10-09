@@ -338,7 +338,6 @@ fn exact_checkpoint_no_op_is_rejected() {
         .contains("must differ"));
 }
 
-// spec: EG-REPO-INGEST-R003.1, EG-REPO-INGEST-R003.11
 #[test]
 fn provider_checkpoint_position_accepts_scalar_json() {
     let mut batch = request();
@@ -354,7 +353,6 @@ fn provider_checkpoint_position_accepts_scalar_json() {
 // detection) is the first migrated root claimed through EG's own typed
 // interface rather than left to its retiring legacy module.
 
-// spec: EG-REPO-INGEST-R003.1, EG-REPO-INGEST-R003.11
 #[test]
 fn r003_1_standardization_processing_round_trips_through_the_typed_root() {
     let root = MigratedIngestionCapabilityRoot::StandardizationProcessing;
@@ -364,7 +362,6 @@ fn r003_1_standardization_processing_round_trips_through_the_typed_root() {
     assert_eq!(back, root);
 }
 
-// spec: EG-REPO-INGEST-R003.1, EG-REPO-INGEST-R003.11
 #[test]
 fn r003_1_a_fresh_claim_on_standardization_processing_succeeds() {
     let root = MigratedIngestionCapabilityRoot::StandardizationProcessing;
@@ -381,7 +378,6 @@ fn r003_1_a_duplicate_claim_on_standardization_processing_is_refused() {
     assert!(err.contains("already claimed"));
 }
 
-// spec: EG-REPO-INGEST-R003.2, EG-REPO-INGEST-R003.7
 #[test]
 fn r003_1_a_different_root_is_not_blocked_by_an_unrelated_claim() {
     let standardization = MigratedIngestionCapabilityRoot::StandardizationProcessing;
@@ -392,7 +388,6 @@ fn r003_1_a_different_root_is_not_blocked_by_an_unrelated_claim() {
 // EG-REPO-INGEST-R003.2 — infrastructure processing is claimed through EG's
 // own typed interface rather than left to its retiring legacy module.
 
-// spec: EG-REPO-INGEST-R003.7
 #[test]
 fn r003_2_infrastructure_processing_round_trips_through_the_typed_root() {
     let root = MigratedIngestionCapabilityRoot::InfrastructureProcessing;
@@ -402,7 +397,6 @@ fn r003_2_infrastructure_processing_round_trips_through_the_typed_root() {
     assert_eq!(back, root);
 }
 
-// spec: EG-REPO-INGEST-R003.7
 #[test]
 fn r003_2_a_fresh_claim_on_infrastructure_processing_succeeds() {
     let root = MigratedIngestionCapabilityRoot::InfrastructureProcessing;
@@ -524,7 +518,6 @@ fn r003_5_a_duplicate_claim_on_enterprise_protocol_handling_is_refused() {
     assert!(err.contains("already claimed"));
 }
 
-// spec: EG-REPO-INGEST-R003.6
 #[test]
 fn r003_5_a_different_root_is_not_blocked_by_an_unrelated_claim() {
     let enterprise = MigratedIngestionCapabilityRoot::EnterpriseProtocolHandling;

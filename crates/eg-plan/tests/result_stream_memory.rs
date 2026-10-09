@@ -104,7 +104,6 @@ impl Iterator for CountingRows {
     }
 }
 
-// spec: EG-FEDERATED-QUERY-R062
 #[test]
 fn million_row_scan_streams_with_flat_memory() {
     const ROWS: usize = 1_000_000;

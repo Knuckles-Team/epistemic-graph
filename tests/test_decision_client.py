@@ -132,7 +132,6 @@ def test_duplicate_declared_ids_are_refused_before_the_wire() -> None:
         dc.declared([dc.DeclaredOption("a"), dc.DeclaredOption("a")])
 
 
-@pytest.mark.spec("EG-DECISION-ENGINE-R076")
 def test_the_client_sends_through_the_generated_senders() -> None:
     sent: list[tuple[str, Any]] = []
 
@@ -150,7 +149,6 @@ def test_the_client_sends_through_the_generated_senders() -> None:
     assert [m for m, _ in sent] == ["Decide", "DecisionLog"]
 
 
-@pytest.mark.spec("EG-DECISION-ENGINE-R076")
 def test_decide_can_opt_into_the_nested_pydantic_decision_batch_model() -> None:
     """EG-DECISION-ENGINE-R076: as_model=True yields the nested DecisionBatch
     model; the default (as_model=False, exercised above) stays the raw

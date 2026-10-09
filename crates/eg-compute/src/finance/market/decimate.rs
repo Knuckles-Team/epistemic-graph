@@ -298,7 +298,6 @@ mod tests {
         }
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R015
     #[test]
     fn a_chart_that_fits_comes_back_unchanged() {
         let input = bars(WIDTH as i64);
@@ -308,7 +307,6 @@ mod tests {
         assert_eq!(chart.source_bars, WIDTH as u64);
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R015
     #[test]
     fn columns_keep_every_extreme_endpoint_and_the_volume() {
         let input = bars(1_000);
@@ -328,7 +326,6 @@ mod tests {
             .all(|w| w[0].close_time <= w[1].open_time));
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R015
     #[test]
     fn a_provisional_part_makes_its_column_provisional() {
         let mut input = bars(400);

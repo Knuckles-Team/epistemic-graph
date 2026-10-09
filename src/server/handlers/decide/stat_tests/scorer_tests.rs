@@ -77,7 +77,6 @@ fn mislabelled(data: &LabelledDataset, ids: &[String]) -> LabelledDataset {
     wrong
 }
 
-// spec: EG-DECISION-ENGINE-R092, EG-DECISION-ENGINE-R094
 #[tokio::test]
 async fn a_scorer_head_is_promoted_only_through_the_protocol_and_then_acts() {
     let h = Harness::new().await;
@@ -187,7 +186,6 @@ async fn a_scorer_head_is_promoted_only_through_the_protocol_and_then_acts() {
 /// language. Two distinct `QuestionKind`s over the identical published head
 /// and candidates prove both properties hold ladder-wide, not just for one
 /// question.
-// spec: EG-DECISION-ENGINE-R092, EG-DECISION-ENGINE-R094
 #[tokio::test]
 async fn select_only_and_structured_encoding_hold_across_distinct_question_kinds() {
     let h = Harness::new().await;

@@ -175,7 +175,6 @@ fn live_generation(store: &TableStore, index: &AnnIndexPlan) -> AnnGeneration {
     AnnGeneration::build(9, index.method, index.metric, source)
 }
 
-// spec: EG-FEDERATED-QUERY-R009
 #[test]
 fn drop_index_is_a_typed_sql_statement_over_the_same_fenced_drop() {
     let store = docs_without_index(10);

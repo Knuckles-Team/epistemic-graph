@@ -43,7 +43,6 @@ fn not_in_build(e: &UqlError) -> bool {
             .any(|f| !f.enabled() && e.msg.contains(&format!("`{}`", f.name())))
 }
 
-// spec: EG-FEDERATED-QUERY-R022, EG-FEDERATED-QUERY-R023, EG-FEDERATED-QUERY-R061, EG-FEDERATED-QUERY-R064, EG-FEDERATED-QUERY-R065, EG-FEDERATED-QUERY-R067
 #[test]
 fn dispatch_table_and_grammar_name_the_same_keywords() {
     let table: BTreeSet<&str> = Parser::stage_table()
@@ -55,7 +54,6 @@ fn dispatch_table_and_grammar_name_the_same_keywords() {
     assert_eq!(table, grammar);
 }
 
-// spec: EG-FEDERATED-QUERY-R022, EG-FEDERATED-QUERY-R023, EG-FEDERATED-QUERY-R061, EG-FEDERATED-QUERY-R064, EG-FEDERATED-QUERY-R065, EG-FEDERATED-QUERY-R067
 #[test]
 fn every_grammar_example_parses_or_names_its_missing_feature() {
     for prod in PRODUCTIONS.iter().filter(|p| !p.example.is_empty()) {

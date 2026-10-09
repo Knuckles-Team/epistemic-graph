@@ -53,7 +53,6 @@ async fn request_scopes_are_isolated_and_missing_authority_fails_closed() {
     assert!(current_admin_saga_authority().is_err());
 }
 
-// spec: EG-DURABLE-KERNEL-R068
 #[test]
 fn saga_keys_separate_tenant_principal_and_authenticated_idempotency() {
     let original = authenticated_saga_id(&authority("alice", "a", "key"));
@@ -70,7 +69,6 @@ fn saga_keys_separate_tenant_principal_and_authenticated_idempotency() {
     );
 }
 
-// spec: EG-DURABLE-KERNEL-R068
 #[test]
 fn channel_departure_receipt_keeps_json_string_variant() {
     let departure = crate::protocol::ResultPayload::Json(serde_json::json!("left"));

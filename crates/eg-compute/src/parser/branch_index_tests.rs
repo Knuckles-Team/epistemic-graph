@@ -99,7 +99,6 @@ fn symbols_named<'a>(result: &'a IndexResult, name: &str) -> Vec<&'a str> {
         .collect()
 }
 
-// spec: EG-REPO-INGEST-R007
 #[test]
 fn shared_blob_is_parsed_once_and_its_symbols_attach_to_the_blob() {
     let result = index(&two_branch_scope());
@@ -316,7 +315,6 @@ fn a_deleted_ref_carries_only_tombstones() {
     assert!(error.contains("deleted ref"), "{error}");
 }
 
-// spec: EG-REPO-INGEST-R007
 #[test]
 fn malformed_scopes_are_refused() {
     let unbound = scope(vec![live("main", 'a')], Vec::new(), Vec::new());
@@ -342,7 +340,6 @@ fn malformed_scopes_are_refused() {
     assert!(error.contains("twice"), "{error}");
 }
 
-// spec: EG-REPO-INGEST-R007
 #[test]
 fn empty_import_target_does_not_falsely_abstain_from_resolution() {
     let empty = "";

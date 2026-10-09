@@ -107,7 +107,6 @@ impl RetrievalPlanRequest {
 mod tests {
     use super::*;
 
-    // spec: EG-DECISION-ENGINE-R029
     #[test]
     fn every_plan_option_id_resolves_back_to_its_plan() {
         for plan in RetrievalPlanKind::ALL {
@@ -118,7 +117,6 @@ mod tests {
         }
     }
 
-    // spec: EG-DECISION-ENGINE-R029
     #[test]
     fn only_the_reserved_prefix_claims_the_namespace() {
         assert!(RetrievalPlanKind::claims_registry_namespace(

@@ -109,7 +109,6 @@ mod community_tests {
         }
     }
 
-    // spec: EG-DECISION-ENGINE-R081, EG-FEDERATED-QUERY-R063, EG-REPO-INGEST-R011
     #[test]
     fn bounded_kernel_partitions_dense_graph() {
         // A dense graph with many ties is the oscillation-prone case. The
@@ -138,7 +137,6 @@ mod community_tests {
     /// existing `separates_two_disconnected_cliques` fixture above): the
     /// excluded edge contributes zero weight, so the two triangles are
     /// disconnected in the weighted graph the kernel actually sees.
-    // spec: EG-DECISION-ENGINE-R081, EG-FEDERATED-QUERY-R063, EG-REPO-INGEST-R011
     #[test]
     fn similar_to_edge_does_not_bridge_communities() {
         let g = GraphCore::new();
@@ -189,7 +187,6 @@ mod community_tests {
     /// must still produce a valid, complete partition — proving the excluded
     /// weight in the test above came from the edge TYPE (`similar_to`), not
     /// from some unrelated bug that drops every cross-block edge.
-    // spec: EG-DECISION-ENGINE-R081, EG-FEDERATED-QUERY-R063, EG-REPO-INGEST-R011
     #[test]
     fn calls_edge_can_bridge_communities() {
         let g = GraphCore::new();

@@ -259,7 +259,6 @@ impl EmbeddedAuthority {
 mod tests {
     use super::*;
 
-    // spec: EG-TYPED-PACKS-R088
     #[test]
     fn graph_read_requires_explicit_bootstrap_and_denies_unregistered_peer() {
         let mut authority = EmbeddedAuthority::new(None, None);

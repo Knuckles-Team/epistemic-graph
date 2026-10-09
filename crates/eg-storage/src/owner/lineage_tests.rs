@@ -30,7 +30,6 @@ fn predecessor_manifest(predecessor: &LayoutPredecessor) -> OwnerManifest {
 
 /// X11-T1/T6: changing any layout -- a table, a contract, a logical schema
 /// revision -- without re-pinning it fails here, naming the layout.
-// spec: EG-DURABLE-KERNEL-R060, EG-TYPED-PACKS-R011
 #[test]
 fn every_layout_digest_is_pinned() {
     let drifted: Vec<String> = ALL_LAYOUTS
@@ -51,7 +50,6 @@ fn every_layout_digest_is_pinned() {
     );
 }
 
-// spec: EG-DURABLE-KERNEL-R060, EG-TYPED-PACKS-R011
 #[test]
 fn graph_shard_before_policy_revisions_matches_the_previous_pin() {
     let predecessor = &GRAPH_SHARD_BEFORE_POLICY_REVISIONS;
@@ -75,7 +73,6 @@ fn graph_shard_before_policy_revisions_matches_the_previous_pin() {
     );
 }
 
-// spec: EG-DURABLE-KERNEL-R060, EG-TYPED-PACKS-R011
 #[test]
 fn the_layout_list_is_complete_and_ordered() {
     for (index, layout) in ALL_LAYOUTS.iter().enumerate() {

@@ -9,7 +9,6 @@ use super::*;
 /// append holds the writer at the receive window until the second is queued.
 /// Both acknowledgements still happen only after their shared commit, and
 /// reopening proves both entries crossed that durable barrier.
-// spec: EG-DURABLE-KERNEL-R016
 #[tokio::test(flavor = "multi_thread")]
 async fn micro_linger_coalesces_shallow_raft_appends() {
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;

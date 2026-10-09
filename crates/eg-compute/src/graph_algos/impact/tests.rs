@@ -84,7 +84,6 @@ const DIAMOND: [(usize, usize, f64); 4] = [(0, 1, 0.6), (0, 2, 0.5), (1, 3, 0.8)
 // 0 -> 1 -> 2 -> 0, 2 -> 3.
 const CYCLE: [(usize, usize, f64); 4] = [(0, 1, 0.9), (1, 2, 0.8), (2, 0, 0.5), (2, 3, 0.6)];
 
-// spec: EG-FEDERATED-QUERY-R033
 #[test]
 fn noisy_or_is_exact_on_a_polytree() {
     let seeds = [seed(0, 0.9), seed(4, 0.5)];
@@ -98,7 +97,6 @@ fn noisy_or_is_exact_on_a_polytree() {
     ));
 }
 
-// spec: EG-FEDERATED-QUERY-R033
 #[test]
 fn noisy_or_bounds_a_diamond_from_above() {
     // An uncertain seed correlates the two branches.
@@ -114,7 +112,6 @@ fn noisy_or_bounds_a_diamond_from_above() {
     );
 }
 
-// spec: EG-FEDERATED-QUERY-R033
 #[test]
 fn a_cycle_is_unrolled_to_the_hop_bound() {
     let seeds = [seed(0, 1.0)];

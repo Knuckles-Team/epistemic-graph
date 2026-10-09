@@ -107,7 +107,6 @@ mod tests {
         }
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R028.1
     #[test]
     fn identical_baseline_reconciles() {
         let prior = baseline(&["timestamp_precision"]);
@@ -115,7 +114,6 @@ mod tests {
         assert_eq!(prior.reconcile(&current, &[]), Ok(()));
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R028.1
     #[test]
     fn new_deviation_in_current_is_not_a_problem() {
         let prior = baseline(&["timestamp_precision"]);
@@ -123,7 +121,6 @@ mod tests {
         assert_eq!(prior.reconcile(&current, &[]), Ok(()));
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R028.1
     #[test]
     fn dropped_deviation_without_resolution_is_refused() {
         let prior = baseline(&["timestamp_precision", "collation_order"]);

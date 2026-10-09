@@ -95,7 +95,6 @@ mod tests {
         }
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R010.1
     #[test]
     fn paper_mode_is_never_eligible_for_a_live_order() {
         let err = live_order_eligibility(
@@ -110,7 +109,6 @@ mod tests {
         assert_eq!(err, LiveOrderRefusal::NotLive);
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R010.1
     #[test]
     fn a_live_order_without_a_matching_policy_is_refused() {
         let err = live_order_eligibility(
@@ -128,7 +126,6 @@ mod tests {
         ));
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R010.1
     #[test]
     fn a_live_order_with_an_undesignated_approver_is_refused() {
         let err = live_order_eligibility(

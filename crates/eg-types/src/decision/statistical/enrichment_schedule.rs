@@ -123,14 +123,12 @@ mod tests {
         }
     }
 
-    // spec: EG-DECISION-ENGINE-R031
     #[test]
     fn net_value_is_expected_value_minus_cost() {
         assert_eq!(candidate("a", 10, 3).net_value_q32(), 7);
         assert_eq!(candidate("a", 1, 3).net_value_q32(), -2);
     }
 
-    // spec: EG-DECISION-ENGINE-R031
     #[test]
     fn a_request_with_unique_ids_and_non_negative_cost_is_accepted() {
         let request = EnrichmentScheduleRequest {
@@ -140,7 +138,6 @@ mod tests {
         assert_eq!(request.as_declared_options().len(), 2);
     }
 
-    // spec: EG-DECISION-ENGINE-R031
     #[test]
     fn a_negative_cost_is_refused() {
         let request = EnrichmentScheduleRequest {

@@ -381,7 +381,6 @@ fn runtime() -> tokio::runtime::Runtime {
         .expect("runtime")
 }
 
-// spec: EG-FEDERATED-QUERY-R051
 #[test]
 fn a_partitioned_table_is_scanned_through_the_provider_with_files_pruned() {
     let writer = runtime();

@@ -67,7 +67,6 @@ pub fn evaluate(spec: &StrategySpec) -> Option<ProposedAction> {
 mod tests {
     use super::*;
 
-    // spec: EG-FINANCE-PRIMITIVES-R007.1
     #[test]
     fn dca_fixed_amount_proposes_buy_of_configured_amount() {
         let spec = StrategySpec {
@@ -82,7 +81,6 @@ mod tests {
         assert_eq!(action.amount_minor_units, 10_000);
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R007.1
     #[test]
     fn dca_fixed_amount_refuses_a_non_positive_contribution() {
         let spec = StrategySpec {
@@ -94,7 +92,6 @@ mod tests {
         assert!(evaluate(&spec).is_none());
     }
 
-    // spec: EG-FINANCE-PRIMITIVES-R007.1
     #[test]
     fn evaluation_is_deterministic_across_repeated_calls() {
         let spec = StrategySpec {

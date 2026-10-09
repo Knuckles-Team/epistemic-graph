@@ -31,7 +31,6 @@ def gate():
     return _gate_module()
 
 
-@pytest.mark.spec("EG-CONTRACT-R019")
 def test_current_only_architecture_gate(gate) -> None:
     gate.main()
 
@@ -66,7 +65,6 @@ def test_current_only_architecture_gate(gate) -> None:
     ],
     ids=["foreign-dispatch", "foreign-scan-missing-registry"],
 )
-@pytest.mark.spec("EG-CONTRACT-R019")
 def test_live_foreign_pass_through_is_rejected(
     tmp_path: Path, monkeypatch, relative: str, old: str, new: str
 ) -> None:

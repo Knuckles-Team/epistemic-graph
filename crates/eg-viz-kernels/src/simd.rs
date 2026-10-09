@@ -304,7 +304,6 @@ pub fn triangle_areas(prev: (f64, f64), avg: (f64, f64), cx: &[f64], cy: &[f64],
 mod tests {
     use super::*;
 
-    // spec: EG-CONTRACT-R028
     #[test]
     fn scalar_bucket_indices_maps_domain_endpoints_to_first_and_last_column() {
         let xs = [0.0, 100.0, 50.0, f64::NAN, f64::INFINITY];
@@ -324,7 +323,6 @@ mod tests {
     /// GitHub runners. Prove runtime detection reflects the executing CPU and the
     /// public dispatcher remains scalar-equivalent for whichever path it selects.
     #[cfg(not(eg_avx2_tests))]
-    // spec: EG-CONTRACT-R028
     #[test]
     fn runtime_dispatch_matches_scalar_for_detected_capability() {
         #[cfg(target_arch = "x86_64")]

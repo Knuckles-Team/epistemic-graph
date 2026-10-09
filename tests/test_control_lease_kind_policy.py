@@ -152,13 +152,11 @@ def test_the_restricted_principal_cannot_transition_another_kind(deputy, other):
     assert _revoke(other, foreign)["outcome"] == "applied"
 
 
-@pytest.mark.spec("EG-DURABLE-KERNEL-R030")
 @pytest.mark.parametrize("kind", ["browser.control", "finance.order-proposal"])
 def test_other_principals_are_unaffected(other, kind):
     assert _issue(other, kind)["outcome"] == "issued"
 
 
-@pytest.mark.spec("EG-DURABLE-KERNEL-R030")
 def test_other_principal_cannot_bypass_reserved_elevation_flow(other):
     with pytest.raises(RuntimeError, match="reserved for RbacElevation"):
         _issue(other, "rbac.elevation")

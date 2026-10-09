@@ -155,7 +155,6 @@ mod tests {
         assert!(out.confidence < 0.5);
     }
 
-    // spec: EG-FEDERATED-QUERY-R056
     #[test]
     fn did_subtracts_shared_trend_from_control() {
         // Both series drift up by 1.0 regardless of treatment (a shared time trend);
@@ -177,7 +176,6 @@ mod tests {
         (20.0, 5.507_248_237_212_467_5e-89),
     ];
 
-    // spec: EG-FEDERATED-QUERY-R056
     #[test]
     fn two_sided_p_keeps_relative_accuracy_in_the_far_tail() {
         // `1 - erf(z / sqrt 2)` returns 0 (or noise at the approximation's

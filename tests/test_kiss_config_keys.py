@@ -16,13 +16,11 @@ pytestmark = pytest.mark.no_engine
 REPO = Path(__file__).resolve().parents[1]
 
 
-@pytest.mark.spec("EG-CONTRACT-R012", "EG-CONTRACT-R013")
 def test_the_repository_config_uses_only_keys_kiss_knows() -> None:
     kiss_config_keys.require_known_keys(REPO / ".config/kiss.toml")
     assert kiss_config_keys.main([str(REPO / ".config/kiss.toml")]) == 0
 
 
-@pytest.mark.spec("EG-CONTRACT-R012", "EG-CONTRACT-R013")
 def test_the_renamed_orphan_key_is_refused(tmp_path: Path, capsys) -> None:
     config = tmp_path / "kiss.toml"
     config.write_text(
@@ -33,7 +31,6 @@ def test_the_renamed_orphan_key_is_refused(tmp_path: Path, capsys) -> None:
     assert "global.orphan_module_enabled" in capsys.readouterr().err
 
 
-@pytest.mark.spec("EG-CONTRACT-R012", "EG-CONTRACT-R013")
 def test_every_dropped_table_key_and_a_gate_table_are_named() -> None:
     document = {
         "global": {"docs_allowed": [], "orphan_module_enabled": True},

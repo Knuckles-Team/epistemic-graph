@@ -8,7 +8,6 @@ fn stmt(src: &str) -> crate::uql::Statement {
     parse_statement(src, &Params::new()).unwrap()
 }
 
-// spec: EG-FEDERATED-QUERY-R044
 #[test]
 fn version_pragma_and_modes() {
     let s = stmt("UQL 1; EXPLAIN MATCH (:Doc) |> LIMIT 2");

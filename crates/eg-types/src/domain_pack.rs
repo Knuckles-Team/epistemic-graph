@@ -158,7 +158,6 @@ mod tests {
     }
 
     /// EG-TYPED-PACKS-R097.1: a valid HR domain pack passes validation.
-    // spec: EG-TYPED-PACKS-R097.1
     #[test]
     fn hr_fixture_validates() {
         hr_fixture().validate().expect("fixture must be valid");
@@ -166,7 +165,6 @@ mod tests {
 
     /// Round-trip test: serialize then deserialize the pack, and confirm the
     /// published classes and enumerations match the source declarations.
-    // spec: EG-TYPED-PACKS-R097.1
     #[test]
     fn round_trip_matches_source_declarations() {
         let original = hr_fixture();
@@ -178,7 +176,6 @@ mod tests {
     }
 
     /// A pack with zero classes is refused rather than silently accepted.
-    // spec: EG-TYPED-PACKS-R097.1
     #[test]
     fn empty_classes_is_refused() {
         let mut pack = hr_fixture();

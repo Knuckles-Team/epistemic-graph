@@ -2359,7 +2359,6 @@ mod tests {
         .contains("targets"));
     }
 
-    // spec: EG-DURABLE-KERNEL-R065, EG-DURABLE-KERNEL-R067, EG-FEDERATED-QUERY-R001, EG-FEDERATED-QUERY-R010, EG-CONTRACT-R039
     #[test]
     fn strict_schema_and_datatype_mapping_fail_closed() {
         let xsd = BTreeMap::from([("id".to_string(), "xsd:string".to_string())]);

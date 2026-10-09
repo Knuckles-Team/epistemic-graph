@@ -115,7 +115,6 @@ mod tests {
         }
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R020.1
     #[test]
     fn complete_snowflake_config_validates() {
         let cfg = config(
@@ -125,7 +124,6 @@ mod tests {
         assert_eq!(cfg.validate(), Ok(WarehouseSourceKind::Snowflake));
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R020.1
     #[test]
     fn incomplete_config_is_refused_with_named_fields() {
         let cfg = config(WarehouseSourceKind::BigQuery, &[("project", "p")]);
@@ -133,7 +131,6 @@ mod tests {
         assert_eq!(err.missing, vec!["dataset".to_string()]);
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R020.1
     #[test]
     fn empty_field_value_counts_as_missing() {
         let cfg = config(WarehouseSourceKind::DuckDb, &[("database_path", "")]);

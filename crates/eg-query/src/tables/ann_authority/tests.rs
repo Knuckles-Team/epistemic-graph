@@ -265,7 +265,6 @@ fn a_query_never_builds_a_generation() {
     assert_eq!(status[0].generation, None, "the query path built nothing");
 }
 
-// spec: EG-FEDERATED-QUERY-R059
 #[test]
 fn the_worker_activates_and_the_probe_serves_the_maintained_generation() {
     let index = hnsw_l2();

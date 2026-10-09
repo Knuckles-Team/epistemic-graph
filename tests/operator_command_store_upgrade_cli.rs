@@ -32,7 +32,6 @@ fn run(args: &[&str]) -> Output {
         .unwrap_or_else(|error| panic!("spawn {} {args:?}: {error}", server_bin().display()))
 }
 
-// spec: EG-DURABLE-KERNEL-R007
 #[test]
 fn storage_inspect_reports_nothing_to_do_on_an_empty_data_directory() {
     let data_dir = tempfile::tempdir().expect("tempdir");
@@ -57,7 +56,6 @@ fn storage_inspect_reports_nothing_to_do_on_an_empty_data_directory() {
     );
 }
 
-// spec: EG-DURABLE-KERNEL-R007
 #[test]
 fn storage_apply_without_confirm_is_refused_and_opens_nothing() {
     let data_dir = tempfile::tempdir().expect("tempdir");
@@ -78,7 +76,6 @@ fn storage_apply_without_confirm_is_refused_and_opens_nothing() {
     );
 }
 
-// spec: EG-DURABLE-KERNEL-R007
 #[test]
 fn storage_apply_with_confirm_reports_nothing_to_do_on_an_empty_data_directory() {
     let data_dir = tempfile::tempdir().expect("tempdir");

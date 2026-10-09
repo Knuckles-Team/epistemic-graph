@@ -144,7 +144,6 @@ async fn a_package_release_with_identical_content_is_unchanged() {
 
 /// R016/R050: fresh imports cannot hide package-dependent pins behind the
 /// same-store `Unchanged` fast path. Both stores independently publish content.
-// spec: EG-TYPED-PACKS-R016
 #[tokio::test]
 async fn package_versions_produce_equal_pins_in_independent_stores() {
     let original_store = Served::new();

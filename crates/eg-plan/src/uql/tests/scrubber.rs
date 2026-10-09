@@ -13,7 +13,6 @@ use eg_types::wire::{Op, TimeAxis};
 /// Unix-second timestamp literal.
 const SCRUBBER_QUERY_TEMPLATE: &str = "MATCH (:Event) |> VALID AS OF @1700000000";
 
-// spec: EG-FEDERATED-QUERY-R029
 #[test]
 fn the_temporal_scrubber_query_template_parses_under_the_current_grammar() {
     let plan = parse(SCRUBBER_QUERY_TEMPLATE)
@@ -35,7 +34,6 @@ fn the_temporal_scrubber_query_template_parses_under_the_current_grammar() {
 
 /// `AS OF TX` with a Unix-second timestamp — the transaction-axis variant a scrubber could
 /// equally emit — parses the same way.
-// spec: EG-FEDERATED-QUERY-R029
 #[test]
 fn the_scrubber_transaction_axis_variant_parses() {
     let plan = parse("MATCH (:Event) |> AS OF TX @1700000000").unwrap();
@@ -50,7 +48,6 @@ fn the_scrubber_transaction_axis_variant_parses() {
 
 /// Cypher-shaped text (a bare `MATCH ... RETURN`, no stage-chain, no `@` timestamp marker)
 /// is rejected with a typed parse error, never silently misinterpreted as UQL.
-// spec: EG-FEDERATED-QUERY-R029
 #[test]
 fn cypher_shaped_text_is_rejected_with_a_typed_parse_error() {
     // A typed `UqlError` (stable code + span), not a panic or a silently-accepted plan.

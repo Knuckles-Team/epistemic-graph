@@ -1644,7 +1644,6 @@ mod tests {
         }
     }
 
-    // spec: EG-FEDERATED-QUERY-R046
     #[test]
     fn eh573_direct_ordered_slice_matches_materialized_results_and_ships_less() {
         let table = TableSource::from_records(
@@ -1695,7 +1694,6 @@ mod tests {
         );
     }
 
-    // spec: EG-FEDERATED-QUERY-R046
     #[test]
     fn eh573_ordered_suffix_template_falls_back_to_rdf_sort() {
         let table = TableSource::from_records(
@@ -1731,7 +1729,6 @@ mod tests {
         assert!(source.shipped.lock().unwrap().is_empty());
     }
 
-    // spec: EG-FEDERATED-QUERY-R046
     #[test]
     fn eh573_direct_count_matches_materialized_distinct_triples() {
         let table = TableSource::from_records(

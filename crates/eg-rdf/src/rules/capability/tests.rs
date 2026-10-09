@@ -60,7 +60,6 @@ fn classify(components: &[(&str, &AgentComponentFacts)]) -> CapabilityClassifica
     )
 }
 
-// spec: EG-TYPED-PACKS-R066
 #[test]
 fn a_model_profile_is_classified_from_its_declared_facts() {
     let big = model(200_000, true, &["eg:modality/text"]);
@@ -81,7 +80,6 @@ fn a_model_profile_is_classified_from_its_declared_facts() {
     assert!(!out.has_class("model:big", "eg:profile/measured-latency"));
 }
 
-// spec: EG-TYPED-PACKS-R066
 #[test]
 fn a_derived_capability_is_subsumed_up_the_native_hierarchy_with_a_proof() {
     let facts = model(8_000, false, &["eg:modality/text"]);
@@ -110,7 +108,6 @@ fn a_derived_capability_is_subsumed_up_the_native_hierarchy_with_a_proof() {
     assert!(out.has_class("model:m", "eg:capability"));
 }
 
-// spec: EG-TYPED-PACKS-R066
 #[test]
 fn tools_are_split_by_their_declared_effect() {
     let read = tool(ToolEffect::Read);

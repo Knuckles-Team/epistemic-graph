@@ -172,7 +172,6 @@ mod tests {
         }
     }
 
-    // spec: EG-FEDERATED-QUERY-R052, EG-FEDERATED-QUERY-R054
     #[test]
     fn pushed_keys_and_limit_match_full_peer_execution() {
         let spec = remote("MATCH (:Doc) |> WHERE year > 2023");
@@ -205,7 +204,6 @@ mod tests {
         assert_eq!(first_two.ids(), full.ids()[..2]);
     }
 
-    // spec: EG-FEDERATED-QUERY-R052, EG-FEDERATED-QUERY-R054
     #[test]
     fn synthetic_and_non_pipeline_results_are_fetch_only() {
         for query in [

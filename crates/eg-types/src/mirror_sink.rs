@@ -94,7 +94,6 @@ impl std::error::Error for EmptyCursorPosition {}
 mod tests {
     use super::*;
 
-    // spec: EG-DURABLE-KERNEL-R036.1
     #[test]
     fn sink_kinds_round_trip_through_their_wire_name() {
         for (kind, name) in [
@@ -108,7 +107,6 @@ mod tests {
         }
     }
 
-    // spec: EG-DURABLE-KERNEL-R036.1
     #[test]
     fn cursor_new_succeeds_with_nonempty_position_for_both_kinds() {
         for kind in [MirrorSinkKind::FanOut, MirrorSinkKind::Postgres] {
@@ -118,7 +116,6 @@ mod tests {
         }
     }
 
-    // spec: EG-DURABLE-KERNEL-R036.1
     #[test]
     fn cursor_new_refuses_empty_position_for_both_kinds() {
         for kind in [MirrorSinkKind::FanOut, MirrorSinkKind::Postgres] {

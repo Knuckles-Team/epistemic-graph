@@ -558,7 +558,6 @@ pub fn check(root: &Path) -> Result<usize, Vec<String>> {
 mod decide_feature_freeze_tests {
     use super::*;
 
-    // spec: EG-DECISION-ENGINE-R078.1, EG-DECISION-ENGINE-R078.2
     #[test]
     fn refuses_a_profile_missing_an_enabled_feature() {
         let err = require_feature_frozen(&["contract", "jobs"], "decide", true).unwrap_err();
@@ -566,13 +565,11 @@ mod decide_feature_freeze_tests {
         assert!(err.to_string().contains("decide"));
     }
 
-    // spec: EG-DECISION-ENGINE-R078.1, EG-DECISION-ENGINE-R078.2
     #[test]
     fn allows_a_profile_missing_a_disabled_feature() {
         assert!(require_feature_frozen(&["contract", "jobs"], "decide", false).is_ok());
     }
 
-    // spec: EG-DECISION-ENGINE-R078.1, EG-DECISION-ENGINE-R078.2
     #[test]
     fn allows_a_profile_already_naming_an_enabled_feature() {
         assert!(require_feature_frozen(&["contract", "decide"], "decide", true).is_ok());

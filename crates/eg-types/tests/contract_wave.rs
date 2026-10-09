@@ -36,7 +36,6 @@ use eg_types::test_support::contract_wave::{
 /// the round trip is proved on the CANONICAL BYTES: encode, decode, re-encode,
 /// and require the two encodings to be identical. That is the stronger claim
 /// anyway -- it is the bytes, not the value, that cross the wire.
-// spec: EG-TYPED-PACKS-R071
 #[test]
 fn every_contract_wave_sample_round_trips_through_both_codecs() {
     for (label, method) in contract_wave_samples() {
@@ -71,7 +70,6 @@ fn every_contract_wave_sample_round_trips_through_both_codecs() {
 
 /// An op tag is exactly the snake-case token the contract documents. A second
 /// sample of the same op names its variant after a colon (`DecisionEval.submit:replay`).
-// spec: EG-TYPED-PACKS-R071
 #[test]
 fn every_op_sample_carries_the_documented_op_tag() {
     for (label, method) in contract_wave_samples() {

@@ -315,7 +315,6 @@ mod tests {
         vec![eg_plan::Op::Foreign { name: name.into() }]
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R002.1
     #[test]
     fn same_name_resolves_to_each_owners_own_spec() {
         let (a, b) = (carrier("agent-a"), carrier("agent-b"));
@@ -369,7 +368,6 @@ mod tests {
         );
     }
 
-    // spec: EG-UNIFIED-DATA-PLANE-R002.1
     #[test]
     fn plan_scoping_needs_a_verified_carrier_only_for_named_sources() {
         let catalog = ForeignSourceCatalog::default();
@@ -401,7 +399,6 @@ mod tests {
             }
         }
 
-        // spec: EG-UNIFIED-DATA-PLANE-R002.1
         #[test]
         fn a_disallowed_sql_destination_is_refused_and_never_persisted() {
             let a = carrier("agent-a");

@@ -94,7 +94,6 @@ fn the_module_import_graph_is_acyclic() {
 
 /// Surface and `_shared` modules complete their classes at import (resolved
 /// `model_fields` annotations, as before EH-377); `models.py` stays lazy.
-// spec: EG-CONTRACT-R005
 #[test]
 fn surface_modules_complete_their_classes_and_models_stays_lazy() {
     let space = space();
@@ -114,7 +113,6 @@ fn surface_modules_complete_their_classes_and_models_stays_lazy() {
 /// too, and `models.py` exposes them: consumers construct and `isinstance`-check
 /// `ComponentProvenanceMcpServer` from `agent_component` (graph-os) and the decision
 /// variants from `decision` (AU), as they could before EH-377 moved the union.
-// spec: EG-CONTRACT-R005
 #[test]
 fn a_reexported_union_carries_its_variant_classes() {
     let space = space();

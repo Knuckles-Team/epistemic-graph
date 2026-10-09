@@ -52,7 +52,6 @@ pub fn method_schema(method_id: &str) -> Option<(&'static str, [u8; 32])> {
 mod tests {
     use super::*;
 
-    // spec: EG-DURABLE-KERNEL-R049, EG-TYPED-PACKS-R054
     #[test]
     fn the_catalog_is_sorted_unique_and_complete() {
         assert_eq!(METHOD_CATALOG.len(), crate::method_descriptors().count());
@@ -72,7 +71,6 @@ mod tests {
         }
     }
 
-    // spec: EG-DURABLE-KERNEL-R049, EG-TYPED-PACKS-R054
     #[test]
     fn an_undeclared_method_has_no_catalog_row() {
         assert!(method_schema("NoSuchMethod").is_none());
@@ -81,7 +79,6 @@ mod tests {
     /// The catalog digest is the receipt's, byte for byte. A table generated
     /// under a different contract than the receipt records is exactly the
     /// staleness this constant exists to make impossible.
-    // spec: EG-DURABLE-KERNEL-R049, EG-TYPED-PACKS-R054
     #[test]
     fn the_catalog_digest_is_the_committed_receipt_digest() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))

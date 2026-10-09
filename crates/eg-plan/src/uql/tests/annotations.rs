@@ -26,7 +26,6 @@ fn docs() -> (eg_core::graph::GraphView, SemanticStore) {
     (core.analysis_snapshot(), SemanticStore::new())
 }
 
-// spec: EG-FEDERATED-QUERY-R027, EG-FEDERATED-QUERY-R028
 #[test]
 fn with_knowledge_carries_each_rows_record() {
     let (view, semantic) = docs();
@@ -47,7 +46,6 @@ fn with_knowledge_carries_each_rows_record() {
     assert!(profiled.iter().all(|r| r.knowledge.is_some()));
 }
 
-// spec: EG-FEDERATED-QUERY-R027, EG-FEDERATED-QUERY-R028
 #[test]
 fn an_unprovable_admission_makes_the_proof_partial() {
     let (view, semantic) = docs();
