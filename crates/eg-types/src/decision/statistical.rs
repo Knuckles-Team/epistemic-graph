@@ -67,6 +67,12 @@ pub enum QuestionKind {
     /// computed generically from the outcome and premises, exactly as for
     /// every other question kind; this variant adds no executor branch.
     A2aTask,
+    /// Inbound connector-event classification, evaluate-only
+    /// (EG-DECISION-ENGINE-R041): `Decide` returns a proposal and its
+    /// evidence class and takes no action on the connector's behalf -- the
+    /// same evaluate-only guarantee this module's own doc states for every
+    /// kind, named here for the connector-triage use case specifically.
+    ConnectorEventTriage,
 }
 
 /// What is at stake. Exploration is permitted only for
