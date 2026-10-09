@@ -37,6 +37,7 @@ pub mod legal_option_filter;
 pub mod nl;
 pub mod promotion;
 pub mod quant;
+pub mod rapid_r083;
 pub mod refusal;
 pub mod replay;
 pub mod retrieval;
