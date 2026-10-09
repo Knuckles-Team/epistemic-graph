@@ -51,6 +51,9 @@
 ## Platform and app admission
 
 - [ ] **EG-UNIFIED-DATA-PLANE-R023:** Build shared CloudNativePG and MariaDB platform with per-app roles, PITR and restore drill.
+- [x] **EG-UNIFIED-DATA-PLANE-R023.1:** `SharedPlatformClusterGroup`/`ApplicationRoleSet` typed model plus engine-specific refusal (`crates/eg-types/src/shared_db_platform.rs`).
+- [ ] **EG-UNIFIED-DATA-PLANE-R023.2:** CloudNativePG/MariaDB operator wiring and PITR schedule to object storage.
+- [ ] **EG-UNIFIED-DATA-PLANE-R023.3:** Restore-drill automation and post-restore data-match verification.
 - [ ] **EG-UNIFIED-DATA-PLANE-R024:** Admit three apps including MariaDB with rollback and retire each ingest connector only after parity; depends on EG-UNIFIED-DATA-PLANE-R023.
 - [ ] **EG-UNIFIED-DATA-PLANE-R032 / Immich I0–I6:** Generated API client, MCP tools, registration, incremental per-user ingest, naming, approved links and operations. Implement I0–I6 as defined in [spec.md](spec.md).
 
