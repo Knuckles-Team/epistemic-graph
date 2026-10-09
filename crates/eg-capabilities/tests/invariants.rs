@@ -500,6 +500,7 @@ fn decide_governance_kinds_publish_under_admin_actions() {
 /// UQL-12: every UQL/unified-query surface is READ-ONLY by policy — no mutation, no
 /// durable domain, idempotent, snapshot-isolated. (The executor is read-only by
 /// construction too: `eg_plan`'s op dispatch takes the snapshot by shared reference.)
+// spec: EG-DURABLE-KERNEL-R023
 #[test]
 fn uql_surfaces_are_read_only() {
     let surfaces = ["UnifiedQuery", "Uql"];
