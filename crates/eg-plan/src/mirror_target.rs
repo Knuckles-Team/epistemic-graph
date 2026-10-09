@@ -12,6 +12,8 @@
 //! backend exists. The entry point that drives real writes through a bound driver
 //! is a later child (`R024.2.2`).
 
+use std::collections::HashMap;
+
 use eg_types::wire::MirrorTargetSpec;
 
 /// A destination a mirrored row can be pushed to.
@@ -48,6 +50,56 @@ impl MirrorTarget for MirrorUnbound {
             "federation: {} mirror target ({} downstream target(s)) requires a verified registration and bound driver",
             self.kind, self.target_count
         ))
+    }
+}
+
+/// The registration entry point (`EG-DURABLE-KERNEL-R024.2.2`): where a
+/// mirror-sink driver registers a named target spec, and where the outbox
+/// fan-out path resolves a name to a bound (or, pre-driver, refused) send.
+/// Mirrors `federation::ForeignSourceRegistry::register_spec`/`resolve`.
+#[derive(Default)]
+pub struct MirrorTargetRegistry {
+    specs: HashMap<String, MirrorTargetSpec>,
+}
+
+impl MirrorTargetRegistry {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Register a spec under `name`. Refuses an invalid spec (for example an
+    /// empty `FanOut`) at registration time, before any send is attempted.
+    pub fn register(&mut self, name: impl Into<String>, spec: MirrorTargetSpec) -> Result<(), String> {
+        spec.validate().map_err(|error| error.to_string())?;
+        self.specs.insert(name.into(), spec);
+        Ok(())
+    }
+
+    /// How many targets are registered.
+    pub fn len(&self) -> usize {
+        self.specs.len()
+    }
+
+    /// Whether NO targets are registered.
+    pub fn is_empty(&self) -> bool {
+        self.specs.is_empty()
+    }
+
+    /// Push `payload` to the target registered under `name`. A name with no
+    /// registration is a clean typed error (never a silently dropped row);
+    /// a registered-but-still-unbound target (no driver exists for its kind
+    /// yet) fails the same way through `target_for`'s `MirrorUnbound`.
+    pub fn send_to(&self, name: &str, payload: &[u8]) -> Result<(), String> {
+        match self.specs.get(name) {
+            Some(spec) => target_for(spec)?.send(payload),
+            None => {
+                let mut known: Vec<&str> = self.specs.keys().map(String::as_str).collect();
+                known.sort_unstable();
+                Err(format!(
+                    "federation: no mirror target registered under name '{name}' (registered: {known:?})"
+                ))
+            }
+        }
     }
 }
 
@@ -93,5 +145,34 @@ mod tests {
         assert!(error.contains("fan-out"), "{error}");
         assert!(error.contains("2 downstream"), "{error}");
         assert!(error.contains("verified registration and bound driver"));
+    }
+
+    #[test]
+    fn registry_refuses_an_invalid_spec_at_registration_time() {
+        let mut registry = MirrorTargetRegistry::new();
+        let error = registry.register("broken", fan_out(&[])).unwrap_err();
+        assert!(error.contains("no downstream target"), "{error}");
+        assert!(registry.is_empty());
+    }
+
+    #[test]
+    fn registry_send_to_reaches_the_real_validate_and_dispatch_path() {
+        let mut registry = MirrorTargetRegistry::new();
+        registry
+            .register("lake-mirror", fan_out(&["lake", "audit-sink"]))
+            .unwrap();
+        assert_eq!(registry.len(), 1);
+        // Registered, but no driver exists for "fan-out" yet: the same
+        // closed-failure path `target_for` proves directly, now reached
+        // through the registry's name-resolution entry point.
+        let error = registry.send_to("lake-mirror", b"row").unwrap_err();
+        assert!(error.contains("verified registration and bound driver"), "{error}");
+    }
+
+    #[test]
+    fn registry_send_to_an_unknown_name_is_a_distinct_clean_error() {
+        let registry = MirrorTargetRegistry::new();
+        let error = registry.send_to("missing", b"row").unwrap_err();
+        assert!(error.contains("no mirror target registered"), "{error}");
     }
 }
