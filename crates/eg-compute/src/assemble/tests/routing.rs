@@ -143,6 +143,7 @@ fn items() -> Vec<Item> {
     ]
 }
 
+// spec: EG-DECISION-ENGINE-R052
 #[test]
 fn every_routing_item_answers_inside_its_acceptability_set() {
     for item in items() {

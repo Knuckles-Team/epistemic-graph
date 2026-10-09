@@ -106,7 +106,7 @@ fn the_fixed_point_kernels_are_accurate_where_it_matters() {
     assert!(p[3] > p[0] && p[0] > p[1] && p[1] > p[2]);
 }
 
-// spec: EG-DECISION-ENGINE-R091
+// spec: EG-DECISION-ENGINE-R091, EG-DECISION-ENGINE-R055
 #[test]
 fn the_golden_vector_is_bit_identical_across_hosts() {
     let head = head(3);

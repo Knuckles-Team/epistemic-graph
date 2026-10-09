@@ -114,6 +114,7 @@ fn normal_tails_keep_relative_accuracy_against_mpmath() {
     );
 }
 
+// spec: EG-DECISION-ENGINE-R055
 #[test]
 fn quantisation_rounds_half_even_and_encodes_canonically() {
     let unit = 1.0 / 4_294_967_296.0;

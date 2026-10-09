@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -34,6 +35,21 @@ def test_the_gold_set_exports_one_full_label_item_per_solvable_plan() -> None:
     assert ds.dataset_digest(dataset) == ds.dataset_digest(
         export.export_gold_dataset(gold)
     )
+
+
+@pytest.mark.spec("EG-DECISION-ENGINE-R053")
+def test_the_gold_set_loads_each_item_is_labelled_and_class_coverage_is_reported() -> (
+    None
+):
+    gold = generate_gold_set(0)
+    assert len(gold.items) > 0, "the gold set loads"
+    dataset = export.export_gold_dataset(gold)
+    assert len(dataset["items"]) > 0, "the gold set exports"
+    for item in dataset["items"]:
+        assert item["label"]["acceptable"], f"{item['item_id']} is labelled"
+    class_coverage = Counter(item["class_key"] for item in dataset["items"])
+    assert class_coverage, "class coverage is reported"
+    assert all(count > 0 for count in class_coverage.values())
 
 
 def _served_item(acceptable: list[str], candidate_ids: list[str]) -> dict:
