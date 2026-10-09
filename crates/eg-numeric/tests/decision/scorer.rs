@@ -137,6 +137,7 @@ fn the_golden_vector_is_bit_identical_across_hosts() {
     );
 }
 
+// spec: EG-DECISION-ENGINE-R009
 #[test]
 fn an_eliminated_option_is_never_scored_and_moves_nothing() {
     let head = head(8);

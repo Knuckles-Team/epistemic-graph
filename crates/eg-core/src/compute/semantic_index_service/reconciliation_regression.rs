@@ -340,6 +340,7 @@ fn partial_checkpoint_resumes_after_reopen_and_replays_exact_s1() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
+// spec: EG-FEDERATED-QUERY-R007
 #[test]
 fn missing_sources_become_tombstones_only_after_complete_snapshot_proof() {
     let dir = temp_dir("complete-proof-tombstones");

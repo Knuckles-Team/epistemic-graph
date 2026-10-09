@@ -478,6 +478,7 @@ mod tests {
     /// Known-bad input #2: pushing past `CAPACITY` must evict the oldest entries,
     /// not grow without bound (EH-286's "bounded so a long test cannot exhaust
     /// memory" requirement).
+    // spec: EG-DURABLE-KERNEL-R047
     #[test]
     fn ring_buffer_evicts_oldest_when_over_capacity() {
         let ring = Ring::new();

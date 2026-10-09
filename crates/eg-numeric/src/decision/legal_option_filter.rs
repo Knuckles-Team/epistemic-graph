@@ -54,6 +54,7 @@ mod tests {
         candidate.id != "illegal-option"
     }
 
+    // spec: EG-DECISION-ENGINE-R085.1, EG-DECISION-ENGINE-R085.2
     #[test]
     fn a_caller_supplied_option_that_fails_the_admissibility_predicate_is_excluded() {
         let candidates = vec![

@@ -390,6 +390,7 @@ fn concurrent_increfs_never_lose_a_reference() {
 /// blob is at refcount 0, so a swallowed `incref` is a premature delete of a
 /// LIVE chunk. A blob that N threads referenced and N-1 dereferenced is still
 /// live, and a sweep must reclaim none of it — its bytes must still read back.
+// spec: EG-DURABLE-KERNEL-R059
 #[test]
 fn a_sweep_racing_refcounts_never_deletes_a_live_chunk() {
     let store = Arc::new(RedbChunkStore::open_temp().unwrap());
@@ -644,6 +645,7 @@ fn the_upload_cursor_high_water_mark_survives_a_restart() {
 /// key, so two genuinely separate `BlobRef` calls from the same owner take one
 /// reference, and two separate `BlobUnref` calls after only one acquire never
 /// underflow.
+// spec: EG-DURABLE-KERNEL-R051
 #[test]
 fn a_named_holder_acquire_and_release_are_idempotent_across_distinct_operations() {
     let store = RedbChunkStore::open_temp().unwrap();

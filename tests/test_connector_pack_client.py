@@ -362,6 +362,7 @@ def test_head_conflict_is_a_typed_closed_write_error() -> None:
     assert error.detail == "connector pack head changed"
 
 
+@pytest.mark.spec("EG-TYPED-PACKS-R092")
 def test_transport_loss_retry_reuses_the_exact_import_operation_key() -> None:
     class LostResponse(_Client):
         import_attempts = 0
@@ -405,6 +406,7 @@ def test_transport_loss_retry_reuses_the_exact_import_operation_key() -> None:
     assert import_keys[0] == import_keys[1]
 
 
+@pytest.mark.spec("EG-TYPED-PACKS-R089", "EG-TYPED-PACKS-R091", "EG-TYPED-PACKS-R092", "EG-TYPED-PACKS-R093", "EG-TYPED-PACKS-R094", "EG-TYPED-PACKS-R095", "EG-TYPED-PACKS-R096")
 def test_import_key_excludes_the_request_id() -> None:
     """R092: the import idempotency key ignores request_id entirely.
 

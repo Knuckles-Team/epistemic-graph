@@ -61,12 +61,14 @@
     {
       "id": "EG-IDENTITY-R006",
       "title": "Tenant roles read the shared commons graph",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "7622e4b24455",
         "dfb2367561d1"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-core/src/isolation.rs:1751"
+      ]
     }
   ]
 }

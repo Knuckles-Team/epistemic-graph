@@ -15,6 +15,7 @@ use redb::{MultimapTableDefinition, ReadableDatabase, TableDefinition};
 
 mod graph_shard;
 
+// spec: EG-TYPED-PACKS-R089
 #[test]
 fn owner_layout_registry_has_frozen_cardinality() {
     // The physical ledger has exactly 18 tables total. OWNER_MANIFEST is one

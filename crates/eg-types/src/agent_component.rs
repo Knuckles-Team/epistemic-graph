@@ -1254,6 +1254,7 @@ mod tests {
 
     /// EG-TYPED-PACKS-R016: package version is provenance, not identity.
     /// New writes mint v4, which ignores it; a stored v3 row still validates.
+    // spec: EG-TYPED-PACKS-R016
     #[test]
     fn package_version_leaves_the_v4_digest_and_v3_rows_still_validate() {
         let packaged = |package_version: &str| AgentComponentDraft {
@@ -2061,6 +2062,7 @@ mod tests {
     /// EG-DECISION-ENGINE-R017: `DecisionCommit` is the sole write authority
     /// for decision records. A direct publish of the kind must be refused,
     /// never silently accepted as an ordinary component write.
+    // spec: EG-DECISION-ENGINE-R017
     #[test]
     fn a_decision_record_cannot_be_published_directly() {
         let request = AgentComponentPublishRequest {

@@ -125,7 +125,7 @@ fn peer_projection(class: &str, peers: u8, with_verifier: bool, stop: &str) -> S
     plain_projection(class, &slots, stop)
 }
 
-// spec: EG-DECISION-ENGINE-R106
+// spec: EG-DECISION-ENGINE-R105, EG-DECISION-ENGINE-R106
 #[test]
 fn every_standard_shape_has_a_conforming_template() {
     // EG-DECISION-ENGINE-R106: the standard agent arrangement shapes --
