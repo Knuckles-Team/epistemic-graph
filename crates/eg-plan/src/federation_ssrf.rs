@@ -354,8 +354,13 @@ fn sql_default_port(dsn: &str) -> Option<u16> {
 /// FO-05 — admit a Postgres/MySQL DSN only when every host it names passes the same gate as
 /// an HTTP destination: a public address, or an exact allow-list entry for an internal one.
 /// A DSN with no host (a local socket default) or a `host=`/`hostaddr=` override is refused.
+///
+/// `pub` (not `pub(crate)`): also the registration-time gate for
+/// `EG-UNIFIED-DATA-PLANE-R002.1` — `server::foreign_catalog::ForeignSourceCatalog::register`
+/// calls this before a `ForeignSourceSpec::Sql` entry is persisted, so a disallowed
+/// destination is refused at `RegisterForeignSource` time, not only when the query later runs.
 #[cfg(feature = "federation-sql")]
-pub(crate) fn check_sql_dsn(dsn: &str) -> Result<(), String> {
+pub fn check_sql_dsn(dsn: &str) -> Result<(), String> {
     const REFUSED: &str = "federation: SQL destination is not allowed";
     let port = sql_default_port(dsn).ok_or_else(|| REFUSED.to_string())?;
     let rest = dsn
