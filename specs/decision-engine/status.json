@@ -251,7 +251,7 @@
         "52f333ca756e"
       ],
       "verified_by": [
-        "crates/eg-numeric/tests/decision/scorer.rs:139"
+        "crates/eg-numeric/tests/decision/scorer.rs:140"
       ]
     },
     {
@@ -1327,27 +1327,34 @@
     {
       "id": "EG-DECISION-ENGINE-R091",
       "title": "Resident scorer is bit-reproducible via fixed-point arithmetic",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
-        "4952a2edced4"
+        "4952a2edced4",
+        "534f763afc81"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-numeric/tests/decision/scorer.rs:109"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R092",
       "title": "Scorer selection and structured encoding apply ladder-wide",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "534f763afc81",
         "e9e12f168722"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/handlers/decide/stat_tests/scorer_tests.rs:189"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R093",
       "title": "Resident scorer is trained from the served synthetic-episode generator",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
-        "163a1e6bc8ad"
+        "163a1e6bc8ad",
+        "534f763afc81"
       ],
       "verified_by": [],
       "rollup_of": [
@@ -1357,27 +1364,36 @@
     {
       "id": "EG-DECISION-ENGINE-R093.1",
       "title": "Typed served-path provenance and ground-truth verification",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "163a1e6bc8ad",
         "19b44d216062"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/synthetic/test_synthetic_decision_export.py:47",
+        "tests/synthetic/test_synthetic_decision_export.py:55",
+        "tests/synthetic/test_synthetic_decision_export.py:62",
+        "tests/synthetic/test_synthetic_decision_export.py:69"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R094",
       "title": "Decision scoring requires no GPU or model-server dependency",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "534f763afc81",
         "af5dc5ad78bd"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/handlers/decide/stat_tests/scorer_tests.rs:274"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R095",
       "title": "Solver certificate digest matches its committed golden vector",
       "delivery_state": "LANDED",
       "landed_in": [
+        "534f763afc81",
         "be0f1acb05c6"
       ],
       "verified_by": []
@@ -1387,7 +1403,8 @@
       "title": "Community-detection wire contract carries edge weight and quality function",
       "delivery_state": "LANDED",
       "landed_in": [
-        "2a0d6eae0918"
+        "2a0d6eae0918",
+        "534f763afc81"
       ],
       "verified_by": []
     },
@@ -1396,6 +1413,7 @@
       "title": "Replay-nonce rejection and blob GC grace period behave correctly",
       "delivery_state": "LANDED",
       "landed_in": [
+        "534f763afc81",
         "be0f1acb05c6"
       ],
       "verified_by": []
@@ -1403,17 +1421,22 @@
     {
       "id": "EG-DECISION-ENGINE-R098",
       "title": "Decide ladder excludes generative free-text models by design",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "534f763afc81",
         "fa3eda2b7961"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/handlers/decide/stat_tests/nl_tests.rs:142",
+        "src/server/handlers/decide/stat_tests/nl_tests.rs:58"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R099",
       "title": "Wikidata alignment connector supplies entity-resolution keys",
       "delivery_state": "LANDED",
       "landed_in": [
+        "534f763afc81",
         "a1bb9fb9503e"
       ],
       "verified_by": []
@@ -1423,6 +1446,7 @@
       "title": "Retrieval decisions join cited evidence with independent outcomes",
       "delivery_state": "LANDED",
       "landed_in": [
+        "534f763afc81",
         "e429630278b8"
       ],
       "verified_by": []
@@ -1432,6 +1456,7 @@
       "title": "Query-side embedding adapter head promoted via DecisionEval",
       "delivery_state": "LANDED",
       "landed_in": [
+        "534f763afc81",
         "e429630278b8"
       ],
       "verified_by": []
@@ -1441,7 +1466,8 @@
       "title": "Schema repair proposals pass a decided mapping and shadow-branch check",
       "delivery_state": "LANDED",
       "landed_in": [
-        "202b90167359"
+        "202b90167359",
+        "534f763afc81"
       ],
       "verified_by": [],
       "rollup_of": [
@@ -1462,7 +1488,8 @@
       "title": "Calibrated per-horizon flip confidence with conformal abstention",
       "delivery_state": "LANDED",
       "landed_in": [
-        "532418b7e55b"
+        "532418b7e55b",
+        "534f763afc81"
       ],
       "verified_by": []
     },
@@ -1471,6 +1498,7 @@
       "title": "DecideText shares the UQL lexer and grammar family",
       "delivery_state": "LANDED",
       "landed_in": [
+        "534f763afc81",
         "857e20c63775"
       ],
       "verified_by": []
@@ -1480,7 +1508,8 @@
       "title": "GraphSchema.attach publishes the swarm-topology ontology",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "4ded009c7d6e"
+        "4ded009c7d6e",
+        "534f763afc81"
       ],
       "verified_by": [
         "src/server/graph_schema/swarm_topology_tests.rs:128"
@@ -1491,6 +1520,7 @@
       "title": "AgentGraph templates carry topology facts for standard shapes",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "534f763afc81",
         "ca2bc11e6d73"
       ],
       "verified_by": [
@@ -1502,6 +1532,7 @@
       "title": "Typed topology contract in eg-types with versioned goldens",
       "delivery_state": "LANDED",
       "landed_in": [
+        "534f763afc81",
         "c0edc96d1e10"
       ],
       "verified_by": []
@@ -1511,6 +1542,7 @@
       "title": "Publish-time topology-shape validation fails closed",
       "delivery_state": "LANDED",
       "landed_in": [
+        "534f763afc81",
         "c0edc96d1e10"
       ],
       "verified_by": []
@@ -1520,6 +1552,7 @@
       "title": "OWL entailment derives topology admissibility before assembly",
       "delivery_state": "LANDED",
       "landed_in": [
+        "534f763afc81",
         "c0edc96d1e10"
       ],
       "verified_by": []
@@ -1529,6 +1562,7 @@
       "title": "Topology optimization model rows with a brute-force oracle",
       "delivery_state": "LANDED",
       "landed_in": [
+        "534f763afc81",
         "c0edc96d1e10"
       ],
       "verified_by": []
@@ -1538,6 +1572,7 @@
       "title": "Decide exposes the topology decision as a single typed question",
       "delivery_state": "LANDED",
       "landed_in": [
+        "534f763afc81",
         "c0edc96d1e10"
       ],
       "verified_by": []
@@ -1547,6 +1582,7 @@
       "title": "Capacity premise derives headroom observations by priority",
       "delivery_state": "LANDED",
       "landed_in": [
+        "534f763afc81",
         "c0edc96d1e10"
       ],
       "verified_by": []
@@ -1556,7 +1592,8 @@
       "title": "EG commits capacity acquisition atomically with synthesis evidence",
       "delivery_state": "LANDED",
       "landed_in": [
-        "202b90167359"
+        "202b90167359",
+        "534f763afc81"
       ],
       "verified_by": [],
       "rollup_of": [
@@ -1577,6 +1614,7 @@
       "title": "Subagent allowance negotiation reads EG's topology facts",
       "delivery_state": "LANDED",
       "landed_in": [
+        "534f763afc81",
         "c0edc96d1e10"
       ],
       "verified_by": []
@@ -1586,6 +1624,7 @@
       "title": "Continuation decisions are evaluate-only and narrow-only",
       "delivery_state": "LANDED",
       "landed_in": [
+        "534f763afc81",
         "c0edc96d1e10"
       ],
       "verified_by": []
@@ -1594,7 +1633,9 @@
       "id": "EG-DECISION-ENGINE-R116",
       "title": "Consumers reach EG only through the versioned client contract",
       "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "landed_in": [
+        "534f763afc81"
+      ],
       "verified_by": [],
       "rollup_of": [
         "EG-DECISION-ENGINE-R116.1",
@@ -1622,6 +1663,7 @@
       "title": "DERIVE series functions share one incremental kernel",
       "delivery_state": "LANDED",
       "landed_in": [
+        "534f763afc81",
         "9480759eb7c2"
       ],
       "verified_by": []
@@ -1633,9 +1675,9 @@
       "landed_in": [
         "1f6d512ae013",
         "28fbbbe2ee1e",
+        "534f763afc81",
         "7e14801e08c3",
-        "9a85c8a49fd4",
-        "f46e8766e75c"
+        "9a85c8a49fd4"
       ],
       "verified_by": []
     },
@@ -1644,6 +1686,7 @@
       "title": "Walk-forward replay seals deflated Sharpe and PBO evidence",
       "delivery_state": "LANDED",
       "landed_in": [
+        "534f763afc81",
         "a85c8425c9f4"
       ],
       "verified_by": []
@@ -1653,7 +1696,8 @@
       "title": "Admission anchors are limited to persisted write paths",
       "delivery_state": "LANDED",
       "landed_in": [
-        "3c39771e7a44"
+        "3c39771e7a44",
+        "534f763afc81"
       ],
       "verified_by": []
     },
@@ -1662,6 +1706,7 @@
       "title": "Typed Claim and Evidence structures back evidence class",
       "delivery_state": "LANDED",
       "landed_in": [
+        "534f763afc81",
         "a1bb9fb9503e"
       ],
       "verified_by": []
@@ -1671,6 +1716,7 @@
       "title": "Synthetic decision data stays separate from calibration",
       "delivery_state": "LANDED",
       "landed_in": [
+        "534f763afc81",
         "cfbe22464008"
       ],
       "verified_by": []
@@ -1680,6 +1726,7 @@
       "title": "Solve DTOs canonical in eg-types, no duplicate copies",
       "delivery_state": "LANDED",
       "landed_in": [
+        "534f763afc81",
         "a4804f87c971"
       ],
       "verified_by": []
@@ -1689,6 +1736,7 @@
       "title": "eg-numeric statistical kernel tests compile and run",
       "delivery_state": "LANDED",
       "landed_in": [
+        "534f763afc81",
         "a1bb9fb9503e"
       ],
       "verified_by": []
@@ -1698,6 +1746,7 @@
       "title": "Telemetry binds to ontology entities as BehaviourObservation",
       "delivery_state": "LANDED",
       "landed_in": [
+        "534f763afc81",
         "cae7ecad71e2"
       ],
       "verified_by": []
@@ -1707,6 +1756,7 @@
       "title": "Capability coverage answers which components can serve a task",
       "delivery_state": "LANDED",
       "landed_in": [
+        "534f763afc81",
         "e5edf018cbba"
       ],
       "verified_by": [],
@@ -1741,7 +1791,8 @@
       "title": "Guardrail entailment lists the rules a task must follow",
       "delivery_state": "LANDED",
       "landed_in": [
-        "18a745706c46"
+        "18a745706c46",
+        "534f763afc81"
       ],
       "verified_by": [],
       "rollup_of": [
@@ -1764,7 +1815,8 @@
       "title": "The guardrail-entailment query is served, backed by a stored rule set",
       "delivery_state": "LANDED",
       "landed_in": [
-        "253a69935dfd"
+        "253a69935dfd",
+        "534f763afc81"
       ],
       "verified_by": []
     }
