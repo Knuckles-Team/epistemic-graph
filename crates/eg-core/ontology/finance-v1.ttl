@@ -536,3 +536,65 @@
     rdfs:comment "fifo, lifo, specific_lot or average_cost." ;
     rdfs:domain :Position ;
     rdfs:range xsd:string .
+
+# ── Portfolio accounting: activity and lot records (EG-FINANCE-PRIMITIVES-R004.2.2) ──
+
+:Activity a owl:Class ;
+    rdfs:label "Activity" ;
+    rdfs:comment "A point-in-time ledger event against a position: buy, sell, dividend, transfer or fee. Immutable once recorded; a correction is a new activity, never an edit. BFO:GenericallyDependentContinuant." ;
+    rdfs:subClassOf bfo:0000031 ;
+    skos:relatedMatch wd:Q1166072 .
+
+:activityPosition a owl:ObjectProperty ;
+    rdfs:label "activity position" ;
+    rdfs:comment "The position an activity is recorded against." ;
+    rdfs:domain :Activity ;
+    rdfs:range :Position .
+
+:activityKind a owl:DatatypeProperty ;
+    rdfs:label "activity kind" ;
+    rdfs:comment "buy, sell, dividend, transfer_in, transfer_out, split or fee." ;
+    rdfs:domain :Activity ;
+    rdfs:range xsd:string .
+
+:activityQuantity a owl:DatatypeProperty ;
+    rdfs:label "activity quantity" ;
+    rdfs:comment "Signed quantity the activity changes its position by." ;
+    rdfs:domain :Activity ;
+    rdfs:range xsd:decimal .
+
+:activityTradeDate a owl:DatatypeProperty ;
+    rdfs:label "activity trade date" ;
+    rdfs:comment "When the activity was executed or became effective." ;
+    rdfs:domain :Activity ;
+    rdfs:range xsd:dateTime .
+
+:Lot a owl:Class ;
+    rdfs:label "Lot" ;
+    rdfs:comment "One FIFO/LIFO/specific-lot cost-basis parcel of a position: the quantity and unit cost basis opened by one acquiring activity, open until closed (fully or partially) by a disposing activity. BFO:GenericallyDependentContinuant." ;
+    rdfs:subClassOf bfo:0000031 ;
+    skos:relatedMatch wd:Q5174756 .
+
+:lotPosition a owl:ObjectProperty ;
+    rdfs:label "lot position" ;
+    rdfs:comment "The position a lot is a cost-basis parcel of." ;
+    rdfs:domain :Lot ;
+    rdfs:range :Position .
+
+:lotOpenedBy a owl:ObjectProperty ;
+    rdfs:label "lot opened by" ;
+    rdfs:comment "The acquiring activity that opened the lot." ;
+    rdfs:domain :Lot ;
+    rdfs:range :Activity .
+
+:lotQuantity a owl:DatatypeProperty ;
+    rdfs:label "lot quantity" ;
+    rdfs:comment "Remaining open quantity in the lot (zero when fully closed)." ;
+    rdfs:domain :Lot ;
+    rdfs:range xsd:decimal .
+
+:lotUnitCostBasis a owl:DatatypeProperty ;
+    rdfs:label "lot unit cost basis" ;
+    rdfs:comment "Cost basis per unit, in the account's base currency." ;
+    rdfs:domain :Lot ;
+    rdfs:range xsd:decimal .
