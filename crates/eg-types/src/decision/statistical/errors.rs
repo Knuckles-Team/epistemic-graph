@@ -49,6 +49,9 @@ closed_error_codes! {
         /// fixed registry (`IngestionLane::ALL`), refused before any
         /// decision runs (EG-DECISION-ENGINE-R030).
         UnsupportedIngestionLane => "UNSUPPORTED_INGESTION_LANE",
+        /// A declared enrichment-schedule candidate names a negative
+        /// `enrichment.cost_q32` (EG-DECISION-ENGINE-R031).
+        UnsupportedEnrichmentCost => "UNSUPPORTED_ENRICHMENT_COST",
     }
 }
 

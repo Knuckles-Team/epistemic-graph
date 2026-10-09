@@ -13634,6 +13634,7 @@
         "STALE_ROUTE",
         "TIMEOUT",
         "TRIALS_UNDERSTATED",
+        "UNSUPPORTED_ENRICHMENT_COST",
         "UNSUPPORTED_INGESTION_LANE"
       ],
       "format_identities": [
@@ -13740,6 +13741,7 @@
         "STALE_ROUTE",
         "TIMEOUT",
         "TRIALS_UNDERSTATED",
+        "UNSUPPORTED_ENRICHMENT_COST",
         "UNSUPPORTED_INGESTION_LANE"
       ],
       "format_identities": [
@@ -13858,6 +13860,7 @@
         "STALE_ROUTE",
         "TIMEOUT",
         "TRIALS_UNDERSTATED",
+        "UNSUPPORTED_ENRICHMENT_COST",
         "UNSUPPORTED_INGESTION_LANE"
       ],
       "format_identities": [
@@ -24118,6 +24121,7 @@
         "TIMEOUT",
         "TRIALS_UNDERSTATED",
         "UNSUPPORTED_COALITION",
+        "UNSUPPORTED_ENRICHMENT_COST",
         "UNSUPPORTED_INGESTION_LANE",
         "UQL_BUDGET_EXCEEDED",
         "UQL_CREDENTIAL_BEARING_SPEC",
@@ -26755,6 +26759,7 @@
         "STALE_ROUTE",
         "TIMEOUT",
         "TRIALS_UNDERSTATED",
+        "UNSUPPORTED_ENRICHMENT_COST",
         "UNSUPPORTED_INGESTION_LANE"
       ],
       "format_identities": [
