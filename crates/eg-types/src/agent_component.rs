@@ -2067,7 +2067,10 @@ mod tests {
             context: mutation_context(),
             // Not under a reserved id prefix (`decision:`/`mcp:`): this test is
             // about the KIND check, not the separate reserved-id refusal.
-            component: draft("catalog:bypass-decision-record", AgentComponentKind::DecisionRecord),
+            component: draft(
+                "catalog:bypass-decision-record",
+                AgentComponentKind::DecisionRecord,
+            ),
             evaluation_receipt_digest: None,
         };
         let error = validate_publish(&request).expect_err("must be refused");
