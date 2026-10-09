@@ -73,6 +73,11 @@ pub enum QuestionKind {
     /// same evaluate-only guarantee this module's own doc states for every
     /// kind, named here for the connector-triage use case specifically.
     ConnectorEventTriage,
+    /// Which internal tool a connector should use for a task, advisory only
+    /// (EG-DECISION-ENGINE-R042): `Decide` returns a proposal with evidence;
+    /// the connector's own deterministic authorization path, never `Decide`,
+    /// governs whether a resulting write-back actually occurs.
+    ConnectorToolChoice,
 }
 
 /// What is at stake. Exploration is permitted only for
