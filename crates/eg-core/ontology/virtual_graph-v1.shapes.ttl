@@ -1,0 +1,133 @@
+# Virtual-graph shapes (EG-UNIFIED-DATA-PLANE-R037).
+#
+# SHACL Core plus aggregate-free `sh:sparql` only (DECIDE §4.8): an absence check
+# uses the `OPTIONAL ... FILTER(!BOUND(...))` form, never NOT EXISTS, exactly as
+# `core:swarm-topology-shapes@1` does for its own cross-node checks. An endpoint
+# reference with a credential is refused by `sh:closed` alone (SHACL Core, no
+# SPARQL needed): the shape names the one property an endpoint reference may
+# carry, so any other property -- a credential, a password, a token -- is itself
+# the violation.
+
+@prefix vg:  <http://knuckles.team/kg/virtual-graph#> .
+@prefix sh:  <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+
+vg:SourceConnectionShape a sh:NodeShape ;
+    sh:targetClass vg:SourceConnection ;
+    sh:property [
+        sh:path vg:sourceKind ; sh:minCount 1 ; sh:maxCount 1 ;
+        sh:in ( "api" "mcp" "a2a" "graphql" "sql" "iceberg" "warehouse" "sparql" ) ;
+        sh:message "sourceKind is api, mcp, a2a, graphql, sql, iceberg, warehouse or sparql."
+    ] ;
+    sh:property [
+        sh:path vg:endpointRef ; sh:minCount 1 ; sh:maxCount 1 ; sh:node vg:EndpointRefShape ;
+        sh:message "A SourceConnection names exactly one endpointRef."
+    ] ;
+    sh:property [ sh:path vg:declaredCapability ; sh:datatype xsd:string ] .
+
+vg:EndpointRefShape a sh:NodeShape ;
+    sh:closed true ;
+    sh:property [
+        sh:path vg:url ; sh:minCount 1 ; sh:maxCount 1 ; sh:datatype xsd:string ;
+        sh:message "An endpoint reference names exactly one url."
+    ] ;
+    sh:message "An endpoint reference carries only a url -- no credential, password, token or secret property." .
+
+vg:MetadataContractShape a sh:NodeShape ;
+    sh:targetClass vg:MetadataContract ;
+    sh:property [
+        sh:path vg:contractSource ; sh:minCount 1 ; sh:maxCount 1 ; sh:nodeKind sh:IRI ;
+        sh:message "A MetadataContract names exactly one contractSource."
+    ] ;
+    sh:property [
+        sh:path vg:schemaVersion ; sh:minCount 1 ; sh:maxCount 1 ; sh:datatype xsd:string ;
+        sh:message "A MetadataContract names exactly one schemaVersion."
+    ] ;
+    sh:property [
+        sh:path vg:contentDigest ; sh:minCount 1 ; sh:maxCount 1 ;
+        sh:pattern "^sha256:[0-9a-f]{64}$" ;
+        sh:message "contentDigest is sha256:<64 hex>."
+    ] ;
+    sh:property [
+        sh:path vg:discoveredEntity ; sh:minCount 1 ; sh:datatype xsd:string ;
+        sh:message "A MetadataContract discovers at least one entity."
+    ] ;
+    sh:property [ sh:path vg:discoveredField ; sh:datatype xsd:string ] ;
+    sh:property [ sh:path vg:discoveredRelationship ; sh:datatype xsd:string ] ;
+    sh:property [ sh:path vg:discoveredOperation ; sh:datatype xsd:string ] .
+
+vg:PredicateFieldPairShape a sh:NodeShape ;
+    sh:targetClass vg:PredicateFieldPair ;
+    sh:property [
+        sh:path vg:predicate ; sh:minCount 1 ; sh:maxCount 1 ; sh:nodeKind sh:IRI ;
+        sh:message "A PredicateFieldPair names exactly one predicate."
+    ] ;
+    sh:property [
+        sh:path vg:field ; sh:minCount 1 ; sh:maxCount 1 ; sh:datatype xsd:string ;
+        sh:message "A PredicateFieldPair names exactly one field."
+    ] .
+
+vg:VirtualMappingShape a sh:NodeShape ;
+    sh:targetClass vg:VirtualMapping ;
+    sh:property [
+        sh:path vg:mapsContract ; sh:minCount 1 ; sh:maxCount 1 ; sh:nodeKind sh:IRI ;
+        sh:message "A VirtualMapping names exactly one mapsContract."
+    ] ;
+    sh:property [
+        sh:path vg:mapsOntologyClass ; sh:minCount 1 ; sh:maxCount 1 ; sh:nodeKind sh:IRI ;
+        sh:message "A VirtualMapping names exactly one mapsOntologyClass."
+    ] ;
+    sh:property [
+        sh:path vg:mapsEntity ; sh:minCount 1 ; sh:maxCount 1 ; sh:datatype xsd:string ;
+        sh:message "A VirtualMapping names exactly one mapsEntity."
+    ] ;
+    sh:property [
+        sh:path vg:keyField ; sh:minCount 1 ; sh:maxCount 1 ; sh:datatype xsd:string ;
+        sh:message "A VirtualMapping names exactly one keyField."
+    ] ;
+    sh:property [
+        sh:path vg:hasPredicateFieldPair ; sh:minCount 1 ; sh:node vg:PredicateFieldPairShape ;
+        sh:message "A VirtualMapping declares at least one predicate-field pair."
+    ] ;
+    sh:property [ sh:path vg:approved ; sh:maxCount 1 ; sh:datatype xsd:boolean ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "mapsEntity must be one of its contract's discoveredEntity values." ;
+        sh:prefixes vg:VirtualGraphPrefixes ;
+        sh:select """
+            SELECT $this WHERE {
+                $this vg:mapsContract ?contract ; vg:mapsEntity ?entity .
+                OPTIONAL { ?contract vg:discoveredEntity ?known . FILTER(?known = ?entity) }
+                FILTER(!BOUND(?known))
+            }
+        """ ;
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "keyField must be one of its contract's discoveredField values." ;
+        sh:prefixes vg:VirtualGraphPrefixes ;
+        sh:select """
+            SELECT $this WHERE {
+                $this vg:mapsContract ?contract ; vg:keyField ?kf .
+                OPTIONAL { ?contract vg:discoveredField ?knownKey . FILTER(?knownKey = ?kf) }
+                FILTER(!BOUND(?knownKey))
+            }
+        """ ;
+    ] ;
+    sh:sparql [
+        a sh:SPARQLConstraint ;
+        sh:message "Every predicate-field pair's field must be one of its mapping's contract's discoveredField values." ;
+        sh:prefixes vg:VirtualGraphPrefixes ;
+        sh:select """
+            SELECT $this WHERE {
+                $this vg:mapsContract ?contract ; vg:hasPredicateFieldPair ?pair .
+                ?pair vg:field ?field .
+                OPTIONAL { ?contract vg:discoveredField ?knownField . FILTER(?knownField = ?field) }
+                FILTER(!BOUND(?knownField))
+            }
+        """ ;
+    ] .
+
+vg:VirtualGraphPrefixes a owl:Ontology ;
+    sh:declare [ sh:prefix "vg" ; sh:namespace "http://knuckles.team/kg/virtual-graph#"^^xsd:anyURI ] .
