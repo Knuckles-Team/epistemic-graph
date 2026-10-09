@@ -1,3 +1,4 @@
+use super::core_helpers::blob_relation_type;
 use super::*;
 
 impl GraphCore {
@@ -49,6 +50,47 @@ impl GraphCore {
 
     pub fn remove_edge(&self, source_id: String, target_id: String) {
         self.txn().remove_edge(source_id, target_id);
+    }
+
+    /// Add (or idempotently overwrite) the edge identified by the
+    /// `(source_id, target_id, relation_type)` triple (spec:
+    /// EG-REPO-INGEST-R009.1). One-shot convenience over
+    /// [`GraphTxn::add_typed_edge`] — see its doc for the idempotency and
+    /// migration semantics.
+    pub fn add_typed_edge(
+        &self,
+        source_id: String,
+        target_id: String,
+        relation_type: String,
+        properties_msgpack: Vec<u8>,
+    ) -> Result<(), String> {
+        self.txn()
+            .add_typed_edge(source_id, target_id, relation_type, properties_msgpack)
+    }
+
+    /// Remove only the edge(s) between `source_id` and `target_id` typed
+    /// `relation_type`, leaving any other typed edge between the same
+    /// endpoints untouched (spec: EG-REPO-INGEST-R009.1). One-shot
+    /// convenience over [`GraphTxn::remove_typed_edge`].
+    pub fn remove_typed_edge(&self, source_id: String, target_id: String, relation_type: String) {
+        self.txn()
+            .remove_typed_edge(&source_id, &target_id, &relation_type);
+    }
+
+    /// Every typed edge between `source_id` and `target_id`, keyed by its
+    /// `(source, target, relation_type)` identity triple (spec:
+    /// EG-REPO-INGEST-R009.1). Returns each stored edge's `relation_type`
+    /// (read by [`blob_relation_type`]) paired with its full property blob;
+    /// an endpoint pair with no stored edges returns an empty `Vec`.
+    pub fn typed_edges_between(&self, source_id: &str, target_id: &str) -> Vec<(String, Vec<u8>)> {
+        self.edge_properties
+            .get(&(source_id.to_string(), target_id.to_string()))
+            .map(|v| {
+                v.iter()
+                    .map(|blob| (blob_relation_type(blob), (**blob).clone()))
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     pub fn has_edge(&self, source_id: &str, target_id: &str) -> bool {
@@ -215,5 +257,91 @@ impl GraphCore {
         // StableGraph maintains its cardinality, so this is O(1) instead of walking
         // every endpoint pair and parallel-edge property vector.
         self.topo.read().graph.edge_count()
+    }
+}
+
+#[cfg(test)]
+mod typed_edge_identity_tests {
+    use super::*;
+
+    fn props(value: serde_json::Value) -> Vec<u8> {
+        rmp_serde::to_vec_named(&value).unwrap()
+    }
+
+    // spec: EG-REPO-INGEST-R009.1
+    #[test]
+    fn typed_edges_are_addressable_by_relation_type_triple() {
+        let core = GraphCore::new();
+        core.add_node("a".into(), props(serde_json::json!({"type": "Function"})));
+        core.add_node("b".into(), props(serde_json::json!({"type": "Function"})));
+
+        core.add_typed_edge(
+            "a".into(),
+            "b".into(),
+            "declares".into(),
+            props(serde_json::json!({})),
+        )
+        .unwrap();
+        core.add_typed_edge(
+            "a".into(),
+            "b".into(),
+            "calls".into(),
+            props(serde_json::json!({})),
+        )
+        .unwrap();
+        core.add_typed_edge(
+            "a".into(),
+            "b".into(),
+            "testedBy".into(),
+            props(serde_json::json!({})),
+        )
+        .unwrap();
+
+        // All three relation types between the same pair are retrievable by type.
+        let mut types: Vec<String> = core
+            .typed_edges_between("a", "b")
+            .into_iter()
+            .map(|(rel, _)| rel)
+            .collect();
+        types.sort();
+        assert_eq!(types, vec!["calls", "declares", "testedBy"]);
+
+        // Re-adding one of the three triples is idempotent: it overwrites the
+        // existing typed edge's properties in place rather than accumulating a
+        // duplicate parallel edge under the same (source, target, relation_type).
+        core.add_typed_edge(
+            "a".into(),
+            "b".into(),
+            "declares".into(),
+            props(serde_json::json!({"note": "re-added"})),
+        )
+        .unwrap();
+        let after_readd = core.typed_edges_between("a", "b");
+        assert_eq!(
+            after_readd.len(),
+            3,
+            "re-adding an existing triple must not duplicate it"
+        );
+        let declares_blob = after_readd
+            .iter()
+            .find(|(rel, _)| rel == "declares")
+            .map(|(_, blob)| blob.clone())
+            .expect("declares edge still present after re-add");
+        let declares_val = decode_property_value(&declares_blob).unwrap();
+        assert_eq!(
+            declares_val.get("note").and_then(|v| v.as_str()),
+            Some("re-added"),
+            "re-add must overwrite the stored properties"
+        );
+
+        // Removing one type leaves the other two untouched.
+        core.remove_typed_edge("a".into(), "b".into(), "calls".into());
+        let mut remaining: Vec<String> = core
+            .typed_edges_between("a", "b")
+            .into_iter()
+            .map(|(rel, _)| rel)
+            .collect();
+        remaining.sort();
+        assert_eq!(remaining, vec!["declares", "testedBy"]);
     }
 }
