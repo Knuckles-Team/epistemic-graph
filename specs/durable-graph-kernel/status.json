@@ -74,7 +74,7 @@
     "EG-DURABLE-KERNEL-R069",
     "EG-DURABLE-KERNEL-R070"
   ],
-  "delivery_state": "SPECIFIED",
+  "delivery_state": "BUILDING",
   "acceptance_state": "NOT_AUDITED",
   "evidence": [],
   "requirements": [
@@ -246,7 +246,7 @@
     {
       "id": "EG-DURABLE-KERNEL-R015",
       "title": "Raft heartbeat flush and batch dispatch avoid head-of-line blocking",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "implementation",
@@ -254,6 +254,13 @@
           "commit": "a595f3a182c3308e47d15fcdd828fcdcfb35916f",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/a595f3a182c3308e47d15fcdd828fcdcfb35916f",
           "description": "Part of the requirement is implemented on the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "a595f3a182c3308e47d15fcdd828fcdcfb35916f",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/a595f3a182c3308e47d15fcdd828fcdcfb35916f",
+          "description": "EG-DURABLE-KERNEL-R015 merged to the default branch in this commit."
         }
       ],
       "remaining": "Per-peer independent flush and concurrent per-group dispatch are landed with functional tests, but the required benchmark artifact measuring worst-case heartbeat time is not on main; the eg-perf-raft benchmark with measured ops/s (d3fe2bfbe) lives only on the unmerged fix/eg-perf-raft branch."
@@ -331,7 +338,7 @@
     {
       "id": "EG-DURABLE-KERNEL-R021",
       "title": "Store-authority binding validates once per write transaction",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "implementation",
@@ -339,6 +346,13 @@
           "commit": "a5e7b2983a04754315372b93637d5170844fab89",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/a5e7b2983a04754315372b93637d5170844fab89",
           "description": "Implementing commit is on the default branch but is marked work in progress."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "a5e7b2983a04754315372b93637d5170844fab89",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/a5e7b2983a04754315372b93637d5170844fab89",
+          "description": "EG-DURABLE-KERNEL-R021 merged to the default branch in this commit."
         }
       ],
       "remaining": "Store-authority binding validates once per write transaction via ValidatedWrite/begin_write (crates/eg-storage/src/physical/root.rs, write_authority.rs) and a correctness test exists (crates/eg-transaction/src/tests/write_authority.rs::a_group_commit_validates_store_authority_exactly_once). The verification column requires a commit-latency benchmark showing per-commit overhead drop to a small constant cost; no benches/ directory or criterion/#[bench] exists for this in eg-storage or eg-transaction, so that proof is absent."

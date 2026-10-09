@@ -21,14 +21,14 @@
     "EG-FINANCE-PRIMITIVES-R016",
     "EG-FINANCE-PRIMITIVES-R017"
   ],
-  "delivery_state": "SPECIFIED",
+  "delivery_state": "BUILDING",
   "acceptance_state": "NOT_AUDITED",
   "evidence": [],
   "requirements": [
     {
       "id": "EG-FINANCE-PRIMITIVES-R001",
       "title": "Cross-host BacktestRun digest and Pine parity for finance-core",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "implementation",
@@ -36,6 +36,13 @@
           "commit": "ae7b0d6647498b6ffe6446b9f620c36c7b6c9a41",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/ae7b0d6647498b6ffe6446b9f620c36c7b6c9a41",
           "description": "Implementing commit is on the default branch but is marked work in progress."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "ae7b0d6647498b6ffe6446b9f620c36c7b6c9a41",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/ae7b0d6647498b6ffe6446b9f620c36c7b6c9a41",
+          "description": "EG-FINANCE-PRIMITIVES-R001 merged to the default branch in this commit."
         }
       ],
       "remaining": "The pinned soft-float BacktestRun digest test passes on this single host (crates/eg-compute/src/finance/market/record_tests.rs::a_sealed_backtest_run_digest_is_pinned_across_hosts) and the finance-v1/company_infra-v1 ontology classes have no name overlap. The verification column requires independent builds on two architectures compared for equal digests; no such cross-architecture test or CI infrastructure exists. The Pine companion test (tests/test_finance_pine_companion.py) only checks that the Pine script's declared constants and rules match the same fixture the Rust test checks against, not a live comparison of Pine and Rust signal transitions, which is a materially weaker form of parity than the requirement describes."
@@ -43,7 +50,7 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R002",
       "title": "Rehome generic finance evaluation kernels into eg-numeric",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "implementation",
@@ -51,9 +58,16 @@
           "commit": "31cbdeb6d98bf4ee7e7165e7a4d1e469ae517aba",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/31cbdeb6d98bf4ee7e7165e7a4d1e469ae517aba",
           "description": "Part of the requirement is implemented on the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "31cbdeb6d98bf4ee7e7165e7a4d1e469ae517aba",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/31cbdeb6d98bf4ee7e7165e7a4d1e469ae517aba",
+          "description": "EG-FINANCE-PRIMITIVES-R002 merged to the default branch in this commit."
         }
       ],
-      "remaining": "purged_cpcv_splits, deflated_sharpe_ratio, probability_of_backtest_overfit, diebold_mariano and the FeatureSkill (IC/IR/n_eff) and Brier kernels are rehomed into eg-numeric on main, and FinanceRollingZscore/FinanceEwma were retired. But Ornstein-Uhlenbeck, ADF, and regime-HMM calculations are still …"
+      "remaining": "purged_cpcv_splits, deflated_sharpe_ratio, probability_of_backtest_overfit, diebold_mariano and the FeatureSkill (IC/IR/n_eff) and Brier kernels are rehomed into eg-numeric on main, and FinanceRollingZscore/FinanceEwma were retired. But Ornstein-Uhlenbeck, ADF, and regime-HMM calculations are still \u2026"
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R003",
@@ -146,7 +160,7 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R015",
       "title": "AnalysisSnapshot records with share.read control leases",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "implementation",
@@ -154,9 +168,16 @@
           "commit": "3899594fed447ce6b784365fc954be1e837cde4f",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/3899594fed447ce6b784365fc954be1e837cde4f",
           "description": "Part of the requirement is implemented on the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "3899594fed447ce6b784365fc954be1e837cde4f",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/3899594fed447ce6b784365fc954be1e837cde4f",
+          "description": "EG-FINANCE-PRIMITIVES-R015 merged to the default branch in this commit."
         }
       ],
-      "remaining": "AnalysisSnapshot/AnalysisSnapshotDraft (crates/eg-types/src/compute_result/market/snapshot.rs) carries informational_only, excludes_positions and SnapshotNotices, but has no control-lease / share.read link field anywhere in its definition. A generic ControlLease mechanism exists in …"
+      "remaining": "AnalysisSnapshot/AnalysisSnapshotDraft (crates/eg-types/src/compute_result/market/snapshot.rs) carries informational_only, excludes_positions and SnapshotNotices, but has no control-lease / share.read link field anywhere in its definition. A generic ControlLease mechanism exists in \u2026"
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R016",
