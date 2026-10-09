@@ -20,6 +20,9 @@ use std::collections::BTreeMap;
 use eg_numeric::decision::candidate::CandidateView;
 use eg_types::agent_component::{AgentComponentEntry, AgentComponentSearchRequest};
 use eg_types::decision::statistical::declared::{check_declared, DeclaredOption};
+use eg_types::decision::statistical::enrichment_schedule::{
+    EnrichmentCandidate, EnrichmentScheduleRequest, COST_KEY, EXPECTED_VALUE_KEY,
+};
 use eg_types::decision::statistical::ingestion_lane::IngestionLaneRequest;
 use eg_types::decision::statistical::log::RecordVisibility;
 use eg_types::decision::statistical::retrieval_plan::RetrievalPlanKind;
@@ -262,24 +265,37 @@ pub(super) fn graph_candidates(
     })
 }
 
-/// Map an [`IngestionLaneRequest::check`] failure to its wire refusal.
+/// The Q32 fact named `key` on `option`, or 0 when the option does not
+/// carry it -- absence is a feature-reading concern elsewhere, not a shape
+/// refusal here.
+fn declared_number(option: &DeclaredOption, key: &str) -> i64 {
+    option
+        .numbers
+        .iter()
+        .find(|n| n.key == key)
+        .map_or(0, |n| n.q32)
+}
+
+/// Map a question-specific registry check's failure to its wire refusal.
 ///
-/// `check()` reports an unsupported lane as free text prefixed
-/// `"UNSUPPORTED_INGESTION_LANE: "` (its own closed vocabulary, mirrored by
-/// [`StatisticalErrorCode::UnsupportedIngestionLane`]); passing that whole
-/// string through `refusal(StatisticalErrorCode::ParameterInvalid, ...)`
-/// would nest it two codes deep (`"PARAMETER_INVALID: UNSUPPORTED_INGESTION_
-/// LANE: ..."`), and `crate::protocol::Response::err` only ever promotes the
-/// FIRST `"CODE: detail"` segment to the wire-visible `error` field -- the
-/// served response would read `PARAMETER_INVALID`, silently dropping the
-/// specific code a caller needs to branch on (caught by
-/// `consumer_tests::an_unregistered_ingestion_lane_is_refused_through_decide`,
-/// which asserts on the served response, not the type's own unit test).
-/// The other `check()` failure (an empty candidate list) carries no such
-/// prefix and stays `ParameterInvalid`.
-fn ingestion_lane_refusal(detail: &str) -> String {
-    match detail.strip_prefix("UNSUPPORTED_INGESTION_LANE: ") {
-        Some(rest) => refusal(StatisticalErrorCode::UnsupportedIngestionLane, rest),
+/// Each such `check()` (`IngestionLaneRequest`, `EnrichmentScheduleRequest`)
+/// reports its MOST SPECIFIC failure as free text prefixed with its own
+/// closed-vocabulary code (e.g. `"UNSUPPORTED_INGESTION_LANE: "`), mirrored
+/// by a matching `StatisticalErrorCode` variant; a less specific failure
+/// (an empty or malformed candidate list) carries no such prefix. Passing
+/// the whole string through `refusal(StatisticalErrorCode::ParameterInvalid,
+/// ...)` regardless would nest a specific code two levels deep
+/// (`"PARAMETER_INVALID: UNSUPPORTED_INGESTION_LANE: ..."`), and
+/// `crate::protocol::Response::err` only ever promotes the FIRST
+/// `"CODE: detail"` segment to the wire-visible `error` field -- the served
+/// response would read `PARAMETER_INVALID`, silently dropping the specific
+/// code a caller needs to branch on (caught by
+/// `consumer_tests::an_unregistered_ingestion_lane_is_refused_through_decide`
+/// and `consumer_tests::a_negative_enrichment_cost_is_refused_through_decide`,
+/// which assert on the served response, not the type's own unit test).
+fn prefixed_refusal(detail: &str, prefix: &str, code: StatisticalErrorCode) -> String {
+    match detail.strip_prefix(prefix) {
+        Some(rest) => refusal(code, rest),
         None => refusal(StatisticalErrorCode::ParameterInvalid, detail),
     }
 }
@@ -291,7 +307,11 @@ fn ingestion_lane_refusal(detail: &str) -> String {
 /// where one exists: `QuestionKind::IngestionLane` candidates must each name
 /// a registered [`eg_types::decision::statistical::ingestion_lane::IngestionLane`],
 /// refused here rather than discovered later as an opaque abstention
-/// (EG-DECISION-ENGINE-R030). A `QuestionKind::RetrievalPlan` candidate whose
+/// (EG-DECISION-ENGINE-R030). `QuestionKind::EnrichmentSchedule` candidates
+/// may not declare a negative `enrichment.cost_q32` -- it has no meaning on
+/// that scale and would let a candidate manufacture unbounded net value
+/// (EG-DECISION-ENGINE-R031).
+/// A `QuestionKind::RetrievalPlan` candidate whose
 /// option id claims the reserved
 /// [`eg_types::decision::statistical::retrieval_plan::OPTION_ID_PREFIX`]
 /// namespace must name a registered
@@ -310,7 +330,19 @@ pub(super) fn declared_candidates(
             candidate_lanes: options.iter().map(|o| o.option_id.clone()).collect(),
         }
         .check()
-        .map_err(|detail| ingestion_lane_refusal(&detail))?;
+        .map_err(|detail| prefixed_refusal(&detail, "UNSUPPORTED_INGESTION_LANE: ", StatisticalErrorCode::UnsupportedIngestionLane))?;
+    } else if kind == QuestionKind::EnrichmentSchedule {
+        let candidates: Vec<EnrichmentCandidate> = options
+            .iter()
+            .map(|option| EnrichmentCandidate {
+                work_id: option.option_id.clone(),
+                expected_value_q32: declared_number(option, EXPECTED_VALUE_KEY),
+                cost_q32: declared_number(option, COST_KEY),
+            })
+            .collect();
+        EnrichmentScheduleRequest { candidates }
+            .check()
+            .map_err(|detail| prefixed_refusal(&detail, "UNSUPPORTED_ENRICHMENT_COST: ", StatisticalErrorCode::UnsupportedEnrichmentCost))?;
     }
     if kind == QuestionKind::RetrievalPlan {
         for option in options {
