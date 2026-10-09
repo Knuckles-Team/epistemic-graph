@@ -247,6 +247,7 @@
       "title": "Server pin follows declared contract, not package version",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "8aca452dd012",
         "daa948722eca"
       ],
       "verified_by": [
@@ -627,7 +628,7 @@
         "f17f47ab300f"
       ],
       "verified_by": [
-        "src/server/graph_schema/compiled_tests.rs:91"
+        "src/server/graph_schema/compiled_tests.rs:93"
       ]
     },
     {

@@ -124,6 +124,7 @@ mod tests {
         );
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R014.1
     #[test]
     fn refuses_missing_version_floor() {
         let err = SqlEngineDialectEntry::declare(
@@ -142,6 +143,7 @@ mod tests {
         );
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R014.1
     #[test]
     fn refuses_unreviewed_type_map_version() {
         let err = SqlEngineDialectEntry::declare(

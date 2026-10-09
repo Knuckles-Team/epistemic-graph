@@ -167,6 +167,7 @@
       "title": "Typed decision ladder with explicit resolution kinds",
       "delivery_state": "LANDED",
       "landed_in": [
+        "52f333ca756e",
         "a4804f87c971"
       ],
       "verified_by": []
@@ -176,7 +177,8 @@
       "title": "Evidence class recorded on every decision record",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "2a0d6eae0918"
+        "2a0d6eae0918",
+        "52f333ca756e"
       ],
       "verified_by": [
         "crates/eg-compute/src/assemble/tests/planted.rs:170"
@@ -187,7 +189,8 @@
       "title": "Derivation records for entailed answers",
       "delivery_state": "LANDED",
       "landed_in": [
-        "2a0d6eae0918"
+        "2a0d6eae0918",
+        "52f333ca756e"
       ],
       "verified_by": []
     },
@@ -196,6 +199,7 @@
       "title": "Independently verifiable 0-1 integer solver certificate",
       "delivery_state": "LANDED",
       "landed_in": [
+        "52f333ca756e",
         "b43f33569dd4"
       ],
       "verified_by": []
@@ -205,7 +209,8 @@
       "title": "Conformal and risk-controlled statistical guarantees",
       "delivery_state": "LANDED",
       "landed_in": [
-        "2a0d6eae0918"
+        "2a0d6eae0918",
+        "52f333ca756e"
       ],
       "verified_by": []
     },
@@ -214,7 +219,8 @@
       "title": "Off-policy evaluation gated on effective sample size",
       "delivery_state": "LANDED",
       "landed_in": [
-        "2a0d6eae0918"
+        "2a0d6eae0918",
+        "52f333ca756e"
       ],
       "verified_by": []
     },
@@ -223,7 +229,8 @@
       "title": "Deterministic cross-target replay of committed decision records",
       "delivery_state": "LANDED",
       "landed_in": [
-        "2a0d6eae0918"
+        "2a0d6eae0918",
+        "52f333ca756e"
       ],
       "verified_by": []
     },
@@ -232,7 +239,8 @@
       "title": "Why-chosen and why-not explanations for solved assemblies",
       "delivery_state": "LANDED",
       "landed_in": [
-        "2a0d6eae0918"
+        "2a0d6eae0918",
+        "52f333ca756e"
       ],
       "verified_by": []
     },
@@ -241,7 +249,8 @@
       "title": "Learned ranking stays monotone with respect to safety",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "4952a2edced4"
+        "4952a2edced4",
+        "52f333ca756e"
       ],
       "verified_by": [
         "crates/eg-numeric/tests/decision/scorer.rs:140"
@@ -252,6 +261,7 @@
       "title": "Typed abstention reason for unmet capability",
       "delivery_state": "LANDED",
       "landed_in": [
+        "52f333ca756e",
         "a4804f87c971"
       ],
       "verified_by": []
@@ -261,6 +271,7 @@
       "title": "Work-budgeted search without an arbitrary result cap",
       "delivery_state": "LANDED",
       "landed_in": [
+        "52f333ca756e",
         "b43f33569dd4"
       ],
       "verified_by": []
@@ -270,7 +281,8 @@
       "title": "Shared slate crediting across multiple questions",
       "delivery_state": "LANDED",
       "landed_in": [
-        "2a0d6eae0918"
+        "2a0d6eae0918",
+        "52f333ca756e"
       ],
       "verified_by": []
     },
@@ -279,7 +291,8 @@
       "title": "Tenant-visibility filtering before feature computation",
       "delivery_state": "LANDED",
       "landed_in": [
-        "2a0d6eae0918"
+        "2a0d6eae0918",
+        "52f333ca756e"
       ],
       "verified_by": []
     },
@@ -288,6 +301,7 @@
       "title": "Composition solved as bounded constraint optimization",
       "delivery_state": "LANDED",
       "landed_in": [
+        "52f333ca756e",
         "b43f33569dd4"
       ],
       "verified_by": []
@@ -297,7 +311,8 @@
       "title": "No generative model weights inside the decision engine (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [
-        "40ea81e3e512"
+        "40ea81e3e512",
+        "52f333ca756e"
       ],
       "verified_by": [
         "crates/eg-numeric/tests/decision/head_kinds.rs:75"
@@ -330,7 +345,8 @@
       "title": "Training restricted to independently evaluated outcomes",
       "delivery_state": "LANDED",
       "landed_in": [
-        "2a0d6eae0918"
+        "2a0d6eae0918",
+        "52f333ca756e"
       ],
       "verified_by": []
     },
@@ -340,6 +356,7 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "28a27439cec5",
+        "52f333ca756e",
         "9079ca7b0ddd"
       ],
       "verified_by": [
@@ -351,6 +368,7 @@
       "title": "Unknown facts never default to zero in the solver",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "52f333ca756e",
         "c0edc96d1e10"
       ],
       "verified_by": [
@@ -363,6 +381,7 @@
       "title": "Decision commit re-derives and verifies before writing",
       "delivery_state": "LANDED",
       "landed_in": [
+        "52f333ca756e",
         "d6baf6dfc8c9"
       ],
       "verified_by": []
@@ -372,7 +391,8 @@
       "title": "Bounded, keyed exploration excluded from sensitive questions",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "2a0d6eae0918"
+        "2a0d6eae0918",
+        "52f333ca756e"
       ],
       "verified_by": [
         "src/server/handlers/decide/stat_tests.rs:870"
@@ -383,7 +403,8 @@
       "title": "Versioned feature schema for decision candidates",
       "delivery_state": "LANDED",
       "landed_in": [
-        "2a0d6eae0918"
+        "2a0d6eae0918",
+        "52f333ca756e"
       ],
       "verified_by": []
     },
@@ -392,7 +413,8 @@
       "title": "Separation of full-label and bandit-label training regimes",
       "delivery_state": "LANDED",
       "landed_in": [
-        "2a0d6eae0918"
+        "2a0d6eae0918",
+        "52f333ca756e"
       ],
       "verified_by": []
     },
@@ -401,7 +423,8 @@
       "title": "Hierarchical pooling of outcome statistics with a minimum-sample gate",
       "delivery_state": "LANDED",
       "landed_in": [
-        "2a0d6eae0918"
+        "2a0d6eae0918",
+        "52f333ca756e"
       ],
       "verified_by": []
     },
@@ -410,7 +433,8 @@
       "title": "Multi-class and binary calibration utilities",
       "delivery_state": "LANDED",
       "landed_in": [
-        "2a0d6eae0918"
+        "2a0d6eae0918",
+        "52f333ca756e"
       ],
       "verified_by": []
     },
@@ -419,7 +443,8 @@
       "title": "Drift detection via out-of-distribution checks and adaptive conformal bounds",
       "delivery_state": "LANDED",
       "landed_in": [
-        "2a0d6eae0918"
+        "2a0d6eae0918",
+        "52f333ca756e"
       ],
       "verified_by": []
     },
@@ -428,7 +453,8 @@
       "title": "Inverse-probability-weighted audit sampling of acted decisions",
       "delivery_state": "LANDED",
       "landed_in": [
-        "2a0d6eae0918"
+        "2a0d6eae0918",
+        "52f333ca756e"
       ],
       "verified_by": []
     },
@@ -437,7 +463,8 @@
       "title": "WeightedFeatures and ListwiseLogistic fitted decision heads",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "2a0d6eae0918"
+        "2a0d6eae0918",
+        "52f333ca756e"
       ],
       "verified_by": [
         "crates/eg-numeric/tests/decision/fit_eval.rs:49",
@@ -449,7 +476,8 @@
       "title": "Natural-language template routing without a generative model",
       "delivery_state": "LANDED",
       "landed_in": [
-        "2a0d6eae0918"
+        "2a0d6eae0918",
+        "52f333ca756e"
       ],
       "verified_by": []
     },
@@ -458,6 +486,7 @@
       "title": "Decision-based retrieval-plan selection",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "52f333ca756e",
         "5951a4a6272e",
         "b2d01ed93bd8"
       ],
@@ -473,8 +502,8 @@
         "15f6e8dff987",
         "28ca65b7e45b",
         "2b5963a7d670",
-        "5951a4a6272e",
-        "b2d01ed93bd8"
+        "52f333ca756e",
+        "5951a4a6272e"
       ],
       "verified_by": [
         "crates/eg-types/src/decision/statistical/ingestion_lane.rs:90"
@@ -488,7 +517,8 @@
         "7db76f6142e3",
         "aa3e35c45f82",
         "b2d01ed93bd8",
-        "b6eb6a62d9dc"
+        "b6eb6a62d9dc",
+        "fa780d3e101a"
       ],
       "verified_by": [
         "crates/eg-types/src/decision/statistical/enrichment_schedule.rs:126"
@@ -499,7 +529,8 @@
       "title": "Entity-resolution candidates with conformal guarantees",
       "delivery_state": "LANDED",
       "landed_in": [
-        "a1bb9fb9503e"
+        "a1bb9fb9503e",
+        "fa780d3e101a"
       ],
       "verified_by": []
     },
@@ -508,7 +539,8 @@
       "title": "Decision-based schema mapping for SQL sources",
       "delivery_state": "LANDED",
       "landed_in": [
-        "a1bb9fb9503e"
+        "a1bb9fb9503e",
+        "fa780d3e101a"
       ],
       "verified_by": []
     },
@@ -517,7 +549,8 @@
       "title": "Proposal-only contradiction-handling suggestions",
       "delivery_state": "LANDED",
       "landed_in": [
-        "94da44835d59"
+        "94da44835d59",
+        "fa780d3e101a"
       ],
       "verified_by": []
     },
@@ -526,7 +559,8 @@
       "title": "Decision-based routing for execution configuration",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "7db76f6142e3"
+        "7db76f6142e3",
+        "fa780d3e101a"
       ],
       "verified_by": [
         "src/server/handlers/decide/stat_tests/consumer_tests.rs:406"
@@ -537,7 +571,8 @@
       "title": "graph.assemble() as the authority for agent composition",
       "delivery_state": "LANDED",
       "landed_in": [
-        "d6baf6dfc8c9"
+        "d6baf6dfc8c9",
+        "fa780d3e101a"
       ],
       "verified_by": []
     },
@@ -546,7 +581,8 @@
       "title": "Escalated abstentions re-enter as claims",
       "delivery_state": "LANDED",
       "landed_in": [
-        "2ae20b268539"
+        "2ae20b268539",
+        "fa780d3e101a"
       ],
       "verified_by": []
     },
@@ -555,7 +591,8 @@
       "title": "Advisory pre-tool risk scoring",
       "delivery_state": "LANDED",
       "landed_in": [
-        "1570bfef96aa"
+        "1570bfef96aa",
+        "fa780d3e101a"
       ],
       "verified_by": []
     },
@@ -564,7 +601,8 @@
       "title": "Cost-aware routing using accounting data",
       "delivery_state": "LANDED",
       "landed_in": [
-        "0cbda8f2af96"
+        "0cbda8f2af96",
+        "fa780d3e101a"
       ],
       "verified_by": []
     },
@@ -573,7 +611,8 @@
       "title": "Guarded promotion of fitted heads via publish receipt",
       "delivery_state": "LANDED",
       "landed_in": [
-        "2a0d6eae0918"
+        "2a0d6eae0918",
+        "fa780d3e101a"
       ],
       "verified_by": []
     },
@@ -582,7 +621,8 @@
       "title": "Connector event triage through Decide",
       "delivery_state": "LANDED",
       "landed_in": [
-        "f420578b85d2"
+        "f420578b85d2",
+        "fa780d3e101a"
       ],
       "verified_by": []
     },
@@ -591,7 +631,8 @@
       "title": "Connector tool-choice advisory via Decide",
       "delivery_state": "LANDED",
       "landed_in": [
-        "67d04f5e9087"
+        "67d04f5e9087",
+        "fa780d3e101a"
       ],
       "verified_by": []
     },
@@ -600,7 +641,8 @@
       "title": "Write-back proposals routed through Decide",
       "delivery_state": "LANDED",
       "landed_in": [
-        "21f73899e76c"
+        "21f73899e76c",
+        "fa780d3e101a"
       ],
       "verified_by": []
     },
@@ -608,7 +650,9 @@
       "id": "EG-DECISION-ENGINE-R044",
       "title": "A2A task routing through the decision ladder (rollup)",
       "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "landed_in": [
+        "fa780d3e101a"
+      ],
       "verified_by": [],
       "rollup_of": [
         "EG-DECISION-ENGINE-R044.1",
@@ -639,7 +683,8 @@
       "delivery_state": "LANDED",
       "landed_in": [
         "0dfbaa95ea36",
-        "961b1785319c"
+        "961b1785319c",
+        "fa780d3e101a"
       ],
       "verified_by": [],
       "rollup_of": [
@@ -671,7 +716,8 @@
       "title": "Swarm topology decisions via the decision ladder",
       "delivery_state": "LANDED",
       "landed_in": [
-        "2d087761c964"
+        "2d087761c964",
+        "fa780d3e101a"
       ],
       "verified_by": []
     },
@@ -680,7 +726,8 @@
       "title": "DecisionRecord v1 contract: types and methods",
       "delivery_state": "LANDED",
       "landed_in": [
-        "a4804f87c971"
+        "a4804f87c971",
+        "fa780d3e101a"
       ],
       "verified_by": []
     },
@@ -689,7 +736,8 @@
       "title": "Entailment derivation with weakest-premise evidence class",
       "delivery_state": "LANDED",
       "landed_in": [
-        "2a0d6eae0918"
+        "2a0d6eae0918",
+        "fa780d3e101a"
       ],
       "verified_by": []
     },
@@ -698,7 +746,8 @@
       "title": "Exact 0-1 solver with certificate and verifier",
       "delivery_state": "LANDED",
       "landed_in": [
-        "4b11f62898df"
+        "4b11f62898df",
+        "fa780d3e101a"
       ],
       "verified_by": []
     },
@@ -707,7 +756,8 @@
       "title": "Typed optional model and tool facts",
       "delivery_state": "LANDED",
       "landed_in": [
-        "2a0d6eae0918"
+        "2a0d6eae0918",
+        "fa780d3e101a"
       ],
       "verified_by": []
     },
@@ -716,7 +766,8 @@
       "title": "AgentAssemble and DecisionCommit handlers with audit lines",
       "delivery_state": "LANDED",
       "landed_in": [
-        "2a0d6eae0918"
+        "2a0d6eae0918",
+        "fa780d3e101a"
       ],
       "verified_by": []
     },
@@ -725,7 +776,8 @@
       "title": "Routing acceptance fixture with golden vectors",
       "delivery_state": "LANDED",
       "landed_in": [
-        "2a0d6eae0918"
+        "2a0d6eae0918",
+        "fa780d3e101a"
       ],
       "verified_by": []
     },
@@ -734,7 +786,8 @@
       "title": "Gold set of labelled requirement-to-assembly items",
       "delivery_state": "LANDED",
       "landed_in": [
-        "2a0d6eae0918"
+        "2a0d6eae0918",
+        "fa780d3e101a"
       ],
       "verified_by": []
     },
@@ -743,7 +796,8 @@
       "title": "Statistical contract: Decide, DecisionFit, DecisionEval",
       "delivery_state": "LANDED",
       "landed_in": [
-        "2a0d6eae0918"
+        "2a0d6eae0918",
+        "fa780d3e101a"
       ],
       "verified_by": []
     },
@@ -752,7 +806,8 @@
       "title": "Pinned deterministic numeric stack for calibration",
       "delivery_state": "LANDED",
       "landed_in": [
-        "b43f33569dd4"
+        "b43f33569dd4",
+        "fa780d3e101a"
       ],
       "verified_by": []
     },
@@ -761,7 +816,8 @@
       "title": "Statistical-path release of the exact solver (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [
-        "65afe57d3c4e"
+        "65afe57d3c4e",
+        "fa780d3e101a"
       ],
       "verified_by": [],
       "rollup_of": [
@@ -792,7 +848,8 @@
       "title": "Decision executor with CandidateSource and DecideText",
       "delivery_state": "LANDED",
       "landed_in": [
-        "2a0d6eae0918"
+        "2a0d6eae0918",
+        "fa780d3e101a"
       ],
       "verified_by": []
     },
@@ -801,7 +858,8 @@
       "title": "Graph-sourced decision records with RLS-routed reads",
       "delivery_state": "LANDED",
       "landed_in": [
-        "bda8269797ab"
+        "bda8269797ab",
+        "fa780d3e101a"
       ],
       "verified_by": []
     },
@@ -810,7 +868,8 @@
       "title": "Outcome aggregate with independent-evaluation join",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "3e6d786460c5"
+        "3e6d786460c5",
+        "fa780d3e101a"
       ],
       "verified_by": [
         "crates/eg-numeric/src/decision/aggregate.rs:268"
@@ -821,7 +880,8 @@
       "title": "DecisionFit and DecisionEval jobs with gated promotion",
       "delivery_state": "LANDED",
       "landed_in": [
-        "2a0d6eae0918"
+        "2a0d6eae0918",
+        "fa780d3e101a"
       ],
       "verified_by": []
     },
@@ -830,6 +890,7 @@
       "title": "Assembly facts extended for the statistical path",
       "delivery_state": "LANDED",
       "landed_in": [
+        "1e9ea1ef3790",
         "8f38ed7cc3dc",
         "fe3b87b09054"
       ],
@@ -853,6 +914,7 @@
       "title": "NlTemplate selection without a language model",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "1e9ea1ef3790",
         "2ffc3594800b"
       ],
       "verified_by": [
@@ -864,6 +926,7 @@
       "title": "Typed client wrappers and documentation for Decide",
       "delivery_state": "LANDED",
       "landed_in": [
+        "1e9ea1ef3790",
         "2a0d6eae0918"
       ],
       "verified_by": []
@@ -873,6 +936,7 @@
       "title": "Optional read views of decision records",
       "delivery_state": "LANDED",
       "landed_in": [
+        "1e9ea1ef3790",
         "857e20c63775"
       ],
       "verified_by": []
@@ -882,6 +946,7 @@
       "title": "Decision record size and shape limits",
       "delivery_state": "LANDED",
       "landed_in": [
+        "1e9ea1ef3790",
         "2a0d6eae0918"
       ],
       "verified_by": []
@@ -891,6 +956,7 @@
       "title": "Retention split between library and graph-sourced records",
       "delivery_state": "LANDED",
       "landed_in": [
+        "1e9ea1ef3790",
         "2a0d6eae0918"
       ],
       "verified_by": []
@@ -900,6 +966,7 @@
       "title": "Decision record versioning stays decodable",
       "delivery_state": "LANDED",
       "landed_in": [
+        "1e9ea1ef3790",
         "2a0d6eae0918"
       ],
       "verified_by": []
@@ -909,6 +976,7 @@
       "title": "Outcome link via the existing synthesis-evidence pin",
       "delivery_state": "LANDED",
       "landed_in": [
+        "1e9ea1ef3790",
         "2a0d6eae0918"
       ],
       "verified_by": []
@@ -918,6 +986,7 @@
       "title": "DecisionShape enforcement inside the commit handler",
       "delivery_state": "LANDED",
       "landed_in": [
+        "1e9ea1ef3790",
         "2a0d6eae0918"
       ],
       "verified_by": []
@@ -927,6 +996,7 @@
       "title": "Bounded no-good-cut re-solve for post-solve validators",
       "delivery_state": "LANDED",
       "landed_in": [
+        "1e9ea1ef3790",
         "2a0d6eae0918"
       ],
       "verified_by": []
@@ -936,6 +1006,7 @@
       "title": "DecideText parser kept separate from the UQL core",
       "delivery_state": "LANDED",
       "landed_in": [
+        "1e9ea1ef3790",
         "2a0d6eae0918"
       ],
       "verified_by": []
@@ -945,6 +1016,7 @@
       "title": "Decision observability spans and metrics",
       "delivery_state": "LANDED",
       "landed_in": [
+        "1e9ea1ef3790",
         "2a0d6eae0918"
       ],
       "verified_by": []
@@ -954,6 +1026,7 @@
       "title": "Decision-owned storage tables and outbox events",
       "delivery_state": "LANDED",
       "landed_in": [
+        "1e9ea1ef3790",
         "a1bb9fb9503e"
       ],
       "verified_by": []
@@ -963,6 +1036,7 @@
       "title": "Agent-slot component-kind closure rule kept current",
       "delivery_state": "LANDED",
       "landed_in": [
+        "1e9ea1ef3790",
         "a4804f87c971"
       ],
       "verified_by": []
@@ -972,7 +1046,8 @@
       "title": "Component-id uniqueness and forbidden decision kinds (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [
-        "0ea0a0dcfa62"
+        "0ea0a0dcfa62",
+        "1e9ea1ef3790"
       ],
       "verified_by": [],
       "rollup_of": [
@@ -1003,6 +1078,7 @@
       "title": "Opt-in nested models for decision result markers",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "1e9ea1ef3790",
         "bad0283526ba"
       ],
       "verified_by": [
@@ -1014,6 +1090,7 @@
       "title": "Component schema version bump to add decision kinds",
       "delivery_state": "LANDED",
       "landed_in": [
+        "1e9ea1ef3790",
         "a1bb9fb9503e"
       ],
       "verified_by": []
@@ -1023,7 +1100,8 @@
       "title": "Contract freeze reissued with the decide feature (rollup)",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "1527a97f2118"
+        "1527a97f2118",
+        "1e9ea1ef3790"
       ],
       "verified_by": [],
       "rollup_of": [
@@ -1059,6 +1137,7 @@
       "title": "Per-unit embedding admission classifier for ingestion",
       "delivery_state": "LANDED",
       "landed_in": [
+        "1e9ea1ef3790",
         "dd6d5b55fb20"
       ],
       "verified_by": [],
@@ -1080,7 +1159,8 @@
       "title": "Ingestion cost ladder with provenance rungs",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "1e0050b97b3a"
+        "1e0050b97b3a",
+        "1e9ea1ef3790"
       ],
       "verified_by": [],
       "rollup_of": [
@@ -1105,6 +1185,7 @@
       "title": "Confidence-weighted community detection excluding similarity edges",
       "delivery_state": "LANDED",
       "landed_in": [
+        "1e9ea1ef3790",
         "b5fe3c140c21"
       ],
       "verified_by": []
@@ -1114,6 +1195,7 @@
       "title": "Single-pass option-marker scoring head for Decide",
       "delivery_state": "LANDED",
       "landed_in": [
+        "1e9ea1ef3790",
         "4952a2edced4"
       ],
       "verified_by": []
@@ -1123,6 +1205,7 @@
       "title": "Options encode structured facts, not option-label text (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [
+        "1e9ea1ef3790",
         "e9da9f0a77e1"
       ],
       "verified_by": [],
@@ -1154,6 +1237,7 @@
       "title": "Conformal calibration as primary rung over temperature scaling",
       "delivery_state": "LANDED",
       "landed_in": [
+        "1e9ea1ef3790",
         "4952a2edced4"
       ],
       "verified_by": []
@@ -1163,6 +1247,7 @@
       "title": "Legal option sets are derived from the ontology, never received as-is",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "1e9ea1ef3790",
         "29da53bfbe8d"
       ],
       "verified_by": [],
@@ -1198,6 +1283,7 @@
       "title": "DecisionFit promotion protocol reports nine metrics",
       "delivery_state": "LANDED",
       "landed_in": [
+        "1e9ea1ef3790",
         "4952a2edced4"
       ],
       "verified_by": []
@@ -1207,6 +1293,7 @@
       "title": "Scorer always receives a bounded shortlist, never a full catalog",
       "delivery_state": "LANDED",
       "landed_in": [
+        "1e9ea1ef3790",
         "4952a2edced4"
       ],
       "verified_by": []
@@ -1216,6 +1303,7 @@
       "title": "Belief-as-of-t exposed as a Decide primitive over prefixes",
       "delivery_state": "LANDED",
       "landed_in": [
+        "1e9ea1ef3790",
         "4952a2edced4"
       ],
       "verified_by": []
@@ -1226,6 +1314,7 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "19b44d216062",
+        "1e9ea1ef3790",
         "aaef8290c8e2"
       ],
       "verified_by": [
@@ -1238,6 +1327,7 @@
       "delivery_state": "LANDED",
       "landed_in": [
         "19b44d216062",
+        "1e9ea1ef3790",
         "548cf5451a25"
       ],
       "verified_by": [],
@@ -1259,7 +1349,8 @@
       "title": "Resident scorer is bit-reproducible via fixed-point arithmetic",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "4952a2edced4"
+        "4952a2edced4",
+        "534f763afc81"
       ],
       "verified_by": [
         "crates/eg-numeric/tests/decision/scorer.rs:109"
@@ -1270,6 +1361,7 @@
       "title": "Scorer selection and structured encoding apply ladder-wide",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "534f763afc81",
         "e9e12f168722"
       ],
       "verified_by": [
@@ -1281,7 +1373,8 @@
       "title": "Resident scorer is trained from the served synthetic-episode generator",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "163a1e6bc8ad"
+        "163a1e6bc8ad",
+        "534f763afc81"
       ],
       "verified_by": [],
       "rollup_of": [
@@ -1308,6 +1401,7 @@
       "title": "Decision scoring requires no GPU or model-server dependency",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "534f763afc81",
         "af5dc5ad78bd"
       ],
       "verified_by": [
@@ -1319,6 +1413,7 @@
       "title": "Solver certificate digest matches its committed golden vector",
       "delivery_state": "LANDED",
       "landed_in": [
+        "534f763afc81",
         "be0f1acb05c6"
       ],
       "verified_by": []
@@ -1328,7 +1423,8 @@
       "title": "Community-detection wire contract carries edge weight and quality function",
       "delivery_state": "LANDED",
       "landed_in": [
-        "2a0d6eae0918"
+        "2a0d6eae0918",
+        "534f763afc81"
       ],
       "verified_by": []
     },
@@ -1337,6 +1433,7 @@
       "title": "Replay-nonce rejection and blob GC grace period behave correctly",
       "delivery_state": "LANDED",
       "landed_in": [
+        "534f763afc81",
         "be0f1acb05c6"
       ],
       "verified_by": []
@@ -1346,6 +1443,7 @@
       "title": "Decide ladder excludes generative free-text models by design",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "534f763afc81",
         "fa3eda2b7961"
       ],
       "verified_by": [
@@ -1358,6 +1456,7 @@
       "title": "Wikidata alignment connector supplies entity-resolution keys",
       "delivery_state": "LANDED",
       "landed_in": [
+        "534f763afc81",
         "a1bb9fb9503e"
       ],
       "verified_by": []
@@ -1367,6 +1466,7 @@
       "title": "Retrieval decisions join cited evidence with independent outcomes",
       "delivery_state": "LANDED",
       "landed_in": [
+        "534f763afc81",
         "e429630278b8"
       ],
       "verified_by": []
@@ -1376,6 +1476,7 @@
       "title": "Query-side embedding adapter head promoted via DecisionEval",
       "delivery_state": "LANDED",
       "landed_in": [
+        "534f763afc81",
         "e429630278b8"
       ],
       "verified_by": []
@@ -1385,7 +1486,8 @@
       "title": "Schema repair proposals pass a decided mapping and shadow-branch check",
       "delivery_state": "LANDED",
       "landed_in": [
-        "202b90167359"
+        "202b90167359",
+        "534f763afc81"
       ],
       "verified_by": [],
       "rollup_of": [
@@ -1406,7 +1508,8 @@
       "title": "Calibrated per-horizon flip confidence with conformal abstention",
       "delivery_state": "LANDED",
       "landed_in": [
-        "532418b7e55b"
+        "532418b7e55b",
+        "534f763afc81"
       ],
       "verified_by": []
     },
@@ -1415,6 +1518,7 @@
       "title": "DecideText shares the UQL lexer and grammar family",
       "delivery_state": "LANDED",
       "landed_in": [
+        "534f763afc81",
         "857e20c63775"
       ],
       "verified_by": []
@@ -1424,7 +1528,8 @@
       "title": "GraphSchema.attach publishes the swarm-topology ontology",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "4ded009c7d6e"
+        "4ded009c7d6e",
+        "534f763afc81"
       ],
       "verified_by": [
         "src/server/graph_schema/swarm_topology_tests.rs:128"
@@ -1435,6 +1540,7 @@
       "title": "AgentGraph templates carry topology facts for standard shapes",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "534f763afc81",
         "ca2bc11e6d73"
       ],
       "verified_by": [
@@ -1446,6 +1552,7 @@
       "title": "Typed topology contract in eg-types with versioned goldens",
       "delivery_state": "LANDED",
       "landed_in": [
+        "534f763afc81",
         "c0edc96d1e10"
       ],
       "verified_by": []
@@ -1455,6 +1562,7 @@
       "title": "Publish-time topology-shape validation fails closed",
       "delivery_state": "LANDED",
       "landed_in": [
+        "534f763afc81",
         "c0edc96d1e10"
       ],
       "verified_by": []
@@ -1464,6 +1572,7 @@
       "title": "OWL entailment derives topology admissibility before assembly",
       "delivery_state": "LANDED",
       "landed_in": [
+        "534f763afc81",
         "c0edc96d1e10"
       ],
       "verified_by": []
@@ -1473,6 +1582,7 @@
       "title": "Topology optimization model rows with a brute-force oracle",
       "delivery_state": "LANDED",
       "landed_in": [
+        "534f763afc81",
         "c0edc96d1e10"
       ],
       "verified_by": []
@@ -1482,6 +1592,7 @@
       "title": "Decide exposes the topology decision as a single typed question",
       "delivery_state": "LANDED",
       "landed_in": [
+        "534f763afc81",
         "c0edc96d1e10"
       ],
       "verified_by": []
@@ -1491,6 +1602,7 @@
       "title": "Capacity premise derives headroom observations by priority",
       "delivery_state": "LANDED",
       "landed_in": [
+        "534f763afc81",
         "c0edc96d1e10"
       ],
       "verified_by": []
@@ -1500,7 +1612,8 @@
       "title": "EG commits capacity acquisition atomically with synthesis evidence",
       "delivery_state": "LANDED",
       "landed_in": [
-        "202b90167359"
+        "202b90167359",
+        "534f763afc81"
       ],
       "verified_by": [],
       "rollup_of": [
@@ -1521,6 +1634,7 @@
       "title": "Subagent allowance negotiation reads EG's topology facts",
       "delivery_state": "LANDED",
       "landed_in": [
+        "534f763afc81",
         "c0edc96d1e10"
       ],
       "verified_by": []
@@ -1530,6 +1644,7 @@
       "title": "Continuation decisions are evaluate-only and narrow-only",
       "delivery_state": "LANDED",
       "landed_in": [
+        "534f763afc81",
         "c0edc96d1e10"
       ],
       "verified_by": []
@@ -1538,7 +1653,9 @@
       "id": "EG-DECISION-ENGINE-R116",
       "title": "Consumers reach EG only through the versioned client contract",
       "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "landed_in": [
+        "534f763afc81"
+      ],
       "verified_by": [],
       "rollup_of": [
         "EG-DECISION-ENGINE-R116.1",
@@ -1566,6 +1683,7 @@
       "title": "DERIVE series functions share one incremental kernel",
       "delivery_state": "LANDED",
       "landed_in": [
+        "534f763afc81",
         "9480759eb7c2"
       ],
       "verified_by": []
@@ -1577,9 +1695,9 @@
       "landed_in": [
         "1f6d512ae013",
         "28fbbbe2ee1e",
+        "534f763afc81",
         "7e14801e08c3",
-        "9a85c8a49fd4",
-        "f46e8766e75c"
+        "9a85c8a49fd4"
       ],
       "verified_by": []
     },
@@ -1588,6 +1706,7 @@
       "title": "Walk-forward replay seals deflated Sharpe and PBO evidence",
       "delivery_state": "LANDED",
       "landed_in": [
+        "534f763afc81",
         "a85c8425c9f4"
       ],
       "verified_by": []
@@ -1597,7 +1716,8 @@
       "title": "Admission anchors are limited to persisted write paths",
       "delivery_state": "LANDED",
       "landed_in": [
-        "3c39771e7a44"
+        "3c39771e7a44",
+        "534f763afc81"
       ],
       "verified_by": []
     },
@@ -1606,6 +1726,7 @@
       "title": "Typed Claim and Evidence structures back evidence class",
       "delivery_state": "LANDED",
       "landed_in": [
+        "534f763afc81",
         "a1bb9fb9503e"
       ],
       "verified_by": []
@@ -1615,6 +1736,7 @@
       "title": "Synthetic decision data stays separate from calibration",
       "delivery_state": "LANDED",
       "landed_in": [
+        "534f763afc81",
         "cfbe22464008"
       ],
       "verified_by": []
@@ -1624,6 +1746,7 @@
       "title": "Solve DTOs canonical in eg-types, no duplicate copies",
       "delivery_state": "LANDED",
       "landed_in": [
+        "534f763afc81",
         "a4804f87c971"
       ],
       "verified_by": []
@@ -1633,6 +1756,7 @@
       "title": "eg-numeric statistical kernel tests compile and run",
       "delivery_state": "LANDED",
       "landed_in": [
+        "534f763afc81",
         "a1bb9fb9503e"
       ],
       "verified_by": []
@@ -1642,6 +1766,7 @@
       "title": "Telemetry binds to ontology entities as BehaviourObservation",
       "delivery_state": "LANDED",
       "landed_in": [
+        "534f763afc81",
         "cae7ecad71e2"
       ],
       "verified_by": []
@@ -1651,6 +1776,7 @@
       "title": "Capability coverage answers which components can serve a task",
       "delivery_state": "LANDED",
       "landed_in": [
+        "534f763afc81",
         "e5edf018cbba"
       ],
       "verified_by": [],
@@ -1685,7 +1811,8 @@
       "title": "Guardrail entailment lists the rules a task must follow",
       "delivery_state": "LANDED",
       "landed_in": [
-        "18a745706c46"
+        "18a745706c46",
+        "534f763afc81"
       ],
       "verified_by": [],
       "rollup_of": [
@@ -1708,7 +1835,8 @@
       "title": "The guardrail-entailment query is served, backed by a stored rule set",
       "delivery_state": "LANDED",
       "landed_in": [
-        "253a69935dfd"
+        "253a69935dfd",
+        "534f763afc81"
       ],
       "verified_by": []
     }

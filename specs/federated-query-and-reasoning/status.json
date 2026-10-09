@@ -91,7 +91,6 @@
       "title": "Bounded derivation steps in EL+/RL and tableau reasoning",
       "delivery_state": "LANDED",
       "landed_in": [
-        "0265d3a41baf",
         "57a12eb06632"
       ],
       "verified_by": []
@@ -101,7 +100,6 @@
       "title": "Rejection reasons stay out of the core kernel row schema",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "0265d3a41baf",
         "2b3e2738b5ff"
       ],
       "verified_by": [
@@ -114,7 +112,6 @@
       "title": "Derivation-step budget is enforced once, not duplicated per path",
       "delivery_state": "LANDED",
       "landed_in": [
-        "0265d3a41baf",
         "73069c650dcd"
       ],
       "verified_by": []
@@ -124,7 +121,6 @@
       "title": "Reasoning projection rebuilds after any skipped event",
       "delivery_state": "LANDED",
       "landed_in": [
-        "0265d3a41baf",
         "49b749980bf2"
       ],
       "verified_by": []
@@ -134,7 +130,6 @@
       "title": "UQL VALIDATE SHAPE stage",
       "delivery_state": "LANDED",
       "landed_in": [
-        "0265d3a41baf",
         "a1bb9fb9503e"
       ],
       "verified_by": []
@@ -144,7 +139,6 @@
       "title": "Proof-carrying results for SPARQL and rule-derived queries",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "0265d3a41baf",
         "8bbe95351da3"
       ],
       "verified_by": [
@@ -158,7 +152,6 @@
       "title": "Semantic-index reconciliation tombstones only on a complete proof",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "0265d3a41baf",
         "be0f1acb05c6"
       ],
       "verified_by": [
@@ -170,7 +163,6 @@
       "title": "Edge-native text and vector search with stable identity",
       "delivery_state": "LANDED",
       "landed_in": [
-        "0265d3a41baf",
         "834aca5df713"
       ],
       "verified_by": []
@@ -180,7 +172,6 @@
       "title": "Durable user-managed graph-index lifecycle",
       "delivery_state": "LANDED",
       "landed_in": [
-        "0265d3a41baf",
         "e99a95cc842d"
       ],
       "verified_by": []
@@ -190,7 +181,6 @@
       "title": "Tableau reasoning stays bounded on the shipped core schema",
       "delivery_state": "LANDED",
       "landed_in": [
-        "0265d3a41baf",
         "57a12eb06632"
       ],
       "verified_by": []
@@ -200,7 +190,6 @@
       "title": "EL+/RL reasoning is sound against the shipped ontology corpus",
       "delivery_state": "LANDED",
       "landed_in": [
-        "0265d3a41baf",
         "f17f47ab300f"
       ],
       "verified_by": []
@@ -210,7 +199,6 @@
       "title": "Tableau honors AllDisjointClasses and core disjointness facts",
       "delivery_state": "LANDED",
       "landed_in": [
-        "0265d3a41baf",
         "42aeb6436568"
       ],
       "verified_by": []
@@ -220,7 +208,6 @@
       "title": "Foreign-source resolution is scoped to the owning principal",
       "delivery_state": "LANDED",
       "landed_in": [
-        "0265d3a41baf",
         "a3e0c9984c67"
       ],
       "verified_by": []
@@ -230,7 +217,6 @@
       "title": "Explicit grant-based sharing of a registered foreign source",
       "delivery_state": "LANDED",
       "landed_in": [
-        "0265d3a41baf",
         "a1bb9fb9503e"
       ],
       "verified_by": []
@@ -240,7 +226,6 @@
       "title": "Read-only enforcement at the shared SQL execution path",
       "delivery_state": "LANDED",
       "landed_in": [
-        "0265d3a41baf",
         "a1bb9fb9503e"
       ],
       "verified_by": []
@@ -250,7 +235,6 @@
       "title": "UQL AS OF uses Unix-second timestamps, not ISO dates",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "0265d3a41baf",
         "a3ad18c91bc5"
       ],
       "verified_by": [
@@ -262,7 +246,6 @@
       "title": "Dependency tracking covers edge-type and embedding generations",
       "delivery_state": "LANDED",
       "landed_in": [
-        "0265d3a41baf",
         "10177f908dd0"
       ],
       "verified_by": []
@@ -272,7 +255,6 @@
       "title": "Class-level volatility drives invalidation and cache freshness",
       "delivery_state": "LANDED",
       "landed_in": [
-        "0265d3a41baf",
         "10177f908dd0"
       ],
       "verified_by": []
@@ -282,7 +264,6 @@
       "title": "Per-bar signal-state advancement with revisable trend records",
       "delivery_state": "LANDED",
       "landed_in": [
-        "0265d3a41baf",
         "532418b7e55b"
       ],
       "verified_by": []
@@ -292,7 +273,6 @@
       "title": "One query-text method surface, with the legacy method retired",
       "delivery_state": "LANDED",
       "landed_in": [
-        "0265d3a41baf",
         "bd27155934dc"
       ],
       "verified_by": []
@@ -302,7 +282,6 @@
       "title": "Full UQL predicate algebra with SQL-consistent evaluation",
       "delivery_state": "LANDED",
       "landed_in": [
-        "0265d3a41baf",
         "e93f988eae07"
       ],
       "verified_by": []
@@ -312,7 +291,6 @@
       "title": "UQL source clauses are first-class, with typed empty-result cases",
       "delivery_state": "LANDED",
       "landed_in": [
-        "0265d3a41baf",
         "8451d7eecf02"
       ],
       "verified_by": []
@@ -322,7 +300,6 @@
       "title": "Every query modality has a published UQL spelling",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "0265d3a41baf",
         "8451d7eecf02"
       ],
       "verified_by": [
@@ -334,7 +311,6 @@
       "title": "Traversal syntax compiles to one canonical Expand encoding",
       "delivery_state": "LANDED",
       "landed_in": [
-        "0265d3a41baf",
         "e93f988eae07"
       ],
       "verified_by": []
@@ -344,7 +320,6 @@
       "title": "Typed parameter binding end-to-end through the Python client",
       "delivery_state": "LANDED",
       "landed_in": [
-        "0265d3a41baf",
         "4e0570f079f5"
       ],
       "verified_by": []
@@ -354,7 +329,6 @@
       "title": "UQL documentation is test-verified with an embedded grammar",
       "delivery_state": "LANDED",
       "landed_in": [
-        "0265d3a41baf",
         "7b9ba5708638"
       ],
       "verified_by": []
@@ -364,7 +338,6 @@
       "title": "EXPLAIN, PROFILE and RETURN support multi-stage UQL programs",
       "delivery_state": "LANDED",
       "landed_in": [
-        "0265d3a41baf",
         "681de5cb1968"
       ],
       "verified_by": []
@@ -374,7 +347,6 @@
       "title": "KnowledgeSet is reachable from UQL",
       "delivery_state": "LANDED",
       "landed_in": [
-        "0265d3a41baf",
         "681de5cb1968"
       ],
       "verified_by": []
@@ -384,7 +356,6 @@
       "title": "UQL text from graph-exploration clients matches the grammar",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "0265d3a41baf",
         "cb0a4dfcf4a5"
       ],
       "verified_by": [
@@ -398,7 +369,6 @@
       "title": "TSSCAN preserves per-series row identity and full precision",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "0265d3a41baf",
         "79fb60a33ee0"
       ],
       "verified_by": [
@@ -412,7 +382,6 @@
       "title": "Contribution attribution kernels exposed through UQL ATTRIBUTE",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "0265d3a41baf",
         "7940beedc463"
       ],
       "verified_by": [
@@ -426,7 +395,6 @@
       "title": "Probabilistic impact propagation with cone-scoped recomputation",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "0265d3a41baf",
         "c06e903d0def"
       ],
       "verified_by": [
@@ -440,7 +408,6 @@
       "title": "Barrier-hit and time-to-exhaustion derivations, one shared CDF",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "0265d3a41baf",
         "a0fbd9c05adf",
         "c98e58397fcc"
       ],
@@ -455,7 +422,6 @@
       "title": "Motif and discord search over time series, batch and streaming",
       "delivery_state": "LANDED",
       "landed_in": [
-        "0265d3a41baf",
         "1625e507f6fc"
       ],
       "verified_by": []
@@ -465,7 +431,6 @@
       "title": "Filtered text search evaluates within the filtered candidate set",
       "delivery_state": "LANDED",
       "landed_in": [
-        "0265d3a41baf",
         "4dfe7beb589b"
       ],
       "verified_by": []
@@ -475,6 +440,7 @@
       "title": "Bounded, observable graph reopen after a restart",
       "delivery_state": "LANDED",
       "landed_in": [
+        "62c450561948",
         "bcbbe09c7e76"
       ],
       "verified_by": []
@@ -484,7 +450,8 @@
       "title": "Rolling window statistics are both O(1) and numerically exact",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "1ee2319ee506"
+        "1ee2319ee506",
+        "62c450561948"
       ],
       "verified_by": [
         "crates/eg-numeric/src/series/streaming_tests.rs:63",
@@ -497,7 +464,8 @@
       "title": "Federation optimizer: cost-aware pushdown, freshness-aware cache (rollup)",
       "delivery_state": "LANDED",
       "landed_in": [
-        "212c65869e32"
+        "212c65869e32",
+        "62c450561948"
       ],
       "verified_by": [],
       "rollup_of": [
@@ -518,7 +486,8 @@
       "title": "Mixed traversal and vector queries return k or a typed shortfall",
       "delivery_state": "LANDED",
       "landed_in": [
-        "5c2ab50088c4"
+        "5c2ab50088c4",
+        "62c450561948"
       ],
       "verified_by": []
     },
@@ -527,7 +496,8 @@
       "title": "Filter-aware index scans for filtered vector and text search",
       "delivery_state": "LANDED",
       "landed_in": [
-        "08b2c9d4b567"
+        "08b2c9d4b567",
+        "62c450561948"
       ],
       "verified_by": []
     },
@@ -536,6 +506,7 @@
       "title": "Federation optimizer core drives pushdown decisions for every query",
       "delivery_state": "LANDED",
       "landed_in": [
+        "62c450561948",
         "d656b605ef0a"
       ],
       "verified_by": []
@@ -545,6 +516,7 @@
       "title": "OBDA pushes per-predicate scans and semi-join reduction to SQL sources",
       "delivery_state": "LANDED",
       "landed_in": [
+        "62c450561948",
         "d656b605ef0a"
       ],
       "verified_by": []
@@ -554,6 +526,7 @@
       "title": "SQL foreign-source connections share the one outbound SSRF guard",
       "delivery_state": "LANDED",
       "landed_in": [
+        "62c450561948",
         "d656b605ef0a"
       ],
       "verified_by": []
@@ -564,6 +537,7 @@
       "delivery_state": "LANDED",
       "landed_in": [
         "33c1fd51757d",
+        "62c450561948",
         "c98e58397fcc"
       ],
       "verified_by": []
@@ -573,6 +547,7 @@
       "title": "Foreign rows carry typed columns for filter and projection pushdown",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "62c450561948",
         "6ffff56cecff"
       ],
       "verified_by": [
@@ -586,6 +561,7 @@
       "title": "OBDA pushes SPARQL LIMIT, ORDER, aggregates and same-source joins",
       "delivery_state": "LANDED",
       "landed_in": [
+        "62c450561948",
         "c98e58397fcc"
       ],
       "verified_by": []
@@ -595,7 +571,8 @@
       "title": "Federation enforces per-source parallelism caps and rate limits",
       "delivery_state": "LANDED",
       "landed_in": [
-        "321aa24de7c0"
+        "321aa24de7c0",
+        "62c450561948"
       ],
       "verified_by": []
     },
@@ -604,6 +581,7 @@
       "title": "Join ordering across foreign sources uses learned, provenanced statistics",
       "delivery_state": "LANDED",
       "landed_in": [
+        "62c450561948",
         "f708d6e7728f"
       ],
       "verified_by": [],
@@ -626,6 +604,7 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "33c1fd51757d",
+        "62c450561948",
         "b0124203865d"
       ],
       "verified_by": [
@@ -638,7 +617,8 @@
       "title": "SPARQL SERVICE uses bind joins and pushes FILTER/LIMIT",
       "delivery_state": "LANDED",
       "landed_in": [
-        "3d00361f3191"
+        "3d00361f3191",
+        "62c450561948"
       ],
       "verified_by": []
     },
@@ -649,6 +629,7 @@
       "landed_in": [
         "56d3663f4bf8",
         "5dd3f1b33fad",
+        "62c450561948",
         "8676a7f3af87"
       ],
       "verified_by": [
@@ -660,6 +641,7 @@
       "title": "RemoteEngine sources receive pushed key filters and bounded LIMIT",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "62c450561948",
         "70c5421663b9",
         "8676a7f3af87",
         "a854dd78481d"
@@ -674,6 +656,7 @@
       "delivery_state": "LANDED",
       "landed_in": [
         "09385617b3ae",
+        "62c450561948",
         "ec4d3c4ee5a3"
       ],
       "verified_by": []
@@ -683,6 +666,7 @@
       "title": "SPARQL SERVICE and peer federation share the one outbound SSRF guard",
       "delivery_state": "LANDED",
       "landed_in": [
+        "62c450561948",
         "70c5421663b9"
       ],
       "verified_by": []
@@ -692,6 +676,7 @@
       "title": "SPARQL evaluation binds every value of a multi-valued property",
       "delivery_state": "LANDED",
       "landed_in": [
+        "62c450561948",
         "d656b605ef0a"
       ],
       "verified_by": []
@@ -701,7 +686,8 @@
       "title": "Causal-impact p-values reuse the shared numeric tail functions",
       "delivery_state": "LANDED",
       "landed_in": [
-        "1b55c58d05d5"
+        "1b55c58d05d5",
+        "62c450561948"
       ],
       "verified_by": []
     },
@@ -710,7 +696,8 @@
       "title": "SQL provider module stays within the repository's file-size limit",
       "delivery_state": "LANDED",
       "landed_in": [
-        "3241ec8af9d4"
+        "3241ec8af9d4",
+        "62c450561948"
       ],
       "verified_by": []
     },
@@ -719,7 +706,8 @@
       "title": "Natural language runs only as disclosed, read-only typed UQL",
       "delivery_state": "SPECIFIED",
       "landed_in": [
-        "3da71fa8e9b7"
+        "3da71fa8e9b7",
+        "62c450561948"
       ],
       "verified_by": [],
       "rollup_of": [
@@ -756,6 +744,7 @@
       "title": "Semantic index lifecycle is fenced, durable and restart-safe",
       "delivery_state": "LANDED",
       "landed_in": [
+        "62c450561948",
         "8fa63622a11f"
       ],
       "verified_by": []
@@ -765,7 +754,8 @@
       "title": "Leiden community detection supports a Constant Potts Model quality function",
       "delivery_state": "LANDED",
       "landed_in": [
-        "2a0d6eae0918"
+        "2a0d6eae0918",
+        "62c450561948"
       ],
       "verified_by": []
     },
@@ -774,6 +764,7 @@
       "title": "One grammar table drives UQL docs, prompts and error messages",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "62c450561948",
         "8451d7eecf02"
       ],
       "verified_by": [
@@ -786,6 +777,7 @@
       "title": "Streaming memory test measures only its own allocations",
       "delivery_state": "LANDED",
       "landed_in": [
+        "62c450561948",
         "645f55e5f0db"
       ],
       "verified_by": []
@@ -795,6 +787,7 @@
       "title": "Leiden provides stable community naming and a connectivity check",
       "delivery_state": "LANDED",
       "landed_in": [
+        "62c450561948",
         "b5fe3c140c21"
       ],
       "verified_by": []
@@ -804,6 +797,7 @@
       "title": "UQL lexer supports its full token set and structured diagnostics",
       "delivery_state": "LANDED",
       "landed_in": [
+        "62c450561948",
         "8451d7eecf02"
       ],
       "verified_by": []
@@ -813,6 +807,7 @@
       "title": "Named UQL sub-plans compile to an ordered plan DAG",
       "delivery_state": "LANDED",
       "landed_in": [
+        "62c450561948",
         "8451d7eecf02"
       ],
       "verified_by": []
@@ -822,6 +817,7 @@
       "title": "SPARQL evaluator is split into modules within the file-size limit",
       "delivery_state": "LANDED",
       "landed_in": [
+        "62c450561948",
         "fbb3b6f0ff6c"
       ],
       "verified_by": []
@@ -831,6 +827,7 @@
       "title": "UQL RETURN exposes multiple named score channels per row",
       "delivery_state": "LANDED",
       "landed_in": [
+        "62c450561948",
         "8451d7eecf02"
       ],
       "verified_by": []
@@ -840,6 +837,7 @@
       "title": "UQL supports WITH PROOF for proof-carrying results",
       "delivery_state": "LANDED",
       "landed_in": [
+        "62c450561948",
         "857e20c63775"
       ],
       "verified_by": []
@@ -849,6 +847,7 @@
       "title": "SQL pushdown batches key lookups and shares rendering with OBDA",
       "delivery_state": "LANDED",
       "landed_in": [
+        "62c450561948",
         "d656b605ef0a"
       ],
       "verified_by": []
@@ -858,6 +857,7 @@
       "title": "UQL execution budgets are enforced and reported in EXPLAIN/PROFILE",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "62c450561948",
         "e93f988eae07"
       ],
       "verified_by": [
@@ -869,6 +869,7 @@
       "title": "HTTP foreign sources support templated pagination and key placeholders",
       "delivery_state": "LANDED",
       "landed_in": [
+        "62c450561948",
         "d656b605ef0a"
       ],
       "verified_by": []
@@ -878,6 +879,7 @@
       "title": "The ontology selects the sources for a cross-source question",
       "delivery_state": "LANDED",
       "landed_in": [
+        "62c450561948",
         "f948211fb8c7"
       ],
       "verified_by": [],
@@ -899,6 +901,7 @@
       "title": "Operation-bound virtual mappings federate API, MCP, A2A and GraphQL sources",
       "delivery_state": "LANDED",
       "landed_in": [
+        "62c450561948",
         "bfd84b2ccbcb",
         "f948211fb8c7"
       ],
