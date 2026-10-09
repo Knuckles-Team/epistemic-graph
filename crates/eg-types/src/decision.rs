@@ -24,6 +24,7 @@
 pub mod derivation;
 pub mod digest;
 pub mod errors;
+pub mod guardrail;
 pub mod jobs;
 pub mod numeric;
 pub mod policy;
