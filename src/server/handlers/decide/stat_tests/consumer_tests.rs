@@ -403,6 +403,7 @@ async fn a_negative_enrichment_cost_is_refused_through_decide() {
 /// act, so an Ordinary exploration policy supplies the typed choice
 /// (`Explored`); its evidence class is always `Claim` (never stronger than
 /// a claim for a draw, not a calibrated act).
+// spec: EG-DECISION-ENGINE-R035
 #[tokio::test]
 async fn graph_decide_answers_every_execution_routing_category() {
     use eg_types::decision::statistical::execution_routing::ExecutionRoutingCategory;

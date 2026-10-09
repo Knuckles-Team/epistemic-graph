@@ -129,6 +129,7 @@ mod tests {
         assert!(!RetrievalPlanKind::claims_registry_namespace("plan-deep"));
     }
 
+    // spec: EG-DECISION-ENGINE-R029
     #[test]
     fn a_request_naming_only_registered_plans_is_accepted() {
         let request = RetrievalPlanRequest {

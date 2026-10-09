@@ -291,6 +291,7 @@ mod shapes {
 
     /// EG-FINANCE-PRIMITIVES-R004: the canonical asset-class vocabulary, plus the
     /// deprecated migration aliases preserved for `stock`, `forex` and `commodity`.
+    // spec: EG-FINANCE-PRIMITIVES-R004.1
     #[test]
     fn asset_class_vocabulary_accepts_canonical_and_legacy_values() {
         for class in [

@@ -499,6 +499,7 @@ mod cache_tests {
         }
     }
 
+    // spec: EG-FEDERATED-QUERY-R049
     #[test]
     fn served_fragment_reuses_only_fresh_named_owner_scope() {
         let remote = Counted {

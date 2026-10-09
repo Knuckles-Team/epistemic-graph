@@ -173,6 +173,7 @@ async fn terminal_response_uses_raw_typed_result_and_verified_nonce() {
     assert_eq!(fixture.store().scan("issues").unwrap().len(), 1);
 }
 
+// spec: EG-DURABLE-KERNEL-R058
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn cancelling_publication_waiter_does_not_cancel_owned_commit() {
     let fixture = Fixture::new();

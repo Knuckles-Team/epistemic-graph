@@ -61,6 +61,7 @@ mod tests {
     /// so the concatenated text would exceed a plausible token budget (a
     /// few thousand characters) long before 64 entries. Encoding still
     /// succeeds at the fixed width because it never serializes the text.
+    // spec: EG-DECISION-ENGINE-R083.1
     #[test]
     fn scores_an_option_whose_capability_text_would_exceed_a_token_budget() {
         let long_label =

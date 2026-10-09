@@ -570,6 +570,7 @@ async fn enter_signed_dispatch_commit_fault_child_if_requested() {
 /// windows. A fresh retry must recover the prepared parent, produce exactly one
 /// child effect, and then replay the same terminal receipt; reusing the original
 /// commit nonce must still be rejected by the kernel.
+// spec: EG-DURABLE-KERNEL-R065
 #[tokio::test]
 async fn signed_dispatch_commit_fault_windows_recover_parent_once() {
     enter_signed_dispatch_commit_fault_child_if_requested().await;

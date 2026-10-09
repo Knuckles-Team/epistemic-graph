@@ -99,6 +99,7 @@ mod tests {
         assert!(valid().validate().is_ok());
     }
 
+    // spec: EG-FINANCE-PRIMITIVES-R011.1
     #[test]
     fn an_empty_event_id_is_refused() {
         let mut envelope = valid();

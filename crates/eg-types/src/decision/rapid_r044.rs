@@ -71,6 +71,7 @@ mod tests {
         assert_eq!(refusal, A2ARoutingRefusal::EmptyGraphId);
     }
 
+    // spec: EG-DECISION-ENGINE-R044.1
     #[test]
     fn refuses_an_abstention_claiming_proof_grade_evidence() {
         let refusal =

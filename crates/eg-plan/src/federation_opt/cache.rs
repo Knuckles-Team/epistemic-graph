@@ -159,6 +159,7 @@ mod tests {
         )
     }
 
+    // spec: EG-FEDERATED-QUERY-R049
     #[test]
     fn hit_miss_watermark_expiry_and_owner_are_isolated() {
         let fresh = scope("owner-a", "lsn-1", now_ms().saturating_add(30_000));
