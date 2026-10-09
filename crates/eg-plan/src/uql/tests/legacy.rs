@@ -294,6 +294,7 @@ fn as_of_clause_parses_to_asof_op() {
 /// EG-FEDERATED-QUERY-R016): an ISO-8601 date or a Cypher-shaped temporal call is
 /// not an alternate `ts` production, so both are rejected as invalid syntax rather
 /// than silently parsed as a timestamp.
+// spec: EG-FEDERATED-QUERY-R016
 #[test]
 fn as_of_rejects_iso_date_and_cypher_shaped_text() {
     let iso_date = parse("MATCH (:Event) |> AS OF 2023-01-01T00:00:00Z").unwrap_err();

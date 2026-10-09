@@ -216,6 +216,7 @@ mod tests {
         assert_eq!(ranked.intersect_keep_order(&keep).ids(), vec!["b", "a"]);
     }
 
+    // spec: EG-FEDERATED-QUERY-R030
     #[test]
     fn series_row_ids_round_trip() {
         assert_eq!(series_row_id("cpu@host", 7), "cpu@host@7");
@@ -239,6 +240,7 @@ mod tests {
         assert_eq!(parse_series_event_row_id("node-1"), None);
     }
 
+    // spec: EG-FEDERATED-QUERY-R030
     #[test]
     fn value_channels_follow_kept_rows_only() {
         let values: ValueChannels = [("a", 1.5), ("b", 2.5), ("z", 9.0)]
