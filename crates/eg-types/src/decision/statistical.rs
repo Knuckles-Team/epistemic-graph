@@ -59,6 +59,12 @@ pub enum QuestionKind {
     RetrievalPlan,
     IngestionLane,
     EnrichmentSchedule,
+    /// A write-back proposal for a connector action, with supporting
+    /// evidence (EG-DECISION-ENGINE-R043): the proposal never authorizes the
+    /// write itself. Any exploration or statistical head behind it stays
+    /// outside the connector's own deterministic authorization step, which
+    /// alone approves the write.
+    ConnectorWriteBack,
 }
 
 /// What is at stake. Exploration is permitted only for
