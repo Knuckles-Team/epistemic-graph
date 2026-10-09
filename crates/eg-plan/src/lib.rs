@@ -154,6 +154,9 @@ pub mod federation_ssrf;
 /// (EG-DURABLE-KERNEL-R024.1).
 #[cfg(feature = "federation-sql")]
 pub mod federation_age;
+/// Explicitly bound, probed Trino client protocol source (EH-580).
+#[cfg(feature = "federation-sql")]
+pub mod federation_trino;
 /// The cross-modal cost-based optimizer (CONCEPT:EG-KG.query.xmodal-cost-optimizer) — Lane A's
 /// rule engine over the logical `Vec<Op>` that [`exec::plan_optimize`] calls to reorder
 /// operators across modalities into a cheaper-but-equivalent plan. Compiled under `query`;
