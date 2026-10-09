@@ -21,7 +21,8 @@ use eg_numeric::decision::candidate::CandidateView;
 use eg_types::agent_component::{AgentComponentEntry, AgentComponentSearchRequest};
 use eg_types::decision::statistical::declared::{check_declared, DeclaredOption};
 use eg_types::decision::statistical::log::RecordVisibility;
-use eg_types::decision::statistical::{CandidateSource, StatisticalErrorCode};
+use eg_types::decision::statistical::retrieval_plan::RetrievalPlanKind;
+use eg_types::decision::statistical::{CandidateSource, QuestionKind, StatisticalErrorCode};
 use eg_types::decision::{CandidateSourceRecord, LibraryCandidateScope, MAX_ASSEMBLY_CANDIDATES};
 
 use super::stat_classes::{current_rules, derive, DerivedClasses};
@@ -262,12 +263,39 @@ pub(super) fn graph_candidates(
 
 /// Declared candidates: the caller's own options, each fact a claim, visible
 /// to the declaring principal only. Validated before any feature reads them.
+///
+/// `kind` additionally gates a question-specific declared-option registry
+/// where one exists: a `QuestionKind::RetrievalPlan` candidate whose option
+/// id claims the reserved
+/// [`eg_types::decision::statistical::retrieval_plan::OPTION_ID_PREFIX`]
+/// namespace must name a registered
+/// [`eg_types::decision::statistical::retrieval_plan::RetrievalPlanKind`],
+/// refused here rather than discovered later as an opaque abstention
+/// (EG-DECISION-ENGINE-R029). An option id outside that namespace is an
+/// ordinary declared option, unaffected by this registry.
 pub(super) fn declared_candidates(
     options: &[DeclaredOption],
     principal: &str,
+    kind: QuestionKind,
 ) -> Result<ReadCandidates, String> {
     check_declared(options)
         .map_err(|detail| refusal(StatisticalErrorCode::ParameterInvalid, detail))?;
+    if kind == QuestionKind::RetrievalPlan {
+        for option in options {
+            if RetrievalPlanKind::claims_registry_namespace(&option.option_id)
+                && RetrievalPlanKind::from_option_id(&option.option_id).is_none()
+            {
+                return Err(refusal(
+                    StatisticalErrorCode::ParameterInvalid,
+                    format!(
+                        "UNSUPPORTED_RETRIEVAL_PLAN: '{}' is not in the retrieval plan \
+                         registry (leanrag, reciprocal-rank-fusion, direct-sparql)",
+                        option.option_id
+                    ),
+                ));
+            }
+        }
+    }
     let views = options
         .iter()
         .map(|option| {
@@ -306,16 +334,21 @@ pub(super) fn declared_candidates(
 
 /// Read the options `source` names. Graph candidates need the caller's
 /// filtered snapshot, which [`super::stat_decide`] takes under the state lock.
+/// `kind` is the question's kind, passed through to [`declared_candidates`]
+/// for its question-specific registry gate.
 pub(super) fn read_candidates(
     store: &AgentLibraryStore,
     tenant_id: &str,
     source: &CandidateSource,
     graph_view: Option<&eg_core::graph::GraphView>,
     principal: &str,
+    kind: QuestionKind,
 ) -> Result<ReadCandidates, String> {
     match source {
         CandidateSource::AgentLibrary { scope } => library_candidates(store, tenant_id, scope),
-        CandidateSource::Declared { options } => declared_candidates(options.as_slice(), principal),
+        CandidateSource::Declared { options } => {
+            declared_candidates(options.as_slice(), principal, kind)
+        }
         CandidateSource::Graph { graph, plan } => {
             let view = graph_view.ok_or_else(|| {
                 refusal(
