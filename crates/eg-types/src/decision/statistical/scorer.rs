@@ -53,6 +53,60 @@ fn within(name: &str, value: usize, maximum: usize) -> Result<(), String> {
     Err(format!("scorer {name} {value} is outside 1..={maximum}"))
 }
 
+/// EG-DECISION-ENGINE-R090.1: the declared resident budget a compiled scorer
+/// must stay inside -- "on the order of 700,000 parameters and a few
+/// megabytes", serving a decision in single-digit milliseconds on CPU, with
+/// no Python runtime, sidecar process, inter-process hop or GPU. Split out
+/// of R090 per the rapid-delivery contract's sizing rule (the full row also
+/// names the compiled benchmark harness, a second code root); this slice is
+/// the typed budget and its refusal test.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ResidentScorerBudget {
+    pub max_parameters: u32,
+    pub max_bytes: u32,
+    pub max_p99_micros: u32,
+}
+
+/// The hard ceiling no declared budget may exceed.
+pub const RESIDENT_SCORER_CEILING: ResidentScorerBudget = ResidentScorerBudget {
+    max_parameters: 700_000,
+    max_bytes: 8 * 1024 * 1024,
+    max_p99_micros: 10_000,
+};
+
+impl ResidentScorerBudget {
+    /// Refuses a declared budget that would exceed the resident ceiling.
+    pub fn declare(
+        max_parameters: u32,
+        max_bytes: u32,
+        max_p99_micros: u32,
+    ) -> Result<Self, String> {
+        let candidate = Self {
+            max_parameters,
+            max_bytes,
+            max_p99_micros,
+        };
+        if candidate.max_parameters > RESIDENT_SCORER_CEILING.max_parameters
+            || candidate.max_bytes > RESIDENT_SCORER_CEILING.max_bytes
+            || candidate.max_p99_micros > RESIDENT_SCORER_CEILING.max_p99_micros
+        {
+            return Err(format!(
+                "declared scorer budget {candidate:?} exceeds the resident ceiling {RESIDENT_SCORER_CEILING:?}"
+            ));
+        }
+        Ok(candidate)
+    }
+
+    /// The largest `OptionAttentionParams` shape this crate allows: every
+    /// dimension at its declared maximum. Proves the compiled scorer's own
+    /// worst case fits the ceiling.
+    pub fn largest_compiled_scorer_parameter_count() -> u32 {
+        let width = MAX_SCORER_WIDTH;
+        let features = MAX_SCORER_FEATURES;
+        (features * width + width + 3 * width * width + 2 * width) as u32
+    }
+}
+
 impl OptionAttentionParams {
     /// Every dimension agrees with `width` and the head's `features`.
     pub fn check(&self, features: usize) -> Result<(), String> {
@@ -82,5 +136,41 @@ impl OptionAttentionParams {
             )),
             None => Ok(()),
         }
+    }
+}
+
+#[cfg(test)]
+mod budget_tests {
+    use super::*;
+
+    #[test]
+    fn the_largest_compiled_scorer_fits_the_resident_ceiling() {
+        let params = ResidentScorerBudget::largest_compiled_scorer_parameter_count();
+        assert!(
+            params <= RESIDENT_SCORER_CEILING.max_parameters,
+            "worst-case compiled scorer has {params} parameters, over the {} ceiling",
+            RESIDENT_SCORER_CEILING.max_parameters
+        );
+    }
+
+    #[test]
+    fn a_budget_at_the_ceiling_is_declared() {
+        let budget = ResidentScorerBudget::declare(700_000, 8 * 1024 * 1024, 10_000)
+            .expect("the ceiling itself is a legal declaration");
+        assert_eq!(budget, RESIDENT_SCORER_CEILING);
+    }
+
+    #[test]
+    fn a_budget_over_the_parameter_ceiling_is_refused() {
+        let err = ResidentScorerBudget::declare(700_001, 1024, 1_000)
+            .expect_err("over the parameter ceiling");
+        assert!(err.contains("700001"));
+    }
+
+    #[test]
+    fn a_budget_over_the_latency_ceiling_is_refused() {
+        let err = ResidentScorerBudget::declare(1, 1024, 10_001)
+            .expect_err("over the single-digit-millisecond ceiling");
+        assert!(err.contains("10001"));
     }
 }
