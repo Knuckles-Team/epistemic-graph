@@ -16,6 +16,7 @@
     "EG-FINANCE-PRIMITIVES-R007",
     "EG-FINANCE-PRIMITIVES-R007.1",
     "EG-FINANCE-PRIMITIVES-R008",
+    "EG-FINANCE-PRIMITIVES-R008.1",
     "EG-FINANCE-PRIMITIVES-R009",
     "EG-FINANCE-PRIMITIVES-R009.1",
     "EG-FINANCE-PRIMITIVES-R010",
@@ -214,6 +215,12 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R008",
       "title": "Strategy backtests sealed through BacktestRun",
+      "delivery_state": "BUILDING",
+      "evidence": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R008.1",
+      "title": "Dollar-cost-averaging backtest seals through BacktestRun",
       "delivery_state": "BUILDING",
       "evidence": []
     },
