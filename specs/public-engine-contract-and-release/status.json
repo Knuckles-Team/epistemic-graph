@@ -129,7 +129,7 @@
     {
       "id": "EG-CONTRACT-R006",
       "title": "Deterministic, size-budgeted WASM codec artifact",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "implementation",
@@ -137,6 +137,13 @@
           "commit": "2b681e1a159c8bf15e383581ef1dd2871e049142",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/2b681e1a159c8bf15e383581ef1dd2871e049142",
           "description": "Part of the requirement is implemented on the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "2b681e1a159c8bf15e383581ef1dd2871e049142",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/2b681e1a159c8bf15e383581ef1dd2871e049142",
+          "description": "Implementation merged to the default branch; the commit names this requirement."
         }
       ],
       "remaining": "Main dropped the pinned-binaryen wasm-opt reduction in favor of a Rust-only build; committed module is 9,483,622 B (vs prior ~6.2MB optimized target) and no declared size-budget assertion exists anywhere in the script or its tests. Determinism (byte-identical client copies) is proven; size budget \u2026"
@@ -296,7 +303,7 @@
     {
       "id": "EG-CONTRACT-R019",
       "title": "Dispatch reachability gate follows the current FOREIGN paths",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "implementation",
@@ -304,6 +311,13 @@
           "commit": "a8cfd0978c58f883adbcd7bb5ecb31319e24d540",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/a8cfd0978c58f883adbcd7bb5ecb31319e24d540",
           "description": "Part of the requirement is implemented on the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "a8cfd0978c58f883adbcd7bb5ecb31319e24d540",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/a8cfd0978c58f883adbcd7bb5ecb31319e24d540",
+          "description": "Implementation merged to the default branch; the commit names this requirement."
         }
       ],
       "remaining": "The gate now reads exec.rs/federation_opt/mod.rs via compiler-declared tree() expansion (so it does follow exec/dispatch.rs and federation_opt/run.rs), and the gate passes on current main, but no dedicated mutation test proves a pass-through regression planted in either file still fails the gate."

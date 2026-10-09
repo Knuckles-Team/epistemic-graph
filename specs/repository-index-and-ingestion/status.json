@@ -22,7 +22,7 @@
     {
       "id": "EG-REPO-INGEST-R001",
       "title": "Reconcile mode re-admits stranded semantic intents",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "implementation",
@@ -30,14 +30,21 @@
           "commit": "ac563847728840503193b0d6b999e4012bf17c78",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/ac563847728840503193b0d6b999e4012bf17c78",
           "description": "Part of the requirement is implemented on the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "ac563847728840503193b0d6b999e4012bf17c78",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/ac563847728840503193b0d6b999e4012bf17c78",
+          "description": "Implementation merged to the default branch; the commit names this requirement."
         }
       ],
-      "remaining": "admit_sql_source_dirty_reconcile exists and is heavily tested for crash/reopen and tombstone-after-snapshot reconciliation, but no 'retire a topic' operation exists anywhere, and no test retires a topic with pending stranded intents and confirms reconcile-mode re-admission as the requirement …"
+      "remaining": "admit_sql_source_dirty_reconcile exists and is heavily tested for crash/reopen and tombstone-after-snapshot reconciliation, but no 'retire a topic' operation exists anywhere, and no test retires a topic with pending stranded intents and confirms reconcile-mode re-admission as the requirement \u2026"
     },
     {
       "id": "EG-REPO-INGEST-R002",
       "title": "SourceIngest is sole owner of migrated ingestion capabilities",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "implementation",
@@ -45,9 +52,16 @@
           "commit": "f17f47ab300f7f1ddd972d4e0214283a28547e36",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/f17f47ab300f7f1ddd972d4e0214283a28547e36",
           "description": "Part of the requirement is implemented on the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "f17f47ab300f7f1ddd972d4e0214283a28547e36",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/f17f47ab300f7f1ddd972d4e0214283a28547e36",
+          "description": "Implementation merged to the default branch; the commit names this requirement."
         }
       ],
-      "remaining": "SourceIngest exists on main as a real method wired through dispatch/access/mutation/audit, but none of the 14 named legacy capabilities (envelope_ingest, change_envelope, evidence_spine, semantic_event_model, object_centric_derivation, process_conformance, embedding_admission, gpu_slot_scheduler …"
+      "remaining": "SourceIngest exists on main as a real method wired through dispatch/access/mutation/audit, but none of the 14 named legacy capabilities (envelope_ingest, change_envelope, evidence_spine, semantic_event_model, object_centric_derivation, process_conformance, embedding_admission, gpu_slot_scheduler \u2026"
     },
     {
       "id": "EG-REPO-INGEST-R003",
@@ -86,7 +100,7 @@
     {
       "id": "EG-REPO-INGEST-R006",
       "title": "Native ingestion commits fast; heavy enrichment deferred",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "implementation",
@@ -94,9 +108,16 @@
           "commit": "6bb88b0a90ccaac33b7e92662b5b5350f29caf58",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/6bb88b0a90ccaac33b7e92662b5b5350f29caf58",
           "description": "Part of the requirement is implemented on the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "6bb88b0a90ccaac33b7e92662b5b5350f29caf58",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/6bb88b0a90ccaac33b7e92662b5b5350f29caf58",
+          "description": "Implementation merged to the default branch; the commit names this requirement."
         }
       ],
-      "remaining": "Native admission/budget/deferred-enrichment pipeline and a background drain worker exist on main, but no bounded on-demand enrichment path for a unit a query needs, and no end-to-end commit-latency benchmark against real public repositories was found; private tracking confirms served/enrichment and …"
+      "remaining": "Native admission/budget/deferred-enrichment pipeline and a background drain worker exist on main, but no bounded on-demand enrichment path for a unit a query needs, and no end-to-end commit-latency benchmark against real public repositories was found; private tracking confirms served/enrichment and \u2026"
     },
     {
       "id": "EG-REPO-INGEST-R007",

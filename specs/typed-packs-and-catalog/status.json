@@ -138,7 +138,7 @@
     {
       "id": "EG-TYPED-PACKS-R003",
       "title": "Import boundary enforces archive integrity, importer binding and G1-G21",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "implementation",
@@ -146,6 +146,13 @@
           "commit": "db863f1e2afd259a3a79f77621478450e306928a",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/db863f1e2afd259a3a79f77621478450e306928a",
           "description": "Part of the requirement is implemented on the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "db863f1e2afd259a3a79f77621478450e306928a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/db863f1e2afd259a3a79f77621478450e306928a",
+          "description": "Implementation merged to the default branch; the commit names this requirement."
         }
       ],
       "remaining": "Import boundary (archive integrity, importer binding, G1-G21) is implemented and exercised per-rule by the planted-defect suite, but no test asserting zero catalog mutation specifically on each refusal path was located; the planted test only checks result==rejected."
@@ -416,7 +423,7 @@
     {
       "id": "EG-TYPED-PACKS-R025",
       "title": "Archive section layout and offset correctness",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "implementation",
@@ -424,6 +431,13 @@
           "commit": "db863f1e2afd259a3a79f77621478450e306928a",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/db863f1e2afd259a3a79f77621478450e306928a",
           "description": "Part of the requirement is implemented on the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "db863f1e2afd259a3a79f77621478450e306928a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/db863f1e2afd259a3a79f77621478450e306928a",
+          "description": "Implementation merged to the default branch; the commit names this requirement."
         }
       ],
       "remaining": "Overlap, uncovered-byte gaps and checked-arithmetic offset overflow are planted and tested with MALFORMED_SECTIONS; no planted case exercises a compressed archive specifically -- PackArchiveRef/PackSection carry no compression flag, so uncompressed storage is a structural property of the format \u2026"
@@ -801,7 +815,7 @@
     {
       "id": "EG-TYPED-PACKS-R053",
       "title": "Visible-staleness snapshot for non-pack schema attach",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "implementation",
@@ -809,6 +823,13 @@
           "commit": "f17f47ab300f7f1ddd972d4e0214283a28547e36",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/f17f47ab300f7f1ddd972d4e0214283a28547e36",
           "description": "Part of the requirement is implemented on the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "f17f47ab300f7f1ddd972d4e0214283a28547e36",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/f17f47ab300f7f1ddd972d4e0214283a28547e36",
+          "description": "Implementation merged to the default branch; the commit names this requirement."
         }
       ],
       "remaining": "AttachPack resolves a static snapshot (record_id + attached_at_ms on SchemaSourceOriginView::Pack) with no auto-follow, giving readers the data to detect staleness; but no dedicated test asserting staleness is visibly reported was found."
@@ -954,7 +975,7 @@
     {
       "id": "EG-TYPED-PACKS-R065",
       "title": "EG does not recompute the SDK's contract-pin normalization",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "implementation",
@@ -962,6 +983,13 @@
           "commit": "db863f1e2afd259a3a79f77621478450e306928a",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/db863f1e2afd259a3a79f77621478450e306928a",
           "description": "Part of the requirement is implemented on the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "db863f1e2afd259a3a79f77621478450e306928a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/db863f1e2afd259a3a79f77621478450e306928a",
+          "description": "Implementation merged to the default branch; the commit names this requirement."
         }
       ],
       "remaining": "sdk_contract_pin is carried verbatim with no recompute/normalization call found anywhere in the codebase, but no dedicated test asserts this specific non-recomputation guarantee (e.g. a server-pin digest vector exercising it)."
@@ -1067,7 +1095,7 @@
     {
       "id": "EG-TYPED-PACKS-R073",
       "title": "Raise the core schema source bound to 64 and split world_model",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "implementation",
@@ -1075,6 +1103,13 @@
           "commit": "a4c80c2b6f905f3caecdf90c12ef0d076f7cf9af",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/a4c80c2b6f905f3caecdf90c12ef0d076f7cf9af",
           "description": "Part of the requirement is implemented on the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "a4c80c2b6f905f3caecdf90c12ef0d076f7cf9af",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/a4c80c2b6f905f3caecdf90c12ef0d076f7cf9af",
+          "description": "Implementation merged to the default branch; the commit names this requirement."
         }
       ],
       "remaining": "MAX_CORE_GRAPH_SCHEMA_SOURCES/MAX_CORE_SCHEMA_SOURCES are both 64 and life-v1.ttl/environment-v1.ttl/nutrition-v1.ttl exist as the split world_model modules, but no test exercising the raised 64-source bound itself was located."
@@ -1216,7 +1251,7 @@
     {
       "id": "EG-TYPED-PACKS-R083",
       "title": "Schema-drift SHACL rendering and contract store move into EG",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "implementation",
@@ -1224,6 +1259,13 @@
           "commit": "97e9074f04678d9546d7a88c7ceb81ed510503e7",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/97e9074f04678d9546d7a88c7ceb81ed510503e7",
           "description": "Part of the requirement is implemented on the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "97e9074f04678d9546d7a88c7ceb81ed510503e7",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/97e9074f04678d9546d7a88c7ceb81ed510503e7",
+          "description": "Implementation merged to the default branch; the commit names this requirement."
         }
       ],
       "remaining": "SHACL rendering for repair candidates moved to EG (graph_schema::repair::render_repair_shapes, ValidateRepair op), matching's rendering half. No contract_store or activation module, and no SDK connector-sync drain/apply integration of a drift gate (gate/shape/classify/report), was found in th"
