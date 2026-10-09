@@ -72,7 +72,8 @@
     "EG-DURABLE-KERNEL-R067",
     "EG-DURABLE-KERNEL-R068",
     "EG-DURABLE-KERNEL-R069",
-    "EG-DURABLE-KERNEL-R070"
+    "EG-DURABLE-KERNEL-R070",
+    "EG-DURABLE-KERNEL-R032.1"
   ],
   "delivery_state": "BUILDING",
   "acceptance_state": "NOT_AUDITED",
@@ -501,7 +502,13 @@
     {
       "id": "EG-DURABLE-KERNEL-R032",
       "title": "Native primary-key fast path bypasses the SQL planner",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R032.1",
+      "title": "PrimaryKeyOperation and FastPathDecision typed routing model with authorization/audit-checked invariant and refusal",
+      "delivery_state": "BUILT",
       "evidence": []
     },
     {
