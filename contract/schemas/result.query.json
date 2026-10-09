@@ -53013,17 +53013,6 @@
           "minimum": 0,
           "type": "integer"
         },
-        "insample": {
-          "description": "In-sample and out-of-sample performance, rows = CV splits, columns = variants.",
-          "items": {
-            "items": {
-              "format": "double",
-              "type": "number"
-            },
-            "type": "array"
-          },
-          "type": "array"
-        },
         "n_groups": {
           "format": "uint32",
           "minimum": 0,
@@ -53040,7 +53029,8 @@
           "minimum": 0,
           "type": "integer"
         },
-        "oos": {
+        "performance": {
+          "description": "Per-period performance, rows aligned with `BacktestRunDraft::returns`,\ncolumns = strategy variants. The engine derives both sides of every\npurged CPCV split from these same observations.",
           "items": {
             "items": {
               "format": "double",
@@ -53062,8 +53052,7 @@
         "purge_window",
         "embargo",
         "n_trials",
-        "insample",
-        "oos"
+        "performance"
       ],
       "type": "object"
     },

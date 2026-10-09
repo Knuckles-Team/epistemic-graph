@@ -22366,11 +22366,10 @@ class ValidationInputs(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     embargo: Annotated[int, Field(ge=0)]
-    insample: list[list[float]]
     n_groups: Annotated[int, Field(ge=0)]
     n_test_groups: Annotated[int, Field(ge=0)]
     n_trials: Annotated[int, Field(ge=0)]
-    oos: list[list[float]]
+    performance: list[list[float]]
     purge_window: Annotated[int, Field(ge=0)]
 
 
