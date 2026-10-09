@@ -16,6 +16,9 @@ pub mod agent_graph;
 pub mod agent_library;
 pub mod agent_ontology;
 pub mod agent_template;
+// EG-UNIFIED-DATA-PLANE-R014.1 — typed model distinguishing the MySQL and
+// MariaDB attached-source dialect entries. See module docs.
+pub mod attached_source_dialect;
 // RF-020 — typed Agent Library delegation admission/result currency.
 pub mod delegation;
 // CONCEPT:EG-KG.compute.native-asr-whisper-provider — the native-ASR agent-facing wire op
