@@ -290,6 +290,26 @@ fn as_of_clause_parses_to_asof_op() {
     );
 }
 
+/// `AS OF` takes only a Unix-second `ts` (CONCEPT:EG-KG.query.unix-second-as-of,
+/// EG-FEDERATED-QUERY-R016): an ISO-8601 date or a Cypher-shaped temporal call is
+/// not an alternate `ts` production, so both are rejected as invalid syntax rather
+/// than silently parsed as a timestamp.
+#[test]
+fn as_of_rejects_iso_date_and_cypher_shaped_text() {
+    let iso_date = parse("MATCH (:Event) |> AS OF 2023-01-01T00:00:00Z").unwrap_err();
+    assert_eq!(iso_date.code, UqlCode::UnexpectedToken);
+    assert!(iso_date.msg.contains("timestamp"), "got: {}", iso_date.msg);
+
+    let cypher_shaped =
+        parse("MATCH (:Event) |> AS OF datetime('2023-01-01T00:00:00Z')").unwrap_err();
+    assert_eq!(cypher_shaped.code, UqlCode::UnexpectedToken);
+    assert!(
+        cypher_shaped.msg.contains("timestamp"),
+        "got: {}",
+        cypher_shaped.msg
+    );
+}
+
 /// `WINDOW <dur>` parses to `Op::Window { secs }`; a bare number is seconds and a
 /// unit suffix scales it (`1h` == `3600`). No trailing aggregate ⇒ `Op::Window` (mean).
 #[test]
