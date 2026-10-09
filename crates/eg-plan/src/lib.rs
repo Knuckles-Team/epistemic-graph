@@ -150,6 +150,10 @@ pub mod federation_opt;
 /// The one outbound-destination gate for federation (HTTP URLs, SQL DSN hosts).
 #[cfg(feature = "federation")]
 pub mod federation_ssrf;
+/// Learned, provenanced join cardinality statistics for ordering joins across foreign
+/// sources (EG-FEDERATED-QUERY-R048.1 — typed-model slice of R048).
+#[cfg(feature = "federation")]
+pub mod federation_stats;
 /// The cross-modal cost-based optimizer (CONCEPT:EG-KG.query.xmodal-cost-optimizer) — Lane A's
 /// rule engine over the logical `Vec<Op>` that [`exec::plan_optimize`] calls to reorder
 /// operators across modalities into a cheaper-but-equivalent plan. Compiled under `query`;
