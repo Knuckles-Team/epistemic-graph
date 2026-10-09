@@ -1092,6 +1092,8 @@ mod nl_tests;
 
 mod pretool_risk_tests;
 
+mod connector_triage_tests;
+
 mod scorer_tests;
 // EH-528: replay evaluation (its validation kernels are finance's).
 #[cfg(feature = "finance")]

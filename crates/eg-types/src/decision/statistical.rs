@@ -68,6 +68,12 @@ pub enum QuestionKind {
     /// only ever inform a caller's own authorization step -- it carries no
     /// mechanism to itself gate or block the invocation.
     PreToolRisk,
+    /// Inbound connector-event classification, evaluate-only
+    /// (EG-DECISION-ENGINE-R041): `Decide` returns a proposal and its
+    /// evidence class and takes no action on the connector's behalf -- the
+    /// same evaluate-only guarantee this module's own doc states for every
+    /// kind, named here for the connector-triage use case specifically.
+    ConnectorEventTriage,
 }
 
 /// What is at stake. Exploration is permitted only for
