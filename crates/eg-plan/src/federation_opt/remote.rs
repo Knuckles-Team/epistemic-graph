@@ -41,6 +41,7 @@ pub(crate) trait RemoteFetch {
 pub(crate) struct Identity {
     pub(crate) label: String,
     pub(crate) fingerprint: Fingerprint,
+    pub(crate) cache_name: Option<String>,
 }
 
 impl Identity {
@@ -71,7 +72,11 @@ impl Identity {
             Some(name) => format!("{kind}:{name}#{}", short(&fingerprint)),
             None => format!("{kind}#{}", short(&fingerprint)),
         };
-        Self { label, fingerprint }
+        Self {
+            label,
+            fingerprint,
+            cache_name: name.map(str::to_owned),
+        }
     }
 }
 
