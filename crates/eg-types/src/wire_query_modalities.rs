@@ -417,6 +417,80 @@ pub enum ForeignSourceSpec {
     },
 }
 
+/// A WRITE-side mirror target (EG-DURABLE-KERNEL-R024's mirror-target half,
+/// distinct from the read-side [`ForeignSourceSpec`]). A mirror target
+/// receives committed rows fanned out from the local mutation outbox; the
+/// wire DTO names the target, the binding/registration lives with
+/// `eg-plan`'s mirror builder. This is the typed-model slice (`R024.2.1`):
+/// the `FanOut` spec and its validation. Driving real writes through a bound
+/// driver is a later child.
+#[cfg(feature = "federation")]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub enum MirrorTargetSpec {
+    /// Fans a mirrored row out to every named downstream target. `targets`
+    /// must be non-empty and carry no duplicate -- an empty or
+    /// self-duplicating fan-out is a configuration error, never a silent
+    /// drop of one destination.
+    FanOut {
+        /// Registry keys of the downstream mirror targets this one fans out
+        /// to. Resolved the same way `ForeignSourceSpec::Named` resolves a
+        /// foreign source: through the executor's registry, never by this
+        /// pure DTO.
+        targets: Vec<String>,
+    },
+}
+
+#[cfg(feature = "federation")]
+impl MirrorTargetSpec {
+    /// Reject a fan-out spec that cannot name a sensible destination set:
+    /// empty, or with a duplicate target name. Does not attempt to resolve
+    /// or reach any target -- that is the bound driver's job.
+    pub fn validate(&self) -> Result<(), MirrorTargetSpecError> {
+        match self {
+            Self::FanOut { targets } => {
+                if targets.is_empty() {
+                    return Err(MirrorTargetSpecError::EmptyFanOut);
+                }
+                let mut seen = std::collections::HashSet::with_capacity(targets.len());
+                for target in targets {
+                    if !seen.insert(target.as_str()) {
+                        return Err(MirrorTargetSpecError::DuplicateFanOutTarget(
+                            target.clone(),
+                        ));
+                    }
+                }
+                Ok(())
+            }
+        }
+    }
+}
+
+/// A `MirrorTargetSpec` failed validation before any target was reached.
+#[cfg(feature = "federation")]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum MirrorTargetSpecError {
+    EmptyFanOut,
+    DuplicateFanOutTarget(String),
+}
+
+#[cfg(feature = "federation")]
+impl std::fmt::Display for MirrorTargetSpecError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::EmptyFanOut => {
+                f.write_str("fan-out mirror target spec names no downstream target")
+            }
+            Self::DuplicateFanOutTarget(name) => {
+                write!(f, "fan-out mirror target spec names {name:?} more than once")
+            }
+        }
+    }
+}
+
+#[cfg(feature = "federation")]
+impl std::error::Error for MirrorTargetSpecError {}
+
 /// External Cypher dialect and transport are a single explicit choice.
 #[cfg(feature = "federation")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

@@ -85,7 +85,9 @@
     "EG-DURABLE-KERNEL-R069",
     "EG-DURABLE-KERNEL-R070",
     "EG-DURABLE-KERNEL-R038.1",
-    "EG-DURABLE-KERNEL-R038.2"
+    "EG-DURABLE-KERNEL-R038.2",
+    "EG-DURABLE-KERNEL-R024.2.1",
+    "EG-DURABLE-KERNEL-R024.2.2"
   ],
   "delivery_state": "BUILDING",
   "acceptance_state": "NOT_AUDITED",
@@ -429,8 +431,8 @@
     },
     {
       "id": "EG-DURABLE-KERNEL-R024.2",
-      "title": "Fan-out backend becomes a ForeignSourceSpec source",
-      "delivery_state": "SPECIFIED",
+      "title": "Fan-out backend becomes a MirrorTargetSpec federation mirror target",
+      "delivery_state": "BUILDING",
       "evidence": []
     },
     {
@@ -1096,6 +1098,18 @@
     {
       "id": "EG-DURABLE-KERNEL-R038.2",
       "title": "DurabilityClass write-path entry point: write_plan and refuse_if_durable_log_write",
+      "delivery_state": "BUILT",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R024.2.1",
+      "title": "MirrorTargetSpec::FanOut typed spec, validation, and registration refusal",
+      "delivery_state": "BUILT",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R024.2.2",
+      "title": "MirrorTargetRegistry registration and name-resolution entry point",
       "delivery_state": "BUILT",
       "evidence": []
     }
