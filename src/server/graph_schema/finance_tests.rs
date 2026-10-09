@@ -312,6 +312,8 @@ mod shapes {
             assert!(conforms(&data), "{class} should conform");
         }
         // Not in the new canonical list, and never named as a preserved alias.
-        assert!(!conforms("ex:btc a :FinancialInstrument ; :assetClass \"bond\" ."));
+        assert!(!conforms(
+            "ex:btc a :FinancialInstrument ; :assetClass \"bond\" ."
+        ));
     }
 }

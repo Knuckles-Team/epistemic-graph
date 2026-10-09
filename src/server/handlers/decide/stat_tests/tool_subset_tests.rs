@@ -75,11 +75,17 @@ async fn tool_subset_question_selects_the_minimal_covering_tools_within_budget()
 
     assert_eq!(record.question.kind, QuestionKind::ToolSubset);
     let StatisticalOutcome::Advisory { scores, calibrated } = &record.outcome else {
-        panic!("expected an Advisory outcome carrying the selected subset: {:?}", record.outcome)
+        panic!(
+            "expected an Advisory outcome carrying the selected subset: {:?}",
+            record.outcome
+        )
     };
     assert!(!calibrated, "a selection is not a calibrated probability");
     assert_eq!(
-        scores.iter().map(|s| s.option_id.as_str()).collect::<Vec<_>>(),
+        scores
+            .iter()
+            .map(|s| s.option_id.as_str())
+            .collect::<Vec<_>>(),
         vec!["broad-tool"],
         "the single cheap tool that covers every capability is the minimal subset"
     );

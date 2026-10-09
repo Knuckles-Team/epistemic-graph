@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import importlib
 import importlib.metadata
+import os
 from pathlib import Path
 
 import pytest
@@ -41,6 +42,11 @@ _BOUNDARY_MODULES = (
 
 
 def _installed_or_skip() -> None:
+    # Only the release workflow's installed-wheel step (which runs from a
+    # temporary directory against `.gates-wheel-venv`) sets this; an editable
+    # source install in the ordinary suite resolves into the tree by design.
+    if os.environ.get("EG_INSTALLED_WHEEL_GATE") != "1":
+        pytest.skip("set EG_INSTALLED_WHEEL_GATE=1 under the installed-wheel venv")
     try:
         importlib.metadata.distribution("epistemic-graph")
     except importlib.metadata.PackageNotFoundError:

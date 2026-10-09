@@ -70,10 +70,21 @@ pub struct LotLedger {
 /// `apply_activities` is a pure function with no observable partial state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LotError {
-    NonPositiveQuantity { sequence: u64 },
-    NonPositivePrice { sequence: u64 },
-    OutOfOrderSequence { sequence: u64, last_sequence: u64 },
-    Oversold { sequence: u64, requested_ticks: i64, available_ticks: i64 },
+    NonPositiveQuantity {
+        sequence: u64,
+    },
+    NonPositivePrice {
+        sequence: u64,
+    },
+    OutOfOrderSequence {
+        sequence: u64,
+        last_sequence: u64,
+    },
+    Oversold {
+        sequence: u64,
+        requested_ticks: i64,
+        available_ticks: i64,
+    },
 }
 
 impl fmt::Display for LotError {
@@ -122,10 +133,14 @@ pub fn apply_activities(
             }
         }
         if activity.price_ticks <= 0 {
-            return Err(LotError::NonPositivePrice { sequence: activity.sequence });
+            return Err(LotError::NonPositivePrice {
+                sequence: activity.sequence,
+            });
         }
         if activity.quantity_ticks == 0 {
-            return Err(LotError::NonPositiveQuantity { sequence: activity.sequence });
+            return Err(LotError::NonPositiveQuantity {
+                sequence: activity.sequence,
+            });
         }
         last_sequence = Some(activity.sequence);
 
@@ -244,12 +259,22 @@ mod tests {
     fn out_of_order_sequence_is_refused() {
         let activities = [act(2, 10, 100), act(1, 5, 100)];
         let error = apply_activities(&activities, LotMethod::Fifo).unwrap_err();
-        assert_eq!(error, LotError::OutOfOrderSequence { sequence: 1, last_sequence: 2 });
+        assert_eq!(
+            error,
+            LotError::OutOfOrderSequence {
+                sequence: 1,
+                last_sequence: 2
+            }
+        );
     }
 
     #[test]
     fn non_positive_price_and_quantity_are_refused() {
-        let zero_qty = [LotActivity { sequence: 1, quantity_ticks: 0, price_ticks: SCALE }];
+        let zero_qty = [LotActivity {
+            sequence: 1,
+            quantity_ticks: 0,
+            price_ticks: SCALE,
+        }];
         assert_eq!(
             apply_activities(&zero_qty, LotMethod::Fifo).unwrap_err(),
             LotError::NonPositiveQuantity { sequence: 1 }

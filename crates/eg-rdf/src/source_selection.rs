@@ -35,7 +35,10 @@ pub enum Premise {
     },
     /// An entailed-or-asserted `subClassOf` fact used to find a mapping that
     /// serves a superclass of the class actually being covered.
-    Subclass { sub_class: String, super_class: String },
+    Subclass {
+        sub_class: String,
+        super_class: String,
+    },
     /// The approved virtual mapping fact that serves `served_class` (which may be
     /// the queried class itself or a superclass reached via [`Premise::Subclass`]).
     Mapping {
@@ -71,7 +74,10 @@ pub enum CoverageResult {
     },
     /// `class` lies within the hop budget of a queried root but no approved
     /// virtual mapping serves it (directly or through an entailed superclass).
-    Uncovered { class: String, premises: Vec<Premise> },
+    Uncovered {
+        class: String,
+        premises: Vec<Premise>,
+    },
     /// `class` has no object-property path to any queried root within the hop
     /// budget — it is not merely unmapped, it was never reached.
     Disconnected { class: String },
@@ -106,19 +112,31 @@ impl CoverageFixture {
     }
 
     pub fn with_relation(mut self, from_class: &str, property: &str, to_class: &str) -> Self {
-        self.object_properties
-            .push((from_class.to_string(), property.to_string(), to_class.to_string()));
+        self.object_properties.push((
+            from_class.to_string(),
+            property.to_string(),
+            to_class.to_string(),
+        ));
         self
     }
 
     pub fn with_subclass(mut self, sub_class: &str, super_class: &str) -> Self {
-        self.subclass_of.push((sub_class.to_string(), super_class.to_string()));
+        self.subclass_of
+            .push((sub_class.to_string(), super_class.to_string()));
         self
     }
 
-    pub fn with_mapping(mut self, class: &str, mapping_name: &str, source: &str, generation: u64) -> Self {
-        self.mappings
-            .insert(class.to_string(), (mapping_name.to_string(), source.to_string(), generation));
+    pub fn with_mapping(
+        mut self,
+        class: &str,
+        mapping_name: &str,
+        source: &str,
+        generation: u64,
+    ) -> Self {
+        self.mappings.insert(
+            class.to_string(),
+            (mapping_name.to_string(), source.to_string(), generation),
+        );
         self
     }
 
@@ -151,7 +169,11 @@ impl CoverageFixture {
 /// subclass relations at each visited class, and returns one [`CoverageResult`] per
 /// class in the fixture's universe (every class mentioned by a relation, subclass
 /// fact, or mapping). Read-only: no execution plan is built or returned.
-pub fn select_sources(fixture: &CoverageFixture, roots: &[String], hop_budget: usize) -> Vec<CoverageResult> {
+pub fn select_sources(
+    fixture: &CoverageFixture,
+    roots: &[String],
+    hop_budget: usize,
+) -> Vec<CoverageResult> {
     // The queried universe: every class the fixture mentions anywhere.
     let mut universe: Vec<String> = Vec::new();
     for (a, _, b) in &fixture.object_properties {
@@ -284,7 +306,9 @@ mod tests {
         let invoice = results.iter().find(|r| r.class() == "Invoice").unwrap();
         match invoice {
             CoverageResult::Covered {
-                mapping_name, premises, ..
+                mapping_name,
+                premises,
+                ..
             } => {
                 assert_eq!(mapping_name, "source-a-invoices");
                 assert!(premises.contains(&Premise::SourceGeneration {
@@ -303,7 +327,9 @@ mod tests {
         let contractor = results.iter().find(|r| r.class() == "Contractor").unwrap();
         match contractor {
             CoverageResult::Covered {
-                mapping_name, premises, ..
+                mapping_name,
+                premises,
+                ..
             } => {
                 assert_eq!(mapping_name, "source-b-people");
                 assert!(premises.contains(&Premise::Subclass {

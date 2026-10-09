@@ -22,8 +22,8 @@ pub use bars::{
     BarRecord, BarStatus, EarlyClose, ExchangeCalendar, FinalityFilter, PricedBar, SeriesPoint,
     Timeframe, TradingCalendar, UtcOffsetSpan,
 };
-pub use corporate_action::{CorporateAction, CorporateActionKind, Session};
 pub use chart::{DecimateRequest, DecimatedChart};
+pub use corporate_action::{CorporateAction, CorporateActionKind, Session};
 pub use evidence::{
     BacktestRun, BacktestRunDraft, BacktestValidation, CostModel, DataRevisionRef, FillRule,
     FlipAbstainReason, FlipConfidence, FlipConfidenceRequest, FlipFeatures, FlipOutcomeSample,

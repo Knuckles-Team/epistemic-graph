@@ -75,7 +75,9 @@ impl AttachedCatalogGraph {
     /// a different discovery order hash identically.
     pub fn content_hash(&self) -> u64 {
         let mut tables: Vec<&CatalogTable> = self.tables.iter().collect();
-        tables.sort_by(|a, b| (a.schema.as_str(), a.name.as_str()).cmp(&(b.schema.as_str(), b.name.as_str())));
+        tables.sort_by(|a, b| {
+            (a.schema.as_str(), a.name.as_str()).cmp(&(b.schema.as_str(), b.name.as_str()))
+        });
 
         let mut hasher = DefaultHasher::new();
         self.version.hash(&mut hasher);
@@ -117,7 +119,11 @@ mod tests {
         let a = AttachedCatalogGraph {
             version: 1,
             tables: vec![
-                table("public", "users", vec![column("id", "int8"), column("email", "text")]),
+                table(
+                    "public",
+                    "users",
+                    vec![column("id", "int8"), column("email", "text")],
+                ),
                 table("public", "orders", vec![column("id", "int8")]),
             ],
         };
@@ -125,7 +131,11 @@ mod tests {
             version: 1,
             tables: vec![
                 table("public", "orders", vec![column("id", "int8")]),
-                table("public", "users", vec![column("email", "text"), column("id", "int8")]),
+                table(
+                    "public",
+                    "users",
+                    vec![column("email", "text"), column("id", "int8")],
+                ),
             ],
         };
         assert_eq!(a.content_hash(), b.content_hash());

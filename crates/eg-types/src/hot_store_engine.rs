@@ -139,7 +139,10 @@ mod tests {
     #[test]
     fn workloads_round_trip_through_their_wire_name() {
         for (workload, name) in [
-            (WorkloadProfile::RepresentativeApplication, "representative_application"),
+            (
+                WorkloadProfile::RepresentativeApplication,
+                "representative_application",
+            ),
             (WorkloadProfile::Finance, "finance"),
         ] {
             let wire = serde_json::to_string(&workload).unwrap();
@@ -152,13 +155,9 @@ mod tests {
     #[test]
     fn benchmark_result_refuses_non_positive_throughput() {
         for bad in [0.0, -1.0, f64::NAN, f64::INFINITY] {
-            let err = BenchmarkResult::new(
-                HotStoreEngine::Redb,
-                WorkloadProfile::Finance,
-                bad,
-                1.0,
-            )
-            .unwrap_err();
+            let err =
+                BenchmarkResult::new(HotStoreEngine::Redb, WorkloadProfile::Finance, bad, 1.0)
+                    .unwrap_err();
             assert_eq!(err.engine, HotStoreEngine::Redb);
         }
     }
@@ -166,9 +165,17 @@ mod tests {
     #[test]
     fn select_winner_picks_highest_throughput_for_the_workload() {
         let results = [
-            BenchmarkResult::new(HotStoreEngine::Redb, WorkloadProfile::Finance, 1000.0, 2.0).unwrap(),
-            BenchmarkResult::new(HotStoreEngine::Fjall, WorkloadProfile::Finance, 5000.0, 1.0).unwrap(),
-            BenchmarkResult::new(HotStoreEngine::RocksDb, WorkloadProfile::Finance, 3000.0, 1.5).unwrap(),
+            BenchmarkResult::new(HotStoreEngine::Redb, WorkloadProfile::Finance, 1000.0, 2.0)
+                .unwrap(),
+            BenchmarkResult::new(HotStoreEngine::Fjall, WorkloadProfile::Finance, 5000.0, 1.0)
+                .unwrap(),
+            BenchmarkResult::new(
+                HotStoreEngine::RocksDb,
+                WorkloadProfile::Finance,
+                3000.0,
+                1.5,
+            )
+            .unwrap(),
         ];
         assert_eq!(
             select_winner(WorkloadProfile::Finance, &results).unwrap(),

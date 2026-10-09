@@ -65,9 +65,13 @@ pub enum InvalidClusterGroup {
 impl std::fmt::Display for InvalidClusterGroup {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::WalLevelNotLogical => write!(f, "CloudNativePG group must declare wal_level=logical"),
+            Self::WalLevelNotLogical => {
+                write!(f, "CloudNativePG group must declare wal_level=logical")
+            }
             Self::WalLevelOnMariaDb => write!(f, "MariaDB group must not declare wal_level"),
-            Self::AliasedRole(app) => write!(f, "application {app:?} aliases two of its three roles"),
+            Self::AliasedRole(app) => {
+                write!(f, "application {app:?} aliases two of its three roles")
+            }
             Self::NoApplications => write!(f, "cluster group has no applications"),
         }
     }
@@ -140,14 +144,20 @@ mod tests {
     fn postgres_group_without_logical_wal_level_is_refused() {
         let mut group = pg_group();
         group.wal_level = Some("replica".to_string());
-        assert_eq!(group.validate(), Err(InvalidClusterGroup::WalLevelNotLogical));
+        assert_eq!(
+            group.validate(),
+            Err(InvalidClusterGroup::WalLevelNotLogical)
+        );
     }
 
     #[test]
     fn postgres_group_with_absent_wal_level_is_refused_not_defaulted() {
         let mut group = pg_group();
         group.wal_level = None;
-        assert_eq!(group.validate(), Err(InvalidClusterGroup::WalLevelNotLogical));
+        assert_eq!(
+            group.validate(),
+            Err(InvalidClusterGroup::WalLevelNotLogical)
+        );
     }
 
     #[test]
@@ -159,7 +169,10 @@ mod tests {
             wal_level: Some("logical".to_string()),
             applications: vec![roles("twenty")],
         };
-        assert_eq!(group.validate(), Err(InvalidClusterGroup::WalLevelOnMariaDb));
+        assert_eq!(
+            group.validate(),
+            Err(InvalidClusterGroup::WalLevelOnMariaDb)
+        );
     }
 
     #[test]

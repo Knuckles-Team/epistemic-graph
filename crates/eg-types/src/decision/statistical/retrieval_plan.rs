@@ -89,9 +89,7 @@ impl RetrievalPlanRequest {
     /// [`RetrievalPlanKind::ALL`].
     pub fn check(&self) -> Result<(), String> {
         if self.candidate_plans.is_empty() {
-            return Err(
-                "a retrieval-plan request names at least one candidate plan".to_string(),
-            );
+            return Err("a retrieval-plan request names at least one candidate plan".to_string());
         }
         for option_id in &self.candidate_plans {
             if RetrievalPlanKind::from_option_id(option_id).is_none() {
@@ -112,7 +110,10 @@ mod tests {
     #[test]
     fn every_plan_option_id_resolves_back_to_its_plan() {
         for plan in RetrievalPlanKind::ALL {
-            assert_eq!(RetrievalPlanKind::from_option_id(plan.option_id()), Some(plan));
+            assert_eq!(
+                RetrievalPlanKind::from_option_id(plan.option_id()),
+                Some(plan)
+            );
         }
     }
 

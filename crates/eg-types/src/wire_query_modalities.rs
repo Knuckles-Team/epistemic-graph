@@ -548,9 +548,7 @@ impl MirrorTargetSpec {
                 let mut seen = std::collections::HashSet::with_capacity(targets.len());
                 for target in targets {
                     if !seen.insert(target.as_str()) {
-                        return Err(MirrorTargetSpecError::DuplicateFanOutTarget(
-                            target.clone(),
-                        ));
+                        return Err(MirrorTargetSpecError::DuplicateFanOutTarget(target.clone()));
                     }
                 }
                 Ok(())
@@ -575,7 +573,10 @@ impl std::fmt::Display for MirrorTargetSpecError {
                 f.write_str("fan-out mirror target spec names no downstream target")
             }
             Self::DuplicateFanOutTarget(name) => {
-                write!(f, "fan-out mirror target spec names {name:?} more than once")
+                write!(
+                    f,
+                    "fan-out mirror target spec names {name:?} more than once"
+                )
             }
         }
     }

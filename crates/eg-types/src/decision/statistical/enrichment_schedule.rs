@@ -81,15 +81,13 @@ impl EnrichmentScheduleRequest {
     /// would let a candidate manufacture unbounded net value.
     pub fn check(&self) -> Result<(), String> {
         if self.candidates.is_empty() {
-            return Err(
-                "an enrichment schedule request names at least one candidate".to_string(),
-            );
+            return Err("an enrichment schedule request names at least one candidate".to_string());
         }
         let mut seen = std::collections::BTreeSet::new();
         for candidate in &self.candidates {
             if candidate.work_id.is_empty() || !seen.insert(candidate.work_id.as_str()) {
                 return Err(
-                    "enrichment candidate work ids must be non-empty and unique".to_string(),
+                    "enrichment candidate work ids must be non-empty and unique".to_string()
                 );
             }
             if candidate.cost_q32 < 0 {

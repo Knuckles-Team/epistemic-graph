@@ -77,7 +77,10 @@ mod tests {
             max_rows: 0,
             max_bytes: 1_048_576,
         };
-        assert_eq!(budget.validate().unwrap_err(), InvalidSamplingBudget::ZeroRows);
+        assert_eq!(
+            budget.validate().unwrap_err(),
+            InvalidSamplingBudget::ZeroRows
+        );
     }
 
     #[test]
@@ -86,7 +89,10 @@ mod tests {
             max_rows: 1_000,
             max_bytes: 0,
         };
-        assert_eq!(budget.validate().unwrap_err(), InvalidSamplingBudget::ZeroBytes);
+        assert_eq!(
+            budget.validate().unwrap_err(),
+            InvalidSamplingBudget::ZeroBytes
+        );
     }
 
     #[test]

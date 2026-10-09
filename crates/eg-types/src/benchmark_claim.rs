@@ -76,7 +76,10 @@ impl fmt::Display for RefusedBenchmarkClaim {
             Self::MissingMeasuredResult => "no recorded measured result",
             Self::DidNotPass => "measured result did not pass the comparison",
         };
-        write!(f, "benchmark report refused as a superiority claim: {reason}")
+        write!(
+            f,
+            "benchmark report refused as a superiority claim: {reason}"
+        )
     }
 }
 

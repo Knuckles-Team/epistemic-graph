@@ -16,7 +16,13 @@ const VG_SHAPES: &str = "core:virtual-graph-shapes@1";
 /// `key_field` and `pair_field` are the values a planted defect replaces with an
 /// undiscovered name; `kind` and `endpoint` let a planted defect name an unknown
 /// source kind or add a credential to the endpoint reference.
-fn fixture(kind: &str, endpoint_extra: &str, entity: &str, key_field: &str, pair_field: &str) -> String {
+fn fixture(
+    kind: &str,
+    endpoint_extra: &str,
+    entity: &str,
+    key_field: &str,
+    pair_field: &str,
+) -> String {
     format!(
         "@prefix vg: <http://knuckles.team/kg/virtual-graph#> .\n\
          <urn:conn> a vg:SourceConnection ; vg:sourceKind \"{kind}\" ; vg:endpointRef <urn:ep> .\n\
@@ -54,7 +60,10 @@ fn the_virtual_graph_vocabulary_and_shapes_are_core_sources() {
         .ontology_ttl
         .as_deref()
         .is_some_and(|d| d.contains("vg:VirtualMapping")));
-    let shapes = sources.core.get(VG_SHAPES).expect("the virtual-graph shapes");
+    let shapes = sources
+        .core
+        .get(VG_SHAPES)
+        .expect("the virtual-graph shapes");
     assert!(shapes
         .shapes_ttl
         .as_deref()

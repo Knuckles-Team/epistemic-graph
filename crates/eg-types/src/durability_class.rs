@@ -64,10 +64,7 @@ impl DurabilityClass {
     /// bound. `Ephemeral`/`Sync` accept only an exact-zero measurement --
     /// a nonzero loss window attributed to them is a measurement defect,
     /// never a silent widening of their guarantee.
-    pub fn validate_measured_loss_window(
-        self,
-        measured_ms: u64,
-    ) -> Result<(), LossWindowExceeded> {
+    pub fn validate_measured_loss_window(self, measured_ms: u64) -> Result<(), LossWindowExceeded> {
         let bound = self.declared_loss_window_ms().unwrap_or(0);
         if measured_ms > bound {
             return Err(LossWindowExceeded {
@@ -221,7 +218,9 @@ mod tests {
         DurabilityClass::Async
             .validate_measured_loss_window(ASYNC_MAX_LOSS_WINDOW_MS)
             .unwrap();
-        DurabilityClass::Async.validate_measured_loss_window(0).unwrap();
+        DurabilityClass::Async
+            .validate_measured_loss_window(0)
+            .unwrap();
     }
 
     #[test]
@@ -238,11 +237,15 @@ mod tests {
         assert!(DurabilityClass::Ephemeral
             .validate_measured_loss_window(1)
             .is_err());
-        assert!(DurabilityClass::Sync.validate_measured_loss_window(1).is_err());
+        assert!(DurabilityClass::Sync
+            .validate_measured_loss_window(1)
+            .is_err());
         DurabilityClass::Ephemeral
             .validate_measured_loss_window(0)
             .unwrap();
-        DurabilityClass::Sync.validate_measured_loss_window(0).unwrap();
+        DurabilityClass::Sync
+            .validate_measured_loss_window(0)
+            .unwrap();
     }
 
     #[test]
@@ -277,6 +280,8 @@ mod tests {
     #[test]
     fn sync_and_async_write_paths_allow_a_durable_log_append() {
         DurabilityClass::Sync.refuse_if_durable_log_write().unwrap();
-        DurabilityClass::Async.refuse_if_durable_log_write().unwrap();
+        DurabilityClass::Async
+            .refuse_if_durable_log_write()
+            .unwrap();
     }
 }

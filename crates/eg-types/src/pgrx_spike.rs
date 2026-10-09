@@ -77,8 +77,7 @@ impl PgrxSpikeDecision {
     /// recorded. Refuses a decision scoped narrower than R025 defines rather
     /// than approving it on partial evidence.
     pub fn validate(&self) -> Result<PgrxSpikeOutcome, InvalidPgrxDecision> {
-        let covered: BTreeSet<PgrxSpikeArea> =
-            self.evidence.iter().map(|item| item.area).collect();
+        let covered: BTreeSet<PgrxSpikeArea> = self.evidence.iter().map(|item| item.area).collect();
         let missing: Vec<PgrxSpikeArea> = PgrxSpikeArea::ALL
             .into_iter()
             .filter(|area| !covered.contains(area))

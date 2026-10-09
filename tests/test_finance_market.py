@@ -192,8 +192,12 @@ def _draft() -> dict[str, Any]:
             "purge_window": 2,
             "embargo": 1,
             "n_trials": 5,
-            "insample": [[0.4, 0.1, 0.3], [0.2, 0.5, 0.1], [0.3, 0.2, 0.6]],
-            "oos": [[0.1, 0.3, 0.2], [0.4, 0.1, 0.2], [0.2, 0.4, 0.1]],
+            # Per-period performance aligned with `returns`, one column per
+            # strategy variant; the engine derives every CPCV split from it.
+            "performance": [
+                [((i * 7 + v * 3) % 13 - 6) / 100 for v in range(3)]
+                for i in range(len(returns))
+            ],
         },
         "supersedes": None,
     }

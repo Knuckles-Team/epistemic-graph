@@ -73,10 +73,7 @@ impl VocabularyModule {
             "<http://knuckles.team/kg/{}> a owl:Ontology ;\n",
             self.module_id
         ));
-        out.push_str(&format!(
-            "    rdfs:label \"{}\" ;\n",
-            self.ontology_label
-        ));
+        out.push_str(&format!("    rdfs:label \"{}\" ;\n", self.ontology_label));
         out.push_str(&format!(
             "    rdfs:comment \"{}\" .\n",
             self.ontology_comment

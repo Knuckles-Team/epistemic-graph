@@ -246,10 +246,16 @@ impl<'a> CalendarSession<'a> {
         if ts >= regular.start && ts < regular.end {
             return Session::Regular;
         }
-        if self.pre_market(day).is_some_and(|b| ts >= b.start && ts < b.end) {
+        if self
+            .pre_market(day)
+            .is_some_and(|b| ts >= b.start && ts < b.end)
+        {
             return Session::Pre;
         }
-        if self.post_market(day).is_some_and(|b| ts >= b.start && ts < b.end) {
+        if self
+            .post_market(day)
+            .is_some_and(|b| ts >= b.start && ts < b.end)
+        {
             return Session::Post;
         }
         Session::Closed
@@ -476,10 +482,7 @@ mod tests {
     fn exchange_sessions_classify_pre_regular_post_closed_and_early_close() {
         let cal = nyse();
         // EDT regular session (13:30-20:00 UTC that day).
-        assert_eq!(
-            session_at(&cal, at(2026, 10, 30, 15, 0)),
-            Session::Regular
-        );
+        assert_eq!(session_at(&cal, at(2026, 10, 30, 15, 0)), Session::Regular);
         // EST pre-market: 06:00 local (04:00-09:30 local pre-market span).
         assert_eq!(session_at(&cal, at(2026, 11, 2, 11, 0)), Session::Pre);
         // EST before the pre-market span opens.
@@ -491,10 +494,7 @@ mod tests {
         // Weekend: closed.
         assert_eq!(session_at(&cal, at(2026, 11, 28, 15, 0)), Session::Closed);
         // Early-close day: still regular just before the 13:00-local early close.
-        assert_eq!(
-            session_at(&cal, at(2026, 11, 27, 17, 45)),
-            Session::Regular
-        );
+        assert_eq!(session_at(&cal, at(2026, 11, 27, 17, 45)), Session::Regular);
         // Early-close day: post-market right after the early close.
         assert_eq!(session_at(&cal, at(2026, 11, 27, 19, 0)), Session::Post);
     }

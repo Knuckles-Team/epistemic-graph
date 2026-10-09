@@ -38,7 +38,11 @@ pub struct DisallowedTransition {
 
 impl std::fmt::Display for DisallowedTransition {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "cannot advance admission from {:?} to {:?}", self.from, self.to)
+        write!(
+            f,
+            "cannot advance admission from {:?} to {:?}",
+            self.from, self.to
+        )
     }
 }
 

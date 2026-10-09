@@ -50,7 +50,10 @@ async fn a_write_back_proposal_has_no_external_effect_until_separately_authorize
         .unwrap();
     let record = &batch.records.as_slice()[0];
     assert_eq!(record.question.kind, QuestionKind::ConnectorWriteBack);
-    assert!(matches!(record.outcome, StatisticalOutcome::Abstained { .. }));
+    assert!(matches!(
+        record.outcome,
+        StatisticalOutcome::Abstained { .. }
+    ));
 
     // Under an exploring policy the ladder DOES name a chosen option -- but
     // `Explored` carries only an option id and its propensity, never a

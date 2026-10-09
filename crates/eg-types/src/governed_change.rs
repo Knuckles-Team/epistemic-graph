@@ -141,9 +141,7 @@ impl GovernedChange {
     pub fn status_at(&self, now_ms: u64) -> GovernedStatus {
         let expired = match self.status {
             GovernedStatus::Proposed => now_ms >= self.proposal_expires_at_ms,
-            GovernedStatus::Approved => self
-                .approved_until_ms
-                .is_some_and(|until| now_ms >= until),
+            GovernedStatus::Approved => self.approved_until_ms.is_some_and(|until| now_ms >= until),
             GovernedStatus::Consumed | GovernedStatus::Revoked | GovernedStatus::Expired => false,
         };
         if expired {
@@ -406,8 +404,14 @@ impl GovernedLedger {
             approved_until_ms: None,
             ended_at_ms: None,
         };
-        self.changes.insert(change.change_id.clone(), change.clone());
-        self.record(&actor.agent_id, IdentityEvent::ChangeProposed, &change.change_id, now_ms);
+        self.changes
+            .insert(change.change_id.clone(), change.clone());
+        self.record(
+            &actor.agent_id,
+            IdentityEvent::ChangeProposed,
+            &change.change_id,
+            now_ms,
+        );
         Ok(change)
     }
 
@@ -445,7 +449,12 @@ impl GovernedLedger {
         change.approver = Some(actor.agent_id.clone());
         change.approved_until_ms = Some(now_ms.saturating_add(change.window_ms));
         let approved = change.clone();
-        self.record(&actor.agent_id, IdentityEvent::ChangeApproved, &approved.change_id, now_ms);
+        self.record(
+            &actor.agent_id,
+            IdentityEvent::ChangeApproved,
+            &approved.change_id,
+            now_ms,
+        );
         Ok(approved)
     }
 
@@ -456,7 +465,10 @@ impl GovernedLedger {
         change_id: &str,
         now_ms: u64,
     ) -> Result<GovernedChange, GovernedRefusal> {
-        let change = self.changes.get(change_id).ok_or(GovernedRefusal::NotFound)?;
+        let change = self
+            .changes
+            .get(change_id)
+            .ok_or(GovernedRefusal::NotFound)?;
         let (_, approve) = kind_scopes(&change.kind).ok_or(GovernedRefusal::UnknownKind)?;
         let party = actor.shares_party(&change.proposer_parties);
         if !party && !actor.scopes.contains(approve) {
@@ -476,7 +488,12 @@ impl GovernedLedger {
         change.status = GovernedStatus::Revoked;
         change.ended_at_ms = Some(now_ms);
         let revoked = change.clone();
-        self.record(&actor.agent_id, IdentityEvent::ChangeRevoked, change_id, now_ms);
+        self.record(
+            &actor.agent_id,
+            IdentityEvent::ChangeRevoked,
+            change_id,
+            now_ms,
+        );
         Ok(revoked)
     }
 
@@ -508,7 +525,12 @@ impl GovernedLedger {
         change.status = GovernedStatus::Consumed;
         change.ended_at_ms = Some(now_ms);
         let consumed = change.clone();
-        self.record(consumer, IdentityEvent::ChangeConsumed, &consumption.change_id, now_ms);
+        self.record(
+            consumer,
+            IdentityEvent::ChangeConsumed,
+            &consumption.change_id,
+            now_ms,
+        );
         Ok(consumed)
     }
 }

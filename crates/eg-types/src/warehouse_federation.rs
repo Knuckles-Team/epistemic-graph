@@ -119,11 +119,7 @@ mod tests {
     fn complete_snowflake_config_validates() {
         let cfg = config(
             WarehouseSourceKind::Snowflake,
-            &[
-                ("account", "acme"),
-                ("database", "db"),
-                ("warehouse", "wh"),
-            ],
+            &[("account", "acme"), ("database", "db"), ("warehouse", "wh")],
         );
         assert_eq!(cfg.validate(), Ok(WarehouseSourceKind::Snowflake));
     }

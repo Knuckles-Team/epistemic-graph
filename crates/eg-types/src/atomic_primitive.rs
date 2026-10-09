@@ -127,7 +127,10 @@ mod tests {
         ] {
             let wire = serde_json::to_string(&kind).unwrap();
             assert_eq!(wire, format!("\"{name}\""));
-            assert_eq!(serde_json::from_str::<DataStructureKind>(&wire).unwrap(), kind);
+            assert_eq!(
+                serde_json::from_str::<DataStructureKind>(&wire).unwrap(),
+                kind
+            );
         }
         for (kind, name) in [
             (AtomicPrimitiveKind::IncrbyWithExpiry, "incrby_with_expiry"),
@@ -144,7 +147,10 @@ mod tests {
                 kind
             );
         }
-        for (ns, name) in [(Namespace::Ephemeral, "ephemeral"), (Namespace::Async, "async")] {
+        for (ns, name) in [
+            (Namespace::Ephemeral, "ephemeral"),
+            (Namespace::Async, "async"),
+        ] {
             let wire = serde_json::to_string(&ns).unwrap();
             assert_eq!(wire, format!("\"{name}\""));
             assert_eq!(serde_json::from_str::<Namespace>(&wire).unwrap(), ns);

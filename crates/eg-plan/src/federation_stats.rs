@@ -185,9 +185,14 @@ mod tests {
         let provenance = StatisticsProvenance::PostgresTableStats {
             table: "orders".to_string(),
         };
-        let stat =
-            JoinCardinalityStatistic::try_new("pg_orders", 1_000_000, 500, Some(provenance.clone()), 3)
-                .expect("a fully-provenanced statistic must be accepted");
+        let stat = JoinCardinalityStatistic::try_new(
+            "pg_orders",
+            1_000_000,
+            500,
+            Some(provenance.clone()),
+            3,
+        )
+        .expect("a fully-provenanced statistic must be accepted");
 
         assert_eq!(stat.source_name(), "pg_orders");
         assert_eq!(stat.estimated_cardinality(), 1_000_000);

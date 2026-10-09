@@ -84,9 +84,8 @@ fn every_head_kind_produces_only_numeric_output_never_free_text() {
         // past this proof silently -- the strongest guarantee short of
         // forbidding the variant outright.
         match kind {
-            HeadKind::WeightedFeatures
-            | HeadKind::ListwiseLogistic
-            | HeadKind::OptionAttention => {}
+            HeadKind::WeightedFeatures | HeadKind::ListwiseLogistic | HeadKind::OptionAttention => {
+            }
         }
         let reading = read_head(&head_of_kind(kind), &matrix()).expect("reads");
         let HeadReading::InDistribution(evaluated) = reading else {

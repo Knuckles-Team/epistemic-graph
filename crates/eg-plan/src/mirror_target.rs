@@ -69,7 +69,11 @@ impl MirrorTargetRegistry {
 
     /// Register a spec under `name`. Refuses an invalid spec (for example an
     /// empty `FanOut`) at registration time, before any send is attempted.
-    pub fn register(&mut self, name: impl Into<String>, spec: MirrorTargetSpec) -> Result<(), String> {
+    pub fn register(
+        &mut self,
+        name: impl Into<String>,
+        spec: MirrorTargetSpec,
+    ) -> Result<(), String> {
         spec.validate().map_err(|error| error.to_string())?;
         self.specs.insert(name.into(), spec);
         Ok(())
@@ -170,7 +174,10 @@ mod tests {
         // closed-failure path `target_for` proves directly, now reached
         // through the registry's name-resolution entry point.
         let error = registry.send_to("lake-mirror", b"row").unwrap_err();
-        assert!(error.contains("verified registration and bound driver"), "{error}");
+        assert!(
+            error.contains("verified registration and bound driver"),
+            "{error}"
+        );
     }
 
     #[test]

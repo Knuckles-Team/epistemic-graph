@@ -14,7 +14,9 @@ use std::collections::BTreeSet;
 
 /// The four domains this requirement names. Closed: a fifth domain is a new
 /// variant and a new child requirement, not a free-form string.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum DomainPackKind {
     Hr,
@@ -142,7 +144,10 @@ mod tests {
             enumerations: vec![DomainEnumeration {
                 local_name: "EEOJobCategory".to_string(),
                 label: "EEO-1 job category".to_string(),
-                members: vec!["OfficialsAndManagers".to_string(), "Professionals".to_string()],
+                members: vec![
+                    "OfficialsAndManagers".to_string(),
+                    "Professionals".to_string(),
+                ],
             }],
             properties: vec![DomainProperty {
                 local_name: "accommodationStatus".to_string(),

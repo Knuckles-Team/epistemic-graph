@@ -127,13 +127,24 @@ mod tests {
 
     #[test]
     fn the_fixture_entry_converts_to_candidate_facts_with_its_declared_cost_intact() {
-        let entry =
-            tool_entry_with_cost_latency("fixture-tool", &["eg:capability/retrieval"], "USD", 1_200, 450);
+        let entry = tool_entry_with_cost_latency(
+            "fixture-tool",
+            &["eg:capability/retrieval"],
+            "USD",
+            1_200,
+            450,
+        );
         let facts = CandidateFacts::from_entry(&entry).expect("fixture entry is well-formed");
         assert_eq!(facts.component_id, "fixture-tool");
-        assert_eq!(facts.classification.as_slice(), ["eg:capability/retrieval".to_string()]);
-        let crate::agent_component::AgentComponentFacts::Tool { cost, latency_declared, .. } =
-            &facts.facts
+        assert_eq!(
+            facts.classification.as_slice(),
+            ["eg:capability/retrieval".to_string()]
+        );
+        let crate::agent_component::AgentComponentFacts::Tool {
+            cost,
+            latency_declared,
+            ..
+        } = &facts.facts
         else {
             panic!("fixture facts must be Tool");
         };

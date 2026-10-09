@@ -151,7 +151,10 @@ fn every_standard_shape_has_a_conforming_template() {
         &[("Parent", "supervisor"), ("Peer", "worker")],
         MAX_ROUNDS,
     );
-    assert!(conforms(&supervisor_workers), "SupervisorWorkers must conform");
+    assert!(
+        conforms(&supervisor_workers),
+        "SupervisorWorkers must conform"
+    );
 
     let critique_loop = peer_projection("CritiqueLoop", 1, true, "swarm:VerifierPassStop");
     assert!(conforms(&critique_loop), "CritiqueLoop must conform");

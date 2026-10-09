@@ -89,8 +89,14 @@ mod tests {
 
     #[test]
     fn declaring_all_valid_names_succeeds() {
-        let caps =
-            DialectPushdownCapabilities::declare(&["projection", "filter", "limit", "join", "aggregate"]).unwrap();
+        let caps = DialectPushdownCapabilities::declare(&[
+            "projection",
+            "filter",
+            "limit",
+            "join",
+            "aggregate",
+        ])
+        .unwrap();
         assert_eq!(caps.supported.len(), 5);
     }
 

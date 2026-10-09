@@ -94,7 +94,10 @@ mod tests {
     fn a_request_with_unique_non_empty_ids_is_accepted() {
         let request = ExecutionRoutingRequest {
             category: ExecutionRoutingCategory::HarnessMode,
-            candidate_option_ids: vec!["harness:autonomous".to_string(), "harness:guided".to_string()],
+            candidate_option_ids: vec![
+                "harness:autonomous".to_string(),
+                "harness:guided".to_string(),
+            ],
         };
         assert!(request.check().is_ok());
     }

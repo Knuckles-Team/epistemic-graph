@@ -113,7 +113,9 @@ impl<P: Clone> PlanCache<P> {
         let candidate = self
             .entries
             .get(&statement_digest)
-            .map(|(cached_schema_version, _)| PlanCacheKey::new(statement_digest, *cached_schema_version));
+            .map(|(cached_schema_version, _)| {
+                PlanCacheKey::new(statement_digest, *cached_schema_version)
+            });
         let decision = lookup(&requested, candidate.as_ref());
         if let PlanCacheLookup::Hit = decision {
             let (_, plan) = self

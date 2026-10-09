@@ -267,14 +267,21 @@ mod tests {
     /// the aggregate, and a pool below `min_support` is omitted entirely.
     #[test]
     fn only_independent_outcomes_join_and_a_pool_below_min_support_is_omitted() {
-        let self_reported = evaluation("agent-a", EvidenceClass::Observation, "agent-a", Some(true));
-        let independent_success = evaluation("judge-1", EvidenceClass::Observation, "agent-a", Some(true));
+        let self_reported =
+            evaluation("agent-a", EvidenceClass::Observation, "agent-a", Some(true));
+        let independent_success =
+            evaluation("judge-1", EvidenceClass::Observation, "agent-a", Some(true));
         let opt_a_evals = [self_reported, independent_success];
         let opt_a = record("opt-a", &opt_a_evals);
 
         let opt_b_evals = [
             evaluation("judge-1", EvidenceClass::Observation, "agent-b", Some(true)),
-            evaluation("judge-2", EvidenceClass::Observation, "agent-b", Some(false)),
+            evaluation(
+                "judge-2",
+                EvidenceClass::Observation,
+                "agent-b",
+                Some(false),
+            ),
         ];
         let opt_b = record("opt-b", &opt_b_evals);
 

@@ -45,7 +45,11 @@ pub struct UnsupportedSurfaces(pub Vec<PgOperationalSurface>);
 
 impl fmt::Display for UnsupportedSurfaces {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "unsupported PostgreSQL operational surfaces: {:?}", self.0)
+        write!(
+            f,
+            "unsupported PostgreSQL operational surfaces: {:?}",
+            self.0
+        )
     }
 }
 
@@ -107,7 +111,10 @@ mod tests {
             (PgOperationalSurface::PgStatViews, "pg_stat_views"),
             (PgOperationalSurface::PgLocks, "pg_locks"),
             (PgOperationalSurface::Explain, "explain"),
-            (PgOperationalSurface::QueryCancellation, "query_cancellation"),
+            (
+                PgOperationalSurface::QueryCancellation,
+                "query_cancellation",
+            ),
             (
                 PgOperationalSurface::PoolerTransactionMode,
                 "pooler_transaction_mode",

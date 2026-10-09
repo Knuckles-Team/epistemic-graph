@@ -189,7 +189,9 @@ pub fn plan_only(
     schema_hint: &str,
     budget: NlQueryBudget,
 ) -> Result<NlQueryResult, NlQueryError> {
-    let uql = planner.plan(nl, schema_hint).map_err(NlQueryError::Planner)?;
+    let uql = planner
+        .plan(nl, schema_hint)
+        .map_err(NlQueryError::Planner)?;
     enforce_budget(&uql, budget)?;
     crate::uql::parse(&uql).map_err(|e| NlQueryError::ParseFailed {
         message: e.render(&uql),
@@ -209,7 +211,9 @@ pub fn plan_and_execute_typed(
     budget: NlQueryBudget,
     ctx: &PlanCtx,
 ) -> Result<NlQueryResult, NlQueryError> {
-    let uql = planner.plan(nl, schema_hint).map_err(NlQueryError::Planner)?;
+    let uql = planner
+        .plan(nl, schema_hint)
+        .map_err(NlQueryError::Planner)?;
     enforce_budget(&uql, budget)?;
     let plan = crate::uql::parse(&uql).map_err(|e| NlQueryError::ParseFailed {
         message: e.render(&uql),
@@ -617,8 +621,13 @@ mod tests {
         let planner = MockPlanner {
             canned: "MATCH (:Doc) WHERE year > 2024 |> LIMIT 5".into(),
         };
-        let result = plan_only(&planner, "recent docs", "labels: Doc", NlQueryBudget::default())
-            .expect("valid candidate must be accepted");
+        let result = plan_only(
+            &planner,
+            "recent docs",
+            "labels: Doc",
+            NlQueryBudget::default(),
+        )
+        .expect("valid candidate must be accepted");
         assert_eq!(result.uql, "MATCH (:Doc) WHERE year > 2024 |> LIMIT 5");
         assert!(result.is_plan_only());
         assert!(

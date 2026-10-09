@@ -66,7 +66,10 @@ pub(crate) async fn dispatch_governed_change(
         (ElevationStampAuthority::External, _) => governed_actor(context),
         (ElevationStampAuthority::Replicated, Some(actor)) => actor,
         (ElevationStampAuthority::Replicated, None) => {
-            return Response::err(req_id, "GOVERNED_ACTOR_UNSTAMPED: a replicated governed op must carry its actor")
+            return Response::err(
+                req_id,
+                "GOVERNED_ACTOR_UNSTAMPED: a replicated governed op must carry its actor",
+            )
         }
     };
     let now_ms = super::authoritative_now_ms();

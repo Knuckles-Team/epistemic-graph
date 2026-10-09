@@ -63,26 +63,38 @@ mod tests {
 
     #[test]
     fn the_lowest_sufficient_rung_wins_with_the_matching_provenance_tag() {
-        let resolved = resolve_rung(
-            None,
-            fact("fn foo()", ProvenanceRung::AstExtraction),
-        );
+        let resolved = resolve_rung(None, fact("fn foo()", ProvenanceRung::AstExtraction));
         assert_eq!(resolved.rung, ProvenanceRung::AstExtraction);
         assert_eq!(resolved.value, "fn foo()");
     }
 
     #[test]
     fn a_higher_rung_never_overwrites_an_existing_deterministic_fact() {
-        let deterministic = fact("alice@example.com owns billing", ProvenanceRung::SymbolResolution);
-        let guess = fact("alice@example.com maybe owns billing", ProvenanceRung::LanguageModel);
+        let deterministic = fact(
+            "alice@example.com owns billing",
+            ProvenanceRung::SymbolResolution,
+        );
+        let guess = fact(
+            "alice@example.com maybe owns billing",
+            ProvenanceRung::LanguageModel,
+        );
         let resolved = resolve_rung(Some(deterministic.clone()), guess);
-        assert_eq!(resolved, deterministic, "the deterministic rung's fact must survive");
+        assert_eq!(
+            resolved, deterministic,
+            "the deterministic rung's fact must survive"
+        );
     }
 
     #[test]
     fn a_lower_rung_offered_later_replaces_a_higher_rungs_guess() {
-        let guess = fact("alice@example.com maybe owns billing", ProvenanceRung::LanguageModel);
-        let deterministic = fact("alice@example.com owns billing", ProvenanceRung::SymbolResolution);
+        let guess = fact(
+            "alice@example.com maybe owns billing",
+            ProvenanceRung::LanguageModel,
+        );
+        let deterministic = fact(
+            "alice@example.com owns billing",
+            ProvenanceRung::SymbolResolution,
+        );
         let resolved = resolve_rung(Some(guess), deterministic.clone());
         assert_eq!(
             resolved, deterministic,

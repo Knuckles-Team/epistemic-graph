@@ -15,13 +15,20 @@ const SCRUBBER_QUERY_TEMPLATE: &str = "MATCH (:Event) |> VALID AS OF @1700000000
 
 #[test]
 fn the_temporal_scrubber_query_template_parses_under_the_current_grammar() {
-    let plan = parse(SCRUBBER_QUERY_TEMPLATE).expect(
-        "the exact text the temporal-scrubber control's query template emits must parse",
+    let plan = parse(SCRUBBER_QUERY_TEMPLATE)
+        .expect("the exact text the temporal-scrubber control's query template emits must parse");
+    assert_eq!(
+        plan.ops[0],
+        Op::Scan {
+            label: "Event".into()
+        }
     );
-    assert_eq!(plan.ops[0], Op::Scan { label: "Event".into() });
     assert_eq!(
         plan.ops[1],
-        Op::AsOf { ts: 1_700_000_000.0, axis: TimeAxis::Valid }
+        Op::AsOf {
+            ts: 1_700_000_000.0,
+            axis: TimeAxis::Valid
+        }
     );
 }
 
@@ -32,7 +39,10 @@ fn the_scrubber_transaction_axis_variant_parses() {
     let plan = parse("MATCH (:Event) |> AS OF TX @1700000000").unwrap();
     assert_eq!(
         plan.ops[1],
-        Op::AsOf { ts: 1_700_000_000.0, axis: TimeAxis::Transaction }
+        Op::AsOf {
+            ts: 1_700_000_000.0,
+            axis: TimeAxis::Transaction
+        }
     );
 }
 
@@ -41,10 +51,9 @@ fn the_scrubber_transaction_axis_variant_parses() {
 #[test]
 fn cypher_shaped_text_is_rejected_with_a_typed_parse_error() {
     // A typed `UqlError` (stable code + span), not a panic or a silently-accepted plan.
-    let _: eg_types::contract::UqlCode =
-        parse("MATCH (e:Event) WHERE e.ts = 1700000000 RETURN e")
-            .expect_err("Cypher-shaped text must not parse as UQL")
-            .code;
+    let _: eg_types::contract::UqlCode = parse("MATCH (e:Event) WHERE e.ts = 1700000000 RETURN e")
+        .expect_err("Cypher-shaped text must not parse as UQL")
+        .code;
 }
 
 /// An ISO-8601 timestamp in place of the required Unix-second `@<seconds>` literal is

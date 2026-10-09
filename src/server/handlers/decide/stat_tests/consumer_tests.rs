@@ -380,7 +380,10 @@ async fn a_negative_enrichment_cost_is_refused_through_decide() {
         belief_as_of: BoundedVec::default(),
     };
     let error = decide(&h, request).await.expect_err("must be refused");
-    assert!(error.contains("UNSUPPORTED_ENRICHMENT_COST"), "got: {error}");
+    assert!(
+        error.contains("UNSUPPORTED_ENRICHMENT_COST"),
+        "got: {error}"
+    );
 }
 
 /// EG-DECISION-ENGINE-R035: `graph.decide()` returns a valid typed choice
@@ -427,9 +430,7 @@ async fn graph_decide_answers_every_execution_routing_category() {
             ExecutionRoutingCategory::Tool => ("tool:calculator", "tool:web-search"),
             ExecutionRoutingCategory::HarnessMode => ("harness:autonomous", "harness:guided"),
             ExecutionRoutingCategory::AccountMode => ("account:elevated", "account:standard"),
-            ExecutionRoutingCategory::SandboxConfiguration => {
-                ("sandbox:relaxed", "sandbox:strict")
-            }
+            ExecutionRoutingCategory::SandboxConfiguration => ("sandbox:relaxed", "sandbox:strict"),
         };
         let request = DecideRequest {
             tenant_id: TENANT.to_string(),
@@ -459,11 +460,7 @@ async fn graph_decide_answers_every_execution_routing_category() {
             "{category:?}: expected a typed choice, got {:?}",
             record.outcome
         );
-        assert_eq!(
-            record.evidence_class,
-            EvidenceClass::Claim,
-            "{category:?}"
-        );
+        assert_eq!(record.evidence_class, EvidenceClass::Claim, "{category:?}");
     }
 }
 

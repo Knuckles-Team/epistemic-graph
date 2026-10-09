@@ -68,8 +68,12 @@ impl DialectConformanceEntry {
             (ConformanceOutcome::Deviated, None) => {
                 Err(InvalidConformanceEntry::DeviatedWithoutReview)
             }
-            (ConformanceOutcome::Green, Some(_)) => Err(InvalidConformanceEntry::GreenWithDeviation),
-            (ConformanceOutcome::Deviated, Some(deviation)) if deviation.reviewed_by.trim().is_empty() => {
+            (ConformanceOutcome::Green, Some(_)) => {
+                Err(InvalidConformanceEntry::GreenWithDeviation)
+            }
+            (ConformanceOutcome::Deviated, Some(deviation))
+                if deviation.reviewed_by.trim().is_empty() =>
+            {
                 Err(InvalidConformanceEntry::UnreviewedDeviation)
             }
             _ => Ok(()),

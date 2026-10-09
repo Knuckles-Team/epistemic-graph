@@ -150,7 +150,11 @@ mod tests {
             ],
         );
         let chosen = smallest_covering_subset(&req).unwrap();
-        assert_eq!(chosen, vec!["broad".to_string()], "minimal: one tool suffices");
+        assert_eq!(
+            chosen,
+            vec!["broad".to_string()],
+            "minimal: one tool suffices"
+        );
     }
 
     #[test]
@@ -209,6 +213,9 @@ mod tests {
     #[test]
     fn empty_requirement_set_needs_no_tools() {
         let req = body(&[], 0, vec![candidate("unused", &["search"], 5)]);
-        assert_eq!(smallest_covering_subset(&req).unwrap(), Vec::<String>::new());
+        assert_eq!(
+            smallest_covering_subset(&req).unwrap(),
+            Vec::<String>::new()
+        );
     }
 }

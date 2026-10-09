@@ -105,7 +105,10 @@ mod tests {
 
     #[test]
     fn ingestion_admission_classifier_registry_partitions_with_no_overlap() {
-        let admitted = ContentClass::ALL.iter().filter(|class| class.admits()).count();
+        let admitted = ContentClass::ALL
+            .iter()
+            .filter(|class| class.admits())
+            .count();
         let excluded = ContentClass::ALL
             .iter()
             .filter(|class| !class.admits())

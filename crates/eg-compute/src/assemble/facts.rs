@@ -138,16 +138,22 @@ pub(super) fn prompt_tokens(candidate: &CandidateFacts) -> Option<u32> {
 /// `per_call_cost` nor `p95_latency` depends on it.
 #[cfg(all(test, feature = "decide-stats"))]
 mod cross_path_consistency_tests {
-    use super::{per_call_cost, p95_latency, Declared};
+    use super::{p95_latency, per_call_cost, Declared};
     use eg_numeric::decision::candidate::CandidateView;
     use eg_types::decision::CandidateFacts;
     use eg_types::test_support::decision::tool_entry_with_cost_latency;
 
     #[test]
     fn the_exact_solver_path_and_the_statistical_path_read_the_same_declared_values() {
-        let entry =
-            tool_entry_with_cost_latency("fixture-tool", &["eg:capability/retrieval"], "USD", 7_500, 320);
-        let solver_facts = CandidateFacts::from_entry(&entry).expect("fixture entry is well-formed");
+        let entry = tool_entry_with_cost_latency(
+            "fixture-tool",
+            &["eg:capability/retrieval"],
+            "USD",
+            7_500,
+            320,
+        );
+        let solver_facts =
+            CandidateFacts::from_entry(&entry).expect("fixture entry is well-formed");
         let statistical_view = CandidateView::from_component(&entry);
 
         let Declared::Known(solver_cost) = per_call_cost(&solver_facts, Some("USD")) else {
@@ -155,7 +161,9 @@ mod cross_path_consistency_tests {
         };
         assert_eq!(
             solver_cost as u64,
-            statistical_view.cost_micros.expect("statistical view reads the same cost"),
+            statistical_view
+                .cost_micros
+                .expect("statistical view reads the same cost"),
             "both paths must read the same declared per-call cost"
         );
 
@@ -164,7 +172,9 @@ mod cross_path_consistency_tests {
         };
         assert_eq!(
             solver_p95 as u32,
-            statistical_view.p95_ms.expect("statistical view reads the same latency"),
+            statistical_view
+                .p95_ms
+                .expect("statistical view reads the same latency"),
             "both paths must read the same declared p95 latency"
         );
     }

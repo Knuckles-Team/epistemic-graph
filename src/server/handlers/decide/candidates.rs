@@ -330,7 +330,13 @@ pub(super) fn declared_candidates(
             candidate_lanes: options.iter().map(|o| o.option_id.clone()).collect(),
         }
         .check()
-        .map_err(|detail| prefixed_refusal(&detail, "UNSUPPORTED_INGESTION_LANE: ", StatisticalErrorCode::UnsupportedIngestionLane))?;
+        .map_err(|detail| {
+            prefixed_refusal(
+                &detail,
+                "UNSUPPORTED_INGESTION_LANE: ",
+                StatisticalErrorCode::UnsupportedIngestionLane,
+            )
+        })?;
     } else if kind == QuestionKind::EnrichmentSchedule {
         let candidates: Vec<EnrichmentCandidate> = options
             .iter()
@@ -342,7 +348,13 @@ pub(super) fn declared_candidates(
             .collect();
         EnrichmentScheduleRequest { candidates }
             .check()
-            .map_err(|detail| prefixed_refusal(&detail, "UNSUPPORTED_ENRICHMENT_COST: ", StatisticalErrorCode::UnsupportedEnrichmentCost))?;
+            .map_err(|detail| {
+                prefixed_refusal(
+                    &detail,
+                    "UNSUPPORTED_ENRICHMENT_COST: ",
+                    StatisticalErrorCode::UnsupportedEnrichmentCost,
+                )
+            })?;
     }
     if kind == QuestionKind::RetrievalPlan {
         for option in options {

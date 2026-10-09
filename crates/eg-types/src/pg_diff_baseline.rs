@@ -74,9 +74,7 @@ impl DeviationBaseline {
         let dropped: Vec<String> = self
             .deviations
             .keys()
-            .filter(|name| {
-                !current.deviations.contains_key(*name) && !resolved.contains(name)
-            })
+            .filter(|name| !current.deviations.contains_key(*name) && !resolved.contains(name))
             .cloned()
             .collect();
         if dropped.is_empty() {

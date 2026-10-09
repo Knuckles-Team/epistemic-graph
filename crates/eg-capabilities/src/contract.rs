@@ -84,7 +84,11 @@ pub struct MissingFrozenFeature(pub &'static str);
 
 impl std::fmt::Display for MissingFrozenFeature {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "frozen feature profile omits enabled feature {:?}", self.0)
+        write!(
+            f,
+            "frozen feature profile omits enabled feature {:?}",
+            self.0
+        )
     }
 }
 
