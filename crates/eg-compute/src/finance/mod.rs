@@ -21,3 +21,4 @@ pub mod risk;
 pub mod signal_models;
 pub mod signals;
 pub mod statespace;
+pub mod strategy;
