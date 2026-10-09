@@ -80,6 +80,72 @@ impl DurabilityClass {
     }
 }
 
+/// How a write-path commit must be driven for one class
+/// (EG-DURABLE-KERNEL-R038.2's write-path entry point). The write path calls
+/// [`DurabilityClass::write_plan`] once per namespace open / write admission
+/// to decide whether it must wait for its own durable commit before
+/// acknowledging, and how wide a group-commit window it may batch into.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DurabilityWritePlan {
+    /// `true`: acknowledge only after THIS write's own durable commit
+    /// (`sync`). `false`: acknowledge is not gated on this write's own
+    /// commit (`async` batches into the next group commit; `ephemeral`
+    /// never durably commits at all).
+    pub wait_for_own_durable_commit: bool,
+    /// The widest a group-commit batch may delay this write, or `None` when
+    /// the class admits no batching window (`sync` commits immediately per
+    /// write; `ephemeral` never reaches the durable log to batch into).
+    pub max_batch_delay_ms: Option<u64>,
+}
+
+impl DurabilityClass {
+    /// The write path's one entry point: how THIS class drives a commit.
+    pub const fn write_plan(self) -> DurabilityWritePlan {
+        match self {
+            Self::Sync => DurabilityWritePlan {
+                wait_for_own_durable_commit: true,
+                max_batch_delay_ms: None,
+            },
+            Self::Async => DurabilityWritePlan {
+                wait_for_own_durable_commit: false,
+                max_batch_delay_ms: Some(ASYNC_MAX_LOSS_WINDOW_MS),
+            },
+            Self::Ephemeral => DurabilityWritePlan {
+                wait_for_own_durable_commit: false,
+                max_batch_delay_ms: None,
+            },
+        }
+    }
+
+    /// Refuse a write path that is about to append to the durable (redb)
+    /// log on behalf of an `ephemeral` namespace: ephemeral declares NO
+    /// durable log, so a durable-log append under its name is a write-path
+    /// defect, never silently accepted as a (then unenforced) durability
+    /// upgrade. `sync`/`async` both declare a durable log and are allowed.
+    pub fn refuse_if_durable_log_write(self) -> Result<(), EphemeralWriteRefusesDurableLog> {
+        match self {
+            Self::Ephemeral => Err(EphemeralWriteRefusesDurableLog),
+            Self::Sync | Self::Async => Ok(()),
+        }
+    }
+}
+
+/// A write path attempted a durable (redb) log append for an `ephemeral`
+/// namespace, which declares no durable log.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EphemeralWriteRefusesDurableLog;
+
+impl fmt::Display for EphemeralWriteRefusesDurableLog {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(
+            "write path refused: an ephemeral-class namespace declares no durable log, \
+             so a durable-log append under it is never attempted",
+        )
+    }
+}
+
+impl std::error::Error for EphemeralWriteRefusesDurableLog {}
+
 /// A namespace declared a durability class name this engine does not
 /// recognize. Carries the rejected name verbatim so the operator sees
 /// exactly what was refused.
@@ -177,5 +243,40 @@ mod tests {
             .validate_measured_loss_window(0)
             .unwrap();
         DurabilityClass::Sync.validate_measured_loss_window(0).unwrap();
+    }
+
+    #[test]
+    fn sync_write_plan_waits_for_its_own_commit_with_no_batch_window() {
+        let plan = DurabilityClass::Sync.write_plan();
+        assert!(plan.wait_for_own_durable_commit);
+        assert_eq!(plan.max_batch_delay_ms, None);
+    }
+
+    #[test]
+    fn async_write_plan_batches_within_the_declared_loss_window() {
+        let plan = DurabilityClass::Async.write_plan();
+        assert!(!plan.wait_for_own_durable_commit);
+        assert_eq!(plan.max_batch_delay_ms, Some(ASYNC_MAX_LOSS_WINDOW_MS));
+    }
+
+    #[test]
+    fn ephemeral_write_plan_never_waits_and_never_batches_into_a_log() {
+        let plan = DurabilityClass::Ephemeral.write_plan();
+        assert!(!plan.wait_for_own_durable_commit);
+        assert_eq!(plan.max_batch_delay_ms, None);
+    }
+
+    #[test]
+    fn ephemeral_write_path_refuses_a_durable_log_append() {
+        let err = DurabilityClass::Ephemeral
+            .refuse_if_durable_log_write()
+            .unwrap_err();
+        assert!(err.to_string().contains("no durable log"));
+    }
+
+    #[test]
+    fn sync_and_async_write_paths_allow_a_durable_log_append() {
+        DurabilityClass::Sync.refuse_if_durable_log_write().unwrap();
+        DurabilityClass::Async.refuse_if_durable_log_write().unwrap();
     }
 }

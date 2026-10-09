@@ -73,7 +73,8 @@
     "EG-DURABLE-KERNEL-R068",
     "EG-DURABLE-KERNEL-R069",
     "EG-DURABLE-KERNEL-R070",
-    "EG-DURABLE-KERNEL-R038.1"
+    "EG-DURABLE-KERNEL-R038.1",
+    "EG-DURABLE-KERNEL-R038.2"
   ],
   "delivery_state": "BUILDING",
   "acceptance_state": "NOT_AUDITED",
@@ -989,6 +990,12 @@
     {
       "id": "EG-DURABLE-KERNEL-R038.1",
       "title": "DurabilityClass typed enum, declared loss-window bound, and refusal for an unrecognized class name",
+      "delivery_state": "BUILT",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R038.2",
+      "title": "DurabilityClass write-path entry point: write_plan and refuse_if_durable_log_write",
       "delivery_state": "BUILT",
       "evidence": []
     }
