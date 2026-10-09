@@ -55,7 +55,8 @@ impl Identity {
             ForeignSourceSpec::Sql { .. } => "sql",
             ForeignSourceSpec::Trino { .. }
             | ForeignSourceSpec::Cypher { .. }
-            | ForeignSourceSpec::SparkBatch { .. } => super::oq2::kind(spec).unwrap(),
+            | ForeignSourceSpec::SparkBatch { .. }
+            | ForeignSourceSpec::BrainGuarded { .. } => super::oq2::kind(spec).unwrap(),
             ForeignSourceSpec::Named { .. } => "named",
             ForeignSourceSpec::Api { .. } => "api",
             ForeignSourceSpec::Mcp { .. } => "mcp",

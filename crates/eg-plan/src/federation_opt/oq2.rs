@@ -87,6 +87,7 @@ pub(crate) fn kind(spec: &ForeignSourceSpec) -> Option<&'static str> {
         ForeignSourceSpec::Mcp { .. } => Some("mcp"),
         ForeignSourceSpec::A2a { .. } => Some("a2a"),
         ForeignSourceSpec::GraphQl { .. } => Some("graphql"),
+        ForeignSourceSpec::BrainGuarded { .. } => Some("brain-guarded"),
         _ => None,
     }
 }

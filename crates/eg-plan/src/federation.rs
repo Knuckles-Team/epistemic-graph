@@ -147,7 +147,8 @@ pub fn source_for(spec: &ForeignSourceSpec) -> Box<dyn ForeignSource + '_> {
         | ForeignSourceSpec::Api { .. }
         | ForeignSourceSpec::Mcp { .. }
         | ForeignSourceSpec::A2a { .. }
-        | ForeignSourceSpec::GraphQl { .. } => Box::new(Oq2Unbound {
+        | ForeignSourceSpec::GraphQl { .. }
+        | ForeignSourceSpec::BrainGuarded { .. } => Box::new(Oq2Unbound {
             kind: crate::federation_opt::oq2::kind(spec).unwrap(),
         }),
         // CONCEPT:EG-KG.query.closure-backed-source — a `Named` spec is a REFERENCE, not a self-describing source:

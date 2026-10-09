@@ -493,6 +493,22 @@ pub enum ForeignSourceSpec {
         #[serde(default)]
         capabilities: ForeignOperationCapabilities,
     },
+    /// A brain-guarded source (EG-DURABLE-KERNEL-R024.6): an inner query that
+    /// MUST pass a named semantic/policy guard check (the "brain") before any
+    /// row crosses the federation boundary. `guard_policy` names the guard a
+    /// registration binds to; a spec naming an unbound or empty guard policy
+    /// is refused, never silently run unguarded. This is PURE serde — the
+    /// guard driver (which evaluates `guard_policy` against the live policy
+    /// engine before admitting `query`'s rows) is a later, explicitly bound
+    /// child.
+    BrainGuarded {
+        endpoint: String,
+        guard_policy: String,
+        query: String,
+        id_field: String,
+        #[serde(default)]
+        score_field: Option<String>,
+    },
 }
 
 /// Declared capabilities of an operation-bound foreign source
@@ -541,6 +557,18 @@ pub enum MirrorTargetSpec {
         /// The registry key naming the one pre-registered mirror target.
         name: String,
     },
+    /// An outbox-based mirror (EG-DURABLE-KERNEL-R024.5): rows are pushed
+    /// downstream by replaying the local mutation outbox under a named
+    /// consumer, reusing the outbox contract's own cursor/replay guarantees
+    /// (EG-DURABLE-KERNEL-R001/R002/R052: committed-only delivery, a stable
+    /// per-consumer cursor, idempotent replay after outage) rather than a
+    /// separate ad hoc mirror loop. `consumer` names the outbox consumer
+    /// this mirror target reads as; the executor resolves it the same way
+    /// `Named` resolves a registry key.
+    Outbox {
+        /// The outbox consumer name this mirror reads its committed rows as.
+        consumer: String,
+    },
 }
 
 #[cfg(feature = "federation")]
@@ -570,6 +598,12 @@ impl MirrorTargetSpec {
                 }
                 Ok(())
             }
+            Self::Outbox { consumer } => {
+                if consumer.is_empty() || consumer.trim() != consumer.as_str() {
+                    return Err(MirrorTargetSpecError::InvalidOutboxConsumer);
+                }
+                Ok(())
+            }
         }
     }
 }
@@ -581,6 +615,7 @@ pub enum MirrorTargetSpecError {
     EmptyFanOut,
     DuplicateFanOutTarget(String),
     EmptyNamedTarget,
+    InvalidOutboxConsumer,
 }
 
 #[cfg(feature = "federation")]
@@ -595,6 +630,9 @@ impl std::fmt::Display for MirrorTargetSpecError {
             }
             Self::EmptyNamedTarget => {
                 f.write_str("named mirror target spec names no downstream target")
+            }
+            Self::InvalidOutboxConsumer => {
+                f.write_str("outbox mirror target spec names an empty or padded consumer")
             }
         }
     }
