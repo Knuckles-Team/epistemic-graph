@@ -20,5 +20,6 @@ mod program;
 #[cfg(feature = "query")]
 mod propagate;
 mod roundtrip;
+mod scrubber;
 #[cfg(feature = "query")]
 mod serve;
