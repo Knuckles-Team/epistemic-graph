@@ -658,6 +658,50 @@ mod tests {
         assert_eq!(what_evidence_would_change_this(&bg, "solo", &policy), None);
     }
 
+    // spec: EG-DECISION-ENGINE-R034
+    #[test]
+    fn a_detected_contradiction_yields_a_proposal_only_never_an_automatic_retraction() {
+        // ev attacks x, x attacks c: a genuine contradiction over c's status.
+        let bg = BeliefGraph::from_parts(
+            [("ev", 0.9), ("x", 0.5), ("c", 0.5)],
+            [
+                ("ev", "x", EdgeKind::Attacks),
+                ("x", "c", EdgeKind::Attacks),
+            ],
+        );
+        let policy = AuthorityPolicy::default();
+        assert!(tms::is_skeptically_accepted(&bg, "c"));
+
+        // Resolving the contradiction is a read-only PROPOSAL: it returns the
+        // minimal evidence set that *would* flip `c`, but takes `bg` by
+        // immutable reference and never mutates or retracts anything.
+        let proposal = what_evidence_would_change_this(&bg, "c", &policy)
+            .expect("a contradiction over c yields a minimal flip proposal");
+        assert_eq!(
+            proposal.evidence_ids,
+            ["ev".to_string()].into_iter().collect()
+        );
+
+        // The original belief graph is untouched: no automatic retraction ran.
+        // `c`'s grounded-acceptance status, and every argument the proposal
+        // named, are exactly as they were before the proposal was computed.
+        assert!(
+            tms::is_skeptically_accepted(&bg, "c"),
+            "a proposal must not retract: c is still grounded-accepted"
+        );
+        assert_eq!(
+            tms::arguments(&bg),
+            ["ev".to_string(), "x".to_string(), "c".to_string()]
+                .into_iter()
+                .collect(),
+            "a proposal must not retract: every argument is still present"
+        );
+
+        // Only a SEPARATE, explicit call to `tms::retract` actually retracts.
+        let retraction = tms::retract(&bg, "ev");
+        assert_eq!(retraction.retracted, vec!["c".to_string()]);
+    }
+
     // --- epistemic_status (the unified acceptance query) --------------------------------
 
     #[test]
