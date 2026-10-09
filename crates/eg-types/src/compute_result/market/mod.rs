@@ -11,6 +11,7 @@
 
 pub mod bars;
 pub mod chart;
+pub mod corporate_action;
 pub mod evidence;
 pub mod op;
 pub mod scan;
@@ -18,9 +19,10 @@ pub mod signal;
 pub mod snapshot;
 
 pub use bars::{
-    BarRecord, BarStatus, EarlyClose, ExchangeCalendar, FinalityFilter, SeriesPoint, Timeframe,
-    TradingCalendar, UtcOffsetSpan,
+    BarRecord, BarStatus, EarlyClose, ExchangeCalendar, FinalityFilter, PricedBar, SeriesPoint,
+    Timeframe, TradingCalendar, UtcOffsetSpan,
 };
+pub use corporate_action::{CorporateAction, CorporateActionKind, Session};
 pub use chart::{DecimateRequest, DecimatedChart};
 pub use evidence::{
     BacktestRun, BacktestRunDraft, BacktestValidation, CostModel, DataRevisionRef, FillRule,

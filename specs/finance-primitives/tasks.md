@@ -5,6 +5,8 @@ Tasks are ordered by dependency. Check a task only when its code, tests and exac
 - [ ] **F-00 · EG-FINANCE-PRIMITIVES-R001:** Stabilize `BacktestRun` canonical serialization and digest across two supported hosts; check Pine SuperTrend/ATR parity against checked-in bars and consolidate finance ontology classes under `finance-v1`.
 - [ ] **F-01 · EG-FINANCE-PRIMITIVES-R004:** Define v2 asset classes and migration aliases; `Account`, `Activity`, `Lot`, `Position`, `PortfolioGroup`, `StrategySpec`, `StrategyRun`, `LeverageTerms` types and SHACL shapes; reject unknown versions and direct writes to derived projections.
 - [ ] **F-02 · EG-FINANCE-PRIMITIVES-R006:** Implement point-in-time action and exchange-calendar revision resolver; return session/source/as-of for all price paths; add DST, early-close and ticker reuse vectors.
+  - [x] Point-in-time `CorporateAction` fact type (split/dividend/symbol-change/delisting) and its `(listing_id, effective_time)` as-of revision resolver, with a ticker-reuse-is-never-conflated test; `Session` (regular/pre/post/closed/unknown) classification over `ExchangeCalendar`'s new pre-/post-market spans, with DST and early-close vectors; `resolve::resolve_priced` wires session/source/as-of onto the bar price path. Code: `crates/eg-types/src/compute_result/market/corporate_action.rs`, `crates/eg-compute/src/finance/market/corporate_actions.rs`, `calendar.rs::session_at`, `resolve.rs::resolve_priced`.
+  - [ ] Remaining: wire `session`/`source`/`as_of` onto the other price-result paths (indicator/signal/snapshot outputs), and an ontology/SHACL representation of `CorporateAction` alongside the existing `finance-v1` classes.
 - [ ] **F-03 · EG-FINANCE-PRIMITIVES-R005:** Implement canonical activity ordering and checked decimal lot engine for FIFO/LIFO/specific/average basis; add correction replay, transfer and split invariants.
 - [ ] **F-04 · EG-FINANCE-PRIMITIVES-R005:** Add sourced FX, realized/unrealized P&L, TWR, bounded XIRR and benchmark comparison with partial coverage reports.
 - [ ] **F-05 · EG-FINANCE-PRIMITIVES-R007:** Define immutable strategy-spec digest and proposal contract; implement DCA, trend and rebalance evaluators with idempotent cadence/missed-cycle evidence.
@@ -29,7 +31,7 @@ Requirement IDs not covered by any task above before this line: none remain — 
 | EG-FINANCE-PRIMITIVES-R001 | — | — | NOT_RUN |
 | EG-FINANCE-PRIMITIVES-R004 | — | — | NOT_RUN |
 | EG-FINANCE-PRIMITIVES-R005 | — | — | NOT_RUN |
-| EG-FINANCE-PRIMITIVES-R006 | — | — | NOT_RUN |
+| EG-FINANCE-PRIMITIVES-R006 | — | — | PARTIAL: corporate-action resolver + session classification delivered; other price paths and ontology remain |
 | EG-FINANCE-PRIMITIVES-R007 | — | — | NOT_RUN |
 | EG-FINANCE-PRIMITIVES-R008 | — | — | NOT_RUN |
 | EG-FINANCE-PRIMITIVES-R009 | — | — | NOT_RUN |
