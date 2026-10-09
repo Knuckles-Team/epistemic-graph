@@ -55,6 +55,7 @@ mod tests {
         )
     }
 
+    // spec: EG-TYPED-PACKS-R074, EG-TYPED-PACKS-R096
     #[test]
     fn the_projection_actor_writes_only_the_pack_graph_it_was_granted() {
         let mut isolation = policy();
@@ -69,6 +70,7 @@ mod tests {
         );
     }
 
+    // spec: EG-TYPED-PACKS-R074, EG-TYPED-PACKS-R096
     #[test]
     fn the_granted_principal_is_the_principal_the_worker_signs_as() {
         let signer =
@@ -80,6 +82,7 @@ mod tests {
         assert_eq!(signer.agent_id(), PROJECTION_ACTOR);
     }
 
+    // spec: EG-TYPED-PACKS-R074, EG-TYPED-PACKS-R096
     #[test]
     fn an_unbootstrapped_policy_is_never_consumed() {
         let mut isolation = IsolationLayer::new();

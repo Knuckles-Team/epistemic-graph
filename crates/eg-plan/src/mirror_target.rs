@@ -144,6 +144,7 @@ mod tests {
         assert_eq!(round_trip, spec);
     }
 
+    // spec: EG-DURABLE-KERNEL-R024.2.2
     #[test]
     fn empty_fan_out_is_refused() {
         let spec = fan_out(&[]);
@@ -154,6 +155,7 @@ mod tests {
         assert!(error.contains("no downstream target"), "{error}");
     }
 
+    // spec: EG-DURABLE-KERNEL-R024.2.2
     #[test]
     fn duplicate_fan_out_target_is_refused() {
         let spec = fan_out(&["lake", "lake"]);
@@ -163,6 +165,7 @@ mod tests {
         assert!(error.contains("more than once"), "{error}");
     }
 
+    // spec: EG-DURABLE-KERNEL-R024.2.2
     #[test]
     fn unbound_fan_out_fails_closed_without_reaching_any_target() {
         let spec = fan_out(&["lake", "audit-sink"]);

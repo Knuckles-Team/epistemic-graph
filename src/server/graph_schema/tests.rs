@@ -39,6 +39,7 @@ fn attach(source_id: &str, ontology_ttl: &str) -> GraphSchemaOp {
     }
 }
 
+// spec: EG-UNIFIED-DATA-PLANE-R037
 #[test]
 fn attach_list_and_detach_share_one_authoritative_source_set() {
     let core = GraphCore::new();

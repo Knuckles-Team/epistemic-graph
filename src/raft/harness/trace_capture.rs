@@ -595,6 +595,7 @@ mod tests {
     /// finish at the same time, so the writes are genuinely interleaved in time, not
     /// just sequential. Each thread's own dump must contain only its own events and,
     /// for the quiet cluster, must still contain the trigger event afterward.
+    // spec: EG-DURABLE-KERNEL-R025
     #[test]
     fn dump_for_one_thread_excludes_another_concurrently_writing_thread() {
         init();
@@ -654,6 +655,7 @@ mod tests {
     /// EH-534: an event emitted on ANOTHER worker thread of the same runtime -- a
     /// raft node's election task, say -- is in the dump the test thread renders,
     /// and an event from a different runtime is not.
+    // spec: EG-DURABLE-KERNEL-R025
     #[test]
     fn a_runtime_dump_holds_every_worker_thread_and_no_other_runtime() {
         init();

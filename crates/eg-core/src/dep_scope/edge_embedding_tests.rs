@@ -20,6 +20,7 @@ fn commit(clock: &DepClock, fp: &WriteFootprint, version: u64) {
     clock.note_version_bump(version);
 }
 
+// spec: EG-FEDERATED-QUERY-R017, EG-FEDERATED-QUERY-R018
 #[test]
 fn traversal_survives_an_edge_write_of_another_type() {
     let clock = DepClock::new();
@@ -31,6 +32,7 @@ fn traversal_survives_an_edge_write_of_another_type() {
     );
 }
 
+// spec: EG-FEDERATED-QUERY-R017, EG-FEDERATED-QUERY-R018
 #[test]
 fn traversal_is_invalidated_by_an_edge_write_of_its_type() {
     let clock = DepClock::new();

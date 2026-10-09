@@ -118,6 +118,7 @@ fn counters_contribute_their_increase_and_survive_a_reset() {
     assert_eq!(second.provenance.signal_counts[&SignalKind::Metric], 4);
 }
 
+// spec: EG-DECISION-ENGINE-R125
 #[test]
 fn unbound_signals_are_reported_with_their_reason() {
     let signals = vec![
@@ -149,6 +150,7 @@ fn unbound_signals_are_reported_with_their_reason() {
     assert_eq!(report.unresolved[1].source, "raw");
 }
 
+// spec: EG-DECISION-ENGINE-R125
 #[test]
 fn a_pods_behaviour_also_rolls_up_to_the_workload_that_schedules_it() {
     let pod = entity(EntityClass::Pod, "pod:shop/cart-1");

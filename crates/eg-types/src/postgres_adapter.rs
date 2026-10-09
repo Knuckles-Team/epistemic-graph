@@ -202,11 +202,13 @@ mod tests {
         }
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R013
     #[test]
     fn accepts_a_well_formed_config() {
         assert_eq!(valid_config().validate(), Ok(()));
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R013
     #[test]
     fn refuses_empty_host() {
         let mut config = valid_config();
@@ -217,6 +219,7 @@ mod tests {
         );
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R013
     #[test]
     fn refuses_empty_database() {
         let mut config = valid_config();

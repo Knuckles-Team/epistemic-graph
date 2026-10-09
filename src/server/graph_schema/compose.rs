@@ -688,6 +688,7 @@ ex:parent a owl:AsymmetricProperty .
         assert!(foundation.contains("<http://knuckles.team/kg/core> a owl:Ontology"));
     }
 
+    // spec: EG-DECISION-ENGINE-R105, EG-UNIFIED-DATA-PLANE-R037
     #[test]
     fn complete_core_corpus_pins_the_approved_authority_migration_delta() {
         let composed = validate_and_compose(&GraphSchemaSources::default()).unwrap();

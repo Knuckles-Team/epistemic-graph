@@ -101,6 +101,7 @@ fn category_members(category: usize) -> HashSet<String> {
 
 /// The EH-564 query shape: one seed doc, a 1..2-hop traversal, then vector rank and
 /// `Limit 10`. Every seed's answer equals the brute-force top-10 of its reached set.
+// spec: EG-DURABLE-KERNEL-R057, EG-FEDERATED-QUERY-R039
 #[test]
 fn traversal_then_rank_returns_the_exact_top_k() {
     let (core, semantic) = corpus();

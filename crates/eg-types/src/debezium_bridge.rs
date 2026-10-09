@@ -140,6 +140,7 @@ mod tests {
         }
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R021.1
     #[test]
     fn known_op_codes_parse() {
         assert_eq!(DebeziumOp::parse("c"), Ok(DebeziumOp::Create));
@@ -148,6 +149,7 @@ mod tests {
         assert_eq!(DebeziumOp::parse("r"), Ok(DebeziumOp::Read));
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R021.1
     #[test]
     fn unknown_op_code_is_refused() {
         assert_eq!(
@@ -156,6 +158,7 @@ mod tests {
         );
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R021.1
     #[test]
     fn create_without_after_is_refused() {
         let event = DebeziumChangeEvent {

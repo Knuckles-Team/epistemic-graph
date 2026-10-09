@@ -2775,6 +2775,7 @@ mod tests {
         assert!(job.job_id.starts_with("job-"));
     }
 
+    // spec: EG-DURABLE-KERNEL-R043
     #[test]
     fn replicated_submission_and_claim_converge_across_independent_projections() {
         let seed_dir = tempfile::tempdir().unwrap();
@@ -2821,6 +2822,7 @@ mod tests {
         assert_eq!(left_claim.lease, right_claim.lease);
     }
 
+    // spec: EG-DURABLE-KERNEL-R043
     #[test]
     fn full_lifecycle_submit_running_succeed() {
         let dir = tempfile::tempdir().unwrap();

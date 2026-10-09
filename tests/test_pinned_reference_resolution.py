@@ -122,6 +122,7 @@ def test_a_marker_two_calls_away_does_not_anchor_the_layer(gate):
     assert gate._admission_anchors_for_layer(bodies, {"open_it"}, "GRAPH") == set()
 
 
+@pytest.mark.spec("EG-DECISION-ENGINE-R120")
 def test_nested_write_closure_does_not_anchor_outer_function(gate):
     bodies = {
         "commit_decision_record": (

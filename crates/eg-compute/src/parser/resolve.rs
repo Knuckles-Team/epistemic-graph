@@ -840,6 +840,7 @@ pub(crate) fn node_id(r: &IndexResult, name: &str, file: &str) -> String {
 mod tests {
     use super::*;
 
+    // spec: EG-TYPED-PACKS-R010
     #[test]
     fn parser_and_resolver_edges_keep_their_cost_ladder_provenance() {
         let indexed = index_repository(&files(&[

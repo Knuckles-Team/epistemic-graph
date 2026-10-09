@@ -60,6 +60,7 @@ fn check_moments(xs: &[f64], window: usize) {
     }
 }
 
+// spec: EG-FEDERATED-QUERY-R037
 #[test]
 fn rolling_moments_match_the_exact_recompute_on_every_window() {
     for seed in 1..=24 {
@@ -72,6 +73,7 @@ fn rolling_moments_match_the_exact_recompute_on_every_window() {
     }
 }
 
+// spec: EG-FEDERATED-QUERY-R037
 #[test]
 fn a_flat_window_reports_exactly_zero_spread_after_any_history() {
     let mut xs = series(500, 5, 1.0e6);
@@ -82,6 +84,7 @@ fn a_flat_window_reports_exactly_zero_spread_after_any_history() {
     assert_eq!(last.mean, 1.0e6 + 0.1);
 }
 
+// spec: EG-FEDERATED-QUERY-R037
 #[test]
 fn a_non_finite_value_falls_back_while_in_the_window_and_leaves_no_residue() {
     let mut xs = series(60, 9, 50.0);

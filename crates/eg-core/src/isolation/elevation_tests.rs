@@ -82,6 +82,7 @@ fn elevate(layer: &mut IsolationLayer, now_ms: u64) -> u64 {
         .unwrap()
 }
 
+// spec: EG-DURABLE-KERNEL-R022
 #[test]
 fn check_access_denies_before_allows_during_and_denies_at_expiry() {
     let mut layer = layer();
@@ -112,6 +113,7 @@ fn check_access_denies_before_allows_during_and_denies_at_expiry() {
     assert_eq!(basis(&layer, AccessLevel::Read, now), AccessBasis::Denied);
 }
 
+// spec: EG-DURABLE-KERNEL-R022
 #[test]
 fn revocation_takes_effect_at_the_chokepoint_immediately() {
     let mut layer = layer();

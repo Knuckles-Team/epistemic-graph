@@ -572,6 +572,7 @@ mod tests {
 
     // claim1 derives from fact_a + fact_b. Deleting fact_a must stale claim1
     // (dependency-directed: found via the dependency edge, not a full rescan).
+    // spec: EG-DECISION-ENGINE-R034
     #[test]
     fn deleting_a_base_fact_stales_its_dependent_claim() {
         let mut tm = TruthMaintenance::new();
@@ -587,6 +588,7 @@ mod tests {
 
     // An `Updated` input stales its dependents (and itself, if tracked) — never
     // retracts either, since the input still exists.
+    // spec: EG-DECISION-ENGINE-R034
     #[test]
     fn updated_input_stales_but_never_retracts() {
         let mut tm = TruthMaintenance::new();
@@ -605,6 +607,7 @@ mod tests {
     }
 
     // Deleting/policy-changing a TRACKED id retracts it outright, not merely stales.
+    // spec: EG-DECISION-ENGINE-R034
     #[test]
     fn deleting_a_tracked_id_retracts_it_outright() {
         let mut tm = TruthMaintenance::new();

@@ -74,6 +74,7 @@ fn run(state: &mut State, xs: &[f64], ys: &[f64]) -> Vec<Option<f64>> {
         .collect()
 }
 
+// spec: EG-DECISION-ENGINE-R117
 #[test]
 fn advancing_a_restored_checkpoint_equals_the_whole_history_run() {
     let (xs, ys) = (walk(120, 7), walk(120, 11));
@@ -92,6 +93,7 @@ fn advancing_a_restored_checkpoint_equals_the_whole_history_run() {
     }
 }
 
+// spec: EG-DECISION-ENGINE-R117
 #[test]
 fn rolling_zscore_matches_the_two_pass_population_formula() {
     let xs = walk(80, 3);
@@ -129,6 +131,7 @@ fn ewma_by_span_is_the_seeded_recursion() {
     assert_eq!(got, vec![Some(1.0), Some(1.5), Some(2.75)]);
 }
 
+// spec: EG-DECISION-ENGINE-R117
 #[test]
 fn shifts_lag_diff_and_returns() {
     let xs = [2.0, 4.0, 3.0, 6.0];

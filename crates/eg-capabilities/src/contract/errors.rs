@@ -208,6 +208,7 @@ mod tests {
         })
     }
 
+    // spec: EG-CONTRACT-R014
     #[test]
     fn every_method_error_is_in_the_published_catalog() {
         let catalog: serde_json::Value = serde_json::from_slice(&catalog_json()).unwrap();
@@ -230,6 +231,7 @@ mod tests {
         assert!(codes.contains("AUTH_POLICY_VERSION_MISMATCH"));
     }
 
+    // spec: EG-CONTRACT-R014
     #[test]
     fn literal_server_refusals_are_in_the_published_catalog() {
         let catalog: serde_json::Value = serde_json::from_slice(&catalog_json()).unwrap();
@@ -261,6 +263,7 @@ mod tests {
         }
     }
 
+    // spec: EG-CONTRACT-R014
     #[test]
     fn wire_callable_flags_match_published_and_internal_rows() {
         let catalog = super::super::Catalog::collect();

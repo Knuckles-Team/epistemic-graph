@@ -2652,6 +2652,7 @@ mod scan_order_tests {
         rmp_serde::to_vec_named(&value).unwrap()
     }
 
+    // spec: EG-FEDERATED-QUERY-R021, EG-FEDERATED-QUERY-R024, EG-FEDERATED-QUERY-R070
     #[test]
     fn unranked_scan_limit_is_canonical_at_the_scan_producer() {
         let core = GraphCore::new();

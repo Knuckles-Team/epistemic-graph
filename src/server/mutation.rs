@@ -2325,6 +2325,7 @@ mod tests {
         );
     }
 
+    // spec: EG-TYPED-PACKS-R012
     #[test]
     fn clustered_mutations_are_consensus_typed() {
         assert_eq!(
@@ -2391,6 +2392,7 @@ mod tests {
     /// saga or store -- the same classifier
     /// `source_batch_is_a_local_only_cluster_route` already relies on as its
     /// clustered-mode proof for `SqlSourceBatch`.
+    // spec: EG-TYPED-PACKS-R012
     #[test]
     fn pack_and_agent_layer_write_methods_are_the_local_only_five() {
         let methods: [(&str, Method); 5] = [

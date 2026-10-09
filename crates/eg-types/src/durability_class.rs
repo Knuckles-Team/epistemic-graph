@@ -243,6 +243,7 @@ mod tests {
             .unwrap();
     }
 
+    // spec: EG-DURABLE-KERNEL-R038.2
     #[test]
     fn sync_write_plan_waits_for_its_own_commit_with_no_batch_window() {
         let plan = DurabilityClass::Sync.write_plan();
@@ -250,6 +251,7 @@ mod tests {
         assert_eq!(plan.max_batch_delay_ms, None);
     }
 
+    // spec: EG-DURABLE-KERNEL-R038.2
     #[test]
     fn async_write_plan_batches_within_the_declared_loss_window() {
         let plan = DurabilityClass::Async.write_plan();
@@ -257,6 +259,7 @@ mod tests {
         assert_eq!(plan.max_batch_delay_ms, Some(ASYNC_MAX_LOSS_WINDOW_MS));
     }
 
+    // spec: EG-DURABLE-KERNEL-R038.2
     #[test]
     fn ephemeral_write_plan_never_waits_and_never_batches_into_a_log() {
         let plan = DurabilityClass::Ephemeral.write_plan();

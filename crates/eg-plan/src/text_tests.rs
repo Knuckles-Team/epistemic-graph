@@ -222,6 +222,7 @@ fn rank_text_orders_candidates_by_bm25() {
 
 /// With NO text index attached, `RankText` degrades to empty (never errs the plan) —
 /// the same graceful degradation as a vector `Rank` over an empty embedding store.
+// spec: EG-FEDERATED-QUERY-R035
 #[test]
 fn rank_text_without_index_is_empty_not_error() {
     let fx = build_hybrid();
@@ -306,6 +307,7 @@ fn json_doc(keep: bool) -> Vec<u8> {
 /// with many higher-scoring non-members, `[Scan, Filter category, RankText]` returns
 /// EXACTLY the brute-force answer — the full-corpus BM25 ranking restricted to the
 /// category (same ids, same scores, same order) — never a truncated subset.
+// spec: EG-DURABLE-KERNEL-R057, EG-FEDERATED-QUERY-R039
 #[test]
 fn filtered_rank_text_equals_the_brute_force_restricted_ranking() {
     const CATEGORIES: [&str; 5] = ["a", "b", "c", "d", "e"];

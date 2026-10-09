@@ -22,6 +22,7 @@ CONSUMED = [
 ]
 
 
+@pytest.mark.spec("EG-CONTRACT-R005")
 @pytest.mark.parametrize(("module", "union", "variant"), CONSUMED)
 def test_a_consumed_variant_is_exported_where_its_union_is(
     module: str, union: str, variant: str

@@ -177,6 +177,7 @@ fn owned_by(owner: &str) -> RowPredicate {
     }
 }
 
+// spec: EG-FEDERATED-QUERY-R008, EG-FEDERATED-QUERY-R059
 #[test]
 fn parallel_edges_keep_distinct_stable_identities() {
     let core = parallel_graph();
@@ -197,6 +198,7 @@ fn parallel_edges_keep_distinct_stable_identities() {
     );
 }
 
+// spec: EG-FEDERATED-QUERY-R008, EG-FEDERATED-QUERY-R059
 #[test]
 fn text_search_ranks_edges_by_bm25() {
     let core = parallel_graph();
@@ -223,6 +225,7 @@ fn text_search_ranks_edges_by_bm25() {
         .all(|pair| pair[0].score >= pair[1].score));
 }
 
+// spec: EG-FEDERATED-QUERY-R008
 #[test]
 fn visibility_runs_inside_the_walk_and_an_unresolved_identity_is_denied() {
     let core = parallel_graph();

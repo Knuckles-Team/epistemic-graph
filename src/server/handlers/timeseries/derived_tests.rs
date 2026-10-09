@@ -202,6 +202,7 @@ async fn a_source_correction_appends_revisions_never_edits() {
     assert_eq!(latest(&after), on_the_fly(&source));
 }
 
+// spec: EG-REPO-INGEST-R004
 #[tokio::test(flavor = "multi_thread")]
 async fn bad_definitions_are_refused_and_other_tenants_see_nothing() {
     let _env = crate::crypto::acquire_test_env_read_lock().await;

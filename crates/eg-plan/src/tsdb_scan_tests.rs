@@ -690,6 +690,7 @@ fn scoped_context<'a>(
 /// Two series with a point at the SAME timestamp are two rows (`a@ts`, `b@ts`); the old
 /// bare-ts id kept only the first series' point.
 #[cfg(feature = "timeseries")]
+// spec: EG-REPO-INGEST-R004
 #[test]
 fn tsscan_keeps_both_series_at_a_shared_timestamp() {
     use crate::exec::execute;

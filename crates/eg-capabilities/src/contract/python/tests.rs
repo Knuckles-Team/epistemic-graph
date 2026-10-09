@@ -198,6 +198,7 @@ assert status.last_receipt_id == receipt.receipt_id
     );
 }
 
+// spec: EG-DURABLE-KERNEL-R063, EG-FEDERATED-QUERY-R011, EG-REPO-INGEST-R002, EG-TYPED-PACKS-R002, EG-TYPED-PACKS-R051, EG-TYPED-PACKS-R053, EG-TYPED-PACKS-R057, EG-TYPED-PACKS-R062, EG-TYPED-PACKS-R093
 #[test]
 fn generated_python_respects_the_formatter_line_limit() {
     let catalog = Catalog::collect();
@@ -220,6 +221,7 @@ fn generated_python_respects_the_formatter_line_limit() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
+// spec: EG-DURABLE-KERNEL-R063, EG-FEDERATED-QUERY-R011, EG-REPO-INGEST-R002, EG-TYPED-PACKS-R002, EG-TYPED-PACKS-R051, EG-TYPED-PACKS-R053, EG-TYPED-PACKS-R057, EG-TYPED-PACKS-R062, EG-TYPED-PACKS-R093
 #[test]
 fn generated_send_docs_list_errors_individually() {
     let catalog = Catalog::collect();
@@ -266,6 +268,7 @@ fn generated_send_docs_list_errors_individually() {
     }
 }
 
+// spec: EG-TYPED-PACKS-R002
 #[test]
 fn nested_ref_surface_emits_concrete_models_and_typed_request() {
     let catalog = Catalog::collect();
@@ -517,6 +520,7 @@ fn generated_source_ingestion_imports_and_executes_with_rust_digest_parity() {
     execute_source_ingestion_modules(&generated);
 }
 
+// spec: EG-DURABLE-KERNEL-R063, EG-FEDERATED-QUERY-R011, EG-REPO-INGEST-R002, EG-TYPED-PACKS-R051, EG-TYPED-PACKS-R053, EG-TYPED-PACKS-R057, EG-TYPED-PACKS-R062, EG-TYPED-PACKS-R093
 #[test]
 fn index_repository_emits_typed_ordered_file_outcomes() {
     let catalog = Catalog::collect();

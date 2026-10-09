@@ -96,6 +96,7 @@ mod tests {
         }
     }
 
+    // spec: EG-DECISION-ENGINE-R037
     #[test]
     fn a_declared_set_is_sorted_unique_and_non_empty() {
         assert!(check_declared(&[option("a", &["x", "y"]), option("b", &[])]).is_ok());

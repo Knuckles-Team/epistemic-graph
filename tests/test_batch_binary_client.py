@@ -310,6 +310,7 @@ def test_binary_codec_has_no_numpy_or_pandas_runtime_dependency() -> None:
     assert Path(client_module.__file__).name == "client.py"
 
 
+@pytest.mark.spec("EG-CONTRACT-R019")
 def test_client_and_soak_reject_integer_array_transport() -> None:
     repo_root = Path(client_module.__file__).resolve().parents[1]
     soak_source = (repo_root / "scripts" / "soak_scale.py").read_text(encoding="utf-8")

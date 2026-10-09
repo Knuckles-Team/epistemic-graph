@@ -616,6 +616,7 @@ mod tests {
     /// ever executing it. [`plan_only`] takes no `PlanCtx`/view at all, so this is a
     /// structural guarantee, not just an assertion: there is no data for it to read even
     /// by accident.
+    // spec: EG-FEDERATED-QUERY-R058.1
     #[test]
     fn r058_plan_only_returns_candidate_without_executing() {
         let planner = MockPlanner {
@@ -638,6 +639,7 @@ mod tests {
 
     /// The executed result carries the EXACT UQL that ran, alongside the rows
     /// (EG-FEDERATED-QUERY-R058).
+    // spec: EG-FEDERATED-QUERY-R058.1
     #[test]
     fn r058_executed_result_carries_the_exact_uql_that_ran() {
         let fx = crate::fixture::build();
@@ -656,6 +658,7 @@ mod tests {
 
     /// Planner output that fails to parse is refused with a typed `ParseFailed` error —
     /// never silently run and never a panic (EG-FEDERATED-QUERY-R058).
+    // spec: EG-FEDERATED-QUERY-R058.1
     #[test]
     fn r058_malformed_planner_output_is_refused_not_executed() {
         let fx = crate::fixture::build();

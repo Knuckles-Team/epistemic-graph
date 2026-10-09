@@ -81,6 +81,7 @@ impl ExecutionRoutingRequest {
 mod tests {
     use super::*;
 
+    // spec: EG-DECISION-ENGINE-R035
     #[test]
     fn every_category_is_registered_exactly_once() {
         let mut seen = std::collections::BTreeSet::new();
@@ -90,6 +91,7 @@ mod tests {
         assert_eq!(ExecutionRoutingCategory::ALL.len(), 7);
     }
 
+    // spec: EG-DECISION-ENGINE-R035
     #[test]
     fn a_request_with_unique_non_empty_ids_is_accepted() {
         let request = ExecutionRoutingRequest {
@@ -102,6 +104,7 @@ mod tests {
         assert!(request.check().is_ok());
     }
 
+    // spec: EG-DECISION-ENGINE-R035
     #[test]
     fn an_empty_option_id_is_refused() {
         let request = ExecutionRoutingRequest {

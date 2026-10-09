@@ -37,6 +37,7 @@ fn ids(r: &crate::sql::QueryResult, col_index: usize) -> Vec<String> {
 /// or n3's — proving `scan_by_src`'s O(deg) walk is both correct (right rows)
 /// and narrowing (not the full 3-edge set) rather than a full-scan-then-filter
 /// that happened to produce the right answer regardless.
+// spec: EG-FEDERATED-QUERY-R057
 #[test]
 fn src_equality_returns_only_that_nodes_outgoing_edges() {
     let snap = graph().analysis_snapshot();
@@ -51,6 +52,7 @@ fn src_equality_returns_only_that_nodes_outgoing_edges() {
 
 /// A `dst = 'n3'` equality returns EXACTLY n3's two incoming edges (from n1 and
 /// n2), proving `scan_by_dst`'s O(deg) incoming walk.
+// spec: EG-FEDERATED-QUERY-R057
 #[test]
 fn dst_equality_returns_only_that_nodes_incoming_edges() {
     let snap = graph().analysis_snapshot();
@@ -66,6 +68,7 @@ fn dst_equality_returns_only_that_nodes_incoming_edges() {
 /// A `src` equality naming a node with NO outgoing edges (or that doesn't
 /// exist at all) returns zero rows — not an error — matching what a full scan
 /// would find.
+// spec: EG-FEDERATED-QUERY-R057
 #[test]
 fn src_equality_on_a_sink_or_absent_node_returns_no_rows() {
     let snap = graph().analysis_snapshot();

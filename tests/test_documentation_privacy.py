@@ -65,6 +65,7 @@ def test_cluster_runbook_is_environment_neutral() -> None:
     ],
     ids=["private-ip", "home-path", "local-dns", "host-alias"],
 )
+@pytest.mark.spec("EG-UNIFIED-DATA-PLANE-R001")
 def test_public_surface_rejects_private_content(
     relative: str,
     private_text: str,
@@ -81,6 +82,7 @@ def test_public_surface_rejects_private_content(
         test_cluster_runbook_is_environment_neutral()
 
 
+@pytest.mark.spec("EG-UNIFIED-DATA-PLANE-R001")
 @pytest.mark.parametrize("relative", ["docs/guide.md", "src/example.rs"])
 @pytest.mark.parametrize("prefix", ["home", "Users", "mnt/c/Users"])
 @pytest.mark.parametrize("username", ["李四", "élise", "example李"])
@@ -96,6 +98,7 @@ def test_unicode_home_paths_are_rejected(
     assert privacy.scan(tmp_path) == []
 
 
+@pytest.mark.spec("EG-UNIFIED-DATA-PLANE-R001")
 def test_public_surface_allows_requirement_id_citations(tmp_path: Path) -> None:
     """A hyphen-joined requirement ID (`EG-UNIFIED-DATA-PLANE-R001`) is not a
     host alias; a genuine host alias (`host123`) must still be caught right

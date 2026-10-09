@@ -736,6 +736,7 @@ mod tests {
         assert!(out.scores[11] > core_max, "scores={:?}", out.scores);
     }
 
+    // spec: EG-FEDERATED-QUERY-R034
     #[test]
     fn one_class_svm_without_free_support_vectors_uses_mean_decision_offset() {
         // ν = 1 puts the box bound at C = 1/n, so the feasible start αᵢ = 1/n is
@@ -752,6 +753,7 @@ mod tests {
         }
     }
 
+    // spec: EG-FEDERATED-QUERY-R034
     #[test]
     fn threshold_override_changes_flags() {
         let pts = dense_with_outliers();
@@ -761,6 +763,7 @@ mod tests {
         assert_eq!(out.threshold, 1e9);
     }
 
+    // spec: EG-FEDERATED-QUERY-R034
     #[test]
     fn empty_input_is_empty_result() {
         let out = detect(&[], Algorithm::ZScoreMad, None);

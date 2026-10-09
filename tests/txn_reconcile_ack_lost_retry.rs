@@ -218,6 +218,7 @@ fn certification_fault_spec(request_id: u64, phase: &str) -> String {
     .to_string()
 }
 
+// spec: EG-CONTRACT-R028
 #[tokio::test]
 async fn commit_retry_after_ack_loss_reconciles_across_resident_graphs() {
     let _env_lock = TEST_ENV_LOCK.lock().await;

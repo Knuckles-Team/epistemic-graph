@@ -61,6 +61,7 @@ fn admit_probe<'a>(
     (write, batch, source_version)
 }
 
+// spec: EG-REPO-INGEST-R006
 #[test]
 fn supersede_installs_follower_subscription_and_replays_exact_receipt() {
     let dir = tempfile::tempdir().unwrap();

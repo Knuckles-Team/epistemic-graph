@@ -103,6 +103,7 @@ impl ApplicationAdmission {
 mod tests {
     use super::*;
 
+    // spec: EG-UNIFIED-DATA-PLANE-R024.1
     #[test]
     fn full_admission_path_advances_in_order() {
         let mut admission = ApplicationAdmission::new("gramps");
@@ -112,6 +113,7 @@ mod tests {
         assert_eq!(admission.stage, AdmissionStage::ConnectorRetired);
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R024.1
     #[test]
     fn retiring_connector_before_parity_is_refused() {
         let mut admission = ApplicationAdmission::new("gramps");
@@ -123,6 +125,7 @@ mod tests {
         assert_eq!(admission.stage, AdmissionStage::Admitted);
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R024.1
     #[test]
     fn retiring_connector_from_pending_is_refused() {
         let mut admission = ApplicationAdmission::new("twenty");

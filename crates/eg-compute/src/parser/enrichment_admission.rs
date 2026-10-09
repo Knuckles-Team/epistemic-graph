@@ -852,6 +852,7 @@ mod tests {
         assert_eq!(plan.candidates.len(), 2);
     }
 
+    // spec: EG-TYPED-PACKS-R010
     #[test]
     fn planner_never_exceeds_one_atomic_native_batch() {
         let (outcomes, admissions) = atomic_batch_fixture();
@@ -867,6 +868,7 @@ mod tests {
         assert_eq!(plan.reserved_compute_units, MAX_SUBMIT_BATCH as u64);
     }
 
+    // spec: EG-TYPED-PACKS-R010
     #[test]
     fn continuation_drains_more_than_one_atomic_batch_without_duplicates() {
         let (outcomes, admissions) = atomic_batch_fixture();

@@ -14,6 +14,7 @@
 
     /// EG-127: hash built-ins against the canonical `"abc"` test vectors.
     #[cfg(feature = "sparql-hash")]
+    // spec: EG-FEDERATED-QUERY-R066
     #[test]
     fn eg127_hash_builtins_known_vectors() {
         let v = loaded_view();
@@ -42,6 +43,7 @@
     }
 
     /// EG-127: term constructors — UUID()/STRUUID() and STRDT().
+    // spec: EG-FEDERATED-QUERY-R066
     #[test]
     fn eg127_term_constructors() {
         let v = loaded_view();
@@ -62,6 +64,7 @@
     }
 
     /// EG-127: date-time accessors over an xsd:dateTime lexical + NOW().
+    // spec: EG-FEDERATED-QUERY-R066
     #[test]
     fn eg127_datetime_accessors() {
         let v = loaded_view();

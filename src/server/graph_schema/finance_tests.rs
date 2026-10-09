@@ -42,6 +42,7 @@ fn ex(local: &str) -> String {
     format!("<http://example.org/markets#{local}>")
 }
 
+// spec: EG-FINANCE-PRIMITIVES-R004.2.1, EG-FINANCE-PRIMITIVES-R004.2.2
 #[test]
 fn finance_is_a_core_module_within_the_catalog_bound_and_the_corpus_stays_coherent() {
     let classification = assert_core_catalog(&["finance", "finance-shapes"]);
@@ -79,6 +80,7 @@ fn finance_is_a_core_module_within_the_catalog_bound_and_the_corpus_stays_cohere
 }
 
 /// Every class is mapped and only the core foundation is imported.
+// spec: EG-FINANCE-PRIMITIVES-R004.2.1, EG-FINANCE-PRIMITIVES-R004.2.2
 #[test]
 fn every_finance_class_is_mapped_and_nothing_external_is_imported() {
     let triples = eg_rdf::mapping::parse_turtle(FINANCE).unwrap();
@@ -186,6 +188,7 @@ fn a_backtest_result_may_specialise_the_outcome_evaluation_record() {
     );
 }
 
+// spec: EG-FINANCE-PRIMITIVES-R004.2.1, EG-FINANCE-PRIMITIVES-R004.2.2
 #[test]
 fn finance_shapes_are_their_own_document() {
     let triples = eg_rdf::mapping::parse_turtle(FINANCE_SHAPES).unwrap();
@@ -253,6 +256,7 @@ mod shapes {
         assert!(conforms(&data));
     }
 
+    // spec: EG-FINANCE-PRIMITIVES-R004.1
     #[test]
     fn malformed_finance_records_are_violations() {
         let refused = [
