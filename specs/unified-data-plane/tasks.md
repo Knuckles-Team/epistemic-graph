@@ -40,6 +40,9 @@
 - [ ] **EG-UNIFIED-DATA-PLANE-R019.2:** Native MongoDB/DocumentDB driver connection and change-stream capture into `ChangeEnvelope`.
 - [ ] **EG-UNIFIED-DATA-PLANE-R019.3:** Conformance entry comparing EG query results and captured change stream against native MongoDB/DocumentDB.
 - [ ] **EG-UNIFIED-DATA-PLANE-R020:** Snowflake, BigQuery, DuckDB and Iceberg federation; depends on EG-UNIFIED-DATA-PLANE-R007.
+- [x] **EG-UNIFIED-DATA-PLANE-R020.1:** `WarehouseSourceKind`/`WarehouseSourceConfig` typed model plus required-field refusal (`crates/eg-types/src/warehouse_federation.rs`).
+- [ ] **EG-UNIFIED-DATA-PLANE-R020.2:** Query pushdown per kind (Arrow Flight SQL where offered), extending `eg-query::sql::iceberg_federation` for Iceberg.
+- [ ] **EG-UNIFIED-DATA-PLANE-R020.3:** Conformance entry comparing federated query results against each native warehouse/lake engine.
 - [ ] **EG-UNIFIED-DATA-PLANE-R021:** Debezium Kafka-to-`ChangeEnvelope` bridge; depends on EG-UNIFIED-DATA-PLANE-R008.
 
 ## Platform and app admission
