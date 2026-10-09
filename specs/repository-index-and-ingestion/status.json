@@ -6,6 +6,17 @@
     "EG-REPO-INGEST-R001",
     "EG-REPO-INGEST-R002",
     "EG-REPO-INGEST-R003",
+    "EG-REPO-INGEST-R003.1",
+    "EG-REPO-INGEST-R003.2",
+    "EG-REPO-INGEST-R003.3",
+    "EG-REPO-INGEST-R003.4",
+    "EG-REPO-INGEST-R003.5",
+    "EG-REPO-INGEST-R003.6",
+    "EG-REPO-INGEST-R003.7",
+    "EG-REPO-INGEST-R003.8",
+    "EG-REPO-INGEST-R003.9",
+    "EG-REPO-INGEST-R003.10",
+    "EG-REPO-INGEST-R003.11",
     "EG-REPO-INGEST-R004",
     "EG-REPO-INGEST-R005",
     "EG-REPO-INGEST-R006",
@@ -65,7 +76,74 @@
     },
     {
       "id": "EG-REPO-INGEST-R003",
-      "title": "EG is sole home for remaining migrated ingestion modules",
+      "title": "EG is sole home for remaining migrated ingestion modules (rollup)",
+      "delivery_state": "SPECIFIED",
+      "evidence": [],
+      "remaining": "Rolled up into EG-REPO-INGEST-R003.1-R003.11, one child per migrating legacy-module root; see each child for its own state."
+    },
+    {
+      "id": "EG-REPO-INGEST-R003.1",
+      "title": "EG is sole home for migrated standardization processing (excluding drift detection)",
+      "delivery_state": "BUILDING",
+      "evidence": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R003.2",
+      "title": "EG is sole home for migrated infrastructure processing",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R003.3",
+      "title": "EG is sole home for migrated quantum processing",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R003.4",
+      "title": "EG is sole home for migrated security processing",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R003.5",
+      "title": "EG is sole home for migrated enterprise protocol handling",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R003.6",
+      "title": "EG is sole home for migrated ecosystem concept extraction",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R003.7",
+      "title": "EG is sole home for migrated trace-ontology observability",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R003.8",
+      "title": "EG is sole home for migrated self-ingestion observability",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R003.9",
+      "title": "EG is sole home for migrated audit-logging observability",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R003.10",
+      "title": "EG is sole home for migrated relational-authority governance",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R003.11",
+      "title": "EG is sole home for migrated placement-mining research",
       "delivery_state": "SPECIFIED",
       "evidence": []
     },
