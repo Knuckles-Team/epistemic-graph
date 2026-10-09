@@ -1,0 +1,16 @@
+@prefix : <http://knuckles.team/kg#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+:CodegenSelfTestArtifact a owl:Class ;
+    rdfs:label "Codegen self-test artifact" ;
+    rdfs:comment "A generated-ontology regression fixture (generated)." .
+
+:generated_at a owl:DatatypeProperty ;
+    rdfs:label "Generated_at" ;
+    rdfs:range xsd:dateTime .
+
+<http://knuckles.team/kg/codegen_selftest> a owl:Ontology ;
+    rdfs:label "codegen_selftest Ontology (generated)" ;
+    rdfs:comment "Smallest self-test fragment proving typed-Rust-vocabulary-to-Turtle codegen is deterministic. CONCEPT:EG-KG.ontology.codegen-from-rust-vocabulary." .
