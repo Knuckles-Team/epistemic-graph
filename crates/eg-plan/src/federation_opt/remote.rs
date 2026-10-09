@@ -57,6 +57,10 @@ impl Identity {
             | ForeignSourceSpec::Cypher { .. }
             | ForeignSourceSpec::SparkBatch { .. } => super::oq2::kind(spec).unwrap(),
             ForeignSourceSpec::Named { .. } => "named",
+            ForeignSourceSpec::Api { .. } => "api",
+            ForeignSourceSpec::Mcp { .. } => "mcp",
+            ForeignSourceSpec::A2a { .. } => "a2a",
+            ForeignSourceSpec::GraphQl { .. } => "graphql",
         };
         Self::labelled(kind, name, fp)
     }

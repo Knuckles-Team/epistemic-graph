@@ -126,14 +126,18 @@ mod tests {
     fn empty_fan_out_is_refused() {
         let spec = fan_out(&[]);
         assert!(spec.validate().is_err());
-        let error = target_for(&spec).unwrap_err();
+        let Err(error) = target_for(&spec) else {
+            panic!("the fan-out spec must be refused");
+        };
         assert!(error.contains("no downstream target"), "{error}");
     }
 
     #[test]
     fn duplicate_fan_out_target_is_refused() {
         let spec = fan_out(&["lake", "lake"]);
-        let error = target_for(&spec).unwrap_err();
+        let Err(error) = target_for(&spec) else {
+            panic!("the fan-out spec must be refused");
+        };
         assert!(error.contains("more than once"), "{error}");
     }
 
