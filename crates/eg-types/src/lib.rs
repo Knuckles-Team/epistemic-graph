@@ -34,6 +34,62 @@ pub mod capacity_lease;
 // eg-transaction admission boundary. This module grants no executable capability.
 pub mod authority;
 pub mod change_envelope;
+// EG-UNIFIED-DATA-PLANE-R019.1 — typed inferred-shape catalog for an attached
+// MongoDB/DocumentDB source. Pure data; the native-driver connection and
+// change-stream capture are later children.
+pub mod document_source_catalog;
+// EG-UNIFIED-DATA-PLANE-R020.1 — typed federated warehouse/lake source-kind
+// model (Snowflake, BigQuery, DuckDB, Iceberg) and its per-kind required-field
+// refusal. Pure data; query pushdown and the conformance entry are later
+// children.
+pub mod warehouse_federation;
+// EG-UNIFIED-DATA-PLANE-R021.1 — typed Debezium Kafka change-event envelope
+// shape and its op-code/before-after refusal rules. Pure data; the Kafka
+// consumer and the real ChangeEnvelope conversion are later children.
+pub mod debezium_bridge;
+// EG-UNIFIED-DATA-PLANE-R022.1 — typed per-dialect conformance report entry
+// and deviation shape, refusing an auto-suppressed (unreviewed) deviation.
+// Pure data; running the containerized matrix is a later child.
+pub mod dialect_conformance;
+// EG-UNIFIED-DATA-PLANE-R023.1 — typed shared CloudNativePG/MariaDB cluster
+// group and per-application role-set shape, refusing a Postgres group
+// without logical wal_level and an aliased application role. Pure data;
+// operator wiring, PITR scheduling and the restore drill are later children.
+pub mod shared_db_platform;
+// EG-UNIFIED-DATA-PLANE-R024.1 — typed one-at-a-time application admission
+// stage machine, refusing to retire an ingest connector before parity is
+// confirmed. Pure data; the admission runner, rollback path, and the
+// per-application admission test are later children.
+pub mod platform_admission;
+// EG-UNIFIED-DATA-PLANE-R025.1 — typed pgrx companion-extension spike
+// decision record, refusing an outcome recorded without evidence for every
+// declared scope area. Pure data; running the spike and the ADR review are
+// later children.
+pub mod pgrx_spike;
+// EG-UNIFIED-DATA-PLANE-R026.1 — typed Gramps native-hosting pilot phase
+// gate (P0-P5), refusing a wrong or unreviewed exit artifact and skipping
+// ahead of an un-exited earlier phase. Pure data; running each phase is a
+// later child.
+pub mod gramps_pilot_phase;
+// EG-UNIFIED-DATA-PLANE-R027.1 — typed Postgres compatibility-feature
+// inventory and fix-proof shape, refusing a fix recorded without a complete
+// captured-traffic/failing-test/passing-test proof. Pure data;
+// implementing each proven feature is a later child.
+pub mod pg_compat_feature;
+// EG-UNIFIED-DATA-PLANE-R028.1 — typed Postgres-equivalence differential
+// deviation baseline, refusing a baseline update that drops a deviation
+// without an explicit resolution record (no self-updating baseline). Pure
+// data; running the regression/SQLancer/captured-traffic corpora is a
+pub mod pg_diff_baseline;
+// EG-UNIFIED-DATA-PLANE-R029.1 — typed schema_context answer shape and
+// catalog, refusing to answer for a table absent from the catalog. Pure
+// data; wiring the real query entry point is a later child.
+pub mod schema_context;
+// EG-UNIFIED-DATA-PLANE-R030.1 — typed cross-application entity-link
+// proposal, refusing an owl:sameAs assertion before approval or for a
+// non-Match classification. Pure data; blocking, field-similarity scoring
+// and the real Fellegi-Sunter model are later children.
+pub mod entity_link_proposal;
 // GOC-03 — the cross-domain commit-descriptor/read-barrier currency shared by
 // graph, modality, vector, blob/refcount, time-series, evidence, table/lake, and
 // terminal-analytics-outcome participants. Deliberately a NEW module (not folded
@@ -50,6 +106,11 @@ pub mod contract;
 // results and the durable import record. Pure serde; the importer and its
 // validation rules live in the server.
 pub mod connector_pack;
+// EG-TYPED-PACKS-R097.1 — one typed, versioned domain vocabulary (classes,
+// enumerations, properties, alignment to an upper ontology), published through
+// the pack import boundary above `connector_pack`. Pure data; validation lives
+// here, import wiring lands in a later child requirement.
+pub mod domain_pack;
 // RF-ADR-010 — the Decide layer's wire contract: assembly requests and records,
 // the decision policy, the statistical surface and the two admin jobs. Pure
 // data; every algorithm lives above this crate.
@@ -58,6 +119,29 @@ pub mod decision;
 // beside the server registry, and the typed projection that joins them with
 // connector-pack `AgentComponent`s. Pure serde; the handler lives in the server.
 pub mod fleet_catalog;
+// EG-DURABLE-KERNEL-R032 — the native primary-key fast-path routing decision
+// (pgwire/MySQL/MSSQL point operations that bypass DataFusion planning).
+// Pure serde, no dep.
+pub mod fast_path;
+// EG-DURABLE-KERNEL-R033 — the hot-store engine evaluation's typed model
+// (redb/fjall/RocksDB candidates, workload profiles, validated benchmark
+// results, winner selection). Pure serde, no dep.
+pub mod hot_store_engine;
+// EG-DURABLE-KERNEL-R034 — cross-store atomicity's typed transaction-scope
+// model: a single-store scope structurally can never map to the cross-store
+// commit path. Pure serde, no dep.
+pub mod cross_store_scope;
+// EG-DURABLE-KERNEL-R035 — the PostgreSQL wire protocol's required
+// operational surfaces and a fail-closed compatibility matrix. Pure serde,
+// no dep.
+pub mod pg_operational_surface;
+// EG-DURABLE-KERNEL-R039 — in-memory structure/atomic-primitive kinds and a
+// durability declaration that always names redb as sole durability
+// authority. Pure serde, no dep.
+pub mod atomic_primitive;
+// EG-DURABLE-KERNEL-R040 — pipelined RESP/pgwire-extended batch admission:
+// one admission maps to exactly one commit with order-preserving replies.
+pub mod pipeline_batch;
 // EH-346/EH-347 — capture-first open-weight policy evolution: the capability,
 // capture, model-policy version, training-run and evaluation records EG owns.
 // Pure serde; EG records and relates, it never trains.
@@ -75,6 +159,21 @@ pub mod distribution;
 // EG-DURABLE-KERNEL-R038 — the declared durability class (ephemeral/async/sync)
 // a KV namespace or table carries. Pure serde, no dep.
 pub mod durability_class;
+// EG-DURABLE-KERNEL-R037 — the workload classification (point/structure/sql)
+// every wire listener routes an operation by. Pure, no dep.
+pub mod workload_class;
+// EG-DURABLE-KERNEL-R041 — the SQL plan cache key (statement digest + schema
+// version) and its lookup decision. Pure, no dep beyond `contract::Digest256`.
+pub mod plan_cache_key;
+// EG-DURABLE-KERNEL-R042 — a published benchmark report's typed superiority
+// claim and the refusal for an unpublished-configuration or non-passing one.
+pub mod benchmark_claim;
+// EG-DURABLE-KERNEL-R011 — the required pre-merge test-module category
+// (raft/backup/persistence) and a validated declaration within one.
+pub mod pre_merge_test_module;
+// EG-DURABLE-KERNEL-R036 — the mirror-sink side: sink kind (fan-out/postgres)
+// and durable per-mirror cursor with a non-empty-position guard. Pure serde, no dep.
+pub mod mirror_sink;
 // CONCEPT:EG-KG.compute.epistemic-operations-protocol — strict shared DTOs for
 // RequestContext, mutation/ingestion, work, artifact, query, job, and trace outcomes.
 pub mod epistemic_operations;
@@ -219,6 +318,12 @@ pub mod governed_change;
 // EH-406 -- error-budget adaptive (AIMD) throttling on a capacity cell:
 // automatic steps only narrow or give back what they narrowed.
 pub mod capacity_throttle;
+// EG-UNIFIED-DATA-PLANE-R003 — the typed, hashed attached-source catalog graph
+// (tables/columns) and its ambiguous-table refusal.
+pub mod attached_catalog;
+// EG-UNIFIED-DATA-PLANE-R004 — bounded, policy-gated column-sampling budget
+// for deterministic schema inference.
+pub mod schema_inference;
 // D-VZ-1 (lanes V4 "engine integration" / V6 "graph-native marks") — the native
 // visualization engine's wire op (`VizOp`), gated `viz`. Lives here (not in
 // `eg-viz-core`, which sits in a separate small leaf DAG, not below eg-types) for

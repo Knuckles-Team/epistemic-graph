@@ -25,17 +25,29 @@
     "EG-UNIFIED-DATA-PLANE-R017",
     "EG-UNIFIED-DATA-PLANE-R018",
     "EG-UNIFIED-DATA-PLANE-R019",
+    "EG-UNIFIED-DATA-PLANE-R019.1",
     "EG-UNIFIED-DATA-PLANE-R020",
+    "EG-UNIFIED-DATA-PLANE-R020.1",
     "EG-UNIFIED-DATA-PLANE-R021",
+    "EG-UNIFIED-DATA-PLANE-R021.1",
     "EG-UNIFIED-DATA-PLANE-R022",
+    "EG-UNIFIED-DATA-PLANE-R022.1",
     "EG-UNIFIED-DATA-PLANE-R023",
+    "EG-UNIFIED-DATA-PLANE-R023.1",
     "EG-UNIFIED-DATA-PLANE-R024",
+    "EG-UNIFIED-DATA-PLANE-R024.1",
     "EG-UNIFIED-DATA-PLANE-R025",
+    "EG-UNIFIED-DATA-PLANE-R025.1",
     "EG-UNIFIED-DATA-PLANE-R026",
+    "EG-UNIFIED-DATA-PLANE-R026.1",
     "EG-UNIFIED-DATA-PLANE-R027",
+    "EG-UNIFIED-DATA-PLANE-R027.1",
     "EG-UNIFIED-DATA-PLANE-R028",
+    "EG-UNIFIED-DATA-PLANE-R028.1",
     "EG-UNIFIED-DATA-PLANE-R029",
+    "EG-UNIFIED-DATA-PLANE-R029.1",
     "EG-UNIFIED-DATA-PLANE-R030",
+    "EG-UNIFIED-DATA-PLANE-R030.1",
     "EG-UNIFIED-DATA-PLANE-R031",
     "EG-UNIFIED-DATA-PLANE-R032",
     "EG-UNIFIED-DATA-PLANE-R033",
@@ -43,7 +55,16 @@
     "EG-UNIFIED-DATA-PLANE-R035",
     "EG-UNIFIED-DATA-PLANE-R036",
     "EG-UNIFIED-DATA-PLANE-R037",
-    "EG-UNIFIED-DATA-PLANE-R038"
+    "EG-UNIFIED-DATA-PLANE-R038",
+    "EG-UNIFIED-DATA-PLANE-R010.1",
+    "EG-UNIFIED-DATA-PLANE-R008.1",
+    "EG-UNIFIED-DATA-PLANE-R003.1",
+    "EG-UNIFIED-DATA-PLANE-R004.1",
+    "EG-UNIFIED-DATA-PLANE-R005.1",
+    "EG-UNIFIED-DATA-PLANE-R006.1",
+    "EG-UNIFIED-DATA-PLANE-R007.1",
+    "EG-UNIFIED-DATA-PLANE-R009.1",
+    "EG-UNIFIED-DATA-PLANE-R011.1"
   ],
   "delivery_state": "BUILDING",
   "acceptance_state": "NOT_AUDITED",
@@ -90,55 +111,55 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R003",
       "title": "Extract typed, hashed catalog graphs per dialect",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
       "evidence": []
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R004",
       "title": "Infer schema structure deterministically from attached catalogs",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
       "evidence": []
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R005",
       "title": "Compile approved relational mappings to named R2RML virtual graphs",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
       "evidence": []
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R006",
       "title": "Push down virtual-graph queries to source SQL",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
       "evidence": []
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R007",
       "title": "Federate attached tables as DataFusion table providers",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
       "evidence": []
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R008",
       "title": "Normalize change capture into a durable, replayable framework",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
       "evidence": []
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R009",
       "title": "Drive consumers from change capture idempotently",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
       "evidence": []
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R010",
       "title": "Maintain an accelerated local copy of attached data",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
       "evidence": []
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R011",
       "title": "Route queries by freshness across native, live, and accelerated paths",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
       "evidence": []
     },
     {
@@ -186,73 +207,145 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R019",
       "title": "Implement the MongoDB and DocumentDB attached-source adapter",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R019.1",
+      "title": "DocumentSourceCatalog typed inferred-shape model and field-path refusal",
+      "delivery_state": "BUILT",
       "evidence": []
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R020",
       "title": "Federate Snowflake, BigQuery, DuckDB, and Iceberg sources",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R020.1",
+      "title": "WarehouseSourceKind/WarehouseSourceConfig typed model and required-field refusal",
+      "delivery_state": "BUILT",
       "evidence": []
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R021",
       "title": "Bridge Debezium Kafka events into ChangeEnvelope",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R021.1",
+      "title": "DebeziumChangeEvent typed envelope shape and op-code/before-after refusal",
+      "delivery_state": "BUILT",
       "evidence": []
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R022",
       "title": "Build a per-dialect conformance harness",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R022.1",
+      "title": "DialectConformanceEntry/ConformanceReport typed model and auto-suppression refusal",
+      "delivery_state": "BUILT",
       "evidence": []
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R023",
       "title": "Operate a shared CloudNativePG and MariaDB platform",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R023.1",
+      "title": "SharedPlatformClusterGroup typed model and engine-specific refusal",
+      "delivery_state": "BUILT",
       "evidence": []
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R024",
       "title": "Admit applications to the shared platform with rollback",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R024.1",
+      "title": "ApplicationAdmission typed stage machine and early-retirement refusal",
+      "delivery_state": "BUILT",
       "evidence": []
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R025",
       "title": "Evaluate a pgrx companion extension through a spike",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R025.1",
+      "title": "PgrxSpikeDecision typed model and full-scope-evidence refusal",
+      "delivery_state": "BUILT",
       "evidence": []
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R026",
       "title": "Run the Gramps native-hosting pilot phases P0 through P5",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R026.1",
+      "title": "GrampsPilotProgress typed P0-P5 phase gate and refusal rules",
+      "delivery_state": "BUILT",
       "evidence": []
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R027",
       "title": "Fix Postgres compatibility gaps proven by captured traffic",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R027.1",
+      "title": "FeatureFixRecord typed inventory and incomplete-proof refusal",
+      "delivery_state": "BUILT",
       "evidence": []
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R028",
       "title": "Build the Postgres-equivalence differential harness",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R028.1",
+      "title": "DeviationBaseline typed model and no-silent-drop refusal",
+      "delivery_state": "BUILT",
       "evidence": []
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R029",
       "title": "Expose a schema_context query surface",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R029.1",
+      "title": "SchemaContextCatalog typed model and unknown-table refusal",
+      "delivery_state": "BUILT",
       "evidence": []
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R030",
       "title": "Resolve entities across attached applications",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R030.1",
+      "title": "EntityLinkProposal typed model and unapproved/non-Match refusal",
+      "delivery_state": "BUILT",
       "evidence": []
     },
     {
@@ -325,6 +418,60 @@
       "id": "EG-UNIFIED-DATA-PLANE-R038",
       "title": "Materialize metadata and hot subsets; virtualize the rest",
       "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R010.1",
+      "title": "AccelerationPolicy typed per-table policy and validated declaration",
+      "delivery_state": "BUILT",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R008.1",
+      "title": "ChangeEnvelope/ChangeOp typed change-capture record and validated refusal rule",
+      "delivery_state": "BUILT",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R003.1",
+      "title": "AttachedCatalogGraph typed, reorder-stable hashed catalog model",
+      "delivery_state": "BUILT",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R004.1",
+      "title": "ColumnSamplingBudget bounded, policy-gated typed model",
+      "delivery_state": "BUILT",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R005.1",
+      "title": "VirtualGraphMapping typed approval-state model",
+      "delivery_state": "BUILT",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R006.1",
+      "title": "PushdownDecision typed fallback-reason model",
+      "delivery_state": "BUILT",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R007.1",
+      "title": "DialectPushdownCapabilities typed operation-set model",
+      "delivery_state": "BUILT",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R009.1",
+      "title": "ConsumerCheckpoint typed idempotent-apply model",
+      "delivery_state": "BUILT",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R011.1",
+      "title": "FreshnessRoute/ReadYourWritesWait typed bounded-wait model",
+      "delivery_state": "BUILT",
       "evidence": []
     }
   ]

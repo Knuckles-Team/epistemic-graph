@@ -1072,6 +1072,9 @@ use log_tests::{retention_compacts_and_verifies, retention_retires};
 
 mod classes_tests;
 
+mod a2a_tests;
+
+mod tool_subset_tests;
 mod consumer_tests;
 
 #[cfg(feature = "query")]
@@ -1092,6 +1095,9 @@ mod nl_tests;
 
 mod pretool_risk_tests;
 
+mod connector_triage_tests;
+mod connector_toolchoice_tests;
+mod connector_writeback_tests;
 mod scorer_tests;
 // EH-528: replay evaluation (its validation kernels are finance's).
 #[cfg(feature = "finance")]

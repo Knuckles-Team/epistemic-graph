@@ -34,6 +34,8 @@ method_results! {
     KnowledgeStream(KnowledgeStream) => Raw<KnowledgeStreamBatch>;
     // `[node id, score | nil]` rows of the cross-modal plan.
     UnifiedQuery(UnifiedQuery) => Raw<Vec<(String, Option<f32>)>>;
+    #[cfg(feature = "federation")]
+    QueryForeignColumns(QueryForeignColumns) => Raw<Vec<crate::wire::ForeignColumnRow>>;
     // A UQL statement's rows (with named score channels), EXPLAIN report or PROFILE.
     #[cfg(feature = "query")]
     Uql(Uql) => Raw<crate::wire::UqlResult>;

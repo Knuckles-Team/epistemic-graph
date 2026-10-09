@@ -56,6 +56,10 @@ mod stat_slate;
 mod stat_slate_attribution;
 #[cfg(feature = "decide")]
 mod stat_support;
+// EG-DECISION-ENGINE-R045: the smallest covering tool subset within a
+// context-token budget.
+#[cfg(feature = "decide")]
+mod stat_tool_subset;
 #[cfg(feature = "decide")]
 mod stat_vectors;
 // EH-528: walk-forward replay evaluation (its validation kernels are finance's).

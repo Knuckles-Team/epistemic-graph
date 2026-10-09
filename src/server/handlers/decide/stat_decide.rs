@@ -25,6 +25,8 @@ use eg_types::decision::{
     TraceFidelity, STATISTICAL_DECISION_RECORD_SCHEMA_VERSION,
 };
 
+use eg_numeric::decision::ladder::LadderResult;
+
 use super::candidates::{read_candidates, ReadCandidates};
 use super::stat_belief::{live_slices, Slices};
 use super::stat_executor::{
@@ -33,6 +35,7 @@ use super::stat_executor::{
 use super::stat_log::{fill_outcome_rates, LogReader};
 use super::stat_nl::binding;
 use super::stat_support::{refusal, resolve_policy, ResolvedPolicy};
+use super::stat_tool_subset::tool_subset_outcome;
 use super::telemetry;
 use crate::protocol::{Response, ResultPayload};
 use crate::server::auth::VerifiedRequestContext;
@@ -128,7 +131,21 @@ fn decide_blocking(
         policy.statistical.tenant_public_features,
         &mut candidates.views,
     )?;
-    let executed = execute(ctx, request, &pinned, &policy, &candidates.views)?;
+    let executed = match tool_subset_outcome(request) {
+        Some(outcome_result) => Executed {
+            matrix: None,
+            ladder: LadderResult {
+                outcome: outcome_result?,
+                calibration: None,
+                explained: None,
+                audit: None,
+                logging: Vec::new(),
+            },
+            reading: None,
+            seed: [0u8; 32],
+        },
+        None => execute(ctx, request, &pinned, &policy, &candidates.views)?,
+    };
     let slices = live_slices(ctx, request, &pinned, &candidates.views)?;
     let nl = binding(request, &executed.ladder.outcome, &candidates.entries)?;
     let record = seal(

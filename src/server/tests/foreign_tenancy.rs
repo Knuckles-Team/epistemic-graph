@@ -139,6 +139,179 @@ async fn foreign_source_resolves_only_for_the_registering_principal() {
     assert_not_registered_for_caller(&b, "UQL FOREIGN marker");
 }
 
+/// The column read uses the same owner boundary as UQL and rejects an unmapped
+/// column before attempting the registered SQL connection.
+#[tokio::test]
+async fn foreign_column_read_is_owner_scoped_and_mapping_gated() {
+    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    let state = multi_tenant_state().await;
+    register_in(
+        &state,
+        940,
+        OWNER_A,
+        eg_types::wire::ForeignSourceSpec::Sql {
+            dsn: "postgres://db.invalid/records".into(),
+            query: "SELECT id, name FROM records".into(),
+            id_field: "id".into(),
+            score_field: None,
+            columns: vec!["name".into()],
+        },
+    )
+    .await;
+    let query = || Method::QueryForeignColumns {
+        name: "remote_docs".into(),
+        columns: vec!["hidden".into()],
+        predicates: vec![],
+    };
+    let owner = dispatch_as(&state, 941, OWNER_A, query()).await;
+    assert!(
+        owner
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .starts_with("INVALID_ARGUMENT"),
+        "mapped-column refusal must precede connection: {:?}",
+        owner.error
+    );
+    let other = dispatch_as(&state, 942, OTHER_B, query()).await;
+    assert!(other
+        .error
+        .as_deref()
+        .unwrap_or("")
+        .starts_with("INVALID_ARGUMENT"));
+    let too_many = dispatch_as(
+        &state,
+        943,
+        OWNER_A,
+        Method::QueryForeignColumns {
+            name: "remote_docs".into(),
+            columns: vec!["name".into(); 129],
+            predicates: vec![],
+        },
+    )
+    .await;
+    assert!(too_many
+        .error
+        .as_deref()
+        .unwrap_or("")
+        .starts_with("INVALID_ARGUMENT"));
+    let numeric = dispatch_as(
+        &state,
+        944,
+        OWNER_A,
+        Method::QueryForeignColumns {
+            name: "remote_docs".into(),
+            columns: vec!["name".into()],
+            predicates: vec![eg_types::wire::ForeignColumnPredicate {
+                column: "name".into(),
+                comparison: eg_types::wire::ForeignColumnComparison::Eq,
+                value: serde_json::json!(42),
+            }],
+        },
+    )
+    .await;
+    assert!(numeric
+        .error
+        .as_deref()
+        .unwrap_or("")
+        .starts_with("INVALID_ARGUMENT"));
+}
+
+/// A verified owner receives only projected columns after the local residual;
+/// another owner cannot spend this HTTP source or read its mapped values.
+#[tokio::test]
+async fn foreign_column_http_read_returns_projected_filtered_rows() {
+    use std::collections::BTreeMap;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    struct RestoreAllow(Option<std::ffi::OsString>);
+    impl Drop for RestoreAllow {
+        fn drop(&mut self) {
+            let key = eg_plan::federation::HTTP_JSON_FEDERATION_ALLOW_ENV;
+            if let Some(previous) = self.0.take() {
+                std::env::set_var(key, previous);
+            } else {
+                std::env::remove_var(key);
+            }
+        }
+    }
+
+    let _env_lock = crate::crypto::acquire_test_env_lock().await;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    let body = r#"{"data":[{"ref":"a","name":"Ada","age":19},{"ref":"b","name":"Bea","age":42},{"ref":"c","name":"Cam","age":55}]}"#;
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let mut request = [0; 1024];
+        let _ = socket.read(&mut request).await.unwrap();
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        socket.write_all(response.as_bytes()).await.unwrap();
+    });
+    let key = eg_plan::federation::HTTP_JSON_FEDERATION_ALLOW_ENV;
+    let _restore = RestoreAllow(std::env::var_os(key));
+    std::env::set_var(key, &origin);
+
+    let state = multi_tenant_state().await;
+    register_in(
+        &state,
+        945,
+        OWNER_A,
+        eg_types::wire::ForeignSourceSpec::HttpJson {
+            url: format!("{origin}/"),
+            json_path: "data".into(),
+            field_map: eg_types::wire::HttpFieldMap {
+                id: "ref".into(),
+                score: None,
+                columns: BTreeMap::from([
+                    ("name".into(), "name".into()),
+                    ("age".into(), "age".into()),
+                ]),
+            },
+        },
+    )
+    .await;
+    let query = || Method::QueryForeignColumns {
+        name: "remote_docs".into(),
+        columns: vec!["name".into()],
+        predicates: vec![eg_types::wire::ForeignColumnPredicate {
+            column: "age".into(),
+            comparison: eg_types::wire::ForeignColumnComparison::Ge,
+            value: serde_json::json!(40),
+        }],
+    };
+    let owner = dispatch_as(&state, 946, OWNER_A, query()).await;
+    assert_ok(&owner);
+    let Some(ResultPayload::Raw(raw)) = owner.result else {
+        panic!("foreign column response must be typed MessagePack rows");
+    };
+    let rows: Vec<eg_types::wire::ForeignColumnRow> = rmp_serde::from_slice(&raw).unwrap();
+    assert_eq!(
+        rows.iter().map(|row| row.id.as_str()).collect::<Vec<_>>(),
+        vec!["b", "c"]
+    );
+    assert_eq!(
+        rows[0].columns,
+        BTreeMap::from([("name".into(), serde_json::json!("Bea"))])
+    );
+    assert_eq!(
+        rows[1].columns,
+        BTreeMap::from([("name".into(), serde_json::json!("Cam"))])
+    );
+    let other = dispatch_as(&state, 947, OTHER_B, query()).await;
+    assert!(other
+        .error
+        .as_deref()
+        .unwrap_or("")
+        .starts_with("INVALID_ARGUMENT"));
+    tokio::time::timeout(std::time::Duration::from_secs(5), server)
+        .await
+        .expect("mock HTTP source was not called")
+        .unwrap();
+}
+
 /// Both principals register the SAME name. Each resolves its OWN spec: A still reaches
 /// the remote engine (B's registration did not overwrite A's), and B's query runs B's
 /// own unreachable HTTP spec — it fails on the fetch, not on name resolution, and never
@@ -153,6 +326,7 @@ async fn same_name_for_two_principals_resolves_each_owners_own_spec() {
         field_map: eg_types::wire::HttpFieldMap {
             id: "id".into(),
             score: None,
+            columns: Default::default(),
         },
     };
     register_in(&local, 911, OTHER_B, b_spec).await;

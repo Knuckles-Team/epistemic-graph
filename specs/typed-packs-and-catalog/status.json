@@ -93,6 +93,7 @@
     "EG-TYPED-PACKS-R088",
     "EG-TYPED-PACKS-R089",
     "EG-TYPED-PACKS-R090",
+    "EG-TYPED-PACKS-R090.1",
     "EG-TYPED-PACKS-R091",
     "EG-TYPED-PACKS-R092",
     "EG-TYPED-PACKS-R093",
@@ -100,6 +101,7 @@
     "EG-TYPED-PACKS-R095",
     "EG-TYPED-PACKS-R096",
     "EG-TYPED-PACKS-R097",
+    "EG-TYPED-PACKS-R097.1",
     "EG-TYPED-PACKS-R098",
     "EG-TYPED-PACKS-R099"
   ],
@@ -1374,7 +1376,13 @@
       "title": "Canonical ontology and SHACL artifacts generated from Rust",
       "delivery_state": "SPECIFIED",
       "evidence": [],
-      "remaining": "No generator binary/script that deterministically emits the .ttl ontology/SHACL artifacts from the typed Rust vocabulary, and no regeneration byte-equality diff test, found on main; the .ttl files are checked-in/compiled, not shown to be code-generated."
+      "remaining": "Rollup; delivered by child requirements. R090.1 lands the typed-vocabulary-to-Turtle generator mechanism (byte-equality regen test); later children migrate the existing crates/eg-core/ontology/*.ttl corpus onto it."
+    },
+    {
+      "id": "EG-TYPED-PACKS-R090.1",
+      "title": "A typed-vocabulary-to-Turtle generator reproduces checked-in output byte-for-byte",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
     },
     {
       "id": "EG-TYPED-PACKS-R091",
@@ -1463,6 +1471,13 @@
     {
       "id": "EG-TYPED-PACKS-R097",
       "title": "Domain vocabularies ship as typed domain packs",
+      "delivery_state": "SPECIFIED",
+      "evidence": [],
+      "remaining": "Rollup; delivered by child requirements. R097.1 lands the typed HR DomainPack model and its validation + round-trip test; later children cover legal/medical/government and the agent-utilities caller cutover."
+    },
+    {
+      "id": "EG-TYPED-PACKS-R097.1",
+      "title": "HR domain vocabulary ships as a typed domain pack",
       "delivery_state": "SPECIFIED",
       "evidence": []
     },

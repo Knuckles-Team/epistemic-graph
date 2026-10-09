@@ -13,11 +13,19 @@ Check boxes describe work remaining for this combined contract. They do not cert
 ## Federation and virtual graphs
 
 - [x] Qualify capability model, shared renderer, typed budgets and optimized/full-fetch oracle on the exact public head. **EG-FEDERATED-QUERY-R038, EG-FEDERATED-QUERY-R041–EG-FEDERATED-QUERY-R043**
+- [ ] Add a typed `ForeignSourceCapability`/cost-model struct (cardinality estimate, network-budget cost, which of projection/filter/limit-order/aggregate/same-source-join/batched-lookup pushdown kinds the source's declared capability proves sound) plus construction and refusal tests. **EG-FEDERATED-QUERY-R038.1**
 - [ ] Expose redacted trace and caller-lowered budget in served UQL `EXPLAIN`/`PROFILE`; verify no URL/DSN leakage. **EG-FEDERATED-QUERY-R044**
+- [ ] Qualify capability model, shared renderer, typed budgets and optimized/full-fetch oracle on the exact public head. **EG-FEDERATED-QUERY-R038, EG-FEDERATED-QUERY-R041–EG-FEDERATED-QUERY-R043**
+- [x] Expose redacted trace and caller-lowered budget in served UQL `EXPLAIN`/`PROFILE`; verify no URL/DSN leakage. **EG-FEDERATED-QUERY-R044**
 - [ ] Add typed column-carrying foreign rows and exact/inexact/unsupported residual handling; validate foreign-only predicates, projection dependencies and schema drift against a full-fetch oracle. **EG-FEDERATED-QUERY-R045**
 - [x] Execute approved OBDA virtual-graph solutions with typed ORDER/LIMIT/aggregate/join pushdown and sound fallback. **EG-FEDERATED-QUERY-R046, EG-FEDERATED-QUERY-R055**
 - [x] Bound source concurrency, learn/persist provenance-tagged stats, and cache only with fresh owner-bound watermarks. **EG-FEDERATED-QUERY-R018, EG-FEDERATED-QUERY-R047–EG-FEDERATED-QUERY-R049**
+- [x] Define `JoinCardinalityStatistic`/`StatisticsProvenance` in `crates/eg-plan/src/federation_stats.rs`, refusing a statistic built with no provenance. **EG-FEDERATED-QUERY-R048.1**
 - [x] Qualify SPARQL SERVICE bind join, Iceberg pruning, RemoteEngine pushdown and the SSRF guard under the one outbound gate. **EG-FEDERATED-QUERY-R050, EG-FEDERATED-QUERY-R051, EG-FEDERATED-QUERY-R052, EG-FEDERATED-QUERY-R054**
+- [x] Add typed column-carrying foreign rows and exact/inexact/unsupported residual handling; validate foreign-only predicates, projection dependencies and schema drift against a full-fetch oracle. **EG-FEDERATED-QUERY-R045**
+- [ ] Execute approved OBDA virtual-graph solutions with typed ORDER/LIMIT/aggregate/join pushdown and sound fallback. **EG-FEDERATED-QUERY-R046, EG-FEDERATED-QUERY-R055**
+- [ ] Bound source concurrency, learn/persist provenance-tagged stats, and cache only with fresh owner-bound watermarks. **EG-FEDERATED-QUERY-R018, EG-FEDERATED-QUERY-R047–EG-FEDERATED-QUERY-R049**
+- [ ] Qualify SPARQL SERVICE bind join, Iceberg pruning, RemoteEngine pushdown and the SSRF guard under the one outbound gate. **EG-FEDERATED-QUERY-R050, EG-FEDERATED-QUERY-R051, EG-FEDERATED-QUERY-R052, EG-FEDERATED-QUERY-R054**
 - [x] Register Trino, Cypher and Spark as typed `ForeignSourceSpec` kinds with per-kind capability sets; Spark is batch-only. **EG-FEDERATED-QUERY-R053**
 - [x] Prove RemoteEngine key/LIMIT UQL pushdown against a recording second engine, including signed owner context, exact residual, pagination and bounded fallback. **EG-FEDERATED-QUERY-R052**
 - [ ] Integrate the local [unified-data-plane](../unified-data-plane/spec.md) source identity and approved mapping contract without duplicating its registry or dialect work. **EG-UNIFIED-DATA-PLANE-R002, EG-UNIFIED-DATA-PLANE-R005–EG-UNIFIED-DATA-PLANE-R007 interface only**
@@ -34,9 +42,14 @@ Check boxes describe work remaining for this combined contract. They do not cert
 - [x] Close the remaining requirements no task above names: community-detection quality function and naming/connectivity (**EG-FEDERATED-QUERY-R060, EG-FEDERATED-QUERY-R063**), streaming memory test isolation (**EG-FEDERATED-QUERY-R062**), SPARQL evaluator file-size split (**EG-FEDERATED-QUERY-R066**), and SQL/HTTP pushdown batching and pagination (**EG-FEDERATED-QUERY-R069, EG-FEDERATED-QUERY-R071**); see `requirements.md` for each ID's definition.
 
 - [ ] Serve ontology source selection with premises and add operation-bound API, MCP, A2A and GraphQL source kinds; run F-07 and F-08. **EG-FEDERATED-QUERY-R072, EG-FEDERATED-QUERY-R073**
+  - [ ] Typed `CoverageResult`/`SourceSelectionHop`/`Premise` model in `eg-rdf::source_selection`, proved against a fixture (direct mapping, subclass-serves-superclass, uncovered, disconnected). **EG-FEDERATED-QUERY-R072.1**
+  - [ ] Typed `ForeignSourceSpec` variants (`Api`/`Mcp`/`A2a`/`GraphQl`) with declared `ForeignOperationCapabilities`, plus unbound/ungranted and budget-exceeded refusal tests. **EG-FEDERATED-QUERY-R073.1**
 
 ## Acceptance
 
 - [ ] Run all applicable [test cases](test-spec.md) and quality gates on the final public head; record one evidence line per accepted ID.
 - [ ] Reconcile the spec state legend and delivery crosswalk against public merged commits and hosted CI. Do not mark a historical `BUILT` row `ACCEPTED` without the stated proof.
 - [ ] Keep the SQL provider module within the configured KISS file cap with behavior-preserving extraction. **EG-FEDERATED-QUERY-R057**
+- [x] Add the typed `NlQueryResult`/`NlQueryError`/`NlQueryBudget` disclosure model (`plan_only`, `plan_and_execute_typed`) to `eg-plan`, with refusal and plan-only tests. **EG-FEDERATED-QUERY-R058.1**
+- [ ] Wire `Method::NlQuery`'s dispatch handler and result contract to the typed disclosure model so the served result carries the executed UQL, and expose a plan-only entry point to callers. **EG-FEDERATED-QUERY-R058.2**
+- [ ] Confirm natural-language results are never cached on the NL text and that no mutating/side-effecting operation is reachable from the NL surface. **EG-FEDERATED-QUERY-R058.3**

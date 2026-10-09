@@ -261,6 +261,29 @@ async fn select_only_and_structured_encoding_hold_across_distinct_question_kinds
     }
 }
 
+/// EG-DECISION-ENGINE-R094: the resident decision scorer serves a decision
+/// with no GPU device, model-serving sidecar or separate inference cluster.
+/// This test runs on an ordinary hosted-CI runner with no GPU hardware and
+/// no sidecar process reachable, so fitting, promoting and reading an
+/// `OptionAttention` head end to end through the served `Decide` path here
+/// is itself the deployment proof: the resident scorer's own forward pass
+/// is a synchronous, in-process, fixed-point function (EG-DECISION-ENGINE-R090
+/// times its CPU cost directly), never an RPC to a model server, so nothing
+/// in this path could reach a GPU or sidecar even were one present.
+async fn a_resident_scorer_decision_is_served_with_no_gpu_or_model_server_present() {
+            301,
+    let passed = evaluated(&h, 302, (draft_sha256, draft_length), data).await;
+            "head-scorer-no-gpu",
+            "resident scorer, no-GPU proof",
+    // The served path reads the resident scorer and answers -- the ladder
+    // abstains on this synthetic calibration, but the decision IS served:
+    // no GPU, no model-serving sidecar, no separate inference cluster.
+    let batch = decide_and_assert_abstains(&h, &fixture.schema_pin, Some(head_pin)).await;
+    let record = &batch.records.as_slice()[0];
+    assert!(
+        record.synthetic_evidence,
+        "a decision was served end to end through the resident scorer with no GPU feature compiled in"
+    );
 /// EH-297 refusals: a belief needs a head, and no slice is after the clock.
 async fn belief_slices_are_refused_without_a_head_or_in_the_future(
     h: &Harness,

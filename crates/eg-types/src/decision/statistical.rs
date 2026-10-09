@@ -12,6 +12,7 @@ pub mod dataset;
 pub mod declared;
 pub mod enrichment_schedule;
 pub mod errors;
+pub mod execution_routing;
 pub mod features;
 pub mod head;
 pub mod ingestion_lane;
@@ -68,6 +69,34 @@ pub enum QuestionKind {
     /// only ever inform a caller's own authorization step -- it carries no
     /// mechanism to itself gate or block the invocation.
     PreToolRisk,
+    /// An inbound A2A task routed to an existing or assembled agent graph
+    /// (EG-DECISION-ENGINE-R044). Resolution kind and evidence class are
+    /// computed generically from the outcome and premises, exactly as for
+    /// every other question kind; this variant adds no executor branch.
+    A2aTask,
+    /// Inbound connector-event classification, evaluate-only
+    /// (EG-DECISION-ENGINE-R041): `Decide` returns a proposal and its
+    /// evidence class and takes no action on the connector's behalf -- the
+    /// same evaluate-only guarantee this module's own doc states for every
+    /// kind, named here for the connector-triage use case specifically.
+    ConnectorEventTriage,
+    /// Which internal tool a connector should use for a task, advisory only
+    /// (EG-DECISION-ENGINE-R042): `Decide` returns a proposal with evidence;
+    /// the connector's own deterministic authorization path, never `Decide`,
+    /// governs whether a resulting write-back actually occurs.
+    ConnectorToolChoice,
+    /// A write-back proposal for a connector action, with supporting
+    /// evidence (EG-DECISION-ENGINE-R043): the proposal never authorizes the
+    /// write itself. Any exploration or statistical head behind it stays
+    /// outside the connector's own deterministic authorization step, which
+    /// alone approves the write.
+    ConnectorWriteBack,
+    /// The smallest tool subset covering every required capability within a
+    /// context-token budget (EG-DECISION-ENGINE-R045). Candidates are
+    /// declared (`CandidateSource::Declared`); required capabilities and the
+    /// budget are typed request params (`required_capabilities`,
+    /// `context_budget_tokens`). See `stat_tool_subset`.
+    ToolSubset,
 }
 
 /// What is at stake. Exploration is permitted only for

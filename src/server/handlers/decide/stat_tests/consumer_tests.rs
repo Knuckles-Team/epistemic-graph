@@ -5,6 +5,7 @@
 
 use super::*;
 use eg_types::decision::statistical::declared::{DeclaredNumber, DeclaredOption};
+use eg_types::decision::statistical::enrichment_schedule::{COST_KEY, EXPECTED_VALUE_KEY};
 use eg_types::decision::statistical::log::{
     AbstentionResolution, AbstentionResolver, StoredResolution,
 };
@@ -17,6 +18,33 @@ fn declared(id: &str, score: i64) -> DeclaredOption {
             key: "score".to_string(),
             q32: score,
         }])
+        .unwrap(),
+        texts: BoundedVec::default(),
+    }
+}
+
+/// One enrichment candidate's declared option: expected value and cost on
+/// the Q32 scale, under the keys `candidates::declared_candidates` reads.
+fn enrichment_option(id: &str, expected_value_q32: i64, cost_q32: i64) -> DeclaredOption {
+    DeclaredOption {
+        option_id: id.to_string(),
+        classification: BoundedVec::default(),
+        // check_declared requires fact keys strictly sorted; COST_KEY
+        // ("enrichment.cost_q32") sorts before EXPECTED_VALUE_KEY
+        // ("enrichment.expected_value_q32"), so it must come first here or
+        // every call is refused PARAMETER_INVALID at the generic
+        // check_declared gate before the EG-DECISION-ENGINE-R031-specific
+        // negative-cost check ever runs.
+        numbers: BoundedVec::new(vec![
+            DeclaredNumber {
+                key: COST_KEY.to_string(),
+                q32: cost_q32,
+            },
+            DeclaredNumber {
+                key: EXPECTED_VALUE_KEY.to_string(),
+                q32: expected_value_q32,
+            },
+        ])
         .unwrap(),
         texts: BoundedVec::default(),
     }
@@ -287,6 +315,126 @@ async fn an_unregistered_ingestion_lane_is_refused_through_decide() {
     };
     let error = decide(&h, request).await.expect_err("must be refused");
     assert!(error.contains("UNSUPPORTED_INGESTION_LANE"), "got: {error}");
+}
+
+/// EG-DECISION-ENGINE-R031: an enrichment-schedule decision refuses a
+/// declared candidate with a negative cost, through the real served
+/// `Decide` path (`handle_decide`, the same handler `Method::Decide`
+/// dispatches to) -- not just the typed request's own unit check. The
+/// refusal is structural (`candidates::declared_candidates`), so it
+/// happens before the feature schema is ever resolved; this request's
+/// schema pin is intentionally unpublished.
+#[tokio::test]
+async fn a_negative_enrichment_cost_is_refused_through_decide() {
+    let h = Harness::new().await;
+    let unresolved_schema = ComponentDependency {
+        component_id: "schema:unused".to_string(),
+        kind: AgentComponentKind::FeatureSchema,
+        definition_digest: format!("sha256:{}", "0".repeat(64)),
+    };
+    let request = DecideRequest {
+        tenant_id: TENANT.to_string(),
+        question: StatisticalQuestion {
+            question_id: "au.enrichment-schedule".to_string(),
+            kind: QuestionKind::EnrichmentSchedule,
+            safety: QuestionSafety::Ordinary,
+        },
+        candidates: CandidateSource::Declared {
+            options: BoundedVec::new(vec![enrichment_option("work-a", 10, -1)]).unwrap(),
+        },
+        feature_schema: unresolved_schema,
+        head: None,
+        policy: DecisionPolicyRef::Default,
+        params: BoundedVec::default(),
+        max_records: None,
+        belief_as_of: BoundedVec::default(),
+    };
+    let error = decide(&h, request).await.expect_err("must be refused");
+    assert!(error.contains("UNSUPPORTED_ENRICHMENT_COST"), "got: {error}");
+}
+
+/// EG-DECISION-ENGINE-R035: `graph.decide()` returns a valid typed choice
+/// and its evidence class for declared candidates representative of EVERY
+/// routing category the requirement enumerates (model, prompt, skill,
+/// tool, harness mode, account mode, sandbox configuration), through the
+/// SAME generic `QuestionKind::Route`/declared-candidate mechanism.
+///
+/// This is a contract test, not a new refusal: the wire protocol carries
+/// no field naming WHICH category a `Route` request is choosing among (all
+/// 7 share one `QuestionKind`), so there is nothing for a chokepoint to
+/// gate on the way `IngestionLane`/`EnrichmentSchedule` can. `graph.decide()`
+/// already answers every category through the one mechanism the
+/// requirement asks for; this proves it for all 7, closing R035 on the
+/// contract-test reading of its acceptance criterion rather than inventing
+/// a wire field. With no head published, the deterministic ladder cannot
+/// act, so an Ordinary exploration policy supplies the typed choice
+/// (`Explored`); its evidence class is always `Claim` (never stronger than
+/// a claim for a draw, not a calibrated act).
+#[tokio::test]
+async fn graph_decide_answers_every_execution_routing_category() {
+    use eg_types::decision::statistical::execution_routing::ExecutionRoutingCategory;
+
+    let h = Harness::new().await;
+    let schema_pin = h
+        .publish(
+            "schema-execution-routing",
+            AgentComponentKind::FeatureSchema,
+            "execution routing features",
+            Some(&score_schema()),
+            None,
+        )
+        .unwrap();
+    let policy_pin = h.publish_policy(
+        "policy-execution-routing-explore",
+        &ordinary_exploration_policy(),
+    );
+
+    for category in ExecutionRoutingCategory::ALL {
+        let (a, b) = match category {
+            ExecutionRoutingCategory::Model => ("model:claude", "model:gpt"),
+            ExecutionRoutingCategory::Prompt => ("prompt:concise", "prompt:verbose"),
+            ExecutionRoutingCategory::Skill => ("skill:search", "skill:summarize"),
+            ExecutionRoutingCategory::Tool => ("tool:calculator", "tool:web-search"),
+            ExecutionRoutingCategory::HarnessMode => ("harness:autonomous", "harness:guided"),
+            ExecutionRoutingCategory::AccountMode => ("account:elevated", "account:standard"),
+            ExecutionRoutingCategory::SandboxConfiguration => {
+                ("sandbox:relaxed", "sandbox:strict")
+            }
+        };
+        let request = DecideRequest {
+            tenant_id: TENANT.to_string(),
+            question: StatisticalQuestion {
+                question_id: "route.tools".to_string(),
+                kind: QuestionKind::Route,
+                safety: QuestionSafety::Ordinary,
+            },
+            candidates: CandidateSource::Declared {
+                options: BoundedVec::new(vec![declared(a, 0), declared(b, 1)]).unwrap(),
+            },
+            feature_schema: schema_pin.clone(),
+            head: None,
+            policy: DecisionPolicyRef::Pinned {
+                component: policy_pin.clone(),
+            },
+            params: BoundedVec::default(),
+            max_records: None,
+            belief_as_of: BoundedVec::default(),
+        };
+        let batch = decide(&h, request)
+            .await
+            .unwrap_or_else(|error| panic!("{category:?}: {error}"));
+        let record = &batch.records.as_slice()[0];
+        assert!(
+            matches!(record.outcome, StatisticalOutcome::Explored { .. }),
+            "{category:?}: expected a typed choice, got {:?}",
+            record.outcome
+        );
+        assert_eq!(
+            record.evidence_class,
+            EvidenceClass::Claim,
+            "{category:?}"
+        );
+    }
 }
 
 /// Independent evaluations of the committed assembly `record_id` by "evaluator",

@@ -5525,6 +5525,23 @@ class ForeignCypherBackend(str, Enum):
     FALKORDB = "FalkorDb"
 
 
+class ForeignColumnComparison(str, Enum):
+    EQ = "Eq"
+    NE = "Ne"
+    LT = "Lt"
+    LE = "Le"
+    GT = "Gt"
+    GE = "Ge"
+class ForeignColumnPredicate(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+    column: str
+    comparison: ForeignColumnComparison
+    value: Any
+class ForeignColumnRow(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+    columns: dict[str, Any]
+    id: str
+    score: float | None = None
 class ForeignSourceFreshness(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -5619,6 +5636,7 @@ class ForeignSourceSpecSql(BaseModel):
 class ForeignSourceSpecSqlBody(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
+    columns: list[str] = Field(default_factory=list)
     dsn: str
     id_field: str
     query: str
@@ -10435,6 +10453,13 @@ class MethodRegisterForeignSource(BaseModel):
     params: MethodRegisterForeignSourceParams
 
 
+class MethodQueryForeignColumns(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["QueryForeignColumns"]
+    params: MethodQueryForeignColumnsParams
+
+
 class MethodRegisterUdf(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -11739,6 +11764,7 @@ Method = Annotated[
     | MethodRankByProvenance
     | MethodNlQuery
     | MethodRegisterForeignSource
+    | MethodQueryForeignColumns
     | MethodRegisterUdf
     | MethodRunUdf
     | MethodDistributedCompute
@@ -14325,6 +14351,14 @@ class MethodQueryDevelopmentLaneParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     request: DevelopmentLaneQueryRequest
+
+
+class MethodQueryForeignColumnsParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    columns: list[str] = Field(default_factory=list)
+    name: str
+    predicates: list[ForeignColumnPredicate] = Field(default_factory=list)
 
 
 class MethodQueryWorkItemReservationParams(BaseModel):
@@ -24194,6 +24228,9 @@ PredLiteral = PredLiteralStr | PredLiteralNum | PredLiteralBool
 PropagateModel = Literal["noisy_or"] | PropagateModelCascade
 
 
+QueryForeignColumnsResult = list[ForeignColumnRow]
+
+
 RbacAdminOp = (
     RbacAdminOpAddRole
     | RbacAdminOpRemoveRole
@@ -25432,6 +25469,9 @@ __all__ = [
     "ForecastAlgorithm",
     "ForecastMiningResult",
     "ForeignCypherBackend",
+    "ForeignColumnComparison",
+    "ForeignColumnPredicate",
+    "ForeignColumnRow",
     "ForeignSourceFreshness",
     "ForeignSourceSpec",
     "ForeignSourceSpecCypher",
@@ -26500,6 +26540,8 @@ __all__ = [
     "MethodQuantumParams",
     "MethodQueryDevelopmentLane",
     "MethodQueryDevelopmentLaneParams",
+    "MethodQueryForeignColumns",
+    "MethodQueryForeignColumnsParams",
     "MethodQueryWorkItemReservation",
     "MethodQueryWorkItemReservationParams",
     "MethodRaftAddLearner",
@@ -27159,6 +27201,7 @@ __all__ = [
     "QuantumRankResult",
     "QuantumRankedCandidate",
     "QueryAdapterBody",
+    "QueryForeignColumnsResult",
     "QueryVector",
     "QuestionKind",
     "QuestionSafety",

@@ -85,7 +85,22 @@
     "EG-DURABLE-KERNEL-R069",
     "EG-DURABLE-KERNEL-R070",
     "EG-DURABLE-KERNEL-R038.1",
-    "EG-DURABLE-KERNEL-R038.2"
+    "EG-DURABLE-KERNEL-R038.2",
+    "EG-DURABLE-KERNEL-R024.2.1",
+    "EG-DURABLE-KERNEL-R024.2.2",
+    "EG-DURABLE-KERNEL-R037.1",
+    "EG-DURABLE-KERNEL-R037.2",
+    "EG-DURABLE-KERNEL-R041.1",
+    "EG-DURABLE-KERNEL-R041.2",
+    "EG-DURABLE-KERNEL-R042.1",
+    "EG-DURABLE-KERNEL-R011.1",
+    "EG-DURABLE-KERNEL-R036.1",
+    "EG-DURABLE-KERNEL-R032.1",
+    "EG-DURABLE-KERNEL-R033.1",
+    "EG-DURABLE-KERNEL-R034.1",
+    "EG-DURABLE-KERNEL-R035.1",
+    "EG-DURABLE-KERNEL-R039.1",
+    "EG-DURABLE-KERNEL-R040.1"
   ],
   "delivery_state": "BUILDING",
   "acceptance_state": "NOT_AUDITED",
@@ -166,7 +181,7 @@
           "description": "Implementation merged to the default branch; the commit names this requirement."
         }
       ],
-      "remaining": "Lazy-open structure is real: ServerState.agent_library starts None and is opened only via ensure_agent_library() on first use (never touched in main.rs/server_startup.rs), but no test on main forces agent_library.redb to fail opening and asserts the engine still starts and serves unrelated \u2026"
+      "remaining": "Lazy-open structure is real: ServerState.agent_library starts None and is opened only via ensure_agent_library() on first use (never touched in main.rs/server_startup.rs), but no test on main forces agent_library.redb to fail opening and asserts the engine still starts and serves unrelated …"
     },
     {
       "id": "EG-DURABLE-KERNEL-R007",
@@ -219,7 +234,7 @@
     {
       "id": "EG-DURABLE-KERNEL-R011",
       "title": "Clippy and targeted tests cover the full and all-features builds",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
       "evidence": []
     },
     {
@@ -429,8 +444,8 @@
     },
     {
       "id": "EG-DURABLE-KERNEL-R024.2",
-      "title": "Fan-out backend becomes a ForeignSourceSpec source",
-      "delivery_state": "SPECIFIED",
+      "title": "Fan-out backend becomes a MirrorTargetSpec federation mirror target",
+      "delivery_state": "BUILDING",
       "evidence": []
     },
     {
@@ -460,8 +475,16 @@
     {
       "id": "EG-DURABLE-KERNEL-R024.7",
       "title": "Trino backend becomes a ForeignSourceSpec source",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "7b7d4a0fb10fb4e63c18dee28fd094a22502dc2e",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/pull/112",
+          "description": "crates/eg-plan/src/federation_trino.rs ported from the never-merged commit 453133015bda39904352236ee5378794c1b4be54 (same abandoned branch as EG-DURABLE-KERNEL-R024.1's AGE source), re-verified against current origin/main; not yet merged to the default branch."
+        }
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R024.8",
@@ -491,9 +514,16 @@
     },
     {
       "id": "EG-DURABLE-KERNEL-R027",
-      "title": "Schema repair uses a reserved two-person approval lease (rollup)",
-      "delivery_state": "BUILDING",
+      "title": "Schema repair uses a reserved two-person approval lease",
+      "delivery_state": "BUILT",
       "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "bc43de58a9da5983dbbb927da3276dada7772593",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/bc43de58a9da5983dbbb927da3276dada7772593",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
         {
           "kind": "branch",
           "result": "passed",
@@ -588,37 +618,37 @@
     {
       "id": "EG-DURABLE-KERNEL-R032",
       "title": "Native primary-key fast path bypasses the SQL planner",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
       "evidence": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R033",
       "title": "Hot-store engine choice is evaluated against captured workloads",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
       "evidence": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R034",
       "title": "Cross-store atomicity is proven and scoped to mixed transactions",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
       "evidence": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R035",
       "title": "PostgreSQL wire protocol reaches operational and dump/restore parity",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
       "evidence": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R036",
       "title": "Mirror sinks reach fan-out parity and include Postgres table mirroring",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
       "evidence": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R037",
       "title": "Workload classifier routes point operations around the SQL planner",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
       "evidence": []
     },
     {
@@ -630,25 +660,25 @@
     {
       "id": "EG-DURABLE-KERNEL-R039",
       "title": "In-memory data structures rebuild from the redb durability log",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
       "evidence": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R040",
       "title": "Pipelined requests commit as a single batch",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
       "evidence": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R041",
       "title": "SQL plan cache keyed by statement digest and schema version",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
       "evidence": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R042",
       "title": "Benchmark gate defines and proves performance superiority claims",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
       "evidence": []
     },
     {
@@ -1081,6 +1111,96 @@
     {
       "id": "EG-DURABLE-KERNEL-R038.2",
       "title": "DurabilityClass write-path entry point: write_plan and refuse_if_durable_log_write",
+      "delivery_state": "BUILT",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R024.2.1",
+      "title": "MirrorTargetSpec::FanOut typed spec, validation, and registration refusal",
+      "delivery_state": "BUILT",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R024.2.2",
+      "title": "MirrorTargetRegistry registration and name-resolution entry point",
+      "delivery_state": "BUILT",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R037.1",
+      "title": "WorkloadClass typed classifier with refusal for an unrecognized operation kind",
+      "delivery_state": "BUILT",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R037.2",
+      "title": "route dispatch entry point deciding DataFusion session allocation",
+      "delivery_state": "BUILT",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R041.1",
+      "title": "PlanCacheKey/PlanCacheLookup typed key and pure lookup decision with stale-schema refusal",
+      "delivery_state": "BUILT",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R041.2",
+      "title": "PlanCache::prepare entry point at the SQL prepare site",
+      "delivery_state": "BUILT",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R042.1",
+      "title": "BenchmarkClaim typed report record with refusal for an unpublished or non-passing claim",
+      "delivery_state": "BUILT",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R011.1",
+      "title": "RequiredTestModuleCategory/RequiredTestModule typed category and validated declaration",
+      "delivery_state": "BUILT",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R036.1",
+      "title": "MirrorSinkKind/MirrorCursor typed model with non-empty-position guard on construction and advance",
+      "delivery_state": "BUILT",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R032.1",
+      "title": "PrimaryKeyOperation and FastPathDecision typed routing model with authorization/audit-checked invariant and refusal",
+      "delivery_state": "BUILT",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R033.1",
+      "title": "HotStoreEngine/WorkloadProfile/BenchmarkResult typed model with throughput-based winner selection and refusal",
+      "delivery_state": "BUILT",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R034.1",
+      "title": "TransactionScope/CommitPath typed model proving single-store traffic cannot reach the cross-store commit path",
+      "delivery_state": "BUILT",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R035.1",
+      "title": "PgOperationalSurface/PgCompatibilityMatrix typed model, fail-closed, with named-missing-surface refusal",
+      "delivery_state": "BUILT",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R039.1",
+      "title": "DataStructureKind/AtomicPrimitiveKind/DurabilityDeclaration typed model with always-redb-sole-authority invariant",
+      "delivery_state": "BUILT",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R040.1",
+      "title": "PipelineBatch/BatchCommitDecision typed model: one admission per batch, order-preserving replies, empty-batch refusal",
       "delivery_state": "BUILT",
       "evidence": []
     }

@@ -10,6 +10,39 @@
 ))]
 use serde::{Deserialize, Serialize};
 
+/// Comparison accepted by the owner-scoped foreign-column read surface.
+#[cfg(feature = "federation")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub enum ForeignColumnComparison {
+    Eq,
+    Ne,
+    Lt,
+    Le,
+    Gt,
+    Ge,
+}
+
+/// A predicate over a column named in the registered source mapping.
+#[cfg(feature = "federation")]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct ForeignColumnPredicate {
+    pub column: String,
+    pub comparison: ForeignColumnComparison,
+    pub value: serde_json::Value,
+}
+
+/// One bounded result row after all local residual predicates and projection.
+#[cfg(feature = "federation")]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct ForeignColumnRow {
+    pub id: String,
+    pub score: Option<f32>,
+    pub columns: std::collections::BTreeMap<String, serde_json::Value>,
+}
+
 /// SPATIAL — the constructive geometry op applied by `Op::SpatialOp` (CONCEPT:EG-KG.ontology.concept-9).
 /// Pure serde here (Pi-safe, no eg-geo dep); the executor maps it to eg-geo's `algebra`
 /// behind eg-plan's `geo` gate. Unary ops (`Buffer`/`ConvexHull`/`Simplify`/`Centroid`)
@@ -367,6 +400,11 @@ pub enum ForeignSourceSpec {
         /// The result column whose numeric value is the row score (absent ⇒ unscored).
         #[serde(default)]
         score_field: Option<String>,
+        /// Query-selected columns the registering owner permits a column query to
+        /// read. Empty for legacy id/score-only registrations. Names are checked
+        /// as SQL identifiers before projection or filter pushdown (EH-572).
+        #[serde(default)]
+        columns: Vec<String>,
     },
     /// A NAMED reference to a foreign source registered in the executor's
     /// `ForeignSourceRegistry` (CONCEPT:EG-KG.query.closure-backed-source). Unlike self-describing variants
@@ -415,7 +453,136 @@ pub enum ForeignSourceSpec {
         #[serde(default)]
         score_field: Option<String>,
     },
+    /// An operation-bound REST/HTTP API source (CONCEPT:EG-KG.query.query-federation,
+    /// FQR-11). Unlike [`ForeignSourceSpec::HttpJson`] (a raw, inline, unbound GET), an
+    /// `Api` spec names a REGISTERED operation that a mapped entity reads through; the
+    /// registry resolves `operation` to a concrete, capability-probed endpoint. Never
+    /// carries a credential.
+    Api {
+        /// The registered operation name a mapped entity's read resolves to.
+        operation: String,
+        /// What this operation declares it can do — notably whether a key filter may
+        /// be pushed into the request (CONCEPT:EG-KG.query.query-federation).
+        #[serde(default)]
+        capabilities: ForeignOperationCapabilities,
+    },
+    /// An operation-bound MCP tool call (CONCEPT:EG-KG.query.query-federation, FQR-11).
+    /// `server` names the registered MCP server; `tool` the tool a mapped entity's
+    /// discovered operation invokes.
+    Mcp {
+        server: String,
+        tool: String,
+        #[serde(default)]
+        capabilities: ForeignOperationCapabilities,
+    },
+    /// An operation-bound A2A agent skill invocation (CONCEPT:EG-KG.query.query-federation,
+    /// FQR-11). `agent` names the registered A2A agent; `skill` the skill a mapped
+    /// entity's discovered operation invokes.
+    A2a {
+        agent: String,
+        skill: String,
+        #[serde(default)]
+        capabilities: ForeignOperationCapabilities,
+    },
+    /// An operation-bound GraphQL source (CONCEPT:EG-KG.query.query-federation, FQR-11).
+    /// `endpoint` names the registered GraphQL endpoint; `operation` the named query
+    /// a mapped entity's discovered operation runs.
+    GraphQl {
+        endpoint: String,
+        operation: String,
+        #[serde(default)]
+        capabilities: ForeignOperationCapabilities,
+    },
 }
+
+/// Declared capabilities of an operation-bound foreign source
+/// (CONCEPT:EG-KG.query.query-federation, FQR-11): what the REGISTRATION asserts the
+/// bound operation can do, never introspected from the caller's request. A key filter
+/// is pushed into the remote request only when `key_filter_pushdown` is true; EG always
+/// keeps the exact local residual filter regardless, so an under-declaring source never
+/// returns wrong rows — only a less-pushed-down request.
+#[cfg(feature = "federation")]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct ForeignOperationCapabilities {
+    /// The bound operation accepts a server-side key filter (e.g. `id IN (...)`).
+    #[serde(default)]
+    pub key_filter_pushdown: bool,
+}
+
+/// A WRITE-side mirror target (EG-DURABLE-KERNEL-R024's mirror-target half,
+/// distinct from the read-side [`ForeignSourceSpec`]). A mirror target
+/// receives committed rows fanned out from the local mutation outbox; the
+/// wire DTO names the target, the binding/registration lives with
+/// `eg-plan`'s mirror builder. This is the typed-model slice (`R024.2.1`):
+/// the `FanOut` spec and its validation. Driving real writes through a bound
+/// driver is a later child.
+#[cfg(feature = "federation")]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub enum MirrorTargetSpec {
+    /// Fans a mirrored row out to every named downstream target. `targets`
+    /// must be non-empty and carry no duplicate -- an empty or
+    /// self-duplicating fan-out is a configuration error, never a silent
+    /// drop of one destination.
+    FanOut {
+        /// Registry keys of the downstream mirror targets this one fans out
+        /// to. Resolved the same way `ForeignSourceSpec::Named` resolves a
+        /// foreign source: through the executor's registry, never by this
+        /// pure DTO.
+        targets: Vec<String>,
+    },
+}
+
+#[cfg(feature = "federation")]
+impl MirrorTargetSpec {
+    /// Reject a fan-out spec that cannot name a sensible destination set:
+    /// empty, or with a duplicate target name. Does not attempt to resolve
+    /// or reach any target -- that is the bound driver's job.
+    pub fn validate(&self) -> Result<(), MirrorTargetSpecError> {
+        match self {
+            Self::FanOut { targets } => {
+                if targets.is_empty() {
+                    return Err(MirrorTargetSpecError::EmptyFanOut);
+                }
+                let mut seen = std::collections::HashSet::with_capacity(targets.len());
+                for target in targets {
+                    if !seen.insert(target.as_str()) {
+                        return Err(MirrorTargetSpecError::DuplicateFanOutTarget(
+                            target.clone(),
+                        ));
+                    }
+                }
+                Ok(())
+            }
+        }
+    }
+}
+
+/// A `MirrorTargetSpec` failed validation before any target was reached.
+#[cfg(feature = "federation")]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum MirrorTargetSpecError {
+    EmptyFanOut,
+    DuplicateFanOutTarget(String),
+}
+
+#[cfg(feature = "federation")]
+impl std::fmt::Display for MirrorTargetSpecError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::EmptyFanOut => {
+                f.write_str("fan-out mirror target spec names no downstream target")
+            }
+            Self::DuplicateFanOutTarget(name) => {
+                write!(f, "fan-out mirror target spec names {name:?} more than once")
+            }
+        }
+    }
+}
+
+#[cfg(feature = "federation")]
+impl std::error::Error for MirrorTargetSpecError {}
 
 /// External Cypher dialect and transport are a single explicit choice.
 #[cfg(feature = "federation")]
@@ -438,4 +605,8 @@ pub struct HttpFieldMap {
     /// The element field whose numeric value is the row score (absent ⇒ unscored).
     #[serde(default)]
     pub score: Option<String>,
+    /// Mapping-approved output column name to JSON element field. Existing
+    /// id/score-only registrations deserialize with no exposed columns.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub columns: std::collections::BTreeMap<String, String>,
 }
