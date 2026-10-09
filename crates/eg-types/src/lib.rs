@@ -34,6 +34,12 @@ pub mod capacity_lease;
 // eg-transaction admission boundary. This module grants no executable capability.
 pub mod authority;
 pub mod change_envelope;
+// EG-UNIFIED-DATA-PLANE-R028.1 — typed Postgres-equivalence differential
+// deviation baseline, refusing a baseline update that drops a deviation
+// without an explicit resolution record (no self-updating baseline). Pure
+// data; running the regression/SQLancer/captured-traffic corpora is a
+// later child.
+pub mod pg_diff_baseline;
 // GOC-03 — the cross-domain commit-descriptor/read-barrier currency shared by
 // graph, modality, vector, blob/refcount, time-series, evidence, table/lake, and
 // terminal-analytics-outcome participants. Deliberately a NEW module (not folded
