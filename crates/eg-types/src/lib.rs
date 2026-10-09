@@ -58,6 +58,10 @@ pub mod decision;
 // beside the server registry, and the typed projection that joins them with
 // connector-pack `AgentComponent`s. Pure serde; the handler lives in the server.
 pub mod fleet_catalog;
+// EG-DURABLE-KERNEL-R034 — cross-store atomicity's typed transaction-scope
+// model: a single-store scope structurally can never map to the cross-store
+// commit path. Pure serde, no dep.
+pub mod cross_store_scope;
 // EH-346/EH-347 — capture-first open-weight policy evolution: the capability,
 // capture, model-policy version, training-run and evaluation records EG owns.
 // Pure serde; EG records and relates, it never trains.

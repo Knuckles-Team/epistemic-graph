@@ -72,7 +72,8 @@
     "EG-DURABLE-KERNEL-R067",
     "EG-DURABLE-KERNEL-R068",
     "EG-DURABLE-KERNEL-R069",
-    "EG-DURABLE-KERNEL-R070"
+    "EG-DURABLE-KERNEL-R070",
+    "EG-DURABLE-KERNEL-R034.1"
   ],
   "delivery_state": "BUILDING",
   "acceptance_state": "NOT_AUDITED",
@@ -513,7 +514,13 @@
     {
       "id": "EG-DURABLE-KERNEL-R034",
       "title": "Cross-store atomicity is proven and scoped to mixed transactions",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R034.1",
+      "title": "TransactionScope/CommitPath typed model proving single-store traffic cannot reach the cross-store commit path",
+      "delivery_state": "BUILT",
       "evidence": []
     },
     {
