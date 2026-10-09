@@ -14,6 +14,7 @@
     "EG-FINANCE-PRIMITIVES-R009",
     "EG-FINANCE-PRIMITIVES-R010",
     "EG-FINANCE-PRIMITIVES-R011",
+    "EG-FINANCE-PRIMITIVES-R011.1",
     "EG-FINANCE-PRIMITIVES-R012",
     "EG-FINANCE-PRIMITIVES-R013",
     "EG-FINANCE-PRIMITIVES-R014",
@@ -129,7 +130,15 @@
       "id": "EG-FINANCE-PRIMITIVES-R011",
       "title": "Finance alerts published through the finance outbox",
       "delivery_state": "SPECIFIED",
-      "evidence": []
+      "evidence": [],
+      "remaining": "Split into EG-FINANCE-PRIMITIVES-R011.1 (typed finance alert envelope, delivered) and later slices for the transactional outbox append and delivery idempotence (not yet started)."
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R011.1",
+      "title": "Typed finance alert envelope (producer-first split of R011)",
+      "delivery_state": "SPECIFIED",
+      "evidence": [],
+      "remaining": "FinanceAlertEnvelope and FinanceAlertKind (crates/eg-types/src/finance_event_envelope.rs) prove the type-level contract for price/trend-flip/DCA-due/margin-threshold alerts and their outbox event-schema names, with validation and refusal tests (empty event_id, empty listing_id, non-positive timestamp, empty message). Wiring this envelope into the outbox append path and preserving the existing TrendFlip event id end to end is a later slice of EG-FINANCE-PRIMITIVES-R011."
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R012",

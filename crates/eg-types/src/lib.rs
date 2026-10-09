@@ -134,6 +134,11 @@ pub mod native_control;
 pub mod outcome_bundle;
 // RF-RULING-004 — mutation-kernel-owned outbox intent, delivery, and cursor DTOs.
 pub mod outbox;
+// EG-FINANCE-PRIMITIVES-R011.1 — the typed finance alert envelope staged for
+// the finance outbox topic family; net-new slice (model + validation +
+// refusal tests only, no outbox-append wiring yet).
+#[cfg(feature = "finance")]
+pub mod finance_event_envelope;
 pub mod protocol;
 // The general bounded 0-1 integer programme (`Method::Solve`): model, config,
 // certificate and exact scalars. The search and the verifier live in
