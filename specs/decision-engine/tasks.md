@@ -21,6 +21,8 @@
 
 - [x] D15 **EG-DECISION-ENGINE-R030 (first slice):** Add the typed `IngestionLane` registry (fast/medium/slow) and `IngestionLaneRequest::check()` refusal for an unregistered lane id (`crates/eg-types/src/decision/statistical/ingestion_lane.rs`). `QuestionKind::IngestionLane` candidates still route through the ordinary generic `Decide`/declared-candidate executor (no kind-specific scoring path). Remaining for this requirement: a real ingestion call site that builds `CandidateSource::Declared` options from this registry and calls `Decide`, plus an integration test selecting the expected lane for a representative input (the requirement's acceptance test).
 
+- [x] D16 **EG-DECISION-ENGINE-R079.1 (producer slice of R079):** Add the typed `ContentClass` taxonomy (prose/document/comment eligible; generated/lockfile/vendored/minified excluded) and its pure `admits()` gate (`crates/eg-types/src/decision/ingestion_admission.rs`). No real ingestion call site, embedding client, cheaper-index skip, entropy/hash dedup, size bound, SQL-column cardinality rule, or retrieval-telemetry feedback is wired yet -- those remain open under `EG-DECISION-ENGINE-R079` as later `.2`/`.3`+ slices.
+
 ## Evidence format
 
 For each stable ID, record: `ID | sequence | delivery | acceptance | main SHA | tests/workflow | reviewed date | notes`. Until a row has an exact commit and passing required tests, use `WAITING / NOT_RUN`, `IN_PROGRESS / PARTIAL`, or `SOURCE_LANDED / PARTIAL` as observed; do not infer acceptance from a sequence label. `RETIRED` requires the superseding contract and removal test. Keep evidence records in this repository alongside the spec so external contributors can audit them.

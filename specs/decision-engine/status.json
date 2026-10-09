@@ -82,6 +82,7 @@
     "EG-DECISION-ENGINE-R077",
     "EG-DECISION-ENGINE-R078",
     "EG-DECISION-ENGINE-R079",
+    "EG-DECISION-ENGINE-R079.1",
     "EG-DECISION-ENGINE-R080",
     "EG-DECISION-ENGINE-R081",
     "EG-DECISION-ENGINE-R082",
@@ -1152,6 +1153,13 @@
     {
       "id": "EG-DECISION-ENGINE-R079",
       "title": "Per-unit embedding admission classifier for ingestion",
+      "delivery_state": "SPECIFIED",
+      "evidence": [],
+      "remaining": "Split producer-first: EG-DECISION-ENGINE-R079.1 lands the typed ContentClass taxonomy and pure admits() gate. Still open: a real ingestion call site, the embedding client, cheaper-index skip, entropy/hash dedup, size bounds, SQL-column cardinality, and retrieval-telemetry feedback."
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R079.1",
+      "title": "Typed content-class taxonomy and pure admission gate (producer slice of R079)",
       "delivery_state": "SPECIFIED",
       "evidence": []
     },

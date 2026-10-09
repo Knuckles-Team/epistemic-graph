@@ -24,6 +24,7 @@
 pub mod derivation;
 pub mod digest;
 pub mod errors;
+pub mod ingestion_admission;
 pub mod jobs;
 pub mod numeric;
 pub mod policy;
@@ -60,6 +61,7 @@ pub const MAX_ASSEMBLY_TEMPLATES: usize = 8;
 pub const MAX_TEMPLATE_SLOTS: usize = 6;
 
 pub use errors::DecisionErrorCode;
+pub use ingestion_admission::ContentClass;
 pub use jobs::{
     DecisionEvalOp, DecisionEvalReceipt, DecisionEvalRequest, DecisionFitOp, DecisionFitRequest,
     DecisionJobKind, DecisionJobOutput, DecisionJobRecord, DecisionJobState,
