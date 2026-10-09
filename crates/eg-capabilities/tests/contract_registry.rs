@@ -201,15 +201,16 @@ fn every_wire_variant_has_exactly_one_descriptor_and_vice_versa() {
     // 455 -> 456: `CheckAccess`, a principal's current access (EH-416).
     // 456 -> 455: EH-524 added `TsDefineSeries`; EH-530 retired `FinanceRollingZscore` and `FinanceEwma` (served as UQL `DERIVE` / SQL `eg_zscore`/`eg_ewma`).
     // 455 -> 456: EH-558's `RetireSealedRecord`, the owning op of a sealed record.
-    // 456 -> 458: the tenant-scoped operation audit-append `AuditAppend` and its
+    // 456 -> 457: EH-572's owner-scoped `QueryForeignColumns` read.
+    // 457 -> 459: the tenant-scoped operation audit-append `AuditAppend` and its
     // paired read `AuditReadEvent`.
-    // 458 -> 459: `OntologyInspect`, the read-only typed vocabulary surface.
-    // 459 -> 461: `ApplyChangeEnvelopeDraft(s)`, the client path whose mutation
+    // 459 -> 460: `OntologyInspect`, the read-only typed vocabulary surface.
+    // 460 -> 462: `ApplyChangeEnvelopeDraft(s)`, the client path whose mutation
     // authority the request boundary mints.
-    // 461 -> 462: the identity store's Identity method.
+    // 462 -> 463: the identity store's Identity method.
     assert_eq!(
         variants.len(),
-        462,
+        463,
         "the wire method census changed; update this exact count deliberately"
     );
 }

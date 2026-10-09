@@ -408,6 +408,7 @@ SEND_BY_METHOD = {
     "PublishIdempotent": messaging.send_publish_idempotent,
     "Quantum": ingestion.send_quantum,
     "QueryDevelopmentLane": coordination.send_query_development_lane,
+    "QueryForeignColumns": query.send_query_foreign_columns,
     "QueryWorkItemReservation": coordination.send_query_work_item_reservation,
     "RaftAddLearner": cluster.send_raft_add_learner,
     "RaftChangeMembership": cluster.send_raft_change_membership,

@@ -22,6 +22,7 @@
 
 mod budget;
 mod capability;
+mod columns;
 mod engine;
 mod http;
 mod limiter;
@@ -45,6 +46,12 @@ pub use budget::{FederationBudget, BUDGET_EXCEEDED, REQUIRES_KEYS, RESULT_INCOMP
 pub use capability::{
     FullFetch, KeyLookup, LimitPushdown, PageRequest, Paging, RemoteRequest, SourceCapabilities,
     SourceRate,
+};
+#[cfg(feature = "federation-sql")]
+pub(crate) use columns::render_sql_columns;
+pub use columns::{
+    sql_filter_support, ColumnPlan, ColumnPredicate, Comparison, ForeignRow, ForeignRows,
+    PushdownSupport,
 };
 pub use oq2::{target_capabilities as oq2_target_capabilities, Oq2ReadMode, Oq2TargetCapabilities};
 pub use session::FederationSession;

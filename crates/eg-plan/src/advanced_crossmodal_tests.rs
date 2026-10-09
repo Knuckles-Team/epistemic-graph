@@ -278,6 +278,7 @@ fn federation_sparql_local_vector_foreign_sql_one_plan_eg385() {
         field_map: HttpFieldMap {
             id: "k".into(),
             score: None,
+            columns: Default::default(),
         },
     };
 

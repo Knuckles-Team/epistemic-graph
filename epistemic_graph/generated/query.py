@@ -33,6 +33,7 @@ if TYPE_CHECKING:
     GraphQlRequest = _models.MethodGraphQlParams
     KnowledgeStreamRequest = _models.MethodKnowledgeStreamParams
     UnifiedQueryRequest = _models.MethodUnifiedQueryParams
+    QueryForeignColumnsRequest = _models.MethodQueryForeignColumnsParams
     UqlRequest = _models.MethodUqlParams
     ExplainPlanRequest = _models.MethodExplainPlanParams
     ExplainProvenanceRequest = _models.MethodExplainProvenanceParams
@@ -422,6 +423,51 @@ async def send_unified_query(
 def decode_unified_query(result: OpaqueResult) -> _models.UnifiedQueryResult:
     """Validate this method's result against its contract model."""
     return decode_result("UnifiedQuery", models().UnifiedQueryResult, result)
+
+
+async def send_query_foreign_columns(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        QueryForeignColumns
+    Authorization:
+        federation:read
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.query.json
+        #/methods/QueryForeignColumns
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    models().MethodQueryForeignColumnsParams.model_validate(params or {})
+    payload = await client._send(
+        "QueryForeignColumns",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("QueryForeignColumns", payload)
+
+
+def decode_query_foreign_columns(
+    result: OpaqueResult,
+) -> _models.QueryForeignColumnsResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "QueryForeignColumns", models().QueryForeignColumnsResult, result
+    )
 
 
 async def send_uql(
@@ -1382,6 +1428,7 @@ _REQUEST_METHODS = frozenset(
         "GraphQl",
         "KnowledgeStream",
         "UnifiedQuery",
+        "QueryForeignColumns",
         "Uql",
         "ExplainPlan",
         "ExplainProvenance",
