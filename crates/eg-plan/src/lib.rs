@@ -64,6 +64,9 @@ pub mod pushdown_plan;
 // EG-UNIFIED-DATA-PLANE-R007 — named pushdown operations and a dialect's
 // declared capability set, refusing an unknown operation name.
 pub mod federation_capabilities;
+// EG-UNIFIED-DATA-PLANE-R011 — typed freshness route and a bounded
+// read-your-writes wait, refusing an unbounded (zero-timeout) wait.
+pub mod freshness_router;
 
 /// Structured hierarchical retrieval (CONCEPT:EG-KG.retrieval.bounded-drill) — the LeanRAG method as a
 /// library API over the EG-220 summary tier: retrieve at the summary/abstraction

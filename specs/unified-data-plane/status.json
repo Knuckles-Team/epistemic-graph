@@ -60,7 +60,8 @@
     "EG-UNIFIED-DATA-PLANE-R005.1",
     "EG-UNIFIED-DATA-PLANE-R006.1",
     "EG-UNIFIED-DATA-PLANE-R007.1",
-    "EG-UNIFIED-DATA-PLANE-R009.1"
+    "EG-UNIFIED-DATA-PLANE-R009.1",
+    "EG-UNIFIED-DATA-PLANE-R011.1"
   ],
   "delivery_state": "BUILDING",
   "acceptance_state": "NOT_AUDITED",
@@ -137,7 +138,7 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R011",
       "title": "Route queries by freshness across native, live, and accelerated paths",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
       "evidence": []
     },
     {
@@ -443,6 +444,12 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R009.1",
       "title": "ConsumerCheckpoint typed idempotent-apply model",
+      "delivery_state": "BUILT",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R011.1",
+      "title": "FreshnessRoute/ReadYourWritesWait typed bounded-wait model",
       "delivery_state": "BUILT",
       "evidence": []
     }
