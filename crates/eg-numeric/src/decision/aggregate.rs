@@ -217,3 +217,93 @@ pub fn aggregate(
     BoundedVec::new(out)
         .map_err(|detail| Refusal::new(StatisticalErrorCode::ParameterInvalid, detail))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use eg_types::decision::statistical::dataset::OutcomeFidelity;
+    use eg_types::decision::statistical::log::DecisionOutcomeEvaluation;
+
+    fn evaluation(
+        producer: &str,
+        class: EvidenceClass,
+        selected_agent: &str,
+        success: Option<bool>,
+    ) -> StoredEvaluation {
+        StoredEvaluation {
+            evaluation: DecisionOutcomeEvaluation {
+                record_id: "record-1".to_string(),
+                evaluation_id: format!("eval-{producer}-{selected_agent}"),
+                class,
+                selected_agent: selected_agent.to_string(),
+                lease_holder: selected_agent.to_string(),
+                fidelity: OutcomeFidelity::FullStep,
+                success,
+            },
+            producer: producer.to_string(),
+            recorded_at_ms: 0,
+        }
+    }
+
+    fn record<'a>(option_id: &'a str, evaluations: &'a [StoredEvaluation]) -> JoinedRecord<'a> {
+        JoinedRecord {
+            option_id,
+            question_id: "q1",
+            policy_digest: "pol-1",
+            decider: "decider-1",
+            evaluations,
+        }
+    }
+
+    fn rules(min_support: u64) -> AggregateRules {
+        AggregateRules {
+            min_support,
+            fidelity_floor: TraceFidelityLevel::FullStep,
+            cross_question: false,
+        }
+    }
+
+    /// EG-DECISION-ENGINE-R059: only independently evaluated outcomes join
+    /// the aggregate, and a pool below `min_support` is omitted entirely.
+    #[test]
+    fn only_independent_outcomes_join_and_a_pool_below_min_support_is_omitted() {
+        let self_reported = evaluation("agent-a", EvidenceClass::Observation, "agent-a", Some(true));
+        let independent_success = evaluation("judge-1", EvidenceClass::Observation, "agent-a", Some(true));
+        let opt_a_evals = [self_reported, independent_success];
+        let opt_a = record("opt-a", &opt_a_evals);
+
+        let opt_b_evals = [
+            evaluation("judge-1", EvidenceClass::Observation, "agent-b", Some(true)),
+            evaluation("judge-2", EvidenceClass::Observation, "agent-b", Some(false)),
+        ];
+        let opt_b = record("opt-b", &opt_b_evals);
+
+        let records = [opt_a, opt_b];
+
+        // min_support 1: both options qualify (opt-a has 1 independent
+        // trial, its self-reported evaluation refused rather than counted).
+        let at_one = aggregate(&records, &rules(1)).expect("aggregates");
+        let a = at_one
+            .iter()
+            .find(|row| row.option_id == "opt-a")
+            .expect("opt-a present at min_support 1");
+        assert_eq!(a.trials, 1, "the self-reported evaluation is not a trial");
+        assert_eq!(a.successes, 1);
+        assert_eq!(a.refused, 1, "the self-reported evaluation is refused");
+        assert!(at_one.iter().any(|row| row.option_id == "opt-b"));
+
+        // min_support 2: opt-a's single independent trial no longer
+        // qualifies and is omitted entirely; opt-b (2 trials) still does.
+        let at_two = aggregate(&records, &rules(2)).expect("aggregates");
+        assert!(
+            at_two.iter().all(|row| row.option_id != "opt-a"),
+            "a pool below min_support must be omitted, not reported with low support"
+        );
+        let b = at_two
+            .iter()
+            .find(|row| row.option_id == "opt-b")
+            .expect("opt-b present at min_support 2");
+        assert_eq!(b.trials, 2);
+        assert_eq!(b.successes, 1);
+    }
+}
