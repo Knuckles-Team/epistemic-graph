@@ -40,6 +40,7 @@ mod tests {
         assert_eq!(check_unique_component_ids(ids), Ok(()));
     }
 
+    // spec: EG-DECISION-ENGINE-R075.1
     #[test]
     fn refuses_a_duplicate_component_id() {
         let ids = ["comp-a", "comp-b", "comp-a"];

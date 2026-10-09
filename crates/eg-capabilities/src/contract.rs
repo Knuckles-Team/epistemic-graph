@@ -589,6 +589,7 @@ mod decide_feature_freeze_tests {
 mod package_projection_tests {
     use super::*;
 
+    // spec: EG-DECISION-ENGINE-R078.2
     #[test]
     fn package_surface_is_complete_identical_and_receipt_bound() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
