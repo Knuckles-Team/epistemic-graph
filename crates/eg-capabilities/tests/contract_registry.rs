@@ -207,9 +207,10 @@ fn every_wire_variant_has_exactly_one_descriptor_and_vice_versa() {
     // 459 -> 461: `ApplyChangeEnvelopeDraft(s)`, the client path whose mutation
     // authority the request boundary mints.
     // 461 -> 462: the identity store's Identity method.
+    // 462 -> 463: EH-560's GovernedChange (two-person governed changes).
     assert_eq!(
         variants.len(),
-        462,
+        463,
         "the wire method census changed; update this exact count deliberately"
     );
 }

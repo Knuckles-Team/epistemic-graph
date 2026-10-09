@@ -85,18 +85,14 @@ impl IsolationLayer {
         &mut self,
         transition: impl FnOnce(&mut ElevationLedger) -> Result<ElevationLease, ElevationRefusal>,
     ) -> Result<ElevationLease, ElevationError> {
-        let previous = self.rbac.clone();
-        let lease = match transition(self.rbac.elevations_mut()) {
-            Ok(lease) => lease,
-            Err(refusal) => {
-                self.rbac = previous;
-                return Err(ElevationError::Refused(refusal));
-            }
-        };
-        if let Err(error) = self.persist_state() {
-            self.rbac = previous;
-            return Err(ElevationError::Persist(error));
-        }
-        Ok(lease)
+        self.transact_policy(|policy| transition(policy.elevations_mut()))
+            .map_err(|error| match error {
+                super::layer_store::PolicyWriteError::Refused(refusal) => {
+                    ElevationError::Refused(refusal)
+                }
+                super::layer_store::PolicyWriteError::Persist(error) => {
+                    ElevationError::Persist(error)
+                }
+            })
     }
 }
