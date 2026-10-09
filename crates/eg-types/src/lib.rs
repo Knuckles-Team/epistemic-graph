@@ -34,6 +34,10 @@ pub mod capacity_lease;
 // eg-transaction admission boundary. This module grants no executable capability.
 pub mod authority;
 pub mod change_envelope;
+// EG-UNIFIED-DATA-PLANE-R029.1 — typed schema_context answer shape and
+// catalog, refusing to answer for a table absent from the catalog. Pure
+// data; wiring the real query entry point is a later child.
+pub mod schema_context;
 // GOC-03 — the cross-domain commit-descriptor/read-barrier currency shared by
 // graph, modality, vector, blob/refcount, time-series, evidence, table/lake, and
 // terminal-analytics-outcome participants. Deliberately a NEW module (not folded
