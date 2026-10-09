@@ -163,6 +163,7 @@ pub(crate) fn commit_context(
 }
 
 // spec: EG-DECISION-ENGINE-R019
+// spec: EG-DECISION-ENGINE-R051
 #[test]
 fn a_record_commits_once_serves_its_body_and_replays_idempotently() {
     let (_dir, store) = open_agent_store();
@@ -217,6 +218,7 @@ fn a_catalog_that_moved_since_the_decision_is_a_stale_refusal() {
 }
 
 // spec: EG-DECISION-ENGINE-R019
+// spec: EG-DECISION-ENGINE-R051
 #[test]
 fn a_fabricated_record_whose_facts_differ_from_the_published_revision_is_refused() {
     let (_dir, store) = open_agent_store();
@@ -235,6 +237,7 @@ fn a_fabricated_record_whose_facts_differ_from_the_published_revision_is_refused
     assert!(error.starts_with("CANDIDATE_FACTS_CHANGED: "), "{error}");
 }
 
+// spec: EG-DECISION-ENGINE-R051
 #[test]
 fn a_record_from_another_tenant_is_refused() {
     let (_dir, store) = open_agent_store();

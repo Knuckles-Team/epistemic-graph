@@ -1755,6 +1755,7 @@ mod tests {
     /// A model profile stored before its selection facts existed decodes with
     /// every optional fact absent -- never as zero -- and a row still carrying
     /// the deleted `provides` list is refused by name rather than read.
+    // spec: EG-DECISION-ENGINE-R050
     #[test]
     fn a_stored_row_without_optional_facts_decodes_and_provides_is_refused() {
         let mut model = draft("model:a", AgentComponentKind::ModelProfile);

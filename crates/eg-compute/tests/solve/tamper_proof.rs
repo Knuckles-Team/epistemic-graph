@@ -249,6 +249,7 @@ fn count(certificate: &Certificate) -> usize {
     }
 }
 
+// spec: EG-DECISION-ENGINE-R049
 #[test]
 fn every_tampered_assignment_or_tree_is_rejected_with_its_defect() {
     let (cover, certificate) = base();
