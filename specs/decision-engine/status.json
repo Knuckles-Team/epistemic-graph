@@ -101,6 +101,7 @@
     "EG-DECISION-ENGINE-R088",
     "EG-DECISION-ENGINE-R089",
     "EG-DECISION-ENGINE-R090",
+    "EG-DECISION-ENGINE-R090.1",
     "EG-DECISION-ENGINE-R091",
     "EG-DECISION-ENGINE-R092",
     "EG-DECISION-ENGINE-R093",
@@ -1535,6 +1536,13 @@
       "delivery_state": "SPECIFIED",
       "evidence": [],
       "remaining": "Resident CPU-only Rust option-attention scorer exists with no GPU/Python/sidecar dependency, but no benchmark test measures per-decision latency or compiled footprint against the declared budget."
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R090.1",
+      "title": "Typed resident-scorer budget (producer-first split of R090)",
+      "parent": "EG-DECISION-ENGINE-R090",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
     },
     {
       "id": "EG-DECISION-ENGINE-R091",
