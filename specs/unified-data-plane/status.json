@@ -35,6 +35,7 @@
     "EG-UNIFIED-DATA-PLANE-R023",
     "EG-UNIFIED-DATA-PLANE-R023.1",
     "EG-UNIFIED-DATA-PLANE-R024",
+    "EG-UNIFIED-DATA-PLANE-R024.1",
     "EG-UNIFIED-DATA-PLANE-R025",
     "EG-UNIFIED-DATA-PLANE-R026",
     "EG-UNIFIED-DATA-PLANE-R027",
@@ -254,7 +255,13 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R024",
       "title": "Admit applications to the shared platform with rollback",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R024.1",
+      "title": "ApplicationAdmission typed stage machine and early-retirement refusal",
+      "delivery_state": "BUILT",
       "evidence": []
     },
     {
