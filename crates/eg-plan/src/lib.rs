@@ -55,6 +55,9 @@
 
 pub mod algebra;
 pub mod cost;
+// EG-UNIFIED-DATA-PLANE-R007 — named pushdown operations and a dialect's
+// declared capability set, refusing an unknown operation name.
+pub mod federation_capabilities;
 
 /// Structured hierarchical retrieval (CONCEPT:EG-KG.retrieval.bounded-drill) — the LeanRAG method as a
 /// library API over the EG-220 summary tier: retrieve at the summary/abstraction

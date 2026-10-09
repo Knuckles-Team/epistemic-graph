@@ -40,7 +40,8 @@
     "EG-UNIFIED-DATA-PLANE-R035",
     "EG-UNIFIED-DATA-PLANE-R036",
     "EG-UNIFIED-DATA-PLANE-R037",
-    "EG-UNIFIED-DATA-PLANE-R038"
+    "EG-UNIFIED-DATA-PLANE-R038",
+    "EG-UNIFIED-DATA-PLANE-R007.1"
   ],
   "delivery_state": "BUILDING",
   "acceptance_state": "NOT_AUDITED",
@@ -93,7 +94,13 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R007",
       "title": "Federate attached tables as DataFusion table providers",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
+      "evidence": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R007.1",
+      "title": "DialectPushdownCapabilities typed operation-set model",
+      "delivery_state": "BUILT",
       "evidence": []
     },
     {
