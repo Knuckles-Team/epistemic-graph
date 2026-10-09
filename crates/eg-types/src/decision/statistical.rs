@@ -23,6 +23,7 @@ pub mod outcome;
 pub mod retrieval;
 pub mod retrieval_adapter;
 pub mod retrieval_generation;
+pub mod retrieval_plan;
 pub mod retrieval_pointer;
 pub mod scorer;
 
