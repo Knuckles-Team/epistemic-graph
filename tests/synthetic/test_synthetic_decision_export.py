@@ -29,10 +29,44 @@ def test_the_gold_set_exports_one_full_label_item_per_solvable_plan() -> None:
         width = len(dataset["feature_names"])
         assert len(item["features"]) == width * len(item["candidate_ids"])
         assert set(item["label"]["acceptable"]) <= set(item["candidate_ids"])
-        assert item["label"]["source"] == "synthetic_construction"
+        assert item["label"]["source"] == export.SOURCE_IN_PROCESS
+        export.verify_ground_truth(item)
     assert ds.dataset_digest(dataset) == ds.dataset_digest(
         export.export_gold_dataset(gold)
     )
+
+
+def _served_item(acceptable: list[str], candidate_ids: list[str]) -> dict:
+    return {
+        "item_id": "served-0",
+        "candidate_ids": candidate_ids,
+        "label": {"source": export.SOURCE_SERVED, "acceptable": acceptable},
+    }
+
+
+def test_verify_ground_truth_accepts_a_served_item_with_a_grounded_acceptable_set() -> (
+    None
+):
+    item = _served_item(["a"], ["a", "b"])
+    export.verify_ground_truth(item)  # does not raise
+
+
+def test_verify_ground_truth_ignores_a_non_served_source() -> None:
+    item = _served_item([], ["a", "b"])
+    item["label"]["source"] = export.SOURCE_IN_PROCESS
+    export.verify_ground_truth(item)  # does not raise: not a served-path claim
+
+
+def test_verify_ground_truth_refuses_a_served_item_with_no_acceptable_set() -> None:
+    item = _served_item([], ["a", "b"])
+    with pytest.raises(export.UnverifiableGroundTruthError, match="no acceptable set"):
+        export.verify_ground_truth(item)
+
+
+def test_verify_ground_truth_refuses_a_served_item_whose_acceptable_set_leaks() -> None:
+    item = _served_item(["a", "ghost"], ["a", "b"])
+    with pytest.raises(export.UnverifiableGroundTruthError, match="not a subset"):
+        export.verify_ground_truth(item)
 
 
 def _marked(label: dict) -> bool:

@@ -97,6 +97,7 @@
     "EG-DECISION-ENGINE-R091",
     "EG-DECISION-ENGINE-R092",
     "EG-DECISION-ENGINE-R093",
+    "EG-DECISION-ENGINE-R093.1",
     "EG-DECISION-ENGINE-R094",
     "EG-DECISION-ENGINE-R095",
     "EG-DECISION-ENGINE-R096",
@@ -1323,6 +1324,13 @@
       "delivery_state": "SPECIFIED",
       "evidence": [],
       "remaining": "Only a manual CLI example wires training to an FX-SYNTH-exported corpus; no automated test confirms a training run consumes episodes from the synthetic generator's served path with verifiable ground-truth labels."
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R093.1",
+      "title": "Typed served-path provenance and ground-truth verification",
+      "delivery_state": "IN_PROGRESS",
+      "evidence": [],
+      "remaining": "Implementation branch opened; not yet merged to main."
     },
     {
       "id": "EG-DECISION-ENGINE-R094",
