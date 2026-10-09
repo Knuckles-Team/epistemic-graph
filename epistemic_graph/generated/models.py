@@ -5595,6 +5595,22 @@ class ForeignSourceSpecApiBody(BaseModel):
     operation: str
 
 
+class ForeignSourceSpecBrainGuarded(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    BrainGuarded: ForeignSourceSpecBrainGuardedBody
+
+
+class ForeignSourceSpecBrainGuardedBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    endpoint: str
+    guard_policy: str
+    id_field: str
+    query: str
+    score_field: str | None = None
+
+
 class ForeignSourceSpecCypher(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -23823,6 +23839,7 @@ ForeignSourceSpec = (
     | ForeignSourceSpecMcp
     | ForeignSourceSpecA2a
     | ForeignSourceSpecGraphQl
+    | ForeignSourceSpecBrainGuarded
 )
 
 
@@ -25667,6 +25684,8 @@ __all__ = [
     "ForeignSourceSpecA2aBody",
     "ForeignSourceSpecApi",
     "ForeignSourceSpecApiBody",
+    "ForeignSourceSpecBrainGuarded",
+    "ForeignSourceSpecBrainGuardedBody",
     "ForeignSourceSpecCypher",
     "ForeignSourceSpecCypherBody",
     "ForeignSourceSpecGraphQl",

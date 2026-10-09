@@ -14605,6 +14605,46 @@
             "GraphQl"
           ],
           "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A brain-guarded source (EG-DURABLE-KERNEL-R024.6): an inner query that\nMUST pass a named semantic/policy guard check (the \"brain\") before any\nrow crosses the federation boundary. `guard_policy` names the guard a\nregistration binds to; a spec naming an unbound or empty guard policy\nis refused, never silently run unguarded. This is PURE serde — the\nguard driver (which evaluates `guard_policy` against the live policy\nengine before admitting `query`'s rows) is a later, explicitly bound\nchild.",
+          "properties": {
+            "BrainGuarded": {
+              "properties": {
+                "endpoint": {
+                  "type": "string"
+                },
+                "guard_policy": {
+                  "type": "string"
+                },
+                "id_field": {
+                  "type": "string"
+                },
+                "query": {
+                  "type": "string"
+                },
+                "score_field": {
+                  "default": null,
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "endpoint",
+                "guard_policy",
+                "query",
+                "id_field"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "BrainGuarded"
+          ],
+          "type": "object"
         }
       ]
     },
