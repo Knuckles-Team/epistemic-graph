@@ -226,9 +226,9 @@
     {
       "id": "EG-CONTRACT-R008.2",
       "title": "check_five_repo_parity.py CLI wires in the typed parity contract",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
       "evidence": [],
-      "remaining": "Not started. Needs a scripts/check_five_repo_parity.py CLI that takes the repository root as an explicit argument and calls verify_resolved_checkout (EG-CONTRACT-R008.1) to fail closed on a mismatched resolved checkout."
+      "remaining": "PR open: scripts/check_five_repo_parity.py CLI takes the repository root as an explicit argument, resolves the actual checkout, and calls verify_resolved_checkout (EG-CONTRACT-R008.1) to fail closed on a mismatch; covered by scripts/tests/test_check_five_repo_parity.py."
     },
     {
       "id": "EG-CONTRACT-R009",
