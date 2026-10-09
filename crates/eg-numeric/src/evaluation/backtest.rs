@@ -186,6 +186,7 @@ fn long_run_variance(d: &[f64], mean: f64, h: usize) -> f64 {
 mod tests {
     use super::*;
 
+    // spec: EG-FINANCE-PRIMITIVES-R002
     #[test]
     fn cpcv_purges_and_embargoes_around_every_test_group() {
         let splits = purged_cpcv_splits(120, 6, 2, 5, 5);
@@ -196,6 +197,7 @@ mod tests {
         assert!(purged_cpcv_splits(10, 0, 1, 0, 0).is_empty());
     }
 
+    // spec: EG-FINANCE-PRIMITIVES-R002
     #[test]
     fn dsr_pbo_and_dm_behave_at_the_edges() {
         let rets: Vec<f64> = (0..200).map(|i| 0.001 + f64::from(i % 7) * 1e-4).collect();
