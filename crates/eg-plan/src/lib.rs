@@ -150,6 +150,10 @@ pub mod federation_opt;
 /// The one outbound-destination gate for federation (HTTP URLs, SQL DSN hosts).
 #[cfg(feature = "federation")]
 pub mod federation_ssrf;
+/// AGE graph reads bound to the existing guarded PostgreSQL federation transport
+/// (EG-DURABLE-KERNEL-R024.1).
+#[cfg(feature = "federation-sql")]
+pub mod federation_age;
 /// The cross-modal cost-based optimizer (CONCEPT:EG-KG.query.xmodal-cost-optimizer) — Lane A's
 /// rule engine over the logical `Vec<Op>` that [`exec::plan_optimize`] calls to reorder
 /// operators across modalities into a cheaper-but-equivalent plan. Compiled under `query`;

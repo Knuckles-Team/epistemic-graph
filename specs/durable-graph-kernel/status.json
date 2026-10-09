@@ -27,6 +27,14 @@
     "EG-DURABLE-KERNEL-R022",
     "EG-DURABLE-KERNEL-R023",
     "EG-DURABLE-KERNEL-R024",
+    "EG-DURABLE-KERNEL-R024.1",
+    "EG-DURABLE-KERNEL-R024.2",
+    "EG-DURABLE-KERNEL-R024.3",
+    "EG-DURABLE-KERNEL-R024.4",
+    "EG-DURABLE-KERNEL-R024.5",
+    "EG-DURABLE-KERNEL-R024.6",
+    "EG-DURABLE-KERNEL-R024.7",
+    "EG-DURABLE-KERNEL-R024.8",
     "EG-DURABLE-KERNEL-R025",
     "EG-DURABLE-KERNEL-R026",
     "EG-DURABLE-KERNEL-R027",
@@ -398,7 +406,63 @@
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
         }
       ],
-      "remaining": "A generic ForeignSourceSpec federation mechanism exists (RemoteEngine/HttpJson/Sql kinds), but none of the specifically named legacy backends (fanout, PostgreSQL/AGE, Neo4j/Cypher transpiler, FalkorDB, mirror target, brain_guarded, Trino, Spark) have been migrated in; that work is actively \u2026"
+      "remaining": "Split per the 2026-10-09 sizing rule: 8 named backends, each its own code root in crates/eg-plan. Rollup LANDED only once every child EG-DURABLE-KERNEL-R024.1-.8 is LANDED."
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R024.1",
+      "title": "PostgreSQL/AGE backend becomes a ForeignSourceSpec source",
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "c2dd4c98fe60f1d371d4f3565f53d4821c5c1512",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/pull/109",
+          "description": "crates/eg-plan/src/federation_age.rs ported from the never-merged commit bfa1cabd8494accef2ae87892bdd63d8358eec93 (branch codex/t6-eh508-cypher-20260926), re-verified against current origin/main; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R024.2",
+      "title": "Fan-out backend becomes a ForeignSourceSpec source",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R024.3",
+      "title": "Cypher transpiler becomes a ForeignSourceSpec source",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R024.4",
+      "title": "Mirror target becomes a ForeignSourceSpec mirror target",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R024.5",
+      "title": "Outbox-based mirror becomes a ForeignSourceSpec mirror target",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R024.6",
+      "title": "Brain-guarded backend becomes a ForeignSourceSpec source",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R024.7",
+      "title": "Trino backend becomes a ForeignSourceSpec source",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R024.8",
+      "title": "Spark job backend becomes a ForeignSourceSpec source",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R025",
