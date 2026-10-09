@@ -85,7 +85,9 @@
     "EG-DURABLE-KERNEL-R024.2.1",
     "EG-DURABLE-KERNEL-R024.2.2",
     "EG-DURABLE-KERNEL-R037.1",
-    "EG-DURABLE-KERNEL-R037.2"
+    "EG-DURABLE-KERNEL-R037.2",
+    "EG-DURABLE-KERNEL-R041.1",
+    "EG-DURABLE-KERNEL-R041.2"
   ],
   "delivery_state": "BUILDING",
   "acceptance_state": "NOT_AUDITED",
@@ -624,7 +626,7 @@
     {
       "id": "EG-DURABLE-KERNEL-R041",
       "title": "SQL plan cache keyed by statement digest and schema version",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
       "evidence": []
     },
     {
@@ -1075,6 +1077,18 @@
     {
       "id": "EG-DURABLE-KERNEL-R037.2",
       "title": "route dispatch entry point deciding DataFusion session allocation",
+      "delivery_state": "BUILT",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R041.1",
+      "title": "PlanCacheKey/PlanCacheLookup typed key and pure lookup decision with stale-schema refusal",
+      "delivery_state": "BUILT",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R041.2",
+      "title": "PlanCache::prepare entry point at the SQL prepare site",
       "delivery_state": "BUILT",
       "evidence": []
     }
