@@ -42,7 +42,7 @@ pub fn seal_dca_fixed_amount_backtest(
         })
         .collect();
     let returns: Vec<f64> = (0..contribution_dates.len().max(6))
-        .map(|i| f64::from(((i as i64) * 29 % 7) - 3) / 1_000.0)
+        .map(|i| (((i as i64) * 29 % 7) - 3) as f64 / 1_000.0)
         .collect();
     let draft = BacktestRunDraft {
         strategy: "dca_fixed_amount@1".to_string(),
@@ -66,8 +66,16 @@ pub fn seal_dca_fixed_amount_backtest(
             purge_window: 1,
             embargo: 1,
             n_trials: 3,
-            insample: vec![vec![0.3, 0.1], vec![0.2, 0.4], vec![0.1, 0.3]],
-            oos: vec![vec![0.1, 0.2], vec![0.3, 0.1], vec![0.2, 0.3]],
+            // One per-period row per return, at least two strategy variants
+            // wide, per `backtest_run::well_shaped`.
+            performance: vec![
+                vec![0.3, 0.1],
+                vec![0.2, 0.4],
+                vec![0.1, 0.3],
+                vec![0.1, 0.2],
+                vec![0.3, 0.1],
+                vec![0.2, 0.3],
+            ],
         },
         supersedes: None,
     };
@@ -103,22 +111,17 @@ mod tests {
     #[test]
     fn a_non_positive_contribution_amount_is_refused() {
         let dates = vec![10, 20];
-        let err =
-            seal_dca_fixed_amount_backtest(0, "demo:ASSET", &dates, universe("demo:ASSET"))
-                .unwrap_err();
+        let err = seal_dca_fixed_amount_backtest(0, "demo:ASSET", &dates, universe("demo:ASSET"))
+            .unwrap_err();
         assert_eq!(err.code, super::INVALID_REQUEST);
     }
 
     #[test]
     fn a_dca_backtest_outside_the_universe_is_refused() {
         let dates = vec![10, 20, 30, 40, 50, 60];
-        let err = seal_dca_fixed_amount_backtest(
-            10_000,
-            "demo:ASSET",
-            &dates,
-            universe("other:ASSET"),
-        )
-        .unwrap_err();
+        let err =
+            seal_dca_fixed_amount_backtest(10_000, "demo:ASSET", &dates, universe("other:ASSET"))
+                .unwrap_err();
         assert_eq!(err.code, super::LOOK_AHEAD);
     }
 }
