@@ -68,14 +68,42 @@ impl FragmentTrace {
     }
 }
 
-/// One line per fragment for a log/EXPLAIN view.
+/// Drop a registry name from the optimizer's trusted `<kind>[:name]#<8 hex>` label.
+/// Fail closed for malformed labels rather than echoing arbitrary caller text.
+pub(crate) fn redacted_label(label: &str) -> String {
+    let Some((prefix, digest)) = label.rsplit_once('#') else {
+        return "source#unknown".into();
+    };
+    if digest.len() != 8 || !digest.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return "source#unknown".into();
+    }
+    let kind = prefix.split(':').next().unwrap_or_default();
+    if !matches!(
+        kind,
+        "named"
+            | "registered"
+            | "remote-engine"
+            | "http-json"
+            | "sql"
+            | "trino"
+            | "neo4j"
+            | "age"
+            | "falkordb"
+            | "spark-batch"
+    ) {
+        return "source#unknown".into();
+    }
+    format!("{kind}#{digest}")
+}
+
+/// One line per fragment for a log/EXPLAIN view, without registered source names.
 pub fn render_trace(trace: &[FragmentTrace]) -> String {
     trace
         .iter()
         .map(|t| {
             format!(
                 "{} {:?} keys={} limit={:?} requests={} fetched={} kept={} ms={} estimate={:?}",
-                t.source,
+                redacted_label(&t.source),
                 t.strategy,
                 t.keys_pushed,
                 t.limit_pushed,
@@ -88,4 +116,36 @@ pub fn render_trace(trace: &[FragmentTrace]) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{render_trace, FetchStrategy, FragmentTrace};
+
+    #[test]
+    fn telemetry_trace_redacts_registered_names_and_keeps_counts() {
+        let mut fragment = FragmentTrace::new(
+            "registered:https://user:redact-me@example.invalid/db#deadbeef".into(),
+            FetchStrategy::BindJoin,
+        );
+        fragment.keys_pushed = 3;
+        fragment.requests = 2;
+        fragment.rows_fetched = 5;
+        fragment.rows_kept = 4;
+        let output = render_trace(&[fragment]);
+        assert!(
+            output.starts_with("registered#deadbeef BindJoin"),
+            "{output}"
+        );
+        assert!(output.contains("keys=3 limit=None requests=2 fetched=5 kept=4"));
+        assert!(!output.contains("redact-me") && !output.contains("example.invalid"));
+    }
+
+    #[test]
+    fn telemetry_trace_fails_closed_for_malformed_source_labels() {
+        let fragment = FragmentTrace::new("untrusted:redact-me".into(), FetchStrategy::FullFetch);
+        let output = render_trace(&[fragment]);
+        assert!(output.starts_with("source#unknown FullFetch"), "{output}");
+        assert!(!output.contains("redact-me"));
+    }
 }
