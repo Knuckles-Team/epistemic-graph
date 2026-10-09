@@ -14,12 +14,14 @@ pub enum FreshnessRoute {
     Accelerated,
 }
 
-/// Every route this requirement names has a label; used to prove match-exhaustiveness.
-fn route_label(route: FreshnessRoute) -> &'static str {
-    match route {
-        FreshnessRoute::Native => "native",
-        FreshnessRoute::Live => "live",
-        FreshnessRoute::Accelerated => "accelerated",
+impl FreshnessRoute {
+    /// The route's stable label; the exhaustive match proves every named route has one.
+    pub fn label(self) -> &'static str {
+        match self {
+            FreshnessRoute::Native => "native",
+            FreshnessRoute::Live => "live",
+            FreshnessRoute::Accelerated => "accelerated",
+        }
     }
 }
 
@@ -85,8 +87,11 @@ mod tests {
 
     #[test]
     fn all_three_routes_are_known() {
-        assert_eq!(route_label(FreshnessRoute::Native), "native");
-        assert_eq!(route_label(FreshnessRoute::Live), "live");
-        assert_eq!(route_label(FreshnessRoute::Accelerated), "accelerated");
+        assert_eq!(FreshnessRoute::label(FreshnessRoute::Native), "native");
+        assert_eq!(FreshnessRoute::label(FreshnessRoute::Live), "live");
+        assert_eq!(
+            FreshnessRoute::label(FreshnessRoute::Accelerated),
+            "accelerated"
+        );
     }
 }

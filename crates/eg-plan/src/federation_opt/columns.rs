@@ -290,9 +290,13 @@ mod tests {
             comparison: Comparison::Ge,
             value: json!(40),
         };
-        let plan = ColumnPlan::new(&exposed, &["name".into()], &[pred.clone()], true, |_| {
-            PushdownSupport::Inexact
-        })
+        let plan = ColumnPlan::new(
+            &exposed,
+            &["name".into()],
+            std::slice::from_ref(&pred),
+            true,
+            |_| PushdownSupport::Inexact,
+        )
         .unwrap();
         assert_eq!(plan.remote_projection, vec!["age", "name"]);
         assert_eq!(plan.remote_filters, vec![pred]);
