@@ -17,7 +17,7 @@ pub const ASYNC_MAX_LOSS_WINDOW_MS: u64 = 100;
 
 /// A KV namespace or table's declared durability class. Serialized as its
 /// lowercase wire name so a stored declaration is stable across releases.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum DurabilityClass {
     /// In-memory with TTL; no durable log entry is written.
@@ -27,13 +27,8 @@ pub enum DurabilityClass {
     Async,
     /// Commit before acknowledgment. The default when a namespace declares
     /// none explicitly.
+    #[default]
     Sync,
-}
-
-impl Default for DurabilityClass {
-    fn default() -> Self {
-        Self::Sync
-    }
 }
 
 impl DurabilityClass {
