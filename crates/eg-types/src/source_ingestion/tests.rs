@@ -348,3 +348,39 @@ fn provider_checkpoint_position_accepts_scalar_json() {
     null_position.provider_checkpoint.position = SourceJson::new(serde_json::Value::Null).unwrap();
     assert!(SourceIngestionRequest::new(null_position).is_ok());
 }
+
+// EG-REPO-INGEST-R003.1 — standardization processing (excluding drift
+// detection) is the first migrated root claimed through EG's own typed
+// interface rather than left to its retiring legacy module.
+
+#[test]
+fn r003_1_standardization_processing_round_trips_through_the_typed_root() {
+    let root = MigratedIngestionCapabilityRoot::StandardizationProcessing;
+    let wire = serde_json::to_string(&root).unwrap();
+    assert_eq!(wire, "\"standardization_processing\"");
+    let back: MigratedIngestionCapabilityRoot = serde_json::from_str(&wire).unwrap();
+    assert_eq!(back, root);
+}
+
+#[test]
+fn r003_1_a_fresh_claim_on_standardization_processing_succeeds() {
+    let root = MigratedIngestionCapabilityRoot::StandardizationProcessing;
+    assert!(root.claim(&[]).is_ok());
+}
+
+#[test]
+fn r003_1_a_duplicate_claim_on_standardization_processing_is_refused() {
+    let root = MigratedIngestionCapabilityRoot::StandardizationProcessing;
+    let already_claimed = vec![root];
+    let err = root
+        .claim(&already_claimed)
+        .expect_err("a second writer for the same migrated root must be refused");
+    assert!(err.contains("already claimed"));
+}
+
+#[test]
+fn r003_1_a_different_root_is_not_blocked_by_an_unrelated_claim() {
+    let standardization = MigratedIngestionCapabilityRoot::StandardizationProcessing;
+    let already_claimed = vec![MigratedIngestionCapabilityRoot::QuantumProcessing];
+    assert!(standardization.claim(&already_claimed).is_ok());
+}

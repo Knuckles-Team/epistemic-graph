@@ -353,6 +353,53 @@ pub enum SourceMappingKind {
     Relationship,
 }
 
+/// One root of the ingestion-adjacent capabilities migrating out of their
+/// legacy modules into EG under EG-REPO-INGEST-R003. Each variant names a
+/// root that EG-REPO-INGEST-R003.1..R003.11 claims individually; EG becomes
+/// the sole typed home for a root only once it is claimed here and the
+/// retiring legacy module stops performing the same computation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub enum MigratedIngestionCapabilityRoot {
+    /// EG-REPO-INGEST-R003.1 (excludes drift detection).
+    StandardizationProcessing,
+    /// EG-REPO-INGEST-R003.2
+    InfrastructureProcessing,
+    /// EG-REPO-INGEST-R003.3
+    QuantumProcessing,
+    /// EG-REPO-INGEST-R003.4
+    SecurityProcessing,
+    /// EG-REPO-INGEST-R003.5
+    EnterpriseProtocolHandling,
+    /// EG-REPO-INGEST-R003.6
+    EcosystemConceptExtraction,
+    /// EG-REPO-INGEST-R003.7
+    TraceOntologyObservability,
+    /// EG-REPO-INGEST-R003.8
+    SelfIngestionObservability,
+    /// EG-REPO-INGEST-R003.9
+    AuditLoggingObservability,
+    /// EG-REPO-INGEST-R003.10
+    RelationalAuthorityGovernance,
+    /// EG-REPO-INGEST-R003.11
+    PlacementMiningResearch,
+}
+
+impl MigratedIngestionCapabilityRoot {
+    /// Claims this root as EG's sole typed home. Refused when the root is
+    /// already present in `already_claimed`, so a duplicate writer for the
+    /// same migrated root can never be admitted alongside EG's own.
+    pub fn claim(self, already_claimed: &[Self]) -> Result<(), String> {
+        if already_claimed.contains(&self) {
+            return Err(format!(
+                "{self:?} is already claimed as EG's sole typed home; refusing a duplicate writer for the same migrated root"
+            ));
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
