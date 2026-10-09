@@ -86,6 +86,7 @@
     "EG-DECISION-ENGINE-R079",
     "EG-DECISION-ENGINE-R079.1",
     "EG-DECISION-ENGINE-R080",
+    "EG-DECISION-ENGINE-R080.1",
     "EG-DECISION-ENGINE-R081",
     "EG-DECISION-ENGINE-R082",
     "EG-DECISION-ENGINE-R083",
@@ -1189,6 +1190,13 @@
     {
       "id": "EG-DECISION-ENGINE-R080",
       "title": "Ingestion cost ladder with provenance rungs",
+      "delivery_state": "SPECIFIED",
+      "evidence": [],
+      "remaining": "Split into EG-DECISION-ENGINE-R080.1 (typed ProvenanceRung model and the lower-rung-never-overwritten resolution rule) plus deferred child slices for the real per-rung extractors."
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R080.1",
+      "title": "Typed provenance-rung model and overwrite-protection rule",
       "delivery_state": "SPECIFIED",
       "evidence": []
     },
