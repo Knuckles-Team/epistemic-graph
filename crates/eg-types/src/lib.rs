@@ -78,6 +78,9 @@ pub mod durability_class;
 // EG-DURABLE-KERNEL-R037 — the workload classification (point/structure/sql)
 // every wire listener routes an operation by. Pure, no dep.
 pub mod workload_class;
+// EG-DURABLE-KERNEL-R041 — the SQL plan cache key (statement digest + schema
+// version) and its lookup decision. Pure, no dep beyond `contract::Digest256`.
+pub mod plan_cache_key;
 // CONCEPT:EG-KG.compute.epistemic-operations-protocol — strict shared DTOs for
 // RequestContext, mutation/ingestion, work, artifact, query, job, and trace outcomes.
 pub mod epistemic_operations;
