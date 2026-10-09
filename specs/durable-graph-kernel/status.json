@@ -73,7 +73,8 @@
     "EG-DURABLE-KERNEL-R068",
     "EG-DURABLE-KERNEL-R069",
     "EG-DURABLE-KERNEL-R070",
-    "EG-DURABLE-KERNEL-R037.1"
+    "EG-DURABLE-KERNEL-R037.1",
+    "EG-DURABLE-KERNEL-R037.2"
   ],
   "delivery_state": "BUILDING",
   "acceptance_state": "NOT_AUDITED",
@@ -989,6 +990,12 @@
     {
       "id": "EG-DURABLE-KERNEL-R037.1",
       "title": "WorkloadClass typed classifier with refusal for an unrecognized operation kind",
+      "delivery_state": "BUILT",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R037.2",
+      "title": "route dispatch entry point deciding DataFusion session allocation",
       "delivery_state": "BUILT",
       "evidence": []
     }

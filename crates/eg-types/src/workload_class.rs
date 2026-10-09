@@ -45,6 +45,34 @@ impl WorkloadClass {
     }
 }
 
+/// The dispatch entry point (`EG-DURABLE-KERNEL-R037.2`): what a wire
+/// listener's dispatcher calls, once per received operation, in place of
+/// unconditionally allocating a DataFusion session. Carries the decision a
+/// dispatcher needs — not just the class, but whether it must allocate a
+/// session for this specific operation — so no listener has to re-derive
+/// `bypasses_sql_planner` itself.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DispatchRoute {
+    pub class: WorkloadClass,
+    /// `true` only for `Sql`: every listener's dispatcher gates its
+    /// DataFusion session allocation on this field, never on matching the
+    /// class directly, so a future class added here cannot be missed by an
+    /// `if class == Sql` check at a call site.
+    pub allocate_datafusion_session: bool,
+}
+
+/// Classify a wire listener's declared operation-kind name AND decide the
+/// dispatcher's one routing action from it: this is the single function
+/// every listener's dispatch loop calls before deciding whether to touch
+/// DataFusion.
+pub fn route(operation_kind: &str) -> Result<DispatchRoute, UnclassifiedOperation> {
+    let class = WorkloadClass::classify(operation_kind)?;
+    Ok(DispatchRoute {
+        class,
+        allocate_datafusion_session: !class.bypasses_sql_planner(),
+    })
+}
+
 /// A wire listener declared an operation-kind name no classifier rule
 /// recognizes. Carries the rejected name verbatim.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -90,5 +118,26 @@ mod tests {
             let err = WorkloadClass::classify(bad).unwrap_err();
             assert!(err.to_string().contains("does not recognize"));
         }
+    }
+
+    #[test]
+    fn dispatch_route_never_allocates_a_datafusion_session_for_point_or_structure() {
+        for kind in ["get", "set", "hash", "list"] {
+            let decision = route(kind).unwrap();
+            assert!(!decision.allocate_datafusion_session, "{kind}");
+            assert!(decision.class.bypasses_sql_planner());
+        }
+    }
+
+    #[test]
+    fn dispatch_route_allocates_a_datafusion_session_for_sql() {
+        let decision = route("sql").unwrap();
+        assert!(decision.allocate_datafusion_session);
+        assert_eq!(decision.class, WorkloadClass::Sql);
+    }
+
+    #[test]
+    fn dispatch_route_propagates_the_classifier_refusal() {
+        assert!(route("unknown-op").is_err());
     }
 }
