@@ -89,6 +89,10 @@ pub mod fleet_catalog;
 // (pgwire/MySQL/MSSQL point operations that bypass DataFusion planning).
 // Pure serde, no dep.
 pub mod fast_path;
+// EG-DURABLE-KERNEL-R033 — the hot-store engine evaluation's typed model
+// (redb/fjall/RocksDB candidates, workload profiles, validated benchmark
+// results, winner selection). Pure serde, no dep.
+pub mod hot_store_engine;
 // EH-346/EH-347 — capture-first open-weight policy evolution: the capability,
 // capture, model-policy version, training-run and evaluation records EG owns.
 // Pure serde; EG records and relates, it never trains.
