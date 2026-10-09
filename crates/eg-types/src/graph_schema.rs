@@ -18,6 +18,7 @@ use crate::contract::{closed_error_codes, BoundedVec, ResourceId};
 
 pub mod approval;
 pub mod repair;
+pub mod shadow_branch;
 mod terms;
 pub use terms::{
     term_local_name, validate_term_page_limit, GraphSchemaClassesView, GraphSchemaTermKind,

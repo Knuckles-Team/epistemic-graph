@@ -15,6 +15,7 @@
 //! Every amount is an integer, and a request may only TIGHTEN the policy's
 //! caps (`POLICY_LOOSENING` otherwise), exactly like the solver budget.
 
+pub mod capacity_commit;
 pub mod plan;
 #[cfg(test)]
 mod tests;
