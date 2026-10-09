@@ -158,6 +158,9 @@ pub mod federation_trino;
 /// driver. Mirrors `federation`'s read-side `ForeignSource` seam.
 #[cfg(feature = "federation")]
 pub mod mirror_target;
+/// Learned, provenanced join cardinality statistics for ordering joins across foreign
+/// sources (EG-FEDERATED-QUERY-R048.1 — typed-model slice of R048).
+pub mod federation_stats;
 /// The cross-modal cost-based optimizer (CONCEPT:EG-KG.query.xmodal-cost-optimizer) — Lane A's
 /// rule engine over the logical `Vec<Op>` that [`exec::plan_optimize`] calls to reorder
 /// operators across modalities into a cheaper-but-equivalent plan. Compiled under `query`;

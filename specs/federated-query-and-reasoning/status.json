@@ -52,6 +52,7 @@
     "EG-FEDERATED-QUERY-R046",
     "EG-FEDERATED-QUERY-R047",
     "EG-FEDERATED-QUERY-R048",
+    "EG-FEDERATED-QUERY-R048.1",
     "EG-FEDERATED-QUERY-R049",
     "EG-FEDERATED-QUERY-R050",
     "EG-FEDERATED-QUERY-R051",
@@ -757,6 +758,12 @@
     {
       "id": "EG-FEDERATED-QUERY-R048",
       "title": "Join ordering across foreign sources uses learned, provenanced statistics",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R048.1",
+      "title": "Typed join-cardinality-statistic model with provenance",
       "delivery_state": "SPECIFIED",
       "evidence": []
     },
