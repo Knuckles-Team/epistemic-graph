@@ -34,6 +34,11 @@ pub mod capacity_lease;
 // eg-transaction admission boundary. This module grants no executable capability.
 pub mod authority;
 pub mod change_envelope;
+// EG-UNIFIED-DATA-PLANE-R027.1 — typed Postgres compatibility-feature
+// inventory and fix-proof shape, refusing a fix recorded without a complete
+// captured-traffic/failing-test/passing-test proof. Pure data;
+// implementing each proven feature is a later child.
+pub mod pg_compat_feature;
 // GOC-03 — the cross-domain commit-descriptor/read-barrier currency shared by
 // graph, modality, vector, blob/refcount, time-series, evidence, table/lake, and
 // terminal-analytics-outcome participants. Deliberately a NEW module (not folded
