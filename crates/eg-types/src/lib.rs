@@ -153,6 +153,9 @@ pub mod pipeline_batch;
 // capture, model-policy version, training-run and evaluation records EG owns.
 // Pure serde; EG records and relates, it never trains.
 pub mod policy_evolution;
+// EG-UNIFIED-DATA-PLANE-R013.1 — Postgres attached-source adapter config and
+// type-mapping typed model (connect/catalog/capture wiring is a later slice).
+pub mod postgres_adapter;
 // CONCEPT:EG-KG.sharding.semantic-embedding-store-backed — the pinned embedding-space
 // identity (`EmbeddingSpaceRef`) + stamped-vector (`StampedVector`) currency shared
 // by BOTH `eg-core::compute::semantic` backends, plus their two dimensionality
