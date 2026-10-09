@@ -49,8 +49,16 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R001",
       "title": "Record attached-source and native-hosting architecture decisions",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "5a4a0b3d49364fcdb79bb7bb364d7e44b3fc958b",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/5a4a0b3d49364fcdb79bb7bb364d7e44b3fc958b",
+          "description": "EG-UNIFIED-DATA-PLANE-R001 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R002",

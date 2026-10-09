@@ -1469,8 +1469,16 @@
     {
       "id": "EG-TYPED-PACKS-R098",
       "title": "Ontology inspection method and inline data triples for validation",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "cc6536f05e174d82a445952ebc3f62ac2d89270b",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/cc6536f05e174d82a445952ebc3f62ac2d89270b",
+          "description": "EG-TYPED-PACKS-R098 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R099",

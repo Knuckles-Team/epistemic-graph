@@ -596,8 +596,16 @@
     {
       "id": "EG-DECISION-ENGINE-R034",
       "title": "Proposal-only contradiction-handling suggestions",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "94da44835d59d224c3ad5cf5dba1921c48affcad",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/94da44835d59d224c3ad5cf5dba1921c48affcad",
+          "description": "EG-DECISION-ENGINE-R034 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R035",
