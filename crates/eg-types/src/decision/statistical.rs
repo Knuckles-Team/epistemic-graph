@@ -59,6 +59,11 @@ pub enum QuestionKind {
     RetrievalPlan,
     IngestionLane,
     EnrichmentSchedule,
+    /// An inbound A2A task routed to an existing or assembled agent graph
+    /// (EG-DECISION-ENGINE-R044). Resolution kind and evidence class are
+    /// computed generically from the outcome and premises, exactly as for
+    /// every other question kind; this variant adds no executor branch.
+    A2aTask,
 }
 
 /// What is at stake. Exploration is permitted only for

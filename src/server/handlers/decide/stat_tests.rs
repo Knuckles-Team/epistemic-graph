@@ -1072,6 +1072,8 @@ use log_tests::{retention_compacts_and_verifies, retention_retires};
 
 mod classes_tests;
 
+mod a2a_tests;
+
 mod consumer_tests;
 
 #[cfg(feature = "query")]
