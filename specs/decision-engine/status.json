@@ -128,6 +128,8 @@
     "EG-DECISION-ENGINE-R114",
     "EG-DECISION-ENGINE-R115",
     "EG-DECISION-ENGINE-R116",
+    "EG-DECISION-ENGINE-R116.1",
+    "EG-DECISION-ENGINE-R116.2",
     "EG-DECISION-ENGINE-R117",
     "EG-DECISION-ENGINE-R118",
     "EG-DECISION-ENGINE-R119",
@@ -1927,16 +1929,30 @@
     {
       "id": "EG-DECISION-ENGINE-R116",
       "title": "Consumers reach EG only through the versioned client contract",
+      "delivery_state": "SPECIFIED",
+      "evidence": [],
+      "remaining": "The prior evidence commit (fd8f47c6a) was unrelated (ingestion runnable-skill-derivation, not the client contract) and has been removed. Split per the dependency-first sizing rule: EG-DECISION-ENGINE-R116.1 (producer: the typed consumer-call-path gate) and EG-DECISION-ENGINE-R116.2 (consumer: wiring every generated client method through the gate, plus the contract test proving no bespoke facade is required). R116 is LANDED when both children are."
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R116.1",
+      "title": "A typed gate admits only the published client-contract call path",
       "delivery_state": "BUILT",
       "evidence": [
         {
           "kind": "branch",
           "result": "passed",
-          "commit": "fd8f47c6aaf2fbceabdf8d185b97ed1733ed9f42",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/fd8f47c6aaf2fbceabdf8d185b97ed1733ed9f42",
+          "commit": "253a69935dfd08a7a5ef6cb13eacb3a875764bbc",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/253a69935dfd08a7a5ef6cb13eacb3a875764bbc",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
         }
       ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R116.2",
+      "title": "Every generated client method is wired through the contract-only gate",
+      "delivery_state": "SPECIFIED",
+      "evidence": [],
+      "remaining": "Depends on EG-DECISION-ENGINE-R116.1 (producer)."
     },
     {
       "id": "EG-DECISION-ENGINE-R117",
@@ -2104,9 +2120,17 @@
     {
       "id": "EG-DECISION-ENGINE-R126.2",
       "title": "The capability-coverage query is served beside AgentAssemble",
-      "delivery_state": "SPECIFIED",
-      "evidence": [],
-      "remaining": "Depends on EG-DECISION-ENGINE-R126.1 (producer, landed in this PR's tree once merged)."
+      "delivery_state": "BUILT",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "253a69935dfd08a7a5ef6cb13eacb3a875764bbc",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/253a69935dfd08a7a5ef6cb13eacb3a875764bbc",
+          "description": "capability_coverage_query, the single entry point a served method and generated client invoke, is published on a branch; not yet merged to the default branch. The served RPC/client wiring itself remains open."
+        }
+      ],
+      "remaining": "The entry point composing required_capabilities with capability_coverage is built; the served method registration and generated client method are not yet wired."
     },
     {
       "id": "EG-DECISION-ENGINE-R127",
@@ -2139,9 +2163,17 @@
     {
       "id": "EG-DECISION-ENGINE-R127.2",
       "title": "The guardrail-entailment query is served, backed by a stored rule set",
-      "delivery_state": "SPECIFIED",
-      "evidence": [],
-      "remaining": "Depends on EG-DECISION-ENGINE-R127.1 (producer). Also needs a GuardrailRule storage/publish path, not designed yet."
+      "delivery_state": "BUILT",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "253a69935dfd08a7a5ef6cb13eacb3a875764bbc",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/253a69935dfd08a7a5ef6cb13eacb3a875764bbc",
+          "description": "guardrail_entailment_query, the entry point a served method invokes (validating the task IRI, then delegating to entailed_guardrails), is published on a branch; not yet merged to the default branch. The GuardrailRule storage/publish path and served RPC wiring remain open."
+        }
+      ],
+      "remaining": "Depends on EG-DECISION-ENGINE-R127.1 (producer, landed). The entry point validates and delegates; the GuardrailRule storage/publish path and served RPC wiring are not yet designed."
     }
   ]
 }
