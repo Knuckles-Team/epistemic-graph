@@ -80,6 +80,10 @@ pub mod decision;
 // beside the server registry, and the typed projection that joins them with
 // connector-pack `AgentComponent`s. Pure serde; the handler lives in the server.
 pub mod fleet_catalog;
+// EG-DURABLE-KERNEL-R032 — the native primary-key fast-path routing decision
+// (pgwire/MySQL/MSSQL point operations that bypass DataFusion planning).
+// Pure serde, no dep.
+pub mod fast_path;
 // EH-346/EH-347 — capture-first open-weight policy evolution: the capability,
 // capture, model-policy version, training-run and evaluation records EG owns.
 // Pure serde; EG records and relates, it never trains.

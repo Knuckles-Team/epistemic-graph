@@ -90,7 +90,8 @@
     "EG-DURABLE-KERNEL-R041.2",
     "EG-DURABLE-KERNEL-R042.1",
     "EG-DURABLE-KERNEL-R011.1",
-    "EG-DURABLE-KERNEL-R036.1"
+    "EG-DURABLE-KERNEL-R036.1",
+    "EG-DURABLE-KERNEL-R032.1"
   ],
   "delivery_state": "BUILDING",
   "acceptance_state": "NOT_AUDITED",
@@ -575,7 +576,7 @@
     {
       "id": "EG-DURABLE-KERNEL-R032",
       "title": "Native primary-key fast path bypasses the SQL planner",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
       "evidence": []
     },
     {
@@ -1110,6 +1111,12 @@
     {
       "id": "EG-DURABLE-KERNEL-R036.1",
       "title": "MirrorSinkKind/MirrorCursor typed model with non-empty-position guard on construction and advance",
+      "delivery_state": "BUILT",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R032.1",
+      "title": "PrimaryKeyOperation and FastPathDecision typed routing model with authorization/audit-checked invariant and refusal",
       "delivery_state": "BUILT",
       "evidence": []
     }
