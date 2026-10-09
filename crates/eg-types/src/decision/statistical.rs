@@ -61,6 +61,12 @@ pub enum QuestionKind {
     RetrievalPlan,
     IngestionLane,
     EnrichmentSchedule,
+    /// An advisory risk score for a candidate tool invocation, read before
+    /// the call (EG-DECISION-ENGINE-R038). `Decide` is evaluate-only for
+    /// every kind (see this module's own doc), so the score it returns can
+    /// only ever inform a caller's own authorization step -- it carries no
+    /// mechanism to itself gate or block the invocation.
+    PreToolRisk,
 }
 
 /// What is at stake. Exploration is permitted only for
