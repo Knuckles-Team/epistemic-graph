@@ -129,6 +129,8 @@
     "EG-DECISION-ENGINE-R124",
     "EG-DECISION-ENGINE-R125",
     "EG-DECISION-ENGINE-R126",
+    "EG-DECISION-ENGINE-R126.1",
+    "EG-DECISION-ENGINE-R126.2",
     "EG-DECISION-ENGINE-R127"
   ],
   "delivery_state": "BUILDING",
@@ -1781,7 +1783,21 @@
       "id": "EG-DECISION-ENGINE-R126",
       "title": "Capability coverage answers which components can serve a task",
       "delivery_state": "SPECIFIED",
+      "evidence": [],
+      "remaining": "Split into EG-DECISION-ENGINE-R126.1 (producer: the pure capability_coverage derivation, eg-types) and EG-DECISION-ENGINE-R126.2 (consumer: the served query + generated client). R126 is LANDED when both children are."
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R126.1",
+      "title": "Capability coverage is a pure function of required capabilities and candidate facts",
+      "delivery_state": "SPECIFIED",
       "evidence": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R126.2",
+      "title": "The capability-coverage query is served beside AgentAssemble",
+      "delivery_state": "SPECIFIED",
+      "evidence": [],
+      "remaining": "Depends on EG-DECISION-ENGINE-R126.1 (producer, landed in this PR's tree once merged)."
     },
     {
       "id": "EG-DECISION-ENGINE-R127",

@@ -15,7 +15,11 @@
 - [ ] D11 **EG-DECISION-ENGINE-R119:** Finish shared sealed replay, fold checkpoints, bitemporal no-look-ahead, trial-count and incumbent statistics; exercise typed text and served job routes.
 - [x] D12 Close the component-schema and ingestion-side requirements no task above names: **EG-DECISION-ENGINE-R077–EG-DECISION-ENGINE-R081** (shared component schema bump, contract freeze reissue, embedding admission classifier, ingestion cost ladder, confidence-weighted community detection); see `requirements.md` for each ID's definition.
 
-- [ ] D13 **EG-DECISION-ENGINE-R126, EG-DECISION-ENGINE-R127:** Add the coverage and guardrail read queries beside `AgentAssemble`, generate their client methods, and run test D2. The agent-utilities planner (AU-CONTROL-R027) consumes them through its capability-search and guardrail ports.
+- [ ] D13 **EG-DECISION-ENGINE-R126, EG-DECISION-ENGINE-R127:** Add the coverage and guardrail read queries beside `AgentAssemble`, generate their client methods, and run test D2. The agent-utilities planner (AU-CONTROL-R027) consumes them through its capability-search and guardrail ports. Split per the sizing rule: R126 into D13a/D13b below; R127 similarly when it is picked up.
+
+- [x] D13a **EG-DECISION-ENGINE-R126.1 (producer):** Add `derivation::capability_coverage` (`crates/eg-types/src/decision/derivation.rs`), joining `required_capabilities`' closure with every library candidate's `coverage_chain` (weakest-premise evidence class) and every A2A card's self-declared capability list (unconditional claim). No server surface. Test: `crates/eg-types/src/decision/derivation/tests.rs::capability_coverage_joins_derived_library_coverage_with_self_declared_a2a_coverage`.
+
+- [ ] D13b **EG-DECISION-ENGINE-R126.2 (consumer):** Add the served read-only query beside `AgentAssemble` that resolves a tenant's visible library candidates and registered A2A cards and calls `EG-DECISION-ENGINE-R126.1`'s `capability_coverage`; generate its client method; run test D2 (visibility filtering, absence of invisible components).
 
 - [x] D14 **EG-DECISION-ENGINE-R017:** Add a regression test for the existing `FORBIDDEN_COMPONENT_KIND` refusal (`validate_publish` in `crates/eg-types/src/agent_component.rs`), exercised through both the bare validator and the public `AgentComponentOp::Publish.validate()` surface, so the previously untested bypass path is covered. Test: `crates/eg-types/src/agent_component.rs::tests::a_decision_record_cannot_be_published_directly`.
 
