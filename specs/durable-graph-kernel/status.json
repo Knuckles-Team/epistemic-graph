@@ -452,8 +452,8 @@
         {
           "kind": "branch",
           "result": "passed",
-          "commit": "PENDING_PUSH",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/pull/PENDING",
+          "commit": "7b7d4a0fb10fb4e63c18dee28fd094a22502dc2e",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/pull/112",
           "description": "crates/eg-plan/src/federation_trino.rs ported from the never-merged commit 453133015bda39904352236ee5378794c1b4be54 (same abandoned branch as EG-DURABLE-KERNEL-R024.1's AGE source), re-verified against current origin/main; not yet merged to the default branch."
         }
       ]
