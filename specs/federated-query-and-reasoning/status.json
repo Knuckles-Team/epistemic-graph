@@ -1123,6 +1123,15 @@
       "id": "EG-FEDERATED-QUERY-R073",
       "title": "Operation-bound virtual mappings federate API, MCP, A2A and GraphQL sources",
       "delivery_state": "SPECIFIED",
+      "rollup": true,
+      "children": ["EG-FEDERATED-QUERY-R073.1"],
+      "evidence": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R073.1",
+      "title": "Typed model for operation-bound foreign sources, with refusal tests",
+      "parent": "EG-FEDERATED-QUERY-R073",
+      "delivery_state": "SPECIFIED",
       "evidence": []
     }
   ]

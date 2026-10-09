@@ -415,6 +415,61 @@ pub enum ForeignSourceSpec {
         #[serde(default)]
         score_field: Option<String>,
     },
+    /// An operation-bound REST/HTTP API source (CONCEPT:EG-KG.query.query-federation,
+    /// FQR-11). Unlike [`ForeignSourceSpec::HttpJson`] (a raw, inline, unbound GET), an
+    /// `Api` spec names a REGISTERED operation that a mapped entity reads through; the
+    /// registry resolves `operation` to a concrete, capability-probed endpoint. Never
+    /// carries a credential.
+    Api {
+        /// The registered operation name a mapped entity's read resolves to.
+        operation: String,
+        /// What this operation declares it can do — notably whether a key filter may
+        /// be pushed into the request (CONCEPT:EG-KG.query.query-federation).
+        #[serde(default)]
+        capabilities: ForeignOperationCapabilities,
+    },
+    /// An operation-bound MCP tool call (CONCEPT:EG-KG.query.query-federation, FQR-11).
+    /// `server` names the registered MCP server; `tool` the tool a mapped entity's
+    /// discovered operation invokes.
+    Mcp {
+        server: String,
+        tool: String,
+        #[serde(default)]
+        capabilities: ForeignOperationCapabilities,
+    },
+    /// An operation-bound A2A agent skill invocation (CONCEPT:EG-KG.query.query-federation,
+    /// FQR-11). `agent` names the registered A2A agent; `skill` the skill a mapped
+    /// entity's discovered operation invokes.
+    A2a {
+        agent: String,
+        skill: String,
+        #[serde(default)]
+        capabilities: ForeignOperationCapabilities,
+    },
+    /// An operation-bound GraphQL source (CONCEPT:EG-KG.query.query-federation, FQR-11).
+    /// `endpoint` names the registered GraphQL endpoint; `operation` the named query
+    /// a mapped entity's discovered operation runs.
+    GraphQl {
+        endpoint: String,
+        operation: String,
+        #[serde(default)]
+        capabilities: ForeignOperationCapabilities,
+    },
+}
+
+/// Declared capabilities of an operation-bound foreign source
+/// (CONCEPT:EG-KG.query.query-federation, FQR-11): what the REGISTRATION asserts the
+/// bound operation can do, never introspected from the caller's request. A key filter
+/// is pushed into the remote request only when `key_filter_pushdown` is true; EG always
+/// keeps the exact local residual filter regardless, so an under-declaring source never
+/// returns wrong rows — only a less-pushed-down request.
+#[cfg(feature = "federation")]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct ForeignOperationCapabilities {
+    /// The bound operation accepts a server-side key filter (e.g. `id IN (...)`).
+    #[serde(default)]
+    pub key_filter_pushdown: bool,
 }
 
 /// External Cypher dialect and transport are a single explicit choice.
