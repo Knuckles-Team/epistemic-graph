@@ -73,7 +73,8 @@
     "EG-DURABLE-KERNEL-R068",
     "EG-DURABLE-KERNEL-R069",
     "EG-DURABLE-KERNEL-R070",
-    "EG-DURABLE-KERNEL-R041.1"
+    "EG-DURABLE-KERNEL-R041.1",
+    "EG-DURABLE-KERNEL-R041.2"
   ],
   "delivery_state": "BUILDING",
   "acceptance_state": "NOT_AUDITED",
@@ -989,6 +990,12 @@
     {
       "id": "EG-DURABLE-KERNEL-R041.1",
       "title": "PlanCacheKey/PlanCacheLookup typed key and pure lookup decision with stale-schema refusal",
+      "delivery_state": "BUILT",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R041.2",
+      "title": "PlanCache::prepare entry point at the SQL prepare site",
       "delivery_state": "BUILT",
       "evidence": []
     }

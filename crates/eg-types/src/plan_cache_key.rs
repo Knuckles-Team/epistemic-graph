@@ -64,6 +64,71 @@ pub fn lookup(requested: &PlanCacheKey, candidate: Option<&PlanCacheKey>) -> Pla
     PlanCacheLookup::Hit
 }
 
+/// The SQL prepare site's one entry point (`EG-DURABLE-KERNEL-R041.2`): a
+/// statement handler calls [`PlanCache::prepare`] instead of unconditionally
+/// recompiling. Generic over the compiled plan type `P` so this same cache
+/// serves the pgwire/MySQL/MSSQL prepare paths without each inventing its
+/// own cache.
+#[derive(Debug)]
+pub struct PlanCache<P> {
+    entries: std::collections::HashMap<Digest256, (u64, P)>,
+}
+
+// Hand-written rather than `#[derive(Default)]`: the derive would add a
+// spurious `P: Default` bound (an empty cache needs none).
+impl<P> Default for PlanCache<P> {
+    fn default() -> Self {
+        Self {
+            entries: std::collections::HashMap::new(),
+        }
+    }
+}
+
+impl<P: Clone> PlanCache<P> {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// How many distinct statement digests currently hold a cached plan.
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    /// Prepare a statement: reuse the cached plan on a `Hit`, otherwise call
+    /// `compile` and cache its result under `schema_version` (replacing any
+    /// stale entry). Returns the lookup outcome alongside the plan so a
+    /// caller can distinguish a cache hit from a (re)compile without a
+    /// second lookup.
+    pub fn prepare(
+        &mut self,
+        statement_digest: Digest256,
+        schema_version: u64,
+        compile: impl FnOnce() -> P,
+    ) -> (PlanCacheLookup, P) {
+        let requested = PlanCacheKey::new(statement_digest, schema_version);
+        let candidate = self
+            .entries
+            .get(&statement_digest)
+            .map(|(cached_schema_version, _)| PlanCacheKey::new(statement_digest, *cached_schema_version));
+        let decision = lookup(&requested, candidate.as_ref());
+        if let PlanCacheLookup::Hit = decision {
+            let (_, plan) = self
+                .entries
+                .get(&statement_digest)
+                .expect("Hit implies an entry exists for this digest");
+            return (decision, plan.clone());
+        }
+        let plan = compile();
+        self.entries
+            .insert(statement_digest, (schema_version, plan.clone()));
+        (decision, plan)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -108,5 +173,45 @@ mod tests {
     fn key_is_deterministic_across_separate_digest_computations() {
         assert_eq!(key(b"SELECT 1", 7), key(b"SELECT 1", 7));
         assert_ne!(key(b"SELECT 1", 7), key(b"SELECT 1", 8));
+    }
+
+    #[test]
+    fn prepare_compiles_once_then_reuses_the_cached_plan() {
+        let mut cache: PlanCache<u32> = PlanCache::new();
+        let digest = Digest256::sha256(b"SELECT 1");
+        let mut compiles = 0;
+        let (first, plan) = cache.prepare(digest, 7, || {
+            compiles += 1;
+            42
+        });
+        assert_eq!(first, PlanCacheLookup::Miss);
+        assert_eq!(plan, 42);
+        let (second, plan) = cache.prepare(digest, 7, || {
+            compiles += 1;
+            42
+        });
+        assert_eq!(second, PlanCacheLookup::Hit);
+        assert_eq!(plan, 42);
+        assert_eq!(compiles, 1, "the second prepare must not recompile");
+        assert_eq!(cache.len(), 1);
+    }
+
+    #[test]
+    fn prepare_recompiles_after_the_schema_version_advances() {
+        let mut cache: PlanCache<u32> = PlanCache::new();
+        let digest = Digest256::sha256(b"SELECT 1");
+        cache.prepare(digest, 7, || 42);
+        let (decision, plan) = cache.prepare(digest, 8, || 43);
+        assert_eq!(
+            decision,
+            PlanCacheLookup::StaleSchema {
+                cached_schema_version: 7
+            }
+        );
+        assert_eq!(plan, 43);
+        // The stale entry is replaced, not kept alongside the new one.
+        let (hit, plan) = cache.prepare(digest, 8, || panic!("must not recompile"));
+        assert_eq!(hit, PlanCacheLookup::Hit);
+        assert_eq!(plan, 43);
     }
 }
