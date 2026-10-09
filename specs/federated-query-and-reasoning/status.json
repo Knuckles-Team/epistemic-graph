@@ -812,7 +812,7 @@
     {
       "id": "EG-FEDERATED-QUERY-R053",
       "title": "Trino, Cypher and Spark sources are typed ForeignSourceSpec kinds",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -820,6 +820,13 @@
           "commit": "e403447bbe8dea9ede3eddbe0ca23aa602b6bca6",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/e403447bbe8dea9ede3eddbe0ca23aa602b6bca6",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "09385617b3ae97e9687e739812e058c1f1840c62",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/09385617b3ae97e9687e739812e058c1f1840c62",
+          "description": "EG-FEDERATED-QUERY-R053 merged to the default branch in this commit."
         }
       ]
     },

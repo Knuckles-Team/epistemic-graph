@@ -335,8 +335,16 @@
     {
       "id": "EG-TYPED-PACKS-R017",
       "title": "Release scope excludes an offline Agent Library upgrade path",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "34b9f502483db3024cf84253ed155be5dd99eebd",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/34b9f502483db3024cf84253ed155be5dd99eebd",
+          "description": "EG-TYPED-PACKS-R017 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R018",
