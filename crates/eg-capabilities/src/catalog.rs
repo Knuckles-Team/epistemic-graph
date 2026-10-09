@@ -79,6 +79,7 @@ mod tests {
     /// The catalog digest is the receipt's, byte for byte. A table generated
     /// under a different contract than the receipt records is exactly the
     /// staleness this constant exists to make impossible.
+    // spec: EG-TYPED-PACKS-R068
     #[test]
     fn the_catalog_digest_is_the_committed_receipt_digest() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
