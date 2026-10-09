@@ -642,7 +642,7 @@
   },
   "generator": "eg-capabilities/gen_contract",
   "internal_only_methods": 20,
-  "method_count": 462,
+  "method_count": 463,
   "python_client_methods": 442,
   "result_classification": {
     "declared_dynamic": 12,

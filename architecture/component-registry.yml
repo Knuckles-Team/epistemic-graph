@@ -3824,6 +3824,7 @@ components:
       - "tests/mysql_roundtrip.rs"
       - "tests/node_binding_envelope.rs"
       - "tests/occ_wire_serializable_begin_version.rs"
+      - "tests/operator_command_store_upgrade_cli.rs"
       - "tests/parity"
       - "tests/pgwire_roundtrip.rs"
       - "tests/protocol_method_routing.rs"
