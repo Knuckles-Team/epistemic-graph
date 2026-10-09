@@ -28,7 +28,7 @@ fn scorer() -> DecisionHeadBody {
 /// The same scorer fitted on human-labelled evidence. Only a non-synthetic
 /// head and calibration may act (27ebff52d), so tests about when an acting
 /// head must abstain start from this one.
-fn human_scorer() -> DecisionHeadBody {
+pub(super) fn human_scorer() -> DecisionHeadBody {
     let mut data = dataset(
         (0..200)
             .map(|i| gold_item(i, 0, LabelSource::Human))
@@ -66,7 +66,7 @@ fn q32(value: i64) -> QuantisedValue {
     }
 }
 
-fn outcome(head: &DecisionHeadBody, item: usize) -> StatisticalOutcome {
+pub(super) fn outcome(head: &DecisionHeadBody, item: usize) -> StatisticalOutcome {
     let HeadReading::InDistribution(reading) = read_head(head, &matrix(item)).expect("reads")
     else {
         panic!("item {item} is in distribution")

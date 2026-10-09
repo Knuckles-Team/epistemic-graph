@@ -62,9 +62,7 @@ impl IngestionLaneRequest {
     /// [`IngestionLane::ALL`].
     pub fn check(&self) -> Result<(), String> {
         if self.candidate_lanes.is_empty() {
-            return Err(
-                "an ingestion-lane request names at least one candidate lane".to_string(),
-            );
+            return Err("an ingestion-lane request names at least one candidate lane".to_string());
         }
         for option_id in &self.candidate_lanes {
             if IngestionLane::from_option_id(option_id).is_none() {

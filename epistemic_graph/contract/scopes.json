@@ -159,6 +159,18 @@
       "scope": "analytics:worker"
     },
     {
+      "approver_group": "action-approvers",
+      "class": "approver",
+      "owner": "graph-os",
+      "scope": "approvals:decide"
+    },
+    {
+      "approver_group": "action-approvers",
+      "class": "approver",
+      "owner": "graph-os",
+      "scope": "approvals:read"
+    },
+    {
       "approver_group": null,
       "class": "user",
       "owner": "engine",
@@ -396,13 +408,31 @@
       "approver_group": null,
       "class": "domain",
       "owner": "finance",
+      "scope": "finance:read"
+    },
+    {
+      "approver_group": null,
+      "class": "domain",
+      "owner": "finance",
       "scope": "finance:track"
+    },
+    {
+      "approver_group": null,
+      "class": "admin",
+      "owner": "graph-os",
+      "scope": "fleet:control"
     },
     {
       "approver_group": null,
       "class": "service-only",
       "owner": "graph-os",
       "scope": "fleet:events"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "graph-os",
+      "scope": "fleet:read"
     },
     {
       "approver_group": null,
@@ -593,6 +623,18 @@
     {
       "approver_group": null,
       "class": "admin",
+      "owner": "graph-os",
+      "scope": "loops:control"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "graph-os",
+      "scope": "loops:read"
+    },
+    {
+      "approver_group": null,
+      "class": "admin",
       "owner": "engine",
       "scope": "matview:admin"
     },
@@ -601,6 +643,24 @@
       "class": "user",
       "owner": "engine",
       "scope": "matview:read"
+    },
+    {
+      "approver_group": null,
+      "class": "admin",
+      "owner": "graph-os",
+      "scope": "mcp:admin"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "graph-os",
+      "scope": "mcp:delegate"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "graph-os",
+      "scope": "mcp:discover"
     },
     {
       "approver_group": null,
@@ -655,6 +715,18 @@
       "class": "user",
       "owner": "engine",
       "scope": "node:write"
+    },
+    {
+      "approver_group": null,
+      "class": "admin",
+      "owner": "graph-os",
+      "scope": "ops:admin"
+    },
+    {
+      "approver_group": null,
+      "class": "admin",
+      "owner": "graph-os",
+      "scope": "ops:read"
     },
     {
       "approver_group": null,

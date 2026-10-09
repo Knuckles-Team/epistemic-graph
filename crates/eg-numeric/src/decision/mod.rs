@@ -11,7 +11,9 @@
 //! `candidate`, `exploration` and `admission` sit on them; `features` and
 //! `head_eval` read those; `ladder`, `fit`, `evaluate` and `nl` are the tops.
 //! `targets` is a leaf; the resident scorer (`scorer`) sits under
-//! `head_eval` and `fit`, and `promotion` under `evaluate`.
+//! `head_eval` and `fit`, and `promotion` under `evaluate`. `legal_option_filter`
+//! is a standalone leaf: the typed caller-candidate-filter contract ahead of
+//! the real SHACL/SPARQL-backed derivation (EG-DECISION-ENGINE-R085.2).
 //!
 //! Nothing here reads a clock, a hash map's iteration order, or a thread pool:
 //! reductions are serial over sorted keys, ties break by option order (the
@@ -31,6 +33,7 @@ pub mod fit;
 mod fit_calibrate;
 pub mod head_eval;
 pub mod ladder;
+pub mod legal_option_filter;
 pub mod nl;
 pub mod promotion;
 pub mod quant;

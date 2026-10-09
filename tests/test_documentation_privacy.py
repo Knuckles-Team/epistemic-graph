@@ -39,7 +39,10 @@ ENVIRONMENT_DNS = re.compile(r"(?i)\b(?:[A-Za-z0-9-]+\.)+(?:arpa|local)\b")
 # a real homelab host referenced by this lane's own tooling) that this
 # pattern's `host` alternative did not. Union both vocabularies rather than
 # swap one for the other, so neither repo's alias convention regresses.
-MACHINE_HOST_ALIAS = re.compile(r"(?i)\b(?:rw?|gr|host)\d{3,}\b")
+# D-EG-PRIVACY-R001-FALSEPOS: mirrors check_tracked_privacy._MACHINE_HOST_ID_RE
+# -- a hyphen-preceded match is a requirement-ID citation (`EG-FOO-R001`), not
+# a host alias; see that module's own comment for the full rationale.
+MACHINE_HOST_ALIAS = re.compile(r"(?i)(?<![a-z0-9-])(?:rw?|gr|host)\d{3,}\b")
 
 
 def test_cluster_runbook_is_environment_neutral() -> None:
@@ -91,3 +94,30 @@ def test_unicode_home_paths_are_rejected(
     assert any("machine-specific home path" in item.category for item in findings)
     path.write_text("/" + prefix + "/example/state\n", encoding="utf-8")
     assert privacy.scan(tmp_path) == []
+
+
+def test_public_surface_allows_requirement_id_citations(tmp_path: Path) -> None:
+    """A hyphen-joined requirement ID (`EG-UNIFIED-DATA-PLANE-R001`) is not a
+    host alias; a genuine host alias (`host123`) must still be caught right
+    alongside one. Regression for the false-positive flood that broke
+    docs/architecture/unified_data_plane_adr.md's own requirement-ID
+    citations as "machine-specific host identifier" findings
+    (D-EG-PRIVACY-R001-FALSEPOS).
+    """
+    docs_dir = tmp_path / "docs"
+    docs_dir.mkdir()
+    (docs_dir / "clean.md").write_text(
+        "see `EG-UNIFIED-DATA-PLANE-R001` and `EG-DECISION-ENGINE-R118`\n",
+        encoding="utf-8",
+    )
+    (docs_dir / "leak.md").write_text("reported from host123\n", encoding="utf-8")
+
+    by_path: dict[str, set[str]] = {}
+    for item in privacy.scan(tmp_path):
+        by_path.setdefault(item.path, set()).add(item.category)
+
+    assert "docs/clean.md" not in by_path
+    assert any(
+        "machine-specific host identifier" in category
+        for category in by_path.get("docs/leak.md", set())
+    )

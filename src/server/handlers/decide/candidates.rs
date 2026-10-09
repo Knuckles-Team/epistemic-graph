@@ -20,8 +20,9 @@ use std::collections::BTreeMap;
 use eg_numeric::decision::candidate::CandidateView;
 use eg_types::agent_component::{AgentComponentEntry, AgentComponentSearchRequest};
 use eg_types::decision::statistical::declared::{check_declared, DeclaredOption};
+use eg_types::decision::statistical::ingestion_lane::IngestionLaneRequest;
 use eg_types::decision::statistical::log::RecordVisibility;
-use eg_types::decision::statistical::{CandidateSource, StatisticalErrorCode};
+use eg_types::decision::statistical::{CandidateSource, QuestionKind, StatisticalErrorCode};
 use eg_types::decision::{CandidateSourceRecord, LibraryCandidateScope, MAX_ASSEMBLY_CANDIDATES};
 
 use super::stat_classes::{current_rules, derive, DerivedClasses};
@@ -260,14 +261,50 @@ pub(super) fn graph_candidates(
     })
 }
 
+/// Map an [`IngestionLaneRequest::check`] failure to its wire refusal.
+///
+/// `check()` reports an unsupported lane as free text prefixed
+/// `"UNSUPPORTED_INGESTION_LANE: "` (its own closed vocabulary, mirrored by
+/// [`StatisticalErrorCode::UnsupportedIngestionLane`]); passing that whole
+/// string through `refusal(StatisticalErrorCode::ParameterInvalid, ...)`
+/// would nest it two codes deep (`"PARAMETER_INVALID: UNSUPPORTED_INGESTION_
+/// LANE: ..."`), and `crate::protocol::Response::err` only ever promotes the
+/// FIRST `"CODE: detail"` segment to the wire-visible `error` field -- the
+/// served response would read `PARAMETER_INVALID`, silently dropping the
+/// specific code a caller needs to branch on (caught by
+/// `consumer_tests::an_unregistered_ingestion_lane_is_refused_through_decide`,
+/// which asserts on the served response, not the type's own unit test).
+/// The other `check()` failure (an empty candidate list) carries no such
+/// prefix and stays `ParameterInvalid`.
+fn ingestion_lane_refusal(detail: &str) -> String {
+    match detail.strip_prefix("UNSUPPORTED_INGESTION_LANE: ") {
+        Some(rest) => refusal(StatisticalErrorCode::UnsupportedIngestionLane, rest),
+        None => refusal(StatisticalErrorCode::ParameterInvalid, detail),
+    }
+}
+
 /// Declared candidates: the caller's own options, each fact a claim, visible
 /// to the declaring principal only. Validated before any feature reads them.
+///
+/// `kind` additionally gates a question-specific declared-option registry
+/// where one exists: `QuestionKind::IngestionLane` candidates must each name
+/// a registered [`eg_types::decision::statistical::ingestion_lane::IngestionLane`],
+/// refused here rather than discovered later as an opaque abstention
+/// (EG-DECISION-ENGINE-R030).
 pub(super) fn declared_candidates(
     options: &[DeclaredOption],
     principal: &str,
+    kind: QuestionKind,
 ) -> Result<ReadCandidates, String> {
     check_declared(options)
         .map_err(|detail| refusal(StatisticalErrorCode::ParameterInvalid, detail))?;
+    if kind == QuestionKind::IngestionLane {
+        IngestionLaneRequest {
+            candidate_lanes: options.iter().map(|o| o.option_id.clone()).collect(),
+        }
+        .check()
+        .map_err(|detail| ingestion_lane_refusal(&detail))?;
+    }
     let views = options
         .iter()
         .map(|option| {
@@ -306,16 +343,21 @@ pub(super) fn declared_candidates(
 
 /// Read the options `source` names. Graph candidates need the caller's
 /// filtered snapshot, which [`super::stat_decide`] takes under the state lock.
+/// `kind` is the question's kind, passed through to [`declared_candidates`]
+/// for its question-specific registry gate.
 pub(super) fn read_candidates(
     store: &AgentLibraryStore,
     tenant_id: &str,
     source: &CandidateSource,
     graph_view: Option<&eg_core::graph::GraphView>,
     principal: &str,
+    kind: QuestionKind,
 ) -> Result<ReadCandidates, String> {
     match source {
         CandidateSource::AgentLibrary { scope } => library_candidates(store, tenant_id, scope),
-        CandidateSource::Declared { options } => declared_candidates(options.as_slice(), principal),
+        CandidateSource::Declared { options } => {
+            declared_candidates(options.as_slice(), principal, kind)
+        }
         CandidateSource::Graph { graph, plan } => {
             let view = graph_view.ok_or_else(|| {
                 refusal(

@@ -48,6 +48,8 @@
     "EG-DECISION-ENGINE-R043",
     "EG-DECISION-ENGINE-R044",
     "EG-DECISION-ENGINE-R045",
+    "EG-DECISION-ENGINE-R045.1",
+    "EG-DECISION-ENGINE-R045.2",
     "EG-DECISION-ENGINE-R046",
     "EG-DECISION-ENGINE-R047",
     "EG-DECISION-ENGINE-R048",
@@ -64,6 +66,7 @@
     "EG-DECISION-ENGINE-R059",
     "EG-DECISION-ENGINE-R060",
     "EG-DECISION-ENGINE-R061",
+    "EG-DECISION-ENGINE-R061.1",
     "EG-DECISION-ENGINE-R062",
     "EG-DECISION-ENGINE-R063",
     "EG-DECISION-ENGINE-R064",
@@ -81,13 +84,18 @@
     "EG-DECISION-ENGINE-R076",
     "EG-DECISION-ENGINE-R077",
     "EG-DECISION-ENGINE-R078",
+    "EG-DECISION-ENGINE-R078.1",
+    "EG-DECISION-ENGINE-R078.2",
     "EG-DECISION-ENGINE-R079",
+    "EG-DECISION-ENGINE-R079.1",
     "EG-DECISION-ENGINE-R080",
+    "EG-DECISION-ENGINE-R080.1",
     "EG-DECISION-ENGINE-R081",
     "EG-DECISION-ENGINE-R082",
     "EG-DECISION-ENGINE-R083",
     "EG-DECISION-ENGINE-R084",
     "EG-DECISION-ENGINE-R085",
+    "EG-DECISION-ENGINE-R085.1",
     "EG-DECISION-ENGINE-R086",
     "EG-DECISION-ENGINE-R087",
     "EG-DECISION-ENGINE-R088",
@@ -129,7 +137,11 @@
     "EG-DECISION-ENGINE-R124",
     "EG-DECISION-ENGINE-R125",
     "EG-DECISION-ENGINE-R126",
-    "EG-DECISION-ENGINE-R127"
+    "EG-DECISION-ENGINE-R126.1",
+    "EG-DECISION-ENGINE-R126.2",
+    "EG-DECISION-ENGINE-R127",
+    "EG-DECISION-ENGINE-R127.1",
+    "EG-DECISION-ENGINE-R127.2"
   ],
   "delivery_state": "BUILDING",
   "acceptance_state": "NOT_AUDITED",
@@ -539,22 +551,46 @@
     {
       "id": "EG-DECISION-ENGINE-R029",
       "title": "Decision-based retrieval-plan selection",
-      "delivery_state": "SPECIFIED",
-      "evidence": [],
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "b2d01ed93bd8344d82e387cf950d9fd9593d1eeb",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/b2d01ed93bd8344d82e387cf950d9fd9593d1eeb",
+          "description": "EG-DECISION-ENGINE-R029 merged to the default branch in this commit."
+        }
+      ],
       "remaining": "QuestionKind::RetrievalPlan plus the generic Declared-candidate Decide path exists and is tested, but no evidence the real LeanRAG/FuseRrf/SPARQL retrieval code (crates/eg-plan/src/leanrag.rs, hybrid_queries.rs) calls Decide; no test selects a correct plan for a representative request shape."
     },
     {
       "id": "EG-DECISION-ENGINE-R030",
       "title": "Decision-based ingestion path routing",
-      "delivery_state": "SPECIFIED",
-      "evidence": [],
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "28ca65b7e45b63db1d7d970439d9efe074a4c29e",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/28ca65b7e45b63db1d7d970439d9efe074a4c29e",
+          "description": "EG-DECISION-ENGINE-R030 merged to the default branch in this commit."
+        }
+      ],
       "remaining": "QuestionKind::IngestionLane exists only as an enum variant; it is referenced nowhere else in the repository (no routing logic, no caller, no test)."
     },
     {
       "id": "EG-DECISION-ENGINE-R031",
       "title": "Expected-value scheduling for enrichment work",
-      "delivery_state": "SPECIFIED",
-      "evidence": [],
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "aa3e35c45f82c96b3a86a18bebaf4c7b03671ee6",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/aa3e35c45f82c96b3a86a18bebaf4c7b03671ee6",
+          "description": "EG-DECISION-ENGINE-R031 merged to the default branch in this commit."
+        }
+      ],
       "remaining": "QuestionKind::EnrichmentSchedule exists only as an enum variant; it is referenced nowhere else in the repository (no scheduling logic, no caller, no test)."
     },
     {
@@ -588,8 +624,16 @@
     {
       "id": "EG-DECISION-ENGINE-R034",
       "title": "Proposal-only contradiction-handling suggestions",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "94da44835d59d224c3ad5cf5dba1921c48affcad",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/94da44835d59d224c3ad5cf5dba1921c48affcad",
+          "description": "EG-DECISION-ENGINE-R034 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R035",
@@ -629,8 +673,16 @@
     {
       "id": "EG-DECISION-ENGINE-R038",
       "title": "Advisory pre-tool risk scoring",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "1570bfef96aa8d27f86b61f0cb7915adb1c821f3",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/1570bfef96aa8d27f86b61f0cb7915adb1c821f3",
+          "description": "EG-DECISION-ENGINE-R038 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R039",
@@ -671,20 +723,44 @@
     {
       "id": "EG-DECISION-ENGINE-R041",
       "title": "Connector event triage through Decide",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "f420578b85d27744ddd6865c115a89f4587a39e6",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/f420578b85d27744ddd6865c115a89f4587a39e6",
+          "description": "EG-DECISION-ENGINE-R041 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R042",
       "title": "Connector tool-choice advisory via Decide",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "67d04f5e908734a7656fc9aec8875bbbc7a17dc4",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/67d04f5e908734a7656fc9aec8875bbbc7a17dc4",
+          "description": "EG-DECISION-ENGINE-R042 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R043",
       "title": "Write-back proposals routed through Decide",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "21f73899e76cb9fdbcc8d529d811153f2eb416c0",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/21f73899e76cb9fdbcc8d529d811153f2eb416c0",
+          "description": "EG-DECISION-ENGINE-R043 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R044",
@@ -695,8 +771,53 @@
     {
       "id": "EG-DECISION-ENGINE-R045",
       "title": "Smallest covering tool subset within a context budget",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "0dfbaa95ea36e29442d5e6690fc1a2d8bf019996",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/0dfbaa95ea36e29442d5e6690fc1a2d8bf019996",
+          "description": "EG-DECISION-ENGINE-R045 merged to the default branch in this commit."
+        }
+      ],
+      "rollup": true,
+      "children": [
+        "EG-DECISION-ENGINE-R045.1",
+        "EG-DECISION-ENGINE-R045.2"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R045.1",
+      "title": "Smallest covering tool subset within a context budget \u2014 typed request and greedy set-cover slice",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "0dfbaa95ea36e29442d5e6690fc1a2d8bf019996",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/0dfbaa95ea36e29442d5e6690fc1a2d8bf019996",
+          "description": "EG-DECISION-ENGINE-R045.1 merged to the default branch in this commit."
+        }
+      ],
+      "depends_on": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R045.2",
+      "title": "Smallest covering tool subset within a context budget \u2014 wiring slice",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "0dfbaa95ea36e29442d5e6690fc1a2d8bf019996",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/0dfbaa95ea36e29442d5e6690fc1a2d8bf019996",
+          "description": "EG-DECISION-ENGINE-R045.2 merged to the default branch in this commit."
+        }
+      ],
+      "depends_on": [
+        "EG-DECISION-ENGINE-R045.1"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R046",
@@ -875,8 +996,16 @@
     {
       "id": "EG-DECISION-ENGINE-R059",
       "title": "Outcome aggregate with independent-evaluation join",
-      "delivery_state": "SPECIFIED",
-      "evidence": [],
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "3e6d786460c58608fa7837661b5e8b20851190b8",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/3e6d786460c58608fa7837661b5e8b20851190b8",
+          "description": "EG-DECISION-ENGINE-R059 merged to the default branch in this commit."
+        }
+      ],
       "remaining": "The independent-evaluation label rule (label_use) is implemented and tested via two consumers (stat_reputation.rs, stat_slate_attribution.rs), but the outcome-aggregate index itself (aggregate()/aggregate_log()/DecisionLogAggregate, with min_support pooling and censoring) has no test anywhere."
     },
     {
@@ -896,9 +1025,36 @@
     {
       "id": "EG-DECISION-ENGINE-R061",
       "title": "Assembly facts extended for the statistical path",
-      "delivery_state": "SPECIFIED",
-      "evidence": [],
-      "remaining": "AgentComponentFacts (cost/latency/capability) is read by both the exact-solver path and the statistical candidate path (CandidateView::from_component), but no test directly confirms the same typed fact values are readable/consistent across both paths."
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "fe3b87b09054c26fbc43d9c601cab69f3be22a87",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/fe3b87b09054c26fbc43d9c601cab69f3be22a87",
+          "description": "EG-DECISION-ENGINE-R061 merged to the default branch in this commit."
+        }
+      ],
+      "remaining": "AgentComponentFacts (cost/latency/capability) is read by both the exact-solver path and the statistical candidate path (CandidateView::from_component), but no test directly confirms the same typed fact values are readable/consistent across both paths.",
+      "rollup": true,
+      "children": [
+        "EG-DECISION-ENGINE-R061.1"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R061.1",
+      "title": "Assembly facts extended for the statistical path \u2014 shared AgentComponentEntry cost/latency fixture slice",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "fe3b87b09054c26fbc43d9c601cab69f3be22a87",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/fe3b87b09054c26fbc43d9c601cab69f3be22a87",
+          "description": "EG-DECISION-ENGINE-R061.1 merged to the default branch in this commit."
+        }
+      ],
+      "depends_on": []
     },
     {
       "id": "EG-DECISION-ENGINE-R062",
@@ -1108,8 +1264,16 @@
     {
       "id": "EG-DECISION-ENGINE-R076",
       "title": "Opt-in nested models for decision result markers",
-      "delivery_state": "SPECIFIED",
-      "evidence": [],
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "bad0283526ba0e8d5907788cbef8e865c434d1f5",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/bad0283526ba0e8d5907788cbef8e865c434d1f5",
+          "description": "EG-DECISION-ENGINE-R076 merged to the default branch in this commit."
+        }
+      ],
       "remaining": "Decision-type results deserialize into generated pydantic BaseModels, but no client test confirms decision-scoped nesting specifically, and pydantic models now appear used repo-wide (not clearly scoped/opt-in ahead of a broader migration as described)."
     },
     {
@@ -1128,22 +1292,90 @@
     },
     {
       "id": "EG-DECISION-ENGINE-R078",
-      "title": "Contract freeze reissued with the decide feature",
+      "title": "Contract freeze reissued with the decide feature (rollup)",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "1527a97f211825f02feaa1f9475c494a822918f5",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/1527a97f211825f02feaa1f9475c494a822918f5",
+          "description": "EG-DECISION-ENGINE-R078 merged to the default branch in this commit."
+        }
+      ],
+      "remaining": "Split 2026-10-09 into EG-DECISION-ENGINE-R078.1 (typed refusal check, producer) and EG-DECISION-ENGINE-R078.2 (reissued artifact, consumer); see those rows."
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R078.1",
+      "title": "Typed refusal for a feature-profile freeze omitting an enabled feature",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "1527a97f211825f02feaa1f9475c494a822918f5",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/1527a97f211825f02feaa1f9475c494a822918f5",
+          "description": "EG-DECISION-ENGINE-R078.1 merged to the default branch in this commit."
+        }
+      ],
+      "remaining": "PR open; adds MissingFrozenFeature + require_feature_frozen and the decide entry in feature_profile()."
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R078.2",
+      "title": "Reissue the committed contract freeze artifacts with the decide feature",
       "delivery_state": "SPECIFIED",
       "evidence": [],
-      "remaining": "Decide methods are present in the generated contract and a generic contract-freshness test suite exists, but no decide-specific reissued-freeze artifact/test was found; the private tracker treats this item as a ruled duplicate of a different item, not an independent delivery."
+      "remaining": "Requires the authorized contract-generation ceremony to regenerate and commit contract/FREEZE-RECEIPT.json and contract/receipt.json under --all-features; blocked on R078.1 landing first."
     },
     {
       "id": "EG-DECISION-ENGINE-R079",
       "title": "Per-unit embedding admission classifier for ingestion",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "dd6d5b55fb205c1031ba331e42642418f5b9c8d9",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/dd6d5b55fb205c1031ba331e42642418f5b9c8d9",
+          "description": "EG-DECISION-ENGINE-R079 merged to the default branch in this commit."
+        }
+      ],
+      "remaining": "Split producer-first: EG-DECISION-ENGINE-R079.1 lands the typed ContentClass taxonomy and pure admits() gate. Still open: a real ingestion call site, the embedding client, cheaper-index skip, entropy/hash dedup, size bounds, SQL-column cardinality, and retrieval-telemetry feedback."
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R079.1",
+      "title": "Typed content-class taxonomy and pure admission gate (producer slice of R079)",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "dd6d5b55fb205c1031ba331e42642418f5b9c8d9",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/dd6d5b55fb205c1031ba331e42642418f5b9c8d9",
+          "description": "EG-DECISION-ENGINE-R079.1 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R080",
       "title": "Ingestion cost ladder with provenance rungs",
       "delivery_state": "SPECIFIED",
-      "evidence": []
+      "evidence": [],
+      "remaining": "Split into EG-DECISION-ENGINE-R080.1 (typed ProvenanceRung model and the lower-rung-never-overwritten resolution rule) plus deferred child slices for the real per-rung extractors."
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R080.1",
+      "title": "Typed provenance-rung model and overwrite-protection rule",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "1e0050b97b3ac4a8c310961c203269c340c58612",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/1e0050b97b3ac4a8c310961c203269c340c58612",
+          "description": "EG-DECISION-ENGINE-R080.1 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R081",
@@ -1205,9 +1437,32 @@
     {
       "id": "EG-DECISION-ENGINE-R085",
       "title": "Legal option sets are derived from the ontology, never received as-is",
-      "delivery_state": "SPECIFIED",
-      "evidence": [],
-      "remaining": "LegalSet in eg-numeric only consumes a caller-supplied eliminated-index list; could not confirm, within this repo, a SHACL-shape/SPARQL-shortlist-driven derivation with a negative test proving an illegal caller-supplied option never reaches the scorer."
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "29da53bfbe8d771bac4eca46bea02b602e94f4a7",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/29da53bfbe8d771bac4eca46bea02b602e94f4a7",
+          "description": "EG-DECISION-ENGINE-R085 merged to the default branch in this commit."
+        }
+      ],
+      "remaining": "Split into EG-DECISION-ENGINE-R085.1 (typed caller-candidate filter, delivered) and EG-DECISION-ENGINE-R085.2 (the real SHACL-shape/SPARQL-shortlist-driven predicate, not yet started). LegalSet in eg-numeric still only consumes a caller-supplied eliminated-index list; the ontology-backed derivation remains unconfirmed."
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R085.1",
+      "title": "Typed legal-option-set filter (producer-first split of R085)",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "29da53bfbe8d771bac4eca46bea02b602e94f4a7",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/29da53bfbe8d771bac4eca46bea02b602e94f4a7",
+          "description": "EG-DECISION-ENGINE-R085.1 merged to the default branch in this commit."
+        }
+      ],
+      "remaining": "derive_legal_options and CandidateOption (crates/eg-numeric/src/decision/legal_option_filter.rs) prove the type-level contract -- a caller-supplied candidate reaches the derived set only if an admissibility predicate accepts it -- with a negative test (rejected candidate excluded) and a positive test (admissible candidate passes through), both against a fixture predicate. The real SHACL-shape/SPARQL-shortlist-backed predicate, and wiring this filter into the scorer's actual candidate path, is EG-DECISION-ENGINE-R085.2."
     },
     {
       "id": "EG-DECISION-ENGINE-R086",
@@ -1289,8 +1544,16 @@
     {
       "id": "EG-DECISION-ENGINE-R092",
       "title": "Scorer selection and structured encoding apply ladder-wide",
-      "delivery_state": "SPECIFIED",
-      "evidence": [],
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "e9e12f16872233ae19726126a551aef318f7fac3",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/e9e12f16872233ae19726126a551aef318f7fac3",
+          "description": "EG-DECISION-ENGINE-R092 merged to the default branch in this commit."
+        }
+      ],
       "remaining": "Select-only-from-derived-options and structured (non-text) encoding are each tested individually, but no single cross-question test exercises two distinct Decide question types asserting both properties together, as the acceptance requires."
     },
     {
@@ -1303,8 +1566,16 @@
     {
       "id": "EG-DECISION-ENGINE-R094",
       "title": "Decision scoring requires no GPU or model-server dependency",
-      "delivery_state": "SPECIFIED",
-      "evidence": [],
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "af5dc5ad78bdbecddb9a8b642de3061f492a118f",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/af5dc5ad78bdbecddb9a8b642de3061f492a118f",
+          "description": "EG-DECISION-ENGINE-R094 merged to the default branch in this commit."
+        }
+      ],
       "remaining": "Scorer is pure-Rust/CPU by construction (no GPU, Python runtime or model-server code anywhere in the crate), but no deployment test runs the engine without a GPU/sidecar present and confirms decisions are still served."
     },
     {
@@ -1352,8 +1623,16 @@
     {
       "id": "EG-DECISION-ENGINE-R098",
       "title": "Decide ladder excludes generative free-text models by design",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "fa3eda2b79611f078f0797d9846420cbeeab9ae6",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/fa3eda2b79611f078f0797d9846420cbeeab9ae6",
+          "description": "EG-DECISION-ENGINE-R098 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R099",
@@ -1442,8 +1721,16 @@
     {
       "id": "EG-DECISION-ENGINE-R106",
       "title": "AgentGraph templates carry topology facts for standard shapes",
-      "delivery_state": "SPECIFIED",
-      "evidence": [],
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "ca2bc11e6d73346d5b7a31a323ebc04c0cf8449e",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/ca2bc11e6d73346d5b7a31a323ebc04c0cf8449e",
+          "description": "EG-DECISION-ENGINE-R106 merged to the default branch in this commit."
+        }
+      ],
       "remaining": "Only the fan-out/join shape is represented and SHACL-tested in this repo; the other five standard shapes (single, pipeline, supervisor-to-workers, critique-loop, council) are not defined or tested here. Per private notes the reference-template catalog lives in agent-utilities \u2026"
     },
     {
@@ -1764,14 +2051,73 @@
     {
       "id": "EG-DECISION-ENGINE-R126",
       "title": "Capability coverage answers which components can serve a task",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "e5edf018cbba726b4e05045c345438e34771b6a7",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/e5edf018cbba726b4e05045c345438e34771b6a7",
+          "description": "EG-DECISION-ENGINE-R126 merged to the default branch in this commit."
+        }
+      ],
+      "remaining": "Split into EG-DECISION-ENGINE-R126.1 (producer: the pure capability_coverage derivation, eg-types) and EG-DECISION-ENGINE-R126.2 (consumer: the served query + generated client). R126 is LANDED when both children are."
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R126.1",
+      "title": "Capability coverage is a pure function of required capabilities and candidate facts",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "e5edf018cbba726b4e05045c345438e34771b6a7",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/e5edf018cbba726b4e05045c345438e34771b6a7",
+          "description": "EG-DECISION-ENGINE-R126.1 merged to the default branch in this commit."
+        }
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R126.2",
+      "title": "The capability-coverage query is served beside AgentAssemble",
       "delivery_state": "SPECIFIED",
-      "evidence": []
+      "evidence": [],
+      "remaining": "Depends on EG-DECISION-ENGINE-R126.1 (producer, landed in this PR's tree once merged)."
     },
     {
       "id": "EG-DECISION-ENGINE-R127",
       "title": "Guardrail entailment lists the rules a task must follow",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "18a745706c468f7bf087d2b15a35cf16045a3a41",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/18a745706c468f7bf087d2b15a35cf16045a3a41",
+          "description": "EG-DECISION-ENGINE-R127 merged to the default branch in this commit."
+        }
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R127.1",
+      "title": "Guardrail entailment is a pure function of a task IRI and a rule set",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "18a745706c468f7bf087d2b15a35cf16045a3a41",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/18a745706c468f7bf087d2b15a35cf16045a3a41",
+          "description": "EG-DECISION-ENGINE-R127.1 merged to the default branch in this commit."
+        }
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R127.2",
+      "title": "The guardrail-entailment query is served, backed by a stored rule set",
       "delivery_state": "SPECIFIED",
-      "evidence": []
+      "evidence": [],
+      "remaining": "Depends on EG-DECISION-ENGINE-R127.1 (producer). Also needs a GuardrailRule storage/publish path, not designed yet."
     }
   ]
 }

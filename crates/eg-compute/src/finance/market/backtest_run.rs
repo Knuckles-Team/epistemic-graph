@@ -15,7 +15,7 @@ use super::{
     UniverseMember, INVALID_REQUEST, LOOK_AHEAD,
 };
 use crate::finance::quant::{
-    deflated_sharpe_ratio, probability_of_backtest_overfit, purged_cpcv_splits,
+    deflated_sharpe_ratio, probability_of_backtest_overfit, purged_cpcv_splits, CvSplit,
 };
 
 const RUN_DOMAIN: &str = "eg/finance/backtest-run/v1";
@@ -41,20 +41,20 @@ fn check_provenance(draft: &BacktestRunDraft) -> MarketResult<()> {
     Ok(())
 }
 
-fn well_shaped(insample: &[Vec<f64>], oos: &[Vec<f64>]) -> bool {
-    let width = insample.first().map_or(0, Vec::len);
-    let rows_ok = insample
-        .iter()
-        .chain(oos)
-        .all(|row| row.len() == width && all_finite(row));
-    !insample.is_empty() && insample.len() == oos.len() && width >= 2 && rows_ok
+fn well_shaped(performance: &[Vec<f64>], n_periods: usize) -> bool {
+    let width = performance.first().map_or(0, Vec::len);
+    performance.len() == n_periods
+        && width >= 2
+        && performance
+            .iter()
+            .all(|row| row.len() == width && all_finite(row))
 }
 
 fn check_matrices(draft: &BacktestRunDraft) -> MarketResult<()> {
     let inputs = &draft.validation;
-    if !well_shaped(&inputs.insample, &inputs.oos) {
+    if !well_shaped(&inputs.performance, draft.returns.len()) {
         return Err(refuse(
-            "in-sample and out-of-sample matrices must be non-empty, equal-shaped, finite, with >= 2 variants",
+            "performance must have one finite row per return and at least two strategy variants",
         ));
     }
     Ok(())
@@ -120,6 +120,35 @@ fn sharpe(returns: &[f64]) -> MarketResult<f64> {
     Ok(mean / variance.sqrt())
 }
 
+/// Arithmetic mean of one variant over the indices selected by CPCV.
+fn split_mean(performance: &[Vec<f64>], indices: &[usize], variant: usize) -> f64 {
+    indices
+        .iter()
+        .map(|&period| performance[period][variant])
+        .sum::<f64>()
+        / indices.len() as f64
+}
+
+fn split_performance(performance: &[Vec<f64>], indices: &[usize]) -> Vec<f64> {
+    (0..performance[0].len())
+        .map(|variant| split_mean(performance, indices, variant))
+        .collect()
+}
+
+fn minimum_complete_train(splits: &[CvSplit]) -> MarketResult<usize> {
+    let min_train = splits
+        .iter()
+        .map(|split| split.train.len())
+        .min()
+        .unwrap_or(0);
+    if min_train == 0 || splits.iter().any(|split| split.test.is_empty()) {
+        return Err(refuse(
+            "purged CPCV leaves a split without training or test data",
+        ));
+    }
+    Ok(min_train)
+}
+
 fn validation_outputs(draft: &BacktestRunDraft) -> MarketResult<BacktestValidation> {
     let inputs = &draft.validation;
     let splits = purged_cpcv_splits(
@@ -129,14 +158,15 @@ fn validation_outputs(draft: &BacktestRunDraft) -> MarketResult<BacktestValidati
         inputs.purge_window as usize,
         inputs.embargo as usize,
     );
-    let min_train = splits
+    let min_train = minimum_complete_train(&splits)?;
+    let insample: Vec<Vec<f64>> = splits
         .iter()
-        .map(|split| split.train.len())
-        .min()
-        .unwrap_or(0);
-    if min_train == 0 {
-        return Err(refuse("purged CPCV leaves a split without training data"));
-    }
+        .map(|split| split_performance(&inputs.performance, &split.train))
+        .collect();
+    let oos: Vec<Vec<f64>> = splits
+        .iter()
+        .map(|split| split_performance(&inputs.performance, &split.test))
+        .collect();
     let observed_sharpe = sharpe(&draft.returns)?;
     Ok(BacktestValidation {
         cpcv_splits: splits.len() as u32,
@@ -147,10 +177,7 @@ fn validation_outputs(draft: &BacktestRunDraft) -> MarketResult<BacktestValidati
             inputs.n_trials as usize,
             &draft.returns,
         ),
-        probability_backtest_overfit: probability_of_backtest_overfit(
-            &inputs.insample,
-            &inputs.oos,
-        ),
+        probability_backtest_overfit: probability_of_backtest_overfit(&insample, &oos),
     })
 }
 

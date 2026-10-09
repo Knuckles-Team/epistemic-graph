@@ -202,12 +202,25 @@ class DecisionClient:
     client: Any
     graph: str | None = None
 
-    async def decide(self, request: Mapping[str, Any]) -> Any:
-        from epistemic_graph.generated.query import send_decide
+    async def decide(
+        self, request: Mapping[str, Any], *, as_model: bool = False
+    ) -> Any:
+        """Send ``Decide``.
 
-        return _payload(
-            await send_decide(self.client, {"request": dict(request)}, self.graph)
+        ``as_model=True`` opts into the generated, nested Pydantic
+        ``DecisionBatch`` model (its records, outcomes and resolution/evidence
+        markers all typed) instead of the raw payload. Default is ``False``:
+        this is a decision-type-scoped pilot (EG-DECISION-ENGINE-R076), not a
+        change to this client's general opaque-result behavior.
+        """
+        from epistemic_graph.generated.query import decode_decide, send_decide
+
+        result = await send_decide(
+            self.client, {"request": dict(request)}, self.graph
         )
+        if as_model:
+            return decode_decide(result)
+        return _payload(result)
 
     async def log(
         self, op: Mapping[str, Any], *, idempotency_key: str | None = None
