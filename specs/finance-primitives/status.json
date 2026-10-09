@@ -159,7 +159,7 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R004.3.1",
       "title": "The wire boundary refuses an unknown finance-v1 schema version",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -167,6 +167,13 @@
           "commit": "fcca865a05059f07fe43b25a0c94045111e3528a",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/fcca865a05059f07fe43b25a0c94045111e3528a",
           "description": "admit_finance_record_version is published on a branch; not yet merged to the default branch. Served method registration and contract regeneration remain open."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "fcca865a05059f07fe43b25a0c94045111e3528a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/fcca865a05059f07fe43b25a0c94045111e3528a",
+          "description": "EG-FINANCE-PRIMITIVES-R004.3.1 merged to the default branch in this commit."
         }
       ]
     },
@@ -357,7 +364,7 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R012.1",
       "title": "A typed gate admits only a one-way Ghostfolio import, never a write-back",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -365,6 +372,13 @@
           "commit": "fcca865a05059f07fe43b25a0c94045111e3528a",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/fcca865a05059f07fe43b25a0c94045111e3528a",
           "description": "admit_ghostfolio_flow and map_ghostfolio_activity are published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "fcca865a05059f07fe43b25a0c94045111e3528a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/fcca865a05059f07fe43b25a0c94045111e3528a",
+          "description": "EG-FINANCE-PRIMITIVES-R012.1 merged to the default branch in this commit."
         }
       ]
     },
@@ -385,7 +399,7 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R013.1",
       "title": "A golden-fixture figure is refused when its provenance is incomplete",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -393,6 +407,13 @@
           "commit": "fcca865a05059f07fe43b25a0c94045111e3528a",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/fcca865a05059f07fe43b25a0c94045111e3528a",
           "description": "GoldenFixtureFigure and check_figure_provenance are published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "fcca865a05059f07fe43b25a0c94045111e3528a",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/fcca865a05059f07fe43b25a0c94045111e3528a",
+          "description": "EG-FINANCE-PRIMITIVES-R013.1 merged to the default branch in this commit."
         }
       ]
     },

@@ -77,21 +77,45 @@
     {
       "id": "EG-REPO-INGEST-R003",
       "title": "EG is sole home for remaining migrated ingestion modules (rollup)",
-      "delivery_state": "SPECIFIED",
-      "evidence": [],
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "ae0f93b6bf70e1107afcc235f0d32caf70131180",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/ae0f93b6bf70e1107afcc235f0d32caf70131180",
+          "description": "EG-REPO-INGEST-R003 merged to the default branch in this commit."
+        }
+      ],
       "remaining": "Rolled up into EG-REPO-INGEST-R003.1-R003.11, one child per migrating legacy-module root; see each child for its own state."
     },
     {
       "id": "EG-REPO-INGEST-R003.1",
       "title": "EG is sole home for migrated standardization processing (excluding drift detection)",
-      "delivery_state": "BUILDING",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "e72ee15e11bbdfa5266de45a1e01507c2b9f23f9",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/e72ee15e11bbdfa5266de45a1e01507c2b9f23f9",
+          "description": "EG-REPO-INGEST-R003.1 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-REPO-INGEST-R003.2",
       "title": "EG is sole home for migrated infrastructure processing",
-      "delivery_state": "BUILDING",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "f70de8c33b4f7deac0696265565af0975ae27095",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/f70de8c33b4f7deac0696265565af0975ae27095",
+          "description": "EG-REPO-INGEST-R003.2 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-REPO-INGEST-R003.3",
@@ -114,14 +138,30 @@
     {
       "id": "EG-REPO-INGEST-R003.6",
       "title": "EG is sole home for migrated ecosystem concept extraction",
-      "delivery_state": "BUILDING",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "f70de8c33b4f7deac0696265565af0975ae27095",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/f70de8c33b4f7deac0696265565af0975ae27095",
+          "description": "EG-REPO-INGEST-R003.6 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-REPO-INGEST-R003.7",
       "title": "EG is sole home for migrated trace-ontology observability",
-      "delivery_state": "BUILDING",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "fb19bf6ab789adc4f087050dc17bf0e0c34fc40f",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/fb19bf6ab789adc4f087050dc17bf0e0c34fc40f",
+          "description": "EG-REPO-INGEST-R003.7 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-REPO-INGEST-R003.8",
@@ -144,8 +184,16 @@
     {
       "id": "EG-REPO-INGEST-R003.11",
       "title": "EG is sole home for migrated placement-mining research",
-      "delivery_state": "BUILDING",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "fd9e20bc998db7b0a2b93c0eb24a04c83199d54b",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/fd9e20bc998db7b0a2b93c0eb24a04c83199d54b",
+          "description": "EG-REPO-INGEST-R003.11 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-REPO-INGEST-R004",

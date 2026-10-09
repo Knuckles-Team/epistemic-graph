@@ -138,8 +138,16 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R002.3",
       "title": "Verify outbound target before persisting a kernel mirror-target registration (sink path)",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "9a7674d1bae5700d726af3744e47b97d1a2ca36b",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/9a7674d1bae5700d726af3744e47b97d1a2ca36b",
+          "description": "EG-UNIFIED-DATA-PLANE-R002.3 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R003",
@@ -348,14 +356,30 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R015",
       "title": "Implement the SQLite file attached-source adapter",
-      "delivery_state": "BUILDING",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "423b02e97c9d7e16d00c2c7d1a5e48ef067a5c23",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/423b02e97c9d7e16d00c2c7d1a5e48ef067a5c23",
+          "description": "EG-UNIFIED-DATA-PLANE-R015 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R015.1",
       "title": "SqliteSourceCatalog typed model plus WITHOUT-ROWID capture-safety refusal",
-      "delivery_state": "BUILT",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "37003f28164f97e9d94ed4aebba737f630845b40",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/37003f28164f97e9d94ed4aebba737f630845b40",
+          "description": "EG-UNIFIED-DATA-PLANE-R015.1 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R016",
@@ -384,14 +408,30 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R018",
       "title": "Implement the Oracle and Db2 attached-source adapters",
-      "delivery_state": "BUILDING",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "c14a9a63a0b349f445af5319ffdac10c74d66853",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/c14a9a63a0b349f445af5319ffdac10c74d66853",
+          "description": "EG-UNIFIED-DATA-PLANE-R018 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R018.1",
       "title": "RelationalSourceCatalog typed model plus identifier and Debezium-capture refusals",
-      "delivery_state": "BUILT",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "eb058c53407ef6f8e2d1366bd5adee7fef7f5cd6",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/eb058c53407ef6f8e2d1366bd5adee7fef7f5cd6",
+          "description": "EG-UNIFIED-DATA-PLANE-R018.1 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R019",
@@ -756,14 +796,30 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R033",
       "title": "Cut over Gramps to EG-backed storage in production",
-      "delivery_state": "BUILDING",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "273dc35315ff170793fb39b0c3362a14f9e9d6ca",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/273dc35315ff170793fb39b0c3362a14f9e9d6ca",
+          "description": "EG-UNIFIED-DATA-PLANE-R033 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R033.1",
       "title": "GrampsCutoverGoAhead typed model plus P5-exit/approver/fallback-window refusals",
-      "delivery_state": "BUILT",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "9a7674d1bae5700d726af3744e47b97d1a2ca36b",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/9a7674d1bae5700d726af3744e47b97d1a2ca36b",
+          "description": "EG-UNIFIED-DATA-PLANE-R033.1 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R034",

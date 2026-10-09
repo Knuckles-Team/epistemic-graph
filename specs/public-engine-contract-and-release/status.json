@@ -93,20 +93,44 @@
     {
       "id": "EG-CONTRACT-R002.1",
       "title": "Served Decide tenant auth-boundary refusal",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "c047e6602b42cfeb580f9b73089f154bf87b7ca0",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/c047e6602b42cfeb580f9b73089f154bf87b7ca0",
+          "description": "EG-CONTRACT-R002.1 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-CONTRACT-R002.2",
       "title": "Served Decide authorized-tenant path and pack-import journey",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "4f364b55e0dc06269de2069cd1ea42a87733172d",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/4f364b55e0dc06269de2069cd1ea42a87733172d",
+          "description": "EG-CONTRACT-R002.2 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-CONTRACT-R002.3",
       "title": "Installed-wheel / no-source-tree-import check for the Decide and pack-import client surface",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "52f2f3e347a3381b8d4e19e794099b42ad2f7b00",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/52f2f3e347a3381b8d4e19e794099b42ad2f7b00",
+          "description": "EG-CONTRACT-R002.3 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-CONTRACT-R003",
@@ -226,8 +250,16 @@
     {
       "id": "EG-CONTRACT-R008.2",
       "title": "check_five_repo_parity.py CLI wires in the typed parity contract",
-      "delivery_state": "BUILDING",
-      "evidence": [],
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "fb6841592a8389d449de9840e67d83cd44555fc9",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/fb6841592a8389d449de9840e67d83cd44555fc9",
+          "description": "EG-CONTRACT-R008.2 merged to the default branch in this commit."
+        }
+      ],
       "remaining": "PR open: scripts/check_five_repo_parity.py CLI takes the repository root as an explicit argument, resolves the actual checkout, and calls verify_resolved_checkout (EG-CONTRACT-R008.1) to fail closed on a mismatch; covered by scripts/tests/test_check_five_repo_parity.py."
     },
     {

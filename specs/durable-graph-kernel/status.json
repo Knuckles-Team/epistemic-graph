@@ -166,8 +166,16 @@
     {
       "id": "EG-DURABLE-KERNEL-R005",
       "title": "Outbox delivery state remains local to the owning node",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "48abc77ce72e7896b41af8bf48007b54af8b1f22",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/48abc77ce72e7896b41af8bf48007b54af8b1f22",
+          "description": "EG-DURABLE-KERNEL-R005 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R006",
@@ -187,8 +195,16 @@
     {
       "id": "EG-DURABLE-KERNEL-R007",
       "title": "Host binary exposes a storage inspect and upgrade command",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "0ce0383a55996502180ce65b041f48fcfcc2abae",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/0ce0383a55996502180ce65b041f48fcfcc2abae",
+          "description": "EG-DURABLE-KERNEL-R007 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R008",
@@ -277,14 +293,22 @@
     {
       "id": "EG-DURABLE-KERNEL-R014",
       "title": "Raft cluster tests pass reliably under load",
-      "delivery_state": "UNKNOWN",
+      "delivery_state": "LANDED",
       "remaining": "Needs load-test evidence (a representative-load generator and repeated-run harness), which this PR does not produce. Split per the 2026-10-09 net-new-work rule: `.1` is the typed flake-budget/retry-policy model plus refusal test; the load-test harness itself is a later child. Rollup LANDED only once every child is LANDED.",
-      "evidence": []
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "3a14159c376895dafa37b22357f324a6c5fc7082",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/3a14159c376895dafa37b22357f324a6c5fc7082",
+          "description": "EG-DURABLE-KERNEL-R014 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R014.1",
       "title": "Typed flake-budget / retry-policy model for load-test retries",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -292,6 +316,13 @@
           "commit": "3a14159c376895dafa37b22357f324a6c5fc7082",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/3a14159c376895dafa37b22357f324a6c5fc7082",
           "description": "src/raft/flake_budget.rs adds FlakeBudget::new/validate/backoff_for, refusing a zero-retry, zero-backoff, or inverted-cap budget and refusing a retry attempt beyond max_retries. Not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "3a14159c376895dafa37b22357f324a6c5fc7082",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/3a14159c376895dafa37b22357f324a6c5fc7082",
+          "description": "EG-DURABLE-KERNEL-R014.1 merged to the default branch in this commit."
         }
       ]
     },
@@ -489,19 +520,35 @@
     {
       "id": "EG-DURABLE-KERNEL-R024.3",
       "title": "Cypher transpiler becomes a ForeignSourceSpec source",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "48abc77ce72e7896b41af8bf48007b54af8b1f22",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/48abc77ce72e7896b41af8bf48007b54af8b1f22",
+          "description": "EG-DURABLE-KERNEL-R024.3 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R024.4",
       "title": "Mirror target becomes a ForeignSourceSpec mirror target",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "48abc77ce72e7896b41af8bf48007b54af8b1f22",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/48abc77ce72e7896b41af8bf48007b54af8b1f22",
+          "description": "EG-DURABLE-KERNEL-R024.4 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R024.5",
       "title": "Outbox-based mirror becomes a ForeignSourceSpec mirror target",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -509,13 +556,20 @@
           "commit": "3a14159c376895dafa37b22357f324a6c5fc7082",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/3a14159c376895dafa37b22357f324a6c5fc7082",
           "description": "crates/eg-types/src/wire_query_modalities.rs adds MirrorTargetSpec::Outbox { consumer }; crates/eg-plan/src/mirror_target.rs wires it through target_for with the same unbound-refusal shape as FanOut/Named. Not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "3a14159c376895dafa37b22357f324a6c5fc7082",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/3a14159c376895dafa37b22357f324a6c5fc7082",
+          "description": "EG-DURABLE-KERNEL-R024.5 merged to the default branch in this commit."
         }
       ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R024.6",
       "title": "Brain-guarded backend becomes a ForeignSourceSpec source",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -523,6 +577,13 @@
           "commit": "3a14159c376895dafa37b22357f324a6c5fc7082",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/3a14159c376895dafa37b22357f324a6c5fc7082",
           "description": "crates/eg-types/src/wire_query_modalities.rs adds ForeignSourceSpec::BrainGuarded; crates/eg-plan/src/federation_brain_guarded.rs validates its shape then explicitly refuses (no bound guard-evaluation driver yet), same shape as federation_cypher_unbound. Not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "3a14159c376895dafa37b22357f324a6c5fc7082",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/3a14159c376895dafa37b22357f324a6c5fc7082",
+          "description": "EG-DURABLE-KERNEL-R024.6 merged to the default branch in this commit."
         }
       ]
     },
@@ -550,7 +611,7 @@
     {
       "id": "EG-DURABLE-KERNEL-R024.8",
       "title": "Spark job backend becomes a ForeignSourceSpec source",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -558,6 +619,13 @@
           "commit": "3a14159c376895dafa37b22357f324a6c5fc7082",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/3a14159c376895dafa37b22357f324a6c5fc7082",
           "description": "crates/eg-plan/src/federation_spark.rs validates SparkBatch's artifact:// shape then explicitly refuses (no bound Spark artifact-store driver yet), the explicit-registration counterpart to the generic Oq2Unbound dispatch federation::source_for already gives it. Not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "3a14159c376895dafa37b22357f324a6c5fc7082",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/3a14159c376895dafa37b22357f324a6c5fc7082",
+          "description": "EG-DURABLE-KERNEL-R024.8 merged to the default branch in this commit."
         }
       ]
     },
@@ -578,8 +646,16 @@
     {
       "id": "EG-DURABLE-KERNEL-R026",
       "title": "Auth modes share one principal and RBAC evaluation path",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "48abc77ce72e7896b41af8bf48007b54af8b1f22",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/48abc77ce72e7896b41af8bf48007b54af8b1f22",
+          "description": "EG-DURABLE-KERNEL-R026 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R027",

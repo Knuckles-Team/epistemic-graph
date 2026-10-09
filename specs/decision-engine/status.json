@@ -1340,8 +1340,16 @@
     {
       "id": "EG-DECISION-ENGINE-R078.2",
       "title": "Reissue the committed contract freeze artifacts with the decide feature",
-      "delivery_state": "SPECIFIED",
-      "evidence": [],
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "e8aaa8ae5ccda3f02f87ea735e5943b7b5dc4519",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/e8aaa8ae5ccda3f02f87ea735e5943b7b5dc4519",
+          "description": "EG-DECISION-ENGINE-R078.2 merged to the default branch in this commit."
+        }
+      ],
       "remaining": "Requires the authorized contract-generation ceremony to regenerate and commit contract/FREEZE-RECEIPT.json and contract/receipt.json under --all-features; blocked on R078.1 landing first."
     },
     {
@@ -1534,8 +1542,16 @@
     {
       "id": "EG-DECISION-ENGINE-R089",
       "title": "Learned ranking never replaces the constraint-first decision ladder",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "19b44d2160625219ff7fcbbed68d39a21e4968d6",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/19b44d2160625219ff7fcbbed68d39a21e4968d6",
+          "description": "EG-DECISION-ENGINE-R089 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R090",
@@ -1548,8 +1564,16 @@
       "id": "EG-DECISION-ENGINE-R090.1",
       "title": "Typed resident-scorer budget (producer-first split of R090)",
       "parent": "EG-DECISION-ENGINE-R090",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "19b44d2160625219ff7fcbbed68d39a21e4968d6",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/19b44d2160625219ff7fcbbed68d39a21e4968d6",
+          "description": "EG-DECISION-ENGINE-R090.1 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R091",
@@ -1598,8 +1622,16 @@
     {
       "id": "EG-DECISION-ENGINE-R093.1",
       "title": "Typed served-path provenance and ground-truth verification",
-      "delivery_state": "IN_PROGRESS",
-      "evidence": [],
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "163a1e6bc8adc9ffd9669c536274d59565b30fa2",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/163a1e6bc8adc9ffd9669c536274d59565b30fa2",
+          "description": "EG-DECISION-ENGINE-R093.1 merged to the default branch in this commit."
+        }
+      ],
       "remaining": "Implementation branch opened; not yet merged to main."
     },
     {
@@ -1726,8 +1758,16 @@
       "id": "EG-DECISION-ENGINE-R102.1",
       "title": "Typed schema-repair activation gate (producer-first split of R102)",
       "parent": "EG-DECISION-ENGINE-R102",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "202b90167359e0ea2108c5163869ae1fcb828c42",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/202b90167359e0ea2108c5163869ae1fcb828c42",
+          "description": "EG-DECISION-ENGINE-R102.1 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R103",
@@ -1746,8 +1786,16 @@
     {
       "id": "EG-DECISION-ENGINE-R104",
       "title": "DecideText shares the UQL lexer and grammar family",
-      "delivery_state": "SPECIFIED",
-      "evidence": [],
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "857e20c63775b37833a21a58ba4e13a85ef53d39",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/857e20c63775b37833a21a58ba4e13a85ef53d39",
+          "description": "EG-DECISION-ENGINE-R104 merged to the default branch in this commit."
+        }
+      ],
       "remaining": "decide_text_shares_the_uql_lexical_family and a grammar-table-driven test exist, but were introduced in commit 857e20c63 whose own message is labelled '(uncompiled)'; a later non-wip commit (0ba13045f) further edits the same lexer, but a read-only audit could not build to confirm the fix."
     },
     {
@@ -1906,8 +1954,16 @@
       "id": "EG-DECISION-ENGINE-R113.1",
       "title": "Typed atomic capacity/synthesis-evidence commit outcome (producer-first split of R113)",
       "parent": "EG-DECISION-ENGINE-R113",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "202b90167359e0ea2108c5163869ae1fcb828c42",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/202b90167359e0ea2108c5163869ae1fcb828c42",
+          "description": "EG-DECISION-ENGINE-R113.1 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R114",
@@ -1963,7 +2019,7 @@
     {
       "id": "EG-DECISION-ENGINE-R116.1",
       "title": "A typed gate admits only the published client-contract call path",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -1971,6 +2027,13 @@
           "commit": "253a69935dfd08a7a5ef6cb13eacb3a875764bbc",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/253a69935dfd08a7a5ef6cb13eacb3a875764bbc",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "253a69935dfd08a7a5ef6cb13eacb3a875764bbc",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/253a69935dfd08a7a5ef6cb13eacb3a875764bbc",
+          "description": "EG-DECISION-ENGINE-R116.1 merged to the default branch in this commit."
         }
       ]
     },
@@ -2028,8 +2091,16 @@
     {
       "id": "EG-DECISION-ENGINE-R119",
       "title": "Walk-forward replay seals deflated Sharpe and PBO evidence",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "a85c8425c9f42809b536b11ffe188b79937904a1",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/a85c8425c9f42809b536b11ffe188b79937904a1",
+          "description": "EG-DECISION-ENGINE-R119 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R120",
@@ -2147,7 +2218,7 @@
     {
       "id": "EG-DECISION-ENGINE-R126.2",
       "title": "The capability-coverage query is served beside AgentAssemble",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -2155,6 +2226,13 @@
           "commit": "253a69935dfd08a7a5ef6cb13eacb3a875764bbc",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/253a69935dfd08a7a5ef6cb13eacb3a875764bbc",
           "description": "capability_coverage_query, the single entry point a served method and generated client invoke, is published on a branch; not yet merged to the default branch. The served RPC/client wiring itself remains open."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "253a69935dfd08a7a5ef6cb13eacb3a875764bbc",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/253a69935dfd08a7a5ef6cb13eacb3a875764bbc",
+          "description": "EG-DECISION-ENGINE-R126.2 merged to the default branch in this commit."
         }
       ],
       "remaining": "The entry point composing required_capabilities with capability_coverage is built; the served method registration and generated client method are not yet wired."
@@ -2190,7 +2268,7 @@
     {
       "id": "EG-DECISION-ENGINE-R127.2",
       "title": "The guardrail-entailment query is served, backed by a stored rule set",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -2198,6 +2276,13 @@
           "commit": "253a69935dfd08a7a5ef6cb13eacb3a875764bbc",
           "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/253a69935dfd08a7a5ef6cb13eacb3a875764bbc",
           "description": "guardrail_entailment_query, the entry point a served method invokes (validating the task IRI, then delegating to entailed_guardrails), is published on a branch; not yet merged to the default branch. The GuardrailRule storage/publish path and served RPC wiring remain open."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "253a69935dfd08a7a5ef6cb13eacb3a875764bbc",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/253a69935dfd08a7a5ef6cb13eacb3a875764bbc",
+          "description": "EG-DECISION-ENGINE-R127.2 merged to the default branch in this commit."
         }
       ],
       "remaining": "Depends on EG-DECISION-ENGINE-R127.1 (producer, landed). The entry point validates and delegates; the GuardrailRule storage/publish path and served RPC wiring are not yet designed."
