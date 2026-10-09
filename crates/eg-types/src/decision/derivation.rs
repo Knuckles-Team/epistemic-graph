@@ -241,6 +241,66 @@ pub fn coverage_derivation(
     })
 }
 
+/// One library component's independently derived coverage of one capability,
+/// and the evidence class its chain supports (EG-DECISION-ENGINE-R126).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LibraryCoverage {
+    pub derivation: CoverageDerivation,
+    pub evidence_class: EvidenceClass,
+}
+
+/// One required capability, paired with every visible component's coverage
+/// of it (EG-DECISION-ENGINE-R126): a read-only answer, never a ranking.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CapabilityCoverage {
+    pub capability_iri: String,
+    pub because: PremiseRef,
+    pub library: Vec<LibraryCoverage>,
+    /// Component ids of registered A2A agent cards that self-declare this
+    /// capability. Never a derivation: an external agent's surface is
+    /// asserted, not independently derived, so it carries no evidence class
+    /// beyond the unconditional [`EvidenceClass::Claim`] every A2A card is
+    /// already classified under (EG-DECISION-ENGINE-R126).
+    pub a2a_card_ids: Vec<String>,
+}
+
+/// `required`'s capability coverage (EG-DECISION-ENGINE-R126): for each
+/// capability, every member of `library_candidates` that covers it
+/// (reusing [`coverage_chain`] through [`coverage_derivation`]) and every
+/// `(component_id, declared_capabilities)` pair of `a2a_cards` that
+/// self-declares it. Adds no new derivation rule and no ranking; it reuses
+/// the same closure [`required_capabilities`] already derives and the same
+/// per-candidate chain [`coverage_chain`] already proves for `AgentAssemble`.
+pub fn capability_coverage(
+    required: &[RequiredCapability],
+    library_candidates: &[CandidateFacts],
+    a2a_cards: &[(String, Vec<String>)],
+) -> Vec<CapabilityCoverage> {
+    required
+        .iter()
+        .map(|capability| CapabilityCoverage {
+            capability_iri: capability.iri.clone(),
+            because: capability.because.clone(),
+            library: library_candidates
+                .iter()
+                .filter_map(|candidate| {
+                    let derivation = coverage_derivation(&capability.iri, Some(candidate))?;
+                    let evidence_class = weakest(derivation.chain.iter().map(|edge| edge.class));
+                    Some(LibraryCoverage {
+                        derivation,
+                        evidence_class,
+                    })
+                })
+                .collect(),
+            a2a_card_ids: a2a_cards
+                .iter()
+                .filter(|(_, declared)| declared.iter().any(|iri| iri == &capability.iri))
+                .map(|(component_id, _)| component_id.clone())
+                .collect(),
+        })
+        .collect()
+}
+
 /// The evidence class of a conclusion resting on `classes`: the weakest one.
 /// A definition does not weaken; no premise at all is a proof.
 pub fn weakest(classes: impl IntoIterator<Item = PremiseClass>) -> EvidenceClass {
