@@ -17,6 +17,7 @@
     "EG-DURABLE-KERNEL-R012",
     "EG-DURABLE-KERNEL-R013",
     "EG-DURABLE-KERNEL-R014",
+    "EG-DURABLE-KERNEL-R014.1",
     "EG-DURABLE-KERNEL-R015",
     "EG-DURABLE-KERNEL-R016",
     "EG-DURABLE-KERNEL-R017",
@@ -277,7 +278,22 @@
       "id": "EG-DURABLE-KERNEL-R014",
       "title": "Raft cluster tests pass reliably under load",
       "delivery_state": "UNKNOWN",
+      "remaining": "Needs load-test evidence (a representative-load generator and repeated-run harness), which this PR does not produce. Split per the 2026-10-09 net-new-work rule: `.1` is the typed flake-budget/retry-policy model plus refusal test; the load-test harness itself is a later child. Rollup LANDED only once every child is LANDED.",
       "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R014.1",
+      "title": "Typed flake-budget / retry-policy model for load-test retries",
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "3a14159c376895dafa37b22357f324a6c5fc7082",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/3a14159c376895dafa37b22357f324a6c5fc7082",
+          "description": "src/raft/flake_budget.rs adds FlakeBudget::new/validate/backoff_for, refusing a zero-retry, zero-backoff, or inverted-cap budget and refusing a retry attempt beyond max_retries. Not yet merged to the default branch."
+        }
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R015",
@@ -485,14 +501,30 @@
     {
       "id": "EG-DURABLE-KERNEL-R024.5",
       "title": "Outbox-based mirror becomes a ForeignSourceSpec mirror target",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "3a14159c376895dafa37b22357f324a6c5fc7082",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/3a14159c376895dafa37b22357f324a6c5fc7082",
+          "description": "crates/eg-types/src/wire_query_modalities.rs adds MirrorTargetSpec::Outbox { consumer }; crates/eg-plan/src/mirror_target.rs wires it through target_for with the same unbound-refusal shape as FanOut/Named. Not yet merged to the default branch."
+        }
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R024.6",
       "title": "Brain-guarded backend becomes a ForeignSourceSpec source",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "3a14159c376895dafa37b22357f324a6c5fc7082",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/3a14159c376895dafa37b22357f324a6c5fc7082",
+          "description": "crates/eg-types/src/wire_query_modalities.rs adds ForeignSourceSpec::BrainGuarded; crates/eg-plan/src/federation_brain_guarded.rs validates its shape then explicitly refuses (no bound guard-evaluation driver yet), same shape as federation_cypher_unbound. Not yet merged to the default branch."
+        }
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R024.7",
@@ -518,8 +550,16 @@
     {
       "id": "EG-DURABLE-KERNEL-R024.8",
       "title": "Spark job backend becomes a ForeignSourceSpec source",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "3a14159c376895dafa37b22357f324a6c5fc7082",
+          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/3a14159c376895dafa37b22357f324a6c5fc7082",
+          "description": "crates/eg-plan/src/federation_spark.rs validates SparkBatch's artifact:// shape then explicitly refuses (no bound Spark artifact-store driver yet), the explicit-registration counterpart to the generic Oq2Unbound dispatch federation::source_for already gives it. Not yet merged to the default branch."
+        }
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R025",

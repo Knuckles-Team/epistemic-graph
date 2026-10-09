@@ -159,6 +159,11 @@ pub mod federation;
 /// (EG-DURABLE-KERNEL-R024.1).
 #[cfg(feature = "federation-sql")]
 pub mod federation_age;
+/// The brain-guarded backend source (EG-DURABLE-KERNEL-R024.6): typed shape
+/// validation plus an explicit, named refusal, since no bound guard-policy
+/// evaluation driver exists yet.
+#[cfg(feature = "federation")]
+pub mod federation_brain_guarded;
 /// The Neo4j/FalkorDb halves of the Cypher transpiler source
 /// (EG-DURABLE-KERNEL-R024.3): typed shape validation plus an explicit,
 /// named refusal, since no bound Bolt/RESP driver exists yet. AGE (the
@@ -170,6 +175,15 @@ pub mod federation_cypher_unbound;
 /// into foreign sources, bind joins, the per-query network budget and the fragment trace.
 #[cfg(feature = "federation")]
 pub mod federation_opt;
+/// The Spark job backend source's explicit-registration half
+/// (EG-DURABLE-KERNEL-R024.8): typed `artifact://`-scheme shape validation
+/// plus an explicit, named refusal, since no bound Spark artifact-store
+/// driver exists yet. `federation::source_for`'s generic dispatch already
+/// refuses an inline `SparkBatch` spec through `Oq2Unbound`; this is the
+/// per-registration counterpart `federation_age`/`federation_trino` give
+/// their own backend.
+#[cfg(feature = "federation")]
+pub mod federation_spark;
 /// The one outbound-destination gate for federation (HTTP URLs, SQL DSN hosts).
 #[cfg(feature = "federation")]
 pub mod federation_ssrf;

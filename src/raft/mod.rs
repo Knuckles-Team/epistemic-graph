@@ -87,6 +87,13 @@ pub mod drain;
 /// build does not link) — `cluster` implies both.
 #[cfg(feature = "query")]
 pub mod exchange;
+/// Typed flake-budget / retry-policy model for running cluster tests reliably
+/// under representative load (EG-DURABLE-KERNEL-R014.1): bounds how many
+/// transient failures a run under load may absorb and at what backoff,
+/// refusing a malformed budget rather than silently retrying forever or not
+/// at all. The load-test harness and representative-load generator that
+/// consume it are a later child.
+pub mod flake_budget;
 /// Durable drain/safety contract for Raft membership shrink.
 pub mod membership_shrink;
 pub mod multi;

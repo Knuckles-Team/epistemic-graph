@@ -41,6 +41,17 @@ pub fn target_for(spec: &MirrorTargetSpec) -> Result<Box<dyn MirrorTarget + '_>,
             kind: "named",
             target_count: 1,
         })),
+        // EG-DURABLE-KERNEL-R024.5: an outbox-based mirror. Replaying the
+        // local mutation outbox under `consumer` is the delivery mechanism
+        // the outbox contract (R001/R002/R052) already guarantees committed,
+        // per-consumer, idempotently-replayable rows for; no separate bound
+        // driver exists yet to actually drain that consumer's cursor into a
+        // downstream sink, so this is the same unbound-refusal shape as
+        // `FanOut`/`Named` until one registers.
+        MirrorTargetSpec::Outbox { .. } => Ok(Box::new(MirrorUnbound {
+            kind: "outbox",
+            target_count: 1,
+        })),
     }
 }
 
@@ -228,6 +239,52 @@ mod tests {
         let target = target_for(&spec).unwrap();
         let error = target.send(b"row").unwrap_err();
         assert!(error.contains("named"), "{error}");
+        assert!(error.contains("verified registration and bound driver"));
+    }
+
+    // EG-DURABLE-KERNEL-R024.5: the outbox-based mirror target. Same shape
+    // as the `FanOut`/`Named` coverage above.
+
+    fn outbox(consumer: &str) -> MirrorTargetSpec {
+        MirrorTargetSpec::Outbox {
+            consumer: consumer.to_string(),
+        }
+    }
+
+    #[test]
+    fn outbox_spec_round_trips_and_validates() {
+        let spec = outbox("warehouse-mirror");
+        spec.validate().unwrap();
+        let wire = rmp_serde::to_vec_named(&spec).unwrap();
+        let round_trip: MirrorTargetSpec = rmp_serde::from_slice(&wire).unwrap();
+        assert_eq!(round_trip, spec);
+    }
+
+    #[test]
+    fn empty_outbox_consumer_is_refused() {
+        let spec = outbox("");
+        assert!(spec.validate().is_err());
+        let Err(error) = target_for(&spec) else {
+            panic!("the outbox spec must be refused");
+        };
+        assert!(error.contains("empty or padded"), "{error}");
+    }
+
+    #[test]
+    fn padded_outbox_consumer_is_refused() {
+        let spec = outbox(" warehouse-mirror ");
+        let Err(error) = target_for(&spec) else {
+            panic!("the padded-consumer outbox spec must be refused");
+        };
+        assert!(error.contains("empty or padded"), "{error}");
+    }
+
+    #[test]
+    fn unbound_outbox_target_fails_closed_without_reaching_any_target() {
+        let spec = outbox("warehouse-mirror");
+        let target = target_for(&spec).unwrap();
+        let error = target.send(b"row").unwrap_err();
+        assert!(error.contains("outbox"), "{error}");
         assert!(error.contains("verified registration and bound driver"));
     }
 }
