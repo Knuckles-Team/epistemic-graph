@@ -76,7 +76,7 @@
           "description": "EG-FINANCE-PRIMITIVES-R002 merged to the default branch in this commit."
         }
       ],
-      "remaining": "purged_cpcv_splits, deflated_sharpe_ratio, probability_of_backtest_overfit, diebold_mariano and the FeatureSkill (IC/IR/n_eff) and Brier kernels are rehomed into eg-numeric on main, and FinanceRollingZscore/FinanceEwma were retired. But Ornstein-Uhlenbeck, ADF, and regime-HMM calculations are still \u2026"
+      "remaining": "purged_cpcv_splits, deflated_sharpe_ratio, probability_of_backtest_overfit, diebold_mariano and the FeatureSkill (IC/IR/n_eff) and Brier kernels are rehomed into eg-numeric on main, and FinanceRollingZscore/FinanceEwma were retired. But Ornstein-Uhlenbeck, ADF, and regime-HMM calculations are still …"
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R003",
@@ -214,16 +214,8 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R008",
       "title": "Strategy backtests sealed through BacktestRun",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "b96ef8ebd9df8b3e57ec48711555728b87876841",
-          "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/b96ef8ebd9df8b3e57ec48711555728b87876841",
-          "description": "EG-FINANCE-PRIMITIVES-R008 merged to the default branch in this commit."
-        }
-      ]
+      "delivery_state": "BUILDING",
+      "evidence": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R009",
@@ -333,7 +325,7 @@
           "description": "EG-FINANCE-PRIMITIVES-R015 merged to the default branch in this commit."
         }
       ],
-      "remaining": "AnalysisSnapshot/AnalysisSnapshotDraft (crates/eg-types/src/compute_result/market/snapshot.rs) carries informational_only, excludes_positions and SnapshotNotices, but has no control-lease / share.read link field anywhere in its definition. A generic ControlLease mechanism exists in \u2026"
+      "remaining": "AnalysisSnapshot/AnalysisSnapshotDraft (crates/eg-types/src/compute_result/market/snapshot.rs) carries informational_only, excludes_positions and SnapshotNotices, but has no control-lease / share.read link field anywhere in its definition. A generic ControlLease mechanism exists in …"
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R016",
