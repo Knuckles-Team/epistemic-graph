@@ -31,6 +31,7 @@ pub mod events;
 pub mod fixed;
 pub mod indicators;
 pub mod kernels;
+pub mod recommendation;
 pub mod resolve;
 pub mod rollup;
 pub mod scan;

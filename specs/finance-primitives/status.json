@@ -18,6 +18,7 @@
     "EG-FINANCE-PRIMITIVES-R008",
     "EG-FINANCE-PRIMITIVES-R008.1",
     "EG-FINANCE-PRIMITIVES-R009",
+    "EG-FINANCE-PRIMITIVES-R009.1",
     "EG-FINANCE-PRIMITIVES-R010",
     "EG-FINANCE-PRIMITIVES-R011",
     "EG-FINANCE-PRIMITIVES-R012",
@@ -163,6 +164,12 @@
       "id": "EG-FINANCE-PRIMITIVES-R009",
       "title": "Calibrated abstaining recommendations with scorecards",
       "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R009.1",
+      "title": "Calibrated recommendation decision over flip confidence",
+      "delivery_state": "BUILDING",
       "evidence": []
     },
     {
