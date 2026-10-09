@@ -87,6 +87,7 @@ mod tests {
         }
     }
 
+    // spec: EG-DECISION-ENGINE-R030
     #[test]
     fn a_request_naming_only_registered_lanes_is_accepted() {
         let request = IngestionLaneRequest {
