@@ -864,3 +864,59 @@ pub enum UqlResult {
         warnings: Vec<String>,
     },
 }
+
+/// EG-FEDERATED-QUERY-R002: a query/validation rejection reason is reported
+/// through the caller's log, metric, or domain-specific error channel --
+/// never added as a field on the core kernel row ([`UqlRow`]) schema, which
+/// stays format-neutral regardless of what any given rejection says.
+#[cfg(all(test, feature = "query"))]
+mod kernel_row_rejection_reason_contract {
+    use super::super::wire_query_uql::{UqlPrintCode, UqlPrintError};
+    use super::UqlRow;
+
+    /// A contract test: the kernel row schema's field set is exactly the
+    /// row-shape fields, with no rejection/error field among them. Keyed off
+    /// the type's own `serde_json::Value::Object` keys, so a field added
+    /// later (reason, error, rejected_because, ...) fails this test instead
+    /// of silently riding onto every row.
+    #[test]
+    fn kernel_row_schema_carries_no_rejection_reason_field() {
+        let row = UqlRow {
+            id: "n1".to_string(),
+            score: None,
+            channels: Vec::new(),
+            knowledge: None,
+            proof: None,
+        };
+        let value = serde_json::to_value(&row).expect("UqlRow must serialize");
+        let obj = value
+            .as_object()
+            .expect("UqlRow serializes to a JSON object");
+        let mut keys: Vec<&str> = obj.keys().map(String::as_str).collect();
+        keys.sort_unstable();
+        assert_eq!(
+            keys,
+            vec!["channels", "id", "knowledge", "proof", "score"],
+            "UqlRow gained/lost a field -- EG-FEDERATED-QUERY-R002 requires no \
+             rejection-reason field ever rides on the kernel row schema"
+        );
+        for forbidden in ["reason", "rejection_reason", "error", "rejected_because"] {
+            assert!(
+                !obj.contains_key(forbidden),
+                "kernel row schema must never carry a {forbidden:?} field"
+            );
+        }
+    }
+
+    /// Negative test: a rejection reason IS observable -- just through the
+    /// domain-specific error channel ([`UqlPrintError`]), not the row.
+    #[test]
+    fn rejection_reason_is_observable_through_the_domain_error_channel() {
+        let err = UqlPrintError {
+            code: UqlPrintCode::NonFiniteNumber,
+            detail: "channel value was NaN".to_string(),
+        };
+        assert!(err.to_string().contains("channel value was NaN"));
+        assert_eq!(err.detail, "channel value was NaN");
+    }
+}
