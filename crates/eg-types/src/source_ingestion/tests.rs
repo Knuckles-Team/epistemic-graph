@@ -384,3 +384,178 @@ fn r003_1_a_different_root_is_not_blocked_by_an_unrelated_claim() {
     let already_claimed = vec![MigratedIngestionCapabilityRoot::QuantumProcessing];
     assert!(standardization.claim(&already_claimed).is_ok());
 }
+
+// EG-REPO-INGEST-R003.2 — infrastructure processing is claimed through EG's
+// own typed interface rather than left to its retiring legacy module.
+
+#[test]
+fn r003_2_infrastructure_processing_round_trips_through_the_typed_root() {
+    let root = MigratedIngestionCapabilityRoot::InfrastructureProcessing;
+    let wire = serde_json::to_string(&root).unwrap();
+    assert_eq!(wire, "\"infrastructure_processing\"");
+    let back: MigratedIngestionCapabilityRoot = serde_json::from_str(&wire).unwrap();
+    assert_eq!(back, root);
+}
+
+#[test]
+fn r003_2_a_fresh_claim_on_infrastructure_processing_succeeds() {
+    let root = MigratedIngestionCapabilityRoot::InfrastructureProcessing;
+    assert!(root.claim(&[]).is_ok());
+}
+
+#[test]
+fn r003_2_a_duplicate_claim_on_infrastructure_processing_is_refused() {
+    let root = MigratedIngestionCapabilityRoot::InfrastructureProcessing;
+    let already_claimed = vec![root];
+    let err = root
+        .claim(&already_claimed)
+        .expect_err("a second writer for the same migrated root must be refused");
+    assert!(err.contains("already claimed"));
+}
+
+#[test]
+fn r003_2_a_different_root_is_not_blocked_by_an_unrelated_claim() {
+    let infrastructure = MigratedIngestionCapabilityRoot::InfrastructureProcessing;
+    let already_claimed = vec![MigratedIngestionCapabilityRoot::SecurityProcessing];
+    assert!(infrastructure.claim(&already_claimed).is_ok());
+}
+
+// EG-REPO-INGEST-R003.3 — quantum processing is claimed through EG's own
+// typed interface rather than left to its retiring legacy module.
+
+#[test]
+fn r003_3_quantum_processing_round_trips_through_the_typed_root() {
+    let root = MigratedIngestionCapabilityRoot::QuantumProcessing;
+    let wire = serde_json::to_string(&root).unwrap();
+    assert_eq!(wire, "\"quantum_processing\"");
+    let back: MigratedIngestionCapabilityRoot = serde_json::from_str(&wire).unwrap();
+    assert_eq!(back, root);
+}
+
+#[test]
+fn r003_3_a_fresh_claim_on_quantum_processing_succeeds() {
+    let root = MigratedIngestionCapabilityRoot::QuantumProcessing;
+    assert!(root.claim(&[]).is_ok());
+}
+
+#[test]
+fn r003_3_a_duplicate_claim_on_quantum_processing_is_refused() {
+    let root = MigratedIngestionCapabilityRoot::QuantumProcessing;
+    let already_claimed = vec![root];
+    let err = root
+        .claim(&already_claimed)
+        .expect_err("a second writer for the same migrated root must be refused");
+    assert!(err.contains("already claimed"));
+}
+
+#[test]
+fn r003_3_a_different_root_is_not_blocked_by_an_unrelated_claim() {
+    let quantum = MigratedIngestionCapabilityRoot::QuantumProcessing;
+    let already_claimed = vec![MigratedIngestionCapabilityRoot::EnterpriseProtocolHandling];
+    assert!(quantum.claim(&already_claimed).is_ok());
+}
+
+// EG-REPO-INGEST-R003.4 — security processing is claimed through EG's own
+// typed interface rather than left to its retiring legacy module.
+
+#[test]
+fn r003_4_security_processing_round_trips_through_the_typed_root() {
+    let root = MigratedIngestionCapabilityRoot::SecurityProcessing;
+    let wire = serde_json::to_string(&root).unwrap();
+    assert_eq!(wire, "\"security_processing\"");
+    let back: MigratedIngestionCapabilityRoot = serde_json::from_str(&wire).unwrap();
+    assert_eq!(back, root);
+}
+
+#[test]
+fn r003_4_a_fresh_claim_on_security_processing_succeeds() {
+    let root = MigratedIngestionCapabilityRoot::SecurityProcessing;
+    assert!(root.claim(&[]).is_ok());
+}
+
+#[test]
+fn r003_4_a_duplicate_claim_on_security_processing_is_refused() {
+    let root = MigratedIngestionCapabilityRoot::SecurityProcessing;
+    let already_claimed = vec![root];
+    let err = root
+        .claim(&already_claimed)
+        .expect_err("a second writer for the same migrated root must be refused");
+    assert!(err.contains("already claimed"));
+}
+
+#[test]
+fn r003_4_a_different_root_is_not_blocked_by_an_unrelated_claim() {
+    let security = MigratedIngestionCapabilityRoot::SecurityProcessing;
+    let already_claimed = vec![MigratedIngestionCapabilityRoot::EcosystemConceptExtraction];
+    assert!(security.claim(&already_claimed).is_ok());
+}
+
+// EG-REPO-INGEST-R003.5 — enterprise protocol handling is claimed through
+// EG's own typed interface rather than left to its retiring legacy module.
+
+#[test]
+fn r003_5_enterprise_protocol_handling_round_trips_through_the_typed_root() {
+    let root = MigratedIngestionCapabilityRoot::EnterpriseProtocolHandling;
+    let wire = serde_json::to_string(&root).unwrap();
+    assert_eq!(wire, "\"enterprise_protocol_handling\"");
+    let back: MigratedIngestionCapabilityRoot = serde_json::from_str(&wire).unwrap();
+    assert_eq!(back, root);
+}
+
+#[test]
+fn r003_5_a_fresh_claim_on_enterprise_protocol_handling_succeeds() {
+    let root = MigratedIngestionCapabilityRoot::EnterpriseProtocolHandling;
+    assert!(root.claim(&[]).is_ok());
+}
+
+#[test]
+fn r003_5_a_duplicate_claim_on_enterprise_protocol_handling_is_refused() {
+    let root = MigratedIngestionCapabilityRoot::EnterpriseProtocolHandling;
+    let already_claimed = vec![root];
+    let err = root
+        .claim(&already_claimed)
+        .expect_err("a second writer for the same migrated root must be refused");
+    assert!(err.contains("already claimed"));
+}
+
+#[test]
+fn r003_5_a_different_root_is_not_blocked_by_an_unrelated_claim() {
+    let enterprise = MigratedIngestionCapabilityRoot::EnterpriseProtocolHandling;
+    let already_claimed = vec![MigratedIngestionCapabilityRoot::InfrastructureProcessing];
+    assert!(enterprise.claim(&already_claimed).is_ok());
+}
+
+// EG-REPO-INGEST-R003.6 — ecosystem concept extraction is claimed through
+// EG's own typed interface rather than left to its retiring legacy module.
+
+#[test]
+fn r003_6_ecosystem_concept_extraction_round_trips_through_the_typed_root() {
+    let root = MigratedIngestionCapabilityRoot::EcosystemConceptExtraction;
+    let wire = serde_json::to_string(&root).unwrap();
+    assert_eq!(wire, "\"ecosystem_concept_extraction\"");
+    let back: MigratedIngestionCapabilityRoot = serde_json::from_str(&wire).unwrap();
+    assert_eq!(back, root);
+}
+
+#[test]
+fn r003_6_a_fresh_claim_on_ecosystem_concept_extraction_succeeds() {
+    let root = MigratedIngestionCapabilityRoot::EcosystemConceptExtraction;
+    assert!(root.claim(&[]).is_ok());
+}
+
+#[test]
+fn r003_6_a_duplicate_claim_on_ecosystem_concept_extraction_is_refused() {
+    let root = MigratedIngestionCapabilityRoot::EcosystemConceptExtraction;
+    let already_claimed = vec![root];
+    let err = root
+        .claim(&already_claimed)
+        .expect_err("a second writer for the same migrated root must be refused");
+    assert!(err.contains("already claimed"));
+}
+
+#[test]
+fn r003_6_a_different_root_is_not_blocked_by_an_unrelated_claim() {
+    let ecosystem = MigratedIngestionCapabilityRoot::EcosystemConceptExtraction;
+    let already_claimed = vec![MigratedIngestionCapabilityRoot::QuantumProcessing];
+    assert!(ecosystem.claim(&already_claimed).is_ok());
+}
