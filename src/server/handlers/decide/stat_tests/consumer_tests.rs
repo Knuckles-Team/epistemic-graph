@@ -127,6 +127,36 @@ async fn logged_abstention(h: &Harness) -> DecisionLogCommitted {
     decode(log_op(h, "decider", commit).await).unwrap()
 }
 
+/// EG-DECISION-ENGINE-R029: a retrieval-plan decision refuses a declared
+/// option that claims the registry's reserved namespace but does not name a
+/// registered plan, through the real served `Decide` path (`handle_decide`,
+/// the same handler `Method::Decide` dispatches to) -- not just the typed
+/// request's own unit check. The refusal is structural
+/// (`candidates::declared_candidates`), so it happens before the feature
+/// schema is ever resolved; this request's schema pin is intentionally
+/// unpublished. An ordinary declared option outside the reserved namespace
+/// (as `declared_abstention`'s "plan-deep"/"plan-hyde" fixtures use) is
+/// unaffected -- see `declared_options_decide_as_claims_under_the_declaring_principal`.
+#[tokio::test]
+async fn an_unregistered_retrieval_plan_is_refused_through_decide() {
+    let h = Harness::new().await;
+    let unresolved_schema = ComponentDependency {
+        component_id: "schema:unused".to_string(),
+        kind: AgentComponentKind::FeatureSchema,
+        definition_digest: format!("sha256:{}", "0".repeat(64)),
+    };
+    let error = decide(
+        &h,
+        declared_request(
+            &unresolved_schema,
+            vec![declared("retrieval-plan:vector-only", 0)],
+        ),
+    )
+    .await
+    .expect_err("must be refused");
+    assert!(error.contains("UNSUPPORTED_RETRIEVAL_PLAN"), "got: {error}");
+}
+
 #[tokio::test]
 async fn declared_options_decide_as_claims_under_the_declaring_principal() {
     let h = Harness::new().await;

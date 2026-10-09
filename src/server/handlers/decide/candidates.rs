@@ -25,6 +25,7 @@ use eg_types::decision::statistical::enrichment_schedule::{
 };
 use eg_types::decision::statistical::ingestion_lane::IngestionLaneRequest;
 use eg_types::decision::statistical::log::RecordVisibility;
+use eg_types::decision::statistical::retrieval_plan::RetrievalPlanKind;
 use eg_types::decision::statistical::{CandidateSource, QuestionKind, StatisticalErrorCode};
 use eg_types::decision::{CandidateSourceRecord, LibraryCandidateScope, MAX_ASSEMBLY_CANDIDATES};
 
@@ -309,7 +310,14 @@ fn prefixed_refusal(detail: &str, prefix: &str, code: StatisticalErrorCode) -> S
 /// (EG-DECISION-ENGINE-R030). `QuestionKind::EnrichmentSchedule` candidates
 /// may not declare a negative `enrichment.cost_q32` -- it has no meaning on
 /// that scale and would let a candidate manufacture unbounded net value
-/// (EG-DECISION-ENGINE-R031).
+/// (EG-DECISION-ENGINE-R031). A `QuestionKind::RetrievalPlan` candidate whose
+/// option id claims the reserved
+/// [`eg_types::decision::statistical::retrieval_plan::OPTION_ID_PREFIX`]
+/// namespace must name a registered
+/// [`eg_types::decision::statistical::retrieval_plan::RetrievalPlanKind`],
+/// refused here rather than discovered later as an opaque abstention
+/// (EG-DECISION-ENGINE-R029). An option id outside that namespace is an
+/// ordinary declared option, unaffected by this registry.
 pub(super) fn declared_candidates(
     options: &[DeclaredOption],
     principal: &str,
@@ -335,6 +343,21 @@ pub(super) fn declared_candidates(
         EnrichmentScheduleRequest { candidates }
             .check()
             .map_err(|detail| prefixed_refusal(&detail, "UNSUPPORTED_ENRICHMENT_COST: ", StatisticalErrorCode::UnsupportedEnrichmentCost))?;
+    } else if kind == QuestionKind::RetrievalPlan {
+        for option in options {
+            if RetrievalPlanKind::claims_registry_namespace(&option.option_id)
+                && RetrievalPlanKind::from_option_id(&option.option_id).is_none()
+            {
+                return Err(refusal(
+                    StatisticalErrorCode::ParameterInvalid,
+                    format!(
+                        "UNSUPPORTED_RETRIEVAL_PLAN: '{}' is not in the retrieval plan \
+                         registry (leanrag, reciprocal-rank-fusion, direct-sparql)",
+                        option.option_id
+                    ),
+                ));
+            }
+        }
     }
     let views = options
         .iter()

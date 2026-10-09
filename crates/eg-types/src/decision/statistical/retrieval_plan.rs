@@ -23,6 +23,13 @@ use serde::{Deserialize, Serialize};
 /// The fixed set of retrieval-plan families a routing decision may choose
 /// among. Adding a plan is a registry change here, not a new code path at
 /// each caller.
+///
+/// This registry's namespace is reserved: an option id is checked against it
+/// only when the id itself starts with [`OPTION_ID_PREFIX`]. A declared
+/// candidate outside that namespace (an ordinary arbitrary plan identifier,
+/// as other `QuestionKind::RetrievalPlan` tests already use) is left alone,
+/// so adding this gate changes nothing for existing declared-candidate
+/// questions that never claimed to be a registry entry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
@@ -31,6 +38,11 @@ pub enum RetrievalPlanKind {
     ReciprocalRankFusion,
     DirectSparql,
 }
+
+/// The reserved namespace prefix of every registered plan's option id. An
+/// option id in this namespace is held to the registry; one outside it is
+/// an ordinary declared option this module has no opinion about.
+pub const OPTION_ID_PREFIX: &str = "retrieval-plan:";
 
 impl RetrievalPlanKind {
     /// Every registered plan family, in a stable order.
@@ -47,6 +59,12 @@ impl RetrievalPlanKind {
             Self::ReciprocalRankFusion => "retrieval-plan:reciprocal-rank-fusion",
             Self::DirectSparql => "retrieval-plan:direct-sparql",
         }
+    }
+
+    /// Whether `option_id` claims membership in this registry's namespace,
+    /// whether or not it actually names a registered plan.
+    pub fn claims_registry_namespace(option_id: &str) -> bool {
+        option_id.starts_with(OPTION_ID_PREFIX)
     }
 
     /// The plan family an option id names, or `None` outside the registry.
@@ -96,6 +114,18 @@ mod tests {
         for plan in RetrievalPlanKind::ALL {
             assert_eq!(RetrievalPlanKind::from_option_id(plan.option_id()), Some(plan));
         }
+    }
+
+    #[test]
+    fn only_the_reserved_prefix_claims_the_namespace() {
+        assert!(RetrievalPlanKind::claims_registry_namespace(
+            "retrieval-plan:leanrag"
+        ));
+        assert!(RetrievalPlanKind::claims_registry_namespace(
+            "retrieval-plan:vector-only"
+        ));
+        assert!(!RetrievalPlanKind::claims_registry_namespace("plan-hyde"));
+        assert!(!RetrievalPlanKind::claims_registry_namespace("plan-deep"));
     }
 
     #[test]
