@@ -87,7 +87,9 @@
     "EG-DURABLE-KERNEL-R038.1",
     "EG-DURABLE-KERNEL-R038.2",
     "EG-DURABLE-KERNEL-R024.2.1",
-    "EG-DURABLE-KERNEL-R024.2.2"
+    "EG-DURABLE-KERNEL-R024.2.2",
+    "EG-DURABLE-KERNEL-R037.1",
+    "EG-DURABLE-KERNEL-R037.2"
   ],
   "delivery_state": "BUILDING",
   "acceptance_state": "NOT_AUDITED",
@@ -635,7 +637,7 @@
     {
       "id": "EG-DURABLE-KERNEL-R037",
       "title": "Workload classifier routes point operations around the SQL planner",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
       "evidence": []
     },
     {
@@ -1110,6 +1112,18 @@
     {
       "id": "EG-DURABLE-KERNEL-R024.2.2",
       "title": "MirrorTargetRegistry registration and name-resolution entry point",
+      "delivery_state": "BUILT",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R037.1",
+      "title": "WorkloadClass typed classifier with refusal for an unrecognized operation kind",
+      "delivery_state": "BUILT",
+      "evidence": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R037.2",
+      "title": "route dispatch entry point deciding DataFusion session allocation",
       "delivery_state": "BUILT",
       "evidence": []
     }
