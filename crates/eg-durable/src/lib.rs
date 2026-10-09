@@ -77,6 +77,9 @@ pub mod change_envelope;
 pub mod mirror;
 pub mod project;
 pub mod route;
+// EG-UNIFIED-DATA-PLANE-R009 — named consumer checkpoint position and the
+// idempotent-apply guard (replaying a stale position is a no-op).
+pub mod idempotent_consumer;
 
 pub use change_envelope::{ChangeEnvelope, ChangeOp, InvalidChangeEnvelope};
 pub use mirror::DurableExecutionUnitMirror;
