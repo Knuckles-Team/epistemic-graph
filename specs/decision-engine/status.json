@@ -84,6 +84,8 @@
     "EG-DECISION-ENGINE-R076",
     "EG-DECISION-ENGINE-R077",
     "EG-DECISION-ENGINE-R078",
+    "EG-DECISION-ENGINE-R078.1",
+    "EG-DECISION-ENGINE-R078.2",
     "EG-DECISION-ENGINE-R079",
     "EG-DECISION-ENGINE-R080",
     "EG-DECISION-ENGINE-R081",
@@ -1183,10 +1185,24 @@
     },
     {
       "id": "EG-DECISION-ENGINE-R078",
-      "title": "Contract freeze reissued with the decide feature",
+      "title": "Contract freeze reissued with the decide feature (rollup)",
       "delivery_state": "SPECIFIED",
       "evidence": [],
-      "remaining": "Decide methods are present in the generated contract and a generic contract-freshness test suite exists, but no decide-specific reissued-freeze artifact/test was found; the private tracker treats this item as a ruled duplicate of a different item, not an independent delivery."
+      "remaining": "Split 2026-10-09 into EG-DECISION-ENGINE-R078.1 (typed refusal check, producer) and EG-DECISION-ENGINE-R078.2 (reissued artifact, consumer); see those rows."
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R078.1",
+      "title": "Typed refusal for a feature-profile freeze omitting an enabled feature",
+      "delivery_state": "BUILDING",
+      "evidence": [],
+      "remaining": "PR open; adds MissingFrozenFeature + require_feature_frozen and the decide entry in feature_profile()."
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R078.2",
+      "title": "Reissue the committed contract freeze artifacts with the decide feature",
+      "delivery_state": "SPECIFIED",
+      "evidence": [],
+      "remaining": "Requires the authorized contract-generation ceremony to regenerate and commit contract/FREEZE-RECEIPT.json and contract/receipt.json under --all-features; blocked on R078.1 landing first."
     },
     {
       "id": "EG-DECISION-ENGINE-R079",

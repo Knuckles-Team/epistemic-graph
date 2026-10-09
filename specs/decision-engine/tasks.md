@@ -48,6 +48,8 @@
 
 - [ ] D16 **EG-DECISION-ENGINE-R061.1:** Add the shared `test-support` fixture `tool_entry_with_cost_latency` (`crates/eg-types/src/test_support/decision.rs`), with a unit test proving its declared cost/latency survive `CandidateFacts::from_entry`. **EG-DECISION-ENGINE-R061:** build on this fixture with a cross-path test asserting the exact-solver path and `CandidateView::from_component` read the same declared values from the same entry.
 
+- [x] D16 **EG-DECISION-ENGINE-R078 split (2026-10-09):** `feature_profile()` in `crates/eg-capabilities/src/contract.rs` never named the `decide` feature, so a reissued contract freeze would silently omit it; `package_surface_is_complete_identical_and_receipt_bound` would fail under `--all-features` against the committed artifacts, which an authorized generation ceremony must resolve. Split into **EG-DECISION-ENGINE-R078.1** (typed `MissingFrozenFeature`/`require_feature_frozen` refusal, plus the `decide` entry, producer) and **EG-DECISION-ENGINE-R078.2** (reissue `contract/FREEZE-RECEIPT.json` and `contract/receipt.json`, consumer, blocked on R078.1).
+
 ## Evidence format
 
 For each stable ID, record: `ID | sequence | delivery | acceptance | main SHA | tests/workflow | reviewed date | notes`. Until a row has an exact commit and passing required tests, use `WAITING / NOT_RUN`, `IN_PROGRESS / PARTIAL`, or `SOURCE_LANDED / PARTIAL` as observed; do not infer acceptance from a sequence label. `RETIRED` requires the superseding contract and removal test. Keep evidence records in this repository alongside the spec so external contributors can audit them.
