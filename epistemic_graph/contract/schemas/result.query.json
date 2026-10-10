@@ -853,6 +853,11 @@
           "const": "nl_template",
           "description": "A natural-language template a decision surface renders with.",
           "type": "string"
+        },
+        {
+          "const": "guardrail_rule",
+          "description": "A governance rule, standard or SHACL shape pack and the task class it\ngoverns (EG-DECISION-ENGINE-R127.2.1). The component id is the rule\nid; `applies_to_class` and `source_generation` travel as attributes\nand are refused at publish when missing or malformed, so every stored\nrule decodes into a [`crate::decision::guardrail::GuardrailRule`].",
+          "type": "string"
         }
       ]
     },
@@ -4637,6 +4642,30 @@
         "asset_id",
         "asset_revision",
         "content_digest"
+      ],
+      "type": "object"
+    },
+    "CapabilityCoverageRequest": {
+      "additionalProperties": false,
+      "description": "One coverage question over the verified tenant's own library.",
+      "properties": {
+        "candidates": {
+          "$ref": "#/$defs/LibraryCandidateScope",
+          "description": "The Agent Library slice the covering components are drawn from.\nRegistered A2A agent cards are always read in addition, as claims."
+        },
+        "requirements": {
+          "$ref": "#/$defs/AssemblyRequirements",
+          "description": "The native task (and/or capability) IRIs whose closure is covered."
+        },
+        "tenant_id": {
+          "description": "Must equal the verified request tenant: the tenant binding is the\nvisibility boundary, exactly as for `AgentAssemble`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tenant_id",
+        "requirements",
+        "candidates"
       ],
       "type": "object"
     },
@@ -36149,6 +36178,33 @@
               "properties": {
                 "request": {
                   "$ref": "#/$defs/AssemblyRequest"
+                }
+              },
+              "required": [
+                "request"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Read-only capability coverage (EG-DECISION-ENGINE-R126.2.1): for each\ncapability in the closure of native task/capability IRIs, the visible\nAgent Library components that cover it (with derivation premises and\nevidence class) and the registered A2A agent cards that self-declare it\n(always claims). Reads one tenant-bound agent-library snapshot; ranks\nnothing, commits nothing.",
+          "properties": {
+            "method": {
+              "const": "CapabilityCoverage",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "request": {
+                  "$ref": "#/$defs/CapabilityCoverageRequest"
                 }
               },
               "required": [

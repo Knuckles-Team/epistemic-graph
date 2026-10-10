@@ -465,6 +465,11 @@
           "const": "nl_template",
           "description": "A natural-language template a decision surface renders with.",
           "type": "string"
+        },
+        {
+          "const": "guardrail_rule",
+          "description": "A governance rule, standard or SHACL shape pack and the task class it\ngoverns (EG-DECISION-ENGINE-R127.2.1). The component id is the rule\nid; `applies_to_class` and `source_generation` travel as attributes\nand are refused at publish when missing or malformed, so every stored\nrule decodes into a [`crate::decision::guardrail::GuardrailRule`].",
+          "type": "string"
         }
       ]
     },
