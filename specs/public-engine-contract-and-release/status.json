@@ -574,8 +574,8 @@
         "f2398cefb06c"
       ],
       "verified_by": [
-        "tests/test_pinned_reference_resolution.py:170",
-        "tests/test_pinned_reference_resolution.py:181",
+        "tests/test_pinned_reference_resolution.py:169",
+        "tests/test_pinned_reference_resolution.py:180",
         "tests/test_pinned_reference_resolution.py:99"
       ]
     },
@@ -708,9 +708,9 @@
         "6bfd47cbcebc"
       ],
       "verified_by": [
-        "tests/test_cypher_read_retry.py:34",
-        "tests/test_cypher_read_retry.py:41",
-        "tests/test_cypher_read_retry.py:49"
+        "tests/test_cypher_read_retry.py:35",
+        "tests/test_cypher_read_retry.py:42",
+        "tests/test_cypher_read_retry.py:50"
       ]
     },
     {
