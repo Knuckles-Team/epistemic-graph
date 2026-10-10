@@ -1332,8 +1332,10 @@
     {
       "id": "EG-DURABLE-KERNEL-R063.1",
       "title": "Schema-version fields exist and mismatches are refused, not lifted",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "ac32740601a8"
+      ],
       "verified_by": [
         "crates/eg-storage/src/direct_state/tests/contract.rs:82"
       ]

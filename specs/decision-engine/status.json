@@ -213,8 +213,10 @@
     {
       "id": "EG-DECISION-ENGINE-R001.1",
       "title": "`ResolutionKind` is typed with all five variants; the production chokepoint emits Optimization, Statistical, and Abstention",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "b23e8815f42c"
+      ],
       "verified_by": [
         "crates/eg-compute/src/assemble/tests/routing.rs:146"
       ]
@@ -364,7 +366,7 @@
     {
       "id": "EG-DECISION-ENGINE-R012",
       "title": "Shared slate crediting across multiple questions",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "2a0d6eae0918",
         "52f333ca756e",
@@ -380,8 +382,10 @@
     {
       "id": "EG-DECISION-ENGINE-R012.1",
       "title": "Slot-level crediting across questions sharing an assembly template",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "81e90c5f3bde"
+      ],
       "verified_by": [
         "src/server/handlers/decide/stat_tests/attribution_tests.rs:129"
       ]
@@ -718,8 +722,10 @@
     {
       "id": "EG-DECISION-ENGINE-R032.1",
       "title": "`QuestionKind::ResolveEntity` is declared",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "b23e8815f42c"
+      ],
       "verified_by": [
         "crates/eg-types/src/decision/statistical.rs:343"
       ]
@@ -749,8 +755,10 @@
     {
       "id": "EG-DECISION-ENGINE-R033.1",
       "title": "`QuestionKind::SchemaMapping` is declared",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "b23e8815f42c"
+      ],
       "verified_by": [
         "crates/eg-types/src/decision/statistical.rs:350"
       ]
@@ -816,7 +824,7 @@
     {
       "id": "EG-DECISION-ENGINE-R038",
       "title": "Advisory pre-tool risk scoring",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "1570bfef96aa",
         "4034a361535b",
@@ -832,8 +840,10 @@
     {
       "id": "EG-DECISION-ENGINE-R038.1",
       "title": "Typed ToolInvocation / pre-tool risk concept exists",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "81e90c5f3bde"
+      ],
       "verified_by": [
         "src/server/handlers/decide/stat_tests/pretool_risk_tests.rs:27"
       ]
@@ -856,8 +866,10 @@
     {
       "id": "EG-DECISION-ENGINE-R039.1",
       "title": "Routing abstains naming the fact when L5 accounting data is missing",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "a742d4439964"
+      ],
       "verified_by": [
         "src/server/handlers/decide/stat_tests/consumer_tests.rs:275"
       ]
@@ -885,7 +897,7 @@
     {
       "id": "EG-DECISION-ENGINE-R041",
       "title": "Connector event triage through Decide",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "d2386535ca97",
         "f420578b85d2",
@@ -901,8 +913,10 @@
     {
       "id": "EG-DECISION-ENGINE-R041.1",
       "title": "Connector-event evaluate-only triage path with sampled audit logging",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "a742d4439964"
+      ],
       "verified_by": [
         "src/server/handlers/decide/stat_tests/connector_triage_tests.rs:24"
       ]

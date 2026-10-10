@@ -2,7 +2,7 @@
   "schema_version": 2,
   "spec_id": "EG-FINANCE-PRIMITIVES",
   "owner_repo": "epistemic-graph",
-  "delivery_state": "SPECIFIED",
+  "delivery_state": "LANDED",
   "requirement_ids": [
     "EG-FINANCE-PRIMITIVES-R001",
     "EG-FINANCE-PRIMITIVES-R002",
@@ -172,7 +172,7 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R005",
       "title": "Deterministic fixed-point portfolio accounting",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
@@ -183,7 +183,7 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R005.1",
       "title": "FIFO/LIFO fixed-point lot-matching engine",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "72c7dfa478ba",
         "eee78d6b3d1d"
@@ -200,8 +200,10 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R005.1.1",
       "title": "FIFO/LIFO lot-matching tests are confirmed to run and pass against mixed buy/sell activity",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "ac32740601a8"
+      ],
       "verified_by": [
         "crates/eg-compute/src/finance/lot_accounting.rs:259",
         "crates/eg-compute/src/finance/lot_accounting.rs:280"
