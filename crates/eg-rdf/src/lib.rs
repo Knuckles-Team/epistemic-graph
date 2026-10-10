@@ -27,6 +27,16 @@ pub use oxrdf;
 #[cfg(feature = "rdf")]
 pub mod mapping;
 
+/// EG-FEDERATED-QUERY-R072.1 — the typed, read-only model of ontology-driven
+/// cross-source coverage: a [`source_selection::CoverageResult`] names, per
+/// queried class, the approved virtual mapping that serves it (directly or via an
+/// entailed `subClassOf` superclass), the class itself as uncovered, or a
+/// disconnected class outside the hop budget — with every selection's premises
+/// (label/relation/mapping facts plus source generation). No external deps, so it
+/// is not feature-gated. Plans no execution: see the module doc for the parallel
+/// R073 mapping-type lane this builds toward.
+pub mod source_selection;
+
 /// Pure connector-pack RDF preprocessing shared with admission.
 #[cfg(feature = "rdf")]
 pub mod pack;
