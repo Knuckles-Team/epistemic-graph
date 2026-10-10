@@ -171,7 +171,22 @@ async fn dispatch_data_plane_methods(
 /// order; each hands a method it does not own back as
 /// `ControlFlow::Continue`. A method no group claims falls through to the
 /// ordinary per-graph chain, which is exactly what the old `_` arm did.
-pub(super) async fn dispatch_request_method(
+///
+/// Returns a boxed `Send` future instead of being an `async fn`: the router
+/// tree contains handlers that re-enter `dispatch()`, so an opaque return type
+/// here makes the `Send` auto-trait check cyclic with
+/// `dispatch_admitted_request` (E0391), and an unboxed one deepens `dispatch()`'s
+/// layout past the query depth limit with every newly served RPC.
+pub(super) fn dispatch_request_method<'a>(
+    state: &'a Arc<RwLock<ServerState>>,
+    req: Request,
+    verified_context: &'a VerifiedRequestContext,
+    authority: DispatchAuthority,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = Response> + Send + 'a>> {
+    Box::pin(dispatch_request_method_inner(state, req, verified_context, authority))
+}
+
+async fn dispatch_request_method_inner(
     state: &Arc<RwLock<ServerState>>,
     req: Request,
     verified_context: &VerifiedRequestContext,
