@@ -596,6 +596,7 @@ mod tests {
     /// finish at the same time, so the writes are genuinely interleaved in time, not
     /// just sequential. Each thread's own dump must contain only its own events and,
     /// for the quiet cluster, must still contain the trigger event afterward.
+    // spec: EG-DURABLE-KERNEL-R067
     #[test]
     fn dump_for_one_thread_excludes_another_concurrently_writing_thread() {
         init();

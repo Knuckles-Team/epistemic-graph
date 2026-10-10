@@ -108,12 +108,17 @@
     {
       "id": "EG-DURABLE-KERNEL-R001",
       "title": "Outbox head-only attempt accounting and rewind",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "a676823d2b54",
         "b43f33569dd4"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-transaction/src/tests/outbox.rs:1577",
+        "crates/eg-transaction/src/tests/outbox.rs:1720",
+        "crates/eg-transaction/src/tests/outbox.rs:1892",
+        "crates/eg-transaction/src/tests/outbox.rs:2032"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R002",
@@ -1143,11 +1148,13 @@
     {
       "id": "EG-DURABLE-KERNEL-R067",
       "title": "Trace capture isolates each test's events from concurrent noise",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "57a12eb06632"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/raft/harness/trace_capture.rs:599"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R068",

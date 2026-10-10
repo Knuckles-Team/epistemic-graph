@@ -1574,6 +1574,7 @@ fn claim_all(
 /// position. After the fix, only the head is dead-lettered and the
 /// successors -- never having spent an attempt while blocked -- are claimed
 /// and ackable immediately.
+// spec: EG-DURABLE-KERNEL-R001
 #[test]
 fn a_failing_head_never_dead_letters_a_healthy_successor() {
     let dir = tempfile::tempdir().unwrap();
@@ -1716,6 +1717,7 @@ fn releasing_a_successor_row_never_consumes_its_own_retry_budget() {
 /// X10-T3: `reject` on the head enacts the dead-letter terminal state at
 /// once, is reported in the claim outcome that follows, and the successor is
 /// ackable right after -- surviving a reopen.
+// spec: EG-DURABLE-KERNEL-R001
 #[test]
 fn reject_dead_letters_the_head_at_once_and_the_stream_continues() {
     let dir = tempfile::tempdir().unwrap();
@@ -1887,6 +1889,7 @@ fn reject_in_is_discarded_by_the_callers_abort() {
 /// leaves the never-claimed successor untouched until the head resolves, so
 /// its later appearance in one pass proves it became claimable exactly when
 /// the head was dead-lettered, not before.
+// spec: EG-DURABLE-KERNEL-R001
 #[test]
 fn releasing_the_head_sixteen_times_dead_letters_it() {
     let dir = tempfile::tempdir().unwrap();
@@ -2026,6 +2029,7 @@ fn dead_letters_are_listed_across_bounded_pages() {
 /// X10-T7: rewinding to a mid-stream position re-delivers everything from
 /// there on, in order, and a pre-rewind lease on a row past the target is
 /// refused both during and after.
+// spec: EG-DURABLE-KERNEL-R001
 #[test]
 fn rewind_redelivers_in_order_from_a_mid_stream_target() {
     let dir = tempfile::tempdir().unwrap();
