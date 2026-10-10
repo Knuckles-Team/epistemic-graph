@@ -822,6 +822,7 @@ ex:parent a owl:AsymmetricProperty .
     /// the compose gate routes to. The EL/RL completion once derived
     /// `BFO:Entity ⊑ kg:Code` from this corpus (an unsound range rule) and collapsed the
     /// root class, and the corpus itself carried five genuinely unsatisfiable classes.
+    // spec: EG-FEDERATED-QUERY-R011
     #[test]
     fn shipped_core_corpus_is_coherent_under_the_el_rl_reasoner() {
         let composed = validate_and_compose(&GraphSchemaSources::default()).unwrap();

@@ -533,6 +533,7 @@ mod tests {
 
     /// EH-363: `owl:AllDisjointClasses` reaches the tableau (pairwise), and its axiom
     /// node is not an individual.
+    // spec: EG-FEDERATED-QUERY-R012
     #[test]
     fn all_disjoint_classes_constrain_individuals() {
         let parse = |body: &str| {
