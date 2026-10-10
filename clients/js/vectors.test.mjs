@@ -33,6 +33,7 @@ test("vectors cover every published method", () => {
   assert.deepEqual(missing, []);
 });
 
+// spec: EG-CONTRACT-R004
 test("signer matches the engine for every method-body vector", async (t) => {
   assert.ok(vectors.length > 0 && envelope.secret, "the vector file carries vectors and an envelope");
   const client = new EpistemicGraphThinClient({
