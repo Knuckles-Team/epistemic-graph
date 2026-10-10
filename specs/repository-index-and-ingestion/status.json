@@ -131,21 +131,21 @@
     {
       "id": "EG-REPO-INGEST-R003.8",
       "title": "EG is sole home for migrated self-ingestion observability",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-REPO-INGEST-R003.9",
       "title": "EG is sole home for migrated audit-logging observability",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-REPO-INGEST-R003.10",
       "title": "EG is sole home for migrated relational-authority governance",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "BUILDING",
       "landed_in": [],
       "verified_by": []
     },
