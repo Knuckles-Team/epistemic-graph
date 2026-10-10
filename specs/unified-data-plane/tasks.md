@@ -60,17 +60,23 @@
   - [ ] **EG-UNIFIED-DATA-PLANE-R016.2:** tiberius driver connection, T-SQL TOP/OFFSET-FETCH rendering, and LSN-polled CDC/Change Tracking capture.
 - [ ] **EG-UNIFIED-DATA-PLANE-R017 (rollup):** ClickHouse federation/acceleration adapter with explicit no-CDC capability; depends on EG-UNIFIED-DATA-PLANE-R002.
   - [x] **EG-UNIFIED-DATA-PLANE-R017.1:** `ClickHouseSourceCatalog` typed model with always-explicit capture capability (`crates/eg-types/src/clickhouse_attached_catalog.rs`).
-  - [ ] **EG-UNIFIED-DATA-PLANE-R017.2:** HTTP/native client connection and federated query pushdown.
+  - [ ] **EG-UNIFIED-DATA-PLANE-R017.2 (rollup):** HTTP/native client connection and federated query pushdown.
+    - [x] **EG-UNIFIED-DATA-PLANE-R017.2.1:** `ClickHouseDriverConfig` typed driver config plus connect/refusal path (`crates/eg-plan/src/clickhouse_connection.rs`).
+    - [ ] **EG-UNIFIED-DATA-PLANE-R017.2.2:** Live HTTP/native client federated query pushdown.
 - [x] **EG-UNIFIED-DATA-PLANE-R018:** Oracle and Db2 catalog/query through driver/ODBC and Debezium capture; depends on EG-UNIFIED-DATA-PLANE-R021.
 - [x] **EG-UNIFIED-DATA-PLANE-R015:** SQLite lock-safe file attach, WITHOUT ROWID and safe WAL/watermark capture; depends on EG-UNIFIED-DATA-PLANE-R002.
 - [ ] **EG-UNIFIED-DATA-PLANE-R016:** MSSQL catalog/T-SQL/CDC adapter; depends on EG-UNIFIED-DATA-PLANE-R002.
 - [ ] **EG-UNIFIED-DATA-PLANE-R017:** ClickHouse federation/acceleration adapter with explicit no-CDC capability; depends on EG-UNIFIED-DATA-PLANE-R002.
 - [x] **EG-UNIFIED-DATA-PLANE-R018 (rollup):** Oracle and Db2 catalog/query through driver/ODBC and Debezium capture; depends on EG-UNIFIED-DATA-PLANE-R021.
   - [x] **EG-UNIFIED-DATA-PLANE-R018.1:** `RelationalSourceCatalog` typed model plus identifier and Debezium-capture refusals (`crates/eg-types/src/relational_attached_catalog.rs`).
-  - [ ] **EG-UNIFIED-DATA-PLANE-R018.2:** Driver/ODBC connection, catalog read, and Debezium bridge wiring.
+  - [ ] **EG-UNIFIED-DATA-PLANE-R018.2 (rollup):** Driver/ODBC connection, catalog read, and Debezium bridge wiring.
+    - [ ] **EG-UNIFIED-DATA-PLANE-R018.2.1:** `RelationalDriverConfig` typed driver config plus connect/refusal path (`crates/eg-plan/src/relational_connection.rs`).
+    - [ ] **EG-UNIFIED-DATA-PLANE-R018.2.2:** Live driver/ODBC catalog read and Debezium bridge wiring.
 - [x] **EG-UNIFIED-DATA-PLANE-R019:** MongoDB/DocumentDB document catalog and change streams; depends on EG-UNIFIED-DATA-PLANE-R002.
 - [x] **EG-UNIFIED-DATA-PLANE-R019.1:** `DocumentSourceCatalog` typed inferred-shape model plus field-path refusal (`crates/eg-types/src/document_source_catalog.rs`).
-- [ ] **EG-UNIFIED-DATA-PLANE-R019.2:** Native MongoDB/DocumentDB driver connection and change-stream capture into `ChangeEnvelope`.
+- [ ] **EG-UNIFIED-DATA-PLANE-R019.2 (rollup):** Native MongoDB/DocumentDB driver connection and change-stream capture into `ChangeEnvelope`.
+  - [ ] **EG-UNIFIED-DATA-PLANE-R019.2.1:** `DocumentDriverConfig` typed driver config plus connect/refusal path (`crates/eg-plan/src/document_connection.rs`).
+  - [ ] **EG-UNIFIED-DATA-PLANE-R019.2.2:** Live native driver connection and change-stream capture into `ChangeEnvelope`.
 - [ ] **EG-UNIFIED-DATA-PLANE-R019.3:** Conformance entry comparing EG query results and captured change stream against native MongoDB/DocumentDB.
 - [x] **EG-UNIFIED-DATA-PLANE-R020:** Snowflake, BigQuery, DuckDB and Iceberg federation; depends on EG-UNIFIED-DATA-PLANE-R007.
 - [x] **EG-UNIFIED-DATA-PLANE-R020.1:** `WarehouseSourceKind`/`WarehouseSourceConfig` typed model plus required-field refusal (`crates/eg-types/src/warehouse_federation.rs`).
