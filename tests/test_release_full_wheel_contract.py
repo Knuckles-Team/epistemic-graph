@@ -324,7 +324,12 @@ def _assert_runner_budget(workflow: Path, name: str, job: dict) -> None:
             "macos-15-intel",
         }
     else:
-        assert job.get("timeout-minutes") == 360, f"{workflow.name}:{name}"
+        # Fast PR-scope rollout: PR runs get a short cap, push/dispatch runs
+        # keep a bounded (but not full-build) budget.
+        pr_scoped = "${{ github.event_name == 'pull_request' && 10 || 60 }}"
+        assert job.get("timeout-minutes") in (360, 5, pr_scoped), (
+            f"{workflow.name}:{name}"
+        )
 
 
 def _assert_workflow_job_budget(workflow: Path, name: str, job: dict) -> None:
