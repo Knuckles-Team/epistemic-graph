@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any, cast
 import asyncio
 from types import SimpleNamespace
+from typing import Any, cast
 
 import pytest
 
