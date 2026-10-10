@@ -353,6 +353,7 @@ fn provider_checkpoint_position_accepts_scalar_json() {
 // detection) is the first migrated root claimed through EG's own typed
 // interface rather than left to its retiring legacy module.
 
+// spec: EG-REPO-INGEST-R003.1
 #[test]
 fn r003_1_standardization_processing_round_trips_through_the_typed_root() {
     let root = MigratedIngestionCapabilityRoot::StandardizationProcessing;
@@ -388,6 +389,7 @@ fn r003_1_a_different_root_is_not_blocked_by_an_unrelated_claim() {
 // EG-REPO-INGEST-R003.2 — infrastructure processing is claimed through EG's
 // own typed interface rather than left to its retiring legacy module.
 
+// spec: EG-REPO-INGEST-R003.2
 #[test]
 fn r003_2_infrastructure_processing_round_trips_through_the_typed_root() {
     let root = MigratedIngestionCapabilityRoot::InfrastructureProcessing;
@@ -531,6 +533,7 @@ fn r003_5_a_different_root_is_not_blocked_by_an_unrelated_claim() {
 // EG-REPO-INGEST-R003.6 — ecosystem concept extraction is claimed through
 // EG's own typed interface rather than left to its retiring legacy module.
 
+// spec: EG-REPO-INGEST-R003.6
 #[test]
 fn r003_6_ecosystem_concept_extraction_round_trips_through_the_typed_root() {
     let root = MigratedIngestionCapabilityRoot::EcosystemConceptExtraction;
