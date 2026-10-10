@@ -137,6 +137,7 @@ mod community_tests {
     /// existing `separates_two_disconnected_cliques` fixture above): the
     /// excluded edge contributes zero weight, so the two triangles are
     /// disconnected in the weighted graph the kernel actually sees.
+    // spec: EG-DECISION-ENGINE-R081
     #[test]
     fn similar_to_edge_does_not_bridge_communities() {
         let g = GraphCore::new();
@@ -599,6 +600,7 @@ mod community_tests {
     /// disproportionately heavy single edge is free to reshape in ways
     /// beyond "everyone merges", e.g. isolating the bridge pair itself).
     // spec: EG-DECISION-ENGINE-R096
+    // spec: EG-DECISION-ENGINE-R081
     #[test]
     fn higher_confidence_edge_binds_communities_harder_than_lower_confidence() {
         let nodes: Vec<String> = ["a", "b", "c", "x", "y", "z"]
