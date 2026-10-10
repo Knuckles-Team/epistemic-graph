@@ -376,6 +376,7 @@ fn draft() -> BacktestRunDraft {
     }
 }
 
+// spec: EG-FINANCE-PRIMITIVES-R017
 #[test]
 fn a_backtest_run_seals_with_mandatory_outputs_and_verifies_by_replay() {
     let run = seal(&draft()).unwrap();
@@ -416,6 +417,7 @@ fn a_sealed_backtest_run_digest_is_pinned_across_hosts() {
     assert_eq!(run.digest, PINNED_RUN_DIGEST);
 }
 
+// spec: EG-FINANCE-PRIMITIVES-R017
 #[test]
 fn look_ahead_fills_and_missing_outputs_are_refused() {
     let mut early = draft();
