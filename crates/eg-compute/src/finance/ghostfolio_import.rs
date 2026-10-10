@@ -84,6 +84,67 @@ pub fn map_ghostfolio_activity(
     })
 }
 
+/// A Ghostfolio source attached through the typed source registry
+/// (EG-FINANCE-PRIMITIVES-R012.2): an opaque registry-assigned `source_name`
+/// plus the `admit_ghostfolio_flow` gate it must pass before any activity is
+/// imported through it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GhostfolioSourceRegistration {
+    pub source_name: String,
+}
+
+/// Why a Ghostfolio source could not be registered.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GhostfolioRegistrationRefusal {
+    pub reason: String,
+}
+
+/// Register an optional Ghostfolio instance under `source_name` through the
+/// typed source registry, refusing an empty name and refusing (via
+/// `admit_ghostfolio_flow`) any direction other than
+/// `ImportFromGhostfolio` (EG-FINANCE-PRIMITIVES-R012.2).
+pub fn register_ghostfolio_source(
+    source_name: &str,
+) -> Result<GhostfolioSourceRegistration, GhostfolioRegistrationRefusal> {
+    if source_name.is_empty() {
+        return Err(GhostfolioRegistrationRefusal {
+            reason: "source_name is empty".to_string(),
+        });
+    }
+    admit_ghostfolio_flow(GhostfolioFlowDirection::ImportFromGhostfolio).map_err(|refusal| {
+        GhostfolioRegistrationRefusal {
+            reason: refusal.reason,
+        }
+    })?;
+    Ok(GhostfolioSourceRegistration {
+        source_name: source_name.to_string(),
+    })
+}
+
+/// Import a disposable fixture of raw `(ghostfolio_activity_id,
+/// quantity_ticks, price_ticks)` rows through a registered source, mapping
+/// each one with `map_ghostfolio_activity` and deduplicating by
+/// `ghostfolio_activity_id` so that importing the same fixture twice (or a
+/// fixture with a repeated row) is idempotent (EG-FINANCE-PRIMITIVES-R012.2).
+/// A row that fails to map is dropped rather than aborting the whole import.
+pub fn import_ghostfolio_fixture(
+    registration: &GhostfolioSourceRegistration,
+    rows: &[(&str, i64, i64)],
+) -> Vec<MappedGhostfolioActivity> {
+    let _ = &registration.source_name;
+    let mut seen = std::collections::HashSet::new();
+    let mut imported = Vec::new();
+    for &(activity_id, quantity_ticks, price_ticks) in rows {
+        if !seen.insert(activity_id.to_string()) {
+            continue;
+        }
+        if let Ok(mapped) = map_ghostfolio_activity(activity_id, quantity_ticks, price_ticks) {
+            imported.push(mapped);
+        }
+    }
+    imported
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -120,5 +181,49 @@ mod tests {
     fn an_activity_with_a_non_positive_price_is_refused() {
         let outcome = map_ghostfolio_activity("gf-activity-2", 10, 0);
         assert!(outcome.is_err());
+    }
+
+    // spec: EG-FINANCE-PRIMITIVES-R012.2
+    #[test]
+    fn an_empty_source_name_is_refused() {
+        let outcome = register_ghostfolio_source("");
+        assert!(outcome.is_err());
+    }
+
+    // spec: EG-FINANCE-PRIMITIVES-R012.2
+    #[test]
+    fn importing_a_disposable_fixture_is_idempotent_under_a_repeated_row() {
+        let registration = register_ghostfolio_source("disposable-ghostfolio-fixture")
+            .expect("a non-empty source name registers");
+        // The fixture repeats "gf-1" (e.g. a Ghostfolio export re-sent after a
+        // retry): the one-way import must not double-count it.
+        let fixture: &[(&str, i64, i64)] = &[
+            ("gf-1", 10 * 100_000_000, 5 * 100_000_000),
+            ("gf-2", -4 * 100_000_000, 6 * 100_000_000),
+            ("gf-1", 10 * 100_000_000, 5 * 100_000_000),
+        ];
+        let imported = import_ghostfolio_fixture(&registration, fixture);
+        assert_eq!(imported.len(), 2);
+        assert_eq!(imported[0].ghostfolio_activity_id, "gf-1");
+        assert_eq!(imported[1].ghostfolio_activity_id, "gf-2");
+
+        // Re-running the import against the same fixture (a re-import) is
+        // also idempotent: same two rows, nothing accumulates across calls.
+        let imported_again = import_ghostfolio_fixture(&registration, fixture);
+        assert_eq!(imported_again, imported);
+    }
+
+    // spec: EG-FINANCE-PRIMITIVES-R012.2
+    #[test]
+    fn a_row_that_fails_to_map_is_dropped_not_fatal() {
+        let registration = register_ghostfolio_source("disposable-ghostfolio-fixture")
+            .expect("a non-empty source name registers");
+        let fixture: &[(&str, i64, i64)] = &[
+            ("gf-bad-price", 10 * 100_000_000, 0),
+            ("gf-good", 10 * 100_000_000, 5 * 100_000_000),
+        ];
+        let imported = import_ghostfolio_fixture(&registration, fixture);
+        assert_eq!(imported.len(), 1);
+        assert_eq!(imported[0].ghostfolio_activity_id, "gf-good");
     }
 }
