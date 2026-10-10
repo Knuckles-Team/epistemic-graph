@@ -430,7 +430,7 @@
         "9079ca7b0ddd"
       ],
       "verified_by": [
-        "crates/eg-types/src/agent_component.rs:2066"
+        "crates/eg-types/src/agent_component.rs:2097"
       ]
     },
     {
@@ -923,7 +923,7 @@
         "fa780d3e101a"
       ],
       "verified_by": [
-        "crates/eg-types/src/agent_component.rs:1758"
+        "crates/eg-types/src/agent_component.rs:1789"
       ]
     },
     {
@@ -1093,7 +1093,7 @@
       ],
       "verified_by": [
         "crates/eg-numeric/tests/decision/scorer_promotion.rs:179",
-        "crates/eg-types/src/agent_component.rs:2095"
+        "crates/eg-types/src/agent_component.rs:2126"
       ]
     },
     {
@@ -1327,7 +1327,7 @@
         "a1bb9fb9503e"
       ],
       "verified_by": [
-        "crates/eg-types/src/agent_component.rs:2123"
+        "crates/eg-types/src/agent_component.rs:2154"
       ]
     },
     {
