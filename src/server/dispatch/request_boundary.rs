@@ -516,7 +516,19 @@ async fn dispatch_admitted_request(
     let operation = async {
         let req_id = req.id;
         let method_for_finalize = req.method.clone();
-        let response = dispatch_request_method(state, req, verified_context, authority).await;
+        // Box the per-method dispatch call itself (not just each leaf handler
+        // arm inside it). Without this, `dispatch_request_method`'s full
+        // generated state machine -- the whole router tree of group
+        // dispatchers and every `Method` arm beneath them -- is embedded as a
+        // concrete nested type in this `operation` future, which in turn
+        // nests into `dispatch_admitted_request`, `dispatch_inner`,
+        // `dispatch_with_context`, and finally the central `dispatch()`
+        // entry point. Every newly served RPC then deepens that one chain
+        // further until rustc's layout-query recursion limit overflows. A
+        // single `Pin<Box<dyn Future + Send>>` here caps the cost at this one
+        // boundary regardless of how many methods the router grows to.
+        let response =
+            dispatch_boxed(dispatch_request_method(state, req, verified_context, authority)).await;
         finalize_dispatch_response(req_id, response, &method_for_finalize, session_control)
     };
     #[cfg(feature = "redb")]
