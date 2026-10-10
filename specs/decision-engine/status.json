@@ -616,7 +616,7 @@
     {
       "id": "EG-DECISION-ENGINE-R026",
       "title": "Inverse-probability-weighted audit sampling of acted decisions",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "2a0d6eae0918",
         "52f333ca756e",
@@ -632,8 +632,10 @@
     {
       "id": "EG-DECISION-ENGINE-R026.1",
       "title": "Calibration-weighting half of audit sampling is tested in-crate",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "81ea985399b0"
+      ],
       "verified_by": [
         "crates/eg-numeric/src/decision/targets.rs:82"
       ]
@@ -2323,8 +2325,10 @@
     {
       "id": "EG-DECISION-ENGINE-R118.1.1",
       "title": "A sparse pool abstains in the reputation materialization",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "ac824430b1d8"
+      ],
       "verified_by": [
         "crates/eg-numeric/src/risk/reputation.rs:316"
       ]
@@ -2423,7 +2427,7 @@
     {
       "id": "EG-DECISION-ENGINE-R126",
       "title": "Capability coverage answers which components can serve a task",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "534f763afc81",
         "e5edf018cbba"
@@ -2449,7 +2453,7 @@
     {
       "id": "EG-DECISION-ENGINE-R126.2",
       "title": "The capability-coverage query is served beside `AgentAssemble`",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "253a69935dfd",
         "30405ee73d13"
@@ -2478,9 +2482,14 @@
     {
       "id": "EG-DECISION-ENGINE-R126.2.2",
       "title": "The capability-coverage query gets a generated client method",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4b6e3e19af6b"
+      ],
+      "verified_by": [
+        "tests/test_capability_coverage_client.py:28",
+        "tests/test_capability_coverage_client.py:37"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R127",
