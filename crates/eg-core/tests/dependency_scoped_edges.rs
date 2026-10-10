@@ -129,6 +129,7 @@ fn graph_with_cached_knows_and_likes() -> GraphCore {
     core
 }
 
+// spec: EG-FEDERATED-QUERY-R017
 #[test]
 fn typed_traversal_survives_an_edge_of_another_type() {
     let core = graph_with_one_knows_edge();
@@ -143,6 +144,7 @@ fn typed_traversal_survives_an_edge_of_another_type() {
     );
 }
 
+// spec: EG-FEDERATED-QUERY-R017
 #[test]
 fn typed_traversal_is_retired_by_an_edge_of_its_type() {
     let core = graph_with_one_knows_edge();
@@ -216,6 +218,7 @@ fn a_property_update_retires_the_nodes_label() {
     );
 }
 
+// spec: EG-FEDERATED-QUERY-R017
 #[test]
 fn a_vector_ranked_entry_follows_the_embedding_generation() {
     let core = graph_with_one_knows_edge();

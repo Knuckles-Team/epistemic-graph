@@ -49,6 +49,7 @@ fn explained_statement(sql: &str) -> Option<String> {
 mod tests {
     use super::*;
 
+    // spec: EG-FEDERATED-QUERY-R015
     #[test]
     fn only_a_single_read_statement_passes() {
         for refused in [
@@ -80,6 +81,7 @@ mod tests {
 
     /// The dangerous case at the path itself: a `CREATE EXTERNAL TABLE` pointing at a
     /// server file is refused before any DataFusion context exists.
+    // spec: EG-FEDERATED-QUERY-R015
     #[test]
     fn the_graph_free_path_refuses_an_external_table_file_read() {
         let err = crate::exec_sql_over_tables(

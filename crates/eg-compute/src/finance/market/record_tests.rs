@@ -47,6 +47,7 @@ fn revised() -> (Vec<BarRecord>, i64) {
     (all, known)
 }
 
+// spec: EG-FEDERATED-QUERY-R019
 #[test]
 fn a_revision_appends_revision_records_and_never_rewrites() {
     let (records, revised_at) = revised();
@@ -150,6 +151,7 @@ fn state_for(listing: &str, bars: &[BarRecord]) -> SignalState {
     replay(&replay_request).unwrap().state
 }
 
+// spec: EG-FEDERATED-QUERY-R019
 #[test]
 fn the_scanner_keeps_one_latest_state_per_key_and_counts_against_it() {
     let bars = daily();
