@@ -981,7 +981,7 @@
         "b43f33569dd4"
       ],
       "verified_by": [
-        "src/server/blob/store/tests.rs:649"
+        "src/server/blob/store/tests.rs:674"
       ]
     },
     {
@@ -1071,7 +1071,7 @@
         "b43f33569dd4"
       ],
       "verified_by": [
-        "src/server/blob/store/tests.rs:394"
+        "src/server/blob/store/tests.rs:419"
       ]
     },
     {

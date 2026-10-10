@@ -341,6 +341,31 @@ fn bounded_memory_large_blob_group_commit() {
     );
 }
 
+// spec: EG-TYPED-PACKS-R008
+#[test]
+fn a_referenced_then_released_blob_survives_grace_and_increfs_stay_idempotent_on_count() {
+    // A blob held, then released: still inside the grace window it is kept;
+    // only a sweep past the window reclaims it. Interleaved increfs/decrefs
+    // must never over- or under-count the holder refcount along the way.
+    let store = RedbChunkStore::open_temp().unwrap();
+    let data: Vec<u8> = vec![0x3C; 4096];
+    let blob = chunked(&store, &data, 4096);
+    assert_eq!(store.incref(&blob.digest).unwrap(), 1);
+    assert_eq!(store.incref(&blob.digest).unwrap(), 2);
+    assert_eq!(store.refcount(&blob.digest).unwrap(), 2);
+    assert_eq!(store.decref(&blob.digest).unwrap(), 1);
+    assert_eq!(store.decref(&blob.digest).unwrap(), 0);
+    assert_eq!(store.refcount(&blob.digest).unwrap(), 0);
+    // Zero holders, but still inside the default grace window: a sweep now
+    // keeps it.
+    assert_eq!(store.sweep().unwrap(), SweepStats::default());
+    assert!(store.get_manifest(&blob.digest).unwrap().is_some());
+    // Only a sweep run past the grace window reclaims it.
+    let stats = sweep_after_grace(&store, "sweep-after-grace-r008");
+    assert_eq!((stats.blobs_reclaimed, stats.chunks_reclaimed), (1, 1));
+    assert!(store.get_manifest(&blob.digest).unwrap().is_none());
+}
+
 // spec: EG-DECISION-ENGINE-R097
 #[test]
 fn an_unreferenced_committed_blob_survives_until_its_grace_has_passed() {

@@ -175,3 +175,250 @@ async fn the_reconciler_releases_an_orphan_body_and_keeps_every_held_one() {
         "a held body still reads back after the sweep"
     );
 }
+
+// spec: EG-TYPED-PACKS-R002
+#[tokio::test]
+async fn holder_refcounts_transition_across_unchanged_revised_and_withdrawn_entries() {
+    let served = Served::new();
+    bind(&served, CONNECTOR, ADMIN).await;
+    let a = tool(CONNECTOR, "a", "Tool a.");
+    let b = tool(CONNECTOR, "b", "Tool b.");
+    let c = tool(CONNECTOR, "c", "Tool c.");
+    let first = imported(&served, &build_pack(CONNECTOR, &[a.clone(), b.clone(), c.clone()]), None).await;
+    // Next release: `a` unchanged, `b` revised (new body, new holder), `c`
+    // withdrawn (dropped from the pack, its holder becomes an orphan).
+    let b_revised = tool(CONNECTOR, "b", "Tool b, revised.");
+    let second = imported(
+        &served,
+        &build_pack(CONNECTOR, &[a.clone(), b_revised.clone()]),
+        Some(head_of(&first)),
+    )
+    .await;
+    assert!(
+        second.counts.unchanged >= 1 && second.counts.revised >= 1 && second.counts.withdrawn >= 1,
+        "unchanged/revised/withdrawn dispositions all land in one commit: {:?}",
+        second.counts
+    );
+    // `b`'s revised body and `c`'s withdrawn body are now orphans; `a` and the
+    // revised `b` stay held.
+    let key = "reconcile:pack-admin-transitions";
+    let report: PackBodyReconcileReport = ok(
+        "ReconcileBodies",
+        served
+            .pack(
+                key,
+                ConnectorPackOp::ReconcileBodies {
+                    request: ConnectorPackReconcileRequest {
+                        context: context(key),
+                    },
+                },
+            )
+            .await,
+    );
+    assert_eq!(
+        report.orphaned, 2,
+        "the old `b` body and the withdrawn `c` body are reclaimed: {report:?}"
+    );
+    let content: eg_types::agent_component::AgentComponentContentResult = ok(
+        "Content",
+        served
+            .call(
+                "content:pack-admin-transitions:b",
+                crate::protocol::Method::AgentComponent {
+                    op: eg_types::agent_component::AgentComponentOp::Content {
+                        request: eg_types::agent_component::AgentComponentContentRequest {
+                            tenant_id: TENANT.to_string(),
+                            component_id: "mcp:pack-admin/tool/b".to_string(),
+                            entry_revision: None,
+                        },
+                    },
+                },
+            )
+            .await,
+    );
+    assert_eq!(
+        content.body, b_revised.body,
+        "the revised body, not the orphaned one, still reads back held"
+    );
+}
+
+// spec: EG-TYPED-PACKS-R007
+#[tokio::test]
+async fn bind_unbind_and_retire_require_admin_connector_pack_and_the_head_survives_a_retired_reimport(
+) {
+    let served = Served::new();
+    let connector = "pack-admin-scoped";
+    let key = format!("bind:{connector}:scoped");
+    let unscoped = served
+        .call_as(
+            "no-admin-scope-caller",
+            &["connector:catalog-attest"],
+            &key,
+            crate::protocol::Method::ConnectorPack {
+                op: Box::new(ConnectorPackOp::Bind {
+                    request: eg_types::connector_pack::ConnectorPackBindRequest {
+                        context: context(&key),
+                        connector: ResourceId::new(connector).unwrap(),
+                        importer: persistence_id(ADMIN),
+                    },
+                }),
+            },
+        )
+        .await;
+    assert!(
+        unscoped.error.is_some(),
+        "Bind must be refused without admin:connector-pack"
+    );
+    bind(&served, connector, ADMIN).await;
+    let tools: Vec<_> = ["a", "b"]
+        .into_iter()
+        .map(|name| tool(connector, name, "A tool."))
+        .collect();
+    let first = imported(&served, &build_pack(connector, &tools), None).await;
+    let before = served
+        .state
+        .write()
+        .await
+        .ensure_agent_library()
+        .unwrap()
+        .connector_pack_status(TENANT, &ResourceId::new(connector).unwrap())
+        .unwrap();
+    let retire_key = format!("retire:{connector}:b");
+    let retired: PackRetireResult = ok(
+        "Retire",
+        served
+            .pack(
+                &retire_key,
+                ConnectorPackOp::Retire {
+                    request: ConnectorPackRetireRequest {
+                        context: context(&retire_key),
+                        connector: ResourceId::new(connector).unwrap(),
+                        uris: BoundedVec::new(vec![tools[1].uri.clone()]).unwrap(),
+                    },
+                },
+            )
+            .await,
+    );
+    assert_eq!(retired.retired.len(), 1);
+    let mut returning = tools.clone();
+    returning.push(tool(connector, "d", "A new tool."));
+    let error = refused(
+        "reimporting a retired entry",
+        import(
+            &served,
+            &build_pack(connector, &returning),
+            Some(head_of(&first)),
+        )
+        .await,
+    );
+    assert_eq!(error, "RETIRED_ENTRY_RETURNED");
+    let after = served
+        .state
+        .write()
+        .await
+        .ensure_agent_library()
+        .unwrap()
+        .connector_pack_status(TENANT, &ResourceId::new(connector).unwrap())
+        .unwrap();
+    assert_eq!(
+        before, after,
+        "the rejected reimport must not mutate the head"
+    );
+}
+
+// spec: EG-TYPED-PACKS-R003
+#[tokio::test]
+async fn a_rejected_import_mutates_nothing_in_the_catalog() {
+    let served = Served::new();
+    let connector = "pack-admin-zero-mutation";
+    bind(&served, connector, ADMIN).await;
+    let first = imported(
+        &served,
+        &build_pack(connector, &[tool(connector, "a", "Tool a.")]),
+        None,
+    )
+    .await;
+    let before = served
+        .state
+        .write()
+        .await
+        .ensure_agent_library()
+        .unwrap()
+        .connector_pack_status(TENANT, &ResourceId::new(connector).unwrap())
+        .unwrap();
+    // A second release whose entry list is out of its required sort order
+    // (validate_header requires ascending, unique URIs) -- malformed, so a
+    // rejection that must leave the catalog untouched.
+    let (mut index, archive) = build_pack(
+        connector,
+        &[
+            tool(connector, "b", "Tool b."),
+            tool(connector, "z", "Tool z."),
+        ],
+    );
+    let mut entries: Vec<_> = index.entries.iter().cloned().collect();
+    entries.reverse();
+    index.entries = BoundedVec::new(entries).unwrap();
+    index.archive.blob_digest = served.upload(&archive).await;
+    let key = "import:pack-admin-zero-mutation:unsorted";
+    let rejected = served
+        .pack(
+            key,
+            ConnectorPackOp::Import {
+                request: Box::new(eg_types::connector_pack::ConnectorPackImportRequest {
+                    context: context(key),
+                    index,
+                    expected_head: Some(head_of(&first)),
+                    allow_mass_withdrawal: false,
+                }),
+            },
+        )
+        .await;
+    assert_eq!(
+        rejected_codes(ok("Import", rejected)),
+        [PackViolationCode::MalformedIndex]
+    );
+    let after = served
+        .state
+        .write()
+        .await
+        .ensure_agent_library()
+        .unwrap()
+        .connector_pack_status(TENANT, &ResourceId::new(connector).unwrap())
+        .unwrap();
+    assert_eq!(
+        before, after,
+        "a rejected import must commit zero catalog mutation"
+    );
+}
+
+// spec: EG-TYPED-PACKS-R005
+#[tokio::test]
+async fn an_end_to_end_connector_fixture_imports_through_to_a_served_read() {
+    let served = Served::new();
+    let connector = "pack-admin-e2e";
+    bind(&served, connector, ADMIN).await;
+    let fixture = tool(connector, "fixture", "An end-to-end fixture tool.");
+    imported(&served, &build_pack(connector, &[fixture.clone()]), None).await;
+    let content: eg_types::agent_component::AgentComponentContentResult = ok(
+        "Content",
+        served
+            .call(
+                "content:pack-admin-e2e:fixture",
+                crate::protocol::Method::AgentComponent {
+                    op: eg_types::agent_component::AgentComponentOp::Content {
+                        request: eg_types::agent_component::AgentComponentContentRequest {
+                            tenant_id: TENANT.to_string(),
+                            component_id: "mcp:pack-admin-e2e/tool/fixture".to_string(),
+                            entry_revision: None,
+                        },
+                    },
+                },
+            )
+            .await,
+    );
+    assert_eq!(
+        content.body, fixture.body,
+        "the fixture's served read matches exactly what Import landed"
+    );
+}
