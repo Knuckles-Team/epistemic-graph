@@ -170,6 +170,12 @@ pub enum AgentComponentKind {
     Rubric,
     /// A natural-language template a decision surface renders with.
     NlTemplate,
+    /// A governance rule, standard or SHACL shape pack and the task class it
+    /// governs (EG-DECISION-ENGINE-R127.2.1). The component id is the rule
+    /// id; `applies_to_class` and `source_generation` travel as attributes
+    /// and are refused at publish when missing or malformed, so every stored
+    /// rule decodes into a [`crate::decision::guardrail::GuardrailRule`].
+    GuardrailRule,
 }
 
 impl AgentComponentKind {
@@ -195,6 +201,7 @@ impl AgentComponentKind {
             Self::FeatureSchema => "feature_schema",
             Self::Rubric => "rubric",
             Self::NlTemplate => "nl_template",
+            Self::GuardrailRule => "guardrail_rule",
         }
     }
 
@@ -224,7 +231,8 @@ impl AgentComponentKind {
             | Self::Predicate
             | Self::Shapes
             | Self::A2aAgentCard
-            | Self::DecisionRecord => "agent:component-write",
+            | Self::DecisionRecord
+            | Self::GuardrailRule => "agent:component-write",
         }
     }
 }
