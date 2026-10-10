@@ -598,6 +598,7 @@ fn r003_7_a_different_root_is_not_blocked_by_an_unrelated_claim() {
 // EG-REPO-INGEST-R003.8 — self-ingestion observability is claimed through
 // EG's own typed interface rather than left to its retiring legacy module.
 
+// spec: EG-REPO-INGEST-R003.8
 #[test]
 fn r003_8_self_ingestion_observability_round_trips_through_the_typed_root() {
     let root = MigratedIngestionCapabilityRoot::SelfIngestionObservability;
@@ -607,12 +608,14 @@ fn r003_8_self_ingestion_observability_round_trips_through_the_typed_root() {
     assert_eq!(back, root);
 }
 
+// spec: EG-REPO-INGEST-R003.8
 #[test]
 fn r003_8_a_fresh_claim_on_self_ingestion_observability_succeeds() {
     let root = MigratedIngestionCapabilityRoot::SelfIngestionObservability;
     assert!(root.claim(&[]).is_ok());
 }
 
+// spec: EG-REPO-INGEST-R003.8
 #[test]
 fn r003_8_a_duplicate_claim_on_self_ingestion_observability_is_refused() {
     let root = MigratedIngestionCapabilityRoot::SelfIngestionObservability;
@@ -623,6 +626,7 @@ fn r003_8_a_duplicate_claim_on_self_ingestion_observability_is_refused() {
     assert!(err.contains("already claimed"));
 }
 
+// spec: EG-REPO-INGEST-R003.8
 #[test]
 fn r003_8_a_different_root_is_not_blocked_by_an_unrelated_claim() {
     let self_ingestion = MigratedIngestionCapabilityRoot::SelfIngestionObservability;
@@ -633,6 +637,7 @@ fn r003_8_a_different_root_is_not_blocked_by_an_unrelated_claim() {
 // EG-REPO-INGEST-R003.9 — audit-logging observability is claimed through
 // EG's own typed interface rather than left to its retiring legacy module.
 
+// spec: EG-REPO-INGEST-R003.9
 #[test]
 fn r003_9_audit_logging_observability_round_trips_through_the_typed_root() {
     let root = MigratedIngestionCapabilityRoot::AuditLoggingObservability;
@@ -642,12 +647,14 @@ fn r003_9_audit_logging_observability_round_trips_through_the_typed_root() {
     assert_eq!(back, root);
 }
 
+// spec: EG-REPO-INGEST-R003.9
 #[test]
 fn r003_9_a_fresh_claim_on_audit_logging_observability_succeeds() {
     let root = MigratedIngestionCapabilityRoot::AuditLoggingObservability;
     assert!(root.claim(&[]).is_ok());
 }
 
+// spec: EG-REPO-INGEST-R003.9
 #[test]
 fn r003_9_a_duplicate_claim_on_audit_logging_observability_is_refused() {
     let root = MigratedIngestionCapabilityRoot::AuditLoggingObservability;
@@ -658,6 +665,7 @@ fn r003_9_a_duplicate_claim_on_audit_logging_observability_is_refused() {
     assert!(err.contains("already claimed"));
 }
 
+// spec: EG-REPO-INGEST-R003.9
 #[test]
 fn r003_9_a_different_root_is_not_blocked_by_an_unrelated_claim() {
     let audit_logging = MigratedIngestionCapabilityRoot::AuditLoggingObservability;
@@ -669,6 +677,7 @@ fn r003_9_a_different_root_is_not_blocked_by_an_unrelated_claim() {
 // through EG's own typed interface rather than left to its retiring legacy
 // module.
 
+// spec: EG-REPO-INGEST-R003.10
 #[test]
 fn r003_10_relational_authority_governance_round_trips_through_the_typed_root() {
     let root = MigratedIngestionCapabilityRoot::RelationalAuthorityGovernance;
@@ -678,12 +687,14 @@ fn r003_10_relational_authority_governance_round_trips_through_the_typed_root() 
     assert_eq!(back, root);
 }
 
+// spec: EG-REPO-INGEST-R003.10
 #[test]
 fn r003_10_a_fresh_claim_on_relational_authority_governance_succeeds() {
     let root = MigratedIngestionCapabilityRoot::RelationalAuthorityGovernance;
     assert!(root.claim(&[]).is_ok());
 }
 
+// spec: EG-REPO-INGEST-R003.10
 #[test]
 fn r003_10_a_duplicate_claim_on_relational_authority_governance_is_refused() {
     let root = MigratedIngestionCapabilityRoot::RelationalAuthorityGovernance;
@@ -694,6 +705,7 @@ fn r003_10_a_duplicate_claim_on_relational_authority_governance_is_refused() {
     assert!(err.contains("already claimed"));
 }
 
+// spec: EG-REPO-INGEST-R003.10
 #[test]
 fn r003_10_a_different_root_is_not_blocked_by_an_unrelated_claim() {
     let relational_authority = MigratedIngestionCapabilityRoot::RelationalAuthorityGovernance;
