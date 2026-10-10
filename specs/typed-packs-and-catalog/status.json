@@ -752,7 +752,8 @@
       "title": "One shared derivation-step budget bounds EL+/RL reasoning",
       "delivery_state": "LANDED",
       "landed_in": [
-        "0d5be273ab86"
+        "0d5be273ab86",
+        "80c865971ea8"
       ],
       "verified_by": []
     },
