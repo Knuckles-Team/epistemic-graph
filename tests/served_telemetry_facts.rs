@@ -229,6 +229,7 @@ async fn edge_count(state: &test_support::SharedState, relationship: &str) -> us
         .count()
 }
 
+// spec: EG-DECISION-ENGINE-R125
 #[tokio::test]
 async fn served_derivation_writes_bound_facts_with_provenance() {
     let (state, _obs) = served_state().await;
