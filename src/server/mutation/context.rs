@@ -546,6 +546,7 @@ mod response_dedup_scope_tests {
         response_dedup_key(&ctx, &method)
     }
 
+    // spec: EG-DURABLE-KERNEL-R018
     #[test]
     fn dedup_key_separates_tenants_and_actors_but_keeps_retries() {
         let original = dedup_key_for("tenant-a", "agent", 1);

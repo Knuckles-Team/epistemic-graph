@@ -118,4 +118,46 @@ mod tests {
             "own module"
         );
     }
+
+    /// Same agent id, two different VERIFIED tenants: tenant A's UDF must not be
+    /// runnable or shadowable by tenant B, even though `owner_scope` is keyed only
+    /// by `(tenant_scope, actor_scope)` — EH-374's tenant boundary, not just the
+    /// per-principal one already covered above.
+    // spec: EG-DURABLE-KERNEL-R018
+    #[test]
+    fn udf_ids_are_tenant_scoped_for_run_and_shadowing() {
+        use super::super::auth::VerifiedRequestContext;
+        let carrier_in = |tenant: &str| {
+            CarrierAuthority::from_verified(&VerifiedRequestContext::verified_for_test_in_tenant(
+                "agent-a", tenant,
+            ))
+            .expect("verified carrier")
+        };
+        let (tenant_x, tenant_y) = (carrier_in("tenant-x"), carrier_in("tenant-y"));
+        assert_ne!(
+            tenant_x.tenant_scope(),
+            tenant_y.tenant_scope(),
+            "fixture must actually vary tenant"
+        );
+        let catalog = UdfCatalog::default();
+        catalog
+            .register(&tenant_x, "f", &constant_udf(0xaa), UdfLimits::default())
+            .unwrap();
+
+        let err = catalog.run(&tenant_y, "f", b"x").unwrap_err().to_string();
+        assert_eq!(
+            err, "udf ABI error: no UDF registered under id 'f'",
+            "tenant B must not invoke tenant A's UDF"
+        );
+
+        catalog
+            .register(&tenant_y, "f", &constant_udf(0xbb), UdfLimits::default())
+            .unwrap();
+        assert_eq!(
+            catalog.run(&tenant_x, "f", b"x").unwrap(),
+            vec![0xaa],
+            "tenant B's registration under the same id must not shadow tenant A's"
+        );
+        assert_eq!(catalog.run(&tenant_y, "f", b"x").unwrap(), vec![0xbb]);
+    }
 }
