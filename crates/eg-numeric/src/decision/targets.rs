@@ -51,3 +51,40 @@ pub(crate) fn targets(item: &LabelledItem) -> Option<(Vec<f64>, f64)> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use eg_types::contract::BoundedVec;
+    use eg_types::decision::statistical::dataset::LabelSource;
+    use eg_types::decision::UnitRationalWire;
+
+    fn rational(n: u64, d: u64) -> UnitRationalWire {
+        UnitRationalWire::new(n, d).expect("test rational")
+    }
+
+    fn item(audit_inclusion: Option<UnitRationalWire>) -> LabelledItem {
+        LabelledItem {
+            item_id: "gold-1".to_string(),
+            recorded_at_ms: 1_000,
+            class_key: "eg:task/research".to_string(),
+            candidate_ids: BoundedVec::new(vec!["option-a".to_string(), "option-b".to_string()])
+                .expect("inside bound"),
+            features: BoundedVec::new(vec![0, 0]).expect("inside bound"),
+            label: ItemLabel::Gold {
+                acceptable: BoundedVec::new(vec!["option-a".to_string()]).expect("inside bound"),
+                source: LabelSource::SyntheticConstruction,
+            },
+            audit_inclusion,
+        }
+    }
+
+    // spec: EG-DECISION-ENGINE-R026.1
+    #[test]
+    fn calibration_applies_the_pub_crate_inverse_probability_audit_weight() {
+        assert_eq!(audit_weight(&item(None)), 1.0);
+        assert_eq!(audit_weight(&item(Some(rational(1, 20)))), 20.0);
+        assert_eq!(audit_weight(&item(Some(rational(1, 1)))), 1.0);
+        assert_eq!(audit_weight(&item(Some(rational(0, 5)))), 1.0);
+    }
+}
