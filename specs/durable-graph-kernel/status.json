@@ -269,6 +269,7 @@
       "title": "Raft native command sealing and placement routing are correct",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "6067fad789bb",
         "a676823d2b54",
         "b43f33569dd4"
       ],
