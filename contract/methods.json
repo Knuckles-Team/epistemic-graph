@@ -1,7 +1,7 @@
 {
   "contract_version": 1,
   "generator": "eg-capabilities/gen_contract",
-  "method_count": 464,
+  "method_count": 465,
   "methods": [
     {
       "consumer_profiles": [
@@ -26837,6 +26837,64 @@
         },
         "kind": "declared",
         "schema": "contract/schemas/result.storage.json#/methods/AgentAssemble",
+        "selected_by": null
+      },
+      "stability": "stable"
+    },
+    {
+      "consumer_profiles": [
+        "python"
+      ],
+      "domain": "storage",
+      "error_set": [
+        "ACCESS_DENIED",
+        "AUTHENTICATION_REQUIRED",
+        "AUTH_AUDIENCE_MISMATCH",
+        "AUTH_POLICY_VERSION_MISMATCH",
+        "AUTH_TENANT_MISMATCH",
+        "BUSY",
+        "CANCELLED",
+        "CAPACITY_DENIED",
+        "ENGINE_DEADLINE_EXCEEDED",
+        "ENGINE_INTERNAL_METHOD",
+        "ENGINE_RESOURCE_EXHAUSTED",
+        "ENGINE_UNAVAILABLE",
+        "INTERNAL",
+        "INVALID_ARGUMENT",
+        "METHOD_NOT_YET_SERVED",
+        "NODE_MISMATCH",
+        "OPERATION_REDIRECTED",
+        "STALE_OUTBOX_LEASE",
+        "STALE_ROUTE",
+        "TIMEOUT"
+      ],
+      "format_identities": [],
+      "id": "CapabilityCoverage",
+      "is_wire_callable": true,
+      "note": "EG-DECISION-ENGINE-R126.2.1. Reads ONE tenant-bound agent_library.redb snapshot and answers which visible components and A2A cards cover each capability of a task closure; ranks nothing, commits nothing",
+      "policy": {
+        "audited": false,
+        "authz_action": "agent:assemble-read",
+        "durability_domain": "None",
+        "emits_cdc": false,
+        "idempotent": true,
+        "mutates": false,
+        "txn_participation": "Snapshot"
+      },
+      "replay_class": "NotReplayable",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/CapabilityCoverage"
+      },
+      "result_schema": {
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.storage.json#/methods/CapabilityCoverage",
         "selected_by": null
       },
       "stability": "stable"

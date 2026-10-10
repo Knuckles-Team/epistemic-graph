@@ -123,6 +123,7 @@ SEND_BY_METHOD = {
     "BrokerRenewTag": messaging.send_broker_renew_tag,
     "CancelRequest": cluster.send_cancel_request,
     "CancelWorkItem": coordination.send_cancel_work_item,
+    "CapabilityCoverage": storage.send_capability_coverage,
     "CapacityStatus": coordination.send_capacity_status,
     "CasWorkItemMetadata": coordination.send_cas_work_item_metadata,
     "CatalogAssign": cluster.send_catalog_assign,

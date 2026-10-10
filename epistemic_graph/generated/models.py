@@ -1696,6 +1696,51 @@ class CanonicalTextAssetRef(BaseModel):
     content_digest: str
 
 
+class CapabilityCoverage(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    a2a_card_ids: list[str]
+    because: PremiseRef
+    capability_iri: str
+    library: list[LibraryCoverage]
+
+
+class CapabilityCoverageOutcomeCovered(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    capabilities: list[CapabilityCoverage]
+    outcome: Literal["covered"]
+
+
+class CapabilityCoverageOutcomeAbstained(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    outcome: Literal["abstained"]
+    reasons: list[AbstainReason]
+
+
+CapabilityCoverageOutcome = Annotated[
+    CapabilityCoverageOutcomeCovered | CapabilityCoverageOutcomeAbstained,
+    Field(discriminator="outcome"),
+]
+
+
+class CapabilityCoverageRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    candidates: LibraryCandidateScope
+    requirements: AssemblyRequirements
+    tenant_id: str
+
+
+class CapabilityCoverageResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    coverage: CapabilityCoverageOutcome
+    ontology_digest: str
+    schema_version: Annotated[int, Field(ge=0, le=65535)]
+
+
 class CapacityAcquireRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -8254,6 +8299,13 @@ class LedgerReadResult(BaseModel):
     watermark: Annotated[int, Field(ge=0)]
 
 
+class LibraryCoverage(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    derivation: CoverageDerivation
+    evidence_class: EvidenceClass
+
+
 class LineageRecord(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -11385,6 +11437,13 @@ class MethodAgentAssemble(BaseModel):
     params: MethodAgentAssembleParams
 
 
+class MethodCapabilityCoverage(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["CapabilityCoverage"]
+    params: MethodCapabilityCoverageParams
+
+
 class MethodDecisionCommit(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -12065,6 +12124,7 @@ Method = Annotated[
     | MethodMineRetrievalQuality
     | MethodMineCommunity
     | MethodAgentAssemble
+    | MethodCapabilityCoverage
     | MethodDecisionCommit
     | MethodDecide
     | MethodDecisionFit
@@ -12427,6 +12487,12 @@ class MethodCancelWorkItemParams(BaseModel):
     reason_ref: str | None = None
     tenant: str
     work_item_id: str
+
+
+class MethodCapabilityCoverageParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    request: CapabilityCoverageRequest
 
 
 class MethodCapacityStatusParams(BaseModel):
@@ -25037,6 +25103,12 @@ __all__ = [
     "CandidateSourceRecordGraph",
     "CandleBasis",
     "CanonicalTextAssetRef",
+    "CapabilityCoverage",
+    "CapabilityCoverageOutcome",
+    "CapabilityCoverageOutcomeAbstained",
+    "CapabilityCoverageOutcomeCovered",
+    "CapabilityCoverageRequest",
+    "CapabilityCoverageResult",
     "CapacityAcquireRequest",
     "CapacityAcquireResult",
     "CapacityAvailability",
@@ -26068,6 +26140,7 @@ __all__ = [
     "LedgerReadResult",
     "LevelValue",
     "LibraryCandidateScope",
+    "LibraryCoverage",
     "LineageRecord",
     "LinearExplanation",
     "LinkPrediction",
@@ -26202,6 +26275,8 @@ __all__ = [
     "MethodCancelRequestParams",
     "MethodCancelWorkItem",
     "MethodCancelWorkItemParams",
+    "MethodCapabilityCoverage",
+    "MethodCapabilityCoverageParams",
     "MethodCapacityStatus",
     "MethodCapacityStatusParams",
     "MethodCasWorkItemMetadata",
