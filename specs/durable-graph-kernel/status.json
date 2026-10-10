@@ -668,7 +668,7 @@
     {
       "id": "EG-DURABLE-KERNEL-R032",
       "title": "Native primary-key fast path bypasses the SQL planner",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "1ef84395fa69",
         "49c43fca68d0"
@@ -681,16 +681,21 @@
     {
       "id": "EG-DURABLE-KERNEL-R032.1",
       "title": "PrimaryKeyOperation and FastPathDecision are typed, and routing refuses rather than silently bypassing checks",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "49c43fca68d0"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/fast_path.rs:109",
+        "crates/eg-types/src/fast_path.rs:118",
+        "crates/eg-types/src/fast_path.rs:81",
+        "crates/eg-types/src/fast_path.rs:97"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R033",
       "title": "Hot-store engine choice is evaluated against captured workloads",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "1ef84395fa69",
         "be3fad3f9840"
@@ -703,16 +708,22 @@
     {
       "id": "EG-DURABLE-KERNEL-R033.1",
       "title": "HotStoreEngine, WorkloadProfile, and BenchmarkResult are typed, and winner selection refuses rather than silently defaulting",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "be3fad3f9840"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/hot_store_engine.rs:125",
+        "crates/eg-types/src/hot_store_engine.rs:140",
+        "crates/eg-types/src/hot_store_engine.rs:157",
+        "crates/eg-types/src/hot_store_engine.rs:168",
+        "crates/eg-types/src/hot_store_engine.rs:190"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R034",
       "title": "Cross-store atomicity is proven and scoped to mixed transactions",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "1ef84395fa69",
         "5dc0a601b2cf"
@@ -725,16 +736,21 @@
     {
       "id": "EG-DURABLE-KERNEL-R034.1",
       "title": "TransactionScope and CommitPath are typed, and a single-store scope structurally can never map to the cross-store commit path",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "5dc0a601b2cf"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/cross_store_scope.rs:65",
+        "crates/eg-types/src/cross_store_scope.rs:79",
+        "crates/eg-types/src/cross_store_scope.rs:85",
+        "crates/eg-types/src/cross_store_scope.rs:94"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R035",
       "title": "PostgreSQL wire protocol reaches operational and dump/restore parity",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "1ef84395fa69",
         "de5f096bc0fd"
@@ -747,7 +763,7 @@
     {
       "id": "EG-DURABLE-KERNEL-R036",
       "title": "Mirror sinks reach fan-out parity and include Postgres table mirroring",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "1ef84395fa69",
         "d833c1d987a6"
@@ -760,25 +776,36 @@
     {
       "id": "EG-DURABLE-KERNEL-R036.1",
       "title": "MirrorSinkKind and MirrorCursor are typed, and the cursor refuses an empty-string position",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "d833c1d987a6"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/mirror_sink.rs:111",
+        "crates/eg-types/src/mirror_sink.rs:121",
+        "crates/eg-types/src/mirror_sink.rs:130",
+        "crates/eg-types/src/mirror_sink.rs:138",
+        "crates/eg-types/src/mirror_sink.rs:147"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R035.1",
       "title": "PgOperationalSurface and a fail-closed PgCompatibilityMatrix are typed",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "de5f096bc0fd"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/pg_operational_surface.rs:105",
+        "crates/eg-types/src/pg_operational_surface.rs:131",
+        "crates/eg-types/src/pg_operational_surface.rs:140",
+        "crates/eg-types/src/pg_operational_surface.rs:153"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R037",
       "title": "Workload classifier routes point operations around the SQL planner",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "1ef84395fa69",
         "4ed831ced92f"
@@ -792,7 +819,7 @@
     {
       "id": "EG-DURABLE-KERNEL-R038",
       "title": "KV namespaces declare an explicit, enforced durability class",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "1ef84395fa69",
         "2146c76bc6f8"
@@ -806,43 +833,63 @@
     {
       "id": "EG-DURABLE-KERNEL-R038.1",
       "title": "`DurabilityClass` is a typed enum with a declared loss-window bound and a refusal for an unrecognized name",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "2146c76bc6f8"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/durability_class.rs:183",
+        "crates/eg-types/src/durability_class.rs:199",
+        "crates/eg-types/src/durability_class.rs:205",
+        "crates/eg-types/src/durability_class.rs:214",
+        "crates/eg-types/src/durability_class.rs:225"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R038.2",
       "title": "The write path's durability selection: `write_plan`/`refuse_if_durable_log_write` are the one entry point a write admission calls",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "1a1ef47cb448"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/durability_class.rs:251",
+        "crates/eg-types/src/durability_class.rs:259",
+        "crates/eg-types/src/durability_class.rs:267",
+        "crates/eg-types/src/durability_class.rs:275",
+        "crates/eg-types/src/durability_class.rs:284"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R037.1",
       "title": "`WorkloadClass` is a typed classifier with a refusal for an unrecognized operation kind",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "4ed831ced92f"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/workload_class.rs:110",
+        "crates/eg-types/src/workload_class.rs:117",
+        "crates/eg-types/src/workload_class.rs:97"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R037.2",
       "title": "`route` is the one dispatch entry point a wire listener calls to decide whether to allocate a DataFusion session",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "add3fe5b1d67"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/workload_class.rs:126",
+        "crates/eg-types/src/workload_class.rs:136",
+        "crates/eg-types/src/workload_class.rs:144"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R039",
       "title": "In-memory data structures rebuild from the redb durability log",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "1ef84395fa69",
         "a7372171174e"
@@ -855,16 +902,20 @@
     {
       "id": "EG-DURABLE-KERNEL-R039.1",
       "title": "Every in-memory structure and atomic primitive is typed and structurally declares redb as its sole durability authority",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "a7372171174e"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/atomic_primitive.rs:120",
+        "crates/eg-types/src/atomic_primitive.rs:161",
+        "crates/eg-types/src/atomic_primitive.rs:176"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R040",
       "title": "Pipelined requests commit as a single batch",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "1ef84395fa69",
         "726ee0a3eadf"
@@ -877,7 +928,7 @@
     {
       "id": "EG-DURABLE-KERNEL-R041",
       "title": "SQL plan cache keyed by statement digest and schema version",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "1ef84395fa69",
         "aaf7113fe427"
@@ -891,34 +942,48 @@
     {
       "id": "EG-DURABLE-KERNEL-R041.1",
       "title": "`PlanCacheKey`/`PlanCacheLookup` are a typed key and a pure lookup decision, refusing to reuse a plan whose schema version has gone stale",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "aaf7113fe427"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/plan_cache_key.rs:142",
+        "crates/eg-types/src/plan_cache_key.rs:150",
+        "crates/eg-types/src/plan_cache_key.rs:157",
+        "crates/eg-types/src/plan_cache_key.rs:170",
+        "crates/eg-types/src/plan_cache_key.rs:178"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R041.2",
       "title": "`PlanCache::prepare` is the one entry point a SQL statement handler calls at prepare time",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "88496b615981"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/plan_cache_key.rs:185",
+        "crates/eg-types/src/plan_cache_key.rs:207"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R040.1",
       "title": "PipelineBatch and BatchCommitDecision are typed, proving one admission maps to exactly one commit with order-preserving replies",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "726ee0a3eadf"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/pipeline_batch.rs:101",
+        "crates/eg-types/src/pipeline_batch.rs:112",
+        "crates/eg-types/src/pipeline_batch.rs:78",
+        "crates/eg-types/src/pipeline_batch.rs:92"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R042",
       "title": "Benchmark gate defines and proves performance superiority claims",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "1ef84395fa69",
         "9eac21608e67"
@@ -931,11 +996,16 @@
     {
       "id": "EG-DURABLE-KERNEL-R042.1",
       "title": "`BenchmarkClaim` is a typed report record that is only accepted as a superiority claim when published with its configuration and a passing result",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "9eac21608e67"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/benchmark_claim.rs:101",
+        "crates/eg-types/src/benchmark_claim.rs:109",
+        "crates/eg-types/src/benchmark_claim.rs:118",
+        "crates/eg-types/src/benchmark_claim.rs:127"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R043",
@@ -950,12 +1020,14 @@
     {
       "id": "EG-DURABLE-KERNEL-R044",
       "title": "Upload cursor identifiers are never reused after a restart",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "1ef84395fa69",
         "b43f33569dd4"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/blob/store/tests.rs:617"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R045",
@@ -970,12 +1042,16 @@
     {
       "id": "EG-DURABLE-KERNEL-R046",
       "title": "Polygon interior/touch predicates are correct for shared boundaries",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "1ef84395fa69",
         "b43f33569dd4"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-geo/src/predicates.rs:802",
+        "crates/eg-geo/src/predicates.rs:815",
+        "crates/eg-geo/src/predicates.rs:868"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R047",
@@ -1014,12 +1090,14 @@
     {
       "id": "EG-DURABLE-KERNEL-R050",
       "title": "Blob garbage collection enforces a grace period before deletion",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "1ef84395fa69",
         "b43f33569dd4"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/blob/store/tests.rs:345"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R051",
@@ -1030,7 +1108,7 @@
         "b43f33569dd4"
       ],
       "verified_by": [
-        "src/server/blob/store/tests.rs:649"
+        "src/server/blob/store/tests.rs:651"
       ]
     },
     {
@@ -1120,7 +1198,7 @@
         "b43f33569dd4"
       ],
       "verified_by": [
-        "src/server/blob/store/tests.rs:394"
+        "src/server/blob/store/tests.rs:395"
       ]
     },
     {

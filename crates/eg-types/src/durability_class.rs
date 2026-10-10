@@ -180,6 +180,7 @@ impl std::error::Error for LossWindowExceeded {}
 mod tests {
     use super::*;
 
+    // spec: EG-DURABLE-KERNEL-R038.1
     #[test]
     fn declared_classes_round_trip_through_their_wire_name() {
         for (class, name) in [
@@ -195,11 +196,13 @@ mod tests {
         }
     }
 
+    // spec: EG-DURABLE-KERNEL-R038.1
     #[test]
     fn sync_is_the_declared_default() {
         assert_eq!(DurabilityClass::default(), DurabilityClass::Sync);
     }
 
+    // spec: EG-DURABLE-KERNEL-R038.1
     #[test]
     fn unknown_class_name_is_refused_not_downgraded() {
         for bad in ["Async", " async", "asynchronous", "", "none"] {
@@ -208,6 +211,7 @@ mod tests {
         }
     }
 
+    // spec: EG-DURABLE-KERNEL-R038.1
     #[test]
     fn async_loss_window_within_bound_is_accepted() {
         DurabilityClass::Async
@@ -218,6 +222,7 @@ mod tests {
             .unwrap();
     }
 
+    // spec: EG-DURABLE-KERNEL-R038.1
     #[test]
     fn async_loss_window_past_bound_is_refused() {
         let err = DurabilityClass::Async
@@ -243,6 +248,7 @@ mod tests {
             .unwrap();
     }
 
+    // spec: EG-DURABLE-KERNEL-R038.2
     #[test]
     fn sync_write_plan_waits_for_its_own_commit_with_no_batch_window() {
         let plan = DurabilityClass::Sync.write_plan();
@@ -250,6 +256,7 @@ mod tests {
         assert_eq!(plan.max_batch_delay_ms, None);
     }
 
+    // spec: EG-DURABLE-KERNEL-R038.2
     #[test]
     fn async_write_plan_batches_within_the_declared_loss_window() {
         let plan = DurabilityClass::Async.write_plan();
@@ -257,6 +264,7 @@ mod tests {
         assert_eq!(plan.max_batch_delay_ms, Some(ASYNC_MAX_LOSS_WINDOW_MS));
     }
 
+    // spec: EG-DURABLE-KERNEL-R038.2
     #[test]
     fn ephemeral_write_plan_never_waits_and_never_batches_into_a_log() {
         let plan = DurabilityClass::Ephemeral.write_plan();
@@ -264,6 +272,7 @@ mod tests {
         assert_eq!(plan.max_batch_delay_ms, None);
     }
 
+    // spec: EG-DURABLE-KERNEL-R038.2
     #[test]
     fn ephemeral_write_path_refuses_a_durable_log_append() {
         let err = DurabilityClass::Ephemeral
@@ -272,6 +281,7 @@ mod tests {
         assert!(err.to_string().contains("no durable log"));
     }
 
+    // spec: EG-DURABLE-KERNEL-R038.2
     #[test]
     fn sync_and_async_write_paths_allow_a_durable_log_append() {
         DurabilityClass::Sync.refuse_if_durable_log_write().unwrap();
