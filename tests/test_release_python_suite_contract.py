@@ -80,6 +80,7 @@ def test_crate_and_duplication_census_jobs_still_run_alongside_it() -> None:
     scanner_step_names = [
         str(step.get("name", "")) for step in jobs["scanner-quality"]["steps"]
     ]
-    assert any("test_dupehound_census" in str(step.get("run", "")) for step in jobs["scanner-quality"]["steps"]) or any(
-        "dupehound" in name.lower() for name in scanner_step_names
-    )
+    assert any(
+        "test_dupehound_census" in str(step.get("run", ""))
+        for step in jobs["scanner-quality"]["steps"]
+    ) or any("dupehound" in name.lower() for name in scanner_step_names)

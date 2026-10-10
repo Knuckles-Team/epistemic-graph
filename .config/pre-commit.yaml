@@ -308,8 +308,9 @@ repos:
   # `--files`-scoped commit cannot skip it (the whole point is a tree-wide sweep).
   - id: no-version-suffixes
     name: RF-ADR-006 — no version-suffixed component names
-    entry: python3 tests/test_no_version_suffixes.py
-    language: system
+    entry: python tests/test_no_version_suffixes.py
+    language: python
+    additional_dependencies: [pytest]
     pass_filenames: false
     always_run: true
   # w5-ci-gates-local (D-W5CG-1): rust-ci.yml `lint-and-test`'s first four

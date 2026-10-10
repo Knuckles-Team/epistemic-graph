@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Any, cast
 import asyncio
 from types import SimpleNamespace
 
@@ -26,7 +27,7 @@ def _make(monkeypatch, outcomes):
         client_mod._gen, "query", SimpleNamespace(send_cypher_query=fake_send)
     )
     c = object.__new__(client_mod.QueryClient)
-    c._client = object()
+    c._client = cast(Any, object())
     monkeypatch.setattr(c, "_rows_to_dicts", lambda r: [{"r": r}], raising=False)
     return c, calls
 

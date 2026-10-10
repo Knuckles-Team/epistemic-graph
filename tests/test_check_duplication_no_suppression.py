@@ -29,7 +29,7 @@ def test_gate_cli_has_no_baseline_or_suppression_flag() -> None:
     parser = _parser()
     subparsers_action = next(
         action
-        for action in parser._actions  # type: ignore[attr-defined]
+        for action in parser._actions
         if isinstance(action, argparse._SubParsersAction)
     )
     enforce = subparsers_action.choices["enforce"]
