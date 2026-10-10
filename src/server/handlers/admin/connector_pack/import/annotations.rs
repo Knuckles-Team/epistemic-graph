@@ -163,6 +163,7 @@ mod tests {
         }
     }
 
+    // spec: EG-TYPED-PACKS-R013
     #[test]
     fn the_split_rule_rejects_eg_typos_and_keeps_foreign_claims() {
         let native = eg_types::agent_ontology::descendants(CAPABILITY_ROOT)
