@@ -370,7 +370,7 @@ mod tests {
             act(1, 10, 100),
             LotActivity {
                 sequence: 2,
-                quantity_ticks: -1 * SCALE,
+                quantity_ticks: -SCALE,
                 price_ticks: 120 * SCALE,
             },
         ];
