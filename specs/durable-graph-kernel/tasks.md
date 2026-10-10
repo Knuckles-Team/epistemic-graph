@@ -63,3 +63,14 @@ Status key: `[ ]` queued, `[-]` in progress, `[x]` verified at cited main revisi
 - [x] **EG-DURABLE-KERNEL-R041.2:** PlanCache::prepare entry point at the SQL prepare site
 - [x] **EG-DURABLE-KERNEL-R042:** Benchmark gate defines and proves performance superiority claims
 - [x] **EG-DURABLE-KERNEL-R042.1:** BenchmarkClaim typed report record with refusal for an unpublished or non-passing claim
+- [ ] **EG-DURABLE-KERNEL-R071:** Typed durable task-queue model (enqueue/claim/ack) with refusal tests
+- [ ] **EG-DURABLE-KERNEL-R072:** Served task-queue RPC over the durable outbox
+- [ ] **EG-DURABLE-KERNEL-R073:** Generated client method for the task queue
+- [ ] **EG-DURABLE-KERNEL-R074:** Served worker registry
+- [ ] **EG-DURABLE-KERNEL-R075:** Reserved-worker admission decision
+- [ ] **EG-DURABLE-KERNEL-R076:** Scheduler config and lane floors
+- [ ] **EG-DURABLE-KERNEL-R077:** Shard-writer width served by the scheduler surface
+- [ ] **EG-DURABLE-KERNEL-R078:** Bitemporal stamping served method
+- [ ] **EG-DURABLE-KERNEL-R079:** Served as-of filtering
+- [ ] **EG-DURABLE-KERNEL-R080:** Served supersession
+- [ ] **EG-DURABLE-KERNEL-R081:** Generated client methods for bitemporal operations

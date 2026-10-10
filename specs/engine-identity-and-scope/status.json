@@ -2,14 +2,15 @@
   "schema_version": 2,
   "spec_id": "EG-IDENTITY-001",
   "owner_repo": "epistemic-graph",
-  "delivery_state": "LANDED",
+  "delivery_state": "SPECIFIED",
   "requirement_ids": [
     "EG-IDENTITY-R001",
     "EG-IDENTITY-R002",
     "EG-IDENTITY-R003",
     "EG-IDENTITY-R004",
     "EG-IDENTITY-R005",
-    "EG-IDENTITY-R006"
+    "EG-IDENTITY-R006",
+    "EG-IDENTITY-R007"
   ],
   "requirements": [
     {
@@ -79,6 +80,13 @@
       "verified_by": [
         "crates/eg-core/src/isolation.rs:1751"
       ]
+    },
+    {
+      "id": "EG-IDENTITY-R007",
+      "title": "Scopes `identity:admin`, `loops:read` and `loops:control` are registered in the engine contract",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     }
   ]
 }

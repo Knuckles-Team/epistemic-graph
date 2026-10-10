@@ -44,3 +44,5 @@ Record a public commit SHA and PR URL, commands and tool versions, pass/fail out
 
 At every merge, compare the source SHA in this table to the public default branch. If an implementation is present and the focused test passes, label that requirement LANDED. If the installed artifact, consumers, hosted quality and release matrix pass on the same SHA, label it ACCEPTED. Otherwise leave the specific failed or unrun gate open.
 - [x] **C-18 — EG-CONTRACT-R048:** Declare the work-claim and evidence DTO bounds in the Rust schema source. Emit strict booleans and unique-item validators from the generator. Merge the PR and record the merged commit.
+- [ ] **C-19 — EG-CONTRACT-R050:** Generated client ingests OTLP logs
+- [ ] **C-20 — EG-CONTRACT-R051:** Generated client ingests RunTrace

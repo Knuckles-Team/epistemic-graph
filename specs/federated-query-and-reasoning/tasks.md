@@ -58,3 +58,6 @@ Check boxes describe work remaining for this combined contract. They do not cert
 
 - [x] **EG-FEDERATED-QUERY-R048:** Join ordering across foreign sources uses learned, provenanced statistics
 - [x] **EG-FEDERATED-QUERY-R058:** Natural language runs only as disclosed, read-only typed UQL
+- [ ] **EG-FEDERATED-QUERY-R074:** Served `select_topology` reasoning-policy op
+- [ ] **EG-FEDERATED-QUERY-R075:** Generated client method for `select_topology`
+- [ ] **EG-FEDERATED-QUERY-R076:** Canonical ontology hash for a Turtle payload
