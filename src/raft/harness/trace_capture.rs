@@ -479,6 +479,7 @@ mod tests {
     /// not grow without bound (EH-286's "bounded so a long test cannot exhaust
     /// memory" requirement).
     // spec: EG-DURABLE-KERNEL-R047
+    // spec: EG-DURABLE-KERNEL-R013
     #[test]
     fn ring_buffer_evicts_oldest_when_over_capacity() {
         let ring = Ring::new();
@@ -558,6 +559,7 @@ mod tests {
     /// mechanism `cluster_cfg_with_groups` wires into every cluster test. The
     /// assertion is deliberately triggered and caught (never propagated), so this
     /// test proves the harness without itself failing the suite.
+    // spec: EG-DURABLE-KERNEL-R013
     #[test]
     fn a_deliberate_assertion_failure_leaves_its_causal_chain_in_the_global_dump() {
         init();
