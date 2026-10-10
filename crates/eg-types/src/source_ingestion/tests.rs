@@ -566,6 +566,7 @@ fn r003_6_a_different_root_is_not_blocked_by_an_unrelated_claim() {
 // EG-REPO-INGEST-R003.7 — trace-ontology observability is claimed through
 // EG's own typed interface rather than left to its retiring legacy module.
 
+// spec: EG-REPO-INGEST-R003.7
 #[test]
 fn r003_7_trace_ontology_observability_round_trips_through_the_typed_root() {
     let root = MigratedIngestionCapabilityRoot::TraceOntologyObservability;
@@ -575,12 +576,14 @@ fn r003_7_trace_ontology_observability_round_trips_through_the_typed_root() {
     assert_eq!(back, root);
 }
 
+// spec: EG-REPO-INGEST-R003.7
 #[test]
 fn r003_7_a_fresh_claim_on_trace_ontology_observability_succeeds() {
     let root = MigratedIngestionCapabilityRoot::TraceOntologyObservability;
     assert!(root.claim(&[]).is_ok());
 }
 
+// spec: EG-REPO-INGEST-R003.7
 #[test]
 fn r003_7_a_duplicate_claim_on_trace_ontology_observability_is_refused() {
     let root = MigratedIngestionCapabilityRoot::TraceOntologyObservability;
@@ -591,6 +594,7 @@ fn r003_7_a_duplicate_claim_on_trace_ontology_observability_is_refused() {
     assert!(err.contains("already claimed"));
 }
 
+// spec: EG-REPO-INGEST-R003.7
 #[test]
 fn r003_7_a_different_root_is_not_blocked_by_an_unrelated_claim() {
     let trace_ontology = MigratedIngestionCapabilityRoot::TraceOntologyObservability;
@@ -719,6 +723,7 @@ fn r003_10_a_different_root_is_not_blocked_by_an_unrelated_claim() {
 // EG-REPO-INGEST-R003.11 — placement-mining research is claimed through
 // EG's own typed interface rather than left to its retiring legacy module.
 
+// spec: EG-REPO-INGEST-R003.11
 #[test]
 fn r003_11_placement_mining_research_round_trips_through_the_typed_root() {
     let root = MigratedIngestionCapabilityRoot::PlacementMiningResearch;
@@ -728,12 +733,14 @@ fn r003_11_placement_mining_research_round_trips_through_the_typed_root() {
     assert_eq!(back, root);
 }
 
+// spec: EG-REPO-INGEST-R003.11
 #[test]
 fn r003_11_a_fresh_claim_on_placement_mining_research_succeeds() {
     let root = MigratedIngestionCapabilityRoot::PlacementMiningResearch;
     assert!(root.claim(&[]).is_ok());
 }
 
+// spec: EG-REPO-INGEST-R003.11
 #[test]
 fn r003_11_a_duplicate_claim_on_placement_mining_research_is_refused() {
     let root = MigratedIngestionCapabilityRoot::PlacementMiningResearch;
@@ -744,6 +751,7 @@ fn r003_11_a_duplicate_claim_on_placement_mining_research_is_refused() {
     assert!(err.contains("already claimed"));
 }
 
+// spec: EG-REPO-INGEST-R003.11
 #[test]
 fn r003_11_a_different_root_is_not_blocked_by_an_unrelated_claim() {
     let placement_mining = MigratedIngestionCapabilityRoot::PlacementMiningResearch;
