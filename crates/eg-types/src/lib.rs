@@ -21,6 +21,11 @@ pub mod attached_source_governance;
 // EG-UNIFIED-DATA-PLANE-R014.1 — typed model distinguishing the MySQL and
 // MariaDB attached-source dialect entries. See module docs.
 pub mod attached_source_dialect;
+// EG-UNIFIED-DATA-PLANE-R014.2.1 — MySQL/MariaDB adapter skeleton: typed
+// connection config → sqlx-shaped driver config, with a connect refusal
+// path that needs no live database. Binlog/GTID capture and the per-engine
+// conformance entries are R014.2.2+.
+pub mod mysql_mariadb_connection;
 // RF-020 — typed Agent Library delegation admission/result currency.
 pub mod delegation;
 // CONCEPT:EG-KG.compute.native-asr-whisper-provider — the native-ASR agent-facing wire op
@@ -357,11 +362,21 @@ pub mod schema_inference;
 // refusal. Pure data; the live read-only attach and real capture are later
 // children.
 pub mod sqlite_attached_catalog;
+// EG-UNIFIED-DATA-PLANE-R015.2.1 — SQLite live-attach adapter skeleton:
+// typed attach config → read-only driver open config, refusing an
+// immutable open mode paired with a change-capture mode. No file I/O; real
+// WAL-frame tailing/watermark polling is R015.2.2+.
+pub mod sqlite_live_attach;
 // EG-UNIFIED-DATA-PLANE-R016.1 — typed SQL Server attached-source catalog
 // model: two-part schema.table entries and the bracket-quoting identifier
 // refusal. Pure data; the tiberius connection and T-SQL rendering are later
 // children.
 pub mod mssql_attached_catalog;
+// EG-UNIFIED-DATA-PLANE-R016.2.1 — MSSQL adapter skeleton: typed connection
+// config → tiberius-shaped driver config, with a connect refusal path that
+// needs no live server. T-SQL rendering and LSN-polled CDC/Change Tracking
+// capture are R016.2.2+.
+pub mod mssql_driver_connection;
 // EG-UNIFIED-DATA-PLANE-R017.1 — typed ClickHouse attached-source catalog
 // model, with its change-capture capability always reported as the
 // explicit Unsupported value. Pure data; the HTTP/native client connection

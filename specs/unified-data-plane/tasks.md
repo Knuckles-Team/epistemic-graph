@@ -52,12 +52,19 @@
 - [x] **EG-UNIFIED-DATA-PLANE-R013:** Postgres catalog/query/pgoutput/type adapter; depends on EG-UNIFIED-DATA-PLANE-R002.
 - [x] **EG-UNIFIED-DATA-PLANE-R014:** Separate MySQL and MariaDB query/catalog/binlog/type entries; depends on EG-UNIFIED-DATA-PLANE-R002.
 - [x] **EG-UNIFIED-DATA-PLANE-R014.1:** Add the typed `SqlEngineKind`/`SqlEngineCaptureSupport`/`SqlEngineDialectEntry` model (`crates/eg-types/src/attached_source_dialect.rs`) proving MySQL and MariaDB stay separate, explicitly declared dialect entries, with refusal tests for a missing version floor and an unreviewed type-map revision. The driver, rendering, catalog reader and binlog capture parts are `EG-UNIFIED-DATA-PLANE-R014.2`+ (not in scope for this slice; depend on `EG-UNIFIED-DATA-PLANE-R002`). Test: `crates/eg-types/src/attached_source_dialect.rs::tests::mysql_and_mariadb_are_distinct_entries`.
+- [ ] **EG-UNIFIED-DATA-PLANE-R014.2 (rollup):** Remaining scope of R014 (driver, rendering, catalog reader, binlog capture). LANDED only once every child is.
+  - [x] **EG-UNIFIED-DATA-PLANE-R014.2.1:** Adapter skeleton — `MysqlMariadbConnectionConfig`/`MysqlMariadbDriverConfig` typed mapping plus the no-live-database refusal path (`crates/eg-types/src/mysql_mariadb_connection.rs`), behind the existing `federation-sql` sqlx-mysql feature structure. Test: `crates/eg-types/src/mysql_mariadb_connection.rs::tests`.
+  - [ ] **EG-UNIFIED-DATA-PLANE-R014.2.2:** Live row-based binlog/GTID capture, information_schema catalog read, and per-engine (MySQL, MariaDB) conformance entries.
 - [x] **EG-UNIFIED-DATA-PLANE-R015 (rollup):** SQLite lock-safe file attach, WITHOUT ROWID and safe WAL/watermark capture; depends on EG-UNIFIED-DATA-PLANE-R002.
   - [x] **EG-UNIFIED-DATA-PLANE-R015.1:** `SqliteSourceCatalog` typed model plus WITHOUT-ROWID capture-safety refusal (`crates/eg-types/src/sqlite_attached_catalog.rs`).
-  - [ ] **EG-UNIFIED-DATA-PLANE-R015.2:** Lock-safe live read-only attach and real WAL-frame tailing/watermark polling.
+  - [ ] **EG-UNIFIED-DATA-PLANE-R015.2 (rollup):** Lock-safe live read-only attach and real WAL-frame tailing/watermark polling. LANDED only once every child is.
+    - [x] **EG-UNIFIED-DATA-PLANE-R015.2.1:** Adapter skeleton — `SqliteAttachConfig`/`SqliteDriverOpenConfig` typed mapping plus the no-live-file refusal path (`crates/eg-types/src/sqlite_live_attach.rs`). Test: `crates/eg-types/src/sqlite_live_attach.rs::tests`.
+    - [ ] **EG-UNIFIED-DATA-PLANE-R015.2.2:** Real lock-safe open, WAL-frame tailing, and watermark polling against a live, concurrently-written file.
 - [ ] **EG-UNIFIED-DATA-PLANE-R016 (rollup):** MSSQL catalog/T-SQL/CDC adapter; depends on EG-UNIFIED-DATA-PLANE-R002.
   - [x] **EG-UNIFIED-DATA-PLANE-R016.1:** `MssqlSourceCatalog` typed model plus bracket-quoting identifier refusal (`crates/eg-types/src/mssql_attached_catalog.rs`).
-  - [ ] **EG-UNIFIED-DATA-PLANE-R016.2:** tiberius driver connection, T-SQL TOP/OFFSET-FETCH rendering, and LSN-polled CDC/Change Tracking capture.
+  - [ ] **EG-UNIFIED-DATA-PLANE-R016.2 (rollup):** tiberius driver connection, T-SQL TOP/OFFSET-FETCH rendering, and LSN-polled CDC/Change Tracking capture. LANDED only once every child is.
+    - [x] **EG-UNIFIED-DATA-PLANE-R016.2.1:** Adapter skeleton — `MssqlConnectionConfig`/`MssqlDriverConfig` typed mapping plus the no-live-server refusal path (`crates/eg-types/src/mssql_driver_connection.rs`). Test: `crates/eg-types/src/mssql_driver_connection.rs::tests`.
+    - [ ] **EG-UNIFIED-DATA-PLANE-R016.2.2:** Real tiberius connection, T-SQL TOP/OFFSET-FETCH rendering, and LSN-polled CDC/Change Tracking capture loop.
 - [ ] **EG-UNIFIED-DATA-PLANE-R017 (rollup):** ClickHouse federation/acceleration adapter with explicit no-CDC capability; depends on EG-UNIFIED-DATA-PLANE-R002.
   - [x] **EG-UNIFIED-DATA-PLANE-R017.1:** `ClickHouseSourceCatalog` typed model with always-explicit capture capability (`crates/eg-types/src/clickhouse_attached_catalog.rs`).
   - [ ] **EG-UNIFIED-DATA-PLANE-R017.2:** HTTP/native client connection and federated query pushdown.
