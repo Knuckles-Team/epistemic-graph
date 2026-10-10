@@ -13,6 +13,8 @@
 //! boolean. The answer is advisory only; enforcement stays with the owning
 //! policy gate (EG-DECISION-ENGINE-R127).
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 use crate::agent_ontology::broader_chain;
@@ -29,6 +31,67 @@ pub struct GuardrailRule {
     pub applies_to_class: String,
     /// The schema package generation that introduced this rule.
     pub source_generation: String,
+}
+
+/// Attribute a `GuardrailRule` component carries its governed task class in.
+pub const GUARDRAIL_APPLIES_TO_CLASS_ATTRIBUTE: &str = "applies_to_class";
+/// Attribute a `GuardrailRule` component carries its source generation in.
+pub const GUARDRAIL_SOURCE_GENERATION_ATTRIBUTE: &str = "source_generation";
+
+impl GuardrailRule {
+    /// The attributes a `GuardrailRule` component is published with
+    /// (EG-DECISION-ENGINE-R127.2.1); the component id is `rule_id`.
+    pub fn to_attributes(&self) -> BTreeMap<String, String> {
+        BTreeMap::from([
+            (
+                GUARDRAIL_APPLIES_TO_CLASS_ATTRIBUTE.to_string(),
+                self.applies_to_class.clone(),
+            ),
+            (
+                GUARDRAIL_SOURCE_GENERATION_ATTRIBUTE.to_string(),
+                self.source_generation.clone(),
+            ),
+        ])
+    }
+
+    /// Decode a stored `GuardrailRule` component back into the rule it
+    /// carries, refusing a malformed one by name: a missing or blank
+    /// attribute, or an `applies_to_class` that is not an IRI.
+    pub fn from_attributes(
+        rule_id: &str,
+        attributes: &BTreeMap<String, String>,
+    ) -> Result<Self, String> {
+        let field = |name: &str| -> Result<String, String> {
+            match attributes.get(name).map(|value| value.trim()) {
+                Some(value) if !value.is_empty() => Ok(value.to_string()),
+                _ => Err(format!(
+                    "MALFORMED_GUARDRAIL_RULE: guardrail rule '{rule_id}' needs a non-empty \
+                     '{name}' attribute"
+                )),
+            }
+        };
+        let applies_to_class = field(GUARDRAIL_APPLIES_TO_CLASS_ATTRIBUTE)?;
+        if !is_iri(&applies_to_class) {
+            return Err(format!(
+                "MALFORMED_GUARDRAIL_RULE: guardrail rule '{rule_id}' applies_to_class \
+                 '{applies_to_class}' is not an IRI"
+            ));
+        }
+        Ok(Self {
+            rule_id: rule_id.to_string(),
+            applies_to_class,
+            source_generation: field(GUARDRAIL_SOURCE_GENERATION_ATTRIBUTE)?,
+        })
+    }
+}
+
+/// An IRI here is a scheme- or prefix-qualified name with no whitespace
+/// (`https://...`, `urn:...`, `eg:TaskClass`).
+fn is_iri(value: &str) -> bool {
+    value
+        .split_once(':')
+        .is_some_and(|(scheme, rest)| !scheme.is_empty() && !rest.is_empty())
+        && !value.chars().any(char::is_whitespace)
 }
 
 /// One step of an entailment path: `narrower` is a native subclass of

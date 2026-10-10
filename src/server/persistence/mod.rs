@@ -46,6 +46,8 @@ pub mod connector_pack;
 pub mod decision_jobs;
 #[cfg(feature = "redb")]
 pub mod decision_record;
+#[cfg(feature = "redb")]
+pub mod guardrail_rule;
 // EH-345: the fleet catalog's one read over the AgentComponent owner.
 #[cfg(feature = "redb")]
 pub mod fleet_components;
