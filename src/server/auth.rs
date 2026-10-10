@@ -2004,6 +2004,7 @@ mod tests {
         assert!(error.contains("policy version"));
     }
 
+    // spec: EG-DECISION-ENGINE-R097
     #[test]
     fn current_envelope_replay_is_rejected() {
         // Not an identity-binding test: exercises nonce/replay rejection over

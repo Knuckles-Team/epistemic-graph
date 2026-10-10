@@ -142,6 +142,7 @@ fn top(core: &eg_core::graph::GraphCore, query: &[f32]) -> String {
         .clone()
 }
 
+// spec: EG-DECISION-ENGINE-R101
 #[tokio::test]
 async fn an_adapter_is_served_only_after_its_passing_receipt_and_rolls_back() {
     let h = Harness::with_isolation(ServerState::test_isolation("decider")).await;

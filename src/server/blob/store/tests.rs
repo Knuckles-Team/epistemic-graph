@@ -341,6 +341,7 @@ fn bounded_memory_large_blob_group_commit() {
     );
 }
 
+// spec: EG-DECISION-ENGINE-R097
 #[test]
 fn an_unreferenced_committed_blob_survives_until_its_grace_has_passed() {
     // A blob that was committed but not yet referenced is inside the window
