@@ -107,10 +107,13 @@
     "EG-UNIFIED-DATA-PLANE-R027",
     "EG-UNIFIED-DATA-PLANE-R027.1",
     "EG-UNIFIED-DATA-PLANE-R027.2",
+    "EG-UNIFIED-DATA-PLANE-R027.2.1",
     "EG-UNIFIED-DATA-PLANE-R027.3",
+    "EG-UNIFIED-DATA-PLANE-R027.3.1",
     "EG-UNIFIED-DATA-PLANE-R028",
     "EG-UNIFIED-DATA-PLANE-R028.1",
     "EG-UNIFIED-DATA-PLANE-R028.2",
+    "EG-UNIFIED-DATA-PLANE-R028.2.1",
     "EG-UNIFIED-DATA-PLANE-R028.3",
     "EG-UNIFIED-DATA-PLANE-R029",
     "EG-UNIFIED-DATA-PLANE-R029.1",
@@ -1317,11 +1320,31 @@
       "title": "Capture application traffic per feature and record the proof reference",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-UNIFIED-DATA-PLANE-R027.2.1"
+      ]
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R027.2.1",
+      "title": "`capture_feature_fix` assembles a `FeatureFixRecord` from a pluggable `TrafficCaptureSource`, refusing an unproven or incomplete capture",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R027.3",
       "title": "Implement each proven feature with its failing-then-passing test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-UNIFIED-DATA-PLANE-R027.3.1"
+      ]
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R027.3.1",
+      "title": "`apply_proven_fix` applies a feature's fix only once its record is proven fixed, refusing an unproven record without invoking the fix",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -1352,6 +1375,16 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R028.2",
       "title": "Run the Postgres regression suite and SQLancer-style generated corpora against EG",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-UNIFIED-DATA-PLANE-R028.2.1"
+      ]
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R028.2.1",
+      "title": "`run_differential_harness` assembles a run's `DeviationBaseline` from one evaluator per declared corpus source and reconciles it against the prior baseline",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
