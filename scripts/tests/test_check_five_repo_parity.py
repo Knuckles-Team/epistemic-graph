@@ -2,9 +2,12 @@
 
 from pathlib import Path
 
+import pytest
+
 from scripts.check_five_repo_parity import check_five_repo_parity
 
 
+@pytest.mark.spec("EG-CONTRACT-R008.2")
 def test_mismatched_directory_fails_closed(tmp_path: Path) -> None:
     requested = tmp_path / "requested-repo"
     actual = tmp_path / "a-different-checkout"
