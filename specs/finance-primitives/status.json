@@ -190,8 +190,8 @@
       ],
       "verified_by": [
         "crates/eg-compute/src/finance/lot_accounting.rs:258",
-        "crates/eg-compute/src/finance/lot_accounting.rs:273",
-        "crates/eg-compute/src/finance/lot_accounting.rs:288"
+        "crates/eg-compute/src/finance/lot_accounting.rs:278",
+        "crates/eg-compute/src/finance/lot_accounting.rs:296"
       ],
       "rollup_of": [
         "EG-FINANCE-PRIMITIVES-R005.1.1"
@@ -222,9 +222,9 @@
         "eadb412ffa03"
       ],
       "verified_by": [
-        "crates/eg-compute/src/finance/lot_accounting.rs:341",
-        "crates/eg-compute/src/finance/lot_accounting.rs:369",
-        "crates/eg-compute/src/finance/lot_accounting.rs:390"
+        "crates/eg-compute/src/finance/lot_accounting.rs:355",
+        "crates/eg-compute/src/finance/lot_accounting.rs:383",
+        "crates/eg-compute/src/finance/lot_accounting.rs:404"
       ]
     },
     {
@@ -287,9 +287,9 @@
         "b96ef8ebd9df"
       ],
       "verified_by": [
-        "crates/eg-compute/src/finance/market/strategy_backtest.rs:112",
-        "crates/eg-compute/src/finance/market/strategy_backtest.rs:121",
-        "crates/eg-compute/src/finance/market/strategy_backtest.rs:97"
+        "crates/eg-compute/src/finance/market/strategy_backtest.rs:105",
+        "crates/eg-compute/src/finance/market/strategy_backtest.rs:120",
+        "crates/eg-compute/src/finance/market/strategy_backtest.rs:129"
       ]
     },
     {

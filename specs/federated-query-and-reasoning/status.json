@@ -93,12 +93,19 @@
     {
       "id": "EG-FEDERATED-QUERY-R001",
       "title": "Bounded derivation steps in EL+/RL and tableau reasoning",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "0265d3a41baf",
-        "57a12eb06632"
+        "1ac87735b5a3",
+        "57a12eb06632",
+        "c3b87d31ac11"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-rdf/src/owl/budget.rs:141",
+        "crates/eg-rdf/src/owl/budget.rs:143",
+        "crates/eg-rdf/src/tableau/abox.rs:481",
+        "src/server/graph_schema/world_model_tests.rs:116"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R002",
@@ -116,32 +123,44 @@
     {
       "id": "EG-FEDERATED-QUERY-R003",
       "title": "Derivation-step budget is enforced once, not duplicated per path",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "0265d3a41baf",
-        "73069c650dcd"
+        "1ac87735b5a3",
+        "73069c650dcd",
+        "80c865971ea8"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-rdf/src/owl/budget.rs:142"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R004",
       "title": "Reasoning projection rebuilds after any skipped event",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "0265d3a41baf",
-        "49b749980bf2"
+        "49b749980bf2",
+        "80c865971ea8"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/reasoning_projection.rs:1786"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R005",
       "title": "UQL VALIDATE SHAPE stage",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "0265d3a41baf",
+        "1ac87735b5a3",
+        "80c865971ea8",
         "a1bb9fb9503e"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-plan/src/uql/tests/shape.rs:44",
+        "src/server/handlers/rdf/validation.rs:376"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R006",
@@ -172,52 +191,82 @@
     {
       "id": "EG-FEDERATED-QUERY-R008",
       "title": "Edge-native text and vector search with stable identity",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "0265d3a41baf",
+        "196ded575c8b",
+        "1ac87735b5a3",
+        "80c865971ea8",
         "834aca5df713"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-query/src/edge_index/tests.rs:180",
+        "crates/eg-query/src/edge_index/tests.rs:282",
+        "crates/eg-query/src/edge_index/tests.rs:431"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R009",
       "title": "Durable user-managed graph-index lifecycle",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "0265d3a41baf",
+        "196ded575c8b",
+        "20e0a4ec589a",
+        "80c865971ea8",
         "e99a95cc842d"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-query/src/edge_index/tests.rs:305",
+        "crates/eg-query/src/edge_index/tests.rs:365",
+        "crates/eg-query/src/edge_index/tests.rs:402",
+        "crates/eg-query/src/edge_index/tests/durability.rs:48",
+        "crates/eg-query/src/edge_index/tests/durability.rs:9"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R010",
       "title": "Tableau reasoning stays bounded on the shipped core schema",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "0265d3a41baf",
-        "57a12eb06632"
+        "196ded575c8b",
+        "20e0a4ec589a",
+        "57a12eb06632",
+        "80c865971ea8"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/graph_schema/world_model_tests.rs:117"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R011",
       "title": "EL+/RL reasoning is sound against the shipped ontology corpus",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "0265d3a41baf",
+        "196ded575c8b",
+        "20e0a4ec589a",
         "f17f47ab300f"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/graph_schema/compose.rs:825"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R012",
       "title": "Tableau honors AllDisjointClasses and core disjointness facts",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "0265d3a41baf",
-        "42aeb6436568"
+        "20e0a4ec589a",
+        "42aeb6436568",
+        "c3b87d31ac11"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-rdf/src/tableau/abox.rs:537",
+        "src/server/graph_schema/world_model_tests.rs:219"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R013",
@@ -225,6 +274,7 @@
       "delivery_state": "LANDED",
       "landed_in": [
         "0265d3a41baf",
+        "196ded575c8b",
         "a3e0c9984c67"
       ],
       "verified_by": []
@@ -232,12 +282,15 @@
     {
       "id": "EG-FEDERATED-QUERY-R014",
       "title": "Explicit grant-based sharing of a registered foreign source",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "0265d3a41baf",
-        "a1bb9fb9503e"
+        "a1bb9fb9503e",
+        "c3b87d31ac11"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/foreign_share.rs:178"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R015",
@@ -246,11 +299,13 @@
       "landed_in": [
         "0265d3a41baf",
         "0dea49929b94",
+        "196ded575c8b",
         "a1bb9fb9503e"
       ],
       "verified_by": [
         "crates/eg-query/src/sql/read_only.rs:52",
-        "crates/eg-query/src/sql/read_only.rs:84"
+        "crates/eg-query/src/sql/read_only.rs:84",
+        "src/server/obs/search.rs:362"
       ]
     },
     {
@@ -268,12 +323,17 @@
     {
       "id": "EG-FEDERATED-QUERY-R017",
       "title": "Dependency tracking covers edge-type and embedding generations",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "0265d3a41baf",
+        "0dea49929b94",
         "10177f908dd0"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-core/tests/dependency_scoped_edges.rs:132",
+        "crates/eg-core/tests/dependency_scoped_edges.rs:147",
+        "crates/eg-core/tests/dependency_scoped_edges.rs:221"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R018",
@@ -288,22 +348,29 @@
     {
       "id": "EG-FEDERATED-QUERY-R019",
       "title": "Per-bar signal-state advancement with revisable trend records",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "0265d3a41baf",
+        "0dea49929b94",
         "532418b7e55b"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-compute/src/finance/market/record_tests.rs:154",
+        "crates/eg-compute/src/finance/market/record_tests.rs:50"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R020",
       "title": "One query-text method surface, with the legacy method retired",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "0265d3a41baf",
-        "bd27155934dc"
+        "bd27155934dc",
+        "c3b87d31ac11"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-capabilities/tests/contract_registry.rs:220"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R021",
@@ -360,12 +427,16 @@
     {
       "id": "EG-FEDERATED-QUERY-R026",
       "title": "UQL documentation is test-verified with an embedded grammar",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "0265d3a41baf",
-        "7b9ba5708638"
+        "7b9ba5708638",
+        "c3b87d31ac11"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-plan/src/uql/tests/contract.rs:106",
+        "crates/eg-plan/src/uql/tests/contract.rs:131"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R027",
@@ -622,7 +693,7 @@
     {
       "id": "EG-FEDERATED-QUERY-R048",
       "title": "Join ordering across foreign sources uses learned, provenanced statistics",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "62c450561948",
         "f708d6e7728f"
@@ -635,11 +706,17 @@
     {
       "id": "EG-FEDERATED-QUERY-R048.1",
       "title": "Typed join-cardinality-statistic model with provenance",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "6c11520aebfc",
         "f708d6e7728f"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-plan/src/federation_stats.rs:166",
+        "crates/eg-plan/src/federation_stats.rs:174",
+        "crates/eg-plan/src/federation_stats.rs:185",
+        "crates/eg-plan/src/federation_stats.rs:209"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R049",
@@ -964,7 +1041,7 @@
     {
       "id": "EG-FEDERATED-QUERY-R072",
       "title": "The ontology selects the sources for a cross-source question",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "62c450561948",
         "f948211fb8c7"
@@ -977,16 +1054,23 @@
     {
       "id": "EG-FEDERATED-QUERY-R072.1",
       "title": "Typed model for cross-source coverage, proved against a fixture",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "6c11520aebfc",
         "f948211fb8c7"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-rdf/src/source_selection.rs:302",
+        "crates/eg-rdf/src/source_selection.rs:324",
+        "crates/eg-rdf/src/source_selection.rs:350",
+        "crates/eg-rdf/src/source_selection.rs:359",
+        "crates/eg-rdf/src/source_selection.rs:369"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R073",
       "title": "Operation-bound virtual mappings federate API, MCP, A2A and GraphQL sources",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "62c450561948",
         "bfd84b2ccbcb",
@@ -1000,11 +1084,17 @@
     {
       "id": "EG-FEDERATED-QUERY-R073.1",
       "title": "Typed model for operation-bound foreign sources, with refusal tests",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "6c11520aebfc",
         "bfd84b2ccbcb"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-plan/src/federation.rs:229",
+        "crates/eg-plan/src/federation.rs:249",
+        "crates/eg-plan/src/federation_opt/budget.rs:156",
+        "crates/eg-plan/src/federation_opt/budget.rs:173"
+      ]
     }
   ]
 }
