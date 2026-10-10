@@ -293,3 +293,37 @@ fn required(
     )
     .expect("resolves")
 }
+
+/// `MAX_ASSEMBLY_CANDIDATES` candidates fit the record's candidate scope;
+/// one more is refused -- with no partial write -- as `CandidateScopeTooLarge`
+/// rather than silently truncated, the moment the inputs are built, before
+/// any decision step ever reads them.
+// spec: EG-DECISION-ENGINE-R065
+#[test]
+fn candidate_scope_at_the_boundary_builds_one_more_is_refused() {
+    use eg_types::decision::{DecisionErrorCode, DecisionPolicy, MAX_ASSEMBLY_CANDIDATES};
+
+    let sorted_tools = |n: usize| -> Vec<eg_types::decision::CandidateFacts> {
+        (0..n)
+            .map(|i| tool(&format!("tool-{i:04}"), &["eg:capability/retrieval/web-search"], Some(1)))
+            .collect()
+    };
+    let at_boundary = super::super::inputs(
+        request(&[], &[]),
+        sorted_tools(MAX_ASSEMBLY_CANDIDATES),
+        Vec::new(),
+        DecisionPolicy::engine_default(),
+    );
+    assert!(
+        at_boundary.is_ok(),
+        "{MAX_ASSEMBLY_CANDIDATES} candidates must fit: {at_boundary:?}"
+    );
+    let over = super::super::inputs(
+        request(&[], &[]),
+        sorted_tools(MAX_ASSEMBLY_CANDIDATES + 1),
+        Vec::new(),
+        DecisionPolicy::engine_default(),
+    )
+    .expect_err("one candidate over the bound is refused, not truncated");
+    assert_eq!(over.code, DecisionErrorCode::CandidateScopeTooLarge);
+}

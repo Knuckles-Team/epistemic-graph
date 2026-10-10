@@ -577,6 +577,7 @@ fn view_names(h: &Harness, who: &str) -> Vec<String> {
 /// `decision_resolutions` relations every served SQL surface projects, and the UQL
 /// `DECISIONS` source — answer only from what the caller may read.
 #[cfg(feature = "query")]
+// spec: EG-DECISION-ENGINE-R064
 #[tokio::test]
 async fn decision_record_views_answer_only_from_visible_rows() {
     use super::retrieval_tests::sql;

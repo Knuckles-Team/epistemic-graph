@@ -807,6 +807,40 @@ fn sql_source_batch_validates_only_the_structured_batch() {
     ));
 }
 
+/// The row's "typed client wrappers... for the decide, decision-fit, and
+/// decision-eval calls together with their request and response types" half:
+/// each of the three methods generates its own typed `send_<method>`/
+/// `decode_<method>` pair (request validated against its typed params model
+/// on send, result decoded against its typed contract model on decode) in
+/// the domain module the method registry assigns it to. The row's other
+/// half -- documentation and usage examples -- is NOT generated anywhere in
+/// `docs/` for `Decide`; see verify-gaps.tsv.
+// spec: EG-DECISION-ENGINE-R063
+#[test]
+fn decide_fit_and_eval_each_generate_a_typed_client_wrapper() {
+    let catalog = Catalog::collect();
+    let query = generated_module(&catalog, "epistemic_graph/generated/query.py");
+    assert!(
+        query.contains("async def send_decide("),
+        "Decide must generate a typed send wrapper"
+    );
+    assert!(
+        query.contains("def decode_decide("),
+        "Decide must generate a typed decode wrapper"
+    );
+    let coordination = generated_module(&catalog, "epistemic_graph/generated/coordination.py");
+    for method in ["decision_fit", "decision_eval"] {
+        assert!(
+            coordination.contains(&format!("async def send_{method}(")),
+            "{method} must generate a typed send wrapper"
+        );
+        assert!(
+            coordination.contains(&format!("def decode_{method}(")),
+            "{method} must generate a typed decode wrapper"
+        );
+    }
+}
+
 /// ruff-isort's natural order: `_8` sorts before `_16` (it compares digit runs by
 /// value), and case never decides the order.
 #[test]

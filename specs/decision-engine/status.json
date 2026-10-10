@@ -1076,12 +1076,14 @@
     {
       "id": "EG-DECISION-ENGINE-R054",
       "title": "Statistical contract: Decide, DecisionFit, DecisionEval",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "2a0d6eae0918",
         "fa780d3e101a"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-capabilities/tests/invariants.rs:536"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R054.1",
@@ -1161,23 +1163,27 @@
     {
       "id": "EG-DECISION-ENGINE-R057",
       "title": "Decision executor with CandidateSource and DecideText",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "2a0d6eae0918",
         "fa780d3e101a"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/handlers/decide/stat_tests.rs:981"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R058",
       "title": "Graph-sourced decision records with RLS-routed reads",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "25cb8189575d",
         "bda8269797ab",
         "fa780d3e101a"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/handlers/decide/stat_tests.rs:1113"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R059",
@@ -1247,34 +1253,40 @@
     {
       "id": "EG-DECISION-ENGINE-R063",
       "title": "Typed client wrappers and documentation for Decide",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "1e9ea1ef3790",
         "25cb8189575d",
         "2a0d6eae0918"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-capabilities/src/contract/python/tests.rs:818"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R064",
       "title": "Optional read views of decision records",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "1e9ea1ef3790",
         "25cb8189575d",
         "857e20c63775"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/handlers/decide/stat_tests/consumer_tests.rs:580"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R065",
       "title": "Decision record size and shape limits",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "1e9ea1ef3790",
         "2a0d6eae0918"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-compute/src/assemble/tests/planted.rs:301"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R066",
