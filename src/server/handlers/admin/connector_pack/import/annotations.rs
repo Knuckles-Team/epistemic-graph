@@ -196,6 +196,8 @@ mod tests {
         );
     }
 
+    // spec: EG-TYPED-PACKS-R046
+    // spec: EG-TYPED-PACKS-R047
     #[test]
     fn cost_latency_and_model_facts_are_bounded() {
         let cost = |currency: &str, micros: u64| PackAnnotations {

@@ -522,20 +522,24 @@
     {
       "id": "EG-TYPED-PACKS-R046",
       "title": "Cost annotation on pack entries",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "db863f1e2afd"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/handlers/admin/connector_pack/import/annotations.rs:199"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R047",
       "title": "Latency annotation on pack entries",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "db863f1e2afd"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/handlers/admin/connector_pack/import/annotations.rs:200"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R048",
@@ -558,11 +562,14 @@
     {
       "id": "EG-TYPED-PACKS-R050",
       "title": "Per-entry contract_version replaces package-version pinning",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "db863f1e2afd"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/handlers/admin/connector_pack/tests/content_model.rs:100",
+        "src/server/handlers/admin/connector_pack/tests/content_model.rs:262"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R051",

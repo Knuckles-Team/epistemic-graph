@@ -97,6 +97,7 @@ async fn two_entries_minting_the_same_component_id_are_rejected() {
     );
 }
 
+// spec: EG-TYPED-PACKS-R050
 #[tokio::test]
 async fn a_package_release_with_identical_content_is_unchanged() {
     let served = Served::new();
@@ -258,6 +259,7 @@ async fn assert_server_contract_change_revises_pin(field: &str, value: &str) {
     );
 }
 
+// spec: EG-TYPED-PACKS-R050
 #[tokio::test]
 async fn a_server_contract_version_change_revises_its_pin() {
     assert_server_contract_change_revises_pin("contract_version", "2").await;
