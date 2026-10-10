@@ -118,6 +118,41 @@ async fn a_fully_logged_slate_splits_by_exact_shapley() {
     assert_eq!(report.components.as_slice()[0].component_id, "comp-a");
 }
 
+/// EG-DECISION-ENGINE-R012: slate `g-a`, `g-b` and `g-ab` are three separate
+/// questions (each its own committed decision record, independently
+/// evaluated) answered against the same shared assembly template (`slates`
+/// clones `v1::decided`'s record for every one of them). The slot-level
+/// crediting split aggregates consistently across all three: every
+/// component's contribution is reported under the slot name it actually
+/// filled in that shared template, not a per-question-local label.
+// spec: EG-DECISION-ENGINE-R012
+#[tokio::test]
+async fn slot_level_crediting_is_consistent_across_questions_sharing_one_template() {
+    let h = Harness::new().await;
+    slates(&h).await;
+    let report = split(&h, SlateAttributionMethod::Shapley).await.unwrap();
+    let credited: Vec<(&str, &str)> = report
+        .components
+        .iter()
+        .map(|c| (c.slot.as_str(), c.component_id.as_str()))
+        .collect();
+    assert_eq!(
+        credited,
+        [("slot-0", "comp-a"), ("slot-1", "comp-b")],
+        "{credited:?}"
+    );
+    // The same split, asked again for the same window, credits the same
+    // slots to the same components -- the aggregate is a pure function of
+    // the logged questions, not a one-shot answer that drifts per call.
+    let repeat = split(&h, SlateAttributionMethod::Shapley).await.unwrap();
+    let repeat_credited: Vec<(&str, &str)> = repeat
+        .components
+        .iter()
+        .map(|c| (c.slot.as_str(), c.component_id.as_str()))
+        .collect();
+    assert_eq!(credited, repeat_credited);
+}
+
 #[tokio::test]
 async fn an_unlogged_sub_slate_is_refused_but_the_declared_additive_split_answers() {
     let h = Harness::new().await;
