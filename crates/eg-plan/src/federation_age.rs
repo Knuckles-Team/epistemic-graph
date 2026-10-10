@@ -216,6 +216,7 @@ mod tests {
         }
     }
 
+    // spec: EG-DURABLE-KERNEL-R024.1
     #[test]
     fn bound_age_registration_probes_and_resolves_rows() {
         let reader: Arc<Reader> = Arc::new(|_, sql| {
@@ -245,6 +246,7 @@ mod tests {
         assert_eq!(rows.ids(), vec!["node\"1".to_string()]);
     }
 
+    // spec: EG-DURABLE-KERNEL-R024.1
     #[test]
     fn mismatched_binding_and_unbound_wire_are_refused() {
         let mut registry = ForeignSourceRegistry::new();
@@ -262,6 +264,7 @@ mod tests {
         assert!(crate::federation::source_for(&spec()).fetch().is_err());
     }
 
+    // spec: EG-DURABLE-KERNEL-R024.1
     #[test]
     fn dollar_delimiter_cannot_be_closed_by_cypher_text() {
         let mut spec = spec();
