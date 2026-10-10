@@ -2394,13 +2394,16 @@ mod tests {
     // spec: EG-TYPED-PACKS-R012
     #[test]
     fn pack_and_agent_layer_write_methods_are_the_local_only_five() {
+        // Only the mutating ops are LocalOnly: the capability policy is
+        // runtime-conditional, so Status/Current reads classify ReadOnly.
+        let ctx = eg_types::test_support::contract_wave::decision::mutation_context;
         let methods: [(&str, Method); 5] = [
             (
                 "ConnectorPack",
                 Method::ConnectorPack {
-                    op: Box::new(eg_types::connector_pack::ConnectorPackOp::Status {
-                        request: eg_types::connector_pack::ConnectorPackStatusRequest {
-                            tenant_id: "tenant-a".to_string(),
+                    op: Box::new(eg_types::connector_pack::ConnectorPackOp::Unbind {
+                        request: eg_types::connector_pack::ConnectorPackUnbindRequest {
+                            context: ctx(),
                             connector: eg_types::test_support::contract_wave::pack::connector(),
                         },
                     }),
@@ -2409,36 +2412,44 @@ mod tests {
             (
                 "AgentComponent",
                 Method::AgentComponent {
-                    op: eg_types::agent_component::AgentComponentOp::Current {
-                        tenant_id: "tenant-a".to_string(),
-                        component_id: "component-a".to_string(),
+                    op: eg_types::agent_component::AgentComponentOp::Retire {
+                        request: eg_types::agent_component::AgentComponentRetireRequest {
+                            context: ctx(),
+                            component_id: "component-a".to_string(),
+                        },
                     },
                 },
             ),
             (
                 "AgentGraph",
                 Method::AgentGraph {
-                    op: eg_types::agent_graph::AgentGraphOp::Current {
-                        tenant_id: "tenant-a".to_string(),
-                        graph_id: "graph-a".to_string(),
+                    op: eg_types::agent_graph::AgentGraphOp::Retire {
+                        request: eg_types::agent_graph::AgentGraphRetireRequest {
+                            context: ctx(),
+                            graph_id: "graph-a".to_string(),
+                        },
                     },
                 },
             ),
             (
                 "AgentLibrary",
                 Method::AgentLibrary {
-                    op: eg_types::agent_library::AgentLibraryOp::Current {
-                        tenant_id: "tenant-a".to_string(),
-                        agent_id: "agent-a".to_string(),
+                    op: eg_types::agent_library::AgentLibraryOp::Retire {
+                        request: eg_types::agent_library::AgentLibraryRetireRequest {
+                            context: ctx(),
+                            agent_id: "agent-a".to_string(),
+                        },
                     },
                 },
             ),
             (
                 "AgentTemplate",
                 Method::AgentTemplate {
-                    op: eg_types::agent_template::AgentTemplateOp::Current {
-                        tenant_id: "tenant-a".to_string(),
-                        template_id: "template-a".to_string(),
+                    op: eg_types::agent_template::AgentTemplateOp::Retire {
+                        request: eg_types::agent_template::AgentTemplateRetireRequest {
+                            context: ctx(),
+                            template_id: "template-a".to_string(),
+                        },
                     },
                 },
             ),
