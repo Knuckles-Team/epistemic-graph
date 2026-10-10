@@ -74,6 +74,7 @@ fn a_well_formed_fan_out_template_passes() {
     );
 }
 
+// spec: EG-DECISION-ENGINE-R108
 #[test]
 fn every_planted_shape_defect_is_refused_by_name() {
     type Plant = (&'static str, fn(&mut AgentGraphDraft));

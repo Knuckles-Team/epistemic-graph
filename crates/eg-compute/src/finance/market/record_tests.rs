@@ -294,6 +294,39 @@ fn warmup_thin_history_regime_drift_and_ambiguity_abstain() {
     assert_eq!(flip_confidence(&bad).unwrap_err().code, INVALID_REQUEST);
 }
 
+// spec: EG-DECISION-ENGINE-R103
+#[test]
+fn flip_confidence_is_evaluated_per_horizon_calibrated_or_abstaining_on_coverage_failure() {
+    let mixed: Vec<_> = (0..60).map(|i| sample(i, true, i % 2 == 0, 0)).collect();
+    for horizon_bars in [1u32, 5, 10, 20, 60] {
+        let mut calibrated = confidence(separated(), true);
+        calibrated.horizon_bars = horizon_bars;
+        match flip_confidence(&calibrated).unwrap() {
+            FlipConfidence::Calibrated {
+                horizon_bars: reported,
+                follows_through: true,
+                ..
+            } => assert_eq!(
+                reported, horizon_bars,
+                "calibrated claim echoes its horizon"
+            ),
+            other => panic!("horizon {horizon_bars}: expected a calibrated claim, got {other:?}"),
+        }
+
+        let mut ambiguous = confidence(mixed.clone(), true);
+        ambiguous.horizon_bars = horizon_bars;
+        match flip_confidence(&ambiguous).unwrap() {
+            FlipConfidence::Abstained {
+                horizon_bars: reported,
+                reason: FlipAbstainReason::AmbiguousSet,
+            } => assert_eq!(reported, horizon_bars, "abstention echoes its horizon"),
+            other => panic!(
+                "horizon {horizon_bars}: expected an ambiguous-set abstention when conformal coverage fails, got {other:?}"
+            ),
+        }
+    }
+}
+
 fn draft() -> BacktestRunDraft {
     let returns: Vec<f64> = (0..48)
         .map(|i| f64::from((i * 37 % 11) - 4) / 1_000.0)

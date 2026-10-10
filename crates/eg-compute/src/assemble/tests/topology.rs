@@ -113,6 +113,7 @@ fn demand_sizes_the_fan_out_and_the_plan_leases_it() {
 }
 
 // spec: EG-DECISION-ENGINE-R046
+// spec: EG-DECISION-ENGINE-R112
 #[test]
 fn headroom_below_demand_abstains_naming_the_cell_lease() {
     let assembly = decide(requirements(4), read(3, admitted()));
@@ -192,6 +193,7 @@ fn a_task_needing_an_independent_check_needs_a_verifier_slot() {
     assert_eq!(infeasible_labels(&assembly), vec!["verify".to_string()]);
 }
 
+// spec: EG-DECISION-ENGINE-R114
 #[test]
 fn a_harness_slot_gets_no_native_sub_agents_unless_its_harness_opts_in() {
     let mut topology = facts();

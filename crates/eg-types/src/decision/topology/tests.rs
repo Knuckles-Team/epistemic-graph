@@ -53,6 +53,7 @@ fn the_facts_digest_moves_with_every_fact() {
 
 /// A v1 record carries no topology key anywhere, so its bytes -- and every
 /// committed v1 digest -- are exactly what they were before topology existed.
+// spec: EG-DECISION-ENGINE-R107
 #[test]
 fn a_plain_record_serializes_no_topology_key_and_stays_at_base_version() {
     for outcome in wave::every_decision_outcome() {
@@ -64,6 +65,7 @@ fn a_plain_record_serializes_no_topology_key_and_stays_at_base_version() {
     }
 }
 
+// spec: EG-DECISION-ENGINE-R107
 #[test]
 fn a_topology_request_is_sealed_as_the_topology_version() {
     let mut record = wave::record(wave::every_decision_outcome().remove(1));

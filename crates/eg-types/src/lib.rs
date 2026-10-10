@@ -48,11 +48,20 @@ pub mod change_envelope;
 // MongoDB/DocumentDB source. Pure data; the native-driver connection and
 // change-stream capture are later children.
 pub mod document_source_catalog;
+// EG-UNIFIED-DATA-PLANE-R019.3.1 — typed conformance-entry constructor for the
+// MongoDB/DocumentDB adapter, over the generic R022.1 report entry. Pure
+// data; actually running the comparison is a later child.
+pub mod document_conformance;
 // EG-UNIFIED-DATA-PLANE-R020.1 — typed federated warehouse/lake source-kind
 // model (Snowflake, BigQuery, DuckDB, Iceberg) and its per-kind required-field
 // refusal. Pure data; query pushdown and the conformance entry are later
 // children.
 pub mod warehouse_federation;
+// EG-UNIFIED-DATA-PLANE-R020.3.1 — typed conformance-entry constructor for the
+// Snowflake/BigQuery/DuckDB/Iceberg warehouse adapters, over the generic
+// R022.1 report entry. Pure data; actually running the comparison is a later
+// child.
+pub mod warehouse_conformance;
 // EG-UNIFIED-DATA-PLANE-R021.1 — typed Debezium Kafka change-event envelope
 // shape and its op-code/before-after refusal rules. Pure data; the Kafka
 // consumer and the real ChangeEnvelope conversion are later children.
@@ -61,11 +70,27 @@ pub mod debezium_bridge;
 // and deviation shape, refusing an auto-suppressed (unreviewed) deviation.
 // Pure data; running the containerized matrix is a later child.
 pub mod dialect_conformance;
+// EG-UNIFIED-DATA-PLANE-R022.3.1 — pure comparison of a change-capture
+// replay's resulting row state against a source snapshot, building a
+// `dialect_conformance::DialectConformanceEntry`. No live replay stream or
+// source connection; running the comparison against a real replay is a
+// later child.
+pub mod replay_conformance;
 // EG-UNIFIED-DATA-PLANE-R023.1 — typed shared CloudNativePG/MariaDB cluster
 // group and per-application role-set shape, refusing a Postgres group
 // without logical wal_level and an aliased application role. Pure data;
 // operator wiring, PITR scheduling and the restore drill are later children.
 pub mod shared_db_platform;
+// EG-UNIFIED-DATA-PLANE-R023.2.1 — typed PITR schedule contract to object
+// storage, refusing an archiving mode mismatched to its engine, zero
+// retention, or a blank cron/destination. No operator wired; installing the
+// real schedule is a later child.
+pub mod pitr_schedule;
+// EG-UNIFIED-DATA-PLANE-R023.3.1 — typed restore-drill result, refusing a
+// `data_matched` flag that disagrees with the actual pre/post-restore
+// digest comparison. No restore is run yet; automating the real drill is a
+// later child.
+pub mod restore_drill;
 // EG-UNIFIED-DATA-PLANE-R024.1 — typed one-at-a-time application admission
 // stage machine, refusing to retire an ingest connector before parity is
 // confirmed. Pure data; the admission runner, rollback path, and the
