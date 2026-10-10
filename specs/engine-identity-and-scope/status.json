@@ -45,6 +45,7 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "63488a50eefc",
+        "6c11520aebfc",
         "a2cbfc473ba2"
       ],
       "verified_by": [
@@ -59,7 +60,8 @@
       "title": "Semantic workers use one identity across queue classes",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "62bec8a1ae94"
+        "62bec8a1ae94",
+        "6c11520aebfc"
       ],
       "verified_by": [
         "src/server/semantic_index/dispatch_pipeline_tests.rs:600"

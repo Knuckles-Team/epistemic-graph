@@ -692,6 +692,7 @@
       "title": "Typed join-cardinality-statistic model with provenance",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "6c11520aebfc",
         "f708d6e7728f"
       ],
       "verified_by": [
@@ -1039,6 +1040,7 @@
       "title": "Typed model for cross-source coverage, proved against a fixture",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "6c11520aebfc",
         "f948211fb8c7"
       ],
       "verified_by": [
@@ -1068,6 +1070,7 @@
       "title": "Typed model for operation-bound foreign sources, with refusal tests",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "6c11520aebfc",
         "bfd84b2ccbcb"
       ],
       "verified_by": [

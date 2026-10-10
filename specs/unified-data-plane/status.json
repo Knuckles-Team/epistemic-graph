@@ -570,7 +570,8 @@
       "title": "`SqliteSourceCatalog` is a typed catalog model with a WITHOUT-ROWID capture-safety refusal",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "37003f28164f"
+        "37003f28164f",
+        "6c11520aebfc"
       ],
       "verified_by": [
         "crates/eg-types/src/sqlite_attached_catalog.rs:130",
@@ -629,7 +630,8 @@
       "title": "`MssqlSourceCatalog` is a typed catalog model with a bracket-quoting identifier refusal",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "37003f28164f"
+        "37003f28164f",
+        "6c11520aebfc"
       ],
       "verified_by": [
         "crates/eg-types/src/mssql_attached_catalog.rs:119",
@@ -688,7 +690,8 @@
       "title": "`ClickHouseSourceCatalog` is a typed catalog model whose capture capability is always explicit",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "37003f28164f"
+        "37003f28164f",
+        "6c11520aebfc"
       ],
       "verified_by": [
         "crates/eg-types/src/clickhouse_attached_catalog.rs:142",
@@ -751,6 +754,7 @@
       "title": "`RelationalSourceCatalog` is a typed Oracle/Db2 catalog model with identifier and Debezium-capture refusals",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "6c11520aebfc",
         "eb058c53407e"
       ],
       "verified_by": [
@@ -807,7 +811,8 @@
       "title": "`DocumentSourceCatalog` is a typed inferred-shape model with a refusal for a malformed field path",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "211962e9c846"
+        "211962e9c846",
+        "6c11520aebfc"
       ],
       "verified_by": [
         "crates/eg-types/src/document_source_catalog.rs:108",
@@ -897,6 +902,7 @@
       "title": "`WarehouseSourceKind`/`WarehouseSourceConfig` are a closed source-kind vocabulary with a per-kind required-field refusal",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "6c11520aebfc",
         "74870676b1cc"
       ],
       "verified_by": [
@@ -992,6 +998,7 @@
       "title": "`DebeziumChangeEvent` is a typed envelope shape with an op-code and before/after refusal",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "6c11520aebfc",
         "9cb571fb74aa"
       ],
       "verified_by": [
@@ -1044,7 +1051,8 @@
       "title": "`DialectConformanceEntry`/`ConformanceReport` are a typed per-engine-version result with a refusal for an auto-suppressed deviation",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "23769c3ec0f9"
+        "23769c3ec0f9",
+        "6c11520aebfc"
       ],
       "verified_by": [
         "crates/eg-types/src/dialect_conformance.rs:121",
@@ -1112,7 +1120,8 @@
       "title": "`SharedPlatformClusterGroup` is a typed cluster-group and role-set model with engine-specific refusals",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "03439e243c80"
+        "03439e243c80",
+        "6c11520aebfc"
       ],
       "verified_by": [
         "crates/eg-types/src/shared_db_platform.rs:138",
@@ -1207,7 +1216,8 @@
       "title": "`ApplicationAdmission` is a typed stage machine refusing early connector retirement",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "1b3cc2f03fa2"
+        "1b3cc2f03fa2",
+        "6c11520aebfc"
       ],
       "verified_by": [
         "crates/eg-types/src/platform_admission.rs:232",
@@ -1284,6 +1294,7 @@
       "title": "`PgrxSpikeDecision` is a typed decision record refusing an outcome without full-scope evidence",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "6c11520aebfc",
         "e265a52820f5"
       ],
       "verified_by": [
@@ -1372,6 +1383,7 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "30af64b172d4",
+        "6c11520aebfc",
         "9a7674d1bae5",
         "eb058c53407e"
       ],
@@ -1452,7 +1464,7 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R027",
       "title": "Fix Postgres compatibility gaps proven by captured traffic",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "5873d340b4de"
       ],
@@ -1468,14 +1480,15 @@
       "title": "`FeatureFixRecord` is a typed inventory entry refusing a fix without complete captured-traffic/test proof",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "5873d340b4de"
+        "5873d340b4de",
+        "6c11520aebfc"
       ],
       "verified_by": [
-        "crates/eg-types/src/pg_compat_feature.rs:112",
-        "crates/eg-types/src/pg_compat_feature.rs:123",
-        "crates/eg-types/src/pg_compat_feature.rs:134",
-        "crates/eg-types/src/pg_compat_feature.rs:147",
-        "crates/eg-types/src/pg_compat_feature.rs:159"
+        "crates/eg-types/src/pg_compat_feature.rs:193",
+        "crates/eg-types/src/pg_compat_feature.rs:204",
+        "crates/eg-types/src/pg_compat_feature.rs:215",
+        "crates/eg-types/src/pg_compat_feature.rs:228",
+        "crates/eg-types/src/pg_compat_feature.rs:240"
       ]
     },
     {
@@ -1498,9 +1511,9 @@
         "e8b99c7db914"
       ],
       "verified_by": [
-        "crates/eg-types/src/pg_compat_feature.rs:257",
-        "crates/eg-types/src/pg_compat_feature.rs:267",
-        "crates/eg-types/src/pg_compat_feature.rs:275"
+        "crates/eg-types/src/pg_compat_feature.rs:262",
+        "crates/eg-types/src/pg_compat_feature.rs:272",
+        "crates/eg-types/src/pg_compat_feature.rs:280"
       ]
     },
     {
@@ -1523,8 +1536,8 @@
         "e8b99c7db914"
       ],
       "verified_by": [
-        "crates/eg-types/src/pg_compat_feature.rs:290",
-        "crates/eg-types/src/pg_compat_feature.rs:306"
+        "crates/eg-types/src/pg_compat_feature.rs:295",
+        "crates/eg-types/src/pg_compat_feature.rs:311"
       ]
     },
     {
@@ -1546,14 +1559,15 @@
       "title": "`DeviationBaseline::reconcile` refuses a baseline update that drops a deviation without an explicit resolution",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "2f94e96c5129"
+        "2f94e96c5129",
+        "6c11520aebfc"
       ],
       "verified_by": [
-        "crates/eg-types/src/pg_diff_baseline.rs:110",
-        "crates/eg-types/src/pg_diff_baseline.rs:118",
-        "crates/eg-types/src/pg_diff_baseline.rs:126",
-        "crates/eg-types/src/pg_diff_baseline.rs:135",
-        "crates/eg-types/src/pg_diff_baseline.rs:146"
+        "crates/eg-types/src/pg_diff_baseline.rs:141",
+        "crates/eg-types/src/pg_diff_baseline.rs:149",
+        "crates/eg-types/src/pg_diff_baseline.rs:157",
+        "crates/eg-types/src/pg_diff_baseline.rs:166",
+        "crates/eg-types/src/pg_diff_baseline.rs:177"
       ]
     },
     {
@@ -1576,9 +1590,9 @@
         "e8b99c7db914"
       ],
       "verified_by": [
-        "crates/eg-types/src/pg_diff_baseline.rs:204",
-        "crates/eg-types/src/pg_diff_baseline.rs:227",
-        "crates/eg-types/src/pg_diff_baseline.rs:239"
+        "crates/eg-types/src/pg_diff_baseline.rs:210",
+        "crates/eg-types/src/pg_diff_baseline.rs:233",
+        "crates/eg-types/src/pg_diff_baseline.rs:245"
       ]
     },
     {
@@ -1591,7 +1605,7 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R029",
       "title": "Expose a schema_context query surface",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "d9b702c9e7e2"
       ],
@@ -1606,13 +1620,14 @@
       "title": "`SchemaContextCatalog::schema_context` is a typed answer lookup refusing an unknown table",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "6c11520aebfc",
         "d9b702c9e7e2"
       ],
       "verified_by": [
-        "crates/eg-types/src/schema_context.rs:102",
-        "crates/eg-types/src/schema_context.rs:109",
-        "crates/eg-types/src/schema_context.rs:85",
-        "crates/eg-types/src/schema_context.rs:95"
+        "crates/eg-types/src/schema_context.rs:146",
+        "crates/eg-types/src/schema_context.rs:156",
+        "crates/eg-types/src/schema_context.rs:163",
+        "crates/eg-types/src/schema_context.rs:170"
       ]
     },
     {
@@ -1624,8 +1639,8 @@
         "efcab03c2fa8"
       ],
       "verified_by": [
-        "crates/eg-types/src/schema_context.rs:175",
-        "crates/eg-types/src/schema_context.rs:199"
+        "crates/eg-types/src/schema_context.rs:179",
+        "crates/eg-types/src/schema_context.rs:203"
       ]
     },
     {
@@ -1647,7 +1662,8 @@
       "title": "`EntityLinkProposal::assert_same_as` refuses an unapproved or non-Match candidate",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "648e9b47f700"
+        "648e9b47f700",
+        "6c11520aebfc"
       ],
       "verified_by": [
         "crates/eg-types/src/entity_link_proposal.rs:109",
@@ -1687,6 +1703,7 @@
       "title": "`ApplicationAdmission`/`ConsolidationIsolationRegistry` are a typed admission model with identity and quota refusals",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "6c11520aebfc",
         "eb058c53407e"
       ],
       "verified_by": [
@@ -1720,6 +1737,7 @@
       "title": "`ImmichPilotProgress` is a typed phase gate (I0-I6) with exit-artifact and skip-ahead refusals",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "6c11520aebfc",
         "eb058c53407e"
       ],
       "verified_by": [
@@ -1755,6 +1773,7 @@
       "title": "`GrampsCutoverGoAhead` is a typed go-ahead model gated on a valid P5 exit and a 30-day fallback window",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "6c11520aebfc",
         "9a7674d1bae5"
       ],
       "verified_by": [
@@ -1800,7 +1819,8 @@
       "title": "Derive HealthAnomaly and Incident facts with conformance checking",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "155bd9b55e81"
+        "155bd9b55e81",
+        "6c11520aebfc"
       ],
       "verified_by": [
         "crates/eg-stream/src/telemetry/tests/derive.rs:108",
