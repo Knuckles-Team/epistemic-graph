@@ -2,7 +2,7 @@
   "schema_version": 2,
   "spec_id": "EG-DURABLE-KERNEL",
   "owner_repo": "epistemic-graph",
-  "delivery_state": "LANDED",
+  "delivery_state": "SPECIFIED",
   "requirement_ids": [
     "EG-DURABLE-KERNEL-R001",
     "EG-DURABLE-KERNEL-R002",
@@ -96,6 +96,8 @@
     "EG-DURABLE-KERNEL-R061",
     "EG-DURABLE-KERNEL-R062",
     "EG-DURABLE-KERNEL-R063",
+    "EG-DURABLE-KERNEL-R063.1",
+    "EG-DURABLE-KERNEL-R063.2",
     "EG-DURABLE-KERNEL-R064",
     "EG-DURABLE-KERNEL-R065",
     "EG-DURABLE-KERNEL-R066",
@@ -1315,11 +1317,29 @@
     },
     {
       "id": "EG-DURABLE-KERNEL-R063",
-      "title": "Version-2 control-state rows are lifted losslessly on read",
-      "delivery_state": "LANDED",
+      "title": "Version-2 control-state rows are lifted losslessly on read (rollup)",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "f17f47ab300f"
       ],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DURABLE-KERNEL-R063.1",
+        "EG-DURABLE-KERNEL-R063.2"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R063.1",
+      "title": "Schema-version fields exist and mismatches are refused, not lifted",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R063.2",
+      "title": "Remaining scope: lossless lift-on-read for version-2 control-state rows",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {
