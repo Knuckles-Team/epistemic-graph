@@ -48,7 +48,9 @@
 - [x] **EG-UNIFIED-DATA-PLANE-R022:** Build native-source differential and CDC replay conformance harness; depends on EG-UNIFIED-DATA-PLANE-R002.
 - [x] **EG-UNIFIED-DATA-PLANE-R022.1:** `DialectConformanceEntry`/`ConformanceReport` typed model plus auto-suppression refusal (`crates/eg-types/src/dialect_conformance.rs`).
 - [ ] **EG-UNIFIED-DATA-PLANE-R022.2:** Containerized matrix runner per adapter/engine version.
-- [ ] **EG-UNIFIED-DATA-PLANE-R022.3:** Change-capture replay comparison against a source snapshot.
+- [ ] **EG-UNIFIED-DATA-PLANE-R022.3 (rollup):** Change-capture replay comparison against a source snapshot.
+  - [x] **EG-UNIFIED-DATA-PLANE-R022.3.1:** `compare_replay_to_snapshot` pure comparison and conformance-entry construction (`crates/eg-types/src/replay_conformance.rs`).
+  - [ ] **EG-UNIFIED-DATA-PLANE-R022.3.2:** Live comparison against a real replay stream and source snapshot.
 - [x] **EG-UNIFIED-DATA-PLANE-R013:** Postgres catalog/query/pgoutput/type adapter; depends on EG-UNIFIED-DATA-PLANE-R002.
 - [x] **EG-UNIFIED-DATA-PLANE-R014:** Separate MySQL and MariaDB query/catalog/binlog/type entries; depends on EG-UNIFIED-DATA-PLANE-R002.
 - [x] **EG-UNIFIED-DATA-PLANE-R014.1:** Add the typed `SqlEngineKind`/`SqlEngineCaptureSupport`/`SqlEngineDialectEntry` model (`crates/eg-types/src/attached_source_dialect.rs`) proving MySQL and MariaDB stay separate, explicitly declared dialect entries, with refusal tests for a missing version floor and an unreviewed type-map revision. The driver, rendering, catalog reader and binlog capture parts are `EG-UNIFIED-DATA-PLANE-R014.2`+ (not in scope for this slice; depend on `EG-UNIFIED-DATA-PLANE-R002`). Test: `crates/eg-types/src/attached_source_dialect.rs::tests::mysql_and_mariadb_are_distinct_entries`.
@@ -85,8 +87,12 @@
 
 - [x] **EG-UNIFIED-DATA-PLANE-R023:** Build shared CloudNativePG and MariaDB platform with per-app roles, PITR and restore drill.
 - [x] **EG-UNIFIED-DATA-PLANE-R023.1:** `SharedPlatformClusterGroup`/`ApplicationRoleSet` typed model plus engine-specific refusal (`crates/eg-types/src/shared_db_platform.rs`).
-- [ ] **EG-UNIFIED-DATA-PLANE-R023.2:** CloudNativePG/MariaDB operator wiring and PITR schedule to object storage.
-- [ ] **EG-UNIFIED-DATA-PLANE-R023.3:** Restore-drill automation and post-restore data-match verification.
+- [ ] **EG-UNIFIED-DATA-PLANE-R023.2 (rollup):** CloudNativePG/MariaDB operator wiring and PITR schedule to object storage.
+  - [x] **EG-UNIFIED-DATA-PLANE-R023.2.1:** `PitrSchedule` typed schedule contract plus engine/archiving-mode refusal (`crates/eg-types/src/pitr_schedule.rs`).
+  - [ ] **EG-UNIFIED-DATA-PLANE-R023.2.2:** Live operator CRD wiring and schedule installation.
+- [ ] **EG-UNIFIED-DATA-PLANE-R023.3 (rollup):** Restore-drill automation and post-restore data-match verification.
+  - [x] **EG-UNIFIED-DATA-PLANE-R023.3.1:** `RestoreDrillResult` typed drill-result contract plus digest-agreement refusal (`crates/eg-types/src/restore_drill.rs`).
+  - [ ] **EG-UNIFIED-DATA-PLANE-R023.3.2:** Live restore-drill automation and digest capture.
 - [x] **EG-UNIFIED-DATA-PLANE-R024:** Admit three apps including MariaDB with rollback and retire each ingest connector only after parity; depends on EG-UNIFIED-DATA-PLANE-R023.
 - [x] **EG-UNIFIED-DATA-PLANE-R024.1:** `ApplicationAdmission` typed stage machine plus early-retirement refusal (`crates/eg-types/src/platform_admission.rs`).
 - [ ] **EG-UNIFIED-DATA-PLANE-R024.2:** Admission runner and tested rollback path per candidate application.
