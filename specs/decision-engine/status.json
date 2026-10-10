@@ -782,7 +782,7 @@
         "fa780d3e101a"
       ],
       "verified_by": [
-        "src/server/handlers/decide/stat_tests/consumer_tests.rs:407"
+        "src/server/handlers/decide/stat_tests/consumer_tests.rs:408"
       ]
     },
     {
@@ -854,7 +854,9 @@
       "title": "Routing abstains naming the fact when L5 accounting data is missing",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "src/server/handlers/decide/stat_tests/consumer_tests.rs:275"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R039.2",
@@ -886,7 +888,7 @@
         "fa780d3e101a"
       ],
       "verified_by": [
-        "src/server/handlers/decide/stat_tests/connector_triage_tests.rs:24"
+        "src/server/handlers/decide/stat_tests/connector_triage_tests.rs:25"
       ],
       "rollup_of": [
         "EG-DECISION-ENGINE-R041.1"
@@ -897,7 +899,9 @@
       "title": "Connector-event evaluate-only triage path with sampled audit logging",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "src/server/handlers/decide/stat_tests/connector_triage_tests.rs:24"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R042",
@@ -1342,7 +1346,7 @@
         "8d4f409785b2"
       ],
       "verified_by": [
-        "src/server/handlers/decide/stat_tests/consumer_tests.rs:580"
+        "src/server/handlers/decide/stat_tests/consumer_tests.rs:581"
       ]
     },
     {

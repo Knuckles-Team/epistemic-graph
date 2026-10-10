@@ -272,6 +272,7 @@ async fn a_logged_abstention_takes_a_resolution_of_its_resolver_class() {
 /// EH-039: cost-aware routing reads observed L5 cost; with no L5 accounting
 /// store no option carries it, and the decision abstains NAMING the missing
 /// fact instead of reading it as zero.
+// spec: EG-DECISION-ENGINE-R039.1
 #[tokio::test]
 async fn cost_routing_without_l5_accounting_abstains_naming_the_fact() {
     let h = Harness::new().await;
