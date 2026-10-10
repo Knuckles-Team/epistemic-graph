@@ -439,6 +439,7 @@ fn look_ahead_fills_and_missing_outputs_are_refused() {
 /// This fails on the pre-fix code, which passed the raw (and here,
 /// deliberately too-short) in-sample/out-of-sample arrays straight into the
 /// PBO kernel instead of deriving them from `purged_cpcv_splits`.
+// spec: EG-FINANCE-PRIMITIVES-R003
 #[test]
 fn pbo_uses_all_cpcv_splits_from_the_records_performance() {
     let skilled = seal(&draft()).unwrap();

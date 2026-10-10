@@ -77,17 +77,20 @@ pub fn admit_finance_record_version(
 mod finance_record_version_tests {
     use super::*;
 
+    // spec: EG-FINANCE-PRIMITIVES-R004.3.1
     #[test]
     fn the_current_schema_version_is_admitted() {
         assert!(admit_finance_record_version(FINANCE_V1_SCHEMA_VERSION).is_ok());
     }
 
+    // spec: EG-FINANCE-PRIMITIVES-R004.3.1
     #[test]
     fn an_unknown_schema_version_is_refused() {
         let refusal = admit_finance_record_version("finance-v0").unwrap_err();
         assert!(refusal.reason.contains("finance-v0"));
     }
 
+    // spec: EG-FINANCE-PRIMITIVES-R004.3.1
     #[test]
     fn an_empty_schema_version_is_refused() {
         assert!(admit_finance_record_version("").is_err());
