@@ -423,6 +423,7 @@ fn r003_2_a_different_root_is_not_blocked_by_an_unrelated_claim() {
 // EG-REPO-INGEST-R003.3 — quantum processing is claimed through EG's own
 // typed interface rather than left to its retiring legacy module.
 
+// spec: EG-REPO-INGEST-R003.3
 #[test]
 fn r003_3_quantum_processing_round_trips_through_the_typed_root() {
     let root = MigratedIngestionCapabilityRoot::QuantumProcessing;
@@ -458,6 +459,7 @@ fn r003_3_a_different_root_is_not_blocked_by_an_unrelated_claim() {
 // EG-REPO-INGEST-R003.4 — security processing is claimed through EG's own
 // typed interface rather than left to its retiring legacy module.
 
+// spec: EG-REPO-INGEST-R003.4
 #[test]
 fn r003_4_security_processing_round_trips_through_the_typed_root() {
     let root = MigratedIngestionCapabilityRoot::SecurityProcessing;
@@ -493,6 +495,7 @@ fn r003_4_a_different_root_is_not_blocked_by_an_unrelated_claim() {
 // EG-REPO-INGEST-R003.5 — enterprise protocol handling is claimed through
 // EG's own typed interface rather than left to its retiring legacy module.
 
+// spec: EG-REPO-INGEST-R003.5
 #[test]
 fn r003_5_enterprise_protocol_handling_round_trips_through_the_typed_root() {
     let root = MigratedIngestionCapabilityRoot::EnterpriseProtocolHandling;
