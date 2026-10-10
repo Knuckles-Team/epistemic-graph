@@ -183,6 +183,43 @@ fn both_declared_sql_predecessors_upgrade_once_and_preserve_rows() {
     }
 }
 
+/// An SQL-layout file whose owner-manifest generation is NOT one of the
+/// predecessors the shared owner-manifest lineage declares (a stale/foreign
+/// binding) is refused both by the one shared classification that governs
+/// every owner's open-refusal and upgrade-routing decision, AND by the SQL
+/// offline upgrade's own inspection -- proving the SQL store has no separate
+/// admission path beyond what that one shared lineage check declares.
+// spec: EG-DURABLE-KERNEL-R045
+#[test]
+fn an_undeclared_sql_predecessor_is_refused_by_the_shared_lineage_check() {
+    let _serial = redb_files();
+    const SQL_UNDECLARED_GENERATION: crate::owner::persisted_layout::LayoutPredecessor =
+        crate::owner::persisted_layout::LayoutPredecessor {
+            layout: OwnerLayout::Sql,
+            label: "SQL generation that no lineage declares",
+            owner_tables: &["__nonexistent_sql_owner_table__"],
+            data_lost: "nothing is known about it",
+            file_name: "sql.redb",
+        };
+    let directory = private_local_tempdir();
+    let path = directory.path().join("sql.redb");
+    create_predecessor_owner_file(&path, identity(), &SQL_UNDECLARED_GENERATION).unwrap();
+
+    assert!(
+        matches!(
+            crate::owner::offline_upgrade::classify_owner_store_format(&path),
+            Ok(crate::owner::offline_upgrade::OwnerStoreFormat::Unknown(
+                OwnerLayout::Sql
+            ))
+        ),
+        "the shared classification must not treat an undeclared generation as upgradable"
+    );
+    assert!(
+        inspect_sql_source_checkpoint_upgrade(&path, identity(), None, options(&path)).is_err(),
+        "the SQL offline upgrade must not admit a predecessor the shared lineage never declared"
+    );
+}
+
 #[test]
 fn mismatched_census_is_rejected_without_changing_the_file() {
     let _serial = redb_files();

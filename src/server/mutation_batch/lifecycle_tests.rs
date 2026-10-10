@@ -234,6 +234,102 @@ async fn delete_lifecycle_replay_keeps_one_stable_receipt() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
+/// Deleting a graph purges the receipts of its prior incarnation, so recreating
+/// a graph under the same name with the SAME CreateGraph idempotency key (and
+/// so the same deterministic batch id) as the now-deleted incarnation commits
+/// fresh rather than replaying the purged, stale outcome.
+// spec: EG-DURABLE-KERNEL-R049
+#[cfg(feature = "redb")]
+#[tokio::test(flavor = "multi_thread")]
+async fn delete_purges_receipts_of_a_prior_incarnation() {
+    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    let dir = crate::test_support::temp_dir("eg-lifecycle-replay", "purge-incarnation");
+    let graph = "lifecycle-reincarnated";
+    let principal = Some("principal:lifecycle-test");
+    let create_method = || Method::CreateGraph {
+        graph_name: graph.to_string(),
+        graph_type: GraphType::Global,
+    };
+    let create_result = ResultPayload::Json(serde_json::json!({"created": graph}));
+
+    let persistence = open_backend(&dir);
+    let first_create = commit_lifecycle(
+        LifecycleCommitRequest::new(
+            &persistence,
+            "create",
+            crate::server::mutation_batch::CommitOrigin {
+                request_id: 1,
+                principal,
+            },
+            "reused-create-key",
+            graph,
+            create_method(),
+            &create_result,
+        )
+        .with_attempt_nonce(Some(Nonce::from_bytes([11; 32])))
+        .with_tenant_scope(TENANT),
+    )
+    .await
+    .expect("first incarnation creates");
+    assert!(!first_create.replayed);
+
+    let delete_result = ResultPayload::Json(serde_json::json!({"deleted": graph}));
+    commit_lifecycle(
+        LifecycleCommitRequest::new(
+            &persistence,
+            "delete",
+            crate::server::mutation_batch::CommitOrigin {
+                request_id: 2,
+                principal,
+            },
+            "delete-key",
+            graph,
+            Method::DeleteGraph {
+                graph_name: graph.to_string(),
+            },
+            &delete_result,
+        )
+        .with_attempt_nonce(Some(Nonce::from_bytes([12; 32])))
+        .with_tenant_scope(TENANT),
+    )
+    .await
+    .expect("delete retires the first incarnation");
+
+    // The SAME idempotency key, action, graph and principal that named the
+    // first incarnation's CreateGraph must NOT replay its now-purged receipt:
+    // the second incarnation commits as a fresh batch with its own outcome.
+    let second_create = commit_lifecycle(
+        LifecycleCommitRequest::new(
+            &persistence,
+            "create",
+            crate::server::mutation_batch::CommitOrigin {
+                request_id: 3,
+                principal,
+            },
+            "reused-create-key",
+            graph,
+            create_method(),
+            &create_result,
+        )
+        .with_attempt_nonce(Some(Nonce::from_bytes([13; 32])))
+        .with_tenant_scope(TENANT),
+    )
+    .await
+    .expect("second incarnation creates fresh, not a stale replay");
+    assert!(
+        !second_create.replayed,
+        "the purged prior incarnation's receipt must not be replayed into the new incarnation"
+    );
+    assert_eq!(
+        second_create.record.batch.batch_id, first_create.record.batch.batch_id,
+        "the batch id is deterministic from action/tenant/graph/principal/key, reused across incarnations"
+    );
+
+    persistence.shutdown();
+    drop(persistence);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
 /// EH-375: graph names are global and a verified agent id is not tenant-qualified, so
 /// the lifecycle batch id must include the verified tenant. Same agent id, same
 /// idempotency key, same graph name, different tenants: tenant B's retry probe must

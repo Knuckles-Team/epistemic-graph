@@ -2305,6 +2305,7 @@ fn two_topics_retry_exhaustion_preserves_other_topic_attempts_and_progress() {
     assert_eq!(outbox_status(&read, "class-b", 120).unwrap().pending, 0);
 }
 
+// spec: EG-DURABLE-KERNEL-R052
 #[test]
 fn two_topics_reject_restart_and_rewind_preserve_independent_replay() {
     let dir = tempfile::tempdir().unwrap();
