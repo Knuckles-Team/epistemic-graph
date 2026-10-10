@@ -14,6 +14,8 @@
 
 use std::fmt;
 
+use super::statistical::head::HeadKind;
+
 /// The two statistical heads the decision ladder may fit. There is
 /// deliberately no third arm: adding one for a generative model would be a
 /// visible, reviewable diff to this enum rather than a silent capability.
@@ -55,6 +57,28 @@ impl StatisticalHeadKind {
             }),
         }
     }
+
+    /// The production `HeadKind` this closed name corresponds to.
+    pub fn to_head_kind(self) -> HeadKind {
+        match self {
+            Self::WeightedFeatures => HeadKind::WeightedFeatures,
+            Self::ListwiseLogistic => HeadKind::ListwiseLogistic,
+        }
+    }
+
+    /// Whether `kind` is one of this closed set's two members -- the
+    /// ladder's head registry routed through the same name space
+    /// [`Self::parse`] validates, rather than compared ad hoc. The resident
+    /// option-attention scorer head is a real fitted head but is not a
+    /// member of this narrower closed set, so it maps to `None` rather than
+    /// being silently folded into one of the two arms.
+    pub fn from_head_kind(kind: HeadKind) -> Option<Self> {
+        match kind {
+            HeadKind::WeightedFeatures => Some(Self::WeightedFeatures),
+            HeadKind::ListwiseLogistic => Some(Self::ListwiseLogistic),
+            HeadKind::OptionAttention => None,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -88,5 +112,26 @@ mod tests {
     #[test]
     fn refuses_an_unknown_name() {
         assert!(StatisticalHeadKind::parse("kolmogorov_arnold").is_err());
+    }
+
+    // spec: EG-DECISION-ENGINE-R015.2.1
+    #[test]
+    fn wires_the_production_head_kind_through_the_closed_registry() {
+        assert_eq!(
+            StatisticalHeadKind::from_head_kind(HeadKind::WeightedFeatures),
+            Some(StatisticalHeadKind::WeightedFeatures)
+        );
+        assert_eq!(
+            StatisticalHeadKind::from_head_kind(HeadKind::ListwiseLogistic),
+            Some(StatisticalHeadKind::ListwiseLogistic)
+        );
+        assert_eq!(
+            StatisticalHeadKind::from_head_kind(HeadKind::OptionAttention),
+            None
+        );
+        assert_eq!(
+            StatisticalHeadKind::WeightedFeatures.to_head_kind(),
+            HeadKind::WeightedFeatures
+        );
     }
 }
