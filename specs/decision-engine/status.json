@@ -443,7 +443,7 @@
       ],
       "verified_by": [
         "crates/eg-compute/src/assemble/tests/planted.rs:43",
-        "crates/eg-compute/src/assemble/tests/topology.rs:142"
+        "crates/eg-compute/src/assemble/tests/topology.rs:143"
       ]
     },
     {
@@ -1750,7 +1750,7 @@
     {
       "id": "EG-DECISION-ENGINE-R102",
       "title": "Schema repair proposals pass a decided mapping and shadow-branch check",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "202b90167359",
         "534f763afc81"
@@ -1763,31 +1763,42 @@
     {
       "id": "EG-DECISION-ENGINE-R102.1",
       "title": "Typed schema-repair activation gate (producer-first split of R102)",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
-        "202b90167359"
+        "202b90167359",
+        "9c5b587a7145"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/graph_schema/shadow_branch.rs:109",
+        "crates/eg-types/src/graph_schema/shadow_branch.rs:88",
+        "crates/eg-types/src/graph_schema/shadow_branch.rs:95"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R103",
       "title": "Calibrated per-horizon flip confidence with conformal abstention",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "532418b7e55b",
-        "534f763afc81"
+        "534f763afc81",
+        "9c5b587a7145"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-compute/src/finance/market/record_tests.rs:297"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R104",
       "title": "DecideText shares the UQL lexer and grammar family",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "534f763afc81",
-        "857e20c63775"
+        "857e20c63775",
+        "9c5b587a7145"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-plan/src/decide_text/tests.rs:145"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R105",
@@ -1816,22 +1827,29 @@
     {
       "id": "EG-DECISION-ENGINE-R107",
       "title": "Typed topology contract in eg-types with versioned goldens",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "534f763afc81",
+        "9c5b587a7145",
         "c0edc96d1e10"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/decision/topology/tests.rs:56",
+        "crates/eg-types/src/decision/topology/tests.rs:68"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R108",
       "title": "Publish-time topology-shape validation fails closed",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "534f763afc81",
+        "9c5b587a7145",
         "c0edc96d1e10"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/handlers/decide/topology_shape/tests.rs:77"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R109",
@@ -1866,12 +1884,15 @@
     {
       "id": "EG-DECISION-ENGINE-R112",
       "title": "Capacity premise derives headroom observations by priority",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "26a0f185448a",
         "534f763afc81",
         "c0edc96d1e10"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-compute/src/assemble/tests/topology.rs:116"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R113",
@@ -1898,12 +1919,15 @@
     {
       "id": "EG-DECISION-ENGINE-R114",
       "title": "Subagent allowance negotiation reads EG's topology facts",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "26b04e133dfd",
         "534f763afc81",
         "c0edc96d1e10"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-compute/src/assemble/tests/topology.rs:196"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R115",
@@ -1931,11 +1955,16 @@
     {
       "id": "EG-DECISION-ENGINE-R116.1",
       "title": "A typed gate admits only the published client-contract call path",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
-        "253a69935dfd"
+        "253a69935dfd",
+        "26b04e133dfd"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-capabilities/src/contract/access_path.rs:45",
+        "crates/eg-capabilities/src/contract/access_path.rs:54",
+        "crates/eg-capabilities/src/contract/access_path.rs:64"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R116.2",
@@ -2020,22 +2049,29 @@
     {
       "id": "EG-DECISION-ENGINE-R124",
       "title": "eg-numeric statistical kernel tests compile and run",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "30405ee73d13",
         "534f763afc81",
         "a1bb9fb9503e"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-numeric/tests/stat_kernels/clippy_policy.rs:34",
+        "crates/eg-numeric/tests/stat_kernels/clippy_policy.rs:50"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R125",
       "title": "Telemetry binds to ontology entities as BehaviourObservation",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "30405ee73d13",
         "534f763afc81",
         "cae7ecad71e2"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/served_telemetry_facts.rs:232"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R126",
@@ -2068,7 +2104,8 @@
       "title": "The capability-coverage query is served beside `AgentAssemble`",
       "delivery_state": "LANDED",
       "landed_in": [
-        "253a69935dfd"
+        "253a69935dfd",
+        "30405ee73d13"
       ],
       "verified_by": []
     },
@@ -2089,12 +2126,17 @@
     {
       "id": "EG-DECISION-ENGINE-R127.1",
       "title": "Guardrail entailment is a pure function of a task IRI and a rule set",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "18a745706c46",
-        "253a69935dfd"
+        "253a69935dfd",
+        "30405ee73d13"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/decision/guardrail.rs:121",
+        "crates/eg-types/src/decision/guardrail.rs:146",
+        "crates/eg-types/src/decision/guardrail.rs:153"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R127.2",
@@ -2102,6 +2144,7 @@
       "delivery_state": "LANDED",
       "landed_in": [
         "253a69935dfd",
+        "30405ee73d13",
         "534f763afc81"
       ],
       "verified_by": []

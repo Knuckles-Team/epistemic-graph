@@ -61,10 +61,16 @@
     "EG-UNIFIED-DATA-PLANE-R019.2.1",
     "EG-UNIFIED-DATA-PLANE-R019.2.2",
     "EG-UNIFIED-DATA-PLANE-R019.3",
+    "EG-UNIFIED-DATA-PLANE-R019.3.1",
+    "EG-UNIFIED-DATA-PLANE-R019.3.2",
     "EG-UNIFIED-DATA-PLANE-R020",
     "EG-UNIFIED-DATA-PLANE-R020.1",
     "EG-UNIFIED-DATA-PLANE-R020.2",
+    "EG-UNIFIED-DATA-PLANE-R020.2.1",
+    "EG-UNIFIED-DATA-PLANE-R020.2.2",
     "EG-UNIFIED-DATA-PLANE-R020.3",
+    "EG-UNIFIED-DATA-PLANE-R020.3.1",
+    "EG-UNIFIED-DATA-PLANE-R020.3.2",
     "EG-UNIFIED-DATA-PLANE-R021",
     "EG-UNIFIED-DATA-PLANE-R021.1",
     "EG-UNIFIED-DATA-PLANE-R021.2",
@@ -73,10 +79,16 @@
     "EG-UNIFIED-DATA-PLANE-R022.1",
     "EG-UNIFIED-DATA-PLANE-R022.2",
     "EG-UNIFIED-DATA-PLANE-R022.3",
+    "EG-UNIFIED-DATA-PLANE-R022.3.1",
+    "EG-UNIFIED-DATA-PLANE-R022.3.2",
     "EG-UNIFIED-DATA-PLANE-R023",
     "EG-UNIFIED-DATA-PLANE-R023.1",
     "EG-UNIFIED-DATA-PLANE-R023.2",
+    "EG-UNIFIED-DATA-PLANE-R023.2.1",
+    "EG-UNIFIED-DATA-PLANE-R023.2.2",
     "EG-UNIFIED-DATA-PLANE-R023.3",
+    "EG-UNIFIED-DATA-PLANE-R023.3.1",
+    "EG-UNIFIED-DATA-PLANE-R023.3.2",
     "EG-UNIFIED-DATA-PLANE-R024",
     "EG-UNIFIED-DATA-PLANE-R024.1",
     "EG-UNIFIED-DATA-PLANE-R024.2",
@@ -798,6 +810,32 @@
       "title": "Conformance entry comparing EG query results and captured change stream against native MongoDB/DocumentDB",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-UNIFIED-DATA-PLANE-R019.3.1",
+        "EG-UNIFIED-DATA-PLANE-R019.3.2"
+      ]
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R019.3.1",
+      "title": "`build_document_conformance_entry` builds a MongoDB/DocumentDB conformance entry with a fixed adapter label, refusing a malformed outcome/deviation shape",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "d6e3cf6232d8"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/document_conformance.rs:101",
+        "crates/eg-types/src/document_conformance.rs:118",
+        "crates/eg-types/src/document_conformance.rs:65",
+        "crates/eg-types/src/document_conformance.rs:78",
+        "crates/eg-types/src/document_conformance.rs:90"
+      ]
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R019.3.2",
+      "title": "Live comparison of EG's query results and captured change stream against native MongoDB/DocumentDB",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {
@@ -825,14 +863,66 @@
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R020.2",
-      "title": "Query pushdown per kind (Arrow Flight SQL where offered), extending eg-query::sql::iceberg_federation for Iceberg",
+      "title": "Query pushdown per kind (Arrow Flight SQL where offered), extending eg-query::sql::iceberg_federation for Iceberg (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-UNIFIED-DATA-PLANE-R020.2.1",
+        "EG-UNIFIED-DATA-PLANE-R020.2.2"
+      ]
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R020.2.1",
+      "title": "`plan_pushdown` decides the Arrow-Flight-SQL-vs-native transport for a validated `WarehouseSourceConfig`, refusing an invalid config or an unmet Flight SQL preference",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "d6e3cf6232d8"
+      ],
+      "verified_by": [
+        "crates/eg-plan/src/warehouse_pushdown.rs:111",
+        "crates/eg-plan/src/warehouse_pushdown.rs:127",
+        "crates/eg-plan/src/warehouse_pushdown.rs:145",
+        "crates/eg-plan/src/warehouse_pushdown.rs:160",
+        "crates/eg-plan/src/warehouse_pushdown.rs:173"
+      ]
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R020.2.2",
+      "title": "Live Arrow Flight SQL / native query pushdown per kind, extending `eg-query::sql::iceberg_federation` for Iceberg",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R020.3",
-      "title": "Conformance entry comparing federated query results against each native warehouse/lake engine",
+      "title": "Conformance entry comparing federated query results against each native warehouse/lake engine (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-UNIFIED-DATA-PLANE-R020.3.1",
+        "EG-UNIFIED-DATA-PLANE-R020.3.2"
+      ]
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R020.3.1",
+      "title": "`build_warehouse_conformance_entry` builds a warehouse/lake conformance entry whose adapter label is derived from the closed `WarehouseSourceKind`, refusing a blank engine version or a malformed outcome/deviation shape",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "d6e3cf6232d8"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/warehouse_conformance.rs:102",
+        "crates/eg-types/src/warehouse_conformance.rs:119",
+        "crates/eg-types/src/warehouse_conformance.rs:134",
+        "crates/eg-types/src/warehouse_conformance.rs:151",
+        "crates/eg-types/src/warehouse_conformance.rs:88"
+      ]
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R020.3.2",
+      "title": "Live comparison of federated query results against each native warehouse/lake engine",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -840,7 +930,7 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R021",
       "title": "Bridge Debezium Kafka events into ChangeEnvelope",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "9cb571fb74aa"
       ],
@@ -863,16 +953,25 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R021.2",
       "title": "Kafka consumer plus real conversion into ChangeEnvelope records",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "de71b5ddd2b2"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/debezium_bridge.rs:354",
+        "crates/eg-types/src/debezium_bridge.rs:395"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R021.3",
       "title": "Replay test feeding a captured Debezium event stream through the bridge",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "de71b5ddd2b2"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/debezium_bridge.rs:410"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R022",
@@ -906,7 +1005,32 @@
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R022.3",
-      "title": "Change-capture replay comparison against a source snapshot",
+      "title": "Change-capture replay comparison against a source snapshot (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-UNIFIED-DATA-PLANE-R022.3.1",
+        "EG-UNIFIED-DATA-PLANE-R022.3.2"
+      ]
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R022.3.1",
+      "title": "`compare_replay_to_snapshot` builds a `DialectConformanceEntry` from a replayed row-state map and a source-snapshot row-state map, refusing a blank engine version",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "a4d1e790a69e"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/replay_conformance.rs:114",
+        "crates/eg-types/src/replay_conformance.rs:124",
+        "crates/eg-types/src/replay_conformance.rs:82",
+        "crates/eg-types/src/replay_conformance.rs:96"
+      ]
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R022.3.2",
+      "title": "Live change-capture replay comparison against a real source snapshot",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -936,14 +1060,66 @@
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R023.2",
-      "title": "CloudNativePG/MariaDB operator wiring and PITR schedule to object storage",
+      "title": "CloudNativePG/MariaDB operator wiring and PITR schedule to object storage (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-UNIFIED-DATA-PLANE-R023.2.1",
+        "EG-UNIFIED-DATA-PLANE-R023.2.2"
+      ]
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R023.2.1",
+      "title": "`PitrSchedule`/`validate` are a typed PITR schedule contract with an engine/archiving-mode refusal",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "a4d1e790a69e"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/pitr_schedule.rs:110",
+        "crates/eg-types/src/pitr_schedule.rs:116",
+        "crates/eg-types/src/pitr_schedule.rs:127",
+        "crates/eg-types/src/pitr_schedule.rs:139",
+        "crates/eg-types/src/pitr_schedule.rs:148"
+      ]
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R023.2.2",
+      "title": "Live CloudNativePG/MariaDB operator wiring and PITR schedule installation to object storage",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R023.3",
-      "title": "Restore-drill automation and post-restore data-match verification",
+      "title": "Restore-drill automation and post-restore data-match verification (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-UNIFIED-DATA-PLANE-R023.3.1",
+        "EG-UNIFIED-DATA-PLANE-R023.3.2"
+      ]
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R023.3.1",
+      "title": "`RestoreDrillResult`/`validate` are a typed drill-result contract that refuses a `data_matched` flag disagreeing with the actual digest comparison",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "a4d1e790a69e"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/restore_drill.rs:108",
+        "crates/eg-types/src/restore_drill.rs:121",
+        "crates/eg-types/src/restore_drill.rs:134",
+        "crates/eg-types/src/restore_drill.rs:150",
+        "crates/eg-types/src/restore_drill.rs:166"
+      ]
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R023.3.2",
+      "title": "Live restore-drill automation and post-restore data-match verification",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -951,7 +1127,7 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R024",
       "title": "Admit applications to the shared platform with rollback",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "1b3cc2f03fa2"
       ],
@@ -974,8 +1150,10 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R024.2",
       "title": "Admission runner and tested rollback path per candidate application",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "15a7370ecac3"
+      ],
       "verified_by": [],
       "rollup_of": [
         "EG-UNIFIED-DATA-PLANE-R024.2.1"
@@ -984,15 +1162,23 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R024.2.1",
       "title": "`AdmissionRunner` drives `ApplicationAdmission` against a pluggable `PriorIngestConnector`, with a tested rollback path",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "15a7370ecac3"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/platform_admission.rs:286",
+        "crates/eg-types/src/platform_admission.rs:298",
+        "crates/eg-types/src/platform_admission.rs:311"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R024.3",
       "title": "Per-application admission test confirming rollback and that the retired connector no longer writes",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "15a7370ecac3"
+      ],
       "verified_by": [],
       "rollup_of": [
         "EG-UNIFIED-DATA-PLANE-R024.3.1"
@@ -1001,9 +1187,13 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R024.3.1",
       "title": "One fake-connector admission test per candidate application, confirming rollback and that the retired connector no longer writes",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "15a7370ecac3"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/platform_admission.rs:346"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R025",
@@ -1031,8 +1221,10 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R025.2",
       "title": "Run the spike across its declared scope areas",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "15a7370ecac3"
+      ],
       "verified_by": [],
       "rollup_of": [
         "EG-UNIFIED-DATA-PLANE-R025.2.1"
@@ -1041,9 +1233,15 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R025.2.1",
       "title": "`run_spike` assembles a `PgrxSpikeDecision` from one evidence source per declared area, deferring to the typed model's full-scope refusal",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "15a7370ecac3"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/pgrx_spike.rs:224",
+        "crates/eg-types/src/pgrx_spike.rs:237",
+        "crates/eg-types/src/pgrx_spike.rs:252"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R025.3",

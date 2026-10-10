@@ -51,7 +51,7 @@
         "ae7b0d664749"
       ],
       "verified_by": [
-        "crates/eg-compute/src/finance/market/record_tests.rs:369",
+        "crates/eg-compute/src/finance/market/record_tests.rs:402",
         "src/server/graph_schema/finance_tests.rs:137"
       ]
     },
