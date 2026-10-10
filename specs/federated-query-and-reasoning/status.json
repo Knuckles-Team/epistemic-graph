@@ -778,9 +778,13 @@
     {
       "id": "EG-FEDERATED-QUERY-R058.2.1",
       "title": "Dispatch handler enforces the typed NL budget before parsing",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "8710a3709c47"
+      ],
+      "verified_by": [
+        "crates/eg-plan/src/nl.rs:725"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R058.2.2",
@@ -803,9 +807,13 @@
     {
       "id": "EG-FEDERATED-QUERY-R058.3.1",
       "title": "NL results are never cached on the NL text",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "8710a3709c47"
+      ],
+      "verified_by": [
+        "src/server/handlers/query/nl.rs:158"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R058.3.2",

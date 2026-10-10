@@ -2,7 +2,7 @@
   "schema_version": 2,
   "spec_id": "EG-TYPED-PACKS",
   "owner_repo": "epistemic-graph",
-  "delivery_state": "SPECIFIED",
+  "delivery_state": "LANDED",
   "requirement_ids": [
     "EG-TYPED-PACKS-R001",
     "EG-TYPED-PACKS-R002",
@@ -576,9 +576,13 @@
     {
       "id": "EG-TYPED-PACKS-R052",
       "title": "No pack-specific stand-in for pending schema authority",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "3eb80ef31218"
+      ],
+      "verified_by": [
+        "src/server/handlers/admin/connector_pack/tests/outbox.rs:68"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R053",
@@ -594,6 +598,7 @@
       "title": "One topic per Agent Library outbox consumer",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "3eb80ef31218",
         "ceec54145720"
       ],
       "verified_by": [
@@ -605,6 +610,7 @@
       "title": "Outbox retry never collateral dead-letters unrelated events",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "3eb80ef31218",
         "7704b8d7294f"
       ],
       "verified_by": [

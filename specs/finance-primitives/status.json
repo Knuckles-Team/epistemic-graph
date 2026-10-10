@@ -2,7 +2,7 @@
   "schema_version": 2,
   "spec_id": "EG-FINANCE-PRIMITIVES",
   "owner_repo": "epistemic-graph",
-  "delivery_state": "SPECIFIED",
+  "delivery_state": "LANDED",
   "requirement_ids": [
     "EG-FINANCE-PRIMITIVES-R001",
     "EG-FINANCE-PRIMITIVES-R002",
@@ -162,7 +162,7 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R005",
       "title": "Deterministic fixed-point portfolio accounting",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
@@ -182,7 +182,7 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R005.2",
       "title": "Specific-lot/average-cost elections and transfer/split invariants",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
@@ -192,9 +192,15 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R005.2.1",
       "title": "Specific-lot election",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "eadb412ffa03"
+      ],
+      "verified_by": [
+        "crates/eg-compute/src/finance/lot_accounting.rs:338",
+        "crates/eg-compute/src/finance/lot_accounting.rs:366",
+        "crates/eg-compute/src/finance/lot_accounting.rs:387"
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R006",
@@ -319,7 +325,7 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R012",
       "title": "Optional one-way Ghostfolio activity import",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
@@ -339,14 +345,20 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R012.2",
       "title": "Ghostfolio attaches through the typed source registry with disposable-fixture coverage",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "eadb412ffa03"
+      ],
+      "verified_by": [
+        "crates/eg-compute/src/finance/ghostfolio_import.rs:186",
+        "crates/eg-compute/src/finance/ghostfolio_import.rs:193",
+        "crates/eg-compute/src/finance/ghostfolio_import.rs:216"
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R013",
       "title": "Golden accounting and risk fixtures with full provenance",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
@@ -366,7 +378,7 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R013.2",
       "title": "Golden fixtures compare computed figures against published reference values",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
@@ -376,9 +388,15 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R013.2.1",
       "title": "Broker-statement golden fixture comparison",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "eadb412ffa03"
+      ],
+      "verified_by": [
+        "crates/eg-compute/src/finance/golden_fixture.rs:144",
+        "crates/eg-compute/src/finance/golden_fixture.rs:152",
+        "crates/eg-compute/src/finance/golden_fixture.rs:164"
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R014",

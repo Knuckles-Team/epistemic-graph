@@ -21,6 +21,8 @@
     "EG-DECISION-ENGINE-R015",
     "EG-DECISION-ENGINE-R015.1",
     "EG-DECISION-ENGINE-R015.2",
+    "EG-DECISION-ENGINE-R015.2.1",
+    "EG-DECISION-ENGINE-R015.2.2",
     "EG-DECISION-ENGINE-R016",
     "EG-DECISION-ENGINE-R017",
     "EG-DECISION-ENGINE-R018",
@@ -52,6 +54,8 @@
     "EG-DECISION-ENGINE-R044",
     "EG-DECISION-ENGINE-R044.1",
     "EG-DECISION-ENGINE-R044.2",
+    "EG-DECISION-ENGINE-R044.2.1",
+    "EG-DECISION-ENGINE-R044.2.2",
     "EG-DECISION-ENGINE-R045",
     "EG-DECISION-ENGINE-R045.1",
     "EG-DECISION-ENGINE-R045.2",
@@ -68,6 +72,8 @@
     "EG-DECISION-ENGINE-R056",
     "EG-DECISION-ENGINE-R056.1",
     "EG-DECISION-ENGINE-R056.2",
+    "EG-DECISION-ENGINE-R056.2.1",
+    "EG-DECISION-ENGINE-R056.2.2",
     "EG-DECISION-ENGINE-R057",
     "EG-DECISION-ENGINE-R058",
     "EG-DECISION-ENGINE-R059",
@@ -208,7 +214,7 @@
       ],
       "verified_by": [
         "crates/eg-compute/tests/solve/determinism.rs:49",
-        "crates/eg-compute/tests/solve/determinism.rs:77",
+        "crates/eg-compute/tests/solve/determinism.rs:78",
         "crates/eg-compute/tests/solve/exhaustive.rs:40"
       ]
     },
@@ -368,12 +374,34 @@
         "0fac721690e2"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/rapid_r015.rs:76"
+        "crates/eg-types/src/decision/rapid_r015.rs:100"
       ]
     },
     {
       "id": "EG-DECISION-ENGINE-R015.2",
       "title": "Wire the ladder's head registry through the typed head-kind parse",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R015.2.1",
+        "EG-DECISION-ENGINE-R015.2.2"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R015.2.1",
+      "title": "Total, reversible mapping between StatisticalHeadKind and the production HeadKind registry",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "3c6b457009e4"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/decision/rapid_r015.rs:117"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R015.2.2",
+      "title": "Route DecisionFitRequest construction through the typed mapping",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -755,12 +783,34 @@
         "0fac721690e2"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/rapid_r044.rs:74"
+        "crates/eg-types/src/decision/rapid_r044.rs:97"
       ]
     },
     {
       "id": "EG-DECISION-ENGINE-R044.2",
       "title": "Wire A2A task submission through the typed routing resolution",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R044.2.1",
+        "EG-DECISION-ENGINE-R044.2.2"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R044.2.1",
+      "title": "Typed registry-lookup routing function over known graph ids",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "3c6b457009e4"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/decision/rapid_r044.rs:111"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R044.2.2",
+      "title": "Served A2A task-submission entry point",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -967,12 +1017,34 @@
         "0fac721690e2"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/rapid_r056.rs:57"
+        "crates/eg-types/src/decision/rapid_r056.rs:83"
       ]
     },
     {
       "id": "EG-DECISION-ENGINE-R056.2",
       "title": "Route the statistical path through the exact 0-1 solver and this certificate",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R056.2.1",
+        "EG-DECISION-ENGINE-R056.2.2"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R056.2.1",
+      "title": "Validating certificate constructor bound to the solver's node budget",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "3c6b457009e4"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/decision/rapid_r056.rs:100"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R056.2.2",
+      "title": "Statistical-path call into the exact 0-1 solver",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -1118,42 +1190,54 @@
     {
       "id": "EG-DECISION-ENGINE-R068",
       "title": "Outcome link via the existing synthesis-evidence pin",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "1e9ea1ef3790",
-        "2a0d6eae0918"
+        "2a0d6eae0918",
+        "c4c13898a493"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/persistence/decision_record/tests.rs:260"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R069",
       "title": "DecisionShape enforcement inside the commit handler",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "1e9ea1ef3790",
-        "2a0d6eae0918"
+        "2a0d6eae0918",
+        "c4c13898a493"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/handlers/decide/shape.rs:134"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R070",
       "title": "Bounded no-good-cut re-solve for post-solve validators",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "1e9ea1ef3790",
-        "2a0d6eae0918"
+        "2a0d6eae0918",
+        "456b8d06fc91"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-compute/src/assemble/tests/planted.rs:257"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R071",
       "title": "DecideText parser kept separate from the UQL core",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "1e9ea1ef3790",
-        "2a0d6eae0918"
+        "2a0d6eae0918",
+        "456b8d06fc91"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-plan/src/decide_text/tests.rs:124"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R072",
@@ -1188,7 +1272,7 @@
     {
       "id": "EG-DECISION-ENGINE-R075",
       "title": "Component-id uniqueness and forbidden decision kinds (rollup)",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "0ea0a0dcfa62",
         "1e9ea1ef3790"
@@ -1213,9 +1297,13 @@
     {
       "id": "EG-DECISION-ENGINE-R075.2",
       "title": "Wire the duplicate-id check into the real pack-import entry point",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "d16ee611a394"
+      ],
+      "verified_by": [
+        "src/server/handlers/admin/connector_pack/import/validation.rs:862"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R076",
@@ -1232,12 +1320,15 @@
     {
       "id": "EG-DECISION-ENGINE-R077",
       "title": "Component schema version bump to add decision kinds",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "1e9ea1ef3790",
+        "9ffc5197866a",
         "a1bb9fb9503e"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/agent_component.rs:2123"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R078",
@@ -1327,22 +1418,29 @@
     {
       "id": "EG-DECISION-ENGINE-R081",
       "title": "Confidence-weighted community detection excluding similarity edges",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "1e9ea1ef3790",
+        "9ffc5197866a",
         "b5fe3c140c21"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-compute/src/algorithms/tests.rs:140",
+        "crates/eg-compute/src/algorithms/tests.rs:603"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R082",
       "title": "Single-pass option-marker scoring head for Decide",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "1e9ea1ef3790",
-        "4952a2edced4"
+        "4952a2edced4",
+        "9ffc5197866a"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-numeric/tests/decision/scorer.rs:192"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R083",
@@ -1425,22 +1523,28 @@
     {
       "id": "EG-DECISION-ENGINE-R086",
       "title": "DecisionFit promotion protocol reports nine metrics",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "1e9ea1ef3790",
-        "4952a2edced4"
+        "4952a2edced4",
+        "dc6a3c243a1f"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-numeric/tests/decision/scorer_promotion.rs:180"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R087",
       "title": "Scorer always receives a bounded shortlist, never a full catalog",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "1e9ea1ef3790",
-        "4952a2edced4"
+        "4952a2edced4",
+        "dc6a3c243a1f"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-numeric/tests/decision/scorer.rs:171"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R088",
@@ -1555,32 +1659,44 @@
     {
       "id": "EG-DECISION-ENGINE-R095",
       "title": "Solver certificate digest matches its committed golden vector",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "534f763afc81",
-        "be0f1acb05c6"
+        "be0f1acb05c6",
+        "dc6a3c243a1f"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-compute/tests/solve/determinism.rs:50",
+        "crates/eg-compute/tests/solve/determinism.rs:79"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R096",
       "title": "Community-detection wire contract carries edge weight and quality function",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "03bb9b81b3a4",
         "2a0d6eae0918",
         "534f763afc81"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-compute/src/algorithms/tests.rs:602",
+        "crates/eg-compute/src/algorithms/tests.rs:657"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R097",
       "title": "Replay-nonce rejection and blob GC grace period behave correctly",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "03bb9b81b3a4",
         "534f763afc81",
         "be0f1acb05c6"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/auth.rs:2007",
+        "src/server/blob/store/tests.rs:344"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R098",
@@ -1608,22 +1724,28 @@
     {
       "id": "EG-DECISION-ENGINE-R100",
       "title": "Retrieval decisions join cited evidence with independent outcomes",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "03bb9b81b3a4",
         "534f763afc81",
         "e429630278b8"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/handlers/decide/stat_tests/retrieval_tests.rs:208"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R101",
       "title": "Query-side embedding adapter head promoted via DecisionEval",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "03bb9b81b3a4",
         "534f763afc81",
         "e429630278b8"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/handlers/decide/stat_tests/learning_tests.rs:145"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R102",

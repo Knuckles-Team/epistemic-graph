@@ -2,7 +2,7 @@
   "schema_version": 2,
   "spec_id": "EG-REPO-INGEST",
   "owner_repo": "epistemic-graph",
-  "delivery_state": "SPECIFIED",
+  "delivery_state": "LANDED",
   "requirement_ids": [
     "EG-REPO-INGEST-R001",
     "EG-REPO-INGEST-R002",
@@ -51,7 +51,7 @@
     {
       "id": "EG-REPO-INGEST-R003",
       "title": "EG is sole home for remaining migrated ingestion modules (rollup)",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "ae0f93b6bf70"
       ],
@@ -92,23 +92,35 @@
     {
       "id": "EG-REPO-INGEST-R003.3",
       "title": "EG is sole home for migrated quantum processing",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "a17a6c5ded2f"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/source_ingestion/tests.rs:426"
+      ]
     },
     {
       "id": "EG-REPO-INGEST-R003.4",
       "title": "EG is sole home for migrated security processing",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "a17a6c5ded2f"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/source_ingestion/tests.rs:462"
+      ]
     },
     {
       "id": "EG-REPO-INGEST-R003.5",
       "title": "EG is sole home for migrated enterprise protocol handling",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "a17a6c5ded2f"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/source_ingestion/tests.rs:498"
+      ]
     },
     {
       "id": "EG-REPO-INGEST-R003.6",
@@ -131,23 +143,44 @@
     {
       "id": "EG-REPO-INGEST-R003.8",
       "title": "EG is sole home for migrated self-ingestion observability",
-      "delivery_state": "BUILDING",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "77fa741ee191"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/source_ingestion/tests.rs:604",
+        "crates/eg-types/src/source_ingestion/tests.rs:614",
+        "crates/eg-types/src/source_ingestion/tests.rs:621",
+        "crates/eg-types/src/source_ingestion/tests.rs:632"
+      ]
     },
     {
       "id": "EG-REPO-INGEST-R003.9",
       "title": "EG is sole home for migrated audit-logging observability",
-      "delivery_state": "BUILDING",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "77fa741ee191"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/source_ingestion/tests.rs:643",
+        "crates/eg-types/src/source_ingestion/tests.rs:653",
+        "crates/eg-types/src/source_ingestion/tests.rs:660",
+        "crates/eg-types/src/source_ingestion/tests.rs:671"
+      ]
     },
     {
       "id": "EG-REPO-INGEST-R003.10",
       "title": "EG is sole home for migrated relational-authority governance",
-      "delivery_state": "BUILDING",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "77fa741ee191"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/source_ingestion/tests.rs:683",
+        "crates/eg-types/src/source_ingestion/tests.rs:693",
+        "crates/eg-types/src/source_ingestion/tests.rs:700",
+        "crates/eg-types/src/source_ingestion/tests.rs:711"
+      ]
     },
     {
       "id": "EG-REPO-INGEST-R003.11",

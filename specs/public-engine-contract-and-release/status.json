@@ -2,7 +2,7 @@
   "schema_version": 2,
   "spec_id": "EG-CONTRACT-001",
   "owner_repo": "epistemic-graph",
-  "delivery_state": "SPECIFIED",
+  "delivery_state": "LANDED",
   "requirement_ids": [
     "EG-CONTRACT-R001",
     "EG-CONTRACT-R002",
@@ -20,6 +20,7 @@
     "EG-CONTRACT-R009",
     "EG-CONTRACT-R010",
     "EG-CONTRACT-R011",
+    "EG-CONTRACT-R011.1",
     "EG-CONTRACT-R012",
     "EG-CONTRACT-R013",
     "EG-CONTRACT-R014",
@@ -32,6 +33,7 @@
     "EG-CONTRACT-R021",
     "EG-CONTRACT-R022",
     "EG-CONTRACT-R023",
+    "EG-CONTRACT-R023.1",
     "EG-CONTRACT-R024",
     "EG-CONTRACT-R025",
     "EG-CONTRACT-R026",
@@ -227,9 +229,26 @@
     {
       "id": "EG-CONTRACT-R011",
       "title": "Parallel fan-out for the land gate across build hosts",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CONTRACT-R011.1"
+      ]
+    },
+    {
+      "id": "EG-CONTRACT-R011.1",
+      "title": "Fan-out host-group manifest is structurally valid before any gate work is dispatched",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "a3e3d9924822"
+      ],
+      "verified_by": [
+        "tests/test_check_fanout_host_groups.py:25",
+        "tests/test_check_fanout_host_groups.py:48",
+        "tests/test_check_fanout_host_groups.py:75",
+        "tests/test_check_fanout_host_groups.py:92"
+      ]
     },
     {
       "id": "EG-CONTRACT-R012",
@@ -333,16 +352,35 @@
     {
       "id": "EG-CONTRACT-R022",
       "title": "Zero new duplicate-code pairs across the combined source tree",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "a3e3d9924822"
+      ],
+      "verified_by": [
+        "tests/test_check_duplication_no_suppression.py:27",
+        "tests/test_check_duplication_no_suppression.py:42"
+      ]
     },
     {
       "id": "EG-CONTRACT-R023",
       "title": "Pre-commit hooks pass clean without bypass flags",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CONTRACT-R023.1"
+      ]
+    },
+    {
+      "id": "EG-CONTRACT-R023.1",
+      "title": "Every tracked test file has a recognized component-registry owner",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "a3e3d9924822"
+      ],
+      "verified_by": [
+        "tests/test_check_registry_test_ownership_completeness.py:23"
+      ]
     },
     {
       "id": "EG-CONTRACT-R024",
@@ -450,9 +488,13 @@
     {
       "id": "EG-CONTRACT-R035",
       "title": "Release workflow executes end to end with all declared targets",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "16c35404ef56"
+      ],
+      "verified_by": [
+        "tests/test_release_gates_test_target_coverage.py:62"
+      ]
     },
     {
       "id": "EG-CONTRACT-R036",

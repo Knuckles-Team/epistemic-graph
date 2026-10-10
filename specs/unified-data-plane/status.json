@@ -33,21 +33,33 @@
     "EG-UNIFIED-DATA-PLANE-R014",
     "EG-UNIFIED-DATA-PLANE-R014.1",
     "EG-UNIFIED-DATA-PLANE-R014.2",
+    "EG-UNIFIED-DATA-PLANE-R014.2.1",
+    "EG-UNIFIED-DATA-PLANE-R014.2.2",
     "EG-UNIFIED-DATA-PLANE-R015",
     "EG-UNIFIED-DATA-PLANE-R015.1",
     "EG-UNIFIED-DATA-PLANE-R015.2",
+    "EG-UNIFIED-DATA-PLANE-R015.2.1",
+    "EG-UNIFIED-DATA-PLANE-R015.2.2",
     "EG-UNIFIED-DATA-PLANE-R016",
     "EG-UNIFIED-DATA-PLANE-R016.1",
     "EG-UNIFIED-DATA-PLANE-R016.2",
+    "EG-UNIFIED-DATA-PLANE-R016.2.1",
+    "EG-UNIFIED-DATA-PLANE-R016.2.2",
     "EG-UNIFIED-DATA-PLANE-R017",
     "EG-UNIFIED-DATA-PLANE-R017.1",
     "EG-UNIFIED-DATA-PLANE-R017.2",
+    "EG-UNIFIED-DATA-PLANE-R017.2.1",
+    "EG-UNIFIED-DATA-PLANE-R017.2.2",
     "EG-UNIFIED-DATA-PLANE-R018",
     "EG-UNIFIED-DATA-PLANE-R018.1",
     "EG-UNIFIED-DATA-PLANE-R018.2",
+    "EG-UNIFIED-DATA-PLANE-R018.2.1",
+    "EG-UNIFIED-DATA-PLANE-R018.2.2",
     "EG-UNIFIED-DATA-PLANE-R019",
     "EG-UNIFIED-DATA-PLANE-R019.1",
     "EG-UNIFIED-DATA-PLANE-R019.2",
+    "EG-UNIFIED-DATA-PLANE-R019.2.1",
+    "EG-UNIFIED-DATA-PLANE-R019.2.2",
     "EG-UNIFIED-DATA-PLANE-R019.3",
     "EG-UNIFIED-DATA-PLANE-R020",
     "EG-UNIFIED-DATA-PLANE-R020.1",
@@ -488,6 +500,32 @@
       "title": "Remaining scope of EG-UNIFIED-DATA-PLANE-R014 (slice .2): Implement the MySQL and MariaDB attached-source adapters",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-UNIFIED-DATA-PLANE-R014.2.1",
+        "EG-UNIFIED-DATA-PLANE-R014.2.2"
+      ]
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R014.2.1",
+      "title": "MySQL/MariaDB adapter skeleton: typed connection-config → driver-config mapping plus the connect/refusal path",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "6b382bb1a3ec"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/mysql_mariadb_connection.rs:107",
+        "crates/eg-types/src/mysql_mariadb_connection.rs:119",
+        "crates/eg-types/src/mysql_mariadb_connection.rs:130",
+        "crates/eg-types/src/mysql_mariadb_connection.rs:141",
+        "crates/eg-types/src/mysql_mariadb_connection.rs:152"
+      ]
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R014.2.2",
+      "title": "Live MySQL/MariaDB binlog/GTID capture and per-engine conformance",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {
@@ -517,6 +555,32 @@
       "title": "Lock-safe live read-only attach and real WAL-frame tailing/watermark polling",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-UNIFIED-DATA-PLANE-R015.2.1",
+        "EG-UNIFIED-DATA-PLANE-R015.2.2"
+      ]
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R015.2.1",
+      "title": "SQLite live-attach adapter skeleton: typed attach-config → driver-open-config mapping plus the refusal path",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "6b382bb1a3ec"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/sqlite_live_attach.rs:102",
+        "crates/eg-types/src/sqlite_live_attach.rs:113",
+        "crates/eg-types/src/sqlite_live_attach.rs:124",
+        "crates/eg-types/src/sqlite_live_attach.rs:84",
+        "crates/eg-types/src/sqlite_live_attach.rs:95"
+      ]
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R015.2.2",
+      "title": "Real WAL-frame tailing / watermark polling under concurrent writers",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {
@@ -544,6 +608,32 @@
       "title": "tiberius driver connection, T-SQL TOP/OFFSET-FETCH rendering, and LSN-polled CDC/Change Tracking capture",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-UNIFIED-DATA-PLANE-R016.2.1",
+        "EG-UNIFIED-DATA-PLANE-R016.2.2"
+      ]
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R016.2.1",
+      "title": "MSSQL adapter skeleton: typed connection-config → tiberius-shaped driver-config mapping plus the connect/refusal path",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "6b382bb1a3ec"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/mssql_driver_connection.rs:113",
+        "crates/eg-types/src/mssql_driver_connection.rs:124",
+        "crates/eg-types/src/mssql_driver_connection.rs:135",
+        "crates/eg-types/src/mssql_driver_connection.rs:146",
+        "crates/eg-types/src/mssql_driver_connection.rs:157"
+      ]
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R016.2.2",
+      "title": "Real tiberius connection, T-SQL TOP/OFFSET-FETCH rendering, and LSN-polled CDC/Change Tracking capture loop",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {
@@ -568,7 +658,35 @@
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R017.2",
-      "title": "HTTP/native client connection and federated query pushdown",
+      "title": "HTTP/native client connection and federated query pushdown (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [
+        "04791f8c77de"
+      ],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-UNIFIED-DATA-PLANE-R017.2.1",
+        "EG-UNIFIED-DATA-PLANE-R017.2.2"
+      ]
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R017.2.1",
+      "title": "`ClickHouseDriverConfig` builds from validated host/port/database, and `connect` refuses an unsafe or invalid destination before issuing any request",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "04791f8c77de"
+      ],
+      "verified_by": [
+        "crates/eg-plan/src/clickhouse_connection.rs:114",
+        "crates/eg-plan/src/clickhouse_connection.rs:124",
+        "crates/eg-plan/src/clickhouse_connection.rs:133",
+        "crates/eg-plan/src/clickhouse_connection.rs:142",
+        "crates/eg-plan/src/clickhouse_connection.rs:151"
+      ]
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R017.2.2",
+      "title": "Live HTTP/native client federated query pushdown",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -597,7 +715,27 @@
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R018.2",
-      "title": "Driver/ODBC connection, catalog read, and Debezium bridge wiring",
+      "title": "Driver/ODBC connection, catalog read, and Debezium bridge wiring (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [
+        "04791f8c77de"
+      ],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-UNIFIED-DATA-PLANE-R018.2.1",
+        "EG-UNIFIED-DATA-PLANE-R018.2.2"
+      ]
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R018.2.1",
+      "title": "`RelationalDriverConfig` builds from a validated engine/host/port/service name, and `connect` refuses an unsafe or invalid destination before issuing any request",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R018.2.2",
+      "title": "Live driver/ODBC catalog read and Debezium bridge wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -627,7 +765,27 @@
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R019.2",
-      "title": "Native MongoDB/DocumentDB driver connection and change-stream capture into ChangeEnvelope",
+      "title": "Native MongoDB/DocumentDB driver connection and change-stream capture into ChangeEnvelope (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [
+        "04791f8c77de"
+      ],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-UNIFIED-DATA-PLANE-R019.2.1",
+        "EG-UNIFIED-DATA-PLANE-R019.2.2"
+      ]
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R019.2.1",
+      "title": "`DocumentDriverConfig` builds from a validated host/port/database, and `connect` refuses an unsafe or invalid destination before issuing any request",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R019.2.2",
+      "title": "Live native driver connection and change-stream capture into `ChangeEnvelope`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
