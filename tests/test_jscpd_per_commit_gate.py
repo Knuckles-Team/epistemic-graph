@@ -31,9 +31,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_precommit_config_declares_the_jscpd_differential_hook() -> None:
     config = yaml.safe_load((ROOT / ".config/pre-commit.yaml").read_text())
     hook_ids = {
-        hook["id"]
-        for repo in config["repos"]
-        for hook in repo.get("hooks", [])
+        hook["id"] for repo in config["repos"] for hook in repo.get("hooks", [])
     }
     assert "jscpd-differential" in hook_ids
     assert "jscpd-census" in hook_ids

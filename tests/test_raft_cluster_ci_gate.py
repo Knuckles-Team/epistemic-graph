@@ -30,7 +30,8 @@ def _run_tokens(step: dict) -> list[str]:
 
 @pytest.mark.spec("EG-DURABLE-KERNEL-R008")
 def test_ci_runs_on_every_push_and_pull_request(release_workflow: dict) -> None:
-    triggers = release_workflow[True]  # YAML 1.1 parses the bare `on:` key as boolean True
+    # YAML 1.1 parses the bare `on:` key as boolean True.
+    triggers = release_workflow[True]
     assert "push" in triggers and "main" in triggers["push"]["branches"]
     assert "pull_request" in triggers
 
@@ -60,9 +61,7 @@ def test_gates_variants_job_runs_txn_reconcile_ack_lost_retry(
     steps = release_workflow["jobs"]["gates-variants"]["steps"]
 
     retry_step = next(
-        step
-        for step in steps
-        if "txn_reconcile_ack_lost_retry" in step.get("run", "")
+        step for step in steps if "txn_reconcile_ack_lost_retry" in step.get("run", "")
     )
     tokens = _run_tokens(retry_step)
     assert "cargo" in tokens and "test" in tokens

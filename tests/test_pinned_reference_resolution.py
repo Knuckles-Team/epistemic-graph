@@ -149,8 +149,7 @@ def test_read_and_replay_helpers_are_not_admission_anchors(gate):
 
     bodies = {
         "read_component": (
-            "fn read_component(id: &str) -> AgentComponentEntry { "
-            "fetch_component(id) }"
+            "fn read_component(id: &str) -> AgentComponentEntry { fetch_component(id) }"
         ),
         "replay_component": (
             "fn replay_component(entry: AgentComponentEntry) { "
