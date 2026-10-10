@@ -43,6 +43,7 @@ fn recorded_manifests_carry_the_frozen_historical_digests() {
     }
 }
 
+// spec: EG-DURABLE-KERNEL-R003
 #[test]
 fn recorded_manifests_are_refused_by_name_and_never_as_unknown() {
     for (recorded, predecessor, _) in RECORDED {
