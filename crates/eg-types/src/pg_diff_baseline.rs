@@ -85,6 +85,37 @@ impl DeviationBaseline {
     }
 }
 
+/// One corpus source's evaluator, pluggable so the differential harness
+/// runner (`EG-UNIFIED-DATA-PLANE-R028.2.1`) needs no live Postgres
+/// instance to run against. Needs no live service: driven against fake
+/// evaluators in tests.
+pub trait DifferentialCaseEvaluator {
+    /// This evaluator's corpus source.
+    fn source(&self) -> DifferentialSource;
+    /// Every deviation this source's corpus found against EG, this run.
+    fn evaluate(&self) -> Vec<PostgresDeviation>;
+}
+
+/// Run the differential harness across one evaluator per declared corpus
+/// source, assembling this run's `DeviationBaseline` and reconciling it
+/// against `prior` (`EG-UNIFIED-DATA-PLANE-R028.2.1`). Bubbles
+/// `reconcile`'s refusal when this run drops a prior deviation that
+/// `resolved` does not name.
+pub fn run_differential_harness(
+    evaluators: &[&dyn DifferentialCaseEvaluator],
+    prior: &DeviationBaseline,
+    resolved: &[String],
+) -> Result<DeviationBaseline, UnaccountedDeviationDrop> {
+    let mut current = DeviationBaseline::default();
+    for evaluator in evaluators {
+        for deviation in evaluator.evaluate() {
+            current.deviations.insert(deviation.name.clone(), deviation);
+        }
+    }
+    prior.reconcile(&current, resolved)?;
+    Ok(current)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -153,5 +184,69 @@ mod tests {
         let encoded = serde_json::to_string(&dev).unwrap();
         let decoded: PostgresDeviation = serde_json::from_str(&encoded).unwrap();
         assert_eq!(decoded, dev);
+    }
+
+    struct FakeEvaluator {
+        source: DifferentialSource,
+        found: Vec<&'static str>,
+    }
+
+    impl DifferentialCaseEvaluator for FakeEvaluator {
+        fn source(&self) -> DifferentialSource {
+            self.source
+        }
+
+        fn evaluate(&self) -> Vec<PostgresDeviation> {
+            self.found.iter().map(|name| deviation(name)).collect()
+        }
+    }
+
+    // spec: EG-UNIFIED-DATA-PLANE-R028.2.1
+    #[test]
+    fn harness_merges_deviations_from_every_declared_source() {
+        let regression = FakeEvaluator {
+            source: DifferentialSource::PostgresRegressionSuite,
+            found: vec!["timestamp_precision"],
+        };
+        let sqlancer = FakeEvaluator {
+            source: DifferentialSource::SqlancerGenerated,
+            found: vec!["collation_order"],
+        };
+        let traffic = FakeEvaluator {
+            source: DifferentialSource::CapturedApplicationTraffic,
+            found: vec![],
+        };
+        let prior = DeviationBaseline::default();
+        let current =
+            run_differential_harness(&[&regression, &sqlancer, &traffic], &prior, &[]).unwrap();
+        assert_eq!(current.deviations.len(), 2);
+        assert!(current.deviations.contains_key("timestamp_precision"));
+        assert!(current.deviations.contains_key("collation_order"));
+    }
+
+    // spec: EG-UNIFIED-DATA-PLANE-R028.2.1
+    #[test]
+    fn harness_refuses_when_an_evaluator_drops_a_prior_deviation_unaccounted() {
+        let regression = FakeEvaluator {
+            source: DifferentialSource::PostgresRegressionSuite,
+            found: vec![],
+        };
+        let prior = baseline(&["timestamp_precision"]);
+        let err = run_differential_harness(&[&regression], &prior, &[]).unwrap_err();
+        assert_eq!(err.names, vec!["timestamp_precision".to_string()]);
+    }
+
+    // spec: EG-UNIFIED-DATA-PLANE-R028.2.1
+    #[test]
+    fn harness_accepts_a_dropped_deviation_with_explicit_resolution() {
+        let regression = FakeEvaluator {
+            source: DifferentialSource::PostgresRegressionSuite,
+            found: vec![],
+        };
+        let prior = baseline(&["timestamp_precision"]);
+        let current =
+            run_differential_harness(&[&regression], &prior, &["timestamp_precision".to_string()])
+                .unwrap();
+        assert!(current.deviations.is_empty());
     }
 }

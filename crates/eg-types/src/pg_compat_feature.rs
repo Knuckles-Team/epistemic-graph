@@ -97,6 +97,87 @@ impl FeatureFixRecord {
     }
 }
 
+/// A source of captured application traffic for one feature, pluggable so
+/// the capture runner (`EG-UNIFIED-DATA-PLANE-R027.2.1`) needs no live
+/// candidate application. Needs no live service: driven against a fake
+/// capture source in tests.
+pub trait TrafficCaptureSource {
+    /// This feature's captured-traffic proof, if traffic captured so far
+    /// proves the feature is needed. `None` means not yet proven.
+    fn capture(&self, feature: PgCompatFeature) -> Option<FeatureFixProof>;
+}
+
+/// `capture_feature_fix` could not produce a validated, proven fix record.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CaptureProofError {
+    /// The capture source has not yet observed traffic proving the need.
+    NotProven,
+    /// The source supplied a proof, but it is incomplete.
+    Invalid(InvalidFeatureFix),
+}
+
+impl std::fmt::Display for CaptureProofError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotProven => write!(f, "capture source has not proven this feature needed"),
+            Self::Invalid(err) => write!(f, "{err}"),
+        }
+    }
+}
+
+impl std::error::Error for CaptureProofError {}
+
+/// Assemble one feature's `FeatureFixRecord` from a pluggable
+/// `TrafficCaptureSource`, refusing to mark it fixed unless the source
+/// supplies a complete, valid proof (`EG-UNIFIED-DATA-PLANE-R027.2.1`).
+pub fn capture_feature_fix(
+    source: &dyn TrafficCaptureSource,
+    feature: PgCompatFeature,
+) -> Result<FeatureFixRecord, CaptureProofError> {
+    let proof = source
+        .capture(feature)
+        .ok_or(CaptureProofError::NotProven)?;
+    let record = FeatureFixRecord {
+        feature,
+        proof: Some(proof),
+    };
+    record.validate().map_err(CaptureProofError::Invalid)?;
+    Ok(record)
+}
+
+/// A fix was applied against a record not yet proven fixed -- a fix must
+/// follow its captured-traffic proof, never precede it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FixNotProven {
+    pub feature: PgCompatFeature,
+}
+
+impl std::fmt::Display for FixNotProven {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?} has no proven fix to apply", self.feature)
+    }
+}
+
+impl std::error::Error for FixNotProven {}
+
+/// Apply a feature's fix only once its record carries a complete, valid
+/// proof (`EG-UNIFIED-DATA-PLANE-R027.3.1`); refuses -- without invoking
+/// `apply` -- to apply a fix the record does not yet prove needed. Needs no
+/// live Postgres-compatible target: the caller's actual fix is injected as
+/// `apply`, called only after the proof check passes.
+pub fn apply_proven_fix<F: FnOnce(PgCompatFeature)>(
+    record: &FeatureFixRecord,
+    apply: F,
+) -> Result<(), FixNotProven> {
+    if !record.is_fixed() {
+        return Err(FixNotProven {
+            feature: record.feature,
+        });
+    }
+    apply(record.feature);
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -161,5 +242,77 @@ mod tests {
         let encoded = serde_json::to_string(&record).unwrap();
         let decoded: FeatureFixRecord = serde_json::from_str(&encoded).unwrap();
         assert_eq!(decoded, record);
+    }
+
+    struct FakeCaptureSource {
+        proof: Option<FeatureFixProof>,
+    }
+
+    impl TrafficCaptureSource for FakeCaptureSource {
+        fn capture(&self, _feature: PgCompatFeature) -> Option<FeatureFixProof> {
+            self.proof.clone()
+        }
+    }
+
+    // spec: EG-UNIFIED-DATA-PLANE-R027.2.1
+    #[test]
+    fn capture_with_complete_proof_produces_a_valid_fixed_record() {
+        let source = FakeCaptureSource {
+            proof: Some(proof()),
+        };
+        let record = capture_feature_fix(&source, PgCompatFeature::Jsonb).unwrap();
+        assert!(record.is_fixed());
+    }
+
+    // spec: EG-UNIFIED-DATA-PLANE-R027.2.1
+    #[test]
+    fn capture_with_no_traffic_yet_is_not_proven() {
+        let source = FakeCaptureSource { proof: None };
+        let err = capture_feature_fix(&source, PgCompatFeature::Jsonb).unwrap_err();
+        assert_eq!(err, CaptureProofError::NotProven);
+    }
+
+    // spec: EG-UNIFIED-DATA-PLANE-R027.2.1
+    #[test]
+    fn capture_with_incomplete_proof_is_refused() {
+        let mut bad_proof = proof();
+        bad_proof.passing_test_ref = String::new();
+        let source = FakeCaptureSource {
+            proof: Some(bad_proof),
+        };
+        let err = capture_feature_fix(&source, PgCompatFeature::Jsonb).unwrap_err();
+        assert_eq!(
+            err,
+            CaptureProofError::Invalid(InvalidFeatureFix::IncompleteProof)
+        );
+    }
+
+    // spec: EG-UNIFIED-DATA-PLANE-R027.3.1
+    #[test]
+    fn apply_proven_fix_invokes_apply_exactly_once_when_proven() {
+        let record = FeatureFixRecord {
+            feature: PgCompatFeature::Jsonb,
+            proof: Some(proof()),
+        };
+        let mut calls = 0;
+        apply_proven_fix(&record, |feature| {
+            calls += 1;
+            assert_eq!(feature, PgCompatFeature::Jsonb);
+        })
+        .unwrap();
+        assert_eq!(calls, 1);
+    }
+
+    // spec: EG-UNIFIED-DATA-PLANE-R027.3.1
+    #[test]
+    fn apply_proven_fix_refuses_an_unproven_record_without_calling_apply() {
+        let record = FeatureFixRecord {
+            feature: PgCompatFeature::Savepoints,
+            proof: None,
+        };
+        let mut calls = 0;
+        let err = apply_proven_fix(&record, |_| calls += 1).unwrap_err();
+        assert_eq!(err.feature, PgCompatFeature::Savepoints);
+        assert_eq!(calls, 0);
     }
 }
