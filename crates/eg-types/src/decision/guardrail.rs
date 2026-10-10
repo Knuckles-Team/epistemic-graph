@@ -118,6 +118,7 @@ mod tests {
         }
     }
 
+    // spec: EG-DECISION-ENGINE-R127.1
     #[test]
     fn a_rule_on_the_task_root_is_entailed_onto_a_subclassed_task() {
         let rules = vec![rule("governance:audit-trail", "eg:task")];
@@ -142,12 +143,14 @@ mod tests {
         assert!(entailed[0].entailment_path.is_empty());
     }
 
+    // spec: EG-DECISION-ENGINE-R127.1
     #[test]
     fn a_rule_on_an_unrelated_class_is_never_entailed() {
         let rules = vec![rule("governance:capability-only", "eg:capability")];
         assert!(entailed_guardrails("eg:task/research", &rules).is_empty());
     }
 
+    // spec: EG-DECISION-ENGINE-R127.1
     #[test]
     fn the_same_inputs_always_produce_the_same_premises() {
         let rules = vec![rule("governance:audit-trail", "eg:task")];

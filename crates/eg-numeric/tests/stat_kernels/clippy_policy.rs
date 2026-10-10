@@ -31,6 +31,7 @@ fn read(relative: &str) -> String {
         .unwrap_or_else(|error| panic!("reading {relative} from {manifest_dir}: {error}"))
 }
 
+// spec: EG-DECISION-ENGINE-R124
 #[test]
 fn crate_clippy_policy_is_a_superset_of_the_workspace_policy() {
     let workspace_paths = disallowed_method_paths(&read("../../clippy.toml"));
@@ -46,6 +47,7 @@ fn crate_clippy_policy_is_a_superset_of_the_workspace_policy() {
     );
 }
 
+// spec: EG-DECISION-ENGINE-R124
 #[test]
 fn crate_clippy_policy_bans_every_float_transcendental() {
     let crate_paths = disallowed_method_paths(&read("clippy.toml"));
