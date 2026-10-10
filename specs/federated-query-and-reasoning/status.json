@@ -242,12 +242,14 @@
     {
       "id": "EG-FEDERATED-QUERY-R015",
       "title": "Read-only enforcement at the shared SQL execution path",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "0265d3a41baf",
         "a1bb9fb9503e"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/obs/search.rs:362"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R016",
