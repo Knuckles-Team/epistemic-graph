@@ -121,6 +121,7 @@ fn typed_errors_name_what_is_wrong() {
     }
 }
 
+// spec: EG-DECISION-ENGINE-R071
 #[test]
 fn the_ordinary_uql_parser_refuses_decision_clauses_by_name() {
     for clause in [

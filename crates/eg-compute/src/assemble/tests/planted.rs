@@ -254,6 +254,7 @@ fn budget_exhaustion_is_a_typed_abstention_or_a_verified_answer() {
     }
 }
 
+// spec: EG-DECISION-ENGINE-R070
 #[test]
 fn the_nogood_loop_terminates_after_its_bounded_rounds() {
     let inputs = inputs(request(&["eg:task/research"], &[]), research_library());
