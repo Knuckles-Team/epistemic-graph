@@ -215,7 +215,9 @@
       "title": "`ResolutionKind` is typed with all five variants; the production chokepoint emits Optimization, Statistical, and Abstention",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-compute/src/assemble/tests/routing.rs:146"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R001.2",
@@ -341,7 +343,7 @@
         "e0587cbf4693"
       ],
       "verified_by": [
-        "crates/eg-compute/src/assemble/tests/routing.rs:146"
+        "crates/eg-compute/src/assemble/tests/routing.rs:147"
       ]
     },
     {
@@ -716,7 +718,9 @@
       "title": "`QuestionKind::ResolveEntity` is declared",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/decision/statistical.rs:343"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R032.2",
@@ -745,7 +749,9 @@
       "title": "`QuestionKind::SchemaMapping` is declared",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/decision/statistical.rs:350"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R033.2",
@@ -1052,7 +1058,7 @@
         "fa780d3e101a"
       ],
       "verified_by": [
-        "crates/eg-compute/src/assemble/tests/routing.rs:186",
+        "crates/eg-compute/src/assemble/tests/routing.rs:187",
         "crates/eg-types/src/decision/derivation/tests.rs:219"
       ]
     },
@@ -1112,7 +1118,7 @@
         "crates/eg-compute/src/assemble/tests/oracle.rs:123",
         "crates/eg-compute/src/assemble/tests/oracle.rs:141",
         "crates/eg-compute/src/assemble/tests/planted.rs:43",
-        "crates/eg-compute/src/assemble/tests/routing.rs:147"
+        "crates/eg-compute/src/assemble/tests/routing.rs:148"
       ]
     },
     {
