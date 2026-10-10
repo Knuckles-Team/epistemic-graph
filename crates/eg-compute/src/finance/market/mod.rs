@@ -43,6 +43,8 @@ pub mod supertrend;
 #[cfg(test)]
 mod golden_tests;
 #[cfg(test)]
+mod pine_parity_tests;
+#[cfg(test)]
 mod record_tests;
 
 pub use eg_types::compute_result::market::*;
