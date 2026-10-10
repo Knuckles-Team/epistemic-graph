@@ -302,6 +302,7 @@ fn a_removed_and_re_added_pair_is_never_served_stale() {
     );
 }
 
+// spec: EG-FEDERATED-QUERY-R009
 #[test]
 fn an_unaccounted_write_takes_the_bounded_exact_path() {
     let core = parallel_graph();
@@ -361,6 +362,7 @@ fn scope_and_query_family_mismatches_are_refused() {
     );
 }
 
+// spec: EG-FEDERATED-QUERY-R009
 #[test]
 fn the_lifecycle_is_visible_in_the_index_manager_and_a_drop_is_fenced() {
     let core = parallel_graph();
@@ -397,6 +399,7 @@ fn the_lifecycle_is_visible_in_the_index_manager_and_a_drop_is_fenced() {
     assert_eq!(held.refresh(&core), EdgeRefreshOutcome::Retired, "fenced");
 }
 
+// spec: EG-FEDERATED-QUERY-R009
 #[test]
 fn a_blocked_build_carries_its_typed_diagnostic() {
     let core = parallel_graph();

@@ -6,6 +6,7 @@
 use super::*;
 use crate::tables::TableStore;
 
+// spec: EG-FEDERATED-QUERY-R009
 #[test]
 fn a_durable_edge_index_is_restored_after_a_restart_without_a_rebuild() {
     let (store, _path) = TableStore::open_temp().unwrap();
@@ -44,6 +45,7 @@ fn a_durable_edge_index_is_restored_after_a_restart_without_a_rebuild() {
     assert_eq!(install_edge_indexes(&store, "g", &reloaded).unwrap(), 0);
 }
 
+// spec: EG-FEDERATED-QUERY-R009
 #[test]
 fn a_durable_drop_removes_the_registration_and_every_generation() {
     let (store, _path) = TableStore::open_temp().unwrap();
