@@ -113,6 +113,7 @@ fn world_model_modules_are_core_modules_within_the_catalog_bound() {
 /// check stays consistent and the full-ABox entry check is decided within the step
 /// budget the pre-world-model corpus needed. Timings are printed for the WRAPUP
 /// (eg-reasoning measured 2.6 s terminology, 2.7 s full ABox on R820).
+// spec: EG-FEDERATED-QUERY-R001
 #[test]
 fn full_corpus_stays_within_the_recorded_reasoning_budgets() {
     let composed = validate_and_compose(&GraphSchemaSources::default()).unwrap();

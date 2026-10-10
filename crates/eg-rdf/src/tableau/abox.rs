@@ -478,6 +478,7 @@ mod tests {
 
     /// The pack check names what is wrong: an unsatisfiable class, an inconsistent
     /// individual, or a spent budget.
+    // spec: EG-FEDERATED-QUERY-R001
     #[test]
     fn check_pack_ontology_reports_a_typed_refusal() {
         let ttl = |body: &str| {
