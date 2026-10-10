@@ -352,7 +352,15 @@ pub(super) const REASON_DECISION_LOG_VISIBILITY: &str =
 pub(super) const REASON_FRESHNESS_METADATA: &str =
     "handlers::query::freshness_feed reads the DepClock invalidation log (versions + class/edge-type names, no row ids or content) and schema-class volatility annotations; the only instance rows it reports, ForeignSourceWatermark nodes, pass IsolationLayer::can_see_row for the caller first";
 
+// EH-572: `QueryForeignColumns` resolves a named source from the caller's OWN owner-scoped
+// (tenant+principal) ForeignSourceCatalog and fetches rows from the external source; it never
+// constructs a GraphView/GraphCore, and foreign rows are not local graph rows. Gated on kg:read.
+pub(super) const REASON_FOREIGN_SOURCE_OWNER_SCOPED: &str =
+    "QueryForeignColumns resolves a named source from the caller's own owner-scoped (verified tenant+principal) ForeignSourceCatalog behind kg:read and returns rows fetched from that external source -- never a GraphView/core.analysis_snapshot() row read";
+
 pub(super) const NON_ROW_SCOPED: &[(&str, &str)] = &[
+    // REASON_FOREIGN_SOURCE_OWNER_SCOPED (EH-572)
+    ("QueryForeignColumns", REASON_FOREIGN_SOURCE_OWNER_SCOPED),
     // REASON_DECIDE_LIBRARY_SNAPSHOT
     ("Decide", REASON_DECIDE_LIBRARY_SNAPSHOT),
     // REASON_DECISION_LOG_VISIBILITY
