@@ -76,11 +76,27 @@ pub mod platform_admission;
 // declared scope area. Pure data; running the spike and the ADR review are
 // later children.
 pub mod pgrx_spike;
+// EG-UNIFIED-DATA-PLANE-R025.3.1 — adapter skeleton reviewing a recorded
+// pgrx spike decision into an approved ADR record, refusing an invalid
+// decision, an empty reviewer, or an empty ADR title. Filing the ADR
+// document itself is a later child.
+pub mod pgrx_spike_review;
 // EG-UNIFIED-DATA-PLANE-R026.1 — typed Gramps native-hosting pilot phase
 // gate (P0-P5), refusing a wrong or unreviewed exit artifact and skipping
 // ahead of an un-exited earlier phase. Pure data; running each phase is a
 // later child.
 pub mod gramps_pilot_phase;
+// EG-UNIFIED-DATA-PLANE-R026.2.1 — adapter skeleton mapping a typed P0
+// baseline-content-digest record to the P0 phase exit artifact, refusing a
+// zero record count or an empty digest. The real baseline capture is a
+// later child.
+pub mod gramps_baseline_digest;
+// EG-UNIFIED-DATA-PLANE-R026.3.1 — adapter skeleton mapping a typed P3
+// proven-gap-fix record (failing test before, passing test after) to the P3
+// phase exit artifact, refusing an identical before/after test name. The
+// real restore verification (P4) and schema-understanding demonstration
+// (P5) are later children.
+pub mod gramps_gap_fix;
 // EG-UNIFIED-DATA-PLANE-R033.1 — typed Gramps production-cutover go-ahead
 // (pilot phase P6), reusing gramps_pilot_phase's P5 exit and refusing a
 // go-ahead that cites the wrong phase, an invalid P5 exit, no approver, or

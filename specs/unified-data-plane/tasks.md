@@ -115,11 +115,17 @@ Native storage and wire work (EG-DURABLE-KERNEL-R032/EG-DURABLE-KERNEL-R033/EG-D
 - [x] **EG-UNIFIED-DATA-PLANE-R025:** Separate pgrx companion spike and go/no-go ADR; depends on EG-UNIFIED-DATA-PLANE-R001.
 - [x] **EG-UNIFIED-DATA-PLANE-R025.1:** `PgrxSpikeDecision` typed model plus full-scope-evidence refusal (`crates/eg-types/src/pgrx_spike.rs`).
 - [ ] **EG-UNIFIED-DATA-PLANE-R025.2:** Run the spike across its declared scope areas.
-- [ ] **EG-UNIFIED-DATA-PLANE-R025.3:** Review the spike's results and recorded decision; produce the approved ADR.
+- [ ] **EG-UNIFIED-DATA-PLANE-R025.3 (rollup):** Review the spike's results and recorded decision; produce the approved ADR. LANDED only once every child is.
+  - [x] **EG-UNIFIED-DATA-PLANE-R025.3.1:** Review skeleton — `PgrxSpikeReviewRequest`/`ApprovedPgrxAdr` typed mapping plus the invalid-decision/empty-reviewer/empty-title refusal path (`crates/eg-types/src/pgrx_spike_review.rs`). Test: `crates/eg-types/src/pgrx_spike_review.rs::tests`.
+  - [ ] **EG-UNIFIED-DATA-PLANE-R025.3.2:** Filing the approved ADR document against the live spike's actual results.
 - [x] **EG-UNIFIED-DATA-PLANE-R026 / Gramps P0–P5:** Baseline, real-Postgres control, unmodified EG replay, pilot fixes, restores and OBDA understanding; depends on EG-DURABLE-KERNEL-R036. Implement P0–P5 and their exit artifacts as defined in [spec.md](spec.md) and [test-spec.md](test-spec.md).
 - [x] **EG-UNIFIED-DATA-PLANE-R026.1:** `GrampsPilotProgress`/`PhaseExitArtifact` typed P0-P5 gate plus wrong/unreviewed/out-of-order refusal (`crates/eg-types/src/gramps_pilot_phase.rs`).
-- [ ] **EG-UNIFIED-DATA-PLANE-R026.2:** Run P0-P2 (baseline digest, Postgres control, unmodified corpus replay).
-- [ ] **EG-UNIFIED-DATA-PLANE-R026.3:** Run P3-P5 (proven-gap fixes, restore verification, schema-understanding demonstration).
+- [ ] **EG-UNIFIED-DATA-PLANE-R026.2 (rollup):** Run P0-P2 (baseline digest, Postgres control, unmodified corpus replay). LANDED only once every child is.
+  - [x] **EG-UNIFIED-DATA-PLANE-R026.2.1:** P0 adapter skeleton — `GrampsBaselineDigest` typed mapping to the P0 phase exit plus the zero-count/empty-digest/unreviewed refusal path (`crates/eg-types/src/gramps_baseline_digest.rs`). Test: `crates/eg-types/src/gramps_baseline_digest.rs::tests`.
+  - [ ] **EG-UNIFIED-DATA-PLANE-R026.2.2:** Real baseline capture, Postgres control, and unmodified corpus replay (P1-P2) against a live export.
+- [ ] **EG-UNIFIED-DATA-PLANE-R026.3 (rollup):** Run P3-P5 (proven-gap fixes, restore verification, schema-understanding demonstration). LANDED only once every child is.
+  - [x] **EG-UNIFIED-DATA-PLANE-R026.3.1:** P3 adapter skeleton — `GrampsProvenGapFix` typed mapping to the P3 phase exit plus the empty-field/same-test/unreviewed refusal path (`crates/eg-types/src/gramps_gap_fix.rs`). Test: `crates/eg-types/src/gramps_gap_fix.rs::tests`.
+  - [ ] **EG-UNIFIED-DATA-PLANE-R026.3.2:** Real restore verification (P4) and schema-understanding demonstration (P5) against the live pilot.
 - [x] **EG-UNIFIED-DATA-PLANE-R027:** Fix Postgres features only when captured app traffic proves need; include B-tree indexes, collation, regex, bytea, sequences, savepoints, locks, notify, triggers/functions, JSONB, isolation, startup, SQLSTATE, schemas, constraints, types, materialized views, large objects and timezone; depends on EG-UNIFIED-DATA-PLANE-R026.
 - [x] **EG-UNIFIED-DATA-PLANE-R027.1:** `FeatureFixRecord`/`PgCompatFeature` typed inventory plus incomplete-proof refusal (`crates/eg-types/src/pg_compat_feature.rs`).
 - [ ] **EG-UNIFIED-DATA-PLANE-R027.2:** Capture application traffic per feature and record the proof reference.
