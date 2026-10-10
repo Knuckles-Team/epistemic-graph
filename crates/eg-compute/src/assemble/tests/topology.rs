@@ -113,6 +113,7 @@ fn demand_sizes_the_fan_out_and_the_plan_leases_it() {
 }
 
 // spec: EG-DECISION-ENGINE-R046
+// spec: EG-DECISION-ENGINE-R112
 #[test]
 fn headroom_below_demand_abstains_naming_the_cell_lease() {
     let assembly = decide(requirements(4), read(3, admitted()));
