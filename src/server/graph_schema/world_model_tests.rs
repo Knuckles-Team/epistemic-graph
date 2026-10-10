@@ -214,6 +214,7 @@ fn a_weather_event_occurs_in_a_weather_system_and_its_region() {
 /// `AllDisjointClasses(IC, GDC, Process, TemporalRegion)` makes an individual typed
 /// both inconsistent (the tableau reads the n-ary axiom since EH-363) and the class
 /// intersection unsatisfiable (EL⁺/RL).
+// spec: EG-FEDERATED-QUERY-R012
 #[test]
 fn a_taxon_is_never_an_organism() {
     let mut triples = fixture_triples();

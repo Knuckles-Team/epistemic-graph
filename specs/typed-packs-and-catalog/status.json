@@ -790,7 +790,7 @@
       ],
       "verified_by": [
         "src/server/graph_schema/world_model_tests.rs:106",
-        "src/server/graph_schema/world_model_tests.rs:245"
+        "src/server/graph_schema/world_model_tests.rs:246"
       ]
     },
     {

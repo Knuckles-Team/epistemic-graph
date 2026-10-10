@@ -133,6 +133,7 @@ mod tests {
 
     /// A 20-axiom chain over 21 classes derives exactly the 210 subsumptions
     /// `Cᵢ ⊑ Cⱼ` with `i < j` (21·20/2); nothing else is a derivation step.
+    // spec: EG-FEDERATED-QUERY-R001
     #[test]
     fn exact_budget_completes_and_one_less_is_exhausted() {
         let triples = chain(20);

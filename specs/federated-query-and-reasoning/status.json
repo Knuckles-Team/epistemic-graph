@@ -93,12 +93,14 @@
     {
       "id": "EG-FEDERATED-QUERY-R001",
       "title": "Bounded derivation steps in EL+/RL and tableau reasoning",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "0265d3a41baf",
         "57a12eb06632"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-rdf/src/owl/budget.rs:136"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R002",
@@ -212,12 +214,14 @@
     {
       "id": "EG-FEDERATED-QUERY-R012",
       "title": "Tableau honors AllDisjointClasses and core disjointness facts",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "0265d3a41baf",
         "42aeb6436568"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/graph_schema/world_model_tests.rs:217"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R013",
@@ -232,12 +236,14 @@
     {
       "id": "EG-FEDERATED-QUERY-R014",
       "title": "Explicit grant-based sharing of a registered foreign source",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "0265d3a41baf",
         "a1bb9fb9503e"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/foreign_share.rs:178"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R015",
@@ -294,12 +300,14 @@
     {
       "id": "EG-FEDERATED-QUERY-R020",
       "title": "One query-text method surface, with the legacy method retired",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "0265d3a41baf",
         "bd27155934dc"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-capabilities/tests/contract_registry.rs:219"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R021",
@@ -356,12 +364,15 @@
     {
       "id": "EG-FEDERATED-QUERY-R026",
       "title": "UQL documentation is test-verified with an embedded grammar",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "0265d3a41baf",
         "7b9ba5708638"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-plan/src/uql/tests/contract.rs:106",
+        "crates/eg-plan/src/uql/tests/contract.rs:131"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R027",
