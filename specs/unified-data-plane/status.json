@@ -813,7 +813,7 @@
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R019.3",
-      "title": "Conformance entry comparing EG query results and captured change stream against native MongoDB/DocumentDB",
+      "title": "Conformance entry comparing EG query results and captured change stream against native MongoDB/DocumentDB (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
