@@ -141,6 +141,32 @@ def test_nested_write_closure_does_not_anchor_outer_function(gate):
     ) == {"prepare_component_entry"}
 
 
+@pytest.mark.spec("EG-DECISION-ENGINE-R120")
+def test_read_and_replay_helpers_are_not_admission_anchors(gate):
+    """Only the persisted write path counts; a read helper and a replay
+    helper that merely pass the entry type through are not admission points.
+    """
+
+    bodies = {
+        "read_component": (
+            "fn read_component(id: &str) -> AgentComponentEntry { "
+            "fetch_component(id) }"
+        ),
+        "replay_component": (
+            "fn replay_component(entry: AgentComponentEntry) { "
+            "apply_replayed_component(entry); }"
+        ),
+        "commit_component": (
+            "fn commit_component(txn: &AdmittedMutation) -> AgentComponentEntry { "
+            "txn.open_write(); resolve_component_pins_in_write(txn) }"
+        ),
+    }
+    anchors = gate._admission_anchors_for_layer(
+        bodies, {"commit_component"}, "COMPONENT"
+    )
+    assert anchors == {"commit_component"}
+
+
 @pytest.mark.spec("EG-CONTRACT-R036")
 def test_removing_the_library_resolver_is_reported(gate, monkeypatch, real):
     planted = _without_call(
