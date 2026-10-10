@@ -92,6 +92,7 @@ mod tests {
         }
     }
 
+    // spec: EG-DURABLE-KERNEL-R024.6
     #[test]
     fn well_formed_spec_is_refused_not_silently_run_unguarded() {
         let mut registry = ForeignSourceRegistry::default();
@@ -99,6 +100,7 @@ mod tests {
         assert!(err.contains("no bound guard driver"), "{err}");
     }
 
+    // spec: EG-DURABLE-KERNEL-R024.6
     #[test]
     fn empty_guard_policy_is_rejected_before_reaching_the_refusal() {
         let mut registry = ForeignSourceRegistry::default();
@@ -110,6 +112,7 @@ mod tests {
         assert!(err.contains("invalid brain-guarded guard policy"), "{err}");
     }
 
+    // spec: EG-DURABLE-KERNEL-R024.6
     #[test]
     fn score_field_matching_id_field_is_rejected() {
         let mut registry = ForeignSourceRegistry::default();
@@ -126,6 +129,7 @@ mod tests {
         assert!(err.contains("must differ"), "{err}");
     }
 
+    // spec: EG-DURABLE-KERNEL-R024.6
     #[test]
     fn wrong_spec_variant_is_rejected() {
         let mut registry = ForeignSourceRegistry::default();

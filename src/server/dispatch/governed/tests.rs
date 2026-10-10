@@ -56,6 +56,7 @@ async fn status(
         .status
 }
 
+// spec: EG-DURABLE-KERNEL-R027.2
 #[tokio::test]
 async fn a_second_direct_approver_with_the_exact_scope_approves() {
     let state = state();
@@ -105,6 +106,7 @@ async fn a_second_direct_approver_with_the_exact_scope_approves() {
     assert_eq!(status(&state).await, GovernedStatus::Approved);
 }
 
+// spec: EG-DURABLE-KERNEL-R027.2
 #[tokio::test]
 async fn a_forged_actor_in_the_body_is_overwritten() {
     let state = state();

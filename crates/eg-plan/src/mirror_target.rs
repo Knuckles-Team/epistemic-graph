@@ -135,6 +135,7 @@ mod tests {
         }
     }
 
+    // spec: EG-DURABLE-KERNEL-R024.2.1
     #[test]
     fn fan_out_spec_round_trips_and_validates() {
         let spec = fan_out(&["lake", "audit-sink"]);
@@ -144,6 +145,7 @@ mod tests {
         assert_eq!(round_trip, spec);
     }
 
+    // spec: EG-DURABLE-KERNEL-R024.2.1
     #[test]
     fn empty_fan_out_is_refused() {
         let spec = fan_out(&[]);
@@ -154,6 +156,7 @@ mod tests {
         assert!(error.contains("no downstream target"), "{error}");
     }
 
+    // spec: EG-DURABLE-KERNEL-R024.2.1
     #[test]
     fn duplicate_fan_out_target_is_refused() {
         let spec = fan_out(&["lake", "lake"]);
@@ -163,6 +166,7 @@ mod tests {
         assert!(error.contains("more than once"), "{error}");
     }
 
+    // spec: EG-DURABLE-KERNEL-R024.2.1
     #[test]
     fn unbound_fan_out_fails_closed_without_reaching_any_target() {
         let spec = fan_out(&["lake", "audit-sink"]);
@@ -254,6 +258,7 @@ mod tests {
         }
     }
 
+    // spec: EG-DURABLE-KERNEL-R024.5
     #[test]
     fn outbox_spec_round_trips_and_validates() {
         let spec = outbox("warehouse-mirror");
@@ -263,6 +268,7 @@ mod tests {
         assert_eq!(round_trip, spec);
     }
 
+    // spec: EG-DURABLE-KERNEL-R024.5
     #[test]
     fn empty_outbox_consumer_is_refused() {
         let spec = outbox("");
@@ -273,6 +279,7 @@ mod tests {
         assert!(error.contains("empty or padded"), "{error}");
     }
 
+    // spec: EG-DURABLE-KERNEL-R024.5
     #[test]
     fn padded_outbox_consumer_is_refused() {
         let spec = outbox(" warehouse-mirror ");
@@ -282,6 +289,7 @@ mod tests {
         assert!(error.contains("empty or padded"), "{error}");
     }
 
+    // spec: EG-DURABLE-KERNEL-R024.5
     #[test]
     fn unbound_outbox_target_fails_closed_without_reaching_any_target() {
         let spec = outbox("warehouse-mirror");

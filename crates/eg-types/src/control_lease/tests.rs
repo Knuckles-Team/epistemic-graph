@@ -168,6 +168,7 @@ fn the_elevation_kind_cannot_be_issued_as_a_generic_control_lease() {
 /// EH-560: a governed kind is issued only through `GovernedChange`; the
 /// generic lease path refuses the whole `governed.` namespace, while an
 /// ordinary kind next to it is still accepted.
+// spec: EG-DURABLE-KERNEL-R027.1
 #[test]
 fn a_governed_kind_cannot_be_issued_as_a_generic_control_lease() {
     for kind in [
