@@ -271,6 +271,38 @@ fn a_pending_reservation_is_not_closed_by_another_request_context() {
     assert_eq!((pending.replayed, pending.outcome_seq), (true, None));
 }
 
+/// A duplicate AuditAppend reservation for the same request identity, made
+/// again before any outcome and with no restart in between, is a replay: it
+/// returns the original reservation receipt unchanged and adds neither a
+/// second audit-chain entry nor a second request-index row.
+// spec: EG-DURABLE-KERNEL-R031
+#[test]
+fn a_duplicate_reservation_is_replayed_without_a_restart() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::seeded(dir.path());
+    let first = store.append(&event("request-a", "reserved")).unwrap();
+    assert!(!first.replayed);
+    let duplicate = store.append(&event("request-a", "reserved")).unwrap();
+    assert_eq!(
+        duplicate,
+        AuditAppendReceipt {
+            replayed: true,
+            ..first.clone()
+        },
+        "the duplicate reservation replays the original receipt"
+    );
+    assert_eq!(
+        store.chain_entries(),
+        2,
+        "seed and the one reservation, no duplicate entry"
+    );
+    assert_eq!(
+        store.rows(AUDIT_REQUESTS).len(),
+        1,
+        "no second request-index row for the duplicate"
+    );
+}
+
 /// Two stores that apply the same events, as two replicas of one graph do, end
 /// with byte-identical audit-chain and request-index rows and return the same
 /// receipts. The per-attempt admission id differs between them on every call
