@@ -1,0 +1,23 @@
+[
+  {
+    "op": "r",
+    "source": { "db": "gramps", "table": "person", "position": "0/1A2B30", "ts_ms": 1000 },
+    "after": { "id": "p-1", "name": "Ada Lovelace" }
+  },
+  {
+    "op": "c",
+    "source": { "db": "gramps", "table": "person", "position": "0/1A2B31", "ts_ms": 1001 },
+    "after": { "id": "p-2", "name": "Alan Turing" }
+  },
+  {
+    "op": "u",
+    "source": { "db": "gramps", "table": "person", "position": "0/1A2B32", "ts_ms": 1002 },
+    "before": { "id": "p-2", "name": "Alan Turing" },
+    "after": { "id": "p-2", "name": "Alan M. Turing" }
+  },
+  {
+    "op": "d",
+    "source": { "db": "gramps", "table": "person", "position": "0/1A2B33", "ts_ms": 1003 },
+    "before": { "id": "p-1", "name": "Ada Lovelace" }
+  }
+]
