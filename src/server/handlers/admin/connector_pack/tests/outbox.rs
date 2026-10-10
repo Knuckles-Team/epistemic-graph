@@ -65,6 +65,11 @@ async fn searchable_ids(served: &Served) -> Vec<String> {
         .collect()
 }
 
+// spec: EG-TYPED-PACKS-R052
+// The projection consumer is not a pack-specific stand-in: it is driven
+// through the general Agent Library MutationOutbox (status/rewind) that
+// EG-TYPED-PACKS-R054/R055 already land on main, so this capability was
+// shipped only once that general outbox authority existed.
 #[tokio::test]
 async fn the_worker_consumes_an_import_and_the_operator_can_rewind_it() {
     let served = Served::new();
