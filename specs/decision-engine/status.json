@@ -175,6 +175,8 @@
     "EG-DECISION-ENGINE-R117.1",
     "EG-DECISION-ENGINE-R118",
     "EG-DECISION-ENGINE-R118.1",
+    "EG-DECISION-ENGINE-R118.1.1",
+    "EG-DECISION-ENGINE-R118.1.2",
     "EG-DECISION-ENGINE-R119",
     "EG-DECISION-ENGINE-R120",
     "EG-DECISION-ENGINE-R121",
@@ -2310,6 +2312,26 @@
     {
       "id": "EG-DECISION-ENGINE-R118.1",
       "title": "Reputation-view test exists outside the unrelated privacy regression fixture",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R118.1.1",
+        "EG-DECISION-ENGINE-R118.1.2"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R118.1.1",
+      "title": "A sparse pool abstains in the reputation materialization",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "crates/eg-numeric/src/risk/reputation.rs:316"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R118.1.2",
+      "title": "AuthorityPolicy, RetrievalCandidate and UQL SOURCE RELIABILITY agree on the abstention",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

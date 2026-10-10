@@ -313,6 +313,21 @@ mod tests {
         );
     }
 
+    // spec: EG-DECISION-ENGINE-R118.1.1
+    #[test]
+    fn sparse_pool_abstains_while_a_dense_peer_is_estimated() {
+        let mut obs = outcomes("sparse", 2, 1);
+        obs.extend(outcomes("dense", 8, 4));
+        let rows = learn_reputation(&obs, &rules(None, 5)).unwrap();
+        let sparse = rows.iter().find(|r| r.subject == "sparse").unwrap();
+        let dense = rows.iter().find(|r| r.subject == "dense").unwrap();
+        assert_eq!(
+            sparse.reputation,
+            Reputation::InsufficientHistory { n_min: 5 }
+        );
+        assert!(matches!(dense.reputation, Reputation::Estimated(_)));
+    }
+
     #[test]
     fn an_anchored_reliability_without_evidence_is_its_prior() {
         let row = SubjectReputation {
