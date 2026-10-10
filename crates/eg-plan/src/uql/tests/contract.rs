@@ -103,6 +103,7 @@ fn generated_block(doc: &str, name: &str) -> String {
     body[..stop].to_string()
 }
 
+// spec: EG-FEDERATED-QUERY-R026
 #[test]
 fn docs_embed_the_generated_grammars() {
     let doc = docs("uql.md");
@@ -127,6 +128,7 @@ fn uql_blocks(doc: &str) -> Vec<String> {
         .collect()
 }
 
+// spec: EG-FEDERATED-QUERY-R026
 #[test]
 fn every_uql_block_in_the_docs_parses() {
     for name in ["uql.md", "analytics_in_uql.md"] {

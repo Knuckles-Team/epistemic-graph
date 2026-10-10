@@ -175,6 +175,7 @@ mod tests {
         (found, scoped.cache_salt().to_string())
     }
 
+    // spec: EG-FEDERATED-QUERY-R014
     #[test]
     fn a_shared_source_needs_an_exact_grant_and_revocation_stops_use() {
         let mut isolation = crate::server::state::ServerState::test_isolation("share-admin");

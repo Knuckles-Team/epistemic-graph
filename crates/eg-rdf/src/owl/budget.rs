@@ -140,6 +140,7 @@ mod tests {
     /// test also stands for EG-FEDERATED-QUERY-R003 (no duplicated enforcement).
     // spec: EG-FEDERATED-QUERY-R001
     // spec: EG-FEDERATED-QUERY-R003
+    // spec: EG-FEDERATED-QUERY-R001
     #[test]
     fn exact_budget_completes_and_one_less_is_exhausted() {
         let triples = chain(20);

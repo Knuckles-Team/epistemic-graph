@@ -121,15 +121,12 @@
     {
       "id": "EG-FEDERATED-QUERY-R003",
       "title": "Derivation-step budget is enforced once, not duplicated per path",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "0265d3a41baf",
-        "1ac87735b5a3",
         "73069c650dcd"
       ],
-      "verified_by": [
-        "crates/eg-rdf/src/owl/budget.rs:142"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-FEDERATED-QUERY-R004",
@@ -144,15 +141,12 @@
     {
       "id": "EG-FEDERATED-QUERY-R005",
       "title": "UQL VALIDATE SHAPE stage",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "0265d3a41baf",
-        "1ac87735b5a3",
         "a1bb9fb9503e"
       ],
-      "verified_by": [
-        "src/server/handlers/rdf/validation.rs:376"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-FEDERATED-QUERY-R006",
@@ -183,60 +177,42 @@
     {
       "id": "EG-FEDERATED-QUERY-R008",
       "title": "Edge-native text and vector search with stable identity",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "0265d3a41baf",
-        "1ac87735b5a3",
         "834aca5df713"
       ],
-      "verified_by": [
-        "crates/eg-query/src/edge_index/tests.rs:180",
-        "crates/eg-query/src/edge_index/tests.rs:282",
-        "crates/eg-query/src/edge_index/tests.rs:431"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-FEDERATED-QUERY-R009",
       "title": "Durable user-managed graph-index lifecycle",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "0265d3a41baf",
-        "20e0a4ec589a",
         "e99a95cc842d"
       ],
-      "verified_by": [
-        "crates/eg-query/src/edge_index/tests.rs:305",
-        "crates/eg-query/src/edge_index/tests.rs:365",
-        "crates/eg-query/src/edge_index/tests.rs:402",
-        "crates/eg-query/src/edge_index/tests/durability.rs:48",
-        "crates/eg-query/src/edge_index/tests/durability.rs:9"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-FEDERATED-QUERY-R010",
       "title": "Tableau reasoning stays bounded on the shipped core schema",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "0265d3a41baf",
-        "20e0a4ec589a",
         "57a12eb06632"
       ],
-      "verified_by": [
-        "src/server/graph_schema/world_model_tests.rs:117"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-FEDERATED-QUERY-R011",
       "title": "EL+/RL reasoning is sound against the shipped ontology corpus",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "0265d3a41baf",
-        "20e0a4ec589a",
         "f17f47ab300f"
       ],
-      "verified_by": [
-        "src/server/graph_schema/compose.rs:825"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-FEDERATED-QUERY-R012",
@@ -275,16 +251,12 @@
     {
       "id": "EG-FEDERATED-QUERY-R015",
       "title": "Read-only enforcement at the shared SQL execution path",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "0265d3a41baf",
-        "0dea49929b94",
         "a1bb9fb9503e"
       ],
-      "verified_by": [
-        "crates/eg-query/src/sql/read_only.rs:52",
-        "crates/eg-query/src/sql/read_only.rs:84"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-FEDERATED-QUERY-R016",
@@ -301,17 +273,12 @@
     {
       "id": "EG-FEDERATED-QUERY-R017",
       "title": "Dependency tracking covers edge-type and embedding generations",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "0265d3a41baf",
-        "0dea49929b94",
         "10177f908dd0"
       ],
-      "verified_by": [
-        "crates/eg-core/tests/dependency_scoped_edges.rs:132",
-        "crates/eg-core/tests/dependency_scoped_edges.rs:147",
-        "crates/eg-core/tests/dependency_scoped_edges.rs:221"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-FEDERATED-QUERY-R018",
@@ -326,16 +293,12 @@
     {
       "id": "EG-FEDERATED-QUERY-R019",
       "title": "Per-bar signal-state advancement with revisable trend records",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "0265d3a41baf",
-        "0dea49929b94",
         "532418b7e55b"
       ],
-      "verified_by": [
-        "crates/eg-compute/src/finance/market/record_tests.rs:154",
-        "crates/eg-compute/src/finance/market/record_tests.rs:50"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-FEDERATED-QUERY-R020",

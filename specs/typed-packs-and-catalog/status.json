@@ -110,13 +110,11 @@
     {
       "id": "EG-TYPED-PACKS-R001",
       "title": "Connector pack contract types and golden digest vectors",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "b43f33569dd4"
       ],
-      "verified_by": [
-        "tests/test_connector_pack_client.py:138"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R002",
@@ -139,14 +137,11 @@
     {
       "id": "EG-TYPED-PACKS-R004",
       "title": "Python ConnectorPackClient with a deterministic import key",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "b43f33569dd4"
       ],
-      "verified_by": [
-        "tests/test_connector_pack_client.py:258",
-        "tests/test_connector_pack_client.py:368"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R005",
@@ -214,13 +209,11 @@
     {
       "id": "EG-TYPED-PACKS-R012",
       "title": "Pack and agent-layer write methods are local-only in clustered mode",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "321e6ae98be4"
       ],
-      "verified_by": [
-        "src/server/mutation.rs:2394"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R013",
@@ -311,167 +304,137 @@
     {
       "id": "EG-TYPED-PACKS-R022",
       "title": "Pack index well-formedness validation",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "db863f1e2afd"
       ],
-      "verified_by": [
-        "tests/test_connector_pack_planted.py:217"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R023",
       "title": "Pack size bounds across index, entries, archive and body",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "db863f1e2afd"
       ],
-      "verified_by": [
-        "tests/test_connector_pack_planted.py:218"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R024",
       "title": "Archive presence, length and digest integrity",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "db863f1e2afd"
       ],
-      "verified_by": [
-        "tests/test_connector_pack_planted.py:219"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R025",
       "title": "Archive section layout and offset correctness",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "db863f1e2afd"
       ],
-      "verified_by": [
-        "tests/test_connector_pack_planted.py:220"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R026",
       "title": "Section, entry and pack digest recomputation",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "db863f1e2afd"
       ],
-      "verified_by": [
-        "tests/test_connector_pack_planted.py:221"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R027",
       "title": "Text body UTF-8 validity without a byte-order mark",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "db863f1e2afd"
       ],
-      "verified_by": [
-        "tests/test_connector_pack_planted.py:222"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R028",
       "title": "Bounded JSON body and schema validation",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "b43f33569dd4"
       ],
-      "verified_by": [
-        "tests/test_connector_pack_planted.py:223"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R029",
       "title": "SKILL.md front-matter validation",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "b43f33569dd4"
       ],
-      "verified_by": [
-        "tests/test_connector_pack_planted.py:224"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R030",
       "title": "Tool entries require an input schema",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "db863f1e2afd"
       ],
-      "verified_by": [
-        "tests/test_connector_pack_planted.py:225"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R031",
       "title": "Empty description falls back to the entry name",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "db863f1e2afd"
       ],
-      "verified_by": [
-        "tests/test_connector_pack_planted.py:226"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R032",
       "title": "Capability, cost, latency and model annotation validation",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "db863f1e2afd"
       ],
-      "verified_by": [
-        "tests/test_connector_pack_planted.py:227"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R033",
       "title": "Bounded Turtle parsing for ontology and shapes",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "b43f33569dd4"
       ],
-      "verified_by": [
-        "tests/test_connector_pack_planted.py:228"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R034",
       "title": "Shape blank-node scoping and SPARQL-backed constraint rejection",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "db863f1e2afd"
       ],
-      "verified_by": [
-        "tests/test_connector_pack_planted.py:229"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R035",
       "title": "Step-bounded SHACL cross-validation against the ontology",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "db863f1e2afd"
       ],
-      "verified_by": [
-        "tests/test_connector_pack_planted.py:230"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R036",
       "title": "Sibling reference resolution without cycles",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "db863f1e2afd"
       ],
-      "verified_by": [
-        "tests/test_connector_pack_planted.py:231"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R037",
@@ -485,35 +448,29 @@
     {
       "id": "EG-TYPED-PACKS-R038",
       "title": "Import requires a matching bound importer identity",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "db863f1e2afd"
       ],
-      "verified_by": [
-        "tests/test_connector_pack_planted.py:232"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R039",
       "title": "Mass-withdrawal guard requires an explicit admin override",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "ac5638477288"
       ],
-      "verified_by": [
-        "tests/test_connector_pack_planted.py:233"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R040",
       "title": "Validation stops at a bounded violation count",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "db863f1e2afd"
       ],
-      "verified_by": [
-        "tests/test_connector_pack_planted.py:234"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R041",
@@ -565,24 +522,20 @@
     {
       "id": "EG-TYPED-PACKS-R046",
       "title": "Cost annotation on pack entries",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "db863f1e2afd"
       ],
-      "verified_by": [
-        "src/server/handlers/admin/connector_pack/import/annotations.rs:199"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R047",
       "title": "Latency annotation on pack entries",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "db863f1e2afd"
       ],
-      "verified_by": [
-        "src/server/handlers/admin/connector_pack/import/annotations.rs:200"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R048",
@@ -605,14 +558,11 @@
     {
       "id": "EG-TYPED-PACKS-R050",
       "title": "Per-entry contract_version replaces package-version pinning",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "db863f1e2afd"
       ],
-      "verified_by": [
-        "src/server/handlers/admin/connector_pack/tests/content_model.rs:100",
-        "src/server/handlers/admin/connector_pack/tests/content_model.rs:262"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R051",

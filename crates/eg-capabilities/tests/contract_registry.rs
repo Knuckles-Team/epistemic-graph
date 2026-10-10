@@ -216,6 +216,7 @@ fn every_wire_variant_has_exactly_one_descriptor_and_vice_versa() {
     );
 }
 
+// spec: EG-FEDERATED-QUERY-R020
 #[test]
 fn retired_methods_never_reappear() {
     let variants = wire_method_variants();
