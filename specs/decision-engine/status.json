@@ -632,7 +632,9 @@
       "title": "Calibration-weighting half of audit sampling is tested in-crate",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-numeric/src/decision/targets.rs:82"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R027",
