@@ -75,7 +75,9 @@ class ReleasePublication(unittest.TestCase):
             "-p eg-storage --all-features --no-fail-fast -- --test-threads=1"
         )
         self.assertEqual(commands.count(storage), 1)
-        workspace = next(command for command in commands if "--workspace" in command)
+        workspace = next(
+            command for command in commands if "--locked --workspace" in command
+        )
         self.assertIn("--exclude eg-storage ", workspace)
         self.assertNotIn("--test-threads=1", workspace)
         self.assertLess(commands.index(storage), commands.index(workspace))
