@@ -130,7 +130,8 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "82e1e970c83a",
-        "86532dc7e65a"
+        "86532dc7e65a",
+        "f2398cefb06c"
       ],
       "verified_by": [
         "tests/test_documentation_privacy.py:68"
@@ -274,7 +275,8 @@
       "title": "Consumer-profile allowlist covers all generated PolicyEvolution senders",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "ad14dd57f95b"
+        "ad14dd57f95b",
+        "f2398cefb06c"
       ],
       "verified_by": [
         "tests/test_generated_client_contract.py:234"
@@ -312,7 +314,8 @@
       "title": "Topology test names avoid version-number suffixes",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "40b49253d3b9"
+        "40b49253d3b9",
+        "f2398cefb06c"
       ],
       "verified_by": [
         "tests/test_no_version_suffixes.py:185"
@@ -456,7 +459,8 @@
       "title": "Pinned-reference gate anchors each layer to its own admission step",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "b43f33569dd4"
+        "b43f33569dd4",
+        "f2398cefb06c"
       ],
       "verified_by": [
         "tests/test_pinned_reference_resolution.py:144",
@@ -532,7 +536,8 @@
       "title": "Contract gate discovers Method variants structurally",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "acc9d32155b3"
+        "acc9d32155b3",
+        "f2398cefb06c"
       ],
       "verified_by": [
         "tests/test_contract_method_reachability.py:52",
@@ -544,7 +549,8 @@
       "title": "Method enum size pinned and proven stable",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "a1bb9fb9503e"
+        "a1bb9fb9503e",
+        "f2398cefb06c"
       ],
       "verified_by": [
         "crates/eg-types/tests/contract_wave.rs:255"

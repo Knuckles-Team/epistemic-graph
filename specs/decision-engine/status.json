@@ -187,62 +187,85 @@
     {
       "id": "EG-DECISION-ENGINE-R003",
       "title": "Derivation records for entailed answers",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "2a0d6eae0918",
+        "31c7f9514f41",
         "52f333ca756e"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/decision/derivation/tests.rs:191"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R004",
       "title": "Independently verifiable 0-1 integer solver certificate",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "31c7f9514f41",
         "52f333ca756e",
         "b43f33569dd4"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-compute/tests/solve/determinism.rs:49",
+        "crates/eg-compute/tests/solve/determinism.rs:77",
+        "crates/eg-compute/tests/solve/exhaustive.rs:40"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R005",
       "title": "Conformal and risk-controlled statistical guarantees",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "2a0d6eae0918",
+        "31c7f9514f41",
         "52f333ca756e"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-numeric/tests/stat_kernels/conformal.rs:210",
+        "crates/eg-numeric/tests/stat_kernels/conformal.rs:361",
+        "crates/eg-numeric/tests/stat_kernels/risk.rs:246"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R006",
       "title": "Off-policy evaluation gated on effective sample size",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "2a0d6eae0918",
+        "31c7f9514f41",
         "52f333ca756e"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-numeric/tests/stat_kernels/ope.rs:159",
+        "crates/eg-numeric/tests/stat_kernels/ope.rs:204"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R007",
       "title": "Deterministic cross-target replay of committed decision records",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "2a0d6eae0918",
-        "52f333ca756e"
+        "52f333ca756e",
+        "e0587cbf4693"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-compute/src/assemble/tests/golden.rs:55"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R008",
       "title": "Why-chosen and why-not explanations for solved assemblies",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "2a0d6eae0918",
-        "52f333ca756e"
+        "52f333ca756e",
+        "e0587cbf4693"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-compute/src/assemble/tests/template.rs:117"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R009",
@@ -259,22 +282,30 @@
     {
       "id": "EG-DECISION-ENGINE-R010",
       "title": "Typed abstention reason for unmet capability",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "52f333ca756e",
-        "a4804f87c971"
+        "a4804f87c971",
+        "e0587cbf4693"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-compute/src/assemble/tests/routing.rs:146"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R011",
       "title": "Work-budgeted search without an arbitrary result cap",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "52f333ca756e",
-        "b43f33569dd4"
+        "b43f33569dd4",
+        "e0587cbf4693"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-compute/tests/solve/adversarial.rs:33",
+        "crates/eg-compute/tests/solve/adversarial.rs:57",
+        "crates/eg-compute/tests/solve/adversarial.rs:8"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R012",
@@ -289,22 +320,29 @@
     {
       "id": "EG-DECISION-ENGINE-R013",
       "title": "Tenant-visibility filtering before feature computation",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "14743fbffa3d",
         "2a0d6eae0918",
         "52f333ca756e"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/persistence/agent_component.rs:1099"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R014",
       "title": "Composition solved as bounded constraint optimization",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "14743fbffa3d",
         "52f333ca756e",
         "b43f33569dd4"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-compute/tests/solve/exhaustive.rs:41",
+        "crates/eg-compute/tests/solve/model_validation.rs:223"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R015",
@@ -343,12 +381,16 @@
     {
       "id": "EG-DECISION-ENGINE-R016",
       "title": "Training restricted to independently evaluated outcomes",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "14743fbffa3d",
         "2a0d6eae0918",
         "52f333ca756e"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-numeric/tests/decision/admission.rs:32",
+        "crates/eg-numeric/tests/decision/admission.rs:87"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R017",
@@ -360,7 +402,7 @@
         "9079ca7b0ddd"
       ],
       "verified_by": [
-        "crates/eg-types/src/agent_component.rs:2065"
+        "crates/eg-types/src/agent_component.rs:2066"
       ]
     },
     {
@@ -373,18 +415,23 @@
       ],
       "verified_by": [
         "crates/eg-compute/src/assemble/tests/planted.rs:43",
-        "crates/eg-compute/src/assemble/tests/topology.rs:140"
+        "crates/eg-compute/src/assemble/tests/topology.rs:142"
       ]
     },
     {
       "id": "EG-DECISION-ENGINE-R019",
       "title": "Decision commit re-derives and verifies before writing",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "14743fbffa3d",
         "52f333ca756e",
         "d6baf6dfc8c9"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/persistence/decision_record/tests.rs:165",
+        "src/server/persistence/decision_record/tests.rs:194",
+        "src/server/persistence/decision_record/tests.rs:220"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R020",
@@ -401,62 +448,81 @@
     {
       "id": "EG-DECISION-ENGINE-R021",
       "title": "Versioned feature schema for decision candidates",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "14743fbffa3d",
         "2a0d6eae0918",
         "52f333ca756e"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-numeric/tests/decision/features.rs:63"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R022",
       "title": "Separation of full-label and bandit-label training regimes",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "2a0d6eae0918",
-        "52f333ca756e"
+        "52f333ca756e",
+        "a4e9027b789e"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-numeric/tests/decision/admission.rs:33",
+        "crates/eg-numeric/tests/decision/admission.rs:88"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R023",
       "title": "Hierarchical pooling of outcome statistics with a minimum-sample gate",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "2a0d6eae0918",
-        "52f333ca756e"
+        "52f333ca756e",
+        "a4e9027b789e"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-numeric/tests/decision/fit_eval.rs:204"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R024",
       "title": "Multi-class and binary calibration utilities",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "2a0d6eae0918",
-        "52f333ca756e"
+        "52f333ca756e",
+        "a4e9027b789e"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-numeric/tests/decision/fit_eval.rs:236"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R025",
       "title": "Drift detection via out-of-distribution checks and adaptive conformal bounds",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "2a0d6eae0918",
-        "52f333ca756e"
+        "52f333ca756e",
+        "a4e9027b789e"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-numeric/tests/decision/ladder.rs:302"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R026",
       "title": "Inverse-probability-weighted audit sampling of acted decisions",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "2a0d6eae0918",
-        "52f333ca756e"
+        "52f333ca756e",
+        "a4e9027b789e"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-numeric/tests/decision/ladder.rs:326"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R027",
@@ -467,19 +533,23 @@
         "52f333ca756e"
       ],
       "verified_by": [
-        "crates/eg-numeric/tests/decision/fit_eval.rs:49",
-        "crates/eg-numeric/tests/decision/fit_eval.rs:75"
+        "crates/eg-numeric/tests/decision/fit_eval.rs:53",
+        "crates/eg-numeric/tests/decision/fit_eval.rs:79"
       ]
     },
     {
       "id": "EG-DECISION-ENGINE-R028",
       "title": "Natural-language template routing without a generative model",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "2a0d6eae0918",
-        "52f333ca756e"
+        "52f333ca756e",
+        "9ea2c1ac6a24"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-numeric/src/decision/bm25.rs:92",
+        "src/server/handlers/decide/stat_tests/nl_tests.rs:59"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R029",
@@ -547,12 +617,15 @@
     {
       "id": "EG-DECISION-ENGINE-R034",
       "title": "Proposal-only contradiction-handling suggestions",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "94da44835d59",
+        "9ea2c1ac6a24",
         "fa780d3e101a"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-epistemic/src/query.rs:661"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R035",
@@ -563,28 +636,34 @@
         "fa780d3e101a"
       ],
       "verified_by": [
-        "src/server/handlers/decide/stat_tests/consumer_tests.rs:406"
+        "src/server/handlers/decide/stat_tests/consumer_tests.rs:407"
       ]
     },
     {
       "id": "EG-DECISION-ENGINE-R036",
       "title": "graph.assemble() as the authority for agent composition",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "9ea2c1ac6a24",
         "d6baf6dfc8c9",
         "fa780d3e101a"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-compute/src/assemble/tests/golden.rs:56"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R037",
       "title": "Escalated abstentions re-enter as claims",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "2ae20b268539",
+        "8475bc4d611a",
         "fa780d3e101a"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/handlers/decide/stat_tests/consumer_tests.rs:212"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R038",
@@ -609,12 +688,15 @@
     {
       "id": "EG-DECISION-ENGINE-R040",
       "title": "Guarded promotion of fitted heads via publish receipt",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "2a0d6eae0918",
+        "8475bc4d611a",
         "fa780d3e101a"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/handlers/decide/stat_tests/scorer_tests.rs:80"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R041",
@@ -629,22 +711,28 @@
     {
       "id": "EG-DECISION-ENGINE-R042",
       "title": "Connector tool-choice advisory via Decide",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "67d04f5e9087",
+        "e8eaaf916a40",
         "fa780d3e101a"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/handlers/decide/stat_tests/connector_toolchoice_tests.rs:24"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R043",
       "title": "Write-back proposals routed through Decide",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "21f73899e76c",
+        "e8eaaf916a40",
         "fa780d3e101a"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/handlers/decide/stat_tests/connector_writeback_tests.rs:25"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R044",
@@ -680,7 +768,7 @@
     {
       "id": "EG-DECISION-ENGINE-R045",
       "title": "Smallest covering tool subset within a context budget",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "0dfbaa95ea36",
         "961b1785319c",
@@ -695,101 +783,143 @@
     {
       "id": "EG-DECISION-ENGINE-R045.1",
       "title": "Typed tool-subset request and greedy covering-set selection",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "0dfbaa95ea36",
-        "961b1785319c"
+        "961b1785319c",
+        "e8eaaf916a40"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/decision/statistical/tool_subset.rs:140",
+        "crates/eg-types/src/decision/statistical/tool_subset.rs:161",
+        "crates/eg-types/src/decision/statistical/tool_subset.rs:189",
+        "crates/eg-types/src/decision/statistical/tool_subset.rs:203"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R045.2",
       "title": "Tool-subset selection wired into Decide",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
-        "0dfbaa95ea36"
+        "0dfbaa95ea36",
+        "e8eaaf916a40"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/handlers/decide/stat_tests/tool_subset_tests.rs:58"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R046",
       "title": "Swarm topology decisions via the decision ladder",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "2d087761c964",
+        "e8eaaf916a40",
         "fa780d3e101a"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-compute/src/assemble/tests/topology.rs:115",
+        "crates/eg-compute/src/assemble/tests/topology.rs:95"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R047",
       "title": "DecisionRecord v1 contract: types and methods",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "a4804f87c971",
+        "dc8d8d712d7f",
         "fa780d3e101a"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-capabilities/tests/invariants.rs:257"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R048",
       "title": "Entailment derivation with weakest-premise evidence class",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "2a0d6eae0918",
+        "dc8d8d712d7f",
         "fa780d3e101a"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-compute/src/assemble/tests/routing.rs:186",
+        "crates/eg-types/src/decision/derivation/tests.rs:219"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R049",
       "title": "Exact 0-1 solver with certificate and verifier",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "4b11f62898df",
+        "dc8d8d712d7f",
         "fa780d3e101a"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-compute/tests/solve/exhaustive.rs:42",
+        "crates/eg-compute/tests/solve/tamper_proof.rs:252"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R050",
       "title": "Typed optional model and tool facts",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "2a0d6eae0918",
+        "dc8d8d712d7f",
         "fa780d3e101a"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/agent_component.rs:1758"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R051",
       "title": "AgentAssemble and DecisionCommit handlers with audit lines",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "2a0d6eae0918",
+        "dc8d8d712d7f",
         "fa780d3e101a"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/persistence/decision_record/tests.rs:166",
+        "src/server/persistence/decision_record/tests.rs:221",
+        "src/server/persistence/decision_record/tests.rs:240"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R052",
       "title": "Routing acceptance fixture with golden vectors",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "2421a2a2e25e",
         "2a0d6eae0918",
         "fa780d3e101a"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-compute/src/assemble/tests/golden.rs:57",
+        "crates/eg-compute/src/assemble/tests/oracle.rs:123",
+        "crates/eg-compute/src/assemble/tests/oracle.rs:141",
+        "crates/eg-compute/src/assemble/tests/planted.rs:43",
+        "crates/eg-compute/src/assemble/tests/routing.rs:147"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R053",
       "title": "Gold set of labelled requirement-to-assembly items",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "2421a2a2e25e",
         "2a0d6eae0918",
         "fa780d3e101a"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/synthetic/test_synthetic_decision_export.py:40"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R054",
@@ -804,12 +934,16 @@
     {
       "id": "EG-DECISION-ENGINE-R055",
       "title": "Pinned deterministic numeric stack for calibration",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "2421a2a2e25e",
         "b43f33569dd4",
         "fa780d3e101a"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-numeric/tests/decision/scorer.rs:109",
+        "crates/eg-numeric/tests/stat_kernels/kernels.rs:117"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R056",
@@ -858,6 +992,7 @@
       "title": "Graph-sourced decision records with RLS-routed reads",
       "delivery_state": "LANDED",
       "landed_in": [
+        "25cb8189575d",
         "bda8269797ab",
         "fa780d3e101a"
       ],
@@ -878,17 +1013,21 @@
     {
       "id": "EG-DECISION-ENGINE-R060",
       "title": "DecisionFit and DecisionEval jobs with gated promotion",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "25cb8189575d",
         "2a0d6eae0918",
         "fa780d3e101a"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-numeric/tests/decision/scorer_promotion.rs:179",
+        "crates/eg-types/src/agent_component.rs:2095"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R061",
       "title": "Assembly facts extended for the statistical path",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "1e9ea1ef3790",
         "8f38ed7cc3dc",
@@ -902,12 +1041,15 @@
     {
       "id": "EG-DECISION-ENGINE-R061.1",
       "title": "Shared AgentComponentEntry cost/latency fixture",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "25cb8189575d",
         "8f38ed7cc3dc",
         "fe3b87b09054"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/test_support/decision.rs:128"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R062",
@@ -927,6 +1069,7 @@
       "delivery_state": "LANDED",
       "landed_in": [
         "1e9ea1ef3790",
+        "25cb8189575d",
         "2a0d6eae0918"
       ],
       "verified_by": []
@@ -937,6 +1080,7 @@
       "delivery_state": "LANDED",
       "landed_in": [
         "1e9ea1ef3790",
+        "25cb8189575d",
         "857e20c63775"
       ],
       "verified_by": []
@@ -1365,7 +1509,7 @@
         "e9e12f168722"
       ],
       "verified_by": [
-        "src/server/handlers/decide/stat_tests/scorer_tests.rs:189"
+        "src/server/handlers/decide/stat_tests/scorer_tests.rs:190"
       ]
     },
     {
@@ -1390,10 +1534,10 @@
         "19b44d216062"
       ],
       "verified_by": [
-        "tests/synthetic/test_synthetic_decision_export.py:47",
-        "tests/synthetic/test_synthetic_decision_export.py:55",
-        "tests/synthetic/test_synthetic_decision_export.py:62",
-        "tests/synthetic/test_synthetic_decision_export.py:69"
+        "tests/synthetic/test_synthetic_decision_export.py:63",
+        "tests/synthetic/test_synthetic_decision_export.py:71",
+        "tests/synthetic/test_synthetic_decision_export.py:78",
+        "tests/synthetic/test_synthetic_decision_export.py:85"
       ]
     },
     {
@@ -1405,7 +1549,7 @@
         "af5dc5ad78bd"
       ],
       "verified_by": [
-        "src/server/handlers/decide/stat_tests/scorer_tests.rs:274"
+        "src/server/handlers/decide/stat_tests/scorer_tests.rs:275"
       ]
     },
     {
@@ -1447,7 +1591,7 @@
         "fa3eda2b7961"
       ],
       "verified_by": [
-        "src/server/handlers/decide/stat_tests/nl_tests.rs:142",
+        "src/server/handlers/decide/stat_tests/nl_tests.rs:143",
         "src/server/handlers/decide/stat_tests/nl_tests.rs:58"
       ]
     },

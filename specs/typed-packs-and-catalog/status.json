@@ -759,7 +759,8 @@
       "title": "Generated core ontology corpus as GraphSchema authority",
       "delivery_state": "LANDED",
       "landed_in": [
-        "86787edc8a87"
+        "86787edc8a87",
+        "90f5578ae2f4"
       ],
       "verified_by": []
     },
@@ -768,7 +769,8 @@
       "title": "EG/SDK typed fleet-catalog authority, not SQL tables",
       "delivery_state": "LANDED",
       "landed_in": [
-        "2a0d6eae0918"
+        "2a0d6eae0918",
+        "90f5578ae2f4"
       ],
       "verified_by": []
     },
@@ -777,6 +779,7 @@
       "title": "Raise the core schema source bound to 64 and split world_model",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "90f5578ae2f4",
         "a4c80c2b6f90"
       ],
       "verified_by": [
@@ -789,6 +792,7 @@
       "title": "Least-privilege, per-pack projection grant with recorded failure",
       "delivery_state": "LANDED",
       "landed_in": [
+        "90f5578ae2f4",
         "d76ac1402723"
       ],
       "verified_by": []
@@ -798,6 +802,7 @@
       "title": "Landing gate runs the full integration test suite",
       "delivery_state": "LANDED",
       "landed_in": [
+        "90f5578ae2f4",
         "b43f33569dd4"
       ],
       "verified_by": []
@@ -807,6 +812,7 @@
       "title": "Signal-killed test binaries are detected and rerun in isolation",
       "delivery_state": "LANDED",
       "landed_in": [
+        "90f5578ae2f4",
         "a1bb9fb9503e"
       ],
       "verified_by": []
@@ -816,7 +822,8 @@
       "title": "GraphSchemaClasses exposes canonical class and property names",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "2068ec01a667"
+        "2068ec01a667",
+        "90f5578ae2f4"
       ],
       "verified_by": [
         "src/server/graph_schema/terms.rs:201",
@@ -828,6 +835,7 @@
       "title": "Proven retrieval plan templates keyed by task class and digest",
       "delivery_state": "LANDED",
       "landed_in": [
+        "90f5578ae2f4",
         "e429630278b8"
       ],
       "verified_by": []
@@ -837,7 +845,8 @@
       "title": "Typed OHLCV bar-series contract",
       "delivery_state": "LANDED",
       "landed_in": [
-        "532418b7e55b"
+        "532418b7e55b",
+        "90f5578ae2f4"
       ],
       "verified_by": []
     },
@@ -846,7 +855,8 @@
       "title": "Exhaustive OpKind/PredKind printer and parser contract",
       "delivery_state": "LANDED",
       "landed_in": [
-        "1b4fc2558151"
+        "1b4fc2558151",
+        "90f5578ae2f4"
       ],
       "verified_by": []
     },
@@ -855,7 +865,8 @@
       "title": "Ontology object model migrated into EG's kg/ontology package",
       "delivery_state": "LANDED",
       "landed_in": [
-        "64b30a5187f3"
+        "64b30a5187f3",
+        "90f5578ae2f4"
       ],
       "verified_by": []
     },
@@ -864,7 +875,8 @@
       "title": "EG-generated types replace hand-written graph-schema DTOs",
       "delivery_state": "LANDED",
       "landed_in": [
-        "08a2b1958cc3"
+        "08a2b1958cc3",
+        "90f5578ae2f4"
       ],
       "verified_by": []
     },
@@ -873,6 +885,7 @@
       "title": "Schema-drift SHACL rendering and contract store move into EG",
       "delivery_state": "LANDED",
       "landed_in": [
+        "90f5578ae2f4",
         "97e9074f0467"
       ],
       "verified_by": []
@@ -882,7 +895,8 @@
       "title": "Request deadlines propagate into long-running pack operations",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "147959ad6f13"
+        "147959ad6f13",
+        "90f5578ae2f4"
       ],
       "verified_by": [
         "src/server/handlers/admin/connector_pack/tests/ontology.rs:87"
@@ -893,7 +907,8 @@
       "title": "Identity domain operations with Argon2id and redacted views",
       "delivery_state": "LANDED",
       "landed_in": [
-        "0035f9fac382"
+        "0035f9fac382",
+        "90f5578ae2f4"
       ],
       "verified_by": []
     },
@@ -902,7 +917,8 @@
       "title": "Planted derivation-budget and malformed-path cases are refused",
       "delivery_state": "LANDED",
       "landed_in": [
-        "334a69c2e3de"
+        "334a69c2e3de",
+        "90f5578ae2f4"
       ],
       "verified_by": []
     },
@@ -911,7 +927,8 @@
       "title": "Stable error codes for auth-boundary refusals",
       "delivery_state": "LANDED",
       "landed_in": [
-        "48746fc0e5ac"
+        "48746fc0e5ac",
+        "90f5578ae2f4"
       ],
       "verified_by": []
     },
@@ -920,7 +937,8 @@
       "title": "Embedded engine enforces graph-level access control",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "88499bb6424b"
+        "88499bb6424b",
+        "90f5578ae2f4"
       ],
       "verified_by": [
         "tests/parity/test_parity_graph_ops.py:74"
@@ -931,6 +949,7 @@
       "title": "Blob-layout table for pack body holder rows",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "90f5578ae2f4",
         "b43f33569dd4"
       ],
       "verified_by": [
@@ -942,7 +961,8 @@
       "title": "Canonical ontology and SHACL artifacts generated from Rust",
       "delivery_state": "LANDED",
       "landed_in": [
-        "080677a31fdd"
+        "080677a31fdd",
+        "90f5578ae2f4"
       ],
       "verified_by": [],
       "rollup_of": [
@@ -963,6 +983,7 @@
       "title": "Food composition and nutrient reference types",
       "delivery_state": "LANDED",
       "landed_in": [
+        "90f5578ae2f4",
         "a1bb9fb9503e"
       ],
       "verified_by": []
@@ -972,6 +993,7 @@
       "title": "Python client idempotency key excludes the request ID",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "90f5578ae2f4",
         "b43f33569dd4",
         "f097533e52c8"
       ],
@@ -985,6 +1007,7 @@
       "title": "Turtle parser blank-node identities do not collide",
       "delivery_state": "LANDED",
       "landed_in": [
+        "90f5578ae2f4",
         "f17f47ab300f"
       ],
       "verified_by": []
@@ -994,6 +1017,7 @@
       "title": "AgentComponent.content serves pack body bytes directly",
       "delivery_state": "LANDED",
       "landed_in": [
+        "90f5578ae2f4",
         "a1bb9fb9503e"
       ],
       "verified_by": []
@@ -1003,6 +1027,7 @@
       "title": "GraphSchema attach exposes snapshot staleness",
       "delivery_state": "LANDED",
       "landed_in": [
+        "90f5578ae2f4",
         "f4744679fab0"
       ],
       "verified_by": []
@@ -1012,6 +1037,7 @@
       "title": "Connector-pack reprojection with bounded, isolated aggregates",
       "delivery_state": "LANDED",
       "landed_in": [
+        "90f5578ae2f4",
         "d76ac1402723"
       ],
       "verified_by": []
@@ -1021,7 +1047,8 @@
       "title": "Domain vocabularies ship as typed domain packs",
       "delivery_state": "LANDED",
       "landed_in": [
-        "6a1a0e46d99f"
+        "6a1a0e46d99f",
+        "90f5578ae2f4"
       ],
       "verified_by": [],
       "rollup_of": [
@@ -1042,6 +1069,7 @@
       "title": "Ontology inspection method and inline data triples for validation",
       "delivery_state": "LANDED",
       "landed_in": [
+        "90f5578ae2f4",
         "cc6536f05e17"
       ],
       "verified_by": []
@@ -1052,7 +1080,8 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "157b4417eb24",
-        "3fe75684934d"
+        "3fe75684934d",
+        "90f5578ae2f4"
       ],
       "verified_by": [
         "crates/eg-numeric/src/prototype.rs:45",

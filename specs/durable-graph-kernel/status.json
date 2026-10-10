@@ -110,6 +110,7 @@
       "title": "Outbox head-only attempt accounting and rewind",
       "delivery_state": "LANDED",
       "landed_in": [
+        "a676823d2b54",
         "b43f33569dd4"
       ],
       "verified_by": []
@@ -119,7 +120,8 @@
       "title": "Outbox consumers get per-class topics and reject-driven rebuild",
       "delivery_state": "LANDED",
       "landed_in": [
-        "a1bb9fb9503e"
+        "a1bb9fb9503e",
+        "a676823d2b54"
       ],
       "verified_by": []
     },
@@ -128,7 +130,8 @@
       "title": "Owner-store layout lineage registry with typed upgrade refusal",
       "delivery_state": "LANDED",
       "landed_in": [
-        "a1bb9fb9503e"
+        "a1bb9fb9503e",
+        "a676823d2b54"
       ],
       "verified_by": []
     },
@@ -137,6 +140,7 @@
       "title": "Outbox attempt accounting is scoped to the head row",
       "delivery_state": "LANDED",
       "landed_in": [
+        "a676823d2b54",
         "b43f33569dd4"
       ],
       "verified_by": []
@@ -146,7 +150,8 @@
       "title": "Outbox delivery state remains local to the owning node",
       "delivery_state": "LANDED",
       "landed_in": [
-        "48abc77ce72e"
+        "48abc77ce72e",
+        "a676823d2b54"
       ],
       "verified_by": []
     },
@@ -155,7 +160,8 @@
       "title": "Engine startup does not block on one store's lazy open",
       "delivery_state": "LANDED",
       "landed_in": [
-        "8dbb5bd9de53"
+        "8dbb5bd9de53",
+        "a676823d2b54"
       ],
       "verified_by": []
     },
@@ -164,7 +170,8 @@
       "title": "Host binary exposes a storage inspect and upgrade command",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "0ce0383a5599"
+        "0ce0383a5599",
+        "a676823d2b54"
       ],
       "verified_by": [
         "tests/operator_command_store_upgrade_cli.rs:35",
@@ -177,7 +184,8 @@
       "title": "Raft unit tests pass under cluster features and run in CI",
       "delivery_state": "LANDED",
       "landed_in": [
-        "a1bb9fb9503e"
+        "a1bb9fb9503e",
+        "a676823d2b54"
       ],
       "verified_by": []
     },
@@ -186,6 +194,7 @@
       "title": "Native raft commands are sealed as their bare method",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "a676823d2b54",
         "b43f33569dd4"
       ],
       "verified_by": [
@@ -197,7 +206,8 @@
       "title": "jscpd clone gate runs on every commit",
       "delivery_state": "LANDED",
       "landed_in": [
-        "a1bb9fb9503e"
+        "a1bb9fb9503e",
+        "a676823d2b54"
       ],
       "verified_by": []
     },
@@ -206,7 +216,8 @@
       "title": "Clippy and targeted tests cover the full and all-features builds",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "9794030f6459"
+        "9794030f6459",
+        "a676823d2b54"
       ],
       "verified_by": [],
       "rollup_of": [
@@ -233,6 +244,7 @@
       "title": "Raft native command sealing and placement routing are correct",
       "delivery_state": "LANDED",
       "landed_in": [
+        "a676823d2b54",
         "b43f33569dd4"
       ],
       "verified_by": []
@@ -242,6 +254,7 @@
       "title": "Raft cluster test failures capture a causal trace automatically",
       "delivery_state": "LANDED",
       "landed_in": [
+        "a676823d2b54",
         "b43f33569dd4"
       ],
       "verified_by": []
@@ -251,7 +264,8 @@
       "title": "Raft cluster tests pass reliably under load",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "3a14159c3768"
+        "3a14159c3768",
+        "a676823d2b54"
       ],
       "verified_by": [],
       "rollup_of": [
@@ -278,7 +292,8 @@
       "title": "Raft heartbeat flush and batch dispatch avoid head-of-line blocking",
       "delivery_state": "LANDED",
       "landed_in": [
-        "a595f3a182c3"
+        "a595f3a182c3",
+        "a676823d2b54"
       ],
       "verified_by": []
     },
@@ -287,7 +302,8 @@
       "title": "Raft durability writes are batched to reduce commit latency",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "92943a9ed1bb"
+        "92943a9ed1bb",
+        "a676823d2b54"
       ],
       "verified_by": [
         "src/server/persistence/redb_backend/raft_linger_tests.rs:12"
@@ -298,6 +314,7 @@
       "title": "Correctness-gated benchmark compares EG against HelixDB",
       "delivery_state": "LANDED",
       "landed_in": [
+        "a676823d2b54",
         "d2a5aa6460df"
       ],
       "verified_by": []
@@ -307,7 +324,8 @@
       "title": "UDF registry and response-dedup cache are tenant-scoped",
       "delivery_state": "LANDED",
       "landed_in": [
-        "a1bb9fb9503e"
+        "a1bb9fb9503e",
+        "a676823d2b54"
       ],
       "verified_by": []
     },
@@ -316,7 +334,8 @@
       "title": "Graph lifecycle idempotency keys are tenant-scoped",
       "delivery_state": "LANDED",
       "landed_in": [
-        "a1bb9fb9503e"
+        "a1bb9fb9503e",
+        "a676823d2b54"
       ],
       "verified_by": []
     },
@@ -325,7 +344,8 @@
       "title": "Bounded background scrub detects node corruption between restarts",
       "delivery_state": "LANDED",
       "landed_in": [
-        "461f8c84eb44"
+        "461f8c84eb44",
+        "a676823d2b54"
       ],
       "verified_by": []
     },
@@ -334,7 +354,8 @@
       "title": "Store-authority binding validates once per write transaction",
       "delivery_state": "LANDED",
       "landed_in": [
-        "a5e7b2983a04"
+        "a5e7b2983a04",
+        "a676823d2b54"
       ],
       "verified_by": []
     },
@@ -343,7 +364,8 @@
       "title": "Just-in-time RBAC elevation requires two-person approval",
       "delivery_state": "LANDED",
       "landed_in": [
-        "2f37015096de"
+        "2f37015096de",
+        "a676823d2b54"
       ],
       "verified_by": []
     },
@@ -352,10 +374,11 @@
       "title": "UQL enforces a read-only guarantee at compile time and by test",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "a676823d2b54",
         "e1ca1b8fd167"
       ],
       "verified_by": [
-        "crates/eg-capabilities/tests/invariants.rs:503"
+        "crates/eg-capabilities/tests/invariants.rs:504"
       ]
     },
     {
@@ -366,6 +389,7 @@
         "3a14159c3768",
         "3ddc77c97ef8",
         "7b7d4a0fb10f",
+        "a676823d2b54",
         "c2dd4c98fe60"
       ],
       "verified_by": [],
@@ -487,7 +511,8 @@
       "title": "Raft admin follows the current leader and traces are leader-agnostic",
       "delivery_state": "LANDED",
       "landed_in": [
-        "05bf09d8eee4"
+        "05bf09d8eee4",
+        "a676823d2b54"
       ],
       "verified_by": []
     },
@@ -496,7 +521,8 @@
       "title": "Auth modes share one principal and RBAC evaluation path",
       "delivery_state": "LANDED",
       "landed_in": [
-        "48abc77ce72e"
+        "48abc77ce72e",
+        "a676823d2b54"
       ],
       "verified_by": []
     },
@@ -506,6 +532,7 @@
       "delivery_state": "LANDED",
       "landed_in": [
         "3c618dd255ba",
+        "a676823d2b54",
         "cd899a5c8c20"
       ],
       "verified_by": [],
@@ -551,7 +578,8 @@
       "title": "WorkItem lifecycle test uses a consistent verified tenant",
       "delivery_state": "LANDED",
       "landed_in": [
-        "15451958704f"
+        "15451958704f",
+        "a676823d2b54"
       ],
       "verified_by": []
     },
@@ -560,7 +588,8 @@
       "title": "Universal read-RLS gate checks the current TsScan dispatch path",
       "delivery_state": "LANDED",
       "landed_in": [
-        "0447684dce7b"
+        "0447684dce7b",
+        "a676823d2b54"
       ],
       "verified_by": []
     },
@@ -569,7 +598,8 @@
       "title": "Reserved RBAC elevation lease kind cannot be issued generically",
       "delivery_state": "LANDED",
       "landed_in": [
-        "3157bcbb4ac2"
+        "3157bcbb4ac2",
+        "a676823d2b54"
       ],
       "verified_by": []
     },

@@ -63,6 +63,7 @@
       "title": "Tenant roles read the shared commons graph",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "0374378eb9db",
         "7622e4b24455",
         "dfb2367561d1"
       ],

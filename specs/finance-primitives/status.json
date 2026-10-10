@@ -45,6 +45,7 @@
       "title": "Cross-host BacktestRun digest and Pine parity for finance-core",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "0374378eb9db",
         "ae7b0d664749"
       ],
       "verified_by": [
@@ -57,6 +58,7 @@
       "title": "Rehome generic finance evaluation kernels into eg-numeric",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "0374378eb9db",
         "31cbdeb6d98b"
       ],
       "verified_by": [
@@ -187,6 +189,7 @@
       "title": "Point-in-time corporate actions and exchange session calendars",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "0374378eb9db",
         "86432b21655e",
         "b9870e23567b"
       ],
