@@ -48,11 +48,20 @@ pub mod change_envelope;
 // MongoDB/DocumentDB source. Pure data; the native-driver connection and
 // change-stream capture are later children.
 pub mod document_source_catalog;
+// EG-UNIFIED-DATA-PLANE-R019.3.1 — typed conformance-entry constructor for the
+// MongoDB/DocumentDB adapter, over the generic R022.1 report entry. Pure
+// data; actually running the comparison is a later child.
+pub mod document_conformance;
 // EG-UNIFIED-DATA-PLANE-R020.1 — typed federated warehouse/lake source-kind
 // model (Snowflake, BigQuery, DuckDB, Iceberg) and its per-kind required-field
 // refusal. Pure data; query pushdown and the conformance entry are later
 // children.
 pub mod warehouse_federation;
+// EG-UNIFIED-DATA-PLANE-R020.3.1 — typed conformance-entry constructor for the
+// Snowflake/BigQuery/DuckDB/Iceberg warehouse adapters, over the generic
+// R022.1 report entry. Pure data; actually running the comparison is a later
+// child.
+pub mod warehouse_conformance;
 // EG-UNIFIED-DATA-PLANE-R021.1 — typed Debezium Kafka change-event envelope
 // shape and its op-code/before-after refusal rules. Pure data; the Kafka
 // consumer and the real ChangeEnvelope conversion are later children.

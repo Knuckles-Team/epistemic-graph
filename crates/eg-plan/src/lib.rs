@@ -55,6 +55,12 @@
 
 pub mod algebra;
 pub mod cost;
+// EG-UNIFIED-DATA-PLANE-R020.2.1 — warehouse federation pushdown-transport
+// dispatch: Arrow Flight SQL vs. native per WarehouseSourceKind, with a
+// refusal for an invalid config or an unmet Flight SQL preference. Pure
+// `std` + `eg-types`, no I/O; issuing the pushed-down query is a later
+// child.
+pub mod warehouse_pushdown;
 // EG-UNIFIED-DATA-PLANE-R005 — mapping approval-state machine for named R2RML
 // virtual graphs; an unapproved or model-only mapping refuses to be queried.
 pub mod virtual_graph_mapping;

@@ -85,10 +85,18 @@
   - [ ] **EG-UNIFIED-DATA-PLANE-R019.2.1:** `DocumentDriverConfig` typed driver config plus connect/refusal path (`crates/eg-plan/src/document_connection.rs`).
   - [ ] **EG-UNIFIED-DATA-PLANE-R019.2.2:** Live native driver connection and change-stream capture into `ChangeEnvelope`.
 - [ ] **EG-UNIFIED-DATA-PLANE-R019.3:** Conformance entry comparing EG query results and captured change stream against native MongoDB/DocumentDB.
+- [ ] **EG-UNIFIED-DATA-PLANE-R019.2:** Native MongoDB/DocumentDB driver connection and change-stream capture into `ChangeEnvelope`.
+- [ ] **EG-UNIFIED-DATA-PLANE-R019.3 (rollup):** Conformance entry comparing EG query results and captured change stream against native MongoDB/DocumentDB.
+  - [x] **EG-UNIFIED-DATA-PLANE-R019.3.1:** `build_document_conformance_entry` typed per-adapter conformance-entry constructor (`crates/eg-types/src/document_conformance.rs`).
+  - [ ] **EG-UNIFIED-DATA-PLANE-R019.3.2:** Live comparison against native MongoDB/DocumentDB.
 - [x] **EG-UNIFIED-DATA-PLANE-R020:** Snowflake, BigQuery, DuckDB and Iceberg federation; depends on EG-UNIFIED-DATA-PLANE-R007.
 - [x] **EG-UNIFIED-DATA-PLANE-R020.1:** `WarehouseSourceKind`/`WarehouseSourceConfig` typed model plus required-field refusal (`crates/eg-types/src/warehouse_federation.rs`).
-- [ ] **EG-UNIFIED-DATA-PLANE-R020.2:** Query pushdown per kind (Arrow Flight SQL where offered), extending `eg-query::sql::iceberg_federation` for Iceberg.
-- [ ] **EG-UNIFIED-DATA-PLANE-R020.3:** Conformance entry comparing federated query results against each native warehouse/lake engine.
+- [ ] **EG-UNIFIED-DATA-PLANE-R020.2 (rollup):** Query pushdown per kind (Arrow Flight SQL where offered), extending `eg-query::sql::iceberg_federation` for Iceberg.
+  - [x] **EG-UNIFIED-DATA-PLANE-R020.2.1:** `plan_pushdown` typed transport-dispatch plus refusal path (`crates/eg-plan/src/warehouse_pushdown.rs`).
+  - [ ] **EG-UNIFIED-DATA-PLANE-R020.2.2:** Live Arrow Flight SQL / native query pushdown per kind.
+- [ ] **EG-UNIFIED-DATA-PLANE-R020.3 (rollup):** Conformance entry comparing federated query results against each native warehouse/lake engine.
+  - [x] **EG-UNIFIED-DATA-PLANE-R020.3.1:** `build_warehouse_conformance_entry` typed per-kind conformance-entry constructor (`crates/eg-types/src/warehouse_conformance.rs`).
+  - [ ] **EG-UNIFIED-DATA-PLANE-R020.3.2:** Live comparison against each native warehouse/lake engine.
 - [x] **EG-UNIFIED-DATA-PLANE-R021:** Debezium Kafka-to-`ChangeEnvelope` bridge; depends on EG-UNIFIED-DATA-PLANE-R008.
 - [x] **EG-UNIFIED-DATA-PLANE-R021.1:** `DebeziumChangeEvent` typed envelope shape plus op-code and before/after refusal (`crates/eg-types/src/debezium_bridge.rs`).
 - [ ] **EG-UNIFIED-DATA-PLANE-R021.2:** Kafka consumer plus real conversion into `ChangeEnvelope` records.
