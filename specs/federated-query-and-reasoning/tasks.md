@@ -48,7 +48,11 @@ Check boxes describe work remaining for this combined contract. They do not cert
 - [x] Keep the SQL provider module within the configured KISS file cap with behavior-preserving extraction. **EG-FEDERATED-QUERY-R057**
 - [x] Add the typed `NlQueryResult`/`NlQueryError`/`NlQueryBudget` disclosure model (`plan_only`, `plan_and_execute_typed`) to `eg-plan`, with refusal and plan-only tests. **EG-FEDERATED-QUERY-R058.1**
 - [ ] Wire `Method::NlQuery`'s dispatch handler and result contract to the typed disclosure model so the served result carries the executed UQL, and expose a plan-only entry point to callers. **EG-FEDERATED-QUERY-R058.2**
+  - [x] Enforce the typed NL budget at the dispatch handler before parsing. **EG-FEDERATED-QUERY-R058.2.1**
+  - [ ] Wire the result contract to carry the executed UQL and expose a plan-only entry point. **EG-FEDERATED-QUERY-R058.2.2**
 - [ ] Confirm natural-language results are never cached on the NL text and that no mutating/side-effecting operation is reachable from the NL surface. **EG-FEDERATED-QUERY-R058.3**
+  - [x] Guard that NL results are never cached on the NL text. **EG-FEDERATED-QUERY-R058.3.1**
+  - [ ] Confirm no mutating operation is reachable from the NL surface. **EG-FEDERATED-QUERY-R058.3.2**
 
 ## Decomposition children (tracked)
 

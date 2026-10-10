@@ -66,7 +66,11 @@
     "EG-FEDERATED-QUERY-R058",
     "EG-FEDERATED-QUERY-R058.1",
     "EG-FEDERATED-QUERY-R058.2",
+    "EG-FEDERATED-QUERY-R058.2.1",
+    "EG-FEDERATED-QUERY-R058.2.2",
     "EG-FEDERATED-QUERY-R058.3",
+    "EG-FEDERATED-QUERY-R058.3.1",
+    "EG-FEDERATED-QUERY-R058.3.2",
     "EG-FEDERATED-QUERY-R059",
     "EG-FEDERATED-QUERY-R060",
     "EG-FEDERATED-QUERY-R061",
@@ -762,14 +766,50 @@
     },
     {
       "id": "EG-FEDERATED-QUERY-R058.2",
-      "title": "Remaining scope of EG-FEDERATED-QUERY-R058 (slice .2): Natural language runs only as disclosed, read-only typed UQL",
+      "title": "Dispatch handler and result contract disclose the typed NL→UQL model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-FEDERATED-QUERY-R058.2.1",
+        "EG-FEDERATED-QUERY-R058.2.2"
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R058.2.1",
+      "title": "Dispatch handler enforces the typed NL budget before parsing",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R058.2.2",
+      "title": "Served NL result carries the executed UQL; plan-only is reachable",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-FEDERATED-QUERY-R058.3",
-      "title": "Remaining scope of EG-FEDERATED-QUERY-R058 (slice .3): Natural language runs only as disclosed, read-only typed UQL",
+      "title": "No-cache-on-NL-text and no-mutation-reachable guarantees",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-FEDERATED-QUERY-R058.3.1",
+        "EG-FEDERATED-QUERY-R058.3.2"
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R058.3.1",
+      "title": "NL results are never cached on the NL text",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R058.3.2",
+      "title": "No mutating operation is reachable from the NL surface",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

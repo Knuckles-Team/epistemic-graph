@@ -157,6 +157,17 @@ impl Default for NlQueryBudget {
     }
 }
 
+impl NlQueryBudget {
+    /// Refuse `uql` BEFORE it is parsed or executed when it exceeds this budget's
+    /// character cap (EG-FEDERATED-QUERY-R058.2.1) — the SAME typed check [`plan_only`]
+    /// and [`plan_and_execute_typed`] apply internally, exposed here so a caller (e.g.
+    /// the server dispatch handler) can enforce the identical bound before the planner's
+    /// text ever reaches the parser.
+    pub fn check(&self, uql: &str) -> Result<(), NlQueryError> {
+        enforce_budget(uql, *self)
+    }
+}
+
 /// Every natural-language result (EG-FEDERATED-QUERY-R058): carries the EXACT UQL text —
 /// executed, or, in plan-only mode, the unexecuted candidate — alongside any data.
 /// `rows` is `None` exactly in plan-only mode, so plan-only mode is a property of the
@@ -703,6 +714,25 @@ mod tests {
             err,
             NlQueryError::BudgetExceeded { limit: 64, .. }
         ));
+    }
+
+    // ── EG-FEDERATED-QUERY-R058.2.1: dispatch-callable budget check ───────────────────
+
+    /// The dispatch handler enforces the IDENTICAL character budget the typed
+    /// disclosure model does, via the same typed `BudgetExceeded` error — exposed as a
+    /// plain `NlQueryBudget::check` so the server path can refuse an over-budget
+    /// planner answer before it ever reaches the parser (EG-FEDERATED-QUERY-R058.2.1).
+    // spec: EG-FEDERATED-QUERY-R058.2.1
+    #[test]
+    fn r058_2_1_budget_check_refuses_over_budget_text_before_parsing() {
+        let budget = NlQueryBudget { max_uql_len: 8 };
+        let err = budget
+            .check("MATCH (:Doc) |> LIMIT 1")
+            .expect_err("over-budget text must be refused");
+        assert!(matches!(err, NlQueryError::BudgetExceeded { limit: 8, .. }));
+
+        // Within budget: accepted, independent of whether it later parses.
+        assert!(budget.check("short").is_ok());
     }
 
     /// CONCEPT:EG-KG.query.core-query-input — NL → (mock planner) → canned UQL → EXISTING uql::parse + execute
