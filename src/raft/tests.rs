@@ -1014,6 +1014,7 @@ mod placement_admin_wire_rpc {
     /// 2 MiB default test-worker stack; `#[tokio::test]`'s default runtime does not
     /// apply the engine's own `thread_stack_size`, so this test builds its own.
     // spec: EG-DURABLE-KERNEL-R054
+    // spec: EG-DURABLE-KERNEL-R012
     #[test]
     fn placement_admin_wire_rpcs_move_data_across_a_real_three_node_cluster() {
         let driver = crate::server::spawn_engine_driver(|| {

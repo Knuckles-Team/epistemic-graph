@@ -54,6 +54,7 @@ impl Drop for ClusterGuard {
 /// quorum (so BOTH land as adjacent entries the killed node has never seen), RESTART
 /// it, and assert it converges — proving the CreateGraph→write replay sequence
 /// applies cleanly on the catch-up path.
+// spec: EG-DURABLE-KERNEL-R012
 #[tokio::test(flavor = "multi_thread", worker_threads = 6)]
 async fn follower_catchup_replays_create_graph_then_write() {
     // Brings up a durable redb-backed cluster and restarts members over the SAME
