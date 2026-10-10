@@ -79,6 +79,7 @@ fn finance_is_a_core_module_within_the_catalog_bound_and_the_corpus_stays_cohere
 }
 
 /// Every class is mapped and only the core foundation is imported.
+// spec: EG-FINANCE-PRIMITIVES-R014
 #[test]
 fn every_finance_class_is_mapped_and_nothing_external_is_imported() {
     let triples = eg_rdf::mapping::parse_turtle(FINANCE).unwrap();
@@ -225,6 +226,7 @@ mod shapes {
 
     const HASH: &str = "sha256:0000000000000000000000000000000000000000000000000000000000000000";
 
+    // spec: EG-FINANCE-PRIMITIVES-R014
     #[test]
     fn well_formed_finance_records_conform() {
         let data = format!(
