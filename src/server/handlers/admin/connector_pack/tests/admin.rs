@@ -10,7 +10,8 @@ use eg_types::contract::{BoundedVec, Digest256, ResourceId};
 use sha2::{Digest, Sha256};
 
 use super::{
-    bind, build_pack, context, head_of, import, imported, ok, refused, tool, Served, ADMIN, TENANT,
+    bind, build_pack, context, head_of, import, imported, ok, persistence_id, refused, tool, Served,
+    ADMIN, TENANT,
 };
 
 const CONNECTOR: &str = "pack-admin";
