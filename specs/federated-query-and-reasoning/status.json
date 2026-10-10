@@ -126,22 +126,26 @@
     {
       "id": "EG-FEDERATED-QUERY-R004",
       "title": "Reasoning projection rebuilds after any skipped event",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "0265d3a41baf",
         "49b749980bf2"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/reasoning_projection.rs:1786"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R005",
       "title": "UQL VALIDATE SHAPE stage",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "0265d3a41baf",
         "a1bb9fb9503e"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-plan/src/uql/tests/shape.rs:44"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R006",
