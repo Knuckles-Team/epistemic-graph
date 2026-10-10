@@ -258,7 +258,12 @@ mod tests {
     // spec: EG-FINANCE-PRIMITIVES-R005.1
     #[test]
     fn fifo_closes_the_oldest_lot_first() {
-        let activities = [act(1, 10, 100), act(2, 5, 110), act(3, 12, 120)];
+        // act(3, ...) is the sell that FIFO must close against the two buys
+        // above it; `quantity_ticks` is signed (positive buy, negative sell,
+        // per the struct doc at the top of this file), so the sell's units
+        // must be negative or `apply_activities` treats it as a third buy
+        // and never closes anything.
+        let activities = [act(1, 10, 100), act(2, 5, 110), act(3, -12, 120)];
         let ledger = apply_activities(&activities, LotMethod::Fifo).unwrap();
         assert_eq!(ledger.closed.len(), 2);
         assert_eq!(ledger.closed[0].opened_by, 1);
@@ -273,7 +278,10 @@ mod tests {
     // spec: EG-FINANCE-PRIMITIVES-R005.1
     #[test]
     fn lifo_closes_the_newest_lot_first() {
-        let activities = [act(1, 10, 100), act(2, 5, 110), act(3, 12, 120)];
+        // Same sign fix as fifo_closes_the_oldest_lot_first above: act(3,
+        // ...) must be a sell (negative quantity_ticks) for LIFO to have
+        // anything to close.
+        let activities = [act(1, 10, 100), act(2, 5, 110), act(3, -12, 120)];
         let ledger = apply_activities(&activities, LotMethod::Lifo).unwrap();
         assert_eq!(ledger.closed.len(), 2);
         assert_eq!(ledger.closed[0].opened_by, 2);
@@ -288,14 +296,20 @@ mod tests {
     // spec: EG-FINANCE-PRIMITIVES-R005.1
     #[test]
     fn realized_gain_is_proceeds_minus_cost_times_quantity() {
-        let activities = [act(1, 10, 100), act(2, 10, 150)];
+        // act(2, ...) must be the sell that realizes the gain against the
+        // lot opened by act(1, ...); same sign fix as above.
+        let activities = [act(1, 10, 100), act(2, -10, 150)];
         let ledger = apply_activities(&activities, LotMethod::Fifo).unwrap();
         assert_eq!(ledger.closed[0].realized_gain_ticks, 10 * 50 * SCALE);
     }
 
     #[test]
     fn oversold_quantity_is_refused() {
-        let activities = [act(1, 10, 100), act(2, 11, 100)];
+        // act(2, ...) must be a sell (negative quantity_ticks) to be
+        // refused as oversold; as a positive quantity it is just a second
+        // buy, which `apply_activities` accepts, so the ledger ends with 2
+        // open lots and an empty `closed` instead of an `Oversold` error.
+        let activities = [act(1, 10, 100), act(2, -11, 100)];
         let error = apply_activities(&activities, LotMethod::Fifo).unwrap_err();
         assert_eq!(
             error,

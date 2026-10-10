@@ -41,7 +41,14 @@ pub fn seal_dca_fixed_amount_backtest(
             direction: Direction::Bullish,
         })
         .collect();
-    let returns: Vec<f64> = (0..contribution_dates.len().max(6))
+    // 7, not 6: with `n_groups: 6` below, exactly 6 samples makes every CPCV
+    // group a single period, and the (purge_window=1, embargo=1) window
+    // around one far-apart pair of test groups (groups 1 and 4) then forbids
+    // every remaining period, leaving that split with no training data at
+    // all (`backtest_run::minimum_complete_train` refuses it). One spare
+    // period gives the last group enough width that no combination of test
+    // groups can purge+embargo the whole sample.
+    let returns: Vec<f64> = (0..contribution_dates.len().max(7))
         .map(|i| (((i as i64) * 29 % 7) - 3) as f64 / 1_000.0)
         .collect();
     let draft = BacktestRunDraft {
@@ -75,6 +82,7 @@ pub fn seal_dca_fixed_amount_backtest(
                 vec![0.1, 0.2],
                 vec![0.3, 0.1],
                 vec![0.2, 0.3],
+                vec![0.2, 0.2],
             ],
         },
         supersedes: None,
