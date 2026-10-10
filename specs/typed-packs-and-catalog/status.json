@@ -182,29 +182,38 @@
     {
       "id": "EG-TYPED-PACKS-R009",
       "title": "Projection readiness gates reader visibility",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "a7fb03fc503f",
         "db863f1e2afd"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/handlers/admin/connector_pack/tests/outbox.rs:127"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R010",
       "title": "Import is a single atomic operation, not a staged protocol",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "a7fb03fc503f",
         "bcbbe51307d8"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/connector_pack/ops.rs:249"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R011",
       "title": "Incompatible Agent Library storage is refused, not upgraded",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
-        "9bc78efe95b3"
+        "9bc78efe95b3",
+        "a7fb03fc503f"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/persistence/store_upgrade/tests.rs:424"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R012",
@@ -218,29 +227,38 @@
     {
       "id": "EG-TYPED-PACKS-R013",
       "title": "Capability IRI validation distinguishes native errors from claims",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "a7fb03fc503f",
         "db863f1e2afd"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/handlers/admin/connector_pack/import/annotations.rs:166"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R014",
       "title": "Absent entries become reversible Withdrawn, not retired",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "a7fb03fc503f",
         "ac5638477288"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/handlers/admin/connector_pack/tests/content_model.rs:542"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R015",
       "title": "Importer authority is admin-bound, with environment value as bootstrap only",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "a7fb03fc503f",
         "db863f1e2afd"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/handlers/admin/connector_pack/tests/admin.rs:32"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R016",
