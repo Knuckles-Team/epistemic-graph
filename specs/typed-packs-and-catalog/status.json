@@ -124,10 +124,11 @@
       "title": "Engine-owned body storage with guarded refcounts and reconciliation",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "dcc5d53c04f9"
+        "dcc5d53c04f9",
+        "f6bd64b35e00"
       ],
       "verified_by": [
-        "src/server/handlers/admin/connector_pack/tests/admin.rs:179"
+        "src/server/handlers/admin/connector_pack/tests/admin.rs:226"
       ]
     },
     {
@@ -135,10 +136,11 @@
       "title": "Import boundary enforces archive integrity, importer binding and G1-G21",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "db863f1e2afd"
+        "db863f1e2afd",
+        "f6bd64b35e00"
       ],
       "verified_by": [
-        "src/server/handlers/admin/connector_pack/tests/admin.rs:329"
+        "src/server/handlers/admin/connector_pack/tests/admin.rs:376"
       ]
     },
     {
@@ -159,10 +161,11 @@
       "title": "Acceptance suite for pack mutation, crash, authorization and tenancy",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "a1bb9fb9503e"
+        "a1bb9fb9503e",
+        "f6bd64b35e00"
       ],
       "verified_by": [
-        "src/server/handlers/admin/connector_pack/tests/admin.rs:395"
+        "src/server/handlers/admin/connector_pack/tests/admin.rs:442"
       ]
     },
     {
@@ -170,10 +173,11 @@
       "title": "Outbox-driven pack projection with a visibility readiness gate",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "a1bb9fb9503e"
+        "a1bb9fb9503e",
+        "f6bd64b35e00"
       ],
       "verified_by": [
-        "src/server/handlers/admin/connector_pack/tests/outbox.rs:180"
+        "src/server/handlers/admin/connector_pack/tests/outbox.rs:181"
       ]
     },
     {
@@ -181,10 +185,11 @@
       "title": "Admin-controlled pack importer binding and entry retirement",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "a1bb9fb9503e"
+        "a1bb9fb9503e",
+        "f6bd64b35e00"
       ],
       "verified_by": [
-        "src/server/handlers/admin/connector_pack/tests/admin.rs:245"
+        "src/server/handlers/admin/connector_pack/tests/admin.rs:292"
       ]
     },
     {
@@ -192,7 +197,8 @@
       "title": "Blob content-addressed store garbage-collection hardening",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "b43f33569dd4"
+        "b43f33569dd4",
+        "f6bd64b35e00"
       ],
       "verified_by": [
         "src/server/blob/store/tests.rs:344"
@@ -267,7 +273,7 @@
         "ac5638477288"
       ],
       "verified_by": [
-        "src/server/handlers/admin/connector_pack/tests/content_model.rs:542"
+        "src/server/handlers/admin/connector_pack/tests/content_model.rs:544"
       ]
     },
     {
@@ -622,7 +628,7 @@
         "db863f1e2afd"
       ],
       "verified_by": [
-        "src/server/handlers/admin/connector_pack/import/annotations.rs:199"
+        "src/server/handlers/admin/connector_pack/import/annotations.rs:200"
       ]
     },
     {
@@ -634,7 +640,7 @@
         "db863f1e2afd"
       ],
       "verified_by": [
-        "src/server/handlers/admin/connector_pack/import/annotations.rs:200"
+        "src/server/handlers/admin/connector_pack/import/annotations.rs:201"
       ]
     },
     {
