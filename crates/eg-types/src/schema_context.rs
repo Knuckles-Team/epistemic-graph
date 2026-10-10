@@ -116,7 +116,7 @@ pub fn serve_schema_context(
 ) -> Result<SchemaContextAnswer, SchemaContextQueryError> {
     catalog
         .schema_context(&request.table)
-        .map(|answer| answer.clone())
+        .cloned()
         .map_err(SchemaContextQueryError::from)
 }
 
