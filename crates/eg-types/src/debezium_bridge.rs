@@ -270,6 +270,7 @@ mod tests {
         }
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R021.1
     #[test]
     fn known_op_codes_parse() {
         assert_eq!(DebeziumOp::parse("c"), Ok(DebeziumOp::Create));
@@ -278,6 +279,7 @@ mod tests {
         assert_eq!(DebeziumOp::parse("r"), Ok(DebeziumOp::Read));
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R021.1
     #[test]
     fn unknown_op_code_is_refused() {
         assert_eq!(
@@ -286,6 +288,7 @@ mod tests {
         );
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R021.1
     #[test]
     fn create_without_after_is_refused() {
         let event = DebeziumChangeEvent {
@@ -297,6 +300,7 @@ mod tests {
         assert_eq!(event.validate(), Err(InvalidDebeziumEvent::MissingAfter));
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R021.1
     #[test]
     fn delete_without_before_is_refused() {
         let event = DebeziumChangeEvent {
@@ -308,6 +312,7 @@ mod tests {
         assert_eq!(event.validate(), Err(InvalidDebeziumEvent::MissingBefore));
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R021.1
     #[test]
     fn well_formed_update_validates() {
         let event = DebeziumChangeEvent {
@@ -319,6 +324,7 @@ mod tests {
         assert_eq!(event.validate(), Ok(()));
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R021.1
     #[test]
     fn cursor_position_is_opaque_and_carries_the_source_position() {
         let event = DebeziumChangeEvent {
@@ -338,6 +344,7 @@ mod tests {
         }
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R021.1
     #[test]
     fn event_serializes_round_trip() {
         let event = DebeziumChangeEvent {

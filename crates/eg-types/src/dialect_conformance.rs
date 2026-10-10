@@ -118,6 +118,7 @@ mod tests {
         }
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R022.1
     #[test]
     fn green_entry_without_deviation_validates() {
         let entry = DialectConformanceEntry {
@@ -129,6 +130,7 @@ mod tests {
         assert_eq!(entry.validate(), Ok(()));
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R022.1
     #[test]
     fn deviated_entry_with_reviewed_deviation_validates() {
         let entry = DialectConformanceEntry {
@@ -140,6 +142,7 @@ mod tests {
         assert_eq!(entry.validate(), Ok(()));
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R022.1
     #[test]
     fn deviated_entry_without_deviation_is_refused() {
         let entry = DialectConformanceEntry {
@@ -154,6 +157,7 @@ mod tests {
         );
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R022.1
     #[test]
     fn green_entry_with_deviation_is_refused() {
         let entry = DialectConformanceEntry {
@@ -168,6 +172,7 @@ mod tests {
         );
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R022.1
     #[test]
     fn deviation_with_blank_reviewer_is_refused_not_auto_suppressed() {
         let entry = DialectConformanceEntry {
@@ -182,6 +187,7 @@ mod tests {
         );
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R022.1
     #[test]
     fn report_validate_refuses_if_any_entry_is_malformed() {
         let report = ConformanceReport {

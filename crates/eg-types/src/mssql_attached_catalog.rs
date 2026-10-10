@@ -116,6 +116,7 @@ mod tests {
         }
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R016.1
     #[test]
     fn valid_table_round_trips_through_insert() {
         let mut catalog = MssqlSourceCatalog {
@@ -128,6 +129,7 @@ mod tests {
         assert!(catalog.tables.contains_key("[dbo].[orders]"));
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R016.1
     #[test]
     fn empty_identifier_is_refused() {
         assert_eq!(
@@ -136,16 +138,19 @@ mod tests {
         );
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R016.1
     #[test]
     fn bracket_in_identifier_is_refused() {
         assert!(validate_identifier("orders]; DROP").is_err());
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R016.1
     #[test]
     fn nul_byte_in_identifier_is_refused() {
         assert!(validate_identifier("orders\0").is_err());
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R016.1
     #[test]
     fn unsafe_identifier_is_refused_not_silently_inserted() {
         let mut catalog = MssqlSourceCatalog::default();
@@ -155,6 +160,7 @@ mod tests {
         assert_eq!(catalog.tables.len(), before);
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R016.1
     #[test]
     fn capture_mode_unsupported_is_a_distinct_variant() {
         let t = table("dbo", "views_only", MssqlCaptureMode::Unsupported);
@@ -162,6 +168,7 @@ mod tests {
         assert_ne!(t.capture_mode, MssqlCaptureMode::Cdc);
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R016.1
     #[test]
     fn catalog_serializes_round_trip() {
         let mut catalog = MssqlSourceCatalog {

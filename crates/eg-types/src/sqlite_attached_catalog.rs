@@ -127,6 +127,7 @@ mod tests {
         }
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R015.1
     #[test]
     fn rowid_table_with_wal_tailing_round_trips_through_insert() {
         let mut catalog = SqliteSourceCatalog {
@@ -143,6 +144,7 @@ mod tests {
         assert!(catalog.tables.contains_key("events"));
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R015.1
     #[test]
     fn without_rowid_table_with_pk_and_watermark_is_valid() {
         let table = SqliteTableCatalog {
@@ -154,6 +156,7 @@ mod tests {
         assert!(validate_table(&table).is_ok());
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R015.1
     #[test]
     fn without_rowid_table_with_no_primary_key_is_refused() {
         let table = SqliteTableCatalog {
@@ -165,6 +168,7 @@ mod tests {
         assert!(validate_table(&table).is_err());
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R015.1
     #[test]
     fn without_rowid_table_claiming_wal_tailing_is_refused() {
         let table = SqliteTableCatalog {
@@ -179,6 +183,7 @@ mod tests {
         assert!(error.reason.contains("no implicit rowid"), "{error}");
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R015.1
     #[test]
     fn invalid_table_is_refused_not_silently_inserted() {
         let mut catalog = SqliteSourceCatalog::default();
@@ -193,6 +198,7 @@ mod tests {
         assert_eq!(catalog.tables.len(), before);
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R015.1
     #[test]
     fn capture_mode_is_a_distinct_variant_not_collapsed() {
         assert_ne!(
@@ -201,6 +207,7 @@ mod tests {
         );
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R015.1
     #[test]
     fn catalog_serializes_round_trip() {
         let mut catalog = SqliteSourceCatalog {

@@ -143,6 +143,7 @@ mod tests {
         SchemaContextCatalog { tables }
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R029.1
     #[test]
     fn known_table_returns_its_full_answer() {
         let answer = catalog().schema_context("person").unwrap().clone();
@@ -152,18 +153,21 @@ mod tests {
         assert_eq!(answer.joins[0].joined_table, "family");
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R029.1
     #[test]
     fn unknown_table_is_refused_not_defaulted() {
         let err = catalog().schema_context("no_such_table").unwrap_err();
         assert_eq!(err, UnknownTable("no_such_table".to_string()));
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R029.1
     #[test]
     fn empty_catalog_refuses_every_table() {
         let catalog = SchemaContextCatalog::default();
         assert!(catalog.schema_context("person").is_err());
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R029.1
     #[test]
     fn answer_serializes_round_trip() {
         let answer = catalog().tables["person"].clone();

@@ -568,11 +568,17 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R015.1",
       "title": "`SqliteSourceCatalog` is a typed catalog model with a WITHOUT-ROWID capture-safety refusal",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "37003f28164f"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/sqlite_attached_catalog.rs:130",
+        "crates/eg-types/src/sqlite_attached_catalog.rs:147",
+        "crates/eg-types/src/sqlite_attached_catalog.rs:159",
+        "crates/eg-types/src/sqlite_attached_catalog.rs:171",
+        "crates/eg-types/src/sqlite_attached_catalog.rs:186"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R015.2",
@@ -621,11 +627,17 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R016.1",
       "title": "`MssqlSourceCatalog` is a typed catalog model with a bracket-quoting identifier refusal",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "37003f28164f"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/mssql_attached_catalog.rs:119",
+        "crates/eg-types/src/mssql_attached_catalog.rs:132",
+        "crates/eg-types/src/mssql_attached_catalog.rs:141",
+        "crates/eg-types/src/mssql_attached_catalog.rs:147",
+        "crates/eg-types/src/mssql_attached_catalog.rs:153"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R016.2",
@@ -674,11 +686,17 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R017.1",
       "title": "`ClickHouseSourceCatalog` is a typed catalog model whose capture capability is always explicit",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "37003f28164f"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/clickhouse_attached_catalog.rs:142",
+        "crates/eg-types/src/clickhouse_attached_catalog.rs:150",
+        "crates/eg-types/src/clickhouse_attached_catalog.rs:159",
+        "crates/eg-types/src/clickhouse_attached_catalog.rs:167",
+        "crates/eg-types/src/clickhouse_attached_catalog.rs:178"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R017.2",
@@ -731,11 +749,17 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R018.1",
       "title": "`RelationalSourceCatalog` is a typed Oracle/Db2 catalog model with identifier and Debezium-capture refusals",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "eb058c53407e"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/relational_attached_catalog.rs:137",
+        "crates/eg-types/src/relational_attached_catalog.rs:147",
+        "crates/eg-types/src/relational_attached_catalog.rs:155",
+        "crates/eg-types/src/relational_attached_catalog.rs:163",
+        "crates/eg-types/src/relational_attached_catalog.rs:173"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R018.2",
@@ -781,11 +805,17 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R019.1",
       "title": "`DocumentSourceCatalog` is a typed inferred-shape model with a refusal for a malformed field path",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "211962e9c846"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/document_source_catalog.rs:108",
+        "crates/eg-types/src/document_source_catalog.rs:119",
+        "crates/eg-types/src/document_source_catalog.rs:128",
+        "crates/eg-types/src/document_source_catalog.rs:135",
+        "crates/eg-types/src/document_source_catalog.rs:141"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R019.2",
@@ -865,11 +895,17 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R020.1",
       "title": "`WarehouseSourceKind`/`WarehouseSourceConfig` are a closed source-kind vocabulary with a per-kind required-field refusal",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "74870676b1cc"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/warehouse_federation.rs:118",
+        "crates/eg-types/src/warehouse_federation.rs:128",
+        "crates/eg-types/src/warehouse_federation.rs:136",
+        "crates/eg-types/src/warehouse_federation.rs:143",
+        "crates/eg-types/src/warehouse_federation.rs:150"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R020.2",
@@ -940,7 +976,7 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R021",
       "title": "Bridge Debezium Kafka events into ChangeEnvelope",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "9cb571fb74aa"
       ],
@@ -954,11 +990,17 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R021.1",
       "title": "`DebeziumChangeEvent` is a typed envelope shape with an op-code and before/after refusal",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "9cb571fb74aa"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/debezium_bridge.rs:273",
+        "crates/eg-types/src/debezium_bridge.rs:282",
+        "crates/eg-types/src/debezium_bridge.rs:291",
+        "crates/eg-types/src/debezium_bridge.rs:303",
+        "crates/eg-types/src/debezium_bridge.rs:315"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R021.2",
@@ -968,8 +1010,8 @@
         "de71b5ddd2b2"
       ],
       "verified_by": [
-        "crates/eg-types/src/debezium_bridge.rs:354",
-        "crates/eg-types/src/debezium_bridge.rs:395"
+        "crates/eg-types/src/debezium_bridge.rs:361",
+        "crates/eg-types/src/debezium_bridge.rs:402"
       ]
     },
     {
@@ -980,7 +1022,7 @@
         "de71b5ddd2b2"
       ],
       "verified_by": [
-        "crates/eg-types/src/debezium_bridge.rs:410"
+        "crates/eg-types/src/debezium_bridge.rs:417"
       ]
     },
     {
@@ -1000,11 +1042,17 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R022.1",
       "title": "`DialectConformanceEntry`/`ConformanceReport` are a typed per-engine-version result with a refusal for an auto-suppressed deviation",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "23769c3ec0f9"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/dialect_conformance.rs:121",
+        "crates/eg-types/src/dialect_conformance.rs:133",
+        "crates/eg-types/src/dialect_conformance.rs:145",
+        "crates/eg-types/src/dialect_conformance.rs:160",
+        "crates/eg-types/src/dialect_conformance.rs:175"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R022.2",
@@ -1062,11 +1110,17 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R023.1",
       "title": "`SharedPlatformClusterGroup` is a typed cluster-group and role-set model with engine-specific refusals",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "03439e243c80"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/shared_db_platform.rs:138",
+        "crates/eg-types/src/shared_db_platform.rs:144",
+        "crates/eg-types/src/shared_db_platform.rs:155",
+        "crates/eg-types/src/shared_db_platform.rs:166",
+        "crates/eg-types/src/shared_db_platform.rs:182"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R023.2",
@@ -1137,7 +1191,7 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R024",
       "title": "Admit applications to the shared platform with rollback",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "1b3cc2f03fa2"
       ],
@@ -1151,11 +1205,17 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R024.1",
       "title": "`ApplicationAdmission` is a typed stage machine refusing early connector retirement",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "1b3cc2f03fa2"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/platform_admission.rs:232",
+        "crates/eg-types/src/platform_admission.rs:242",
+        "crates/eg-types/src/platform_admission.rs:254",
+        "crates/eg-types/src/platform_admission.rs:262",
+        "crates/eg-types/src/platform_admission.rs:272"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R024.2",
@@ -1177,9 +1237,9 @@
         "15a7370ecac3"
       ],
       "verified_by": [
-        "crates/eg-types/src/platform_admission.rs:286",
-        "crates/eg-types/src/platform_admission.rs:298",
-        "crates/eg-types/src/platform_admission.rs:311"
+        "crates/eg-types/src/platform_admission.rs:292",
+        "crates/eg-types/src/platform_admission.rs:304",
+        "crates/eg-types/src/platform_admission.rs:317"
       ]
     },
     {
@@ -1202,7 +1262,7 @@
         "15a7370ecac3"
       ],
       "verified_by": [
-        "crates/eg-types/src/platform_admission.rs:346"
+        "crates/eg-types/src/platform_admission.rs:352"
       ]
     },
     {
@@ -1222,11 +1282,17 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R025.1",
       "title": "`PgrxSpikeDecision` is a typed decision record refusing an outcome without full-scope evidence",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "e265a52820f5"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/pgrx_spike.rs:171",
+        "crates/eg-types/src/pgrx_spike.rs:181",
+        "crates/eg-types/src/pgrx_spike.rs:197",
+        "crates/eg-types/src/pgrx_spike.rs:207",
+        "crates/eg-types/src/pgrx_spike.rs:217"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R025.2",
@@ -1248,9 +1314,9 @@
         "15a7370ecac3"
       ],
       "verified_by": [
-        "crates/eg-types/src/pgrx_spike.rs:224",
-        "crates/eg-types/src/pgrx_spike.rs:237",
-        "crates/eg-types/src/pgrx_spike.rs:252"
+        "crates/eg-types/src/pgrx_spike.rs:229",
+        "crates/eg-types/src/pgrx_spike.rs:242",
+        "crates/eg-types/src/pgrx_spike.rs:257"
       ]
     },
     {
@@ -1303,13 +1369,19 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R026.1",
       "title": "`GrampsPilotProgress` is a typed P0-P5 phase gate refusing a wrong, unreviewed, or out-of-order exit",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "30af64b172d4",
         "9a7674d1bae5",
         "eb058c53407e"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/gramps_pilot_phase.rs:151",
+        "crates/eg-types/src/gramps_pilot_phase.rs:157",
+        "crates/eg-types/src/gramps_pilot_phase.rs:168",
+        "crates/eg-types/src/gramps_pilot_phase.rs:176",
+        "crates/eg-types/src/gramps_pilot_phase.rs:185"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R026.2",
@@ -1394,11 +1466,17 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R027.1",
       "title": "`FeatureFixRecord` is a typed inventory entry refusing a fix without complete captured-traffic/test proof",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "5873d340b4de"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/pg_compat_feature.rs:112",
+        "crates/eg-types/src/pg_compat_feature.rs:123",
+        "crates/eg-types/src/pg_compat_feature.rs:134",
+        "crates/eg-types/src/pg_compat_feature.rs:147",
+        "crates/eg-types/src/pg_compat_feature.rs:159"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R027.2",
@@ -1466,11 +1544,17 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R028.1",
       "title": "`DeviationBaseline::reconcile` refuses a baseline update that drops a deviation without an explicit resolution",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "2f94e96c5129"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/pg_diff_baseline.rs:110",
+        "crates/eg-types/src/pg_diff_baseline.rs:118",
+        "crates/eg-types/src/pg_diff_baseline.rs:126",
+        "crates/eg-types/src/pg_diff_baseline.rs:135",
+        "crates/eg-types/src/pg_diff_baseline.rs:146"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R028.2",
@@ -1520,11 +1604,16 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R029.1",
       "title": "`SchemaContextCatalog::schema_context` is a typed answer lookup refusing an unknown table",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "d9b702c9e7e2"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/schema_context.rs:102",
+        "crates/eg-types/src/schema_context.rs:109",
+        "crates/eg-types/src/schema_context.rs:85",
+        "crates/eg-types/src/schema_context.rs:95"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R029.2",
@@ -1556,11 +1645,17 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R030.1",
       "title": "`EntityLinkProposal::assert_same_as` refuses an unapproved or non-Match candidate",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "648e9b47f700"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/entity_link_proposal.rs:109",
+        "crates/eg-types/src/entity_link_proposal.rs:116",
+        "crates/eg-types/src/entity_link_proposal.rs:123",
+        "crates/eg-types/src/entity_link_proposal.rs:130",
+        "crates/eg-types/src/entity_link_proposal.rs:137"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R030.2",
@@ -1590,11 +1685,17 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R031.1",
       "title": "`ApplicationAdmission`/`ConsolidationIsolationRegistry` are a typed admission model with identity and quota refusals",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "eb058c53407e"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/consolidation_isolation.rs:160",
+        "crates/eg-types/src/consolidation_isolation.rs:170",
+        "crates/eg-types/src/consolidation_isolation.rs:178",
+        "crates/eg-types/src/consolidation_isolation.rs:193",
+        "crates/eg-types/src/consolidation_isolation.rs:206"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R031.2",
@@ -1617,11 +1718,17 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R032.1",
       "title": "`ImmichPilotProgress` is a typed phase gate (I0-I6) with exit-artifact and skip-ahead refusals",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "eb058c53407e"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/immich_pilot_phase.rs:158",
+        "crates/eg-types/src/immich_pilot_phase.rs:167",
+        "crates/eg-types/src/immich_pilot_phase.rs:178",
+        "crates/eg-types/src/immich_pilot_phase.rs:186",
+        "crates/eg-types/src/immich_pilot_phase.rs:198"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R032.2",
@@ -1646,11 +1753,17 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R033.1",
       "title": "`GrampsCutoverGoAhead` is a typed go-ahead model gated on a valid P5 exit and a 30-day fallback window",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "9a7674d1bae5"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/gramps_cutover_gate.rs:101",
+        "crates/eg-types/src/gramps_cutover_gate.rs:107",
+        "crates/eg-types/src/gramps_cutover_gate.rs:121",
+        "crates/eg-types/src/gramps_cutover_gate.rs:132",
+        "crates/eg-types/src/gramps_cutover_gate.rs:143"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R033.2",
@@ -1685,11 +1798,17 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R036",
       "title": "Derive HealthAnomaly and Incident facts with conformance checking",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "155bd9b55e81"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-stream/src/telemetry/tests/derive.rs:108",
+        "crates/eg-stream/src/telemetry/tests/derive.rs:121",
+        "crates/eg-stream/src/telemetry/tests/derive.rs:139",
+        "crates/eg-stream/src/telemetry/tests/derive.rs:28",
+        "crates/eg-stream/src/telemetry/tests/derive.rs:48"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R037",

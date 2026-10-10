@@ -42,21 +42,28 @@
     {
       "id": "EG-IDENTITY-R004",
       "title": "Generated scope registry classifies every capability scope",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "63488a50eefc",
         "a2cbfc473ba2"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-capabilities/src/scopes/tests.rs:112",
+        "crates/eg-capabilities/src/scopes/tests.rs:38",
+        "crates/eg-capabilities/src/scopes/tests.rs:51",
+        "crates/eg-capabilities/src/scopes/tests.rs:65"
+      ]
     },
     {
       "id": "EG-IDENTITY-R005",
       "title": "Semantic workers use one identity across queue classes",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "62bec8a1ae94"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/semantic_index/dispatch_pipeline_tests.rs:600"
+      ]
     },
     {
       "id": "EG-IDENTITY-R006",

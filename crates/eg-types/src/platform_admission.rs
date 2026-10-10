@@ -229,6 +229,7 @@ mod tests {
         }
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R024.1
     #[test]
     fn full_admission_path_advances_in_order() {
         let mut admission = ApplicationAdmission::new("gramps");
@@ -238,6 +239,7 @@ mod tests {
         assert_eq!(admission.stage, AdmissionStage::ConnectorRetired);
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R024.1
     #[test]
     fn retiring_connector_before_parity_is_refused() {
         let mut admission = ApplicationAdmission::new("gramps");
@@ -249,6 +251,7 @@ mod tests {
         assert_eq!(admission.stage, AdmissionStage::Admitted);
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R024.1
     #[test]
     fn retiring_connector_from_pending_is_refused() {
         let mut admission = ApplicationAdmission::new("twenty");
@@ -256,6 +259,7 @@ mod tests {
         assert_eq!(admission.stage, AdmissionStage::Pending);
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R024.1
     #[test]
     fn rollback_is_allowed_before_connector_retirement() {
         let mut admission = ApplicationAdmission::new("firefly");
@@ -265,6 +269,7 @@ mod tests {
         assert_eq!(admission.stage, AdmissionStage::RolledBack);
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R024.1
     #[test]
     fn rollback_after_connector_retirement_is_refused() {
         let mut admission = ApplicationAdmission::new("immich");
@@ -275,6 +280,7 @@ mod tests {
         assert_eq!(admission.stage, AdmissionStage::ConnectorRetired);
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R024.1
     #[test]
     fn stage_serializes_round_trip() {
         let admission = ApplicationAdmission::new("gramps");
