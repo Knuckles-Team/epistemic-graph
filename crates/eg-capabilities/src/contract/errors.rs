@@ -208,6 +208,7 @@ mod tests {
         })
     }
 
+    // spec: EG-CONTRACT-R014
     #[test]
     fn every_method_error_is_in_the_published_catalog() {
         let catalog: serde_json::Value = serde_json::from_slice(&catalog_json()).unwrap();

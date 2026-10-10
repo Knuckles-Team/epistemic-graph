@@ -84,6 +84,7 @@ def _assert_matrix(workflow, manifests):
     )
 
 
+@pytest.mark.spec("EG-CONTRACT-R018")
 def test_release_crates_match_manifest_features(release_matrix):
     _assert_matrix(*release_matrix)
 
