@@ -402,8 +402,8 @@ mod tests {
             after: None,
         };
         assert_eq!(
-            invalid.to_draft("envelope-3", "batch-3"),
-            Err(InvalidDebeziumEvent::MissingAfter)
+            invalid.to_draft("envelope-3", "batch-3").err(),
+            Some(InvalidDebeziumEvent::MissingAfter)
         );
     }
 
