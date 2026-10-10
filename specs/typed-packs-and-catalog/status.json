@@ -122,20 +122,24 @@
     {
       "id": "EG-TYPED-PACKS-R002",
       "title": "Engine-owned body storage with guarded refcounts and reconciliation",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "dcc5d53c04f9"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/handlers/admin/connector_pack/tests/admin.rs:179"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R003",
       "title": "Import boundary enforces archive integrity, importer binding and G1-G21",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "db863f1e2afd"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/handlers/admin/connector_pack/tests/admin.rs:329"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R004",
@@ -153,38 +157,46 @@
     {
       "id": "EG-TYPED-PACKS-R005",
       "title": "Acceptance suite for pack mutation, crash, authorization and tenancy",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "a1bb9fb9503e"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/handlers/admin/connector_pack/tests/admin.rs:395"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R006",
       "title": "Outbox-driven pack projection with a visibility readiness gate",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "a1bb9fb9503e"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/handlers/admin/connector_pack/tests/outbox.rs:180"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R007",
       "title": "Admin-controlled pack importer binding and entry retirement",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "a1bb9fb9503e"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/handlers/admin/connector_pack/tests/admin.rs:245"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R008",
       "title": "Blob content-addressed store garbage-collection hardening",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "b43f33569dd4"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/blob/store/tests.rs:344"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R009",

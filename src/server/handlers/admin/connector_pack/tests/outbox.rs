@@ -177,6 +177,80 @@ async fn a_pack_without_schema_is_visible_at_once_and_one_with_schema_after_proj
     }
 }
 
+// spec: EG-TYPED-PACKS-R006
+#[tokio::test]
+async fn an_admin_forced_reproject_redrives_a_stale_projection_without_losing_later_work() {
+    let served = Served::new();
+    let _env = served.with_graph_persistence().await;
+    let schema = "schema-pack-reproject";
+    bind(&served, schema, ADMIN).await;
+    let ontology = Content {
+        kind: PackEntryKind::Ontology,
+        uri: format!("ontology://{schema}/core.ttl"),
+        name: "core.ttl".to_string(),
+        media_type: "text/turtle",
+        body: b"<https://example.org/Thing> a <http://www.w3.org/2002/07/owl#Class> .\n".to_vec(),
+        input_schema: None,
+        annotations: PackAnnotations::default(),
+        references: Vec::new(),
+    };
+    let first = super::imported(
+        &served,
+        &build_pack(schema, &[tool(schema, "b", "Tool b."), ontology.clone()]),
+        None,
+    )
+    .await;
+    let tool_b = "mcp:schema-pack-reproject/tool/b".to_string();
+    assert!(
+        !searchable_ids(&served).await.contains(&tool_b),
+        "a pack with schema stays dark until its projection applies"
+    );
+    // The administrator forces a Reproject directly, without ever running the
+    // worker's sweep: a never-run projection is re-driven on demand.
+    let key = "reproject:schema-pack-reproject";
+    let _: eg_types::connector_pack::PackImportReceipt = ok(
+        "Reproject",
+        served
+            .pack(
+                key,
+                eg_types::connector_pack::ConnectorPackOp::Reproject {
+                    request: eg_types::connector_pack::ConnectorPackReprojectRequest {
+                        context: super::context(key),
+                        connector: ResourceId::new(schema).unwrap(),
+                    },
+                },
+            )
+            .await,
+    );
+    assert!(
+        searchable_ids(&served).await.contains(&tool_b),
+        "the forced Reproject flips the head visible"
+    );
+    // Later work: a second import lands after the forced Reproject and still
+    // becomes visible once its own projection runs -- the forced reproject did
+    // not lose or block it.
+    let tool_c = "mcp:schema-pack-reproject/tool/c".to_string();
+    super::imported(
+        &served,
+        &build_pack(
+            schema,
+            &[
+                tool(schema, "b", "Tool b."),
+                tool(schema, "c", "Tool c."),
+                ontology,
+            ],
+        ),
+        Some(super::head_of(&first)),
+    )
+    .await;
+    let subscribed = AtomicBool::new(false);
+    while sweep(&served.state, &subscribed).await.unwrap() {}
+    assert!(
+        searchable_ids(&served).await.contains(&tool_c),
+        "later work after the forced reproject still projects"
+    );
+}
+
 #[tokio::test]
 async fn every_native_store_is_reachable_through_its_scope_selector() {
     let served = Served::new();
