@@ -1,0 +1,15 @@
+# EG-CONTRACT-R011.1: land-gate fan-out host-group manifest.
+#
+# Validated by scripts/check_fanout_host_groups.py before any fan-out work is
+# dispatched. Each group names a persistent warm target and a headroom
+# reservation fraction (0, 1) on its gate host(s); no host may appear in more
+# than one group. This repository's gate currently runs on a single build
+# host (R820), declared here as one group so the manifest already satisfies
+# the fan-out shape; adding a second independent host group widens the fan
+# out without changing this validator.
+groups:
+  - name: r820
+    warm_target: eg-r820-warm
+    headroom_reservation: 0.1
+    hosts:
+      - r820
