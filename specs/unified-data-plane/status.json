@@ -1531,7 +1531,8 @@
       "title": "Wire the real schema_context query entry point through Graph OS, following the code_context pattern",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "c1bf552a9c33"
+        "c1bf552a9c33",
+        "efcab03c2fa8"
       ],
       "verified_by": [
         "crates/eg-types/src/schema_context.rs:175",

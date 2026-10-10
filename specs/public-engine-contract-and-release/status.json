@@ -68,6 +68,7 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "6cd6c7ea0c87",
+        "72c7dfa478ba",
         "a1bb9fb9503e"
       ],
       "verified_by": [
@@ -148,11 +149,15 @@
     {
       "id": "EG-CONTRACT-R004",
       "title": "Go and JS clients sign bodies through the shared codec",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "6cd6c7ea0c87",
         "a1bb9fb9503e"
       ],
-      "verified_by": []
+      "verified_by": [
+        "clients/go/vectors_test.go:123",
+        "clients/js/vectors.test.mjs:36"
+      ]
     },
     {
       "id": "EG-CONTRACT-R005",
@@ -161,11 +166,14 @@
       "landed_in": [
         "37a29ee3fe0e",
         "6cd6c7ea0c87",
+        "72c7dfa478ba",
         "e2b2f1cfa8ee"
       ],
       "verified_by": [
+        "crates/eg-capabilities/src/contract/python/surfaces/tests.rs:116",
         "tests/test_generated_models.py:123",
-        "tests/test_generated_union_variants.py:25"
+        "tests/test_generated_union_variants.py:25",
+        "tests/test_generated_union_variants.py:27"
       ]
     },
     {
@@ -181,11 +189,15 @@
     {
       "id": "EG-CONTRACT-R007",
       "title": "Dispatch decomposition test is current and runs in CI",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
-        "43137cbf0f6b"
+        "43137cbf0f6b",
+        "6cd6c7ea0c87"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_dispatch_decomposition.py:37",
+        "tests/test_dispatch_decomposition.py:53"
+      ]
     },
     {
       "id": "EG-CONTRACT-R008",
@@ -206,6 +218,7 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "1e48414f9e58",
+        "72c7dfa478ba",
         "8baee8a94894",
         "fb6841592a83"
       ],
@@ -220,6 +233,7 @@
       "title": "check_five_repo_parity.py CLI wires in the typed parity contract",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "72c7dfa478ba",
         "8baee8a94894",
         "fb6841592a83"
       ],
@@ -230,17 +244,24 @@
     {
       "id": "EG-CONTRACT-R009",
       "title": "Release workflow runs the full root Python test suite",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "8baee8a94894",
         "c835ce794b21"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_release_python_suite_contract.py:42",
+        "tests/test_release_python_suite_contract.py:53",
+        "tests/test_release_python_suite_contract.py:62",
+        "tests/test_release_python_suite_contract.py:73"
+      ]
     },
     {
       "id": "EG-CONTRACT-R010",
       "title": "Complexity gate scores exhaustive matches by arm body, not count",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "72c7dfa478ba",
         "8baee8a94894",
         "d37f675e56da"
       ],
@@ -276,17 +297,21 @@
     {
       "id": "EG-CONTRACT-R012",
       "title": "Complexity scanner resolves modules declared in inline mod blocks",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
-        "78e5f2103219"
+        "78e5f2103219",
+        "8baee8a94894"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_kiss_fork.py:54"
+      ]
     },
     {
       "id": "EG-CONTRACT-R013",
       "title": "KISS config keys migrated to avoid a silently dropped section",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "72c7dfa478ba",
         "78e5f2103219",
         "b8aac182d679"
       ],
@@ -297,11 +322,14 @@
     {
       "id": "EG-CONTRACT-R014",
       "title": "Generated error catalog with stable auth-mismatch codes",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
-        "19d0663aaf5c"
+        "19d0663aaf5c",
+        "b8aac182d679"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-capabilities/src/contract/errors.rs:211"
+      ]
     },
     {
       "id": "EG-CONTRACT-R015",
@@ -330,29 +358,38 @@
     {
       "id": "EG-CONTRACT-R017",
       "title": "Dispatch census pins cover the current compiler-declared modules",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
-        "43137cbf0f6b"
+        "43137cbf0f6b",
+        "b8aac182d679"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_dispatch_decomposition.py:36"
+      ]
     },
     {
       "id": "EG-CONTRACT-R018",
       "title": "Release feature matrix includes the motif Cargo feature",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "b8aac182d679",
         "cfd03dda1ef7"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_release_feature_matrix.py:87"
+      ]
     },
     {
       "id": "EG-CONTRACT-R019",
       "title": "Dispatch reachability gate follows the current FOREIGN paths",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
-        "a8cfd0978c58"
+        "a8cfd0978c58",
+        "b8aac182d679"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_current_only_architecture.py:68"
+      ]
     },
     {
       "id": "EG-CONTRACT-R020",
@@ -369,11 +406,14 @@
     {
       "id": "EG-CONTRACT-R021",
       "title": "Failed-connect test checks its own teardown, not process counts",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
-        "1bd79a8991ea"
+        "1bd79a8991ea",
+        "72c7dfa478ba"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_sync_client_lifecycle.py:107"
+      ]
     },
     {
       "id": "EG-CONTRACT-R022",

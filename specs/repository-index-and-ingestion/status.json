@@ -78,6 +78,7 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "06a13bef2738",
+        "72c7dfa478ba",
         "ae0f93b6bf70",
         "e72ee15e11bb"
       ],
@@ -91,6 +92,7 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "06a13bef2738",
+        "72c7dfa478ba",
         "f70de8c33b4f"
       ],
       "verified_by": [
@@ -136,6 +138,7 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "06a13bef2738",
+        "72c7dfa478ba",
         "f70de8c33b4f"
       ],
       "verified_by": [
@@ -148,6 +151,7 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "0554e82ae743",
+        "72c7dfa478ba",
         "fb19bf6ab789"
       ],
       "verified_by": [
@@ -205,6 +209,7 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "0554e82ae743",
+        "72c7dfa478ba",
         "ae0f93b6bf70",
         "fb19bf6ab789",
         "fd9e20bc998d"
@@ -219,11 +224,16 @@
     {
       "id": "EG-REPO-INGEST-R004",
       "title": "Derived series maintained incrementally with lineage",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "0554e82ae743",
         "2b8c0364ebb7"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-tsdb/src/derive/maintain_tests.rs:45",
+        "src/server/handlers/timeseries/derived_tests.rs:159",
+        "src/server/handlers/timeseries/derived_tests.rs:206"
+      ]
     },
     {
       "id": "EG-REPO-INGEST-R005",
@@ -252,20 +262,26 @@
     {
       "id": "EG-REPO-INGEST-R007",
       "title": "Large ingestion batches refuse atomically with a stable code",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "0554e82ae743",
         "33c5c6459154"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/handlers/repository_index_tests.rs:218"
+      ]
     },
     {
       "id": "EG-REPO-INGEST-R008",
       "title": "Oversized batches return a stable code for retry",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
-        "504e3109b2b0"
+        "504e3109b2b0",
+        "72c7dfa478ba"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/handlers/repository_index_tests.rs:248"
+      ]
     },
     {
       "id": "EG-REPO-INGEST-R009",
