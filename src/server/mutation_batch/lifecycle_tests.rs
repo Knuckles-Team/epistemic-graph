@@ -239,6 +239,7 @@ async fn delete_lifecycle_replay_keeps_one_stable_receipt() {
 /// idempotency key, same graph name, different tenants: tenant B's retry probe must
 /// NOT find (and so must not replay) tenant A's committed CreateGraph.
 #[cfg(feature = "redb")]
+// spec: EG-DURABLE-KERNEL-R019
 #[tokio::test(flavor = "multi_thread")]
 async fn lifecycle_receipt_is_not_replayed_across_tenants() {
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
