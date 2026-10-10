@@ -9,6 +9,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::numeric::{QuantisedValue, UnitRationalWire};
+use super::rapid_r015::{HeadKindRefusal, StatisticalHeadKind};
 use super::replay::{EvalMode, EvaluationRun};
 use super::request::DecisionPolicyRef;
 use super::statistical::dataset::LabelledDataset;
@@ -66,6 +67,46 @@ pub struct DecisionFitRequest {
     /// Where the labelled items come from. A full-label regime's
     /// `gold_set_digest` must equal the inline dataset's digest.
     pub source: DatasetSource,
+}
+
+impl DecisionFitRequest {
+    /// Construct a fit request, admitting `head_kind` only when it routes
+    /// through the closed [`StatisticalHeadKind`] registry (R015.2.1).
+    ///
+    /// The resident `OptionAttention` scorer is a real fitted head, but this
+    /// fit job trains only the two statistical heads the ladder calibrates
+    /// (`weighted_features`, `listwise_logistic`); a request naming
+    /// `OptionAttention` is refused here, at construction, rather than
+    /// admitted and failing deep inside the ladder's own head registry.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        tenant_id: String,
+        idempotency_key: String,
+        head_kind: HeadKind,
+        feature_schema: ComponentDependency,
+        policy: DecisionPolicyRef,
+        label_regime: LabelRegime,
+        window: RecordWindow,
+        optimiser: OptimiserSpec,
+        source: DatasetSource,
+    ) -> Result<Self, HeadKindRefusal> {
+        StatisticalHeadKind::from_head_kind(head_kind).ok_or_else(|| {
+            HeadKindRefusal::NotAStatisticalHead {
+                name: format!("{head_kind:?}"),
+            }
+        })?;
+        Ok(Self {
+            tenant_id,
+            idempotency_key,
+            head_kind,
+            feature_schema,
+            policy,
+            label_regime,
+            window,
+            optimiser,
+            source,
+        })
+    }
 }
 
 /// Where a job's labelled items come from.
@@ -536,5 +577,83 @@ impl DecisionEvalOp {
             Self::Receipts { request } => &request.tenant_id,
             Self::Timeline { request } => &request.tenant_id,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agent_component::AgentComponentKind;
+    use crate::decision::numeric::QuantScaleTag;
+
+    fn feature_schema() -> ComponentDependency {
+        ComponentDependency {
+            component_id: "feature-schema-a".to_string(),
+            kind: AgentComponentKind::FeatureSchema,
+            definition_digest: "digest-a".to_string(),
+        }
+    }
+
+    fn optimiser() -> OptimiserSpec {
+        OptimiserSpec {
+            max_iterations: 500,
+            tolerance: QuantisedValue {
+                scale: QuantScaleTag::Pico,
+                value: 1_000_000,
+            },
+            seed: 42,
+        }
+    }
+
+    fn window() -> RecordWindow {
+        RecordWindow {
+            from_ms: 1_600_000_000_000,
+            to_ms: 1_700_000_000_000,
+        }
+    }
+
+    // spec: EG-DECISION-ENGINE-R015.2.2
+    #[test]
+    fn admits_a_closed_statistical_head_kind() {
+        let request = DecisionFitRequest::new(
+            "tenant-a".to_string(),
+            "fit-1".to_string(),
+            HeadKind::ListwiseLogistic,
+            feature_schema(),
+            DecisionPolicyRef::Default,
+            LabelRegime::BanditLabel,
+            window(),
+            optimiser(),
+            DatasetSource::Logged {
+                question_id: "question-a".to_string(),
+            },
+        )
+        .expect("ListwiseLogistic is a closed statistical head");
+        assert_eq!(request.head_kind, HeadKind::ListwiseLogistic);
+    }
+
+    // spec: EG-DECISION-ENGINE-R015.2.2
+    #[test]
+    fn refuses_a_fit_request_naming_option_attention() {
+        let refusal = DecisionFitRequest::new(
+            "tenant-a".to_string(),
+            "fit-1".to_string(),
+            HeadKind::OptionAttention,
+            feature_schema(),
+            DecisionPolicyRef::Default,
+            LabelRegime::BanditLabel,
+            window(),
+            optimiser(),
+            DatasetSource::Logged {
+                question_id: "question-a".to_string(),
+            },
+        )
+        .unwrap_err();
+        assert_eq!(
+            refusal,
+            HeadKindRefusal::NotAStatisticalHead {
+                name: "OptionAttention".to_string()
+            }
+        );
     }
 }
