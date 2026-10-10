@@ -42,6 +42,7 @@ fn materialised_equals_on_the_fly_for_every_prefix_and_split() {
     }
 }
 
+// spec: EG-REPO-INGEST-R004
 #[test]
 fn the_work_budget_stops_a_step_and_the_next_continues() {
     let all = source(100);

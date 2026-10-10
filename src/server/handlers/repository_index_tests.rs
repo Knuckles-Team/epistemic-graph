@@ -215,6 +215,7 @@ fn a_repository_sized_batch_is_one_envelope_with_a_bounded_notice() {
 
 /// Past the mutation batch's operation budget the batch is refused whole,
 /// with a code the source transport acts on, never committed in parts.
+// spec: EG-REPO-INGEST-R007
 #[test]
 fn a_batch_over_the_commit_budget_is_refused_whole() {
     let limit = eg_types::mutation_batch::MAX_MUTATION_OPERATIONS;
