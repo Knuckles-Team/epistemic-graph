@@ -335,3 +335,22 @@ pub struct DecisionBatch {
     pub inputs_digest: String,
     pub records: BoundedVec<StatisticalDecisionRecord, 256>,
 }
+
+#[cfg(test)]
+mod question_kind_declared_tests {
+    use super::QuestionKind;
+
+    // spec: EG-DECISION-ENGINE-R032.1
+    #[test]
+    fn resolve_entity_is_declared() {
+        assert_eq!(QuestionKind::ResolveEntity, QuestionKind::ResolveEntity);
+        assert_ne!(QuestionKind::ResolveEntity, QuestionKind::Route);
+    }
+
+    // spec: EG-DECISION-ENGINE-R033.1
+    #[test]
+    fn schema_mapping_is_declared() {
+        assert_eq!(QuestionKind::SchemaMapping, QuestionKind::SchemaMapping);
+        assert_ne!(QuestionKind::SchemaMapping, QuestionKind::Route);
+    }
+}
