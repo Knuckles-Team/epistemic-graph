@@ -382,7 +382,9 @@
       "title": "Slot-level crediting across questions sharing an assembly template",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "src/server/handlers/decide/stat_tests/attribution_tests.rs:129"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R013",
@@ -832,7 +834,9 @@
       "title": "Typed ToolInvocation / pre-tool risk concept exists",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "src/server/handlers/decide/stat_tests/pretool_risk_tests.rs:27"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R039",

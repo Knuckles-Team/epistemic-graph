@@ -126,6 +126,7 @@ async fn a_fully_logged_slate_splits_by_exact_shapley() {
 /// component's contribution is reported under the slot name it actually
 /// filled in that shared template, not a per-question-local label.
 // spec: EG-DECISION-ENGINE-R012
+// spec: EG-DECISION-ENGINE-R012.1
 #[tokio::test]
 async fn slot_level_crediting_is_consistent_across_questions_sharing_one_template() {
     let h = Harness::new().await;
