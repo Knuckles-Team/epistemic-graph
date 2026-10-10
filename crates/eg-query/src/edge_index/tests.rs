@@ -177,6 +177,7 @@ fn owned_by(owner: &str) -> RowPredicate {
     }
 }
 
+// spec: EG-FEDERATED-QUERY-R008
 #[test]
 fn parallel_edges_keep_distinct_stable_identities() {
     let core = parallel_graph();
@@ -278,6 +279,7 @@ fn a_committed_edge_is_served_exactly_before_any_refresh() {
     assert_eq!(keys(&answer), vec![key("a", "b", 3)]);
 }
 
+// spec: EG-FEDERATED-QUERY-R008
 #[test]
 fn a_removed_and_re_added_pair_is_never_served_stale() {
     let core = parallel_graph();
@@ -423,6 +425,7 @@ fn wave(seed: usize) -> f32 {
     (seed as f32 * 0.618_034).sin()
 }
 
+// spec: EG-FEDERATED-QUERY-R008
 #[test]
 fn recall_holds_on_parallel_edges() {
     let nodes: Vec<String> = (0..20).map(|n| format!("n{n}")).collect();

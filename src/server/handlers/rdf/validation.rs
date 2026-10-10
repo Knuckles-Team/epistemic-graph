@@ -373,6 +373,7 @@ mod served_shapes_tests {
         core
     }
 
+    // spec: EG-FEDERATED-QUERY-R005
     #[test]
     fn a_stage_without_using_validates_against_the_graph_schema_shapes() {
         let core = people_with_schema();

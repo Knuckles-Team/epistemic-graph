@@ -133,6 +133,13 @@ mod tests {
 
     /// A 20-axiom chain over 21 classes derives exactly the 210 subsumptions
     /// `Cᵢ ⊑ Cⱼ` with `i < j` (21·20/2); nothing else is a derivation step.
+    ///
+    /// This is the single derivation-step budget enforcement point
+    /// (`classify_within`/`DerivationBudget`) that every reasoning entry point reuses,
+    /// including the schema-composition path's `SCHEMA_ENTRY_ABOX_BUDGET` — so this one
+    /// test also stands for EG-FEDERATED-QUERY-R003 (no duplicated enforcement).
+    // spec: EG-FEDERATED-QUERY-R001
+    // spec: EG-FEDERATED-QUERY-R003
     #[test]
     fn exact_budget_completes_and_one_less_is_exhausted() {
         let triples = chain(20);
