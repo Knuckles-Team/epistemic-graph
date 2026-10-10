@@ -1289,12 +1289,14 @@
     {
       "id": "EG-DECISION-ENGINE-R067",
       "title": "Decision record versioning stays decodable",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "1e9ea1ef3790",
         "2a0d6eae0918"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/decision/topology/tests.rs:92"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R068",
@@ -1486,7 +1488,7 @@
     {
       "id": "EG-DECISION-ENGINE-R079",
       "title": "Per-unit embedding admission classifier for ingestion",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "1e9ea1ef3790",
         "dd6d5b55fb20"
@@ -1499,11 +1501,13 @@
     {
       "id": "EG-DECISION-ENGINE-R079.1",
       "title": "Typed content-class taxonomy and pure admission gate (producer slice of R079)",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "dd6d5b55fb20"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/decision/ingestion_admission.rs:109"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R080",
