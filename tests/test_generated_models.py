@@ -101,6 +101,7 @@ def test_every_request_vector_validates_as_its_domain_request(
     ],
     ids=lambda path: "/".join(path) or "method",
 )
+@pytest.mark.spec("EG-CONTRACT-R001")
 def test_unknown_fields_are_refused_at_every_depth(path: tuple[str, ...]) -> None:
     vector = next(item for item in VECTORS if item["method"] == "Decide")
     request = vector_request(vector)

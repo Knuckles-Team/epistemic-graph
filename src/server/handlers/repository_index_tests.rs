@@ -244,6 +244,7 @@ fn byte_heavy_result(count: usize, value: &str) -> IndexResult {
 /// [`BATCH_TOO_LARGE`] code, and halving it (the connector SDK's blind
 /// halve-and-resend retry, which acts on the code alone and never parses the
 /// message) is enough for the resend to commit.
+// spec: EG-REPO-INGEST-R008
 #[test]
 fn a_batch_over_the_byte_ceiling_is_refused_and_a_halved_resend_succeeds() {
     let big_value = "x".repeat(300_000);

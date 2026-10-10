@@ -64,11 +64,13 @@
     {
       "id": "EG-CONTRACT-R001",
       "title": "Strict typed Pydantic models for every method and nested type",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "a1bb9fb9503e"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_generated_models.py:104"
+      ]
     },
     {
       "id": "EG-CONTRACT-R002",
@@ -151,12 +153,15 @@
     {
       "id": "EG-CONTRACT-R005",
       "title": "One generated model per wire shape, with typed SPARQL decode",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "37a29ee3fe0e",
         "e2b2f1cfa8ee"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-capabilities/src/contract/python/surfaces/tests.rs:116",
+        "tests/test_generated_union_variants.py:26"
+      ]
     },
     {
       "id": "EG-CONTRACT-R006",
@@ -179,7 +184,7 @@
     {
       "id": "EG-CONTRACT-R008",
       "title": "Repo-parity check validates the resolved checkout",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "1e48414f9e58"
       ],
@@ -192,21 +197,25 @@
     {
       "id": "EG-CONTRACT-R008.1",
       "title": "Typed resolved-checkout parity contract (producer-first split of R008)",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "1e48414f9e58",
         "fb6841592a83"
       ],
-      "verified_by": []
+      "verified_by": [
+        "scripts/tests/test_repo_root_parity.py:10"
+      ]
     },
     {
       "id": "EG-CONTRACT-R008.2",
       "title": "check_five_repo_parity.py CLI wires in the typed parity contract",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "fb6841592a83"
       ],
-      "verified_by": []
+      "verified_by": [
+        "scripts/tests/test_check_five_repo_parity.py:10"
+      ]
     },
     {
       "id": "EG-CONTRACT-R009",
@@ -220,11 +229,13 @@
     {
       "id": "EG-CONTRACT-R010",
       "title": "Complexity gate scores exhaustive matches by arm body, not count",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "d37f675e56da"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_check_complexity_staged.py:416"
+      ]
     },
     {
       "id": "EG-CONTRACT-R011",
@@ -262,11 +273,13 @@
     {
       "id": "EG-CONTRACT-R013",
       "title": "KISS config keys migrated to avoid a silently dropped section",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "78e5f2103219"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_kiss_config_keys.py:19"
+      ]
     },
     {
       "id": "EG-CONTRACT-R014",
@@ -343,11 +356,13 @@
     {
       "id": "EG-CONTRACT-R021",
       "title": "Failed-connect test checks its own teardown, not process counts",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "1bd79a8991ea"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_sync_client_lifecycle.py:107"
+      ]
     },
     {
       "id": "EG-CONTRACT-R022",

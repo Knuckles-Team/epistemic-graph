@@ -413,6 +413,7 @@ def test_exempt_function_growing_non_arm_complexity_fails(tmp_path):
     assert findings[0][0] == "WORSE"
 
 
+@pytest.mark.spec("EG-CONTRACT-R010")
 def test_exempt_function_adding_exhaustive_arms_passes(tmp_path):
     mod = _module()
     before, after, findings = _judge(

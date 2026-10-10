@@ -104,6 +104,7 @@ def test_sync_deadline_cancels_blocked_graph_future_without_asyncio_run_tail() -
     } == baseline_workers
 
 
+@pytest.mark.spec("EG-CONTRACT-R021")
 def test_failed_sync_connect_releases_its_loop_resources(monkeypatch) -> None:
     """A failed async dial must not strand the loop thread or selector FDs."""
 

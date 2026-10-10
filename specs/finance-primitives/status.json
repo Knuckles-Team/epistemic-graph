@@ -72,11 +72,13 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R003",
       "title": "Compute PBO from a BacktestRun's own CSCV splits",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "458eb5bb9475"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-compute/src/finance/market/record_tests.rs:442"
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R004",
@@ -162,7 +164,7 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R005",
       "title": "Deterministic fixed-point portfolio accounting",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
@@ -173,11 +175,15 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R005.1",
       "title": "FIFO/LIFO fixed-point lot-matching engine",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "eee78d6b3d1d"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-compute/src/finance/lot_accounting.rs:258",
+        "crates/eg-compute/src/finance/lot_accounting.rs:273",
+        "crates/eg-compute/src/finance/lot_accounting.rs:288"
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R005.2",
@@ -197,9 +203,9 @@
         "eadb412ffa03"
       ],
       "verified_by": [
-        "crates/eg-compute/src/finance/lot_accounting.rs:338",
-        "crates/eg-compute/src/finance/lot_accounting.rs:366",
-        "crates/eg-compute/src/finance/lot_accounting.rs:387"
+        "crates/eg-compute/src/finance/lot_accounting.rs:341",
+        "crates/eg-compute/src/finance/lot_accounting.rs:369",
+        "crates/eg-compute/src/finance/lot_accounting.rs:390"
       ]
     },
     {
