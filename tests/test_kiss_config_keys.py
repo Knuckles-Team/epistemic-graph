@@ -16,6 +16,7 @@ pytestmark = pytest.mark.no_engine
 REPO = Path(__file__).resolve().parents[1]
 
 
+@pytest.mark.spec("EG-CONTRACT-R013")
 def test_the_repository_config_uses_only_keys_kiss_knows() -> None:
     kiss_config_keys.require_known_keys(REPO / ".config/kiss.toml")
     assert kiss_config_keys.main([str(REPO / ".config/kiss.toml")]) == 0

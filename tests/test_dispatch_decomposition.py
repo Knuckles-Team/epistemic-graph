@@ -33,6 +33,7 @@ def _replace_once(source: str, old: str, new: str) -> str:
     return broken
 
 
+@pytest.mark.spec("EG-CONTRACT-R017")
 def test_dispatch_decomposition_gate() -> None:
     _gate_module().main()
 
