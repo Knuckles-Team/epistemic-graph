@@ -51,6 +51,7 @@ def test_probe_rejects_the_upstream_build(tmp_path: Path) -> None:
     assert kiss_fork.main([_fake(tmp_path, UPSTREAM)]) == 2
 
 
+@pytest.mark.spec("EG-CONTRACT-R012")
 def test_probe_accepts_a_build_that_resolves_the_inline_module(tmp_path: Path) -> None:
     kiss_fork.require_fork_build(_fake(tmp_path, FORK))
     assert kiss_fork.main([_fake(tmp_path, FORK)]) == 0
