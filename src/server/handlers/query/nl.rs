@@ -67,6 +67,21 @@ pub(crate) fn handle_nl_query_plan(
             eg_types::contract::classify_refusal("INVALID_ARGUMENT", "", &e),
         )
     })?;
+    // EG-FEDERATED-QUERY-R058.2.1: refuse an over-budget planner answer BEFORE it
+    // ever reaches the parser, with the SAME typed budget the eg-plan disclosure
+    // model (EG-FEDERATED-QUERY-R058.1) defines — enforced here too so the dispatch
+    // path cannot run unbounded planner text that the typed model would refuse.
+    eg_plan::nl::NlQueryBudget::default()
+        .check(&uql)
+        .map_err(|e| {
+            Response::err(
+                req_id,
+                format!(
+                    "{}: {e}",
+                    eg_types::contract::EngineErrorCode::UqlBudgetExceeded.as_str()
+                ),
+            )
+        })?;
     eg_plan::uql::parse(&uql).map_err(|e| {
         Response::err(
             req_id,
@@ -129,4 +144,31 @@ pub(crate) async fn handle_nl_query(
         Err(resp) => resp,
     };
     Ok(resp)
+}
+
+#[cfg(all(test, feature = "nl-query"))]
+mod tests {
+    /// `handle_nl_query` answers through `result_response`, which has no dependency on
+    /// the engine's `ResultCache` at all — there is no cache key read or write on this
+    /// path, so a non-deterministic planner answer can never be served stale from a
+    /// prior, differently-planned request (EG-FEDERATED-QUERY-R058.3.1). This guard
+    /// pins that structural guarantee in the handler's own source: if `handle_nl_query`
+    /// is ever rewired through the cache-aware `served_response`/`ResultCache` path, it
+    /// fails loudly instead of silently regressing.
+    // spec: EG-FEDERATED-QUERY-R058.3.1
+    #[test]
+    fn nl_query_handler_never_touches_result_cache() {
+        let src = include_str!("nl.rs");
+        assert!(
+            !src.contains("ResultCache"),
+            "NlQuery's handlers must never reference ResultCache: an NL-planned query is \
+             non-deterministic, so caching on the NL text risks serving a stale or wrong \
+             result"
+        );
+        assert!(
+            !src.contains("served_response("),
+            "NlQuery must answer via result_response (uncached), not the cache-aware \
+             served_response helper Sql/Uql use"
+        );
+    }
 }
