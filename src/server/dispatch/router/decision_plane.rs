@@ -73,6 +73,18 @@ async fn dispatch_decision_methods(
             })
             .await
         }
+        Method::CapabilityCoverage { request } => {
+            dispatch_boxed(async {
+                handlers::decide::handle_capability_coverage(
+                    state,
+                    req.id,
+                    verified_context,
+                    *request,
+                )
+                .await
+            })
+            .await
+        }
         Method::DecisionCommit { request } => {
             dispatch_boxed(async {
                 handlers::decide::handle_decision_commit(state, req.id, verified_context, *request)

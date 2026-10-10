@@ -13,7 +13,7 @@ use super::policy_evolution::{handle_policy_evolution, PolicyEvolutionTarget};
 use super::request_boundary::dispatch_resource_stats;
 use super::request_boundary::{
     append_native_capacity_ops, append_native_resource_ops, append_native_work_item_ops,
-    decode_screen_observation, dispatch_boxed, DispatchAuthority,
+    decode_screen_observation, dispatch_boxed, dispatch_boxed_typed, DispatchAuthority,
 };
 #[cfg(feature = "ast")]
 use super::request_boundary::{ast_input_limits, decode_ast_files, validate_ast_logical_path};
@@ -190,21 +190,21 @@ pub(super) async fn dispatch_request_method(
         state_machine_authorized: authority.state_machine_authorized(),
         identity_bootstrap: authority.identity_bootstrap(),
     };
-    let method = match dispatch_control_plane_methods(ctx, method).await {
+    let method = match dispatch_boxed_typed(dispatch_control_plane_methods(ctx, method)).await {
         ControlFlow::Break(response) => return response,
         ControlFlow::Continue(method) => method,
     };
-    let method = match dispatch_data_plane_methods(ctx, method).await {
+    let method = match dispatch_boxed_typed(dispatch_data_plane_methods(ctx, method)).await {
         ControlFlow::Break(response) => return response,
         ControlFlow::Continue(method) => method,
     };
-    dispatch_graph_op(
+    dispatch_boxed(dispatch_graph_op(
         state,
         &req.graph,
         req.id,
         req.agent_id.as_deref(),
         verified_context,
         method,
-    )
+    ))
     .await
 }

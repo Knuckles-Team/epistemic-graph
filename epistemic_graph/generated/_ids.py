@@ -403,6 +403,7 @@ METHOD_IDS = frozenset(
         "AgentComponent",
         "AgentTemplate",
         "AgentAssemble",
+        "CapabilityCoverage",
         "DecisionCommit",
         "ConnectorPack",
         "WriteBack",

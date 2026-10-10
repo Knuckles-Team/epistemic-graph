@@ -2634,6 +2634,108 @@
         }
       ]
     },
+    "CapabilityCoverage": {
+      "additionalProperties": false,
+      "description": "One required capability, paired with every visible component's coverage\nof it (EG-DECISION-ENGINE-R126): a read-only answer, never a ranking.",
+      "properties": {
+        "a2a_card_ids": {
+          "description": "Component ids of registered A2A agent cards that self-declare this\ncapability. Never a derivation: an external agent's surface is\nasserted, not independently derived, so it carries no evidence class\nbeyond the unconditional [`EvidenceClass::Claim`] every A2A card is\nalready classified under (EG-DECISION-ENGINE-R126).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "because": {
+          "$ref": "#/$defs/PremiseRef"
+        },
+        "capability_iri": {
+          "type": "string"
+        },
+        "library": {
+          "items": {
+            "$ref": "#/$defs/LibraryCoverage"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "capability_iri",
+        "because",
+        "library",
+        "a2a_card_ids"
+      ],
+      "type": "object"
+    },
+    "CapabilityCoverageOutcome": {
+      "description": "The answer: either the per-capability coverage of the requirement\nclosure, or the reasons the closure could not be resolved.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "capabilities": {
+              "items": {
+                "$ref": "#/$defs/CapabilityCoverage"
+              },
+              "type": "array"
+            },
+            "outcome": {
+              "const": "covered",
+              "type": "string"
+            }
+          },
+          "required": [
+            "outcome",
+            "capabilities"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "outcome": {
+              "const": "abstained",
+              "type": "string"
+            },
+            "reasons": {
+              "items": {
+                "$ref": "#/$defs/AbstainReason"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "outcome",
+            "reasons"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "CapabilityCoverageResult": {
+      "additionalProperties": false,
+      "description": "`Method::CapabilityCoverage`'s result.",
+      "properties": {
+        "coverage": {
+          "$ref": "#/$defs/CapabilityCoverageOutcome"
+        },
+        "ontology_digest": {
+          "description": "The digest of the native agent ontology the closure was derived under.",
+          "type": "string"
+        },
+        "schema_version": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "ontology_digest",
+        "coverage"
+      ],
+      "type": "object"
+    },
     "CapacityHeadroom": {
       "additionalProperties": false,
       "description": "One capacity cell's headroom, observed through `CapacityStatus` at the\nrequest's priority when the decision was taken. An OBSERVATION premise:\nit is recorded in the inputs, so replay reads the same number.",
@@ -4290,6 +4392,23 @@
       },
       "required": [
         "kinds"
+      ],
+      "type": "object"
+    },
+    "LibraryCoverage": {
+      "additionalProperties": false,
+      "description": "One library component's independently derived coverage of one capability,\nand the evidence class its chain supports (EG-DECISION-ENGINE-R126).",
+      "properties": {
+        "derivation": {
+          "$ref": "#/$defs/CoverageDerivation"
+        },
+        "evidence_class": {
+          "$ref": "#/$defs/EvidenceClass"
+        }
+      },
+      "required": [
+        "derivation",
+        "evidence_class"
       ],
       "type": "object"
     },
@@ -7992,6 +8111,18 @@
             "format": "uint64",
             "minimum": 0,
             "type": "integer"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "CapabilityCoverage": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/CapabilityCoverageResult"
           }
         }
       },

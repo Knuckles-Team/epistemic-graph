@@ -52,6 +52,15 @@ $($variants)*
     AgentAssemble {
         request: Box<crate::decision::AssemblyRequest>,
     },
+    /// Read-only capability coverage (EG-DECISION-ENGINE-R126.2.1): for each
+    /// capability in the closure of native task/capability IRIs, the visible
+    /// Agent Library components that cover it (with derivation premises and
+    /// evidence class) and the registered A2A agent cards that self-declare it
+    /// (always claims). Reads one tenant-bound agent-library snapshot; ranks
+    /// nothing, commits nothing.
+    CapabilityCoverage {
+        request: Box<crate::decision::coverage::CapabilityCoverageRequest>,
+    },
     /// Snapshot-checked commit of one assembly `DecisionRecord` as a
     /// `DecisionRecord` component. Re-derives the record and compares the
     /// catalog digest before writing, so a stale decision is refused rather

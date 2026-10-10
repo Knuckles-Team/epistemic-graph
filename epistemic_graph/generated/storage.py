@@ -59,6 +59,7 @@ if TYPE_CHECKING:
     AgentLibraryRequest = _models.MethodAgentLibraryParams
     AgentGraphRequest = _models.MethodAgentGraphParams
     AgentTemplateRequest = _models.MethodAgentTemplateParams
+    CapabilityCoverageRequest = _models.MethodCapabilityCoverageParams
     TsAppendRequest = _models.MethodTsAppendParams
     TsRangeRequest = _models.MethodTsRangeParams
     TsAsofJoinRequest = _models.MethodTsAsofJoinParams
@@ -662,6 +663,51 @@ async def send_agent_assemble(
         idempotency_key=idempotency_key,
     )
     return AssemblyResult.model_validate(payload)
+
+
+async def send_capability_coverage(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        CapabilityCoverage
+    Authorization:
+        agent:assemble-read
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.storage.json
+        #/methods/CapabilityCoverage
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    models().MethodCapabilityCoverageParams.model_validate(params or {})
+    payload = await client._send(
+        "CapabilityCoverage",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("CapabilityCoverage", payload)
+
+
+def decode_capability_coverage(
+    result: OpaqueResult,
+) -> _models.CapabilityCoverageResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "CapabilityCoverage", models().CapabilityCoverageResult, result
+    )
 
 
 class DecisionCommitRequest(BaseModel):
@@ -1840,6 +1886,7 @@ _REQUEST_METHODS = frozenset(
         "AgentLibrary",
         "AgentGraph",
         "AgentTemplate",
+        "CapabilityCoverage",
         "TsAppend",
         "TsRange",
         "TsAsofJoin",
