@@ -447,7 +447,7 @@ async fn an_end_to_end_connector_fixture_imports_through_to_a_served_read() {
     let connector = "pack-admin-e2e";
     bind(&served, connector, ADMIN).await;
     let fixture = tool(connector, "fixture", "An end-to-end fixture tool.");
-    imported(&served, &build_pack(connector, &[fixture.clone()]), None).await;
+    imported(&served, &build_pack(connector, std::slice::from_ref(&fixture)), None).await;
     let content: eg_types::agent_component::AgentComponentContentResult = ok(
         "Content",
         served
