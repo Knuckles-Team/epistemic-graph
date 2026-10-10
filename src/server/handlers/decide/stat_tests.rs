@@ -973,6 +973,43 @@ async fn foreign_tenants_and_graph_candidates_are_refused() {
         .starts_with("COMPONENT_PIN_MISMATCH"));
 }
 
+/// The executor's visibility step runs before the candidate source is even
+/// read: a request naming another tenant is refused `ACCESS_DENIED` whether
+/// its `CandidateSource` is the agent library or an RLS-filtered graph plan --
+/// a foreign tenant never reaches the graph ACL that would otherwise refuse
+/// the plan itself.
+// spec: EG-DECISION-ENGINE-R057
+#[tokio::test]
+async fn graph_sourced_candidates_from_a_foreign_tenant_are_refused() {
+    let h = Harness::new().await;
+    let schema_pin = h
+        .publish(
+            "schema-foreign-graph",
+            AgentComponentKind::FeatureSchema,
+            "features",
+            Some(&schema()),
+            None,
+        )
+        .unwrap();
+    let mut foreign_graph = request(
+        &schema_pin,
+        None,
+        DecisionPolicyRef::Default,
+        QuestionSafety::Ordinary,
+    );
+    foreign_graph.tenant_id = "tenant-other".to_string();
+    foreign_graph.candidates = CandidateSource::Graph {
+        graph: "kg".to_string(),
+        plan: Box::new(eg_types::wire::Plan::new(Vec::new())),
+    };
+    let error = decide(&h, foreign_graph).await.unwrap_err();
+    assert!(
+        error.starts_with("ACCESS_DENIED"),
+        "a foreign tenant's graph-sourced request must be refused before the \
+         plan is ever read: {error}"
+    );
+}
+
 /// EH-059: graph candidates are the rows a SELECT-only plan returns over the
 /// caller's RLS-filtered snapshot; a ranking stage is refused and an
 /// unregistered caller is refused by the graph ACL before any row is read.
@@ -1064,6 +1101,89 @@ async fn graph_candidates_are_read_through_acl_rls_and_a_select_only_plan() {
         super::statistical::handle_decide(&h.state, 3, &stranger, graph_request(select)).await,
     );
     assert!(denied.unwrap_err().starts_with("ACCESS_DENIED"));
+}
+
+/// EH-059/EH-060: a graph-sourced record is logged under `RecordVisibility::
+/// Principal` -- the same per-principal visibility a caller-`Declared` record
+/// gets, never the whole-tenant visibility an `AgentLibrary` record gets.
+/// Committing it from the graph candidates above, the committing principal's
+/// own `DecisionLog.get` sees it; a different reader in the SAME tenant does
+/// not -- proving the row's RLS-routed read is finer than tenant scope.
+#[cfg(feature = "query")]
+// spec: EG-DECISION-ENGINE-R058
+#[tokio::test]
+async fn graph_sourced_records_are_principal_scoped_not_tenant_scoped_on_log_read() {
+    let h = Harness::with_isolation(ServerState::test_isolation("decider")).await;
+    {
+        let mut guard = h.state.write().await;
+        guard
+            .registry
+            .create_graph("kg-decide-log", crate::protocol::GraphType::Team, None)
+            .unwrap();
+        let core = guard.registry.get("kg-decide-log").unwrap().core.clone();
+        let props = serde_json::json!({"type": "Tool", "score": 0.9, "summary": "web search"});
+        core.add_node("n-a".to_string(), rmp_serde::to_vec_named(&props).unwrap());
+    }
+    let body = FeatureSchemaBody {
+        schema_version: FEATURE_SCHEMA_VERSION,
+        features: BoundedVec::new(vec![
+            number_feature("score"),
+            eg_types::test_support::decision::summary_text_feature(),
+        ])
+        .unwrap(),
+    };
+    let schema_pin = h
+        .publish(
+            "schema-graph-log",
+            AgentComponentKind::FeatureSchema,
+            "graph features",
+            Some(&body),
+            None,
+        )
+        .unwrap();
+    let mut graph_request = request(
+        &schema_pin,
+        None,
+        DecisionPolicyRef::Default,
+        QuestionSafety::Ordinary,
+    );
+    graph_request.candidates = CandidateSource::Graph {
+        graph: "kg-decide-log".to_string(),
+        plan: Box::new(eg_types::wire::Plan::new(vec![eg_types::wire::Op::Scan {
+            label: "Tool".to_string(),
+        }])),
+    };
+    let batch = decide(&h, graph_request).await.unwrap();
+    let record = batch.records.as_slice()[0].clone();
+    assert!(matches!(
+        record.candidate_source,
+        eg_types::decision::CandidateSourceRecord::Graph { .. }
+    ));
+    let commit = DecisionLogOp::Commit {
+        record: Box::new(record),
+        evaluator: None,
+    };
+    let committed: DecisionLogCommitted = decode(log_op(&h, "decider", commit).await).unwrap();
+
+    let get = |record_id: String| DecisionLogOp::Get {
+        tenant_id: TENANT.to_string(),
+        record_id,
+    };
+    let mine: Option<DecisionLogEntry> = decode(
+        log_op(&h, "decider", get(committed.record_id.clone())).await,
+    )
+    .unwrap();
+    assert!(mine.is_some(), "the committing principal sees its own record");
+
+    let theirs: Option<DecisionLogEntry> = decode(
+        log_op(&h, "another-reader", get(committed.record_id.clone())).await,
+    )
+    .unwrap();
+    assert!(
+        theirs.is_none(),
+        "a graph-sourced record is visible to its committing principal only, \
+         not to another reader in the same tenant"
+    );
 }
 
 mod log_tests;
