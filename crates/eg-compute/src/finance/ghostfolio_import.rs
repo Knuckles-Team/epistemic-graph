@@ -149,11 +149,13 @@ pub fn import_ghostfolio_fixture(
 mod tests {
     use super::*;
 
+    // spec: EG-FINANCE-PRIMITIVES-R012.1
     #[test]
     fn importing_from_ghostfolio_is_admitted() {
         assert!(admit_ghostfolio_flow(GhostfolioFlowDirection::ImportFromGhostfolio).is_ok());
     }
 
+    // spec: EG-FINANCE-PRIMITIVES-R012.1
     #[test]
     fn writing_back_to_ghostfolio_is_always_refused() {
         let refusal =
@@ -161,6 +163,7 @@ mod tests {
         assert!(refusal.reason.contains("one-way"));
     }
 
+    // spec: EG-FINANCE-PRIMITIVES-R012.1
     #[test]
     fn a_valid_activity_maps_successfully() {
         let mapped = map_ghostfolio_activity("gf-activity-1", 10 * 100_000_000, 5 * 100_000_000)
@@ -168,6 +171,7 @@ mod tests {
         assert_eq!(mapped.ghostfolio_activity_id, "gf-activity-1");
     }
 
+    // spec: EG-FINANCE-PRIMITIVES-R012.1
     #[test]
     fn an_activity_with_no_source_id_is_refused() {
         let outcome = map_ghostfolio_activity("", 10, 5);
@@ -177,6 +181,7 @@ mod tests {
         );
     }
 
+    // spec: EG-FINANCE-PRIMITIVES-R012.1
     #[test]
     fn an_activity_with_a_non_positive_price_is_refused() {
         let outcome = map_ghostfolio_activity("gf-activity-2", 10, 0);

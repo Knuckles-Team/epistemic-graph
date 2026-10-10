@@ -94,6 +94,7 @@ mod tests {
         }]
     }
 
+    // spec: EG-FINANCE-PRIMITIVES-R008.1
     #[test]
     fn a_dca_strategy_backtest_seals_with_mandatory_validation_fields() {
         let dates = vec![10, 20, 30, 40, 50, 60];
@@ -108,6 +109,7 @@ mod tests {
         assert!((0.0..=1.0).contains(&run.validation.probability_backtest_overfit));
     }
 
+    // spec: EG-FINANCE-PRIMITIVES-R008.1
     #[test]
     fn a_non_positive_contribution_amount_is_refused() {
         let dates = vec![10, 20];
@@ -116,6 +118,7 @@ mod tests {
         assert_eq!(err.code, super::INVALID_REQUEST);
     }
 
+    // spec: EG-FINANCE-PRIMITIVES-R008.1
     #[test]
     fn a_dca_backtest_outside_the_universe_is_refused() {
         let dates = vec![10, 20, 30, 40, 50, 60];
