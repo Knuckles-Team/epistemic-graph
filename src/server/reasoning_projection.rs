@@ -1711,6 +1711,137 @@ mod tests {
     }
 
     #[cfg(feature = "redb")]
+    struct DeadLetteredProjectionBackend {
+        claim_calls: AtomicU64,
+    }
+
+    #[cfg(feature = "redb")]
+    impl DeadLetteredProjectionBackend {
+        fn new() -> Self {
+            Self {
+                claim_calls: AtomicU64::new(0),
+            }
+        }
+    }
+
+    #[cfg(feature = "redb")]
+    #[async_trait::async_trait]
+    impl crate::server::persistence::PersistenceBackend for DeadLetteredProjectionBackend {
+        async fn load_all(
+            &self,
+            _state: &Arc<RwLock<crate::server::state::ServerState>>,
+        ) -> Result<usize, String> {
+            Ok(0)
+        }
+
+        async fn record_durable(&self, _graph_fname: &str, _method: &Method) -> Result<(), String> {
+            Ok(())
+        }
+
+        async fn subscribe_mutation_outbox(
+            &self,
+            _graph_fname: &str,
+            _consumer: &str,
+            _topic: &str,
+        ) -> Result<(), String> {
+            Ok(())
+        }
+
+        async fn claim_mutation_outbox(
+            &self,
+            _graph_fname: &str,
+            _consumer: &str,
+            _budget: &mut eg_transaction::OutboxClaimBudget,
+        ) -> Result<eg_transaction::OutboxClaimOutcome, String> {
+            self.claim_calls.fetch_add(1, Ordering::Relaxed);
+            // This claim's lease retry bound was exhausted on a row ahead of
+            // anything it returned: the kernel dead-lettered it, so the
+            // projection's position silently skipped a mutation it never
+            // applied.
+            Ok(eg_transaction::OutboxClaimOutcome {
+                claims: Vec::new(),
+                deferred: None,
+                more_available: false,
+                dead_lettered: vec![eg_transaction::OutboxPosition {
+                    sequence: 1,
+                    created_at_ms: 1,
+                    batch_id: "dead-lettered-batch".to_string(),
+                    ordinal: 0,
+                }],
+            })
+        }
+
+        async fn ack_mutation_outbox(
+            &self,
+            _graph_fname: &str,
+            _lease: &eg_types::mutation_batch::MutationOutboxLease,
+            _now_ms: u64,
+        ) -> Result<eg_types::mutation_batch::MutationProjectionCursor, String> {
+            Err("a dead-lettered claim must not acknowledge a lease".to_string())
+        }
+
+        fn shutdown(&self) {}
+    }
+
+    /// spec: EG-FEDERATED-QUERY-R004
+    ///
+    /// A claim that dead-letters a row ahead of the leases it returned means
+    /// the projection silently skipped applying that mutation. The projection
+    /// must not keep serving reads from its now-wrong incremental position;
+    /// it must rebuild fully from the live graph before anything reads it
+    /// again -- discarding the stale image's position and its content, not
+    /// patching around the gap.
+    #[cfg(feature = "redb")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_dead_lettered_claim_rebuilds_the_projection_before_further_reads() {
+        let root = test_root();
+        let root_str = root.to_string_lossy().to_string();
+        let graph = format!("dead-lettered-{}", std::process::id());
+
+        // A stale image already on disk: it carries a position (from an
+        // earlier, now-invalid incremental run) and a "derived" node that the
+        // current live graph does not have. If recovery only patched the
+        // index instead of fully rebuilding it, this stale content would
+        // survive the rebuild.
+        persist_index(Some(&root_str), &graph, &stale_index()).unwrap();
+        assert!(read_index(Some(&root_str), &graph)
+            .await
+            .unwrap()
+            .position
+            .is_some());
+
+        let backend = Arc::new(DeadLetteredProjectionBackend::new());
+        let persistence: Arc<dyn crate::server::persistence::PersistenceBackend> = backend.clone();
+        let core = Arc::new(eg_core::graph::GraphCore::new());
+        let context = ProjectionContext {
+            persistence,
+            persist_dir: Some(root_str.clone()),
+            graphs: vec![(graph.clone(), core.clone())],
+            clock: current_time_ms,
+        };
+        let mut budget =
+            eg_transaction::OutboxClaimBudget::new(CLAIM_SWEEP_LIMIT, CLAIM_LEASE_MS, 1).unwrap();
+
+        // process_graph reports no progress for this sweep -- the claim
+        // yielded no leases to apply -- but it must still have triggered the
+        // rebuild before returning.
+        assert!(!process_graph(&context, &graph, &core, &mut budget).await);
+        assert_eq!(backend.claim_calls.load(Ordering::Relaxed), 1);
+
+        let rebuilt = read_index(Some(&root_str), &graph).await.unwrap();
+        assert!(
+            rebuilt.position.is_none(),
+            "a full rebuild starts from no position, not the stale image's position"
+        );
+        assert_eq!(
+            rebuilt.status_of("derived"),
+            None,
+            "the stale image's content must not survive into the rebuilt projection"
+        );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[cfg(feature = "redb")]
     fn projection_budget_batch(graph: &str, row: u64) -> eg_types::mutation_batch::MutationBatch {
         projection_batch(graph, row, format!("projection-budget-{graph}-{row}"))
     }
