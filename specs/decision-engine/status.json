@@ -696,12 +696,14 @@
     {
       "id": "EG-DECISION-ENGINE-R038",
       "title": "Advisory pre-tool risk scoring",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "1570bfef96aa",
         "fa780d3e101a"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/handlers/decide/stat_tests/pretool_risk_tests.rs:26"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R039",
@@ -1549,12 +1551,14 @@
     {
       "id": "EG-DECISION-ENGINE-R088",
       "title": "Belief-as-of-t exposed as a Decide primitive over prefixes",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "1e9ea1ef3790",
         "4952a2edced4"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-numeric/tests/decision/scorer.rs:215"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R089",
@@ -1999,12 +2003,15 @@
     {
       "id": "EG-DECISION-ENGINE-R119",
       "title": "Walk-forward replay seals deflated Sharpe and PBO evidence",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "534f763afc81",
         "a85c8425c9f4"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/handlers/decide/stat_tests/replay_tests.rs:187",
+        "src/server/handlers/decide/stat_tests/replay_tests.rs:246"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R120",

@@ -184,6 +184,7 @@ fn failed(job: &DecisionJobRecord) -> &str {
     }
 }
 
+// spec: EG-DECISION-ENGINE-R119
 #[tokio::test]
 async fn a_replay_is_sealed_stored_and_supersedable() {
     let h = Harness::new().await;
@@ -242,6 +243,7 @@ async fn a_replay_is_sealed_stored_and_supersedable() {
     assert!(failed(&refused).starts_with("REPLAY_SPEC_INVALID"));
 }
 
+// spec: EG-DECISION-ENGINE-R119
 #[tokio::test]
 async fn replay_refuses_what_it_cannot_answer() {
     let h = Harness::new().await;

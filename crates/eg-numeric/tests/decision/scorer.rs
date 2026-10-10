@@ -212,6 +212,7 @@ fn one_encode_serves_several_questions_exactly() {
     }
 }
 
+// spec: EG-DECISION-ENGINE-R088
 #[test]
 fn trajectory_belief_reads_one_state_over_time() {
     let head = head(4);
