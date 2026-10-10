@@ -209,4 +209,35 @@ mod tests {
             &key(NEEDS_INDEPENDENT_CHECK)
         ));
     }
+
+    // spec: EG-DECISION-ENGINE-R109.1
+    #[test]
+    fn varying_the_composed_schema_digest_changes_derived_topology_admissibility() {
+        let core = crate::graph::GraphCore::new();
+        let tasks = vec![format!("{S}IndependentSubtasks")];
+        let classes = vec!["http://example/Spare".to_string()];
+        let before = entail(&core, &tasks, &classes).expect("entails");
+        assert!(before.admissions.is_empty());
+
+        let ontology = "@prefix owl: <http://www.w3.org/2002/07/owl#> . @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> . @prefix ex: <http://example/> . @prefix swarm: <http://knuckles.team/kg/swarm#> . ex:Spare a owl:Class ; rdfs:subClassOf swarm:FanOutJoin .";
+        let mut sources = (*core.schema_sources()).clone();
+        let source = crate::graph::GraphSchemaSource::new(
+            crate::graph::SchemaSourceOrigin::Admin {
+                name: "local".to_string(),
+            },
+            None,
+            Some(std::sync::Arc::from(ontology.as_str())),
+            0,
+        )
+        .expect("source");
+        sources
+            .attach_dynamic("admin:local".to_string(), source)
+            .expect("attaches");
+        core.install_schema_sources(std::sync::Arc::new(sources));
+
+        let after = entail(&core, &tasks, &classes).expect("entails");
+        assert_ne!(before.schema_digest, after.schema_digest);
+        assert_eq!(after.admissions.len(), 1);
+        assert_eq!(after.admissions[0].topology_class, classes[0]);
+    }
 }
