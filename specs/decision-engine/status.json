@@ -316,12 +316,14 @@
     {
       "id": "EG-DECISION-ENGINE-R012",
       "title": "Shared slate crediting across multiple questions",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "2a0d6eae0918",
         "52f333ca756e"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/handlers/decide/stat_tests/attribution_tests.rs:128"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R013",
@@ -729,12 +731,14 @@
     {
       "id": "EG-DECISION-ENGINE-R041",
       "title": "Connector event triage through Decide",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "f420578b85d2",
         "fa780d3e101a"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/handlers/decide/stat_tests/connector_triage_tests.rs:24"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R042",
