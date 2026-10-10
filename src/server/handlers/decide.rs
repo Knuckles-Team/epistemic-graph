@@ -9,6 +9,9 @@ type SharedState = std::sync::Arc<tokio::sync::RwLock<crate::server::state::Serv
 
 pub(crate) mod assemble;
 pub(crate) mod commit;
+pub(crate) mod coverage;
+#[cfg(all(test, feature = "decide"))]
+mod coverage_tests;
 pub(crate) mod jobs;
 pub(crate) mod log;
 #[cfg(feature = "decide")]
@@ -97,6 +100,7 @@ mod topology_schema;
 pub(crate) mod topology_shape;
 
 pub(crate) use assemble::handle_agent_assemble;
+pub(crate) use coverage::handle_capability_coverage;
 pub(crate) use commit::handle_decision_commit;
 pub(crate) use jobs::{handle_decision_eval, handle_decision_fit};
 pub(crate) use log::handle_decision_log;

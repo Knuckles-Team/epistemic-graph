@@ -243,7 +243,9 @@ pub fn coverage_derivation(
 
 /// One library component's independently derived coverage of one capability,
 /// and the evidence class its chain supports (EG-DECISION-ENGINE-R126).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct LibraryCoverage {
     pub derivation: CoverageDerivation,
     pub evidence_class: EvidenceClass,
@@ -251,7 +253,9 @@ pub struct LibraryCoverage {
 
 /// One required capability, paired with every visible component's coverage
 /// of it (EG-DECISION-ENGINE-R126): a read-only answer, never a ranking.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct CapabilityCoverage {
     pub capability_iri: String,
     pub because: PremiseRef,

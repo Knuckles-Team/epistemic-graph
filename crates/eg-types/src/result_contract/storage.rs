@@ -18,6 +18,7 @@ use crate::connector_pack::{
     PackImportReceipt, PackImportResult, PackRetireResult,
 };
 use crate::decision::{AssemblyResult, DecisionCommitResult};
+use crate::decision::coverage::CapabilityCoverageResult;
 use crate::series_expr::DerivedSeriesReceipt;
 #[cfg(feature = "query")]
 use crate::storage_wire::SqlSourceBatchResult;
@@ -93,6 +94,7 @@ method_results! {
     SqlSourceBatch(SqlSourceBatch) => Raw<SqlSourceBatchResult>;
     AgentComponentContent(AgentComponent / "content") => Raw<AgentComponentContentResult>;
     AgentAssemble(AgentAssemble) => Raw<AssemblyResult>;
+    CapabilityCoverage(CapabilityCoverage) => Raw<CapabilityCoverageResult>;
     DecisionCommit(DecisionCommit) => Raw<DecisionCommitResult>;
     ConnectorPackStatus(ConnectorPack / "status") => Raw<ConnectorPackStatusBody>;
     ConnectorPackImport(ConnectorPack / "import") => Raw<PackImportResult>;

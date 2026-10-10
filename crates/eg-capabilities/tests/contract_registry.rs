@@ -209,9 +209,10 @@ fn every_wire_variant_has_exactly_one_descriptor_and_vice_versa() {
     // authority the request boundary mints.
     // 462 -> 463: the identity store's Identity method.
     // 463 -> 464: EH-560's GovernedChange (two-person governed changes).
+    // 464 -> 465: EG-DECISION-ENGINE-R126.2.1's read-only `CapabilityCoverage`.
     assert_eq!(
         variants.len(),
-        464,
+        465,
         "the wire method census changed; update this exact count deliberately"
     );
 }

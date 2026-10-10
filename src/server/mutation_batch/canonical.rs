@@ -616,6 +616,7 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         //    drafts through the Agent Library control owner exactly like
         //    `WriteBack`, so they take the same surface-keyed default.
         | Method::AgentAssemble { .. }
+        | Method::CapabilityCoverage { .. }
         | Method::Decide { .. }
         | Method::DecisionCommit { .. }
         | Method::Solve { .. }
