@@ -439,11 +439,13 @@
     {
       "id": "EG-TYPED-PACKS-R037",
       "title": "Server-stamped draft validation before commit",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "b43f33569dd4"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/agent_component.rs:1296"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R038",

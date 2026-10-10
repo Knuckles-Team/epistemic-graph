@@ -1298,6 +1298,37 @@ mod tests {
         );
     }
 
+    /// EG-TYPED-PACKS-R037: `AgentComponentDraft::validate` is exercised
+    /// directly (not through a full pack import) across a valid draft and
+    /// several invalid field combinations, each refused with an error.
+    // spec: EG-TYPED-PACKS-R037
+    #[test]
+    fn agent_component_draft_validate_accepts_valid_and_refuses_invalid_fields() {
+        let valid = draft("server-a", AgentComponentKind::Toolset);
+        assert!(valid.validate().is_ok(), "a well-formed draft validates");
+
+        let mut kind_facts_mismatch = draft("server-a", AgentComponentKind::Toolset);
+        kind_facts_mismatch.facts = model_facts(1024, 256);
+        assert!(
+            kind_facts_mismatch.validate().is_err(),
+            "a Toolset carrying ModelProfile facts must be refused"
+        );
+
+        let mut bad_digest = draft("server-a", AgentComponentKind::Toolset);
+        bad_digest.content_digest = "not-a-digest".to_string();
+        assert!(
+            bad_digest.validate().is_err(),
+            "a malformed content_digest must be refused"
+        );
+
+        let mut empty_component_id = draft("server-a", AgentComponentKind::Toolset);
+        empty_component_id.component_id = String::new();
+        assert!(
+            empty_component_id.validate().is_err(),
+            "an empty component_id must be refused"
+        );
+    }
+
     fn digest(seed: char) -> String {
         format!("sha256:{}", seed.to_string().repeat(64))
     }
