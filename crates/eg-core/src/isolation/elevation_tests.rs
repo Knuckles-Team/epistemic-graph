@@ -82,6 +82,7 @@ fn elevate(layer: &mut IsolationLayer, now_ms: u64) -> u64 {
         .unwrap()
 }
 
+// spec: EG-DURABLE-KERNEL-R022
 #[test]
 fn check_access_denies_before_allows_during_and_denies_at_expiry() {
     let mut layer = layer();
@@ -152,6 +153,7 @@ fn an_explicit_deny_is_never_overridden_by_an_elevation() {
     assert_eq!(basis(&layer, AccessLevel::Write, now), AccessBasis::Denied);
 }
 
+// spec: EG-DURABLE-KERNEL-R022
 #[test]
 fn self_approval_and_unregistered_actors_are_refused_without_a_trace() {
     let mut layer = layer();
@@ -185,6 +187,7 @@ fn an_elevation_never_confers_admin_capability() {
     assert!(!layer.has_admin_capability("agent:alice"));
 }
 
+// spec: EG-DURABLE-KERNEL-R022
 #[test]
 fn an_elevation_survives_a_restart_of_the_durable_store() {
     use crate::test_scope_grant::{TestScopeVerifier, TEST_PRINCIPAL, TEST_PROOF};

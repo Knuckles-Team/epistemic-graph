@@ -16,6 +16,7 @@ fn delta(before: WriteValidationCounts, after: WriteValidationCounts) -> (u64, u
 /// store-authority census exactly once and reads each member's binding
 /// exactly once, although `verify_scope` is called at every one of those
 /// stages. Before EH-390 each call re-ran the full census.
+// spec: EG-DURABLE-KERNEL-R021
 #[test]
 fn a_group_commit_validates_store_authority_exactly_once() {
     let dir = tempfile::tempdir().unwrap();
