@@ -3982,6 +3982,7 @@ components:
       - "tests/test_release_feature_matrix.py"
       - "tests/test_release_full_wheel_contract.py"
       - "tests/test_release_image_contract.py"
+      - "tests/test_release_gates_test_target_coverage.py"
       - "tests/test_repository_fuzz.py"
       - "tests/test_resource_reservation_client.py"
       - "tests/test_resource_stats.py"
