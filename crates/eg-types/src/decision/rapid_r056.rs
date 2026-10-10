@@ -24,6 +24,11 @@ pub enum CertificateRefusal {
     /// The certificate was produced against a different model than the one
     /// being verified against now.
     ModelDigestMismatch { certified: String, expected: String },
+    /// The reported branch count exceeds the deterministic solver's own node
+    /// budget: the statistical path claims more search than its solver
+    /// configuration permits, the same guarantee the core assembly path's
+    /// node-budgeted search enforces.
+    BranchBudgetExceeded { branch_count: u64, budget: u64 },
 }
 
 impl StatisticalSolverCertificate {
@@ -38,6 +43,27 @@ impl StatisticalSolverCertificate {
             });
         }
         Ok(())
+    }
+
+    /// Build a certificate for a solved statistical-path 0-1 program,
+    /// refusing one that reports exploring more branches than the
+    /// deterministic solver's own node budget -- the node-budget guarantee
+    /// the core assembly path's solver enforces (`EG-DECISION-ENGINE-R011`).
+    pub fn solved(
+        model_digest: impl Into<String>,
+        branch_count: u64,
+        node_budget: u64,
+    ) -> Result<Self, CertificateRefusal> {
+        if branch_count > node_budget {
+            return Err(CertificateRefusal::BranchBudgetExceeded {
+                branch_count,
+                budget: node_budget,
+            });
+        }
+        Ok(Self {
+            model_digest: model_digest.into(),
+            branch_count,
+        })
     }
 }
 
@@ -69,5 +95,19 @@ mod tests {
                 expected: "digest-b".to_string(),
             }
         );
+    }
+
+    // spec: EG-DECISION-ENGINE-R056.2.1
+    #[test]
+    fn refuses_a_certificate_exceeding_the_solver_node_budget() {
+        let refusal = StatisticalSolverCertificate::solved("digest-a", 101, 100).unwrap_err();
+        assert_eq!(
+            refusal,
+            CertificateRefusal::BranchBudgetExceeded {
+                branch_count: 101,
+                budget: 100,
+            }
+        );
+        assert!(StatisticalSolverCertificate::solved("digest-a", 100, 100).is_ok());
     }
 }

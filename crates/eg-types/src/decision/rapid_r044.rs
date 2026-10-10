@@ -46,6 +46,29 @@ impl A2ARoutingResolution {
             evidence_class,
         })
     }
+
+    /// Route one inbound task's requested graph id against the known-graph
+    /// registry: an exact match resolves as a constraint with observation
+    /// evidence, and no match abstains with claim-grade evidence -- the
+    /// registry lookup the A2A task-submission entry point calls per task.
+    pub fn route(
+        known_graph_ids: &[String],
+        requested_graph_id: &str,
+    ) -> Result<Self, A2ARoutingRefusal> {
+        if known_graph_ids.iter().any(|id| id == requested_graph_id) {
+            Self::new(
+                requested_graph_id,
+                ResolutionKind::Constraint,
+                EvidenceClass::Observation,
+            )
+        } else {
+            Self::new(
+                requested_graph_id,
+                ResolutionKind::Abstention,
+                EvidenceClass::Claim,
+            )
+        }
+    }
 }
 
 #[cfg(test)]
@@ -83,5 +106,20 @@ mod tests {
                 evidence_class: EvidenceClass::Proof
             }
         );
+    }
+
+    // spec: EG-DECISION-ENGINE-R044.2.1
+    #[test]
+    fn routes_to_a_known_graph_and_abstains_otherwise() {
+        let known = vec!["graph-1".to_string(), "graph-2".to_string()];
+
+        let routed = A2ARoutingResolution::route(&known, "graph-2").unwrap();
+        assert_eq!(routed.graph_id, "graph-2");
+        assert_eq!(routed.resolution_kind, ResolutionKind::Constraint);
+        assert_eq!(routed.evidence_class, EvidenceClass::Observation);
+
+        let abstained = A2ARoutingResolution::route(&known, "graph-9").unwrap();
+        assert_eq!(abstained.resolution_kind, ResolutionKind::Abstention);
+        assert_eq!(abstained.evidence_class, EvidenceClass::Claim);
     }
 }
