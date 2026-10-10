@@ -226,7 +226,7 @@ mod tests {
                 name: "local".to_string(),
             },
             None,
-            Some(std::sync::Arc::from(ontology.as_str())),
+            Some(std::sync::Arc::from(ontology)),
             0,
         )
         .expect("source");
