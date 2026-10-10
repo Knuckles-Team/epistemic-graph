@@ -84,3 +84,41 @@ fn a_topology_request_is_sealed_as_the_topology_version() {
         serde_json::from_str(&serde_json::to_string(&record).unwrap()).unwrap();
     assert_eq!(round_tripped.checked().unwrap(), record);
 }
+
+/// Every schema version this build supports still decodes: the committed v1
+/// golden vectors decode and replay-check clean, a record sealed at the
+/// topology version round-trips and stays usable, and a version this build
+/// does not recognise is refused by a typed error rather than guessed at.
+// spec: EG-DECISION-ENGINE-R067
+#[test]
+fn every_supported_decision_record_version_decodes_and_an_unknown_version_is_refused() {
+    let golden_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/fixtures/decision/assembly_golden.json");
+    let committed = std::fs::read_to_string(&golden_path).expect("the golden file is committed");
+    let cases: Vec<serde_json::Value> =
+        serde_json::from_str(&committed).expect("the golden file decodes as JSON");
+    assert!(!cases.is_empty(), "the golden file carries at least one v1 vector");
+    for case in cases {
+        let record: crate::decision::DecisionRecord =
+            serde_json::from_value(case["record"].clone()).expect("a golden v1 record decodes");
+        assert_eq!(record.schema_version, 1, "the golden file holds base-version records");
+        record.checked().expect("a committed v1 vector stays usable");
+    }
+
+    let mut topology_record = wave::record(wave::every_decision_outcome().remove(0));
+    topology_record.inputs.request.requirements.topology = Some(requirements(4));
+    topology_record.schema_version = crate::decision::TOPOLOGY_DECISION_RECORD_SCHEMA_VERSION;
+    let round_tripped: crate::decision::DecisionRecord =
+        serde_json::from_str(&serde_json::to_string(&topology_record).unwrap()).unwrap();
+    round_tripped
+        .checked()
+        .expect("a v3 (topology) vector stays usable after a round trip");
+
+    let mut unrecognised = wave::record(wave::every_decision_outcome().remove(0));
+    unrecognised.schema_version = u16::MAX;
+    assert_eq!(
+        unrecognised.checked(),
+        Err(crate::decision::DecisionErrorCode::DecisionRecordVersionUnsupported),
+        "a version this build does not recognise must be a typed refusal"
+    );
+}

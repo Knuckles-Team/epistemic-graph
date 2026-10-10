@@ -103,6 +103,25 @@ mod tests {
         }
     }
 
+    /// Feeds every excluded class and asserts `admits() == false`, and every
+    /// eligible class and asserts `admits() == true` -- the acceptance text
+    /// verbatim, as one test over the taxonomy rather than two.
+    // spec: EG-DECISION-ENGINE-R079.1
+    #[test]
+    fn admission_gate_excludes_mechanical_classes_and_admits_human_written_ones() {
+        for class in [
+            ContentClass::Generated,
+            ContentClass::Lockfile,
+            ContentClass::Vendored,
+            ContentClass::Minified,
+        ] {
+            assert!(!class.admits(), "{class:?} must not be admitted");
+        }
+        for class in [ContentClass::Prose, ContentClass::Document, ContentClass::Comment] {
+            assert!(class.admits(), "{class:?} must be admitted");
+        }
+    }
+
     #[test]
     fn ingestion_admission_classifier_registry_partitions_with_no_overlap() {
         let admitted = ContentClass::ALL
