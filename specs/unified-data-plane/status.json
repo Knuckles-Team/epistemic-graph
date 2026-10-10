@@ -100,10 +100,13 @@
     "EG-UNIFIED-DATA-PLANE-R025.2",
     "EG-UNIFIED-DATA-PLANE-R025.2.1",
     "EG-UNIFIED-DATA-PLANE-R025.3",
+    "EG-UNIFIED-DATA-PLANE-R025.3.1",
     "EG-UNIFIED-DATA-PLANE-R026",
     "EG-UNIFIED-DATA-PLANE-R026.1",
     "EG-UNIFIED-DATA-PLANE-R026.2",
+    "EG-UNIFIED-DATA-PLANE-R026.2.1",
     "EG-UNIFIED-DATA-PLANE-R026.3",
+    "EG-UNIFIED-DATA-PLANE-R026.3.1",
     "EG-UNIFIED-DATA-PLANE-R027",
     "EG-UNIFIED-DATA-PLANE-R027.1",
     "EG-UNIFIED-DATA-PLANE-R027.2",
@@ -1201,7 +1204,7 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R025",
       "title": "Evaluate a pgrx companion extension through a spike",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "e265a52820f5"
       ],
@@ -1249,14 +1252,32 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R025.3",
       "title": "Review the spike's results and recorded decision; produce the approved ADR",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "rollup_of": [
+        "EG-UNIFIED-DATA-PLANE-R025.3.1"
+      ]
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R025.3.1",
+      "title": "Review skeleton: typed review request → approved ADR mapping plus the refusal path",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "04347dc35255"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/pgrx_spike_review.rs:106",
+        "crates/eg-types/src/pgrx_spike_review.rs:119",
+        "crates/eg-types/src/pgrx_spike_review.rs:130",
+        "crates/eg-types/src/pgrx_spike_review.rs:141",
+        "crates/eg-types/src/pgrx_spike_review.rs:97"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R026",
       "title": "Run the Gramps native-hosting pilot phases P0 through P5",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "30af64b172d4"
       ],
@@ -1281,21 +1302,57 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R026.2",
       "title": "Run P0-P2 (baseline digest, Postgres control, unmodified corpus replay)",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "rollup_of": [
+        "EG-UNIFIED-DATA-PLANE-R026.2.1"
+      ]
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R026.2.1",
+      "title": "P0 adapter skeleton: typed baseline-digest → P0 phase-exit mapping plus the refusal path",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "04347dc35255"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/gramps_baseline_digest.rs:100",
+        "crates/eg-types/src/gramps_baseline_digest.rs:111",
+        "crates/eg-types/src/gramps_baseline_digest.rs:121",
+        "crates/eg-types/src/gramps_baseline_digest.rs:78",
+        "crates/eg-types/src/gramps_baseline_digest.rs:89"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R026.3",
       "title": "Run P3-P5 (proven-gap fixes, restore verification, schema-understanding demonstration)",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "rollup_of": [
+        "EG-UNIFIED-DATA-PLANE-R026.3.1"
+      ]
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R026.3.1",
+      "title": "P3 adapter skeleton: typed proven-gap-fix → P3 phase-exit mapping plus the refusal path",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "04347dc35255"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/gramps_gap_fix.rs:105",
+        "crates/eg-types/src/gramps_gap_fix.rs:116",
+        "crates/eg-types/src/gramps_gap_fix.rs:127",
+        "crates/eg-types/src/gramps_gap_fix.rs:138",
+        "crates/eg-types/src/gramps_gap_fix.rs:148"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R027",
       "title": "Fix Postgres compatibility gaps proven by captured traffic",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "5873d340b4de"
       ],
@@ -1318,8 +1375,10 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R027.2",
       "title": "Capture application traffic per feature and record the proof reference",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "e8b99c7db914"
+      ],
       "verified_by": [],
       "rollup_of": [
         "EG-UNIFIED-DATA-PLANE-R027.2.1"
@@ -1328,15 +1387,23 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R027.2.1",
       "title": "`capture_feature_fix` assembles a `FeatureFixRecord` from a pluggable `TrafficCaptureSource`, refusing an unproven or incomplete capture",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "e8b99c7db914"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/pg_compat_feature.rs:257",
+        "crates/eg-types/src/pg_compat_feature.rs:267",
+        "crates/eg-types/src/pg_compat_feature.rs:275"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R027.3",
       "title": "Implement each proven feature with its failing-then-passing test",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "e8b99c7db914"
+      ],
       "verified_by": [],
       "rollup_of": [
         "EG-UNIFIED-DATA-PLANE-R027.3.1"
@@ -1344,10 +1411,15 @@
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R027.3.1",
-      "title": "`apply_proven_fix` applies a feature's fix only once its record is proven fixed, refusing an unproven record without invoking the fix",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "title": "`apply_proven_fix` applies a feature's fix only once its record is proven fixed, refusing -- without invoking the fix -- an unproven record",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "e8b99c7db914"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/pg_compat_feature.rs:290",
+        "crates/eg-types/src/pg_compat_feature.rs:306"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R028",
@@ -1375,8 +1447,10 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R028.2",
       "title": "Run the Postgres regression suite and SQLancer-style generated corpora against EG",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "e8b99c7db914"
+      ],
       "verified_by": [],
       "rollup_of": [
         "EG-UNIFIED-DATA-PLANE-R028.2.1"
@@ -1385,9 +1459,15 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R028.2.1",
       "title": "`run_differential_harness` assembles a run's `DeviationBaseline` from one evaluator per declared corpus source and reconciles it against the prior baseline",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "e8b99c7db914"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/pg_diff_baseline.rs:204",
+        "crates/eg-types/src/pg_diff_baseline.rs:227",
+        "crates/eg-types/src/pg_diff_baseline.rs:239"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R028.3",
@@ -1399,7 +1479,7 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R029",
       "title": "Expose a schema_context query surface",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "d9b702c9e7e2"
       ],
@@ -1421,9 +1501,14 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R029.2",
       "title": "Wire the real schema_context query entry point through Graph OS, following the code_context pattern",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "c1bf552a9c33"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/schema_context.rs:175",
+        "crates/eg-types/src/schema_context.rs:199"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R030",

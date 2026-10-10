@@ -185,7 +185,10 @@
     "EG-DECISION-ENGINE-R127",
     "EG-DECISION-ENGINE-R127.1",
     "EG-DECISION-ENGINE-R127.2",
-    "EG-DECISION-ENGINE-R127.2.1"
+    "EG-DECISION-ENGINE-R127.2.1",
+    "EG-DECISION-ENGINE-R126.2.2",
+    "EG-DECISION-ENGINE-R127.2.2",
+    "EG-DECISION-ENGINE-R127.2.3"
   ],
   "requirements": [
     {
@@ -393,7 +396,7 @@
     {
       "id": "EG-DECISION-ENGINE-R015",
       "title": "No generative model weights inside the decision engine (rollup)",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "40ea81e3e512",
         "52f333ca756e"
@@ -420,7 +423,7 @@
     {
       "id": "EG-DECISION-ENGINE-R015.2",
       "title": "Wire the ladder's head registry through the typed head-kind parse",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
@@ -442,9 +445,14 @@
     {
       "id": "EG-DECISION-ENGINE-R015.2.2",
       "title": "Route DecisionFitRequest construction through the typed mapping",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "2763396269d0"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/decision/jobs.rs:615",
+        "crates/eg-types/src/decision/jobs.rs:635"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R016",
@@ -1934,7 +1942,7 @@
         "9c5b587a7145"
       ],
       "verified_by": [
-        "crates/eg-compute/src/finance/market/record_tests.rs:297"
+        "crates/eg-compute/src/finance/market/record_tests.rs:299"
       ]
     },
     {
@@ -2210,12 +2218,15 @@
     {
       "id": "EG-DECISION-ENGINE-R120",
       "title": "Admission anchors are limited to persisted write paths",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "18f72d26730a",
         "3c39771e7a44",
         "534f763afc81"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_pinned_reference_resolution.py:144"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R121",
@@ -2310,7 +2321,8 @@
       ],
       "verified_by": [],
       "rollup_of": [
-        "EG-DECISION-ENGINE-R126.2.1"
+        "EG-DECISION-ENGINE-R126.2.1",
+        "EG-DECISION-ENGINE-R126.2.2"
       ]
     },
     {
@@ -2360,12 +2372,35 @@
       ],
       "verified_by": [],
       "rollup_of": [
-        "EG-DECISION-ENGINE-R127.2.1"
+        "EG-DECISION-ENGINE-R127.2.1",
+        "EG-DECISION-ENGINE-R127.2.2",
+        "EG-DECISION-ENGINE-R127.2.3"
       ]
     },
     {
       "id": "EG-DECISION-ENGINE-R127.2.1",
       "title": "[VISION-Q PRIORITY] GuardrailRule storage/publish path and served guardrail-entailment RPC",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R126.2.2",
+      "title": "The capability-coverage query gets a generated client method",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R127.2.2",
+      "title": "The guardrail-entailment query answers over the wire",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R127.2.3",
+      "title": "The guardrail-entailment query gets a generated client method",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

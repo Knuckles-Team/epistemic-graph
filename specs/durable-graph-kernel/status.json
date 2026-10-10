@@ -108,12 +108,18 @@
     {
       "id": "EG-DURABLE-KERNEL-R001",
       "title": "Outbox head-only attempt accounting and rewind",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "a676823d2b54",
+        "afc33c3cde5c",
         "b43f33569dd4"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-transaction/src/tests/outbox.rs:1577",
+        "crates/eg-transaction/src/tests/outbox.rs:1721",
+        "crates/eg-transaction/src/tests/outbox.rs:1893",
+        "crates/eg-transaction/src/tests/outbox.rs:2034"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R002",
@@ -128,22 +134,29 @@
     {
       "id": "EG-DURABLE-KERNEL-R003",
       "title": "Owner-store layout lineage registry with typed upgrade refusal",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "a1bb9fb9503e",
-        "a676823d2b54"
+        "a676823d2b54",
+        "afc33c3cde5c"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-storage/src/owner/lineage_fixture_tests.rs:46"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R004",
       "title": "Outbox attempt accounting is scoped to the head row",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "a676823d2b54",
+        "afc33c3cde5c",
         "b43f33569dd4"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-transaction/src/tests/outbox.rs:1578",
+        "crates/eg-transaction/src/tests/outbox.rs:1894"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R005",
@@ -182,12 +195,17 @@
     {
       "id": "EG-DURABLE-KERNEL-R008",
       "title": "Raft unit tests pass under cluster features and run in CI",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "624e1e3076e6",
         "a1bb9fb9503e",
         "a676823d2b54"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_raft_cluster_ci_gate.py:31",
+        "tests/test_raft_cluster_ci_gate.py:38",
+        "tests/test_raft_cluster_ci_gate.py:56"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R009",
@@ -204,12 +222,16 @@
     {
       "id": "EG-DURABLE-KERNEL-R010",
       "title": "jscpd clone gate runs on every commit",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "624e1e3076e6",
         "a1bb9fb9503e",
         "a676823d2b54"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_jscpd_per_commit_gate.py:30",
+        "tests/test_jscpd_per_commit_gate.py:42"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R011",
@@ -252,12 +274,16 @@
     {
       "id": "EG-DURABLE-KERNEL-R013",
       "title": "Raft cluster test failures capture a causal trace automatically",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "624e1e3076e6",
         "a676823d2b54",
         "b43f33569dd4"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/raft/harness/trace_capture.rs:482",
+        "src/raft/harness/trace_capture.rs:562"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R014",
@@ -322,52 +348,70 @@
     {
       "id": "EG-DURABLE-KERNEL-R018",
       "title": "UDF registry and response-dedup cache are tenant-scoped",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "745bf5943743",
         "a1bb9fb9503e",
         "a676823d2b54"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/mutation/context.rs:549",
+        "src/server/udf_catalog.rs:126"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R019",
       "title": "Graph lifecycle idempotency keys are tenant-scoped",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "745bf5943743",
         "a1bb9fb9503e",
         "a676823d2b54"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/mutation_batch/lifecycle_tests.rs:242"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R020",
       "title": "Bounded background scrub detects node corruption between restarts",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "461f8c84eb44",
+        "745bf5943743",
         "a676823d2b54"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/persistence/redb_backend/scrub_api_tests.rs:80"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R021",
       "title": "Store-authority binding validates once per write transaction",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "a1d6b2bd5e03",
         "a5e7b2983a04",
         "a676823d2b54"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-transaction/src/tests/write_authority.rs:19"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R022",
       "title": "Just-in-time RBAC elevation requires two-person approval",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "2f37015096de",
+        "a1d6b2bd5e03",
         "a676823d2b54"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-core/src/isolation/elevation_tests.rs:156",
+        "crates/eg-core/src/isolation/elevation_tests.rs:190",
+        "crates/eg-core/src/isolation/elevation_tests.rs:85"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R023",
@@ -407,12 +451,17 @@
     {
       "id": "EG-DURABLE-KERNEL-R024.1",
       "title": "PostgreSQL/AGE backend becomes a ForeignSourceSpec source",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "7b7d4a0fb10f",
+        "a1d6b2bd5e03",
         "c2dd4c98fe60"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-plan/src/federation_age.rs:219",
+        "crates/eg-plan/src/federation_age.rs:249",
+        "crates/eg-plan/src/federation_age.rs:267"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R024.2",
@@ -1166,7 +1215,7 @@
         "be291021dfdc"
       ],
       "verified_by": [
-        "src/server/persistence/redb_backend/scrub_api_tests.rs:80"
+        "src/server/persistence/redb_backend/scrub_api_tests.rs:81"
       ]
     },
     {

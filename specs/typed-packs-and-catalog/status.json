@@ -614,7 +614,7 @@
         "7704b8d7294f"
       ],
       "verified_by": [
-        "crates/eg-transaction/src/tests/outbox.rs:2256"
+        "crates/eg-transaction/src/tests/outbox.rs:2262"
       ]
     },
     {
@@ -790,7 +790,7 @@
       ],
       "verified_by": [
         "src/server/graph_schema/world_model_tests.rs:106",
-        "src/server/graph_schema/world_model_tests.rs:245"
+        "src/server/graph_schema/world_model_tests.rs:248"
       ]
     },
     {
