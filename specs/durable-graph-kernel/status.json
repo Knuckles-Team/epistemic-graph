@@ -267,12 +267,15 @@
     {
       "id": "EG-DURABLE-KERNEL-R012",
       "title": "Raft native command sealing and placement routing are correct",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "a676823d2b54",
         "b43f33569dd4"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/raft/harness/catchup_test.rs:57",
+        "src/raft/tests.rs:1017"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R013",
