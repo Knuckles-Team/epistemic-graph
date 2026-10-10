@@ -2125,7 +2125,7 @@
     {
       "id": "EG-DECISION-ENGINE-R109",
       "title": "OWL entailment derives topology admissibility before assembly",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "534f763afc81",
         "c0edc96d1e10"
@@ -2138,8 +2138,10 @@
     {
       "id": "EG-DECISION-ENGINE-R109.1",
       "title": "Topology admissibility entailment test varies the composed schema digest",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "47990cdbcb2b"
+      ],
       "verified_by": [
         "src/server/handlers/decide/topology_schema.rs:213"
       ]
