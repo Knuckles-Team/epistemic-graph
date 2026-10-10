@@ -207,6 +207,7 @@ fn outcome(response: &Response) -> serde_json::Value {
 /// The owning op: only the record's seal retires it, the row becomes an audited
 /// tombstone stamped with the ENGINE's view of the actor, a retry is idempotent,
 /// and no generic write can revive the id or forge a tombstone elsewhere.
+// spec: EG-DURABLE-KERNEL-R057
 #[tokio::test]
 async fn retirement_is_the_owning_op_and_leaves_an_audited_tombstone() {
     let mut served = served_with_snapshot().await;

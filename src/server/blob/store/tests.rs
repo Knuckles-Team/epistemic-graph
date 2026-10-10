@@ -546,6 +546,7 @@ fn a_chunk_shared_with_a_direct_reference_survives_the_manifest_that_named_it() 
 /// reclaimed once idle past the upload TTL — the upload row AND its chunks
 /// that nothing else reaches — and left alone while still within the TTL. At
 /// base, `sweep_rows` never reads `cas_uploads` at all.
+// spec: EG-DURABLE-KERNEL-R062
 #[test]
 fn an_abandoned_upload_is_reclaimed_past_its_ttl_and_kept_before_it() {
     let store = RedbChunkStore::open_temp().unwrap();

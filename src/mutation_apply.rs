@@ -203,6 +203,7 @@ mod eh323_slim_profile_tests {
     use super::is_durable_mutation;
     use crate::protocol::Method;
 
+    // spec: EG-DURABLE-KERNEL-R056
     #[test]
     fn drop_named_graph_is_durable_regardless_of_this_crates_own_rdf_feature() {
         assert!(

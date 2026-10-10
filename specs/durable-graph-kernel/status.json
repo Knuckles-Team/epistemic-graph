@@ -606,7 +606,7 @@
     {
       "id": "EG-DURABLE-KERNEL-R031",
       "title": "Audit append supports tenant-scoped idempotent reservation",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "1ef84395fa69",
         "2cc878fb8938",
@@ -614,9 +614,7 @@
         "8e288da667fc",
         "d372086c5bfe"
       ],
-      "verified_by": [
-        "src/redb_store/operation_audit_tests.rs:278"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R032",
@@ -913,14 +911,12 @@
     {
       "id": "EG-DURABLE-KERNEL-R045",
       "title": "A single owner-manifest lineage check governs format upgrades",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "1ef84395fa69",
         "df476f0df010"
       ],
-      "verified_by": [
-        "crates/eg-storage/src/owner/sql_checkpoint_upgrade/tests.rs:192"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R046",
@@ -959,14 +955,12 @@
     {
       "id": "EG-DURABLE-KERNEL-R049",
       "title": "Idempotent retry of CreateGraph and DeleteGraph succeeds",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "1ef84395fa69",
         "ceec54145720"
       ],
-      "verified_by": [
-        "src/server/mutation_batch/lifecycle_tests.rs:241"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R050",
@@ -993,15 +987,13 @@
     {
       "id": "EG-DURABLE-KERNEL-R052",
       "title": "Outbox delivery is organized by semantic class topics",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "1ef84395fa69",
         "9871859d4e0c",
         "d2e4cff47c86"
       ],
-      "verified_by": [
-        "crates/eg-transaction/src/tests/outbox.rs:2302"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R053",

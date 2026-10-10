@@ -106,6 +106,7 @@ fn every_predecessor_is_a_different_table_set_with_a_derived_code() {
 
 /// X11-T2/T4: a genuine predecessor file is refused through the real open with
 /// its named error and removal step, and its bytes are untouched.
+// spec: EG-DURABLE-KERNEL-R060
 #[test]
 fn every_declared_predecessor_file_is_refused_by_name_without_a_write() {
     let dir = tempfile::tempdir().unwrap();
