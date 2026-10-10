@@ -135,11 +135,13 @@ mod tests {
         }
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R023.1
     #[test]
     fn well_formed_postgres_group_validates() {
         assert_eq!(pg_group().validate(), Ok(()));
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R023.1
     #[test]
     fn postgres_group_without_logical_wal_level_is_refused() {
         let mut group = pg_group();
@@ -150,6 +152,7 @@ mod tests {
         );
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R023.1
     #[test]
     fn postgres_group_with_absent_wal_level_is_refused_not_defaulted() {
         let mut group = pg_group();
@@ -160,6 +163,7 @@ mod tests {
         );
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R023.1
     #[test]
     fn mariadb_group_with_wal_level_is_refused() {
         let group = SharedPlatformClusterGroup {
@@ -175,6 +179,7 @@ mod tests {
         );
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R023.1
     #[test]
     fn mariadb_group_without_wal_level_validates() {
         let group = SharedPlatformClusterGroup {
@@ -187,6 +192,7 @@ mod tests {
         assert_eq!(group.validate(), Ok(()));
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R023.1
     #[test]
     fn aliased_role_is_refused() {
         let mut group = pg_group();
@@ -197,6 +203,7 @@ mod tests {
         ));
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R023.1
     #[test]
     fn empty_group_is_refused() {
         let mut group = pg_group();

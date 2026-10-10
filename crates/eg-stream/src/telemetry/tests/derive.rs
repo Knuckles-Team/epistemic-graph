@@ -25,6 +25,7 @@ fn observations(service: &str, hot: &[usize]) -> Vec<BehaviourObservation> {
     .observations
 }
 
+// spec: EG-UNIFIED-DATA-PLANE-R036
 #[test]
 fn the_pattern_fires_on_a_synthetic_error_burst() {
     let observations = observations("checkout", &[4, 5, 6]);
@@ -44,12 +45,14 @@ fn the_pattern_fires_on_a_synthetic_error_burst() {
     );
 }
 
+// spec: EG-UNIFIED-DATA-PLANE-R036
 #[test]
 fn a_quiet_service_and_a_short_blip_do_not_fire() {
     assert!(detect_anomalies(&[error_burst_rule()], &observations("checkout", &[])).is_empty());
     assert!(detect_anomalies(&[error_burst_rule()], &observations("checkout", &[3, 4])).is_empty());
 }
 
+// spec: EG-UNIFIED-DATA-PLANE-R036
 #[test]
 fn a_long_burst_coalesces_into_one_anomaly() {
     let anomalies = detect_anomalies(
@@ -66,6 +69,7 @@ fn a_long_burst_coalesces_into_one_anomaly() {
     assert_eq!(anomaly.evidence.len(), 6);
 }
 
+// spec: EG-UNIFIED-DATA-PLANE-R036
 #[test]
 fn a_pattern_never_stitches_two_entities_windows_together() {
     // Each service has only two bad windows; together they have four.
@@ -74,6 +78,7 @@ fn a_pattern_never_stitches_two_entities_windows_together() {
     assert!(detect_anomalies(&[error_burst_rule()], &both).is_empty());
 }
 
+// spec: EG-UNIFIED-DATA-PLANE-R036
 #[test]
 fn simultaneous_anomalies_on_two_entities_correlate_into_an_incident() {
     let mut both = observations("checkout", &[4, 5, 6]);
@@ -100,6 +105,7 @@ fn simultaneous_anomalies_on_two_entities_correlate_into_an_incident() {
     );
 }
 
+// spec: EG-UNIFIED-DATA-PLANE-R036
 #[test]
 fn one_entity_alone_is_not_an_incident() {
     // Two separate bursts on the SAME entity, both inside one wide incident window.
@@ -112,6 +118,7 @@ fn one_entity_alone_is_not_an_incident() {
     assert!(correlate_incidents(&[wide], &anomalies).is_empty());
 }
 
+// spec: EG-UNIFIED-DATA-PLANE-R036
 #[test]
 fn a_hot_window_after_a_gap_is_not_consecutive() {
     // Windows 1, 2 and 4 are hot: three hot windows, but not three in a row.
@@ -129,6 +136,7 @@ fn policy() -> TelemetryPolicy {
     }
 }
 
+// spec: EG-UNIFIED-DATA-PLANE-R036
 #[test]
 fn derived_facts_project_onto_typed_linked_graph_nodes_deterministically() {
     let errors = window_errors(&[4, 5, 6]);

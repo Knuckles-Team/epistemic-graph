@@ -134,6 +134,7 @@ mod tests {
         }
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R018.1
     #[test]
     fn valid_table_round_trips_through_insert() {
         let mut catalog = RelationalSourceCatalog::default();
@@ -143,6 +144,7 @@ mod tests {
         assert!(catalog.tables.contains_key("\"APP\".\"ORDERS\""));
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R018.1
     #[test]
     fn quote_in_identifier_is_refused() {
         let mut bad = table(RelationalEngine::Db2, false, false);
@@ -150,6 +152,7 @@ mod tests {
         assert!(validate_table(&bad).is_err());
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R018.1
     #[test]
     fn nul_byte_in_identifier_is_refused() {
         let mut bad = table(RelationalEngine::Db2, false, false);
@@ -157,6 +160,7 @@ mod tests {
         assert!(validate_table(&bad).is_err());
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R018.1
     #[test]
     fn debezium_captured_table_with_no_primary_key_is_refused() {
         let bad = table(RelationalEngine::Oracle, true, false);
@@ -166,12 +170,14 @@ mod tests {
         assert!(error.reason.contains("primary-key"), "{error}");
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R018.1
     #[test]
     fn non_captured_table_with_no_primary_key_is_valid() {
         let ok = table(RelationalEngine::Db2, false, false);
         assert!(validate_table(&ok).is_ok());
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R018.1
     #[test]
     fn invalid_table_is_refused_not_silently_inserted() {
         let mut catalog = RelationalSourceCatalog::default();
@@ -181,6 +187,7 @@ mod tests {
         assert_eq!(catalog.tables.len(), before);
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R018.1
     #[test]
     fn catalog_serializes_round_trip() {
         let mut catalog = RelationalSourceCatalog::default();

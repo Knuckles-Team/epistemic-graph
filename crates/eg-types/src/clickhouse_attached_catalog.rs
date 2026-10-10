@@ -139,6 +139,7 @@ mod tests {
         }
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R017.1
     #[test]
     fn valid_table_round_trips_through_insert() {
         let mut catalog = ClickHouseSourceCatalog::default();
@@ -146,6 +147,7 @@ mod tests {
         assert!(catalog.tables.contains_key("analytics.events"));
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R017.1
     #[test]
     fn capture_capability_is_always_explicitly_unsupported() {
         assert_eq!(
@@ -154,6 +156,7 @@ mod tests {
         );
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R017.1
     #[test]
     fn empty_database_or_table_name_is_refused() {
         let mut bad = table();
@@ -161,6 +164,7 @@ mod tests {
         assert!(validate_table(&bad).is_err());
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R017.1
     #[test]
     fn table_with_no_columns_is_refused() {
         let mut bad = table();
@@ -171,6 +175,7 @@ mod tests {
         assert!(error.reason.contains("no discovered columns"), "{error}");
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R017.1
     #[test]
     fn invalid_table_is_refused_not_silently_inserted() {
         let mut catalog = ClickHouseSourceCatalog::default();
@@ -182,6 +187,7 @@ mod tests {
         assert_eq!(catalog.tables.len(), before);
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R017.1
     #[test]
     fn catalog_serializes_round_trip() {
         let mut catalog = ClickHouseSourceCatalog::default();

@@ -157,6 +157,7 @@ mod tests {
         }
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R031.1
     #[test]
     fn valid_admission_round_trips_through_admit() {
         let mut registry = ConsolidationIsolationRegistry::default();
@@ -166,6 +167,7 @@ mod tests {
         assert_eq!(registry.len(), 1);
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R031.1
     #[test]
     fn empty_identity_is_refused() {
         let mut bad = admission("tenant-a", "gramps", "alice");
@@ -173,6 +175,7 @@ mod tests {
         assert!(validate_admission(&bad).is_err());
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R031.1
     #[test]
     fn all_zero_quota_is_refused() {
         let mut bad = admission("tenant-a", "gramps", "alice");
@@ -187,6 +190,7 @@ mod tests {
         assert!(error.reason.contains("blast radius"), "{error}");
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R031.1
     #[test]
     fn same_principal_re_admission_is_idempotent() {
         let mut registry = ConsolidationIsolationRegistry::default();
@@ -199,6 +203,7 @@ mod tests {
         assert_eq!(registry.len(), 1);
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R031.1
     #[test]
     fn different_principal_re_admission_is_refused() {
         let mut registry = ConsolidationIsolationRegistry::default();
@@ -210,6 +215,7 @@ mod tests {
         assert_eq!(registry.len(), 1);
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R031.1
     #[test]
     fn invalid_admission_is_refused_not_silently_admitted() {
         let mut registry = ConsolidationIsolationRegistry::default();

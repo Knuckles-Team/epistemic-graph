@@ -226,6 +226,7 @@ mod operation_bound_source_kinds {
         ]
     }
 
+    // spec: EG-FEDERATED-QUERY-R073.1
     #[test]
     fn each_new_source_kind_wire_round_trips_with_its_declared_capability() {
         for pushdown in [false, true] {
@@ -245,6 +246,7 @@ mod operation_bound_source_kinds {
         }
     }
 
+    // spec: EG-FEDERATED-QUERY-R073.1
     #[test]
     fn an_unbound_ungranted_source_of_any_new_kind_refuses_typed_not_panics() {
         for (spec, label) in specs_with_pushdown(true) {

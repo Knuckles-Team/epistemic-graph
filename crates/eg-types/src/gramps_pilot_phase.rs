@@ -148,11 +148,13 @@ mod tests {
         }
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R026.1
     #[test]
     fn well_formed_exit_validates() {
         assert_eq!(exit(GrampsPilotPhase::P0Baseline).validate(), Ok(()));
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R026.1
     #[test]
     fn wrong_artifact_kind_is_refused() {
         let mut artifact = exit(GrampsPilotPhase::P0Baseline);
@@ -163,6 +165,7 @@ mod tests {
         ));
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R026.1
     #[test]
     fn unreviewed_exit_is_refused() {
         let mut artifact = exit(GrampsPilotPhase::P0Baseline);
@@ -170,6 +173,7 @@ mod tests {
         assert_eq!(artifact.validate(), Err(InvalidPhaseExit::NotReviewed));
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R026.1
     #[test]
     fn fresh_pilot_admits_only_p0() {
         let progress = GrampsPilotProgress::default();
@@ -178,6 +182,7 @@ mod tests {
         assert_eq!(progress.next_phase(), Some(GrampsPilotPhase::P0Baseline));
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R026.1
     #[test]
     fn skipping_ahead_without_prior_exit_is_refused() {
         let progress = GrampsPilotProgress {
@@ -187,6 +192,7 @@ mod tests {
         assert!(progress.admits(GrampsPilotPhase::P1PostgresControl));
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R026.1
     #[test]
     fn invalid_exit_does_not_advance_progress() {
         let mut bad_exit = exit(GrampsPilotPhase::P0Baseline);
@@ -197,6 +203,7 @@ mod tests {
         assert_eq!(progress.next_phase(), Some(GrampsPilotPhase::P0Baseline));
     }
 
+    // spec: EG-UNIFIED-DATA-PLANE-R026.1
     #[test]
     fn full_order_completes_pilot() {
         let progress = GrampsPilotProgress {

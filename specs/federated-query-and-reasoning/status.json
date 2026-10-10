@@ -618,7 +618,7 @@
     {
       "id": "EG-FEDERATED-QUERY-R048",
       "title": "Join ordering across foreign sources uses learned, provenanced statistics",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "62c450561948",
         "f708d6e7728f"
@@ -631,11 +631,16 @@
     {
       "id": "EG-FEDERATED-QUERY-R048.1",
       "title": "Typed join-cardinality-statistic model with provenance",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "f708d6e7728f"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-plan/src/federation_stats.rs:166",
+        "crates/eg-plan/src/federation_stats.rs:174",
+        "crates/eg-plan/src/federation_stats.rs:185",
+        "crates/eg-plan/src/federation_stats.rs:209"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R049",
@@ -960,7 +965,7 @@
     {
       "id": "EG-FEDERATED-QUERY-R072",
       "title": "The ontology selects the sources for a cross-source question",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "62c450561948",
         "f948211fb8c7"
@@ -973,16 +978,22 @@
     {
       "id": "EG-FEDERATED-QUERY-R072.1",
       "title": "Typed model for cross-source coverage, proved against a fixture",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "f948211fb8c7"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-rdf/src/source_selection.rs:302",
+        "crates/eg-rdf/src/source_selection.rs:324",
+        "crates/eg-rdf/src/source_selection.rs:350",
+        "crates/eg-rdf/src/source_selection.rs:359",
+        "crates/eg-rdf/src/source_selection.rs:369"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R073",
       "title": "Operation-bound virtual mappings federate API, MCP, A2A and GraphQL sources",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "62c450561948",
         "bfd84b2ccbcb",
@@ -996,11 +1007,16 @@
     {
       "id": "EG-FEDERATED-QUERY-R073.1",
       "title": "Typed model for operation-bound foreign sources, with refusal tests",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "bfd84b2ccbcb"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-plan/src/federation.rs:229",
+        "crates/eg-plan/src/federation.rs:249",
+        "crates/eg-plan/src/federation_opt/budget.rs:156",
+        "crates/eg-plan/src/federation_opt/budget.rs:173"
+      ]
     }
   ]
 }
