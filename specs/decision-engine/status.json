@@ -2140,7 +2140,9 @@
       "title": "Topology admissibility entailment test varies the composed schema digest",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "src/server/handlers/decide/topology_schema.rs:213"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R110",
