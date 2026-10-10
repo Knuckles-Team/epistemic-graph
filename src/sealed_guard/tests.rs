@@ -53,6 +53,7 @@ fn creating_or_rewriting_identical_content_is_allowed() {
     check_node_write(Some(&ordinary), &NodeWrite::Remove("snap".into())).unwrap();
 }
 
+// spec: EG-DURABLE-KERNEL-R057
 #[test]
 fn changing_or_removing_a_stored_sealed_row_is_refused() {
     let forged = msgpack(serde_json::json!({

@@ -981,7 +981,7 @@
         "b43f33569dd4"
       ],
       "verified_by": [
-        "src/server/blob/store/tests.rs:649"
+        "src/server/blob/store/tests.rs:650"
       ]
     },
     {
@@ -1033,22 +1033,27 @@
     {
       "id": "EG-DURABLE-KERNEL-R056",
       "title": "Mutation durability classification is correct under every feature build",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "1ef84395fa69",
         "5bf5b719de7e"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/mutation_apply.rs:206"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R057",
       "title": "Sealed record classes are protected by a create-only write guard",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "1ef84395fa69",
         "5c2ab50088c4"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/sealed_guard/tests.rs:56",
+        "tests/sealed_record_guard.rs:210"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R058",
@@ -1077,12 +1082,14 @@
     {
       "id": "EG-DURABLE-KERNEL-R060",
       "title": "Unsupported legacy graph-data layouts are not silently migrated",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "1ef84395fa69",
         "9bc78efe95b3"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-storage/src/owner/lineage_tests.rs:109"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R061",
@@ -1096,11 +1103,13 @@
     {
       "id": "EG-DURABLE-KERNEL-R062",
       "title": "Abandoned uploads are reclaimed after an idle TTL",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "b43f33569dd4"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/blob/store/tests.rs:523"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R063",
