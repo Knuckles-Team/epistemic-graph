@@ -148,15 +148,11 @@
     {
       "id": "EG-CONTRACT-R004",
       "title": "Go and JS clients sign bodies through the shared codec",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
-        "6cd6c7ea0c87",
         "a1bb9fb9503e"
       ],
-      "verified_by": [
-        "clients/go/vectors_test.go:123",
-        "clients/js/vectors.test.mjs:36"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-CONTRACT-R005",
@@ -185,15 +181,11 @@
     {
       "id": "EG-CONTRACT-R007",
       "title": "Dispatch decomposition test is current and runs in CI",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
-        "43137cbf0f6b",
-        "6cd6c7ea0c87"
+        "43137cbf0f6b"
       ],
-      "verified_by": [
-        "tests/test_dispatch_decomposition.py:37",
-        "tests/test_dispatch_decomposition.py:53"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-CONTRACT-R008",
@@ -238,17 +230,11 @@
     {
       "id": "EG-CONTRACT-R009",
       "title": "Release workflow runs the full root Python test suite",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
-        "8baee8a94894",
         "c835ce794b21"
       ],
-      "verified_by": [
-        "tests/test_release_python_suite_contract.py:42",
-        "tests/test_release_python_suite_contract.py:53",
-        "tests/test_release_python_suite_contract.py:62",
-        "tests/test_release_python_suite_contract.py:73"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-CONTRACT-R010",
@@ -290,14 +276,11 @@
     {
       "id": "EG-CONTRACT-R012",
       "title": "Complexity scanner resolves modules declared in inline mod blocks",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
-        "78e5f2103219",
-        "8baee8a94894"
+        "78e5f2103219"
       ],
-      "verified_by": [
-        "tests/test_kiss_fork.py:54"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-CONTRACT-R013",
@@ -314,14 +297,11 @@
     {
       "id": "EG-CONTRACT-R014",
       "title": "Generated error catalog with stable auth-mismatch codes",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
-        "19d0663aaf5c",
-        "b8aac182d679"
+        "19d0663aaf5c"
       ],
-      "verified_by": [
-        "crates/eg-capabilities/src/contract/errors.rs:211"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-CONTRACT-R015",
@@ -350,38 +330,29 @@
     {
       "id": "EG-CONTRACT-R017",
       "title": "Dispatch census pins cover the current compiler-declared modules",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
-        "43137cbf0f6b",
-        "b8aac182d679"
+        "43137cbf0f6b"
       ],
-      "verified_by": [
-        "tests/test_dispatch_decomposition.py:36"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-CONTRACT-R018",
       "title": "Release feature matrix includes the motif Cargo feature",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
-        "b8aac182d679",
         "cfd03dda1ef7"
       ],
-      "verified_by": [
-        "tests/test_release_feature_matrix.py:87"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-CONTRACT-R019",
       "title": "Dispatch reachability gate follows the current FOREIGN paths",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
-        "a8cfd0978c58",
-        "b8aac182d679"
+        "a8cfd0978c58"
       ],
-      "verified_by": [
-        "tests/test_current_only_architecture.py:68"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-CONTRACT-R020",

@@ -144,7 +144,7 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R004.3",
       "title": "finance-v1 record-type server wiring and contract regeneration",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "fcca865a0505",
         "fd0aa73cb7b5"
@@ -157,16 +157,11 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R004.3.1",
       "title": "The wire boundary refuses an unknown finance-v1 schema version",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
-        "69979c407216",
         "fcca865a0505"
       ],
-      "verified_by": [
-        "crates/eg-types/src/wire_finance.rs:80",
-        "crates/eg-types/src/wire_finance.rs:86",
-        "crates/eg-types/src/wire_finance.rs:93"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R005",
@@ -237,7 +232,7 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R007",
       "title": "Versioned StrategySpec evaluator with DCA, trend, rebalancing",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "6602649a6bff"
       ],
@@ -249,21 +244,16 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R007.1",
       "title": "DCA-by-fixed-amount default strategy evaluator",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
-        "6602649a6bff",
-        "82cf765518b6"
+        "6602649a6bff"
       ],
-      "verified_by": [
-        "crates/eg-compute/src/finance/strategy.rs:70",
-        "crates/eg-compute/src/finance/strategy.rs:85",
-        "crates/eg-compute/src/finance/strategy.rs:97"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R008",
       "title": "Strategy backtests sealed through BacktestRun",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "b96ef8ebd9df"
       ],
@@ -275,21 +265,16 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R008.1",
       "title": "Dollar-cost-averaging backtest seals through BacktestRun",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
-        "82cf765518b6",
         "b96ef8ebd9df"
       ],
-      "verified_by": [
-        "crates/eg-compute/src/finance/market/strategy_backtest.rs:112",
-        "crates/eg-compute/src/finance/market/strategy_backtest.rs:121",
-        "crates/eg-compute/src/finance/market/strategy_backtest.rs:97"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R009",
       "title": "Calibrated abstaining recommendations with scorecards",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "e93220a15cd2"
       ],
@@ -301,20 +286,16 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R009.1",
       "title": "Calibrated recommendation decision over flip confidence",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
-        "82cf765518b6",
         "e93220a15cd2"
       ],
-      "verified_by": [
-        "crates/eg-compute/src/finance/market/recommendation.rs:81",
-        "crates/eg-compute/src/finance/market/recommendation.rs:94"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R010",
       "title": "Leverage risk module with margin, sizing, live-order boundary",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "76107c24568d"
       ],
@@ -326,18 +307,11 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R010.1",
       "title": "Live-order eligibility boundary",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
-        "76107c24568d",
-        "82cf765518b6"
+        "76107c24568d"
       ],
-      "verified_by": [
-        "crates/eg-compute/src/finance/leverage.rs:113",
-        "crates/eg-compute/src/finance/leverage.rs:131",
-        "crates/eg-compute/src/finance/leverage.rs:151",
-        "crates/eg-compute/src/finance/leverage.rs:171",
-        "crates/eg-compute/src/finance/leverage.rs:98"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R011",
@@ -365,7 +339,7 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R012",
       "title": "Optional one-way Ghostfolio activity import",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
@@ -376,18 +350,11 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R012.1",
       "title": "A typed gate admits only a one-way Ghostfolio import, never a write-back",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
-        "82cf765518b6",
         "fcca865a0505"
       ],
-      "verified_by": [
-        "crates/eg-compute/src/finance/ghostfolio_import.rs:152",
-        "crates/eg-compute/src/finance/ghostfolio_import.rs:158",
-        "crates/eg-compute/src/finance/ghostfolio_import.rs:166",
-        "crates/eg-compute/src/finance/ghostfolio_import.rs:174",
-        "crates/eg-compute/src/finance/ghostfolio_import.rs:184"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R012.2",
@@ -448,15 +415,11 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R014",
       "title": "finance-v1 thin instrument and signal module",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
-        "46c93a87f9ed",
         "532418b7e55b"
       ],
-      "verified_by": [
-        "src/server/graph_schema/finance_tests.rs:229",
-        "src/server/graph_schema/finance_tests.rs:82"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R015",
@@ -470,31 +433,20 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R016",
       "title": "Incremental deterministic indicator kernels with Pine parity",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
-        "532418b7e55b",
-        "8bb121fedd18"
+        "532418b7e55b"
       ],
-      "verified_by": [
-        "crates/eg-compute/src/finance/market/pine_parity_tests.rs:102",
-        "crates/eg-compute/src/finance/market/pine_parity_tests.rs:112",
-        "crates/eg-compute/src/finance/market/pine_parity_tests.rs:122",
-        "crates/eg-compute/src/finance/market/pine_parity_tests.rs:134",
-        "crates/eg-compute/src/finance/market/pine_parity_tests.rs:165"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R017",
       "title": "BacktestRun provenance record with mandatory fields",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
-        "46c93a87f9ed",
         "532418b7e55b"
       ],
-      "verified_by": [
-        "crates/eg-compute/src/finance/market/record_tests.rs:379",
-        "crates/eg-compute/src/finance/market/record_tests.rs:420"
-      ]
+      "verified_by": []
     }
   ]
 }

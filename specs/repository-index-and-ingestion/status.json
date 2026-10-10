@@ -219,16 +219,11 @@
     {
       "id": "EG-REPO-INGEST-R004",
       "title": "Derived series maintained incrementally with lineage",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
-        "0554e82ae743",
         "2b8c0364ebb7"
       ],
-      "verified_by": [
-        "crates/eg-tsdb/src/derive/maintain_tests.rs:45",
-        "src/server/handlers/timeseries/derived_tests.rs:159",
-        "src/server/handlers/timeseries/derived_tests.rs:206"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-REPO-INGEST-R005",
@@ -257,14 +252,11 @@
     {
       "id": "EG-REPO-INGEST-R007",
       "title": "Large ingestion batches refuse atomically with a stable code",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
-        "0554e82ae743",
         "33c5c6459154"
       ],
-      "verified_by": [
-        "src/server/handlers/repository_index_tests.rs:218"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-REPO-INGEST-R008",
