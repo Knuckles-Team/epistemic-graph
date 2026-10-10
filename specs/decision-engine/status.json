@@ -182,11 +182,11 @@
     "EG-DECISION-ENGINE-R126.1",
     "EG-DECISION-ENGINE-R126.2",
     "EG-DECISION-ENGINE-R126.2.1",
+    "EG-DECISION-ENGINE-R126.2.2",
     "EG-DECISION-ENGINE-R127",
     "EG-DECISION-ENGINE-R127.1",
     "EG-DECISION-ENGINE-R127.2",
     "EG-DECISION-ENGINE-R127.2.1",
-    "EG-DECISION-ENGINE-R126.2.2",
     "EG-DECISION-ENGINE-R127.2.2",
     "EG-DECISION-ENGINE-R127.2.3"
   ],
@@ -194,12 +194,15 @@
     {
       "id": "EG-DECISION-ENGINE-R001",
       "title": "Typed decision ladder with explicit resolution kinds",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "52f333ca756e",
         "a4804f87c971"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R001.1"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R001.1",
@@ -346,12 +349,15 @@
     {
       "id": "EG-DECISION-ENGINE-R012",
       "title": "Shared slate crediting across multiple questions",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "2a0d6eae0918",
         "52f333ca756e"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R012.1"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R012.1",
@@ -390,7 +396,7 @@
     {
       "id": "EG-DECISION-ENGINE-R015",
       "title": "No generative model weights inside the decision engine (rollup)",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "40ea81e3e512",
         "52f333ca756e"
@@ -417,7 +423,7 @@
     {
       "id": "EG-DECISION-ENGINE-R015.2",
       "title": "Wire the ladder's head registry through the typed head-kind parse",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
@@ -439,9 +445,14 @@
     {
       "id": "EG-DECISION-ENGINE-R015.2.2",
       "title": "Route DecisionFitRequest construction through the typed mapping",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "2763396269d0"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/decision/jobs.rs:615",
+        "crates/eg-types/src/decision/jobs.rs:635"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R016",
@@ -672,12 +683,15 @@
     {
       "id": "EG-DECISION-ENGINE-R032",
       "title": "Entity-resolution candidates with conformal guarantees",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "a1bb9fb9503e",
         "fa780d3e101a"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R032.1"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R032.1",
@@ -689,12 +703,15 @@
     {
       "id": "EG-DECISION-ENGINE-R033",
       "title": "Decision-based schema mapping for SQL sources",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "a1bb9fb9503e",
         "fa780d3e101a"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R033.1"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R033.1",
@@ -760,9 +777,12 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [
         "1570bfef96aa",
+        "4034a361535b",
         "fa780d3e101a"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "src/server/handlers/decide/stat_tests/pretool_risk_tests.rs:26"
+      ],
       "rollup_of": [
         "EG-DECISION-ENGINE-R038.1"
       ]
@@ -777,12 +797,15 @@
     {
       "id": "EG-DECISION-ENGINE-R039",
       "title": "Cost-aware routing using accounting data",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "0cbda8f2af96",
         "fa780d3e101a"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R039.1"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R039.1",
@@ -807,12 +830,15 @@
     {
       "id": "EG-DECISION-ENGINE-R041",
       "title": "Connector event triage through Decide",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "f420578b85d2",
         "fa780d3e101a"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R041.1"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R041.1",
@@ -1059,12 +1085,15 @@
     {
       "id": "EG-DECISION-ENGINE-R054",
       "title": "Statistical contract: Decide, DecisionFit, DecisionEval",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "2a0d6eae0918",
         "fa780d3e101a"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R054.1"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R054.1",
@@ -1334,12 +1363,15 @@
     {
       "id": "EG-DECISION-ENGINE-R072",
       "title": "Decision observability spans and metrics",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "1e9ea1ef3790",
         "2a0d6eae0918"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R072.1"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R072.1",
@@ -1576,12 +1608,15 @@
     {
       "id": "EG-DECISION-ENGINE-R084",
       "title": "Conformal calibration as primary rung over temperature scaling",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "1e9ea1ef3790",
         "4952a2edced4"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R084.1"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R084.1",
@@ -1658,9 +1693,12 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [
         "1e9ea1ef3790",
+        "4034a361535b",
         "4952a2edced4"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "crates/eg-numeric/tests/decision/scorer.rs:215"
+      ],
       "rollup_of": [
         "EG-DECISION-ENGINE-R088.1"
       ]
@@ -1830,12 +1868,15 @@
     {
       "id": "EG-DECISION-ENGINE-R099",
       "title": "Wikidata alignment connector supplies entity-resolution keys",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "534f763afc81",
         "a1bb9fb9503e"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R099.1"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R099.1",
@@ -1977,12 +2018,15 @@
     {
       "id": "EG-DECISION-ENGINE-R109",
       "title": "OWL entailment derives topology admissibility before assembly",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "534f763afc81",
         "c0edc96d1e10"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R109.1"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R109.1",
@@ -1994,12 +2038,15 @@
     {
       "id": "EG-DECISION-ENGINE-R110",
       "title": "Topology optimization model rows with a brute-force oracle",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "534f763afc81",
         "c0edc96d1e10"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R110.1"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R110.1",
@@ -2011,12 +2058,15 @@
     {
       "id": "EG-DECISION-ENGINE-R111",
       "title": "Decide exposes the topology decision as a single typed question",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "534f763afc81",
         "c0edc96d1e10"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R111.1"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R111.1",
@@ -2075,13 +2125,14 @@
     },
     {
       "id": "EG-DECISION-ENGINE-R115",
-      "title": "Continuation decisions are evaluate-only and narrow-only",
-      "delivery_state": "LANDED",
+      "title": "RETIRED: tracked by agent-utilities au.swarm.continue. Continuation decisions are evaluate-only and narrow-only",
+      "delivery_state": "RETIRED",
       "landed_in": [
         "534f763afc81",
         "c0edc96d1e10"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "tracked by agent-utilities au.swarm.continue. Continuation decisions are evaluate-only and narrow-only"
     },
     {
       "id": "EG-DECISION-ENGINE-R116",
@@ -2120,12 +2171,15 @@
     {
       "id": "EG-DECISION-ENGINE-R117",
       "title": "DERIVE series functions share one incremental kernel",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "534f763afc81",
         "9480759eb7c2"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R117.1"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R117.1",
@@ -2137,7 +2191,7 @@
     {
       "id": "EG-DECISION-ENGINE-R118",
       "title": "Reputation view backs source reliability across all readers",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "1f6d512ae013",
         "28fbbbe2ee1e",
@@ -2145,7 +2199,10 @@
         "7e14801e08c3",
         "9a85c8a49fd4"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R118.1"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R118.1",
@@ -2157,22 +2214,29 @@
     {
       "id": "EG-DECISION-ENGINE-R119",
       "title": "Walk-forward replay seals deflated Sharpe and PBO evidence",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "4034a361535b",
         "534f763afc81",
         "a85c8425c9f4"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/handlers/decide/stat_tests/replay_tests.rs:187",
+        "src/server/handlers/decide/stat_tests/replay_tests.rs:246"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R120",
       "title": "Admission anchors are limited to persisted write paths",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "18f72d26730a",
         "3c39771e7a44",
         "534f763afc81"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_pinned_reference_resolution.py:144"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R121",
@@ -2234,7 +2298,7 @@
     {
       "id": "EG-DECISION-ENGINE-R126",
       "title": "Capability coverage answers which components can serve a task",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "534f763afc81",
         "e5edf018cbba"
@@ -2260,16 +2324,27 @@
     {
       "id": "EG-DECISION-ENGINE-R126.2",
       "title": "The capability-coverage query is served beside `AgentAssemble`",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "253a69935dfd",
         "30405ee73d13"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R126.2.1",
+        "EG-DECISION-ENGINE-R126.2.2"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R126.2.1",
-      "title": "[VISION-Q PRIORITY] Capability-coverage query is served as an RPC with a generated client",
+      "title": "The capability-coverage query answers over the wire",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R126.2.2",
+      "title": "The capability-coverage query gets a generated client method",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -2277,7 +2352,7 @@
     {
       "id": "EG-DECISION-ENGINE-R127",
       "title": "Guardrail entailment lists the rules a task must follow",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "18a745706c46",
         "534f763afc81"
@@ -2306,24 +2381,22 @@
     {
       "id": "EG-DECISION-ENGINE-R127.2",
       "title": "The guardrail-entailment query is served, backed by a stored rule set",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "253a69935dfd",
         "30405ee73d13",
         "534f763afc81"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R127.2.1",
+        "EG-DECISION-ENGINE-R127.2.2",
+        "EG-DECISION-ENGINE-R127.2.3"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R127.2.1",
-      "title": "[VISION-Q PRIORITY] GuardrailRule storage/publish path and served guardrail-entailment RPC",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "EG-DECISION-ENGINE-R126.2.2",
-      "title": "The capability-coverage query gets a generated client method",
+      "title": "A `GuardrailRule` can be published and read back per tenant",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

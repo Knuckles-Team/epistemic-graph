@@ -453,6 +453,7 @@
       "title": "PostgreSQL/AGE backend becomes a ForeignSourceSpec source",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "42a0b101b111",
         "7b7d4a0fb10f",
         "a1d6b2bd5e03",
         "c2dd4c98fe60"
@@ -500,7 +501,8 @@
       "title": "Outbox-based mirror becomes a `MirrorTargetSpec` mirror target",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "3a14159c3768"
+        "3a14159c3768",
+        "42a0b101b111"
       ],
       "verified_by": [
         "crates/eg-plan/src/mirror_target.rs:261",
@@ -514,7 +516,8 @@
       "title": "Brain-guarded backend becomes a ForeignSourceSpec source",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "3a14159c3768"
+        "3a14159c3768",
+        "42a0b101b111"
       ],
       "verified_by": [
         "crates/eg-plan/src/federation_brain_guarded.rs:103",
@@ -528,6 +531,7 @@
       "title": "Trino backend becomes a ForeignSourceSpec source",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "42a0b101b111",
         "7b7d4a0fb10f",
         "c2dd4c98fe60"
       ],
@@ -540,7 +544,8 @@
       "title": "Spark job backend becomes a ForeignSourceSpec source",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "3a14159c3768"
+        "3a14159c3768",
+        "42a0b101b111"
       ],
       "verified_by": [
         "crates/eg-plan/src/federation_spark.rs:100",
@@ -555,7 +560,8 @@
       "title": "`MirrorTargetSpec::FanOut` is a typed, validated spec with registration refusal",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "3ddc77c97ef8"
+        "3ddc77c97ef8",
+        "42a0b101b111"
       ],
       "verified_by": [
         "crates/eg-plan/src/mirror_target.rs:138",
@@ -620,6 +626,7 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "3c618dd255ba",
+        "42a0b101b111",
         "6e52c9bcfb57",
         "d768ee483940"
       ],
@@ -637,6 +644,7 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "3c618dd255ba",
+        "42a0b101b111",
         "cd899a5c8c20"
       ],
       "verified_by": [
@@ -650,6 +658,7 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "3c618dd255ba",
+        "42a0b101b111",
         "cd899a5c8c20"
       ],
       "verified_by": [
@@ -717,6 +726,7 @@
       "title": "PrimaryKeyOperation and FastPathDecision are typed, and routing refuses rather than silently bypassing checks",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "19da6ec1bc9b",
         "49c43fca68d0"
       ],
       "verified_by": [
@@ -744,6 +754,7 @@
       "title": "HotStoreEngine, WorkloadProfile, and BenchmarkResult are typed, and winner selection refuses rather than silently defaulting",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "19da6ec1bc9b",
         "be3fad3f9840"
       ],
       "verified_by": [
@@ -772,6 +783,7 @@
       "title": "TransactionScope and CommitPath are typed, and a single-store scope structurally can never map to the cross-store commit path",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "19da6ec1bc9b",
         "5dc0a601b2cf"
       ],
       "verified_by": [
@@ -812,6 +824,7 @@
       "title": "MirrorSinkKind and MirrorCursor are typed, and the cursor refuses an empty-string position",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "19da6ec1bc9b",
         "d833c1d987a6"
       ],
       "verified_by": [
@@ -827,6 +840,7 @@
       "title": "PgOperationalSurface and a fail-closed PgCompatibilityMatrix are typed",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "19da6ec1bc9b",
         "de5f096bc0fd"
       ],
       "verified_by": [
@@ -869,6 +883,7 @@
       "title": "`DurabilityClass` is a typed enum with a declared loss-window bound and a refusal for an unrecognized name",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "19da6ec1bc9b",
         "2146c76bc6f8"
       ],
       "verified_by": [
@@ -884,6 +899,7 @@
       "title": "The write path's durability selection: `write_plan`/`refuse_if_durable_log_write` are the one entry point a write admission calls",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "19da6ec1bc9b",
         "1a1ef47cb448"
       ],
       "verified_by": [
@@ -899,6 +915,7 @@
       "title": "`WorkloadClass` is a typed classifier with a refusal for an unrecognized operation kind",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "19da6ec1bc9b",
         "4ed831ced92f"
       ],
       "verified_by": [
@@ -912,6 +929,7 @@
       "title": "`route` is the one dispatch entry point a wire listener calls to decide whether to allocate a DataFusion session",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "19da6ec1bc9b",
         "add3fe5b1d67"
       ],
       "verified_by": [
@@ -938,6 +956,7 @@
       "title": "Every in-memory structure and atomic primitive is typed and structurally declares redb as its sole durability authority",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "19da6ec1bc9b",
         "a7372171174e"
       ],
       "verified_by": [
@@ -978,6 +997,7 @@
       "title": "`PlanCacheKey`/`PlanCacheLookup` are a typed key and a pure lookup decision, refusing to reuse a plan whose schema version has gone stale",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "19da6ec1bc9b",
         "aaf7113fe427"
       ],
       "verified_by": [
@@ -993,6 +1013,7 @@
       "title": "`PlanCache::prepare` is the one entry point a SQL statement handler calls at prepare time",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "19da6ec1bc9b",
         "88496b615981"
       ],
       "verified_by": [
@@ -1005,6 +1026,7 @@
       "title": "PipelineBatch and BatchCommitDecision are typed, proving one admission maps to exactly one commit with order-preserving replies",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "19da6ec1bc9b",
         "726ee0a3eadf"
       ],
       "verified_by": [
@@ -1032,6 +1054,7 @@
       "title": "`BenchmarkClaim` is a typed report record that is only accepted as a superiority claim when published with its configuration and a passing result",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "19da6ec1bc9b",
         "9eac21608e67"
       ],
       "verified_by": [
@@ -1056,6 +1079,7 @@
       "title": "Upload cursor identifiers are never reused after a restart",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "19da6ec1bc9b",
         "1ef84395fa69",
         "b43f33569dd4"
       ],
@@ -1078,6 +1102,7 @@
       "title": "Polygon interior/touch predicates are correct for shared boundaries",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "19da6ec1bc9b",
         "1ef84395fa69",
         "b43f33569dd4"
       ],
@@ -1126,6 +1151,7 @@
       "title": "Blob garbage collection enforces a grace period before deletion",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "19da6ec1bc9b",
         "1ef84395fa69",
         "b43f33569dd4"
       ],

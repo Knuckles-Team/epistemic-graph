@@ -101,12 +101,15 @@
     "EG-UNIFIED-DATA-PLANE-R025.2.1",
     "EG-UNIFIED-DATA-PLANE-R025.3",
     "EG-UNIFIED-DATA-PLANE-R025.3.1",
+    "EG-UNIFIED-DATA-PLANE-R025.3.2",
     "EG-UNIFIED-DATA-PLANE-R026",
     "EG-UNIFIED-DATA-PLANE-R026.1",
     "EG-UNIFIED-DATA-PLANE-R026.2",
     "EG-UNIFIED-DATA-PLANE-R026.2.1",
+    "EG-UNIFIED-DATA-PLANE-R026.2.2",
     "EG-UNIFIED-DATA-PLANE-R026.3",
     "EG-UNIFIED-DATA-PLANE-R026.3.1",
+    "EG-UNIFIED-DATA-PLANE-R026.3.2",
     "EG-UNIFIED-DATA-PLANE-R027",
     "EG-UNIFIED-DATA-PLANE-R027.1",
     "EG-UNIFIED-DATA-PLANE-R027.2",
@@ -789,7 +792,8 @@
       "title": "Native MongoDB/DocumentDB driver connection and change-stream capture into ChangeEnvelope (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [
-        "04791f8c77de"
+        "04791f8c77de",
+        "c3b87d31ac11"
       ],
       "verified_by": [],
       "rollup_of": [
@@ -1204,7 +1208,7 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R025",
       "title": "Evaluate a pgrx companion extension through a spike",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "e265a52820f5"
       ],
@@ -1252,11 +1256,12 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R025.3",
       "title": "Review the spike's results and recorded decision; produce the approved ADR",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R025.3.1"
+        "EG-UNIFIED-DATA-PLANE-R025.3.1",
+        "EG-UNIFIED-DATA-PLANE-R025.3.2"
       ]
     },
     {
@@ -1275,9 +1280,16 @@
       ]
     },
     {
+      "id": "EG-UNIFIED-DATA-PLANE-R025.3.2",
+      "title": "File the approved pgrx ADR from the live spike results",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
       "id": "EG-UNIFIED-DATA-PLANE-R026",
       "title": "Run the Gramps native-hosting pilot phases P0 through P5",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "30af64b172d4"
       ],
@@ -1302,11 +1314,12 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R026.2",
       "title": "Run P0-P2 (baseline digest, Postgres control, unmodified corpus replay)",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R026.2.1"
+        "EG-UNIFIED-DATA-PLANE-R026.2.1",
+        "EG-UNIFIED-DATA-PLANE-R026.2.2"
       ]
     },
     {
@@ -1325,13 +1338,21 @@
       ]
     },
     {
+      "id": "EG-UNIFIED-DATA-PLANE-R026.2.2",
+      "title": "Run P0-P2 live: real baseline capture, Postgres control, unmodified corpus replay",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
       "id": "EG-UNIFIED-DATA-PLANE-R026.3",
       "title": "Run P3-P5 (proven-gap fixes, restore verification, schema-understanding demonstration)",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R026.3.1"
+        "EG-UNIFIED-DATA-PLANE-R026.3.1",
+        "EG-UNIFIED-DATA-PLANE-R026.3.2"
       ]
     },
     {
@@ -1348,6 +1369,13 @@
         "crates/eg-types/src/gramps_gap_fix.rs:138",
         "crates/eg-types/src/gramps_gap_fix.rs:148"
       ]
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R026.3.2",
+      "title": "Run P4-P5 live: restore verification and the schema-understanding demonstration",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R027",
