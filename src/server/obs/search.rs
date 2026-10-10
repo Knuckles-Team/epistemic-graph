@@ -359,6 +359,7 @@ mod tests {
     /// EH-387: log search hands caller SQL to the graph-free path, which refuses
     /// anything but one read statement — including DataFusion's server-side file read.
     /// A plain SELECT over the same ingested logs still answers.
+    // spec: EG-FEDERATED-QUERY-R015
     #[test]
     fn search_sql_refuses_everything_but_a_single_read() {
         let obs = ObsState::in_memory(1000).unwrap();
