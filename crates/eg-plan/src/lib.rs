@@ -149,6 +149,10 @@ pub mod runtime;
 // `nl-query` feature which IMPLIES `query`; the concrete `UreqNlPlanner` inside is
 // additionally gated on `nl-query` (it pulls the shared `ureq` rustls client). Kept OUT
 // of pi.
+/// ClickHouse attached-source driver config + connect/refusal path
+/// (EG-UNIFIED-DATA-PLANE-R017.2.1). Pure `std`, always compiled: no heavy HTTP/native
+/// client dependency is needed until the live slice (`R017.2.2`) issues real requests.
+pub mod clickhouse_connection;
 #[cfg(feature = "nl-query")]
 pub mod nl;
 // The federation foreign-source seam (CONCEPT:EG-KG.query.query-federation) — the `ForeignSource` trait +
