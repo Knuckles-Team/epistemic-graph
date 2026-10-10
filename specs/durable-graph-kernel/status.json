@@ -104,7 +104,18 @@
     "EG-DURABLE-KERNEL-R067",
     "EG-DURABLE-KERNEL-R068",
     "EG-DURABLE-KERNEL-R069",
-    "EG-DURABLE-KERNEL-R070"
+    "EG-DURABLE-KERNEL-R070",
+    "EG-DURABLE-KERNEL-R071",
+    "EG-DURABLE-KERNEL-R072",
+    "EG-DURABLE-KERNEL-R073",
+    "EG-DURABLE-KERNEL-R074",
+    "EG-DURABLE-KERNEL-R075",
+    "EG-DURABLE-KERNEL-R076",
+    "EG-DURABLE-KERNEL-R077",
+    "EG-DURABLE-KERNEL-R078",
+    "EG-DURABLE-KERNEL-R079",
+    "EG-DURABLE-KERNEL-R080",
+    "EG-DURABLE-KERNEL-R081"
   ],
   "requirements": [
     {
@@ -1419,6 +1430,83 @@
       "landed_in": [
         "8dbb5bd9de53"
       ],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R071",
+      "title": "Typed durable task-queue model (enqueue/claim/ack) with refusal tests",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R072",
+      "title": "Served task-queue RPC over the durable outbox",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R073",
+      "title": "Generated client method for the task queue",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R074",
+      "title": "Served worker registry",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R075",
+      "title": "Reserved-worker admission decision",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R076",
+      "title": "Scheduler config and lane floors",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R077",
+      "title": "Shard-writer width served by the scheduler surface",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R078",
+      "title": "Bitemporal stamping served method",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R079",
+      "title": "Served as-of filtering",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R080",
+      "title": "Served supersession",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R081",
+      "title": "Generated client methods for bitemporal operations",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     }
   ]

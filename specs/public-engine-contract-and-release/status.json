@@ -2,7 +2,7 @@
   "schema_version": 2,
   "spec_id": "EG-CONTRACT-001",
   "owner_repo": "epistemic-graph",
-  "delivery_state": "LANDED",
+  "delivery_state": "SPECIFIED",
   "requirement_ids": [
     "EG-CONTRACT-R001",
     "EG-CONTRACT-R002",
@@ -59,7 +59,9 @@
     "EG-CONTRACT-R046",
     "EG-CONTRACT-R047",
     "EG-CONTRACT-R048",
-    "EG-CONTRACT-R049"
+    "EG-CONTRACT-R049",
+    "EG-CONTRACT-R050",
+    "EG-CONTRACT-R051"
   ],
   "requirements": [
     {
@@ -710,6 +712,20 @@
         "tests/test_cypher_read_retry.py:41",
         "tests/test_cypher_read_retry.py:49"
       ]
+    },
+    {
+      "id": "EG-CONTRACT-R050",
+      "title": "Generated client ingests OTLP logs",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONTRACT-R051",
+      "title": "Generated client ingests RunTrace",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     }
   ]
 }

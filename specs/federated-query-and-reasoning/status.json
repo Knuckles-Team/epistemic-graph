@@ -87,7 +87,10 @@
     "EG-FEDERATED-QUERY-R072",
     "EG-FEDERATED-QUERY-R072.1",
     "EG-FEDERATED-QUERY-R073",
-    "EG-FEDERATED-QUERY-R073.1"
+    "EG-FEDERATED-QUERY-R073.1",
+    "EG-FEDERATED-QUERY-R074",
+    "EG-FEDERATED-QUERY-R075",
+    "EG-FEDERATED-QUERY-R076"
   ],
   "requirements": [
     {
@@ -1095,6 +1098,27 @@
         "crates/eg-plan/src/federation_opt/budget.rs:156",
         "crates/eg-plan/src/federation_opt/budget.rs:173"
       ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R074",
+      "title": "Served `select_topology` reasoning-policy op",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R075",
+      "title": "Generated client method for `select_topology`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R076",
+      "title": "Canonical ontology hash for a Turtle payload",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     }
   ]
 }
