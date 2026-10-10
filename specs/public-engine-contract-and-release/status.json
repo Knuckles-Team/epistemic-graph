@@ -2,7 +2,7 @@
   "schema_version": 2,
   "spec_id": "EG-CONTRACT-001",
   "owner_repo": "epistemic-graph",
-  "delivery_state": "SPECIFIED",
+  "delivery_state": "LANDED",
   "requirement_ids": [
     "EG-CONTRACT-R001",
     "EG-CONTRACT-R002",
@@ -701,9 +701,15 @@
     {
       "id": "EG-CONTRACT-R049",
       "title": "The Python client retries an idempotent read once on a dropped connection",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "6bfd47cbcebc"
+      ],
+      "verified_by": [
+        "tests/test_cypher_read_retry.py:34",
+        "tests/test_cypher_read_retry.py:41",
+        "tests/test_cypher_read_retry.py:49"
+      ]
     }
   ]
 }
