@@ -89,6 +89,7 @@ mod tests {
         }
     }
 
+    // spec: EG-DURABLE-KERNEL-R024.8
     #[test]
     fn well_formed_spec_is_refused_not_silently_accepted() {
         let mut registry = ForeignSourceRegistry::default();
@@ -96,6 +97,7 @@ mod tests {
         assert!(err.contains("no bound artifact-store driver"), "{err}");
     }
 
+    // spec: EG-DURABLE-KERNEL-R024.8
     #[test]
     fn caller_provided_path_without_the_artifact_scheme_is_rejected() {
         let mut registry = ForeignSourceRegistry::default();
@@ -107,6 +109,7 @@ mod tests {
         assert!(err.contains("must start with"), "{err}");
     }
 
+    // spec: EG-DURABLE-KERNEL-R024.8
     #[test]
     fn empty_artifact_id_after_the_scheme_is_rejected() {
         let mut registry = ForeignSourceRegistry::default();
@@ -118,6 +121,7 @@ mod tests {
         assert!(err.contains("empty artifact id"), "{err}");
     }
 
+    // spec: EG-DURABLE-KERNEL-R024.8
     #[test]
     fn score_field_matching_id_field_is_rejected() {
         let mut registry = ForeignSourceRegistry::default();
@@ -134,6 +138,7 @@ mod tests {
         assert!(err.contains("must differ"), "{err}");
     }
 
+    // spec: EG-DURABLE-KERNEL-R024.8
     #[test]
     fn wrong_spec_variant_is_rejected() {
         let mut registry = ForeignSourceRegistry::default();

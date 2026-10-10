@@ -407,17 +407,21 @@
     {
       "id": "EG-DURABLE-KERNEL-R024.1",
       "title": "PostgreSQL/AGE backend becomes a ForeignSourceSpec source",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "7b7d4a0fb10f",
         "c2dd4c98fe60"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-plan/src/federation_age.rs:219",
+        "crates/eg-plan/src/federation_age.rs:249",
+        "crates/eg-plan/src/federation_age.rs:267"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R024.2",
       "title": "The fan-out backend becomes a `MirrorTargetSpec` federation mirror target",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "3ddc77c97ef8",
         "7a8f87ca8484"
@@ -449,48 +453,71 @@
     {
       "id": "EG-DURABLE-KERNEL-R024.5",
       "title": "Outbox-based mirror becomes a `MirrorTargetSpec` mirror target",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "3a14159c3768"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-plan/src/mirror_target.rs:261",
+        "crates/eg-plan/src/mirror_target.rs:271",
+        "crates/eg-plan/src/mirror_target.rs:282",
+        "crates/eg-plan/src/mirror_target.rs:292"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R024.6",
       "title": "Brain-guarded backend becomes a ForeignSourceSpec source",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "3a14159c3768"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-plan/src/federation_brain_guarded.rs:103",
+        "crates/eg-plan/src/federation_brain_guarded.rs:115",
+        "crates/eg-plan/src/federation_brain_guarded.rs:132",
+        "crates/eg-plan/src/federation_brain_guarded.rs:95"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R024.7",
       "title": "Trino backend becomes a ForeignSourceSpec source",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "7b7d4a0fb10f",
         "c2dd4c98fe60"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-plan/src/federation_trino.rs:335"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R024.8",
       "title": "Spark job backend becomes a ForeignSourceSpec source",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "3a14159c3768"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-plan/src/federation_spark.rs:100",
+        "crates/eg-plan/src/federation_spark.rs:112",
+        "crates/eg-plan/src/federation_spark.rs:124",
+        "crates/eg-plan/src/federation_spark.rs:141",
+        "crates/eg-plan/src/federation_spark.rs:92"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R024.2.1",
       "title": "`MirrorTargetSpec::FanOut` is a typed, validated spec with registration refusal",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "3ddc77c97ef8"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-plan/src/mirror_target.rs:138",
+        "crates/eg-plan/src/mirror_target.rs:148",
+        "crates/eg-plan/src/mirror_target.rs:159",
+        "crates/eg-plan/src/mirror_target.rs:169"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R024.2.2",
@@ -501,9 +528,9 @@
         "9a7674d1bae5"
       ],
       "verified_by": [
-        "crates/eg-plan/src/mirror_target.rs:176",
-        "crates/eg-plan/src/mirror_target.rs:185",
-        "crates/eg-plan/src/mirror_target.rs:203"
+        "crates/eg-plan/src/mirror_target.rs:180",
+        "crates/eg-plan/src/mirror_target.rs:189",
+        "crates/eg-plan/src/mirror_target.rs:207"
       ]
     },
     {
@@ -529,7 +556,7 @@
     {
       "id": "EG-DURABLE-KERNEL-R027",
       "title": "Schema repair uses a reserved two-person approval lease (rollup)",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "3c618dd255ba",
         "a676823d2b54",
@@ -545,33 +572,44 @@
     {
       "id": "EG-DURABLE-KERNEL-R027.1",
       "title": "Governed-change model types",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "3c618dd255ba",
         "6e52c9bcfb57",
         "d768ee483940"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/control_lease/tests.rs:171",
+        "crates/eg-types/src/governed_change/tests.rs:110",
+        "crates/eg-types/src/governed_change/tests.rs:148",
+        "crates/eg-types/src/governed_change/tests.rs:54",
+        "crates/eg-types/src/governed_change/tests.rs:77"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R027.2",
       "title": "Governed-change dispatch wiring",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "3c618dd255ba",
         "cd899a5c8c20"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/dispatch/governed/tests.rs:109",
+        "src/server/dispatch/governed/tests.rs:59"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R027.3",
       "title": "Governed-change raft catalog registration",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "3c618dd255ba",
         "cd899a5c8c20"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/raft/command/native/tests.rs:279"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R028",
