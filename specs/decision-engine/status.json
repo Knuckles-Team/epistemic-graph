@@ -5,6 +5,8 @@
   "delivery_state": "SPECIFIED",
   "requirement_ids": [
     "EG-DECISION-ENGINE-R001",
+    "EG-DECISION-ENGINE-R001.1",
+    "EG-DECISION-ENGINE-R001.2",
     "EG-DECISION-ENGINE-R002",
     "EG-DECISION-ENGINE-R003",
     "EG-DECISION-ENGINE-R004",
@@ -40,13 +42,19 @@
     "EG-DECISION-ENGINE-R030",
     "EG-DECISION-ENGINE-R031",
     "EG-DECISION-ENGINE-R032",
+    "EG-DECISION-ENGINE-R032.1",
+    "EG-DECISION-ENGINE-R032.2",
     "EG-DECISION-ENGINE-R033",
+    "EG-DECISION-ENGINE-R033.1",
+    "EG-DECISION-ENGINE-R033.2",
     "EG-DECISION-ENGINE-R034",
     "EG-DECISION-ENGINE-R035",
     "EG-DECISION-ENGINE-R036",
     "EG-DECISION-ENGINE-R037",
     "EG-DECISION-ENGINE-R038",
     "EG-DECISION-ENGINE-R039",
+    "EG-DECISION-ENGINE-R039.1",
+    "EG-DECISION-ENGINE-R039.2",
     "EG-DECISION-ENGINE-R040",
     "EG-DECISION-ENGINE-R041",
     "EG-DECISION-ENGINE-R042",
@@ -170,12 +178,30 @@
   "requirements": [
     {
       "id": "EG-DECISION-ENGINE-R001",
-      "title": "Typed decision ladder with explicit resolution kinds",
-      "delivery_state": "LANDED",
+      "title": "Typed decision ladder with explicit resolution kinds (rollup)",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "52f333ca756e",
         "a4804f87c971"
       ],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R001.1",
+        "EG-DECISION-ENGINE-R001.2"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R001.1",
+      "title": "`ResolutionKind` is typed with all five variants; the production chokepoint emits Optimization, Statistical, and Abstention",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R001.2",
+      "title": "Remaining scope: production Constraint and Entailment resolution paths",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {
@@ -624,22 +650,58 @@
     },
     {
       "id": "EG-DECISION-ENGINE-R032",
-      "title": "Entity-resolution candidates with conformal guarantees",
-      "delivery_state": "LANDED",
+      "title": "Entity-resolution candidates with conformal guarantees (rollup)",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "a1bb9fb9503e",
         "fa780d3e101a"
       ],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R032.1",
+        "EG-DECISION-ENGINE-R032.2"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R032.1",
+      "title": "`QuestionKind::ResolveEntity` is declared",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R032.2",
+      "title": "Remaining scope: ResolveEntity decision path with conformal guarantee",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-DECISION-ENGINE-R033",
-      "title": "Decision-based schema mapping for SQL sources",
-      "delivery_state": "LANDED",
+      "title": "Decision-based schema mapping for SQL sources (rollup)",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "a1bb9fb9503e",
         "fa780d3e101a"
       ],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R033.1",
+        "EG-DECISION-ENGINE-R033.2"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R033.1",
+      "title": "`QuestionKind::SchemaMapping` is declared",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R033.2",
+      "title": "Remaining scope: SchemaMapping decision path for SQL ingestion",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {
@@ -705,12 +767,30 @@
     },
     {
       "id": "EG-DECISION-ENGINE-R039",
-      "title": "Cost-aware routing using accounting data",
-      "delivery_state": "LANDED",
+      "title": "Cost-aware routing using accounting data (rollup)",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "0cbda8f2af96",
         "fa780d3e101a"
       ],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R039.1",
+        "EG-DECISION-ENGINE-R039.2"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R039.1",
+      "title": "Routing abstains naming the fact when L5 accounting data is missing",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R039.2",
+      "title": "Remaining scope: cost-preference ranking when accounting data is present",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {
