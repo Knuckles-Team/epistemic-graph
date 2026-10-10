@@ -342,6 +342,7 @@ fn bounded_memory_large_blob_group_commit() {
 }
 
 // spec: EG-DECISION-ENGINE-R097
+// spec: EG-DURABLE-KERNEL-R050
 #[test]
 fn an_unreferenced_committed_blob_survives_until_its_grace_has_passed() {
     // A blob that was committed but not yet referenced is inside the window
@@ -613,6 +614,7 @@ fn a_cursor_id_names_exactly_one_upload_for_the_life_of_the_store() {
 /// allocator seeded from it (see `mod.rs`'s
 /// `a_fresh_allocator_over_a_restarted_store_never_proposes_a_used_id`) never
 /// proposes an id a prior process ever began.
+// spec: EG-DURABLE-KERNEL-R044
 #[test]
 fn the_upload_cursor_high_water_mark_survives_a_restart() {
     let dir = tempfile::tempdir().unwrap();

@@ -94,6 +94,7 @@ impl std::error::Error for UnclassifiedOperation {}
 mod tests {
     use super::*;
 
+    // spec: EG-DURABLE-KERNEL-R037.1
     #[test]
     fn point_and_structure_operations_bypass_the_sql_planner() {
         for kind in ["get", "set", "incrby", "cas", "del", "expire"] {
@@ -106,12 +107,14 @@ mod tests {
         assert!(WorkloadClass::Structure.bypasses_sql_planner());
     }
 
+    // spec: EG-DURABLE-KERNEL-R037.1
     #[test]
     fn sql_routes_to_the_planner() {
         assert_eq!(WorkloadClass::classify("sql"), Ok(WorkloadClass::Sql));
         assert!(!WorkloadClass::Sql.bypasses_sql_planner());
     }
 
+    // spec: EG-DURABLE-KERNEL-R037.1
     #[test]
     fn unrecognized_operation_kind_is_refused_not_defaulted() {
         for bad in ["GET", "scan", "", "select"] {
@@ -120,6 +123,7 @@ mod tests {
         }
     }
 
+    // spec: EG-DURABLE-KERNEL-R037.2
     #[test]
     fn dispatch_route_never_allocates_a_datafusion_session_for_point_or_structure() {
         for kind in ["get", "set", "hash", "list"] {
@@ -129,6 +133,7 @@ mod tests {
         }
     }
 
+    // spec: EG-DURABLE-KERNEL-R037.2
     #[test]
     fn dispatch_route_allocates_a_datafusion_session_for_sql() {
         let decision = route("sql").unwrap();
@@ -136,6 +141,7 @@ mod tests {
         assert_eq!(decision.class, WorkloadClass::Sql);
     }
 
+    // spec: EG-DURABLE-KERNEL-R037.2
     #[test]
     fn dispatch_route_propagates_the_classifier_refusal() {
         assert!(route("unknown-op").is_err());

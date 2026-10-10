@@ -799,6 +799,7 @@ mod tests {
         ]
     }
 
+    // spec: EG-DURABLE-KERNEL-R046
     #[test]
     fn identical_polygons_contain_each_other_and_do_not_touch() {
         // Same ring, and the same ring in the opposite winding: no vertex is strictly
@@ -811,6 +812,7 @@ mod tests {
         assert_eq!(areal_relations(&reversed, &a), equal);
     }
 
+    // spec: EG-DURABLE-KERNEL-R046
     #[test]
     fn coincident_edges_with_shared_interior_are_not_touches() {
         let a = square(); // 0,0 → 4,4
@@ -863,6 +865,7 @@ mod tests {
         );
     }
 
+    // spec: EG-DURABLE-KERNEL-R046
     #[test]
     fn shared_boundary_with_interiors_on_opposite_sides_still_touches() {
         // A polygon exactly filling another's hole shares the whole hole ring, with the

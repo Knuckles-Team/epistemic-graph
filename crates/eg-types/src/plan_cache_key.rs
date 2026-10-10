@@ -139,6 +139,7 @@ mod tests {
         PlanCacheKey::new(Digest256::sha256(statement), schema_version)
     }
 
+    // spec: EG-DURABLE-KERNEL-R041.1
     #[test]
     fn repeated_statement_same_schema_is_a_hit() {
         let requested = key(b"SELECT 1", 7);
@@ -146,12 +147,14 @@ mod tests {
         assert_eq!(lookup(&requested, Some(&cached)), PlanCacheLookup::Hit);
     }
 
+    // spec: EG-DURABLE-KERNEL-R041.1
     #[test]
     fn nothing_cached_is_a_miss() {
         let requested = key(b"SELECT 1", 7);
         assert_eq!(lookup(&requested, None), PlanCacheLookup::Miss);
     }
 
+    // spec: EG-DURABLE-KERNEL-R041.1
     #[test]
     fn schema_version_advance_invalidates_the_cached_plan() {
         let requested = key(b"SELECT 1", 8);
@@ -164,6 +167,7 @@ mod tests {
         );
     }
 
+    // spec: EG-DURABLE-KERNEL-R041.1
     #[test]
     fn a_candidate_for_a_different_statement_is_never_reused() {
         let requested = key(b"SELECT 1", 7);
@@ -171,12 +175,14 @@ mod tests {
         assert_eq!(lookup(&requested, Some(&cached)), PlanCacheLookup::Miss);
     }
 
+    // spec: EG-DURABLE-KERNEL-R041.1
     #[test]
     fn key_is_deterministic_across_separate_digest_computations() {
         assert_eq!(key(b"SELECT 1", 7), key(b"SELECT 1", 7));
         assert_ne!(key(b"SELECT 1", 7), key(b"SELECT 1", 8));
     }
 
+    // spec: EG-DURABLE-KERNEL-R041.2
     #[test]
     fn prepare_compiles_once_then_reuses_the_cached_plan() {
         let mut cache: PlanCache<u32> = PlanCache::new();
@@ -198,6 +204,7 @@ mod tests {
         assert_eq!(cache.len(), 1);
     }
 
+    // spec: EG-DURABLE-KERNEL-R041.2
     #[test]
     fn prepare_recompiles_after_the_schema_version_advances() {
         let mut cache: PlanCache<u32> = PlanCache::new();

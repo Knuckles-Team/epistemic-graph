@@ -75,6 +75,7 @@ pub fn admit(batch: &PipelineBatch) -> BatchCommitDecision {
 mod tests {
     use super::*;
 
+    // spec: EG-DURABLE-KERNEL-R040.1
     #[test]
     fn protocols_round_trip_through_their_wire_name() {
         for (protocol, name) in [
@@ -88,6 +89,7 @@ mod tests {
         }
     }
 
+    // spec: EG-DURABLE-KERNEL-R040.1
     #[test]
     fn empty_batch_is_refused_for_both_protocols() {
         for protocol in [PipelineProtocol::Resp, PipelineProtocol::PgwireExtended] {
@@ -96,6 +98,7 @@ mod tests {
         }
     }
 
+    // spec: EG-DURABLE-KERNEL-R040.1
     #[test]
     fn non_empty_batch_constructs_successfully() {
         let batch = PipelineBatch::new(
@@ -106,6 +109,7 @@ mod tests {
         assert_eq!(batch.request_ids.len(), 2);
     }
 
+    // spec: EG-DURABLE-KERNEL-R040.1
     #[test]
     fn admitting_a_batch_reports_exact_count_and_preserves_order() {
         let ids = vec!["a".to_string(), "b".to_string(), "c".to_string()];
