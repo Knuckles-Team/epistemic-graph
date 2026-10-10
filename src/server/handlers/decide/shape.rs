@@ -131,6 +131,7 @@ mod tests {
     }
 
     /// The gate catches a known-bad input: a winner outside the options.
+    // spec: EG-DECISION-ENGINE-R069
     #[test]
     fn a_winner_outside_the_candidates_is_refused() {
         let mut record = solved();
