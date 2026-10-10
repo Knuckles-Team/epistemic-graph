@@ -124,6 +124,7 @@ async fn the_worker_consumes_an_import_and_the_operator_can_rewind_it() {
     );
 }
 
+// spec: EG-TYPED-PACKS-R009
 #[tokio::test]
 async fn a_pack_without_schema_is_visible_at_once_and_one_with_schema_after_projection() {
     let served = Served::new();

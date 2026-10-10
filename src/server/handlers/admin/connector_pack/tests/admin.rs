@@ -24,6 +24,53 @@ fn rejected_codes(result: PackImportResult) -> Vec<PackViolationCode> {
     }
 }
 
+/// R015: an environment-configured importer is honored only as the initial
+/// bootstrap default, before any administrator binds one; once an admin
+/// `Bind` names a different importer, the binding governs even though the
+/// environment value is still configured and still names the principal that
+/// imported successfully a moment ago.
+// spec: EG-TYPED-PACKS-R015
+#[tokio::test]
+async fn an_environment_importer_is_a_bootstrap_default_superseded_by_an_admin_bind() {
+    const ENV_VAR: &str = "EPISTEMIC_GRAPH_CONNECTOR_PACK_IMPORTERS";
+    const ENV_CONNECTOR: &str = "pack-admin-env-bootstrap";
+
+    struct RestoreEnv(Option<std::ffi::OsString>);
+    impl Drop for RestoreEnv {
+        fn drop(&mut self) {
+            match self.0.take() {
+                Some(previous) => std::env::set_var(ENV_VAR, previous),
+                None => std::env::remove_var(ENV_VAR),
+            }
+        }
+    }
+
+    let _env_lock = crate::crypto::acquire_test_env_lock().await;
+    let _restore = RestoreEnv(std::env::var_os(ENV_VAR));
+    std::env::set_var(
+        ENV_VAR,
+        format!("{ENV_CONNECTOR}={}", super::persistence_id(ADMIN)),
+    );
+
+    let served = Served::new();
+    let pack = build_pack(ENV_CONNECTOR, &[tool(ENV_CONNECTOR, "a", "Tool a.")]);
+
+    // No admin Bind yet for this connector: the environment-configured
+    // importer is honored as the bootstrap default, so the admin principal
+    // it names may import.
+    imported(&served, &pack, None).await;
+
+    // An administrator now binds a DIFFERENT importer. From here the admin
+    // binding governs pack admission; the environment value stays
+    // configured (still naming the admin principal) but no longer applies.
+    bind(&served, ENV_CONNECTOR, "someone-else").await;
+    assert_eq!(
+        rejected_codes(ok("Import", import(&served, &pack, None).await)),
+        [PackViolationCode::ImporterMismatch],
+        "an admin Bind supersedes the environment bootstrap default"
+    );
+}
+
 #[tokio::test]
 async fn only_the_bound_importer_may_import() {
     let served = Served::new();

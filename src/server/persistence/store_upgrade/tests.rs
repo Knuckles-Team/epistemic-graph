@@ -421,6 +421,7 @@ fn apply_stops_at_the_first_failure_and_touches_no_later_store() {
     );
 }
 
+// spec: EG-TYPED-PACKS-R011
 #[test]
 fn the_server_refuses_an_upgradable_store_and_names_the_command() {
     let dir = data_dir();

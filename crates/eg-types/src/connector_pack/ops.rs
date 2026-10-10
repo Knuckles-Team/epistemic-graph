@@ -235,3 +235,37 @@ impl ConnectorPackOp {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::ConnectorPackOp;
+
+    /// R010: pack admission is a single atomic `Import`, not a staged
+    /// prepare/commit/abort protocol -- there is no such wire variant to
+    /// even reach a handler, because `ConnectorPackOp` is `#[serde(tag =
+    /// "op", rename_all = "snake_case", deny_unknown_fields)]` and lists no
+    /// `Prepare`/`Commit`/`Abort` case. A request naming one of those `op`
+    /// values is refused at deserialization, before any admission logic runs.
+    // spec: EG-TYPED-PACKS-R010
+    #[test]
+    fn pack_admission_exposes_only_import_with_no_staged_protocol_variant() {
+        for staged_op in ["prepare", "commit", "abort"] {
+            let wire = serde_json::json!({ "op": staged_op, "request": {} });
+            let error = serde_json::from_value::<ConnectorPackOp>(wire)
+                .expect_err("no Prepare/Commit/Abort variant exists for pack admission");
+            assert!(
+                error.to_string().contains("unknown variant"),
+                "op {staged_op:?} must be refused as an unknown variant, got: {error}"
+            );
+        }
+        // "import" at least names a real variant (its request shape is
+        // covered by the served admission tests, not by this wire check).
+        let unknown_but_real = serde_json::json!({ "op": "import", "request": {} });
+        let error = serde_json::from_value::<ConnectorPackOp>(unknown_but_real)
+            .expect_err("an empty request body is still missing required fields");
+        assert!(
+            !error.to_string().contains("unknown variant"),
+            "import IS a real pack-admission variant, got: {error}"
+        );
+    }
+}

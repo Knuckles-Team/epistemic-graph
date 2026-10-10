@@ -539,6 +539,7 @@ async fn four_tools_imported() -> (
     (served, tools, first)
 }
 
+// spec: EG-TYPED-PACKS-R014
 #[tokio::test]
 async fn an_absent_entry_is_withdrawn_and_returns_under_the_same_id() {
     let (served, tools, first) = four_tools_imported().await;
