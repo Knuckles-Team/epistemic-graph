@@ -11210,12 +11210,15 @@ class QueryClient:
         ``Raw`` payload the transport already double-unpacks); each row blob is a
         list of cell values aligned to ``columns``.
         """
-        result = (
-            await _gen.query.send_cypher_query(
-                self._client, {"query": query, "mode": "read"}
-            )
-        ).payload
-        return self._rows_to_dicts(result)
+        request = {"query": query, "mode": "read"}
+        try:
+            response = await _gen.query.send_cypher_query(self._client, request)
+        except ConnectionError:
+            # EG-CONTRACT-R049: a read is idempotent, so replay it exactly once
+            # on a dropped connection (the next call re-dials). A second drop
+            # propagates. Writes (``cypher_write``) never retry.
+            response = await _gen.query.send_cypher_query(self._client, request)
+        return self._rows_to_dicts(response.payload)
 
     async def cypher_write(self, query: str) -> list[dict[str, Any]]:
         """Execute an explicitly authorized Cypher mutation.
