@@ -80,10 +80,13 @@
     "EG-UNIFIED-DATA-PLANE-R024",
     "EG-UNIFIED-DATA-PLANE-R024.1",
     "EG-UNIFIED-DATA-PLANE-R024.2",
+    "EG-UNIFIED-DATA-PLANE-R024.2.1",
     "EG-UNIFIED-DATA-PLANE-R024.3",
+    "EG-UNIFIED-DATA-PLANE-R024.3.1",
     "EG-UNIFIED-DATA-PLANE-R025",
     "EG-UNIFIED-DATA-PLANE-R025.1",
     "EG-UNIFIED-DATA-PLANE-R025.2",
+    "EG-UNIFIED-DATA-PLANE-R025.2.1",
     "EG-UNIFIED-DATA-PLANE-R025.3",
     "EG-UNIFIED-DATA-PLANE-R026",
     "EG-UNIFIED-DATA-PLANE-R026.1",
@@ -973,11 +976,31 @@
       "title": "Admission runner and tested rollback path per candidate application",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-UNIFIED-DATA-PLANE-R024.2.1"
+      ]
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R024.2.1",
+      "title": "`AdmissionRunner` drives `ApplicationAdmission` against a pluggable `PriorIngestConnector`, with a tested rollback path",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R024.3",
       "title": "Per-application admission test confirming rollback and that the retired connector no longer writes",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-UNIFIED-DATA-PLANE-R024.3.1"
+      ]
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R024.3.1",
+      "title": "One fake-connector admission test per candidate application, confirming rollback and that the retired connector no longer writes",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -1008,6 +1031,16 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R025.2",
       "title": "Run the spike across its declared scope areas",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-UNIFIED-DATA-PLANE-R025.2.1"
+      ]
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R025.2.1",
+      "title": "`run_spike` assembles a `PgrxSpikeDecision` from one evidence source per declared area, deferring to the typed model's full-scope refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

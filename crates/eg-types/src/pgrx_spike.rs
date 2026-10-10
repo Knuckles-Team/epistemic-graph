@@ -2,8 +2,12 @@
 //! (EG-UNIFIED-DATA-PLANE-R025): the spike's declared evaluation scope and
 //! its recorded decision. This is the typed-model slice (`.1`): the closed
 //! scope-area vocabulary and the refusal for a decision recorded without
-//! evidence for every declared area. Running the spike itself and the
-//! architecture-decision-record review are later children.
+//! evidence for every declared area. `.2.1` adds the spike runner that
+//! assembles a decision from one evidence source per declared area, driven
+//! against fake evaluators so collecting the runner's coverage needs no
+//! live pgrx extension or Postgres instance. Running the real spike inside
+//! pgrx/Postgres and the architecture-decision-record review remain later
+//! children.
 
 use std::collections::BTreeSet;
 
@@ -89,9 +93,69 @@ impl PgrxSpikeDecision {
     }
 }
 
+/// Evaluates one declared pgrx spike scope area and reports its evidence.
+/// Abstracted as a trait so the spike runner is unit-tested against fake
+/// evaluators, with no live pgrx extension or Postgres instance required.
+pub trait PgrxSpikeAreaEvaluator {
+    /// The scope area this evaluator covers.
+    fn area(&self) -> PgrxSpikeArea;
+    /// The finding this evaluator produced for its area.
+    fn evaluate(&self) -> String;
+}
+
+/// Run the spike across every evaluator supplied, then record the given
+/// outcome. This is the runner slice (`EG-UNIFIED-DATA-PLANE-R025.2.1`):
+/// it assembles a `PgrxSpikeDecision` from one evidence source per area and
+/// defers to `PgrxSpikeDecision::validate` for the full-scope refusal, so a
+/// caller supplying evaluators for fewer than all declared areas gets the
+/// same named-missing-area error as a hand-built decision would.
+pub fn run_spike(
+    evaluators: &[&dyn PgrxSpikeAreaEvaluator],
+    outcome: Option<PgrxSpikeOutcome>,
+) -> Result<PgrxSpikeDecision, InvalidPgrxDecision> {
+    let decision = PgrxSpikeDecision {
+        evidence: evaluators
+            .iter()
+            .map(|evaluator| PgrxSpikeEvidence {
+                area: evaluator.area(),
+                finding: evaluator.evaluate(),
+            })
+            .collect(),
+        outcome,
+    };
+    decision.validate().map(|_| decision)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A fake area evaluator: returns a fixed finding for a fixed area, so
+    /// spike-runner tests need no live pgrx extension or Postgres instance.
+    struct FakeEvaluator {
+        area: PgrxSpikeArea,
+        finding: &'static str,
+    }
+
+    impl PgrxSpikeAreaEvaluator for FakeEvaluator {
+        fn area(&self) -> PgrxSpikeArea {
+            self.area
+        }
+
+        fn evaluate(&self) -> String {
+            self.finding.to_string()
+        }
+    }
+
+    fn fake_evaluators() -> Vec<FakeEvaluator> {
+        PgrxSpikeArea::ALL
+            .into_iter()
+            .map(|area| FakeEvaluator {
+                area,
+                finding: "evaluated by fake evaluator",
+            })
+            .collect()
+    }
 
     fn evidence(area: PgrxSpikeArea) -> PgrxSpikeEvidence {
         PgrxSpikeEvidence {
@@ -155,5 +219,47 @@ mod tests {
         let encoded = serde_json::to_string(&decision).unwrap();
         let decoded: PgrxSpikeDecision = serde_json::from_str(&encoded).unwrap();
         assert_eq!(decoded, decision);
+    }
+
+    // spec: EG-UNIFIED-DATA-PLANE-R025.2.1
+    #[test]
+    fn run_spike_assembles_a_valid_decision_from_every_declared_area() {
+        let evaluators = fake_evaluators();
+        let refs: Vec<&dyn PgrxSpikeAreaEvaluator> = evaluators
+            .iter()
+            .map(|e| e as &dyn PgrxSpikeAreaEvaluator)
+            .collect();
+        let decision = run_spike(&refs, Some(PgrxSpikeOutcome::Go)).unwrap();
+        assert_eq!(decision.evidence.len(), PgrxSpikeArea::ALL.len());
+        assert_eq!(decision.validate(), Ok(PgrxSpikeOutcome::Go));
+    }
+
+    // spec: EG-UNIFIED-DATA-PLANE-R025.2.1
+    #[test]
+    fn run_spike_refuses_a_decision_missing_an_area() {
+        let evaluators = fake_evaluators();
+        let refs: Vec<&dyn PgrxSpikeAreaEvaluator> = evaluators[..evaluators.len() - 1]
+            .iter()
+            .map(|e| e as &dyn PgrxSpikeAreaEvaluator)
+            .collect();
+        let err = run_spike(&refs, Some(PgrxSpikeOutcome::Go)).unwrap_err();
+        assert_eq!(
+            err,
+            InvalidPgrxDecision::MissingAreas(vec![PgrxSpikeArea::WaitForPositionHelper])
+        );
+    }
+
+    // spec: EG-UNIFIED-DATA-PLANE-R025.2.1
+    #[test]
+    fn run_spike_refuses_a_decision_with_no_outcome() {
+        let evaluators = fake_evaluators();
+        let refs: Vec<&dyn PgrxSpikeAreaEvaluator> = evaluators
+            .iter()
+            .map(|e| e as &dyn PgrxSpikeAreaEvaluator)
+            .collect();
+        assert_eq!(
+            run_spike(&refs, None).unwrap_err(),
+            InvalidPgrxDecision::NoOutcome
+        );
     }
 }
