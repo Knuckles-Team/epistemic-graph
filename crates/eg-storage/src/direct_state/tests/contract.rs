@@ -78,3 +78,16 @@ fn owner_manifest_is_static_canonical_layout_not_runtime_epoch() {
     unordered.tables.reverse();
     assert!(unordered.sha256().is_err());
 }
+
+// spec: EG-DURABLE-KERNEL-R063.1
+#[test]
+fn owner_manifest_schema_version_mismatch_is_refused_not_lifted() {
+    let owner = DirectStateOwnerManifest {
+        schema_version: DIRECT_STATE_SCHEMA_VERSION + 1,
+        domain: DirectStateDomain::Blob,
+        authority_kind: DirectStateAuthorityKind::MutationStore,
+        store_schema_version: 1,
+        tables: vec!["blob_chunks".to_string(), "scope_bindings".to_string()],
+    };
+    assert!(owner.sha256().is_err());
+}

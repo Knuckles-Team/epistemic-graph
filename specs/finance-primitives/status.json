@@ -190,8 +190,8 @@
       ],
       "verified_by": [
         "crates/eg-compute/src/finance/lot_accounting.rs:258",
-        "crates/eg-compute/src/finance/lot_accounting.rs:278",
-        "crates/eg-compute/src/finance/lot_accounting.rs:296"
+        "crates/eg-compute/src/finance/lot_accounting.rs:279",
+        "crates/eg-compute/src/finance/lot_accounting.rs:298"
       ],
       "rollup_of": [
         "EG-FINANCE-PRIMITIVES-R005.1.1"
@@ -202,7 +202,10 @@
       "title": "FIFO/LIFO lot-matching tests are confirmed to run and pass against mixed buy/sell activity",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-compute/src/finance/lot_accounting.rs:259",
+        "crates/eg-compute/src/finance/lot_accounting.rs:280"
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R005.2",
@@ -222,9 +225,9 @@
         "eadb412ffa03"
       ],
       "verified_by": [
-        "crates/eg-compute/src/finance/lot_accounting.rs:355",
-        "crates/eg-compute/src/finance/lot_accounting.rs:383",
-        "crates/eg-compute/src/finance/lot_accounting.rs:404"
+        "crates/eg-compute/src/finance/lot_accounting.rs:357",
+        "crates/eg-compute/src/finance/lot_accounting.rs:385",
+        "crates/eg-compute/src/finance/lot_accounting.rs:406"
       ]
     },
     {

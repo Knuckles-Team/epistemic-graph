@@ -256,6 +256,7 @@ mod tests {
     }
 
     // spec: EG-FINANCE-PRIMITIVES-R005.1
+    // spec: EG-FINANCE-PRIMITIVES-R005.1.1
     #[test]
     fn fifo_closes_the_oldest_lot_first() {
         // act(3, ...) is the sell that FIFO must close against the two buys
@@ -276,6 +277,7 @@ mod tests {
     }
 
     // spec: EG-FINANCE-PRIMITIVES-R005.1
+    // spec: EG-FINANCE-PRIMITIVES-R005.1.1
     #[test]
     fn lifo_closes_the_newest_lot_first() {
         // Same sign fix as fifo_closes_the_oldest_lot_first above: act(3,
