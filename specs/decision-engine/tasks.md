@@ -77,7 +77,7 @@
 
 - [x] D18 **EG-DECISION-ENGINE-R075.1 (producer slice):** Add `check_unique_component_ids` (`crates/eg-types/src/connector_pack/rapid_r075.rs`), the duplicate-component-id rejection the existing `PackViolationCode::DuplicateComponentId` code names but no test previously exercised. `PackEntryKind` already structurally excludes decision-owned kinds (no `DecisionRecord`/`DecisionHead`/`DecisionPolicy` variant exists), so that half of the requirement needed no new code. Remaining: wire the check into the real pack-import entry point. Test: `crates/eg-types/src/connector_pack/rapid_r075.rs::tests::refuses_a_duplicate_component_id`.
 
-- [ ] D18 **EG-DECISION-ENGINE-R075.2:** Remaining scope from the R075 split (2026-10-09): wiring the check into the real pack-import entry point.
+- [x] D18 **EG-DECISION-ENGINE-R075.2:** Wire `eg_types::connector_pack::rapid_r075::check_unique_component_ids` into the real pack-import entry point, `validate_index` (`src/server/handlers/admin/connector_pack/import/validation.rs`), via a new `check_duplicate_component_ids` call computing every entry's actual minted component id. Test: `src/server/handlers/admin/connector_pack/import/validation.rs::duplicate_component_id_wiring_tests::the_real_entry_point_calls_the_shared_duplicate_id_check`.
 
 - [x] D18 **EG-DECISION-ENGINE-R083.1 (producer slice):** Add the typed `OptionFacts::encode` (`crates/eg-numeric/src/decision/rapid_r083.rs`), bounded by the declared `MAX_OPTION_CAPABILITIES` cardinality rather than by any text-token budget. Remaining: wire this encoding into the real `FeatureMatrix` computation in `decision::features`. Test: `crates/eg-numeric/src/decision/rapid_r083.rs::tests::scores_an_option_whose_capability_text_would_exceed_a_token_budget`.
 

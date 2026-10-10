@@ -25,10 +25,40 @@ pub(super) fn validate_index(
 ) {
     let mut validator = IndexValidator::new(request, archive, all, violations, warnings);
     validate_header(request, archive, validator.violations);
+    check_duplicate_component_ids(request.index.connector.as_str(), all, validator.violations);
     for entry in all {
         validator.validate_entry(entry);
     }
     finish_validation(&mut validator);
+}
+
+/// EG-DECISION-ENGINE-R075.2: wire the standalone
+/// `eg_types::connector_pack::rapid_r075::check_unique_component_ids` into
+/// this real pack-import entry point, over every entry's actual minted
+/// component id (connector + kind + name), rather than leaving it exercised
+/// only by its own module test.
+fn check_duplicate_component_ids(
+    connector: &str,
+    all: &[&PackEntry],
+    violations: &mut Vec<PackViolation>,
+) {
+    let ids: Vec<String> = all
+        .iter()
+        .map(|entry| {
+            eg_types::connector_pack::pack_component_id(connector, entry.kind, &entry.name)
+        })
+        .collect();
+    if eg_types::connector_pack::rapid_r075::check_unique_component_ids(
+        ids.iter().map(String::as_str),
+    )
+    .is_err()
+    {
+        violations.push(violation(
+            PackViolationCode::DuplicateComponentId,
+            None,
+            "two entries mint the same component id",
+        ));
+    }
 }
 
 fn validate_header(
@@ -802,6 +832,58 @@ mod mcp_resource_uri_tests {
         assert!(!generic_mcp_uri("resources/item.json"));
         assert!(!generic_mcp_uri(":missing-scheme"));
         assert!(!generic_mcp_uri("1invalid://item"));
+    }
+}
+
+#[cfg(test)]
+mod duplicate_component_id_wiring_tests {
+    use super::{check_duplicate_component_ids, PackEntry, PackEntryKind, PackViolationCode};
+    use eg_types::connector_pack::{PackAnnotations, PackSection};
+    use eg_types::contract::Digest256;
+
+    fn entry(name: &str, uri: &str) -> PackEntry {
+        PackEntry {
+            kind: PackEntryKind::Tool,
+            uri: uri.to_string(),
+            name: name.to_string(),
+            media_type: "application/json".to_string(),
+            body: PackSection {
+                offset: 0,
+                length: 0,
+                sha256: Digest256::from_bytes([0u8; 32]),
+            },
+            input_schema: None,
+            output_schema: None,
+            annotations: PackAnnotations::default(),
+            references: Default::default(),
+        }
+    }
+
+    // spec: EG-DECISION-ENGINE-R075.2
+    #[test]
+    fn the_real_entry_point_calls_the_shared_duplicate_id_check() {
+        let a = entry("search", "tool://connector/a");
+        let b = entry("search", "tool://connector/b");
+        let all: Vec<&PackEntry> = vec![&a, &b];
+        let mut violations = Vec::new();
+        check_duplicate_component_ids("connector", &all, &mut violations);
+        assert!(
+            violations
+                .iter()
+                .any(|v| v.code == PackViolationCode::DuplicateComponentId),
+            "wiring check_unique_component_ids into validate_index must reject \
+             two entries minting the same component id, got {violations:?}"
+        );
+    }
+
+    #[test]
+    fn distinct_names_mint_distinct_ids_and_are_not_rejected() {
+        let a = entry("search", "tool://connector/a");
+        let b = entry("fetch", "tool://connector/b");
+        let all: Vec<&PackEntry> = vec![&a, &b];
+        let mut violations = Vec::new();
+        check_duplicate_component_ids("connector", &all, &mut violations);
+        assert!(violations.is_empty(), "got {violations:?}");
     }
 }
 
