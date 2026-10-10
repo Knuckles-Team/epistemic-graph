@@ -17,6 +17,7 @@
     "EG-FINANCE-PRIMITIVES-R005",
     "EG-FINANCE-PRIMITIVES-R005.1",
     "EG-FINANCE-PRIMITIVES-R005.2",
+    "EG-FINANCE-PRIMITIVES-R005.2.1",
     "EG-FINANCE-PRIMITIVES-R006",
     "EG-FINANCE-PRIMITIVES-R007",
     "EG-FINANCE-PRIMITIVES-R007.1",
@@ -34,6 +35,7 @@
     "EG-FINANCE-PRIMITIVES-R013",
     "EG-FINANCE-PRIMITIVES-R013.1",
     "EG-FINANCE-PRIMITIVES-R013.2",
+    "EG-FINANCE-PRIMITIVES-R013.2.1",
     "EG-FINANCE-PRIMITIVES-R014",
     "EG-FINANCE-PRIMITIVES-R015",
     "EG-FINANCE-PRIMITIVES-R016",
@@ -177,7 +179,17 @@
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R005.2",
-      "title": "Remaining scope of EG-FINANCE-PRIMITIVES-R005 (slice .2): Deterministic fixed-point portfolio accounting",
+      "title": "Specific-lot/average-cost elections and transfer/split invariants",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-FINANCE-PRIMITIVES-R005.2.1"
+      ]
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R005.2.1",
+      "title": "Specific-lot election",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -351,6 +363,16 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R013.2",
       "title": "Golden fixtures compare computed figures against published reference values",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-FINANCE-PRIMITIVES-R013.2.1"
+      ]
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R013.2.1",
+      "title": "Broker-statement golden fixture comparison",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

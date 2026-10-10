@@ -71,6 +71,36 @@ pub fn check_figure_provenance(
     Ok(())
 }
 
+/// Why a golden-fixture comparison was refused.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FigureComparisonRefusal {
+    pub reason: String,
+}
+
+/// Compare a computed broker-statement figure against its published
+/// reference value (EG-FINANCE-PRIMITIVES-R013.2.1): refuse `computed` when
+/// its provenance is incomplete (`check_figure_provenance`), or when its
+/// fixed-point `value_ticks` does not equal `published_reference_ticks`.
+/// Both are `i64` ticks, never `f64`, so the comparison is byte-identical
+/// across replays and hosts.
+pub fn compare_broker_statement_figure(
+    computed: &GoldenFixtureFigure,
+    published_reference_ticks: i64,
+) -> Result<(), FigureComparisonRefusal> {
+    check_figure_provenance(computed).map_err(|refusal| FigureComparisonRefusal {
+        reason: refusal.reason,
+    })?;
+    if computed.value_ticks != published_reference_ticks {
+        return Err(FigureComparisonRefusal {
+            reason: format!(
+                "computed broker-statement figure {} ticks does not match published reference {} ticks",
+                computed.value_ticks, published_reference_ticks
+            ),
+        });
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -109,5 +139,34 @@ mod tests {
         let mut bad = figure();
         bad.session = String::new();
         assert!(check_figure_provenance(&bad).is_err());
+    }
+
+    // spec: EG-FINANCE-PRIMITIVES-R013.2.1
+    #[test]
+    fn a_broker_statement_figure_matching_its_published_reference_is_admitted() {
+        let computed = figure();
+        let published_reference_ticks = computed.value_ticks;
+        assert!(compare_broker_statement_figure(&computed, published_reference_ticks).is_ok());
+    }
+
+    // spec: EG-FINANCE-PRIMITIVES-R013.2.1
+    #[test]
+    fn a_broker_statement_figure_diverging_from_its_published_reference_is_refused() {
+        let computed = figure();
+        let published_reference_ticks = computed.value_ticks + SCALE;
+        let refusal =
+            compare_broker_statement_figure(&computed, published_reference_ticks).unwrap_err();
+        assert!(refusal
+            .reason
+            .contains("does not match published reference"));
+    }
+
+    // spec: EG-FINANCE-PRIMITIVES-R013.2.1
+    #[test]
+    fn a_broker_statement_figure_with_incomplete_provenance_is_refused_before_comparison() {
+        let mut bad = figure();
+        bad.source = String::new();
+        let refusal = compare_broker_statement_figure(&bad, bad.value_ticks).unwrap_err();
+        assert!(refusal.reason.contains("source"));
     }
 }

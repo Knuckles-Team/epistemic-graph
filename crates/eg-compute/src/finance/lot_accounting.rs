@@ -44,6 +44,10 @@ pub struct Lot {
 pub enum LotMethod {
     Fifo,
     Lifo,
+    /// Specific-lot election (EG-FINANCE-PRIMITIVES-R005.2.1): close exactly
+    /// the open lot whose `opened_by` equals this sequence, never a
+    /// FIFO/LIFO-chosen one.
+    Specific(u64),
 }
 
 /// One closing of all or part of one lot.
@@ -85,6 +89,20 @@ pub enum LotError {
         requested_ticks: i64,
         available_ticks: i64,
     },
+    /// A specific-lot election (EG-FINANCE-PRIMITIVES-R005.2.1) named a
+    /// `requested_lot` sequence with no corresponding open lot.
+    SpecificLotNotFound {
+        sequence: u64,
+        requested_lot: u64,
+    },
+    /// A specific-lot election named an open lot that does not hold enough
+    /// remaining quantity to cover the sell, even though other open lots do.
+    SpecificLotInsufficient {
+        sequence: u64,
+        requested_lot: u64,
+        requested_ticks: i64,
+        available_ticks: i64,
+    },
 }
 
 impl fmt::Display for LotError {
@@ -103,6 +121,19 @@ impl fmt::Display for LotError {
             LotError::Oversold { sequence, requested_ticks, available_ticks } => write!(
                 f,
                 "activity {sequence} sells {requested_ticks} ticks but only {available_ticks} are open"
+            ),
+            LotError::SpecificLotNotFound { sequence, requested_lot } => write!(
+                f,
+                "activity {sequence} names lot {requested_lot} but no open lot was opened by that sequence"
+            ),
+            LotError::SpecificLotInsufficient {
+                sequence,
+                requested_lot,
+                requested_ticks,
+                available_ticks,
+            } => write!(
+                f,
+                "activity {sequence} sells {requested_ticks} ticks from lot {requested_lot} but only {available_ticks} remain in it"
             ),
         }
     }
@@ -166,6 +197,24 @@ pub fn apply_activities(
         let order: Vec<usize> = match method {
             LotMethod::Fifo => (0..open.len()).collect(),
             LotMethod::Lifo => (0..open.len()).rev().collect(),
+            LotMethod::Specific(requested_lot) => {
+                let idx = open
+                    .iter()
+                    .position(|lot| lot.opened_by == requested_lot)
+                    .ok_or(LotError::SpecificLotNotFound {
+                        sequence: activity.sequence,
+                        requested_lot,
+                    })?;
+                if open[idx].remaining_ticks < to_close {
+                    return Err(LotError::SpecificLotInsufficient {
+                        sequence: activity.sequence,
+                        requested_lot,
+                        requested_ticks: to_close,
+                        available_ticks: open[idx].remaining_ticks,
+                    });
+                }
+                vec![idx]
+            }
         };
         for idx in order {
             if to_close == 0 {
@@ -283,6 +332,79 @@ mod tests {
         assert_eq!(
             apply_activities(&zero_price, LotMethod::Fifo).unwrap_err(),
             LotError::NonPositivePrice { sequence: 1 }
+        );
+    }
+
+    // spec: EG-FINANCE-PRIMITIVES-R005.2.1
+    #[test]
+    fn specific_lot_closes_the_named_lot_not_the_fifo_choice() {
+        let activities = [
+            act(1, 10, 100),
+            act(2, 5, 110),
+            LotActivity {
+                sequence: 3,
+                quantity_ticks: -3 * SCALE,
+                price_ticks: 120 * SCALE,
+            },
+        ];
+        // FIFO would close lot 1 first; naming lot 2 must close lot 2 instead.
+        let ledger = apply_activities(&activities, LotMethod::Specific(2)).unwrap();
+        assert_eq!(ledger.closed.len(), 1);
+        assert_eq!(ledger.closed[0].opened_by, 2);
+        assert_eq!(ledger.closed[0].closed_ticks, 3 * SCALE);
+        assert_eq!(ledger.open.len(), 2);
+        assert!(ledger
+            .open
+            .iter()
+            .any(|lot| lot.opened_by == 1 && lot.remaining_ticks == 10 * SCALE));
+        assert!(ledger
+            .open
+            .iter()
+            .any(|lot| lot.opened_by == 2 && lot.remaining_ticks == 2 * SCALE));
+    }
+
+    // spec: EG-FINANCE-PRIMITIVES-R005.2.1
+    #[test]
+    fn specific_lot_naming_an_absent_lot_is_refused() {
+        let activities = [
+            act(1, 10, 100),
+            LotActivity {
+                sequence: 2,
+                quantity_ticks: -1 * SCALE,
+                price_ticks: 120 * SCALE,
+            },
+        ];
+        let error = apply_activities(&activities, LotMethod::Specific(99)).unwrap_err();
+        assert_eq!(
+            error,
+            LotError::SpecificLotNotFound {
+                sequence: 2,
+                requested_lot: 99
+            }
+        );
+    }
+
+    // spec: EG-FINANCE-PRIMITIVES-R005.2.1
+    #[test]
+    fn specific_lot_without_enough_quantity_is_refused_even_if_other_lots_have_it() {
+        let activities = [
+            act(1, 10, 100),
+            act(2, 5, 110),
+            LotActivity {
+                sequence: 3,
+                quantity_ticks: -6 * SCALE,
+                price_ticks: 120 * SCALE,
+            },
+        ];
+        let error = apply_activities(&activities, LotMethod::Specific(2)).unwrap_err();
+        assert_eq!(
+            error,
+            LotError::SpecificLotInsufficient {
+                sequence: 3,
+                requested_lot: 2,
+                requested_ticks: 6 * SCALE,
+                available_ticks: 5 * SCALE,
+            }
         );
     }
 
