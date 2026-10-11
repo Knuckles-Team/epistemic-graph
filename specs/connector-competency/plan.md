@@ -441,3 +441,40 @@ ID map (old to new):
 | `EG-CONN-AUDIT-R016` (and `.n` children) | `EG-CQ-CONN-R083` (children keep `.n`, except R016 children and R017 children, which are not carried) |
 | `EG-CONN-AUDIT-R017` and `.1` to `.18` | Amendment above |
 | `EG-CONN-AUDIT` (spec ID) | `EG-CQ-CONN` |
+
+
+### 2026-10-11 Restore noncommercial mapping acceptance
+
+Old statement: the preceding amendment removed all 18 reassignment rows after correcting their documentation.
+New statement: these 15 existing acceptance children retain the noncommercial mapping checks and producer dependencies.
+Evidence: revision `b52f912f`, `EG-CONN-AUDIT-R017.1` through `EG-CONN-AUDIT-R017.18`, required these checks.
+This amendment supersedes the claim that corrected cells alone discharge those acceptance conditions.
+The current vocabulary decisions remain unchanged.
+The commercial connectors retain separate ownership under `EG-CQ-CONN-R083`.
+The legacy IDs below record lineage, not newly active rows or completed work.
+Legacy retirement records remain pending shared-gate support; this amendment does not renumber legacy IDs.
+All restored acceptance conditions remain SPECIFIED until implementation and named tests provide evidence.
+
+| Historical requirement | Connector | Existing acceptance owner | Expected vocabulary |
+|---|---|---|---|
+| `EG-CONN-AUDIT-R017.1` | ciso-assistant | `EG-CQ-CONN-R011.3` | `government-v1.ttl` |
+| `EG-CONN-AUDIT-R017.2` | dockerhub | `EG-CQ-CONN-R015.3` | `infrastructure-v1.ttl` |
+| `EG-CONN-AUDIT-R017.3` | egeria | `EG-CQ-CONN-R017.3` | `core-foundation-v1.ttl` |
+| `EG-CONN-AUDIT-R017.5` | github | `EG-CQ-CONN-R023.3` | `sdlc_lifecycle-v1.ttl` |
+| `EG-CONN-AUDIT-R017.6` | gitlab | `EG-CQ-CONN-R024.3` | `sdlc_lifecycle-v1.ttl` |
+| `EG-CONN-AUDIT-R017.7` | gramps | `EG-CQ-CONN-R025.3` | `personal-v1.ttl` |
+| `EG-CONN-AUDIT-R017.8` | home-assistant | `EG-CQ-CONN-R026.3` | `infrastructure-v1.ttl` |
+| `EG-CONN-AUDIT-R017.9` | langfuse | `EG-CQ-CONN-R031.3` | `orchestration-v1.ttl` |
+| `EG-CONN-AUDIT-R017.10` | legal-peripherals | `EG-CQ-CONN-R033.3` | `core-foundation-v1.ttl` |
+| `EG-CONN-AUDIT-R017.11` | nextcloud | `EG-CQ-CONN-R040.3` | `personal-v1.ttl` |
+| `EG-CONN-AUDIT-R017.12` | onetrust | `EG-CQ-CONN-R043.3` | `government-v1.ttl` |
+| `EG-CONN-AUDIT-R017.13` | paperless-ngx | `EG-CQ-CONN-R046.3` | `personal-v1.ttl` |
+| `EG-CONN-AUDIT-R017.14` | repository-manager | `EG-CQ-CONN-R052.3` | `sdlc_lifecycle-v1.ttl` |
+| `EG-CONN-AUDIT-R017.16` | servicenow | `EG-CQ-CONN-R057.3` | `archimate-v1.ttl` |
+| `EG-CONN-AUDIT-R017.17` | stirlingpdf | `EG-CQ-CONN-R059.3` | `action-v1.ttl` |
+
+Each acceptance owner lists its exact producer dependencies in `requirements.md`.
+The test must resolve full IRIs from registered modules, including cross-module prerequisites.
+DockerHub depends on `EG-CQ-CONN-R069.2` for SDLC `Repository`; its primary vocabulary remains infrastructure.
+The implementation must retain each producer's current representation, domain, range, and module ownership.
+The documentation correction does not implement these producer terms or prove runtime competency.
