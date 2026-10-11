@@ -145,6 +145,15 @@ These tests are planned and have not run.
 | EG-DECISION-ENGINE-R093.2.2 | `tests/synthetic/test_synthetic_decision_export.py::test_served_labels_require_collected_results` | Invalid provenance and labels fail closed. |
 | EG-DECISION-ENGINE-R093.2.3 | `tests/synthetic/test_served_corpus_training.py::test_training_consumes_served_ground_truth` | Training consumes episodes collected from a real server. |
 
+## Static contract checks
+
+Run `python -m pytest -q tests/test_decision_static_contracts.py` without a native engine build.
+R074 checks the full component enum and agent-slot references against the closure documentation.
+R123 scans Rust sources under `src` and `crates` for duplicate solve DTO declarations.
+The scan permits explicitly listed, unrelated domain homonyms.
+Negative fixtures add duplicate declarations, remove documented kinds, and introduce an undocumented slot reference.
+These checks prove source and documentation consistency only. They do not execute solver behavior.
+
 ## Local retry model verification
 
 Run `rustc --edition=2021 --test crates/eg-types/src/decision/topology/retry_allowance.rs -o /path/to/retry-tests`, then run that binary. This compiles the exact production module without a substitute dependency. The tests cover the 1-to-0 transition, repeated refusal, zero, and all 254 malformed counts. The module remains re-exported through `capacity_commit` for existing callers. This proves only EG-DECISION-ENGINE-R113.3.1; copies do not share state. Durable and handler enforcement remain required by R113.3.2 and R113.3.3.

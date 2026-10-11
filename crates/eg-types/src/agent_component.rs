@@ -111,6 +111,12 @@ const DIGEST_PREFIX: &str = "sha256:";
 
 /// What kind of part this is.
 ///
+/// The closed set is `ModelProfile`, `SystemPrompt`, `Tool`, `Toolset`,
+/// `McpServer`, `McpPrompt`, `McpResource`, `Skill`, `Ontology`, `Schema`,
+/// `OutputValidator`, `Predicate`, `Shapes`, `A2aAgentCard`, `DecisionRecord`,
+/// `DecisionPolicy`, `DecisionHead`, `FeatureSchema`, `Rubric`, `NlTemplate`,
+/// and `GuardrailRule`.
+///
 /// Closed on purpose. Every kind is either referenced from an agent slot —
 /// [`crate::agent_library::AgentLibraryEntry`],
 /// [`crate::agent_library::AgentRuntimeContract`] or

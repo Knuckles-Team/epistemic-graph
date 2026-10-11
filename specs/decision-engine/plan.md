@@ -156,7 +156,7 @@ This register inventories all 118 decision-owned obligations. `Historical label`
 | EG-DECISION-ENGINE-R071 | T2 | LANDED | NOT_RUN | DecideText UQL-like front end, kept out of the ordinary UQL parser and wire::Op/wire::Plan |
 | EG-DECISION-ENGINE-R072 | T2 | LANDED | NOT_RUN | Observability: OTel spans/metrics for resolution-kind distribution, abstention rate, evidence-class distribution, solver nodes/gap, ESS, latency percentiles |
 | EG-DECISION-ENGINE-R073 | T3 | LANDED | NOT_RUN | PA2 — Store: four new owner tables, format-v3 open-time refusal, N-intent receipt, batch pin resolver, Withdrawn handling, head CAS, per-component outbox events |
-| EG-DECISION-ENGINE-R074 | — | CLOSED | NOT_RUN | AgentComponentKind closure-rule doc is stale (Shapes/A2aAgentCard/Decide kinds break "every kind referenced from an agent slot") |
+| EG-DECISION-ENGINE-R074 | `tests/test_decision_static_contracts.py` | CLOSED | PASS | The closure rule lists every component kind. The consistency test checks enum and slot references. |
 | EG-DECISION-ENGINE-R075 | T4 | BUILT | NOT_RUN | G6 — Component-id uniqueness and forbidden (Decide-owned) kinds |
 | EG-DECISION-ENGINE-R076 | T4 | BUILT | NOT_RUN | Opt-in nested Pydantic models for decision-type result markers only (2.27.x-scoped subset, precedes the full migration) |
 | EG-DECISION-ENGINE-R077 | T3 | LANDED | NOT_RUN | Shared component schema bump 2→3 (Decide owns numbering; pack adds Withdrawn + new kinds) — one co-landing step |
@@ -239,3 +239,11 @@ The bound test covers the large-option scorer fixture only; R083.2 still require
 ## Retry allowance model
 
 The dependency-free `topology/retry_allowance.rs` owns the checked local 1-to-0 transition. `capacity_commit.rs` re-exports its public types, preserving the existing caller path. Invalid counts and exhausted allowances fail without mutation. Durable consumption and handler admission remain separate requirements; this copyable model is not a shared authorization store.
+
+## Canonical source contracts
+
+`eg-types/src/solve` owns solver DTO definitions. Compute modules re-export those types.
+The duplicate-declaration scan covers Rust files under `src` and `crates`.
+The scan permits one declaration for each explicitly listed unrelated domain homonym.
+`AgentComponentKind` documents every enum variant in its slot-or-catalog closure rule.
+The consistency check compares enum variants and agent-slot references with that rule.
