@@ -74,3 +74,33 @@ A requirement is `ACCEPTED` only when every row's regression test passes against
 | --- | --- | --- | --- |
 | TP-PARSE-IDENTITY | EG-TYPED-PACKS-R093.1 | Native public and bounded Turtle readers parse the same explicit and anonymous blank nodes independently, then union the results. | Six subjects stay distinct across three parses; same-document references remain equal; composition retains explicit source labels; existing bounded refusal tests pass. |
 | TP-REPROJECT-IDENTITY | EG-TYPED-PACKS-R093.2 | Served reproject combines independent connector-pack members with reused blank labels. | Isolated member identities and repeatable composed digests; remains open until the served regression executes. |
+
+## Capability annotation evidence
+
+| Requirement | Native regression | Result |
+| --- | --- | --- |
+| EG-TYPED-PACKS-R042.1 | `src/server/handlers/admin/connector_pack/import/capability_tests.rs::both_capability_fields_refuse_relative_and_invalid_scheme_claims` and `foreign_terms_warn_and_stay_only_in_the_declared_partition`: both typed fields accept native terms and retain exact foreign claims with warnings. Native typos, roots, wrong kinds, invalid schemes, and malformed typed lists refuse. | Eight production-module tests passed on 2026-10-11 with Rust 1.96.0 and cached `eg_types` and `serde_json` dependencies. Restoring the old scheme check makes the invalid-scheme test fail at `provides: 1vendor:search`. |
+| EG-TYPED-PACKS-R042.2 | Planned: extend `src/server/handlers/admin/connector_pack/tests/admin.rs::a_rejected_import_mutates_nothing_in_the_catalog`. Add `src/server/handlers/admin/connector_pack/tests/content_model.rs::capability_annotations_remain_declared_after_import`. | Not run. This remains open; the native slice does not verify the parent. |
+
+The native harness loads the unchanged production module path with `#[path]`; it uses no behavior substitutes. To repeat from the repository root with compatible cached Rust dependencies:
+
+```sh
+work=$(mktemp -d)
+printf '#[path = "%s/src/server/handlers/admin/connector_pack/import/annotations.rs"]\nmod annotations;\n' "$PWD" > "$work/native.rs"
+rustc --test --edition=2021 "$work/native.rs" \
+  -L "dependency=$CACHED_RUST_DEPS" \
+  --extern "eg_types=$(find "$CACHED_RUST_DEPS" -name 'libeg_types-*.rlib' -print -quit)" \
+  --extern "serde_json=$(find "$CACHED_RUST_DEPS" -name 'libserde_json-*.rlib' -print -quit)" \
+  -o "$work/native-tests"
+"$work/native-tests" --nocapture
+```
+
+The full served test suite and hosted CI were not run for this native slice.
+
+For R042.2, the existing admin test compares `connector_pack_status` before and after one malformed-index refusal.
+Extend that fixture with one malformed native term and one invalid scheme per capability field.
+For each case, snapshot the connector head, members, import records, body holders, body liveness, and outbox rows.
+Compare those bounded snapshots after refusal. This fixture does not require a full crash campaign.
+The planned positive test will import mixed native and foreign terms in both fields.
+It will compare warning receipts and persisted component classification, required capabilities, and both declared claim lists.
+These served changes are planned and unrun; they are not part of the native verification claim.

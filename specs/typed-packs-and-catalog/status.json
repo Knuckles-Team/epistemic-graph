@@ -46,6 +46,8 @@
     "EG-TYPED-PACKS-R040",
     "EG-TYPED-PACKS-R041",
     "EG-TYPED-PACKS-R042",
+    "EG-TYPED-PACKS-R042.1",
+    "EG-TYPED-PACKS-R042.2",
     "EG-TYPED-PACKS-R043",
     "EG-TYPED-PACKS-R044",
     "EG-TYPED-PACKS-R045",
@@ -264,7 +266,7 @@
         "db863f1e2afd"
       ],
       "verified_by": [
-        "src/server/handlers/admin/connector_pack/import/annotations.rs:166"
+        "src/server/handlers/admin/connector_pack/import/annotations.rs:177"
       ]
     },
     {
@@ -590,10 +592,36 @@
     {
       "id": "EG-TYPED-PACKS-R042",
       "title": "Typed capability annotations: provides and requires_capabilities",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "a1bb9fb9503e"
       ],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-TYPED-PACKS-R042.1",
+        "EG-TYPED-PACKS-R042.2"
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R042.1",
+      "title": "Native capability annotation admission",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "042cd2be6b01"
+      ],
+      "verified_by": [
+        "src/server/handlers/admin/connector_pack/import/capability_tests.rs:10",
+        "src/server/handlers/admin/connector_pack/import/capability_tests.rs:101",
+        "src/server/handlers/admin/connector_pack/import/capability_tests.rs:28",
+        "src/server/handlers/admin/connector_pack/import/capability_tests.rs:48",
+        "src/server/handlers/admin/connector_pack/import/capability_tests.rs:68"
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R042.2",
+      "title": "Served capability claim and refusal proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {
@@ -634,7 +662,7 @@
         "db863f1e2afd"
       ],
       "verified_by": [
-        "src/server/handlers/admin/connector_pack/import/annotations.rs:200"
+        "src/server/handlers/admin/connector_pack/import/annotations.rs:211"
       ]
     },
     {
@@ -646,7 +674,7 @@
         "db863f1e2afd"
       ],
       "verified_by": [
-        "src/server/handlers/admin/connector_pack/import/annotations.rs:201"
+        "src/server/handlers/admin/connector_pack/import/annotations.rs:212"
       ]
     },
     {
