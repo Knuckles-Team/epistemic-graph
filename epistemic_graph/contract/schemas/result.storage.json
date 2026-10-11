@@ -484,6 +484,26 @@
             "provider": {
               "type": "string"
             },
+            "shell_proficiency": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/MeasuredFact"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "stopping_behaviour": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/MeasuredFact2"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "supports_structured_output": {
               "type": "boolean"
             },
@@ -4525,6 +4545,40 @@
       ],
       "type": "object"
     },
+    "MeasuredFact": {
+      "additionalProperties": false,
+      "description": "A measured value bound to the evaluation that produced it.",
+      "properties": {
+        "evaluation_run_ref": {
+          "$ref": "#/$defs/ObservationRef"
+        },
+        "value": {
+          "$ref": "#/$defs/ShellProficiency"
+        }
+      },
+      "required": [
+        "value",
+        "evaluation_run_ref"
+      ],
+      "type": "object"
+    },
+    "MeasuredFact2": {
+      "additionalProperties": false,
+      "description": "A measured value bound to the evaluation that produced it.",
+      "properties": {
+        "evaluation_run_ref": {
+          "$ref": "#/$defs/ObservationRef"
+        },
+        "value": {
+          "$ref": "#/$defs/StoppingBehaviour"
+        }
+      },
+      "required": [
+        "value",
+        "evaluation_run_ref"
+      ],
+      "type": "object"
+    },
     "ModalityFacts": {
       "additionalProperties": false,
       "description": "Which modalities a component consumes and produces.\n\nNative `eg:modality/*` IRIs, sorted and unique, so two components that\nspeak the same modalities digest identically whatever order they declared\nthem in.",
@@ -5974,6 +6028,15 @@
       "description": "A SHA-256 digest, serialised as 64 lower-case hex characters.",
       "type": "string"
     },
+    "ShellProficiency": {
+      "description": "Evaluation-derived ability to use a shell.",
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "type": "string"
+    },
     "SlotAssignment": {
       "additionalProperties": false,
       "description": "One slot of the assembled graph and the component bound to it.",
@@ -6722,6 +6785,15 @@
           "type": "object"
         }
       ]
+    },
+    "StoppingBehaviour": {
+      "description": "Evaluation-derived tendency to stop or continue verification.",
+      "enum": [
+        "stops_early",
+        "balanced",
+        "over_verifies"
+      ],
+      "type": "string"
     },
     "SubagentAllowance": {
       "additionalProperties": false,
