@@ -73,6 +73,8 @@ Status key: `[ ]` queued, `[-]` in progress, `[x]` verified at cited main revisi
 - [ ] **EG-DURABLE-KERNEL-R078:** Bitemporal stamping served method
 - [ ] **EG-DURABLE-KERNEL-R079:** Served as-of filtering
 - [ ] **EG-DURABLE-KERNEL-R080:** Served supersession
+- [-] **EG-DURABLE-KERNEL-R080.1:** Atomic supersession refusal for missing successor endpoints; focused regression added, pending main validation
+- [ ] **EG-DURABLE-KERNEL-R080.2:** Already-closed-fact refusal and served supersession integration coverage
 - [ ] **EG-DURABLE-KERNEL-R081:** Generated client methods for bitemporal operations
 - [ ] **EG-DURABLE-KERNEL-R082:** Analytics worker parity: association-rule mining jobs run on the engine's own durable job plane
 - [ ] **EG-DURABLE-KERNEL-R082.1:** A submitted `MineAssociate` job is claimed and published by the colocated executor with no external worker

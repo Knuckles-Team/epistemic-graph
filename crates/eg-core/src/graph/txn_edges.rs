@@ -267,7 +267,8 @@ impl<'a> GraphTxn<'a> {
     /// deleting the prior, so the full history survives. The new edge's blob is
     /// supplied fully-formed by the caller (it should carry `valid_from = valid_at`
     /// and a `supersedes` provenance pointer). Returns `Ok(())` once the new edge is
-    /// added (endpoints must exist), after invalidating the prior.
+    /// added (endpoints must exist), after invalidating the prior. A missing new
+    /// endpoint is refused before either edge or its ledger entries are changed.
     // The nine args are three irreducible groups of distinct primitives — the new
     // edge (source, target, properties), the prior edge to close (source, target,
     // relationship) and the two bitemporal timestamps (valid_at, tx_now). Bundling
@@ -285,6 +286,13 @@ impl<'a> GraphTxn<'a> {
         valid_at: u64,
         tx_now: u64,
     ) -> Result<(), String> {
+        // Validate every fallible insertion prerequisite before closing history.
+        // The held topology write guard keeps these endpoints present until add_edge.
+        for (role, endpoint) in [("Source", &new_source), ("Target", &new_target)] {
+            if !self.topo.node_map.contains_key(endpoint) {
+                return Err(edge_endpoint_not_found(role, endpoint));
+            }
+        }
         self.invalidate_edge(
             prior_source,
             prior_target,

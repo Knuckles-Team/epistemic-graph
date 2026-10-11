@@ -115,6 +115,8 @@
     "EG-DURABLE-KERNEL-R078",
     "EG-DURABLE-KERNEL-R079",
     "EG-DURABLE-KERNEL-R080",
+    "EG-DURABLE-KERNEL-R080.1",
+    "EG-DURABLE-KERNEL-R080.2",
     "EG-DURABLE-KERNEL-R081",
     "EG-DURABLE-KERNEL-R082",
     "EG-DURABLE-KERNEL-R082.1",
@@ -1510,6 +1512,26 @@
     {
       "id": "EG-DURABLE-KERNEL-R080",
       "title": "Served supersession",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DURABLE-KERNEL-R080.1",
+        "EG-DURABLE-KERNEL-R080.2"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R080.1",
+      "title": "Supersession refuses a missing successor endpoint without closing the prior fact",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "crates/eg-core/tests/edge_supersession.rs:21"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R080.2",
+      "title": "Served supersession refuses an already-closed fact and proves the atomic history transition",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
