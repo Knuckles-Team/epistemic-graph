@@ -16,6 +16,7 @@ only one job definition, not a separate copy that could drift.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
@@ -221,7 +222,7 @@ def test_compiler_cache_is_installed_before_precisely_two_step_local_wrappers() 
         "gates-facade": (
             "Test (facade full)",
             "python3 scripts/cargo_test_rescue.py cargo test -p epistemic-graph "
-            "--features full --no-fail-fast",
+            "--features full --no-fail-fast --timings",
         ),
     }
     cache_backend = {
@@ -292,6 +293,75 @@ def test_compiler_cache_is_installed_before_precisely_two_step_local_wrappers() 
         for step in job.get("steps", []):
             if all(step is not build for build in wrapped):
                 assert "RUSTC_WRAPPER" not in step.get("env", {})
+
+
+@pytest.mark.spec("EG-CONTRACT-R009")
+def test_facade_timings_are_current_run_evidence_without_replacing_tests() -> None:
+    workflow = _workflow()
+    job = workflow["jobs"]["gates-facade"]
+    steps = job["steps"]
+    config = tomllib.loads((REPO / ".cargo/config.toml").read_text())
+    assert config["build"]["target-dir"] == "target-isolated"
+    assert "CARGO_TARGET_DIR" not in workflow["env"]
+    assert "CARGO_TARGET_DIR" not in job["env"]
+    assert all("CARGO_TARGET_DIR" not in s.get("env", {}) for s in steps)
+    clear = next(
+        s for s in steps if s.get("name") == "Clear previous facade build timings"
+    )
+    build = next(s for s in steps if s.get("name") == "Test (facade full)")
+    upload = next(s for s in steps if s.get("name") == "Upload facade build timings")
+    cache = next(
+        s for s in steps if s.get("uses", "").startswith("Swatinem/rust-cache@")
+    )
+    assert (
+        steps.index(cache)
+        < steps.index(clear)
+        < steps.index(build)
+        < steps.index(upload)
+    )
+    assert clear["run"] == "rm -rf target-isolated/cargo-timings"
+    assert "if" not in clear and "continue-on-error" not in build
+    assert "--timings" in build["run"] and "--no-run" not in build["run"]
+    assert upload["if"] == "always()"
+    assert (
+        upload["uses"]
+        == "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02"
+    )
+    assert upload["with"] == {
+        "name": (
+            "facade-build-timings-${{ github.sha }}-"
+            "${{ github.run_id }}-${{ github.run_attempt }}"
+        ),
+        "path": "target-isolated/cargo-timings/",
+        "if-no-files-found": "warn",
+        "retention-days": 1,
+    }
+
+
+@pytest.mark.spec("EG-CONTRACT-R009")
+def test_only_verified_empty_helper_bins_disable_default_test_harnesses() -> None:
+    manifest = tomllib.loads((REPO / "Cargo.toml").read_text())
+    disabled = {
+        target["name"]: target["path"]
+        for target in manifest["bin"]
+        if target.get("test") is False
+    }
+    assert disabled == {
+        "epistemic-graph-rf019-observe": "src/bin/rf019_observe.rs",
+        "migrate-shards": "src/bin/migrate_shards.rs",
+        "restore": "src/bin/restore.rs",
+        "lake-fixture-export": "src/bin/lake_fixture_export.rs",
+    }
+    assert manifest["package"].get("autotests", True) is True
+    assert manifest.get("lib", {}).get("test", True) is True
+    assert all(target.get("test", True) for target in manifest.get("test", []))
+    for path in disabled.values():
+        # Fail closed if a helper gains test attributes or includes other source.
+        # Re-enable its harness before adding tests or a module with possible tests.
+        source = (REPO / path).read_text()
+        assert not re.search(
+            r"#\s*\[[^\]]*\btest\b|\bmod\s+\w+|\binclude\s*!", source
+        ), path
 
 
 @pytest.mark.parametrize("kind", ["kernels", "server"])

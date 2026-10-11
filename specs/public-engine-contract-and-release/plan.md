@@ -58,8 +58,8 @@ domain registry, generated method catalog, capability ledger and both packaged
 receipts must agree, including CapabilityCoverage. Receipt regression checks
 derive their census from the declared catalog instead of pinning historical
 totals. The scanner wiring regression recognizes the blocking conditional
-pre-commit step for PR-diff and full-publication checks without changing the
-intentional pipelines@main workflow policy or pinned scanner binaries.
+pre-commit step for PR-diff and full-publication checks. It preserves the
+intentional pipelines@main workflow policy and pinned scanner binaries.
 
 ### 2026-10-11: cache server compilation without bypassing source builds
 
@@ -159,3 +159,20 @@ full hosted quality-gate and runtime acceptance remain independently required.
 
 R031.1 owns only the runner setup regression. R031.2 preserves the outstanding complete same-tree census and independent clippy/formatting evidence.
 A setup-only test cannot qualify the broad parent requirement.
+
+### 2026-10-11: measure facade compilation and omit empty helper harnesses
+
+EG-CONTRACT-R009 disables the default unit-test harness only for four single-file
+helper binaries with no tests. These helpers observe RF-019, migrate shards,
+restore backups, and export lake fixtures. Their ordinary binaries still build
+for integration coverage. The server harness, library tests, and every
+integration target remain enabled. A source guard requires revisiting the
+exemption if a helper gains tests or a source module.
+
+The mandatory full-facade command adds stable Cargo `--timings`. Clear only
+previous timing reports after cache restore. Upload the current report on
+`always()` with the existing pinned artifact action and a source/run/attempt
+name. A canceled build may produce no report. Report its absence without
+claiming a successful test run. This adds evidence for the next natural build.
+Profiles, timeouts, cache permissions, and test failure propagation stay intact.
+Saved build time and the sub-ten-minute goal remain unmeasured.
