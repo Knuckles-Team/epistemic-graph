@@ -21,6 +21,7 @@
 #
 # Usage:  scripts/validate-raft-cluster.sh
 # Env:    CARGO_FEATURES (default "full,cluster"); RUST_LOG for engine traces.
+# Optional load: RAFT_LOAD_WORKERS=1..32; RAFT_LOAD_SECONDS=1..3600 (default 300).
 # Exit:   0 = all proofs green; non-zero = a proof failed (see output).
 # ----------------------------------------------------------------------------
 set -euo pipefail
@@ -28,6 +29,9 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 FEATURES="${CARGO_FEATURES:-full,cluster}"
+if [[ -v RAFT_LOAD_WORKERS || -v RAFT_LOAD_SECONDS ]]; then
+  python3 scripts/raft_cpu_load.py --check-config
+fi
 
 # The cluster proofs, grouped by the property each demonstrates. All run under
 # `--lib raft` with `--features full,cluster` (so `--features raft,harness` extras stay
@@ -55,6 +59,9 @@ echo
 echo "-- running cluster proofs (single-threaded: each binds its own loopback ports) --"
 # `--test-threads=1` keeps the in-process clusters from contending for ephemeral ports
 # and CPU; the failover/transfer proofs have real election timeouts.
+if [[ -v RAFT_LOAD_WORKERS ]]; then
+  exec python3 scripts/raft_cpu_load.py -- cargo test --features "${FEATURES}" --lib raft -- --test-threads=1 --nocapture "${TESTS[@]}"
+fi
 set +e
 cargo test --features "${FEATURES}" --lib raft -- --test-threads=1 --nocapture "${TESTS[@]}"
 rc=$?

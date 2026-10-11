@@ -26,7 +26,7 @@ Status key: `[ ]` queued, `[-]` in progress, `[x]` verified at cited main revisi
 - [ ] **EG-DURABLE-KERNEL-R011.4:** Exact-head CI acceptance receipts. See the exact paths and proving tests in `requirements.md`.
 - [ ] **EG-DURABLE-KERNEL-R014:** Raft cluster tests pass reliably under load
 - [x] **EG-DURABLE-KERNEL-R014.1:** Typed flake-budget / retry-policy model for load-test retries
-- [ ] **EG-DURABLE-KERNEL-R014.2:** Bounded representative CPU load. See the exact paths and proving tests in `requirements.md`.
+- [-] **EG-DURABLE-KERNEL-R014.2:** Bounded representative CPU load; process tests passed, pending main validation. See the exact paths and proving tests in `requirements.md`.
 - [ ] **EG-DURABLE-KERNEL-R014.3:** Repeated loaded-test harness. See the exact paths and proving tests in `requirements.md`.
 - [ ] **EG-DURABLE-KERNEL-R014.4:** Loaded leader-rebalance acceptance. See the exact paths and proving tests in `requirements.md`.
 - [ ] **EG-DURABLE-KERNEL-R014.5:** Loaded three-node placement acceptance. See the exact paths and proving tests in `requirements.md`.

@@ -2,7 +2,7 @@
 
 ## Build sequence
 
-1. **Baseline and proof harness.** Pin one main revision, inventory the listed entry points, record existing focused and hosted gate results, and add reproducible fault/cluster fixtures. Mark each work ID as queued, built, landed, or accepted only from actual evidence.
+1. **Baseline and proof harness.** Pin one main revision and inventory the listed entry points. Record existing focused and hosted gate results. Add reproducible fault/cluster fixtures. Mark each work ID as queued, built, landed, or accepted only from actual evidence.
 2. **Transaction and storage authority (KG-01–04).** Add the cross-store ADR and enforce pre-effect refusal or atomic commit. Keep owner binding at the existing manifest/write boundary. Add lineage fixtures and bounded scrub. Verify table-only traffic stays in its present atomic path.
 3. **Policy and audit (KG-07–09).** Thread the verified authority context through every native/read/wire path; cover foreign sources, UDFs, KV, TSDB and caches. Add reserved audit and lease kinds through the existing audit store and capability registry. Define generated client error codes before changing callers.
 4. **Outbox, replication and mirrors (KG-05–06, KG-10).** Repair head attempts and replay; add per-consumer cursor/reconcile using committed ChangeEnvelope events. Add failure trace capture and repeated multi-node tests. Expand mirror sinks to user tables only after source/target digest and schema semantics are specified.
@@ -162,3 +162,15 @@ The manifest selects real library-test modules in the engine and transaction cra
 `validate_selection` refuses an empty or mismatched discovery inventory.
 Eight source-module tests passed with Rust 1.96.0, including source-anchor checks.
 This evidence completes the manifest child only. R011, R011.3, and R011.4 remain open.
+
+### 2026-10-11: bounded representative CPU load
+
+R014.2 extends the existing cluster validation script with explicit opt-in CPU load.
+`RAFT_LOAD_WORKERS` accepts 1 through 32; `RAFT_LOAD_SECONDS` accepts 1 through
+3600 seconds, default 300. Invalid settings refuse before compilation.
+Workers begin only after the build and remain active during the test command.
+The supervisor aborts on budget exhaustion or unexpected worker exit and reaps
+workers and the command process group on success, failure, SIGINT, or SIGTERM.
+The supervisor logs worker count, process IDs, duration bound, and measured elapsed time.
+Unconfigured callers keep the existing unloaded command. R014.3 through R014.5
+remain open: process-fixture tests do not prove loaded Rust cluster acceptance.
