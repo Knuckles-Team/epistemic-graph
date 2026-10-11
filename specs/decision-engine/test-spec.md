@@ -194,7 +194,20 @@ Local Rust formatting and 12 Python decision-contract checks passed. Those check
 Native execution remains pending after dependency compilation exceeded local resources.
 The isolated fixture arithmetic check does not execute the assembly or solver.
 
+## Synthetic aggregate separation
+
+| Requirement | Proving test |
+|---|---|
+| EG-DECISION-ENGINE-R122 | `src/server/handlers/decide/stat_tests.rs::fit_evaluate_publish_and_decide_end_to_end` exercises both origins through served handlers. |
+
+The fixture excludes synthetic labels above minimum support and preserves real counts in mixed-origin aggregates.
+It also checks synthetic-only logged fitting and the inline provenance guard.
+Native execution remains pending.
+
 ## Typed provenance acceptance
 
 - R121.1: `crates/eg-compute/src/assemble/tests/evidence.rs::assembly_evidence_uses_typed_premises_not_labels` exercises actual assembly and replay.
 - R121.2: planned `src/server/handlers/decide/stat_tests/classes_tests.rs::graph_claim_and_evidence_control_answer_class` covers graph-source provenance.
+
+With `query`, the same fixture creates enough synthetic forecasts to reach the score support floor.
+It checks absent synthetic Brier, log-loss, and ECE rows, plus exact real reputation and learned-reliability counts.

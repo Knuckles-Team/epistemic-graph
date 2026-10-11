@@ -323,3 +323,15 @@ The served refusal test inspects `Response.error` and `Response.error_detail` se
 The error code is `PARAMETER_INVALID`; the detail names `UNSUPPORTED_RETRIEVAL_PLAN` and the rejected option.
 The test also requires an absent result.
 This fixture covers registry refusal only; representative retrieval-plan selection requires the integration test described in R029.
+
+## Synthetic aggregate separation (R122)
+
+The served outcome aggregate excludes synthetic-origin decisions before counting labels and pooling rates.
+The full fit, evaluate, publish, decide, and log fixture checks synthetic-only and mixed-origin aggregates.
+Logged fit and evaluation keep their conservative cohort flag: any synthetic record marks the dataset synthetic.
+This preserves synthetic-only evaluation and prevents mixed cohorts from publishing real-world calibration claims.
+Inline datasets remain unverified and synthetic.
+Native fixture execution remains pending; source bindings and formatting do not prove execution.
+
+The reputation reader also excludes synthetic decisions before learning option reliability or scoring forecasters.
+The query-enabled pipeline fixture checks forecaster metrics, reputation counts, and the learned reliability provider.

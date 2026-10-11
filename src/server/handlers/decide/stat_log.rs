@@ -278,7 +278,9 @@ pub(super) fn joined(
     Ok(out)
 }
 
-/// The outcome aggregate the caller may read.
+/// The real-world outcome aggregate the caller may read.
+/// Synthetic decisions stay available in the log and labelled job datasets,
+/// but cannot contribute counts, support, or pooled rates here.
 pub(super) fn aggregate_log(
     store: &AgentLibraryStore,
     reader: &LogReader,
@@ -292,6 +294,7 @@ pub(super) fn aggregate_log(
     )?;
     let records: Vec<JoinedRecord> = rows
         .iter()
+        .filter(|(entry, _)| !entry.record.synthetic_evidence)
         .filter_map(|(entry, evaluations)| {
             Some(JoinedRecord {
                 option_id: executed_option(&entry.record.outcome)?,
