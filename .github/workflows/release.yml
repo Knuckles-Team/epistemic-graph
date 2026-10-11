@@ -395,10 +395,21 @@ jobs:
         uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
         with:
           version: 'v0.16.0'
+      # A restored target cache must not supply a prior run's timing evidence.
+      - name: Clear previous facade build timings
+        run: rm -rf target-isolated/cargo-timings
       - name: Test (facade full)
         env: &eg-validation-compiler-cache-env
           RUSTC_WRAPPER: sccache
-        run: python3 scripts/cargo_test_rescue.py cargo test -p epistemic-graph --features full --no-fail-fast
+        run: python3 scripts/cargo_test_rescue.py cargo test -p epistemic-graph --features full --no-fail-fast --timings
+      - name: Upload facade build timings
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: facade-build-timings-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: target-isolated/cargo-timings/
+          if-no-files-found: warn
+          retention-days: 1
       - name: Report facade compiler cache reuse
         if: always()
         run: &eg-validation-compiler-cache-stats |

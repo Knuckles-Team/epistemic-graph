@@ -258,10 +258,11 @@
         "8baee8a94894"
       ],
       "verified_by": [
-        "tests/test_release_python_suite_contract.py:111",
-        "tests/test_release_python_suite_contract.py:122",
-        "tests/test_release_python_suite_contract.py:83",
-        "tests/test_release_python_suite_contract.py:94"
+        "tests/test_release_python_suite_contract.py:112",
+        "tests/test_release_python_suite_contract.py:123",
+        "tests/test_release_python_suite_contract.py:298",
+        "tests/test_release_python_suite_contract.py:341",
+        "tests/test_release_python_suite_contract.py:84"
       ]
     },
     {
