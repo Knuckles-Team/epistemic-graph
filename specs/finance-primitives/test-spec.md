@@ -76,3 +76,12 @@ Existing parent acceptance remains unchanged. Each intended test below must run 
 | EG-FINANCE-PRIMITIVES-R011.2.1 | Price, trend-flip, DCA-due and margin-threshold alerts preserve their schema, payload and event identity. | Invalid envelopes refuse. Existing `finance.flip` identifiers remain unchanged. | `src/server/mutation_batch/compile.rs::tests::finance_alert_intents_preserve_schema_and_identity (intended test)` |
 | EG-FINANCE-PRIMITIVES-R011.2.2 | Each alert condition commits its typed event and outbox fact together. | Failed transactions publish neither record. Unauthorized tenants and conflicting source revisions refuse. | `src/server/mutation_batch/tests.rs::finance_alert_and_outbox_commit_atomically (intended test)` |
 | EG-FINANCE-PRIMITIVES-R011.3 | All four alert kinds retain their event identity across replay and restart. Existing `finance.flip` delivery remains compatible. | Duplicate replay creates no extra event or delivery fact. Alert delivery never authorizes an order. | `src/server/mutation_batch/tests.rs::finance_alert_replay_preserves_one_outbox_fact (intended test)` |
+
+## R011.1 typed-envelope acceptance
+
+| ID | Positive proof | Negative / boundary proof | Proving tests |
+|---|---|---|---|
+| EG-FINANCE-PRIMITIVES-R011.1 | A valid envelope passes validation. All four alert kinds have distinct outbox schema names. | Empty identity, listing and message fields refuse. A non-positive timestamp refuses. | `crates/eg-types/src/finance_event_envelope.rs::tests`: `a_well_formed_envelope_validates`, `each_alert_kind_has_a_distinct_outbox_schema`, `an_empty_event_id_is_refused`, `an_empty_listing_id_is_refused`, `an_empty_message_is_refused`, `a_non_positive_timestamp_is_refused`. |
+
+These six module tests prove the typed envelope only. R011 retains transactional publication and idempotent delivery acceptance.
+R011.2 and R011.3 track that runtime acceptance without claiming these module tests prove it.

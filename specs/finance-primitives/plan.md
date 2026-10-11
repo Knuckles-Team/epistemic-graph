@@ -116,6 +116,14 @@ The former rollups counted only their typed children, despite their broader acce
 The restored children retain the original parent acceptance and every existing verified-child binding.
 The generator determines delivery states; this amendment provides no runtime evidence.
 
+### 2026-10-11: correct R011.1 acceptance scope
+
+Affected row: `EG-FINANCE-PRIMITIVES-R011.1`.
+The former verification cell required outbox integration and idempotent delivery, despite the typed-envelope title, task and production-module scope.
+The corrected cell requires valid-envelope admission, four field refusals and distinct schemas for four alert kinds.
+The unchanged R011 parent retains the original publication and replay obligations. R011.2 and R011.3 retain their runtime acceptance children.
+This correction changes acceptance prose; it neither changes test bindings nor assigns delivery state.
+
 ## Audit record
 
 ### 2026-10-11: finance runtime scope
@@ -130,3 +138,22 @@ These findings establish unverified runtime acceptance; missing children alone d
 The intended handler module and test names are work targets, not existing evidence.
 Each implementation must inspect existing served paths before extending them.
 `gen_contract` remains the generator for contract and client outputs; generated files must not receive manual edits.
+
+### 2026-10-11: R011.1 production-module execution
+
+Tested checkout: `3c1968158ea2b5f0f88fc3fe41b3bd92d7ca2505`.
+Source: `crates/eg-types/src/finance_event_envelope.rs`.
+Source SHA-256: `456bf7b236da943a516fee246bed80bafb976512184c38104a6f0b6da0b21724`.
+Rust compiler: `rustc 1.96.0 (ac68faa20 2026-05-25)`.
+The direct module harness enabled `finance` and linked the cached native `serde` dependency.
+All six existing tests passed; zero tests failed, skipped or remained filtered.
+The harness compiled the unchanged production file, including its existing test module.
+This evidence covers module acceptance only; it does not establish crate-wide or hosted runtime acceptance.
+
+Compiler arguments:
+
+```text
+--edition=2021 --test --cfg 'feature="finance"' crates/eg-types/src/finance_event_envelope.rs -L dependency=/workspace/scratch/e4ef2ca48ba5/eg-finance-golden/target/finance-golden/debug/deps --extern serde=/workspace/scratch/e4ef2ca48ba5/eg-finance-golden/target/finance-golden/debug/deps/libserde-896ab768b6bd5b93.rlib -o /tmp/finance-alert-envelope-tests
+```
+
+Test command: `/tmp/finance-alert-envelope-tests --nocapture`.
