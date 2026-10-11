@@ -69,3 +69,12 @@ The benchmark report must name host CPU/RAM/storage, kernel, compiler, container
 At the exact proposed merge head run scoped Rust/Python tests, per-dialect container conformance, `pre-commit run --config .config/pre-commit.yaml --all-files`, `bash scripts/ci_parity.sh`, `python3 scripts/check_status_page.py` and the hosted CI matrix. Capture the CCCC, KISS, jscpd and Dupehound reports from their real configured gates. Record route traces, replay positions, before/after dependency and LOC/symbol counts, old-path deletion, and a restore drill. If a gate cannot run, keep the item `IMPLEMENTED-UNVALIDATED` with the limitation. A green documentation check cannot turn an unimplemented row into `ACCEPTED`.
 
 Authenticated Iceberg catalog (R039): a valid token lists and loads its own tables. Missing and cross-tenant tokens are refused on every route. A partitioned fixture prunes one manifest by a partition predicate, and a pinned external reader loads one table.
+
+### EG-UNIFIED-DATA-PLANE-R040 tests
+
+- `EG-UNIFIED-DATA-PLANE-R040.1`: `crates/eg-types/src/embedding_promotion.rs::tests::checks_round_trip`.
+- `EG-UNIFIED-DATA-PLANE-R040.2`: `crates/eg-types/src/embedding_promotion.rs::tests::one_regression_blocks_promotion`.
+- `EG-UNIFIED-DATA-PLANE-R040.3`: `crates/eg-ann/src/version.rs::tests::tag_requires_passing_verdict`.
+- `EG-UNIFIED-DATA-PLANE-R040.4`: `crates/eg-ann/src/version.rs::tests::blocked_promotion_tags_nothing`.
+- `EG-UNIFIED-DATA-PLANE-R040.5`: `crates/eg-types/src/embedding_promotion.rs::tests::verdict_is_stored_with_modality_entries`.
+- `EG-UNIFIED-DATA-PLANE-R040.6`: `tests/embedding/test_promotion_gate_served.py::test_regressed_modality_blocks_promotion`.

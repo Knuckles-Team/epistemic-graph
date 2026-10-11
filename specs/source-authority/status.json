@@ -55,7 +55,14 @@
     "EG-SRC-AUTH-R009",
     "EG-SRC-AUTH-R009.1",
     "EG-SRC-AUTH-R009.2",
-    "EG-SRC-AUTH-R009.3"
+    "EG-SRC-AUTH-R009.3",
+    "EG-SRC-AUTH-R010",
+    "EG-SRC-AUTH-R010.1",
+    "EG-SRC-AUTH-R010.2",
+    "EG-SRC-AUTH-R010.3",
+    "EG-SRC-AUTH-R010.4",
+    "EG-SRC-AUTH-R010.5",
+    "EG-SRC-AUTH-R010.6"
   ],
   "requirements": [
     {
@@ -479,6 +486,63 @@
     {
       "id": "EG-SRC-AUTH-R009.3",
       "title": "Re-point `EG-CQ-XSRC-R001.1` and `R001.2` to this spec and mark them delivered by `R001.*` and `R002.*`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SRC-AUTH-R010",
+      "title": "Source trust role and live-truth preference (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-SRC-AUTH-R010.1",
+        "EG-SRC-AUTH-R010.2",
+        "EG-SRC-AUTH-R010.3",
+        "EG-SRC-AUTH-R010.4",
+        "EG-SRC-AUTH-R010.5",
+        "EG-SRC-AUTH-R010.6"
+      ]
+    },
+    {
+      "id": "EG-SRC-AUTH-R010.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SRC-AUTH-R010.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SRC-AUTH-R010.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SRC-AUTH-R010.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SRC-AUTH-R010.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SRC-AUTH-R010.6",
+      "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
