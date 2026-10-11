@@ -1,0 +1,108 @@
+{
+  "source_commit": "92974bae8c3ed3a270f582300b7458d4f53571c4",
+  "source_repository": "Knuckles-Team/agent-utilities",
+  "source_function": "_association_rule_id (deleted lines from commit diff)",
+  "vectors": [
+    {
+      "name": "basic",
+      "antecedent": [
+        "eg:item:a"
+      ],
+      "consequent": [
+        "eg:item:b"
+      ],
+      "support": 0.25,
+      "confidence": 0.5,
+      "lift": 2.0,
+      "id": "eg:rule:b6eb0609b74cd5fb2657aecc259b4fdf47fa480829a381d722f5c25aca464d4f"
+    },
+    {
+      "name": "utf8",
+      "antecedent": [
+        "eg:é",
+        "eg:茶"
+      ],
+      "consequent": [
+        "eg:🙂"
+      ],
+      "support": 0.125,
+      "confidence": 0.75,
+      "lift": 1.5,
+      "id": "eg:rule:b79d8ab4328ee48751cc9006434281ab666f7552c6a4772b1bda0e3a43f254d3"
+    },
+    {
+      "name": "split_left",
+      "antecedent": [
+        "eg:ab",
+        "eg:c"
+      ],
+      "consequent": [
+        "eg:d"
+      ],
+      "support": 0.25,
+      "confidence": 0.5,
+      "lift": 2.0,
+      "id": "eg:rule:9538d6ebfab0f1d7c6849ea78a1e52c1c0b5da4099e38e37b0ff3a5db629e214"
+    },
+    {
+      "name": "split_right",
+      "antecedent": [
+        "eg:a",
+        "eg:bc"
+      ],
+      "consequent": [
+        "eg:d"
+      ],
+      "support": 0.25,
+      "confidence": 0.5,
+      "lift": 2.0,
+      "id": "eg:rule:c264d98eb10b291fceeaa8005d4d82eab9f28067000b76667116b438d24280af"
+    },
+    {
+      "name": "ordered",
+      "antecedent": [
+        "eg:b",
+        "eg:a"
+      ],
+      "consequent": [
+        "eg:c"
+      ],
+      "support": 0.1,
+      "confidence": 0.3333333333333333,
+      "lift": 1.25,
+      "id": "eg:rule:5ed61b1f204cec86f3664704981a3bfec5930f80f6d7e6032db1759eb4f1a5a6"
+    },
+    {
+      "name": "reordered",
+      "antecedent": [
+        "eg:a",
+        "eg:b"
+      ],
+      "consequent": [
+        "eg:c"
+      ],
+      "support": 0.1,
+      "confidence": 0.3333333333333333,
+      "lift": 1.25,
+      "id": "eg:rule:ca1bcfac801e5c5c7509c2832b541646035cd2d8edfee8ea0c7186ac07ab9950"
+    },
+    {
+      "name": "empty",
+      "antecedent": [],
+      "consequent": [],
+      "support": 0.0,
+      "confidence": 0.0,
+      "lift": 0.0,
+      "id": "eg:rule:69b342edadbffb94a537419d38b5542b4a2f33454080bbd9ceffd264f70d2319"
+    },
+    {
+      "name": "negative_zero",
+      "antecedent": [],
+      "consequent": [],
+      "support": -0.0,
+      "confidence": 0.0,
+      "lift": 0.0,
+      "id": "eg:rule:d744f137abc78bc0893e27d65682083d7024df4f49a6f4ec4ca6236d0c371489"
+    }
+  ]
+}

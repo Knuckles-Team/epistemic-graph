@@ -90,3 +90,48 @@ fn association_rows(
         })
         .collect::<Vec<_>>()
 }
+
+#[cfg(test)]
+mod rule_identity_tests {
+    use super::association_rule_id;
+
+    // Expected IDs were produced by executing the actual deleted Python function
+    // from Knuckles-Team/agent-utilities commit 92974bae8c3ed3a270f582300b7458d4f53571c4.
+    // The fixture records its source; no Rust output was used as the oracle.
+    // spec: EG-DURABLE-KERNEL-R082.4
+    #[test]
+    fn rule_identity_matches_deleted_python_worker_golden_vectors() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../tests/fixtures/association_rule_identity.json"
+        ))
+        .unwrap();
+        let vectors = fixture["vectors"].as_array().unwrap();
+        assert_eq!(vectors.len(), 8);
+        for vector in vectors {
+            let strings = |field: &str| {
+                vector[field]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|value| value.as_str().unwrap().to_owned())
+                    .collect::<Vec<_>>()
+            };
+            assert_eq!(
+                association_rule_id(
+                    &strings("antecedent"),
+                    &strings("consequent"),
+                    vector["support"].as_f64().unwrap(),
+                    vector["confidence"].as_f64().unwrap(),
+                    vector["lift"].as_f64().unwrap(),
+                ),
+                vector["id"].as_str().unwrap(),
+                "{}",
+                vector["name"]
+            );
+        }
+        // Length-prefixing, ordered labels and IEEE-754 signed zero are identity.
+        for (left, right) in [(2, 3), (4, 5), (6, 7)] {
+            assert_ne!(vectors[left]["id"], vectors[right]["id"]);
+        }
+    }
+}
