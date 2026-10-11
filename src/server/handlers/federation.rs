@@ -151,12 +151,16 @@ fn column_query_error(error: &str) -> String {
     if error.contains("HTTP column projection exceeds limit") {
         return "ENGINE_RESOURCE_EXHAUSTED: foreign column projection exceeded size limit".into();
     }
-    if error.contains("not exposed")
-        || error.contains("column mapping")
-        || error.contains("column query requires a registered source")
-        || error.contains("SQL query is not read-only")
-        || error.contains("SQL column predicates require string values")
-        || error.contains("unsupported SQL connection scheme")
+    if [
+        "not exposed",
+        "column mapping",
+        "column query requires a registered source",
+        "SQL query is not read-only",
+        "SQL column predicates require string values",
+        "unsupported SQL connection scheme",
+    ]
+    .iter()
+    .any(|message| error.contains(message))
         || error.starts_with(eg_plan::federation_opt::REQUIRES_KEYS)
     {
         return "INVALID_ARGUMENT: foreign column request is invalid".into();
@@ -167,6 +171,35 @@ fn column_query_error(error: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::column_query_error;
+
+    #[test]
+    fn foreign_column_argument_errors_preserve_matching_and_priority() {
+        for message in [
+            "not exposed",
+            "column mapping",
+            "column query requires a registered source",
+            "SQL query is not read-only",
+            "SQL column predicates require string values",
+            "unsupported SQL connection scheme",
+        ] {
+            assert_eq!(
+                column_query_error(&format!("federation: {message}: detail")),
+                "INVALID_ARGUMENT: foreign column request is invalid"
+            );
+            assert_eq!(
+                column_query_error(&format!("FEDERATION_BUDGET_EXCEEDED:rows: {message}")),
+                "ENGINE_RESOURCE_EXHAUSTED: foreign column read exceeded resource budget"
+            );
+        }
+        assert_eq!(
+            column_query_error("FEDERATION_SOURCE_REQUIRES_KEYS: detail"),
+            "INVALID_ARGUMENT: foreign column request is invalid"
+        );
+        assert_eq!(
+            column_query_error("backend: FEDERATION_SOURCE_REQUIRES_KEYS: detail"),
+            "ENGINE_UNAVAILABLE: foreign column source unavailable"
+        );
+    }
 
     #[test]
     fn foreign_column_refusals_use_declared_read_codes() {
