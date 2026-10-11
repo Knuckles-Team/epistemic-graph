@@ -148,7 +148,14 @@
     "EG-DURABLE-KERNEL-R083.1",
     "EG-DURABLE-KERNEL-R083.2",
     "EG-DURABLE-KERNEL-R083.3",
-    "EG-DURABLE-KERNEL-R083.4"
+    "EG-DURABLE-KERNEL-R083.4",
+    "EG-DURABLE-KERNEL-R084",
+    "EG-DURABLE-KERNEL-R084.1",
+    "EG-DURABLE-KERNEL-R084.2",
+    "EG-DURABLE-KERNEL-R084.3",
+    "EG-DURABLE-KERNEL-R084.4",
+    "EG-DURABLE-KERNEL-R084.5",
+    "EG-DURABLE-KERNEL-R084.6"
   ],
   "requirements": [
     {
@@ -1882,6 +1889,63 @@
     {
       "id": "EG-DURABLE-KERNEL-R083.4",
       "title": "Locate and wire the served KV operation",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R084",
+      "title": "Version-checked concurrent writes with a typed conflict (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DURABLE-KERNEL-R084.1",
+        "EG-DURABLE-KERNEL-R084.2",
+        "EG-DURABLE-KERNEL-R084.3",
+        "EG-DURABLE-KERNEL-R084.4",
+        "EG-DURABLE-KERNEL-R084.5",
+        "EG-DURABLE-KERNEL-R084.6"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R084.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R084.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R084.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R084.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R084.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R084.6",
+      "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

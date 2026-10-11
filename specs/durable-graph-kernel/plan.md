@@ -206,3 +206,16 @@ Data flow: consumer put → `KvBlockKey` → tiered store → budgeted eviction 
 Attach point: `crates/eg-kvcache/src/{version,shared,tiered}.rs`; the served operation is located by R083.4.
 Reuses the existing tiered, cold and graph-importance modules.
 Decision: key by model version plus prefix hash. Rejected: session-keyed blocks, which cannot be shared across parallel instances.
+
+## EG-DURABLE-KERNEL-R084 version-checked writes
+
+Data flow: served `ApplyMutation` → mutation envelope with `VersionExpectation::Native` (`crates/eg-jobs/src/store.rs:2537`) → `resolve_conflict` → commit or `WRITE_CONFLICT` → trace.
+Types: `WriteConflict` and `MergeStrategy` in `crates/eg-types/src/write_conflict.rs`. The default strategy is `Refuse`.
+Attach point: the version check at `crates/eg-jobs/src/store.rs:2537`; the caller is the served mutation path.
+Failure: a stale write under `Refuse` changes nothing and returns `WRITE_CONFLICT`.
+Reuses `VersionExpectation` (`crates/eg-core/src/rbac_persist/durable_write.rs:105`). New: the strategy and the typed conflict.
+Decision: refuse by default. Rejected: last-write-wins, which loses data without a record.
+Cross-repository: `AU-DECISIONS` callers read the conflict code; owner prefix `AU-DECISIONS`, contract `WriteConflict`.
+
+References
+- No paper is cited.

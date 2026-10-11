@@ -72,3 +72,10 @@ Check boxes describe work remaining for this combined contract. They do not cert
   - [ ] **EG-FEDERATED-QUERY-R077.3:** Row-write re-embedding hook.
   - [ ] **EG-FEDERATED-QUERY-R077.4:** Vectorization recommendation.
   - [ ] **EG-FEDERATED-QUERY-R077.5:** End-to-end column vector search.
+  - [ ] **EG-FEDERATED-QUERY-R078:** Tenant and clearance predicates are part of the query plan (rollup).
+  - [ ] **EG-FEDERATED-QUERY-R078.1:** `PlanScope` typed model
+  - [ ] **EG-FEDERATED-QUERY-R078.2:** Predicate injection as a replaceable default
+  - [ ] **EG-FEDERATED-QUERY-R078.3:** Attach at the UQL statement handler
+  - [ ] **EG-FEDERATED-QUERY-R078.4:** Unverified caller refusal
+  - [ ] **EG-FEDERATED-QUERY-R078.5:** Scope premise in the trace
+  - [ ] **EG-FEDERATED-QUERY-R078.6:** Out-of-tenant read proof
