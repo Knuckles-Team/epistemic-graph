@@ -45,3 +45,22 @@ Check metric labels omit raw facts and errors omit invisible component identifie
 
 
 For each changed code path run focused Rust/Python/client tests, `cargo fmt --check`, workspace Clippy with applicable features, generated contract freshness, CCCC, KISS, Dupehound and jscpd differential with zero new pairs. Hosted CI runs build/package tests for affected features and the locally provisioned served journey. Optional cloud/cluster/identity-provider tests run in a separate deployment qualification and cannot block normal external PRs merely because no live environment exists. An acceptance record is complete only when every relevant A–E case and gate has a result tied to the same published commit; `SOURCE_LANDED` stays distinct from `ACCEPTED`.
+
+### R090.1 native acceptance receipt (2026-10-11)
+
+`crates/eg-types/src/decision/statistical/scorer.rs::budget_tests` passed all six native tests with Rust 1.96.0.
+`a_budget_at_the_ceiling_is_declared` proves ceiling acceptance.
+The parameter, byte, and latency refusal tests prove independent limit enforcement.
+`each_budget_axis_accepts_its_boundary_and_refuses_overflow` covers zero, exact independent ceilings, and `u32::MAX` refusals.
+The harness imports the unchanged production module with real cached `eg-types` and `serde` dependencies; no substitutes were used.
+The reproducible Cargo command is `cargo test -p eg-types decision::statistical::scorer::budget_tests`.
+The equivalent direct native harness ran; the full Cargo crate build and hosted CI were not run locally.
+This receipt covers typed declarations only, not measured latency or the parent R090 benchmark obligation.
+
+The latency boundary accepts 9,999 microseconds and refuses 10,000 microseconds.
+
+### Remaining R090 acceptance
+
+EG-DECISION-ENGINE-R090.2 requires `tests/decision_resident_scorer.rs::compiled_engine_scores_without_external_runtime`.
+EG-DECISION-ENGINE-R090.3 requires `benches/decision_resident_scorer.rs::resident_scorer_meets_declared_budget`.
+Both checks remain planned and unrun. Budget declarations do not establish either result.
