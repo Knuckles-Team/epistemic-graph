@@ -64,20 +64,3 @@
 | `EG-SUPPLY-VOCAB-R008.1` | **Class-only impact query fixture.** `crates/eg-core/tests/fixtures/supply_chain_impact.rq` from plan.md: parses and uses only classes of this vocabulary and `infra:Service`. | Query parses; no connector name appears. |
 | `EG-SUPPLY-VOCAB-R008.2` | **Recorded-response fixture: one row per source concept.** `crates/eg-core/tests/fixtures/supply_chain_recorded/` with one recorded response per connector operation in plan.md D4. | Fixture set covers every row of the D4 table that is not marked not available. |
 | `EG-SUPPLY-VOCAB-R008.3` | **Blocked-register test.** Test reads the D4 table and asserts each concept either has an authority row or a typed abstention reason (twenty contracts, `coversService`). | No concept is silently uncovered. |
-
-## Historical requirement tombstones
-
-These rows preserve permanent IDs. Retirement does not establish implementation or acceptance.
-
-| ID | Requirement | Verification |
-|---|---|---|
-| `EG-CONN-AUDIT-R016` | **RETIRED: replaced by `EG-SUPPLY-VOCAB-R003`.** See the historical acceptance record in plan.md. | Retirement only; replacement acceptance remains independent. |
-| `EG-CONN-AUDIT-R016.1` | **RETIRED: replaced by `EG-SUPPLY-VOCAB-R003.13`.** See the historical acceptance record in plan.md. | Retirement only; replacement acceptance remains independent. |
-| `EG-CONN-AUDIT-R016.2` | **RETIRED: replaced by `EG-SUPPLY-VOCAB-R003.14`.** See the historical acceptance record in plan.md. | Retirement only; replacement acceptance remains independent. |
-| `EG-CONN-AUDIT-R016.3` | **RETIRED: replaced by `EG-SUPPLY-VOCAB-R003.15`.** See the historical acceptance record in plan.md. | Retirement only; replacement acceptance remains independent. |
-| `EG-CONN-AUDIT-R016.4` | **RETIRED: replaced by `EG-SUPPLY-VOCAB-R003.7`.** See the historical acceptance record in plan.md. | Retirement only; replacement acceptance remains independent. |
-| `EG-CONN-AUDIT-R016.5` | **RETIRED: replaced by `EG-SUPPLY-VOCAB-R003.8`.** See the historical acceptance record in plan.md. | Retirement only; replacement acceptance remains independent. |
-| `EG-CONN-AUDIT-R016.6` | **RETIRED: replaced by `EG-SUPPLY-VOCAB-R003.9`.** See the historical acceptance record in plan.md. | Retirement only; replacement acceptance remains independent. |
-| `EG-CONN-AUDIT-R016.7` | **RETIRED: replaced by `EG-SUPPLY-VOCAB-R003.10`, `EG-SUPPLY-VOCAB-R003.16`, `EG-SUPPLY-VOCAB-R003.17`.** See the historical acceptance record in plan.md. | Retirement only; replacement acceptance remains independent. |
-| `EG-CONN-AUDIT-R016.8` | **RETIRED: replaced by `EG-SUPPLY-VOCAB-R003.11`.** See the historical acceptance record in plan.md. | Retirement only; replacement acceptance remains independent. |
-| `EG-CONN-AUDIT-R016.9` | **RETIRED: replaced by `EG-SUPPLY-VOCAB-R003.12`.** See the historical acceptance record in plan.md. | Retirement only; replacement acceptance remains independent. |
