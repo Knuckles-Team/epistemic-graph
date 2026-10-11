@@ -128,7 +128,7 @@ pub(super) async fn decision_log_round_trip(h: &Harness, record: StatisticalDeci
 }
 
 #[cfg(feature = "blob")]
-fn retention_policy(
+pub(super) fn retention_policy(
     compact_after_ms: u64,
     drop_blob_after_ms: Option<u64>,
 ) -> eg_types::decision::DecisionPolicy {
@@ -156,7 +156,7 @@ async fn compact_with(
 }
 
 #[cfg(feature = "blob")]
-async fn verify_log(
+pub(super) async fn verify_log(
     h: &Harness,
     record_id: &str,
 ) -> Result<eg_types::decision::statistical::log::DecisionLogVerification, String> {
@@ -168,7 +168,7 @@ async fn verify_log(
 }
 
 #[cfg(feature = "blob")]
-fn log_entry(h: &Harness, record_id: &str) -> DecisionLogEntry {
+pub(super) fn log_entry(h: &Harness, record_id: &str) -> DecisionLogEntry {
     let key = crate::server::persistence::decision_jobs::record_key(record_id);
     let bytes = h
         .store

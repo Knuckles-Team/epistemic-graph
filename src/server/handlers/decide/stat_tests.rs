@@ -859,12 +859,8 @@ async fn fit_evaluate_publish_and_decide_end_to_end() {
     assert_eq!(record.logging_propensities.len(), 3);
 
     decision_log_round_trip(&h, record.clone()).await;
-    #[cfg(feature = "blob")]
-    retention_compacts_and_verifies(&h, record).await;
-    // The compacted record still trains: its inputs are restored from CAS.
+    // Library inputs remain inline and continue to train.
     fit_from_the_engine_log(&h, &schema_pin, record).await;
-    #[cfg(feature = "blob")]
-    retention_retires(&h, record).await;
 }
 
 // spec: EG-DECISION-ENGINE-R020
@@ -1114,6 +1110,44 @@ async fn graph_candidates_are_read_through_acl_rls_and_a_select_only_plan() {
 #[tokio::test]
 async fn graph_sourced_records_are_principal_scoped_not_tenant_scoped_on_log_read() {
     let h = Harness::with_isolation(ServerState::test_isolation("decider")).await;
+    let record = graph_log_record(&h).await;
+    assert!(matches!(
+        record.candidate_source,
+        eg_types::decision::CandidateSourceRecord::Graph { .. }
+    ));
+    let commit = DecisionLogOp::Commit {
+        record: Box::new(record.clone()),
+        evaluator: None,
+    };
+    let committed: DecisionLogCommitted = decode(log_op(&h, "decider", commit).await).unwrap();
+
+    let get = |record_id: String| DecisionLogOp::Get {
+        tenant_id: TENANT.to_string(),
+        record_id,
+    };
+    let mine: Option<DecisionLogEntry> =
+        decode(log_op(&h, "decider", get(committed.record_id.clone())).await).unwrap();
+    assert!(
+        mine.is_some(),
+        "the committing principal sees its own record"
+    );
+
+    let theirs: Option<DecisionLogEntry> =
+        decode(log_op(&h, "another-reader", get(committed.record_id.clone())).await).unwrap();
+    assert!(
+        theirs.is_none(),
+        "a graph-sourced record is visible to its committing principal only, \
+         not to another reader in the same tenant"
+    );
+    #[cfg(feature = "blob")]
+    {
+        retention_compacts_and_verifies(&h, &record).await;
+        retention_retires(&h, &record).await;
+    }
+}
+
+#[cfg(feature = "query")]
+async fn graph_log_record(h: &Harness) -> StatisticalDecisionRecord {
     {
         let mut guard = h.state.write().await;
         guard
@@ -1153,37 +1187,12 @@ async fn graph_sourced_records_are_principal_scoped_not_tenant_scoped_on_log_rea
             label: "Tool".to_string(),
         }])),
     };
-    let batch = decide(&h, graph_request).await.unwrap();
+    let batch = decide(h, graph_request).await.unwrap();
     let record = batch.records.as_slice()[0].clone();
-    assert!(matches!(
-        record.candidate_source,
-        eg_types::decision::CandidateSourceRecord::Graph { .. }
-    ));
-    let commit = DecisionLogOp::Commit {
-        record: Box::new(record),
-        evaluator: None,
-    };
-    let committed: DecisionLogCommitted = decode(log_op(&h, "decider", commit).await).unwrap();
-
-    let get = |record_id: String| DecisionLogOp::Get {
-        tenant_id: TENANT.to_string(),
-        record_id,
-    };
-    let mine: Option<DecisionLogEntry> =
-        decode(log_op(&h, "decider", get(committed.record_id.clone())).await).unwrap();
-    assert!(
-        mine.is_some(),
-        "the committing principal sees its own record"
-    );
-
-    let theirs: Option<DecisionLogEntry> =
-        decode(log_op(&h, "another-reader", get(committed.record_id.clone())).await).unwrap();
-    assert!(
-        theirs.is_none(),
-        "a graph-sourced record is visible to its committing principal only, \
-         not to another reader in the same tenant"
-    );
+    record
 }
+
+mod retention_tests;
 
 mod log_tests;
 use log_tests::{decision_log_round_trip, fit_from_the_engine_log, log_op};
