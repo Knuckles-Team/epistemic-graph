@@ -7,7 +7,9 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::agent_component::{DeclaredCost, DeclaredLatency};
+use crate::agent_component::{
+    DeclaredCost, DeclaredLatency, MeasuredFact, ShellProficiency, StoppingBehaviour,
+};
 use crate::contract::BoundedVec;
 
 /// Declared per-invocation prices, in integer micros — the same shape an
@@ -29,6 +31,7 @@ pub type PackCost = DeclaredCost;
 pub struct PackModelFacts {
     pub provider: String,
     pub model_identity: String,
+    #[serde(alias = "contextWindowTokens")]
     pub context_window_tokens: u64,
     pub max_output_tokens: u64,
     #[serde(default)]
@@ -37,6 +40,18 @@ pub struct PackModelFacts {
     pub supports_structured_output: Option<bool>,
     #[serde(default)]
     pub supports_vision: Option<bool>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        alias = "shellProficiency"
+    )]
+    pub shell_proficiency: Option<MeasuredFact<ShellProficiency>>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        alias = "stoppingBehaviour"
+    )]
+    pub stopping_behaviour: Option<MeasuredFact<StoppingBehaviour>>,
 }
 
 /// Everything one entry declares beyond its bytes.

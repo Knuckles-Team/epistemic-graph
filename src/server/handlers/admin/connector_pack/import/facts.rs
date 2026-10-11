@@ -70,8 +70,8 @@ pub(super) fn facts(entry: &PackEntry, digest: &Digest256) -> Result<AgentCompon
                 cost,
                 latency_declared: entry.annotations.latency_declared,
                 latency_observed_ref: None,
-                shell_proficiency: None,
-                stopping_behaviour: None,
+                shell_proficiency: model.shell_proficiency.clone(),
+                stopping_behaviour: model.stopping_behaviour.clone(),
             }
         }
         _ => AgentComponentFacts::Opaque,

@@ -102,17 +102,40 @@ fn optional_u64(value: Option<u64>) -> Vec<u8> {
 
 /// The digest of a declared model profile.
 pub fn model_facts_digest(facts: &PackModelFacts) -> Result<Digest256, String> {
+    let mut fields = vec![
+        facts.provider.as_bytes().to_vec(),
+        facts.model_identity.as_bytes().to_vec(),
+        facts.context_window_tokens.to_be_bytes().to_vec(),
+        facts.max_output_tokens.to_be_bytes().to_vec(),
+        tri(facts.supports_tools).to_vec(),
+        tri(facts.supports_structured_output).to_vec(),
+        tri(facts.supports_vision).to_vec(),
+    ];
+    for (name, fact) in [
+        (
+            "shell_proficiency",
+            facts
+                .shell_proficiency
+                .as_ref()
+                .map(|f| (f.value.as_str(), &f.evaluation_run_ref)),
+        ),
+        (
+            "stopping_behaviour",
+            facts
+                .stopping_behaviour
+                .as_ref()
+                .map(|f| (f.value.as_str(), &f.evaluation_run_ref)),
+        ),
+    ] {
+        if let Some((value, reference)) = fact {
+            for part in [name, value, &reference.evaluation_id, &reference.digest] {
+                fields.push(part.as_bytes().to_vec());
+            }
+        }
+    }
     Digest256::framed(
         MODEL_FACTS_DIGEST_DOMAIN,
-        &[
-            facts.provider.as_bytes(),
-            facts.model_identity.as_bytes(),
-            &facts.context_window_tokens.to_be_bytes(),
-            &facts.max_output_tokens.to_be_bytes(),
-            &tri(facts.supports_tools),
-            &tri(facts.supports_structured_output),
-            &tri(facts.supports_vision),
-        ],
+        &fields.iter().map(Vec::as_slice).collect::<Vec<_>>(),
     )
 }
 
@@ -271,4 +294,50 @@ pub fn pack_digest(index: &ConnectorPackIndex) -> Result<Digest256, String> {
     ];
     fields.extend(digests.iter().map(|digest| digest.as_bytes().as_slice()));
     Digest256::framed(PACK_DIGEST_DOMAIN, &fields)
+}
+
+#[cfg(test)]
+mod measured_model_tests {
+    use super::*;
+
+    // spec: EG-TYPED-PACKS-R048.5
+    #[test]
+    fn measured_pack_model_digest_preserves_absence_and_binds_provenance() {
+        let baseline = serde_json::json!({
+            "provider":"vendor", "model_identity":"vendor/model-1",
+            "context_window_tokens":128000, "max_output_tokens":8192,
+            "supports_tools":true, "supports_structured_output":true, "supports_vision":false
+        });
+        let facts: PackModelFacts = serde_json::from_value(baseline.clone()).unwrap();
+        let absent = model_facts_digest(&facts).unwrap();
+        assert_eq!(
+            absent.to_hex(),
+            "2cd426b67300c0fafcc3ee9ff4eb80b6095152b6680e2840377d11ea457e2307"
+        );
+        for (field, values) in [
+            ("shell_proficiency", ["high", "low"]),
+            ("stopping_behaviour", ["balanced", "stops_early"]),
+        ] {
+            let mut wire = baseline.clone();
+            wire[field] = serde_json::json!({"value":values[0], "evaluation_run_ref":{"evaluation_id":"eval:42", "digest":"opaque"}});
+            let measured =
+                model_facts_digest(&serde_json::from_value(wire.clone()).unwrap()).unwrap();
+            assert_ne!(measured, absent);
+            for (key, value) in [("evaluation_id", "eval:43"), ("digest", "changed")] {
+                let mut changed = wire.clone();
+                changed[field]["evaluation_run_ref"][key] = value.into();
+                assert_ne!(
+                    model_facts_digest(&serde_json::from_value(changed).unwrap()).unwrap(),
+                    measured
+                );
+            }
+            wire[field]["value"] = values[1].into();
+            assert_ne!(
+                model_facts_digest(&serde_json::from_value(wire.clone()).unwrap()).unwrap(),
+                measured
+            );
+            wire[field]["value"] = "unknown".into();
+            assert!(serde_json::from_value::<PackModelFacts>(wire).is_err());
+        }
+    }
 }

@@ -59,6 +59,8 @@ pub fn annotations() -> PackAnnotations {
             supports_tools: Some(true),
             supports_structured_output: Some(true),
             supports_vision: Some(false),
+            shell_proficiency: None,
+            stopping_behaviour: None,
         }),
         sdk_contract_pin: Some("sdk-d18-1".to_string()),
         tool_mode: Some(PackToolMode::Condensed),

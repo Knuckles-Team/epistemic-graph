@@ -17,7 +17,12 @@ from ._shared import (
     DeclaredLatency,
     Digest256,
     McpCatalogSnapshotBinding,
+    MeasuredFact_ShellProficiency,
+    MeasuredFact_StoppingBehaviour,
     Nonce,
+    ObservationRef,
+    ShellProficiency,
+    StoppingBehaviour,
 )
 
 CONNECTOR_PACK_SCHEMA_VERSION = 2
@@ -411,6 +416,8 @@ class PackModelFacts(BaseModel):
     max_output_tokens: Annotated[int, Field(ge=0)]
     model_identity: str
     provider: str
+    shell_proficiency: MeasuredFact_ShellProficiency | None = None
+    stopping_behaviour: MeasuredFact_StoppingBehaviour | None = None
     supports_structured_output: bool | None = None
     supports_tools: bool | None = None
     supports_vision: bool | None = None
@@ -685,7 +692,10 @@ __all__ = [
     "McpCatalogReconcileRequest",
     "McpCatalogSnapshotBinding",
     "McpSelfServedCatalogAttestRequest",
+    "MeasuredFact_ShellProficiency",
+    "MeasuredFact_StoppingBehaviour",
     "Nonce",
+    "ObservationRef",
     "PackAnnotations",
     "PackArchiveRef",
     "PackDispositionCounts",
@@ -714,4 +724,6 @@ __all__ = [
     "PackWarning",
     "PackWarningCode",
     "PackWriteErrorCode",
+    "ShellProficiency",
+    "StoppingBehaviour",
 ]
