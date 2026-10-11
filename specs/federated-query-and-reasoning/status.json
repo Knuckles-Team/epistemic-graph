@@ -807,12 +807,15 @@
     {
       "id": "EG-FEDERATED-QUERY-R056",
       "title": "Causal-impact p-values reuse the shared numeric tail functions",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "1b55c58d05d5",
-        "62c450561948"
+        "62c450561948",
+        "b6e49c439128"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-compute/src/mining/causal_impact.rs:179"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R057",
