@@ -73,7 +73,8 @@ def test_check_requires_both_client_copies_to_equal_fresh_bytes(
     for client in codec.CLIENT_DIRS:
         (tmp_path / client).mkdir(parents=True)
     fresh = WASM + b"\x00\x01x"
-    assert codec.write(tmp_path, fresh) == 0
+    for client in codec.CLIENT_DIRS:
+        (tmp_path / client / codec.MODULE).write_bytes(fresh)
     expected = hashlib.sha256(fresh).hexdigest()
     config = tmp_path / ".config"
     config.mkdir()
@@ -99,3 +100,118 @@ def test_check_requires_both_client_copies_to_equal_fresh_bytes(
     )
     assert codec.check(tmp_path, fresh) == 1
     assert "does not match its pinned sha256" in capsys.readouterr().err
+
+
+@pytest.fixture
+def codec_repo(codec, tmp_path):
+    for client in codec.CLIENT_DIRS:
+        (tmp_path / client).mkdir(parents=True)
+        (tmp_path / client / codec.MODULE).write_bytes(WASM)
+    ledger = tmp_path / ".config" / "generated-artifacts.toml"
+    ledger.parent.mkdir()
+    body = (ROOT / ".config" / "generated-artifacts.toml").read_text()
+    for entry in codec.generated_artifacts.load(ROOT).values():
+        body = body.replace(entry.sha256, hashlib.sha256(WASM).hexdigest())
+    ledger.write_text(body)
+    return tmp_path, ledger
+
+
+def test_write_updates_both_existing_pins_and_preserves_metadata(codec, codec_repo):
+    root, ledger = codec_repo
+    original = ledger.read_text()
+    fresh = WASM + b"\x00\x01x"
+    assert codec.write(root, fresh) == 0
+    assert ledger.read_text() == original.replace(
+        hashlib.sha256(WASM).hexdigest(), hashlib.sha256(fresh).hexdigest()
+    )
+    assert codec.check(root, fresh) == 0
+    assert codec.write(root, fresh) == 0
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        lambda body: "invalid = [",
+        lambda body: body.replace("language-clients", "other-job", 1),
+        lambda body: body.replace(" --check", " --wrong", 1),
+        lambda body: body.replace("clients/go/", "clients/other/", 1),
+        lambda body: body + body[body.index("[[artifact]]") :],
+        lambda body: body.replace('sha256 = "', 'digest = "', 1),
+    ],
+)
+def test_write_refuses_unexpected_ledger_before_changing_files(
+    codec, codec_repo, change
+):
+    root, ledger = codec_repo
+    ledger.write_text(change(ledger.read_text()))
+    before = ledger.read_bytes()
+    assert codec.write(root, WASM + b"\x00\x01x") == 1
+    assert ledger.read_bytes() == before
+    for client in codec.CLIENT_DIRS:
+        assert (root / client / codec.MODULE).read_bytes() == WASM
+
+
+def test_write_refuses_missing_ledger_without_creating_artifacts(codec, tmp_path):
+    assert codec.write(tmp_path, WASM) == 1
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_write_preserves_unrelated_artifact_with_the_same_old_hash(codec, codec_repo):
+    root, ledger = codec_repo
+    unrelated = ledger.read_text().split("[[artifact]]")[1]
+    unrelated = "[[artifact]]" + unrelated.replace("clients/go/", "clients/unrelated/")
+    ledger.write_text(ledger.read_text() + unrelated)
+    assert codec.write(root, WASM + b"\x00\x01x") == 0
+    assert ledger.read_text().endswith(unrelated)
+
+
+@pytest.mark.parametrize("target", ["ledger", "codec"])
+def test_write_refuses_symlinks_before_changing_files(codec, codec_repo, target):
+    root, ledger = codec_repo
+    path = ledger if target == "ledger" else root / codec.CLIENT_DIRS[1] / codec.MODULE
+    saved = path.with_suffix(".original")
+    path.rename(saved)
+    path.symlink_to(saved)
+    original = saved.read_bytes()
+    assert codec.write(root, WASM + b"\x00\x01x") == 1
+    assert saved.read_bytes() == original
+    assert (root / codec.CLIENT_DIRS[0] / codec.MODULE).read_bytes() == WASM
+
+
+@pytest.mark.parametrize(
+    ("metadata_decoy", "refusal"),
+    [
+        pytest.param(False, "unsupported ledger hash layout", id="quoted-hash-key"),
+        pytest.param(True, "refused unexpected ledger changes", id="metadata-decoy"),
+    ],
+)
+def test_write_refuses_ambiguous_hash_layout_without_side_effects(
+    codec, codec_repo, capsys, metadata_decoy, refusal
+):
+    root, ledger = codec_repo
+    original = ledger.read_text().replace('sha256 = "', '"sha256" = "', 1)
+    if metadata_decoy:
+        reason = next(
+            line for line in original.splitlines() if line.startswith("reason =")
+        )
+        original = original.replace(
+            reason,
+            "reason = '''\nsha256 = \"" + hashlib.sha256(WASM).hexdigest() + "\"\n'''",
+            1,
+        )
+    ledger.write_text(original)
+    assert codec.write(root, WASM + b"\x00\x01x") == 1
+    assert refusal in capsys.readouterr().err
+    assert ledger.read_text() == original
+    for client in codec.CLIENT_DIRS:
+        assert (root / client / codec.MODULE).read_bytes() == WASM
+
+
+def test_write_refuses_invalid_module_without_changing_files(codec, codec_repo):
+    root, ledger = codec_repo
+    original = ledger.read_bytes()
+    with pytest.raises(ValueError, match="WebAssembly"):
+        codec.write(root, b"not a module")
+    assert ledger.read_bytes() == original
+    for client in codec.CLIENT_DIRS:
+        assert (root / client / codec.MODULE).read_bytes() == WASM
