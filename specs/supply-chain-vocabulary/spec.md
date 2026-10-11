@@ -20,6 +20,7 @@ Public provenance: gap found while reading `specs/cross-source-competency` (`pla
 - FR-005: Service to business capability uses one declared property, `:supportsCapability`, mapped from each source's native relation.
 - FR-006: Every concept has a recorded source table: which connector operation supplies it (CONFIRMED from the tool list) or that no connected source can, in which case the report abstains with a typed reason.
 - FR-007: Entities from different sources join only across an approved `owl:sameAs` (`EG-UNIFIED-DATA-PLANE-R030`); this spec supplies the blocking keys per concept.
+- FR-008: EG-SUPPLY-VOCAB-R003.13 through R003.17 require commercial registry, namespace and Opportunity date acceptance.
 - SC-001: Each new `.ttl` parses, each shape accepts a valid fixture and refuses each fault, and the class-only impact query in plan.md parses against the ontology.
 
 ## Scope and interfaces
@@ -39,6 +40,7 @@ Non-goals: ingesting any source's data; a new decision or planning mechanism; Ar
 | FR-005 | plan.md Decisions D1 | T-005 | PENDING |
 | FR-006 | plan.md Decisions D2, D4 | T-006 | PENDING |
 | FR-007 | plan.md Entity resolution | T-007 | PENDING |
+| FR-008 | plan.md Amendments | T-COM-013 through T-COM-017 | PENDING |
 | SC-001 | plan.md Worked example | T-008 | PENDING |
 
 ## Open questions

@@ -21,6 +21,18 @@ Status: PROPOSED. Governing spec: [spec.md](spec.md).
 | T-007 | FR-007 | Integration | Blocking-key fixture and a name-only candidate | Proposal inactive until approved; join empty before | PENDING |
 | T-008 | SC-001 | Parse | All new `.ttl`, `.rq` | Parse clean; query uses classes only | PENDING |
 
+## Commercial registry and shape acceptance
+
+Named tests below are planned, not executed evidence.
+
+| Test ID | Requirement | Level | Setup and input | Expected observation | Evidence |
+|---|---|---|---|---|---|
+| T-COM-013 | EG-SUPPLY-VOCAB-R003.13 | Contract | `commercial_vocabulary::commercial_module_loads` in `crates/eg-core/tests/commercial_vocabulary.rs` | Load through CoreSpec; assert module and catalog registration. Reject a missing or duplicate registration. | PENDING |
+| T-COM-014 | EG-SUPPLY-VOCAB-R003.14 | Contract | `commercial_vocabulary::commercial_shapes_load` in `crates/eg-core/tests/commercial_vocabulary.rs` | Load the registered companion and existing contract/capability shapes. Reject missing registration or overwritten existing shapes. | PENDING |
+| T-COM-015 | EG-SUPPLY-VOCAB-R003.15 | Contract | `commercial_vocabulary::commercial_shared_namespace` in `crates/eg-core/tests/commercial_vocabulary.rs` | Check exact IRIs; reject duplicate incompatible declarations and accidental domain narrowing. Existing supplier and customer fixtures remain valid. | PENDING |
+| T-COM-016 | EG-SUPPLY-VOCAB-R003.16 | Contract | `commercial_vocabulary::commercial_close_date_declared` in `crates/eg-core/tests/commercial_vocabulary.rs` | Assert canonical property IRI, datatype-property type and dateTime range. Reject an incompatible existing declaration before adding a shape. | PENDING |
+| T-COM-017 | EG-SUPPLY-VOCAB-R003.17 | Contract | `commercial_vocabulary::commercial_opportunity_date_shape` in `crates/eg-core/tests/commercial_vocabulary.rs` | Load the registered shape. Accept a valid dated opportunity; reject missing closeDate and an invalid date datatype. | PENDING |
+
 ## Negative and boundary cases
 
 Unapproved mapping makes a class uncovered; unconnected procurement source gives an abstention; a name-only supplier match across erpnext and dockerhub is never joined before approval; a limit with a reading but no limit is refused.

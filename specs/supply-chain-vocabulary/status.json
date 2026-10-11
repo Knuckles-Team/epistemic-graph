@@ -32,6 +32,11 @@
     "EG-SUPPLY-VOCAB-R003.10",
     "EG-SUPPLY-VOCAB-R003.11",
     "EG-SUPPLY-VOCAB-R003.12",
+    "EG-SUPPLY-VOCAB-R003.13",
+    "EG-SUPPLY-VOCAB-R003.14",
+    "EG-SUPPLY-VOCAB-R003.15",
+    "EG-SUPPLY-VOCAB-R003.16",
+    "EG-SUPPLY-VOCAB-R003.17",
     "EG-SUPPLY-VOCAB-R004",
     "EG-SUPPLY-VOCAB-R004.1",
     "EG-SUPPLY-VOCAB-R004.2",
@@ -211,7 +216,12 @@
         "EG-SUPPLY-VOCAB-R003.9",
         "EG-SUPPLY-VOCAB-R003.10",
         "EG-SUPPLY-VOCAB-R003.11",
-        "EG-SUPPLY-VOCAB-R003.12"
+        "EG-SUPPLY-VOCAB-R003.12",
+        "EG-SUPPLY-VOCAB-R003.13",
+        "EG-SUPPLY-VOCAB-R003.14",
+        "EG-SUPPLY-VOCAB-R003.15",
+        "EG-SUPPLY-VOCAB-R003.16",
+        "EG-SUPPLY-VOCAB-R003.17"
       ]
     },
     {
@@ -294,6 +304,41 @@
     {
       "id": "EG-SUPPLY-VOCAB-R003.12",
       "title": "Add `:lastActivityAt`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R003.13",
+      "title": "Register the commercial module",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R003.14",
+      "title": "Register the commercial shapes companion",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R003.15",
+      "title": "Preserve canonical commercial namespaces",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R003.16",
+      "title": "Declare the Opportunity date property",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R003.17",
+      "title": "Restore the Opportunity date constraint",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
