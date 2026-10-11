@@ -295,7 +295,7 @@ The existing lineage tests retain their independent file-digest and manifest-ord
 The existing admin holder test retains its historical Content assertions.
 - `EG-DECISION-ENGINE-R129`: `crates/eg-types/src/decision/guardrail.rs::tests::promotion_obeys_invariants`.
 - `EG-DECISION-ENGINE-R129.1`: `src/server/handlers/decide/stat_tests/rule_promotion_tests.rs::attach_point_is_reached`.
-- `EG-DECISION-ENGINE-R129.2`: `crates/eg-types/src/decision/guardrail.rs::tests::verdict_serialises_snake_case`.
+- `EG-DECISION-ENGINE-R129.2`: `crates/eg-types/src/decision/guardrail.rs::tests::verdict_serialises_snake_case` roundtrips both exact snake_case wire variants and preserves the invariant IRI; `verdict_rejects_unknown_variants_and_malformed_payloads` refuses wrong-case/unknown variants, missing or non-string IRIs, and unknown payload fields. These type tests do not prove the invariant gate.
 - `EG-DECISION-ENGINE-R129.3`: `crates/eg-types/src/decision/guardrail.rs::tests::first_contradicted_invariant_is_named`.
 - `EG-DECISION-ENGINE-R129.4`: `crates/eg-types/src/decision/guardrail.rs::tests::full_consensus_does_not_override`.
 - `EG-DECISION-ENGINE-R129.5`: `src/server/handlers/decide/stat_tests/rule_promotion_tests.rs::rejected_rule_is_audited_not_active`.
