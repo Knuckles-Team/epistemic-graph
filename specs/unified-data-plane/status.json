@@ -188,7 +188,7 @@
       ],
       "verified_by": [
         "src/server/foreign_catalog.rs:402",
-        "src/server/foreign_catalog.rs:424"
+        "src/server/foreign_catalog.rs:425"
       ]
     },
     {

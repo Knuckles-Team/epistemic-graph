@@ -2,6 +2,7 @@
 //! §11.1, WP A6): the routing fixture, planted bad inputs, the brute-force
 //! oracle, golden vectors and the latency report.
 
+mod evidence;
 mod fixture;
 mod golden;
 mod oracle;

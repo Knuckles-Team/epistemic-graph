@@ -273,6 +273,13 @@ The generated lifecycle records test existence, independently of execution resul
 
 R079.1 proves the content taxonomy only. R079.2 through R079.5 retain the parent ingestion, duplicate/size, SQL, and retrieval-feedback obligations. R080.1 proves the typed provenance rule only; R080.2 requires the real six-rung integration fixture. R102.1 proves the typed activation sequence only; R102.2 requires a real shadow ingestion and approval-gated activation. These requirements use the existing source-ingestion, enrichment, and approved-schema owners. They introduce no second write authority. Their planned fixtures are not execution evidence.
 
+## Retention boundaries
+
+Library records retain their complete inputs indefinitely. Graph input retention uses the existing Blob CAS lifecycle.
+Compaction starts at the committed-record age. Input retirement starts at the compaction age.
+The implementation retains graph summaries indefinitely. R066.4 tracks the remaining record-expiry requirement.
+R066 remains incomplete until that requirement has implementation and acceptance coverage.
+
 ### 2026-10-11: bounded topology oracle coverage for R110.1
 
 Extend the assembly topology tests with a fixed-seed property fixture using five
@@ -307,3 +314,104 @@ source is bound to R072.1; generated spec state and test execution are separate.
 Annotate the heterogeneous JSON payloads in the operation-selected decoder
 regressions explicitly. Preserve the nested unexpected-field mutation and all
 fail-closed assertions while making the fixtures valid mypy targets.
+
+### 2026-10-11: typed decision provenance acceptance
+
+R121.1 exercises the existing typed `PremiseRef` owner through assembly and replay.
+The test varies misleading labels independently from premise classes.
+R121.2 retains graph candidate provenance, record sealing, and replay integration.
+Graph candidates currently discard typed Claim/Evidence provenance while retaining scalar features.
+This assembly test does not establish graph-source acceptance.
+Native execution remains pending through an authorized dependency route.
+The existing scoped result is excluded because its dependency cache was outside the permitted task scope.
+The full Cargo suite and hosted CI remain unrun for this change.
+
+### 2026-10-11 amendment: bounded R073 storage acceptance
+
+Add R073.1 and R073.2 for the existing served import path's durable per-component
+outbox and competing head compare-and-set behavior. These child tests do not
+complete R073: direct multi-intent receipt digest coverage and an owner-table /
+current-format refusal audit remain separate acceptance work. Native execution
+is reported separately from the existence of these acceptance tests.
+
+## Retrieval refusal envelope (R029)
+
+The served refusal test inspects `Response.error` and `Response.error_detail` separately.
+The error code is `PARAMETER_INVALID`; the detail names `UNSUPPORTED_RETRIEVAL_PLAN` and the rejected option.
+The test also requires an absent result.
+This fixture covers registry refusal only; representative retrieval-plan selection requires the integration test described in R029.
+
+## Unsupported topology commit boundary (R113.2.1)
+
+DecisionCommit refuses solved plans with positive capacity demand before either owner writes.
+The guard uses the declared DERIVATION_REJECTED code and preserves the existing tenant check.
+Topology inputs alone do not trigger this guard. AgentAssemble continues to return advisory plans.
+The handler fixture checks both owner files and the ordinary commit path.
+Native handler execution remains pending. R113.2 still requires the shared transaction and recovery design.
+
+## Synthetic aggregate separation (R122)
+
+The served outcome aggregate excludes synthetic-origin decisions before counting labels and pooling rates.
+The full fit, evaluate, publish, decide, and log fixture checks synthetic-only and mixed-origin aggregates.
+Logged fit and evaluation keep their conservative cohort flag: any synthetic record marks the dataset synthetic.
+This preserves synthetic-only evaluation and prevents mixed cohorts from publishing real-world calibration claims.
+Inline datasets remain unverified and synthetic.
+Native fixture execution remains pending; source bindings and formatting do not prove execution.
+
+The reputation reader also excludes synthetic decisions before learning option reliability or scoring forecasters.
+The query-enabled pipeline fixture checks forecaster metrics, reputation counts, and the learned reliability provider.
+
+## HarnessConfig decision (R128)
+
+Data flow: `Method::Decide` (`src/server/dispatch/router/decision_plane.rs:95`) → `handle_decide` (`src/server/handlers/decide/statistical.rs:11`) → `stat_decide::handle_decide` (`stat_decide.rs:48`) → `harness_config_outcome` (new, beside the `tool_subset_outcome` match at `stat_decide.rs:134`) → `seal` (`stat_decide.rs:372`) → `handle_decision_commit` → committed record.
+
+Types, from the cross-repository brief:
+
+- Input params: `model_profile_ref`, `task_class`, `usable_context_budget_tokens`, `priority`, and an optional `expected_trajectory_tokens`.
+- Output `HarnessConfigAnswer`: `context_policy` with `soft_threshold`, `hard_threshold` and `recent_window_fraction`; `plan_scaffold`; `action_space` with `tool_subset`.
+- Each part is `Decided` or `Abstained { missing_fact, conservative_default }`.
+
+Attach point: the `ToolSubset` kind is the template.
+
+- `QuestionKind::ToolSubset` is defined at `statistical.rs:95`.
+- Its handler `stat_tool_subset.rs:33` returns `Some(outcome)` only for its own kind.
+- `stat_decide.rs:134` seals that outcome in place of the scored ladder.
+- `resolution_kind` and `evidence_class` are computed generically from the outcome (`stat_decide.rs:353-369`).
+- `HarnessConfig` repeats this shape and adds no `Method` variant.
+
+Decision rules, each a named default stated as a premise:
+
+- Context policy: pressure is `expected_trajectory_tokens` over `contextWindowTokens`. The result is `none` only when overflow is impossible for the task class. Otherwise it is `elide_then_summarize` with soft 0.6, hard 0.85 and recent 0.3.
+- Plan scaffold: `on` for `stops_early` (accuracy) and `over_verifies` (cost). `off` only for `balanced` with a measured no-gain ablation on the cited evaluation run.
+- Action space: `shell_only` only when `shellProficiency` is `high` and the task class is `shellCentric`. Otherwise `tool_set`.
+- A missing measured fact abstains for that part and names its conservative default: `elide_then_summarize`, `on`, `tool_set`.
+
+Failure and refusal: an unknown profile reference, a negative budget or a wrong param type refuses with `StatisticalErrorCode::ParameterInvalid`, as `stat_tool_subset.rs:41-80` does. A `ToolSubsetRefusal` (`tool_subset.rs:39`) abstains for the `tool_subset` field only.
+
+Reused:
+
+- The decision ladder and the `seal` path.
+- `smallest_covering_subset` (`tool_subset.rs:59`).
+- `AgentLibraryStore` reads (`candidates.rs:415`).
+- `resolve_policy` for overrides.
+- `StatisticalOutcome::Advisory` and `::Abstained` (`outcome.rs:101`, `outcome.rs:107`).
+- `ObservationRef` (`facts.rs:142`).
+
+New: the question kind, the request and answer types, the three pure rule functions, the handler, the SHACL shapes and the generated-contract entries.
+
+Decisions:
+
+- One `Advisory` outcome with `<part>:<value>` options. Rejected alternative: a new `StatisticalOutcome` variant. That variant forces a change to every exhaustive match in `stat_decide.rs:353-369` and to the sealed digest.
+- Per-part abstention rather than whole-answer abstention. A caller can then apply the decided parts and the named defaults for the rest.
+- Rule thresholds live in `HarnessDefaults` and tenant policy. Rejected alternative: constants in the rule functions. A measured crossover must replace them without a code change.
+- `expected_trajectory_tokens` is an optional caller param. The brief names no source for it. The code holds no stored trajectory estimate. A stored per-task-class estimate needs a later row.
+- The record stores the answer as scored options. The code shows no typed answer field on `StatisticalDecisionRecord`. This design adds none.
+
+Contract: `QuestionKind` derives `JsonSchema`, so `gen_contract` lists the kind in `contract/schemas/method.request.json` and the `result.*.json` schemas, as it lists `tool_subset` today. Python and JS/Go clients regenerate from those schemas.
+
+Cross-repository rows:
+
+- The `AU-CONTROL` row for the signed dispatch envelope `harness_config` calls this decision and signs the committed answer.
+- The `AU-HARNESS` row for the evaluation runner writes the measured facts that `EG-TYPED-PACKS-R048.3` and `R048.4` store.
+- The `GRAPHOS-A2A` row for admission refuses a task without a committed `HarnessConfig` answer.
+- The `SDK-CONNECTOR-CONTROL` row for tool `read_only` and `side_effects` facts feeds the tool-subset candidates.

@@ -98,6 +98,10 @@
     "EG-DECISION-ENGINE-R064",
     "EG-DECISION-ENGINE-R065",
     "EG-DECISION-ENGINE-R066",
+    "EG-DECISION-ENGINE-R066.1",
+    "EG-DECISION-ENGINE-R066.2",
+    "EG-DECISION-ENGINE-R066.3",
+    "EG-DECISION-ENGINE-R066.4",
     "EG-DECISION-ENGINE-R067",
     "EG-DECISION-ENGINE-R068",
     "EG-DECISION-ENGINE-R069",
@@ -106,6 +110,11 @@
     "EG-DECISION-ENGINE-R072",
     "EG-DECISION-ENGINE-R072.1",
     "EG-DECISION-ENGINE-R073",
+    "EG-DECISION-ENGINE-R073.1",
+    "EG-DECISION-ENGINE-R073.2",
+    "EG-DECISION-ENGINE-R073.3",
+    "EG-DECISION-ENGINE-R073.4",
+    "EG-DECISION-ENGINE-R073.5",
     "EG-DECISION-ENGINE-R074",
     "EG-DECISION-ENGINE-R075",
     "EG-DECISION-ENGINE-R075.1",
@@ -201,6 +210,8 @@
     "EG-DECISION-ENGINE-R119",
     "EG-DECISION-ENGINE-R120",
     "EG-DECISION-ENGINE-R121",
+    "EG-DECISION-ENGINE-R121.1",
+    "EG-DECISION-ENGINE-R121.2",
     "EG-DECISION-ENGINE-R122",
     "EG-DECISION-ENGINE-R123",
     "EG-DECISION-ENGINE-R124",
@@ -215,7 +226,23 @@
     "EG-DECISION-ENGINE-R127.2",
     "EG-DECISION-ENGINE-R127.2.1",
     "EG-DECISION-ENGINE-R127.2.2",
-    "EG-DECISION-ENGINE-R127.2.3"
+    "EG-DECISION-ENGINE-R127.2.3",
+    "EG-DECISION-ENGINE-R128",
+    "EG-DECISION-ENGINE-R128.1",
+    "EG-DECISION-ENGINE-R128.2",
+    "EG-DECISION-ENGINE-R128.3",
+    "EG-DECISION-ENGINE-R128.4",
+    "EG-DECISION-ENGINE-R128.5",
+    "EG-DECISION-ENGINE-R128.6",
+    "EG-DECISION-ENGINE-R128.7",
+    "EG-DECISION-ENGINE-R128.8",
+    "EG-DECISION-ENGINE-R128.9",
+    "EG-DECISION-ENGINE-R128.10",
+    "EG-DECISION-ENGINE-R128.11",
+    "EG-DECISION-ENGINE-R128.12",
+    "EG-DECISION-ENGINE-R128.13",
+    "EG-DECISION-ENGINE-R128.14",
+    "EG-DECISION-ENGINE-R128.15"
   ],
   "requirements": [
     {
@@ -565,7 +592,7 @@
         "52f333ca756e"
       ],
       "verified_by": [
-        "src/server/handlers/decide/stat_tests.rs:870"
+        "src/server/handlers/decide/stat_tests.rs:868"
       ]
     },
     {
@@ -819,7 +846,7 @@
         "fa780d3e101a"
       ],
       "verified_by": [
-        "src/server/handlers/decide/stat_tests/consumer_tests.rs:408"
+        "src/server/handlers/decide/stat_tests/consumer_tests.rs:421"
       ]
     },
     {
@@ -845,7 +872,7 @@
         "fa780d3e101a"
       ],
       "verified_by": [
-        "src/server/handlers/decide/stat_tests/consumer_tests.rs:212"
+        "src/server/handlers/decide/stat_tests/consumer_tests.rs:225"
       ]
     },
     {
@@ -898,7 +925,7 @@
         "a742d4439964"
       ],
       "verified_by": [
-        "src/server/handlers/decide/stat_tests/consumer_tests.rs:275"
+        "src/server/handlers/decide/stat_tests/consumer_tests.rs:288"
       ]
     },
     {
@@ -1284,7 +1311,7 @@
         "fa780d3e101a"
       ],
       "verified_by": [
-        "src/server/handlers/decide/stat_tests.rs:981"
+        "src/server/handlers/decide/stat_tests.rs:979"
       ]
     },
     {
@@ -1298,7 +1325,7 @@
         "fa780d3e101a"
       ],
       "verified_by": [
-        "src/server/handlers/decide/stat_tests.rs:1113"
+        "src/server/handlers/decide/stat_tests.rs:1111"
       ]
     },
     {
@@ -1394,7 +1421,7 @@
         "8d4f409785b2"
       ],
       "verified_by": [
-        "src/server/handlers/decide/stat_tests/consumer_tests.rs:581"
+        "src/server/handlers/decide/stat_tests/consumer_tests.rs:594"
       ]
     },
     {
@@ -1413,12 +1440,52 @@
     {
       "id": "EG-DECISION-ENGINE-R066",
       "title": "Retention split between library and graph-sourced records",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "1e9ea1ef3790",
         "2a0d6eae0918",
         "d51d225674e1"
       ],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R066.1",
+        "EG-DECISION-ENGINE-R066.2",
+        "EG-DECISION-ENGINE-R066.3",
+        "EG-DECISION-ENGINE-R066.4"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R066.1",
+      "title": "Preserve library inputs",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "src/server/handlers/decide/stat_tests/retention_tests.rs:64"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R066.2",
+      "title": "Expire graph inputs",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "src/server/handlers/decide/stat_tests/retention_tests.rs:93"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R066.3",
+      "title": "Evaluate without persistence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "src/server/handlers/decide/stat_tests/retention_tests.rs:129"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R066.4",
+      "title": "Expire graph records",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {
@@ -1513,13 +1580,59 @@
     },
     {
       "id": "EG-DECISION-ENGINE-R073",
-      "title": "Decision-owned storage tables and outbox events",
-      "delivery_state": "LANDED",
+      "title": "Decision-owned storage tables and outbox events (rollup)",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "1e9ea1ef3790",
         "a1bb9fb9503e",
         "d51d225674e1"
       ],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R073.1",
+        "EG-DECISION-ENGINE-R073.2",
+        "EG-DECISION-ENGINE-R073.3",
+        "EG-DECISION-ENGINE-R073.4",
+        "EG-DECISION-ENGINE-R073.5"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R073.1",
+      "title": "One durable outbox event per imported component",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "src/server/handlers/admin/connector_pack/tests/storage_acceptance.rs:26"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R073.2",
+      "title": "Competing served imports share one head compare-and-set",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "src/server/handlers/admin/connector_pack/tests/storage_acceptance.rs:71"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R073.3",
+      "title": "Fresh owner open and outdated-format refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R073.4",
+      "title": "Receipt covers every batch intent",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R073.5",
+      "title": "Batch pins and withdrawn-component reads",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {
@@ -2398,7 +2511,9 @@
       "title": "Refuse an unsupported transaction boundary",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "src/server/handlers/decide/commit/tests.rs:121"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R113.2.2",
@@ -2612,22 +2727,44 @@
     {
       "id": "EG-DECISION-ENGINE-R121",
       "title": "Typed Claim and Evidence structures back evidence class",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "534f763afc81",
         "a1bb9fb9503e"
       ],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R121.1",
+        "EG-DECISION-ENGINE-R121.2"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R121.1",
+      "title": "Assembly answers use typed premise classes",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "crates/eg-compute/src/assemble/tests/evidence.rs:8"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R121.2",
+      "title": "Graph candidate provenance reaches statistical answers",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-DECISION-ENGINE-R122",
       "title": "Synthetic decision data stays separate from calibration",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "534f763afc81",
         "cfbe22464008"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/handlers/decide/stat_tests.rs:569"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R123",
@@ -2803,6 +2940,135 @@
     {
       "id": "EG-DECISION-ENGINE-R127.2.3",
       "title": "The guardrail-entailment query gets a generated client method",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R128",
+      "title": "HarnessConfig decision answers how to configure an agent run",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R128.1",
+        "EG-DECISION-ENGINE-R128.2",
+        "EG-DECISION-ENGINE-R128.3",
+        "EG-DECISION-ENGINE-R128.4",
+        "EG-DECISION-ENGINE-R128.5",
+        "EG-DECISION-ENGINE-R128.6",
+        "EG-DECISION-ENGINE-R128.7",
+        "EG-DECISION-ENGINE-R128.8",
+        "EG-DECISION-ENGINE-R128.9",
+        "EG-DECISION-ENGINE-R128.10",
+        "EG-DECISION-ENGINE-R128.11",
+        "EG-DECISION-ENGINE-R128.12",
+        "EG-DECISION-ENGINE-R128.13",
+        "EG-DECISION-ENGINE-R128.14",
+        "EG-DECISION-ENGINE-R128.15"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R128.1",
+      "title": "The question kind exists in the enum",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R128.2",
+      "title": "The request carries typed params",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R128.3",
+      "title": "The answer type states each part and its abstention",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R128.4",
+      "title": "Named defaults hold the thresholds and are replaceable",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R128.5",
+      "title": "Context policy follows budget pressure",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R128.6",
+      "title": "Plan scaffold follows stopping behaviour",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R128.7",
+      "title": "Action space follows shell proficiency and task class",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R128.8",
+      "title": "The handler reads model and task facts",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R128.9",
+      "title": "The action-space part reuses the tool-subset selection",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R128.10",
+      "title": "The dispatch hook routes the new kind",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R128.11",
+      "title": "Premises and why-not explain every part",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R128.12",
+      "title": "The outcome encodes decided and abstained parts",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R128.13",
+      "title": "The committed answer is accepted by the commit path",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R128.14",
+      "title": "The generated contract and clients carry the kind",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R128.15",
+      "title": "End-to-end proof uses the served path",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

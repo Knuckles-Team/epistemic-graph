@@ -63,7 +63,8 @@
     "EG-CONTRACT-R048",
     "EG-CONTRACT-R049",
     "EG-CONTRACT-R050",
-    "EG-CONTRACT-R051"
+    "EG-CONTRACT-R051",
+    "EG-CONTRACT-R051.1"
   ],
   "requirements": [
     {
@@ -762,6 +763,16 @@
     {
       "id": "EG-CONTRACT-R051",
       "title": "Generated client ingests RunTrace",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CONTRACT-R051.1"
+      ]
+    },
+    {
+      "id": "EG-CONTRACT-R051.1",
+      "title": "Client ingest carries harness fields",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

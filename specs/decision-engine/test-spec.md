@@ -79,8 +79,8 @@ EG-DECISION-ENGINE-R113.3 tracks retry enforcement.
 
 ### Planned runtime checks for EG-DECISION-ENGINE-R113
 
-Except for the local retry model noted below, these tests are planned and unexecuted.
-Those planned test names do not identify existing tests.
+The refusal handler fixture exists; native execution remains pending. Other transaction fixtures remain planned and unexecuted.
+Planned test names do not identify existing tests.
 The transaction and durable runtime rows remain SPECIFIED. The local retry model has direct native proof.
 Each fixture is a bounded acceptance slice. It does not include the missing transaction implementation.
 
@@ -102,7 +102,7 @@ The request fixture in `.3.3` depends on those operations.
 
 | Requirement | Intended source or test file | Planned proving test | State |
 |---|---|---|---|
-| EG-DECISION-ENGINE-R113.2.1 | `src/server/handlers/decide/commit.rs` | `tests::topology_commit_refuses_uncoordinated_owners` | SPECIFIED; not run |
+| EG-DECISION-ENGINE-R113.2.1 | `src/server/handlers/decide/commit.rs` | `tests::topology_commit_refuses_uncoordinated_owners` | Handler fixture added; native execution pending |
 | EG-DECISION-ENGINE-R113.2.2 | `src/server/persistence/decision_record/tests.rs` | `topology_commit_publishes_capacity_and_evidence` | SPECIFIED; not run |
 | EG-DECISION-ENGINE-R113.2.3 | `src/server/persistence/decision_record/tests.rs` | `topology_capacity_denial_leaves_no_commit_parts` | SPECIFIED; not run |
 | EG-DECISION-ENGINE-R113.2.4 | `src/server/persistence/decision_record/tests.rs` | `topology_commit_recovery_preserves_atomic_outcome` | SPECIFIED; not run |
@@ -168,6 +168,23 @@ The following fixtures are planned and unexecuted. Their producer-only tests rem
 | EG-DECISION-ENGINE-R080.2 | `tests/test_decision_ingestion_acceptance.py::test_real_extractors_follow_the_lowest_sufficient_rung` | SPECIFIED; no executed integration proof |
 | EG-DECISION-ENGINE-R102.2 | `src/server/graph_schema/approved/tests.rs::schema_repair_requires_real_shadow_ingest_before_activation` | SPECIFIED; no executed integration proof |
 
+## Retention acceptance
+
+The following tests use the served decision path and persistent stores.
+Their bindings establish coverage. Native execution remains unrun in this delivery slice.
+
+| Requirement | Proving test | Scope |
+|---|---|---|
+| EG-DECISION-ENGINE-R066.1 | `src/server/handlers/decide/stat_tests/retention_tests.rs::library_records_survive_every_retention_window` | Zero windows and maximum time preserve complete library record bytes. |
+| EG-DECISION-ENGINE-R066.2 | `src/server/handlers/decide/stat_tests/retention_tests.rs::graph_inputs_expire_at_the_configured_boundaries` | Graph inputs compact at 100 milliseconds and retire 200 milliseconds later. Summaries retain their digests. |
+| EG-DECISION-ENGINE-R066.3 | `src/server/handlers/decide/stat_tests/retention_tests.rs::evaluate_only_leaves_no_committed_records` | Sixteen evaluations leave statistical and library record stores empty. |
+| EG-DECISION-ENGINE-R066.4 | Planned: `graph_summaries_expire_on_policy_window` | No implementation or test exists. Graph summaries currently remain indefinitely. |
+
+Run `cargo test --lib --features decide,query,blob retention_tests` for the new native fixtures.
+The existing graph-log fixture also checks CAS restoration, forged blobs, and retirement.
+Run `cargo test --lib --features decide,query,blob graph_sourced_records_are_principal_scoped_not_tenant_scoped_on_log_read` for that fixture.
+Local Rust formatting and 12 Python decision-contract checks passed. Those checks do not execute retention behavior.
+
 ## Bounded topology oracle
 
 | Requirement | Proving test |
@@ -176,3 +193,51 @@ The following fixtures are planned and unexecuted. Their producer-only tests rem
 
 Native execution remains pending after dependency compilation exceeded local resources.
 The isolated fixture arithmetic check does not execute the assembly or solver.
+
+### R113.2.1 refusal boundary
+
+The handler rejects solved topology plans with positive per-cell lease demand.
+The handler preserves tenant, size, replay, and shape checks before this refusal.
+The guard runs before Agent Library initialization or mutation.
+The fixture compares both durable owner files and capacity status after refusal.
+It also checks foreign-tenant refusal and successful ordinary record publication.
+Advisory assembly remains unchanged. The shared transaction and recovery paths remain absent.
+Native command: `cargo test --lib --features decide topology_commit_refuses_uncoordinated_owners`.
+This command has not run for this change.
+
+## Synthetic aggregate separation
+
+| Requirement | Proving test |
+|---|---|
+| EG-DECISION-ENGINE-R122 | `src/server/handlers/decide/stat_tests.rs::fit_evaluate_publish_and_decide_end_to_end` exercises both origins through served handlers. |
+
+The fixture excludes synthetic labels above minimum support and preserves real counts in mixed-origin aggregates.
+It also checks synthetic-only logged fitting and the inline provenance guard.
+Native execution remains pending.
+
+## Typed provenance acceptance
+
+- R121.1: `crates/eg-compute/src/assemble/tests/evidence.rs::assembly_evidence_uses_typed_premises_not_labels` exercises actual assembly and replay.
+- R121.2: planned `src/server/handlers/decide/stat_tests/classes_tests.rs::graph_claim_and_evidence_control_answer_class` covers graph-source provenance.
+
+With `query`, the same fixture creates enough synthetic forecasts to reach the score support floor.
+It checks absent synthetic Brier, log-loss, and ECE rows, plus exact real reputation and learned-reliability counts.
+
+## Harness configuration evidence
+
+- `EG-DECISION-ENGINE-R128`: A served test submits one `harness_config` question and asserts the committed record names all three parts with premises..
+- `EG-DECISION-ENGINE-R128.1`: `crates/eg-types/src/decision/statistical.rs::tests::harness_config_kind_serialises_snake_case`.
+- `EG-DECISION-ENGINE-R128.2`: `crates/eg-types/src/decision/statistical/harness_config.rs::tests::body_requires_every_input`.
+- `EG-DECISION-ENGINE-R128.3`: `crates/eg-types/src/decision/statistical/harness_config.rs::tests::answer_round_trips_through_serde`.
+- `EG-DECISION-ENGINE-R128.4`: `crates/eg-types/src/decision/statistical/harness_config.rs::tests::policy_override_replaces_default`.
+- `EG-DECISION-ENGINE-R128.5`: `crates/eg-types/src/decision/statistical/harness_config.rs::tests::context_policy_none_only_when_overflow_impossible`.
+- `EG-DECISION-ENGINE-R128.6`: `crates/eg-types/src/decision/statistical/harness_config.rs::tests::plan_scaffold_rules`.
+- `EG-DECISION-ENGINE-R128.7`: `crates/eg-types/src/decision/statistical/harness_config.rs::tests::shell_only_needs_both_facts`.
+- `EG-DECISION-ENGINE-R128.8`: `src/server/handlers/decide/stat_tests/harness_config_tests.rs::unknown_profile_is_refused`.
+- `EG-DECISION-ENGINE-R128.9`: `src/server/handlers/decide/stat_tests/harness_config_tests.rs::tool_set_reuses_covering_subset`.
+- `EG-DECISION-ENGINE-R128.10`: `src/server/handlers/decide/stat_tests/harness_config_tests.rs::decide_routes_harness_config`.
+- `EG-DECISION-ENGINE-R128.11`: `src/server/handlers/decide/stat_tests/harness_config_tests.rs::premises_and_why_not_cover_each_part`.
+- `EG-DECISION-ENGINE-R128.12`: `src/server/handlers/decide/stat_tests/harness_config_tests.rs::all_parts_abstained_seals_abstention`.
+- `EG-DECISION-ENGINE-R128.13`: `src/server/handlers/decide/stat_tests/harness_config_tests.rs::harness_config_record_commits`.
+- `EG-DECISION-ENGINE-R128.14`: `crates/eg-capabilities/tests/contract_schema.rs::question_kind_lists_harness_config`.
+- `EG-DECISION-ENGINE-R128.15`: `tests/decide/test_harness_config_served.py::test_harness_config_end_to_end`.
