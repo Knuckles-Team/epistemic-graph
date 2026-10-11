@@ -1,0 +1,114 @@
+{
+  "receipt_schema_version": 1,
+  "requirement": "EG-DECISION-ENGINE-R090.3",
+  "outcome": "inconclusive",
+  "source": {
+    "measured_commit": "41cce5dd08d7f27aeacf23b6f01d177dfcbf7c59",
+    "measured_tree": "7d3699105f12fde7cd2dde051238ec5c84107ff0",
+    "pr495_head": "10d01692b9984a0a3a9bee21084a7056275e9a71",
+    "base_main": "3fc9b5e9b0ab9d1e65c2d6aa3c9df6ab0baaf581"
+  },
+  "build": {
+    "command": [
+      "cargo",
+      "bench",
+      "--locked",
+      "-p",
+      "eg-numeric",
+      "--features",
+      "decision",
+      "--bench",
+      "decision_resident_scorer",
+      "--profile",
+      "release",
+      "-v"
+    ],
+    "jobs": 3,
+    "rustc_version": "rustc 1.96.0 (ac68faa20 2026-05-25)",
+    "rustc_commit": "ac68faa20c58cbccd01ee7208bf3b6e93a7d7f96",
+    "cargo_version": "cargo 1.96.0 (30a34c682 2026-05-25)",
+    "target": "x86_64-unknown-linux-gnu",
+    "llvm_version": "22.1.2",
+    "profile": "release",
+    "opt_level": 3,
+    "debug_assertions": false,
+    "debug_assertions_evidence": "Benchmark reached structured output after asserting !cfg!(debug_assertions).",
+    "lto": "thin",
+    "codegen_units": 1,
+    "strip": "symbols",
+    "panic": "unwind",
+    "package_profile_overrides": false,
+    "started_utc": "2026-10-11T16:42:05Z",
+    "initial_limit_seconds": 900,
+    "cargo_compile_seconds": 503.0,
+    "total_wall_seconds": 504.766,
+    "cargo_exit_code": 2,
+    "source_stable": true
+  },
+  "executable": {
+    "relative_path": "target-isolated/release/deps/decision_resident_scorer-1a76d6ff619967da",
+    "sha256": "b648cd00dc5dae3d5648b269f5245db0175c3c5ae3d9f51611e4dea501c260a5",
+    "file_length": 637136
+  },
+  "measurement": {
+    "architecture": "x86_64",
+    "build_provenance": "external_receipt_required",
+    "cases": [
+      {
+        "calibration_scalars": 1,
+        "features": 2,
+        "measured_calls": 1000,
+        "name": "fitted_promotion_recipe",
+        "p99_cpu_micros": 11.183,
+        "p99_cpu_ns": 11183,
+        "parameter_and_latency_accepted": true,
+        "parameter_scope": "linear_weights_plus_all_seven_attention_tensors",
+        "rows": 3,
+        "shortlist": 16,
+        "trainable_parameters": 234,
+        "warmup_calls": 100,
+        "width": 8
+      },
+      {
+        "calibration_scalars": 0,
+        "features": 32,
+        "measured_calls": 1000,
+        "name": "maximum_legal_shape",
+        "p99_cpu_micros": 1412.071,
+        "p99_cpu_ns": 1412071,
+        "parameter_and_latency_accepted": true,
+        "parameter_scope": "linear_weights_plus_all_seven_attention_tensors",
+        "rows": 256,
+        "shortlist": 64,
+        "trainable_parameters": 1360,
+        "warmup_calls": 100,
+        "width": 16
+      }
+    ],
+    "ceiling": {
+      "p99_cpu_micros": 9999,
+      "parameters": 700000,
+      "resident_bytes": 8388608
+    },
+    "clock": "CLOCK_THREAD_CPUTIME_ID",
+    "memory": {
+      "bytes": 124788736,
+      "metric": "whole_runner_peak_rss_upper_bound",
+      "scorer_specific_resident_bytes": null,
+      "status": "inconclusive_scorer_specific_memory"
+    },
+    "quantile": "nearest_rank",
+    "required_profile": "release",
+    "requirement": "EG-DECISION-ENGINE-R090.3",
+    "runner_binary_bytes": 637136,
+    "schema_version": 1,
+    "server_binary_bytes": null,
+    "status": "inconclusive"
+  },
+  "interpretation": {
+    "parameter_and_latency_limits_passed": true,
+    "resident_memory_accepted": false,
+    "reason": "Whole-runner peak RSS exceeds the 8 MiB ceiling; scorer-specific resident memory is not established.",
+    "served_acceptance": false
+  }
+}
