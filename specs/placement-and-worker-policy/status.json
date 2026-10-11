@@ -211,7 +211,7 @@
         "e7b0f9f670c9"
       ],
       "verified_by": [
-        "crates/eg-types/src/worker_registry.rs:189"
+        "crates/eg-types/src/worker_registry.rs:192"
       ]
     },
     {
@@ -229,9 +229,15 @@
     {
       "id": "EG-PLACEMENT-R002.3",
       "title": "Pure grant function",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "d94bc10404ce"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/worker_registry/grants.rs:116",
+        "crates/eg-types/src/worker_registry/grants.rs:135",
+        "crates/eg-types/src/worker_registry/grants.rs:188"
+      ]
     },
     {
       "id": "EG-PLACEMENT-R002.4",
@@ -357,9 +363,13 @@
     {
       "id": "EG-PLACEMENT-R003.3",
       "title": "Accept at the cap, refuse above",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "05b1cbdf1641"
+      ],
+      "verified_by": [
+        "src/server/handlers/jobs/graph_tests.rs:188"
+      ]
     },
     {
       "id": "EG-PLACEMENT-R003.4",

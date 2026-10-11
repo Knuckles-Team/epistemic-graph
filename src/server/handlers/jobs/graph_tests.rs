@@ -185,20 +185,45 @@ mod mine_associate_submission_tests {
         }
     }
 
+    // spec: EG-PLACEMENT-R003.3
     #[test]
-    fn mine_associate_distinct_item_overflow_is_invalid_argument() {
-        let kind = JobKind::MineAssociate {
-            transactions: vec![(0..32).map(|i| format!("eg:item:{i}")).collect()],
-            min_support: 0.1,
-            min_confidence: 0.5,
-            algorithm: "fpgrowth".into(),
-        };
-        let response = govern(kind).unwrap_err();
-        assert_eq!(response.error.as_deref(), Some("INVALID_ARGUMENT"));
-        assert_eq!(
-            response.error_detail.as_deref(),
-            Some("association job exceeds the distinct-item limit")
-        );
+    fn mine_associate_accepts_thirty_one_distinct_items_and_refuses_thirty_two() {
+        for count in [31, 32] {
+            let transactions = vec![(0..count).map(|i| format!("item:{i}")).collect()];
+            let outcome = govern(JobKind::MineAssociate {
+                transactions,
+                min_support: 0.1,
+                min_confidence: 0.5,
+                algorithm: "fpgrowth".into(),
+            });
+            if count == 31 {
+                let (kind, _, _, _) = outcome.expect("the distinct-item cap is inclusive");
+                match kind {
+                    JobKind::MineAssociate { transactions, .. } => {
+                        assert_eq!(transactions[0].len(), 31);
+                        assert_eq!(
+                            transactions
+                                .iter()
+                                .flatten()
+                                .collect::<std::collections::BTreeSet<_>>()
+                                .len(),
+                            31
+                        );
+                    }
+                    #[cfg(feature = "program-optimization")]
+                    JobKind::ProgramOptimize { .. } => panic!("expected association job"),
+                }
+            } else {
+                let response = outcome.expect_err("one item above the cap must be refused");
+                assert_eq!(response.id, 82);
+                assert_eq!(response.error.as_deref(), Some("INVALID_ARGUMENT"));
+                assert_eq!(
+                    response.error_detail.as_deref(),
+                    Some("association job exceeds the distinct-item limit")
+                );
+                assert!(response.result.is_none());
+            }
+        }
     }
 
     #[test]

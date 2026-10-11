@@ -1490,10 +1490,10 @@
         "e7b0f9f670c9"
       ],
       "verified_by": [
-        "crates/eg-types/src/worker_registry.rs:188",
-        "crates/eg-types/src/worker_registry.rs:209",
-        "crates/eg-types/src/worker_registry.rs:254",
-        "crates/eg-types/src/worker_registry.rs:274"
+        "crates/eg-types/src/worker_registry.rs:191",
+        "crates/eg-types/src/worker_registry.rs:212",
+        "crates/eg-types/src/worker_registry.rs:257",
+        "crates/eg-types/src/worker_registry.rs:277"
       ]
     },
     {

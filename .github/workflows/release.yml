@@ -623,6 +623,16 @@ jobs:
         run: python -m pip install --disable-pip-version-check pytest pytest-xdist pytest-timeout pytest-asyncio pyyaml 'maturin>=1,<2'
 
       - *eg-gates-toolchain
+      # Preserve native features and release panic/debug/overflow settings on
+      # PRs without repeatedly paying for optimized LLVM codegen. Set these
+      # before rust-cache so PR artifacts cannot reuse optimized-release keys.
+      # Push/tag publication keeps Cargo.toml's optimized release defaults.
+      - name: Use fast native codegen for Python PR validation
+        if: github.event_name == 'pull_request'
+        run: |
+          echo "CARGO_PROFILE_RELEASE_OPT_LEVEL=0" >> "$GITHUB_ENV"
+          echo "CARGO_PROFILE_RELEASE_LTO=off" >> "$GITHUB_ENV"
+          echo "CARGO_PROFILE_RELEASE_CODEGEN_UNITS=256" >> "$GITHUB_ENV"
       - *eg-gates-cache
 
       - name: Build the numeric kernel into the working tree (mounted/editable path)
