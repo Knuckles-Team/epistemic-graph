@@ -113,3 +113,33 @@ The request fixture in `.3.3` depends on those operations.
 
 R113.2 requires all four transaction tests. R113.3 requires all three retry tests.
 Neither rollup is runtime acceptance evidence.
+
+### R090.1 native acceptance receipt (2026-10-11)
+
+`crates/eg-types/src/decision/statistical/scorer.rs::budget_tests` passed all six native tests with Rust 1.96.0.
+`a_budget_at_the_ceiling_is_declared` proves ceiling acceptance.
+The parameter, byte, and latency refusal tests prove independent limit enforcement.
+`each_budget_axis_accepts_its_boundary_and_refuses_overflow` covers zero, exact independent ceilings, and `u32::MAX` refusals.
+The harness imports the unchanged production module with real cached `eg-types` and `serde` dependencies; no substitutes were used.
+The reproducible Cargo command is `cargo test -p eg-types decision::statistical::scorer::budget_tests`.
+The equivalent direct native harness ran; the full Cargo crate build and hosted CI were not run locally.
+This receipt covers typed declarations only, not measured latency or the parent R090 benchmark obligation.
+
+The latency boundary accepts 9,999 microseconds and refuses 10,000 microseconds.
+
+### Remaining R090 acceptance
+
+EG-DECISION-ENGINE-R090.2 requires `tests/decision_resident_scorer.rs::compiled_engine_scores_without_external_runtime`.
+EG-DECISION-ENGINE-R090.3 requires `benches/decision_resident_scorer.rs::resident_scorer_meets_declared_budget`.
+Both checks remain planned and unrun. Budget declarations do not establish either result.
+
+
+### R093.2 planned served acceptance
+
+These tests are planned and have not run.
+
+| Row | Proving test | Required observation |
+|---|---|---|
+| EG-DECISION-ENGINE-R093.2.1 | `tests/synthetic/test_synthetic_decision_export.py::test_corpus_collects_seeded_served_results` | Exported candidates match recorded served-client results. |
+| EG-DECISION-ENGINE-R093.2.2 | `tests/synthetic/test_synthetic_decision_export.py::test_served_labels_require_collected_results` | Invalid provenance and labels fail closed. |
+| EG-DECISION-ENGINE-R093.2.3 | `tests/synthetic/test_served_corpus_training.py::test_training_consumes_served_ground_truth` | Training consumes episodes collected from a real server. |

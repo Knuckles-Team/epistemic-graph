@@ -204,3 +204,26 @@ This register inventories all 118 decision-owned obligations. `Historical label`
 | EG-DECISION-ENGINE-R120 | T4 | BUILT | NOT_RUN | tests/test_pinned_reference_resolution.py::test_each_layer_is_anchored_on_its_own_admission_step red on main since d6baf6dfc: the gate counts two non-writing helpers (a read and a replay) as COMPONENT admission points. Decide the rule (admission = persisted write path only?) and fix gate or code; prove both ways |
 | EG-DECISION-ENGINE-R126 | T6 | SPECIFIED | NOT_RUN | Capability coverage query: per task, the capability closure and the visible Agent Library templates and A2A agent cards covering each capability, with premises |
 | EG-DECISION-ENGINE-R127 | T6 | SPECIFIED | NOT_RUN | Guardrail entailment query: governance rules, standards and shapes that apply to a task class, with entailment paths |
+
+### 2026-10-11: R090.1 resident-budget acceptance
+
+The native harness compiled the production scorer module with real cached `eg-types` and `serde` dependencies.
+All six budget tests passed under Rust 1.96.0.
+Tests cover the exact ceiling, each independent limit, zero declarations, and maximum-integer refusals.
+The leaf covers declared budgets only; it does not establish measured resident-scorer latency or parent R090 acceptance.
+
+The ceiling now refuses 10,000 microseconds, which exceeds the single-digit-millisecond contract.
+
+R090.2 retains compiled execution acceptance. R090.3 retains measured resource acceptance. Both children remain specified until their checks pass.
+
+
+## Amendments
+
+### 2026-10-11: retain R093 served acceptance
+
+The previous R093 rollup recorded only its provenance-type child, R093.1.
+Its text explicitly left served export unbuilt, but the generated parent state was VERIFIED.
+R093.2 now records that remainder with three planned children.
+The original parent acceptance remains unchanged.
+`export_gold_corpus` currently calls `generate_gold_set` and exports `SOURCE_IN_PROCESS` labels.
+This correction claims no served implementation or runtime test result.

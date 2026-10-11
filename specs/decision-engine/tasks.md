@@ -122,10 +122,14 @@ Existing source modules and tests provide foundations, but this spec does not as
 - [x] **EG-DECISION-ENGINE-R056:** Statistical-path release of the exact solver (rollup)
 - [x] **EG-DECISION-ENGINE-R083:** Options encode structured facts, not option-label text (rollup)
 - [x] **EG-DECISION-ENGINE-R085:** Legal option sets are derived from the ontology, never received as-is
-- [x] **EG-DECISION-ENGINE-R090:** Resident native decision-scorer head in eg-decision
+- [ ] **EG-DECISION-ENGINE-R090:** Resident native decision-scorer head in eg-decision
 - [x] **EG-DECISION-ENGINE-R090.1:** Typed resident-scorer budget (producer-first split of R090)
-- [x] **EG-DECISION-ENGINE-R093:** Resident scorer is trained from the served synthetic-episode generator
+- [ ] **EG-DECISION-ENGINE-R093:** Resident scorer is trained from the served synthetic-episode generator
 - [x] **EG-DECISION-ENGINE-R093.1:** Typed served-path provenance and ground-truth verification
+- [ ] **EG-DECISION-ENGINE-R093.2:** Complete served corpus export and training acceptance.
+- [ ] **EG-DECISION-ENGINE-R093.2.1:** Collect seeded results through the existing served client.
+- [ ] **EG-DECISION-ENGINE-R093.2.2:** Bind served labels to collected results and refuse invalid provenance.
+- [ ] **EG-DECISION-ENGINE-R093.2.3:** Verify training consumes real served episodes.
 - [x] **EG-DECISION-ENGINE-R102:** Schema repair proposals pass a decided mapping and shadow-branch check
 - [x] **EG-DECISION-ENGINE-R102.1:** Typed schema-repair activation gate (producer-first split of R102)
 - [ ] **EG-DECISION-ENGINE-R113:** EG commits capacity acquisition atomically with synthesis evidence
@@ -142,3 +146,9 @@ Existing source modules and tests provide foundations, but this spec does not as
 - [ ] **EG-DECISION-ENGINE-R116:** Consumers reach EG only through the versioned client contract
 - [x] **EG-DECISION-ENGINE-R116.1:** A typed gate admits only the published client-contract call path
 - [ ] **EG-DECISION-ENGINE-R116.2:** Every generated client method is wired through the contract-only gate
+
+- [x] EG-DECISION-ENGINE-R090.1: Run six native budget tests and bind exact boundary/refusal coverage.
+- [ ] EG-DECISION-ENGINE-R090: Retain the separate compiled-scorer benchmark obligation.
+
+- [ ] EG-DECISION-ENGINE-R090.2: Verify compiled in-process scoring without external runtimes.
+- [ ] EG-DECISION-ENGINE-R090.3: Measure parameter count, memory, binary footprint, and p99 CPU latency.

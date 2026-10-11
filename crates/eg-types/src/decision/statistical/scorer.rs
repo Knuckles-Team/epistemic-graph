@@ -71,7 +71,7 @@ pub struct ResidentScorerBudget {
 pub const RESIDENT_SCORER_CEILING: ResidentScorerBudget = ResidentScorerBudget {
     max_parameters: 700_000,
     max_bytes: 8 * 1024 * 1024,
-    max_p99_micros: 10_000,
+    max_p99_micros: 9_999,
 };
 
 impl ResidentScorerBudget {
@@ -153,13 +153,15 @@ mod budget_tests {
         );
     }
 
+    // spec: EG-DECISION-ENGINE-R090.1
     #[test]
     fn a_budget_at_the_ceiling_is_declared() {
-        let budget = ResidentScorerBudget::declare(700_000, 8 * 1024 * 1024, 10_000)
+        let budget = ResidentScorerBudget::declare(700_000, 8 * 1024 * 1024, 9_999)
             .expect("the ceiling itself is a legal declaration");
         assert_eq!(budget, RESIDENT_SCORER_CEILING);
     }
 
+    // spec: EG-DECISION-ENGINE-R090.1
     #[test]
     fn a_budget_over_the_parameter_ceiling_is_refused() {
         let err = ResidentScorerBudget::declare(700_001, 1024, 1_000)
@@ -167,10 +169,37 @@ mod budget_tests {
         assert!(err.contains("700001"));
     }
 
+    // spec: EG-DECISION-ENGINE-R090.1
     #[test]
     fn a_budget_over_the_latency_ceiling_is_refused() {
-        let err = ResidentScorerBudget::declare(1, 1024, 10_001)
+        let err = ResidentScorerBudget::declare(1, 1024, 10_000)
             .expect_err("over the single-digit-millisecond ceiling");
-        assert!(err.contains("10001"));
+        assert!(err.contains("10000"));
+    }
+
+    // spec: EG-DECISION-ENGINE-R090.1
+    #[test]
+    fn a_budget_over_the_byte_ceiling_is_refused() {
+        let ceiling = RESIDENT_SCORER_CEILING;
+        let err = ResidentScorerBudget::declare(1, ceiling.max_bytes + 1, 1)
+            .expect_err("one byte over the resident ceiling");
+        assert!(err.contains("8388609"));
+    }
+
+    // spec: EG-DECISION-ENGINE-R090.1
+    #[test]
+    fn each_budget_axis_accepts_its_boundary_and_refuses_overflow() {
+        let ceiling = RESIDENT_SCORER_CEILING;
+        for budget in [
+            (ceiling.max_parameters, 0, 0),
+            (0, ceiling.max_bytes, 0),
+            (0, 0, ceiling.max_p99_micros),
+            (0, 0, 0),
+        ] {
+            assert!(ResidentScorerBudget::declare(budget.0, budget.1, budget.2).is_ok());
+        }
+        for budget in [(u32::MAX, 0, 0), (0, u32::MAX, 0), (0, 0, u32::MAX)] {
+            assert!(ResidentScorerBudget::declare(budget.0, budget.1, budget.2).is_err());
+        }
     }
 }
