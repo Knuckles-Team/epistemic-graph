@@ -75,3 +75,6 @@ Mark a PACK requirement `LANDED` only with an exact merged EG commit. Mark it `A
 
 - [x] **EG-TYPED-PACKS-R093.1:** Isolate bounded and unbounded public Turtle parse identities; preserve existing explicit blank labels in catalogue composition. Native parser/union harness passes eight tests.
 - [ ] **EG-TYPED-PACKS-R093.2:** Execute served connector-pack reproject isolation and deterministic-digest regression; the broader reproject acceptance remains open.
+
+- [x] **EG-TYPED-PACKS-R042.1:** Check both capability annotation fields in native production validation and claim partition tests.
+- [ ] **EG-TYPED-PACKS-R042.2:** Run signed imports and persisted claim reads; prove rejected imports leave every owner table and body holder unchanged.

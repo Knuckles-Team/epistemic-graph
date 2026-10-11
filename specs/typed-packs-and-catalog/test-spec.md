@@ -74,3 +74,25 @@ A requirement is `ACCEPTED` only when every row's regression test passes against
 | --- | --- | --- | --- |
 | TP-PARSE-IDENTITY | EG-TYPED-PACKS-R093.1 | Native public and bounded Turtle readers parse the same explicit and anonymous blank nodes independently, then union the results. | Six subjects stay distinct across three parses; same-document references remain equal; composition retains explicit source labels; existing bounded refusal tests pass. |
 | TP-REPROJECT-IDENTITY | EG-TYPED-PACKS-R093.2 | Served reproject combines independent connector-pack members with reused blank labels. | Isolated member identities and repeatable composed digests; remains open until the served regression executes. |
+
+## Capability annotation evidence
+
+| Requirement | Native regression | Result |
+| --- | --- | --- |
+| EG-TYPED-PACKS-R042.1 | `import/capability_tests.rs`: both typed fields accept native terms and retain exact foreign claims with warnings. Native typos, roots, wrong kinds, invalid schemes, and malformed typed lists refuse. | Eight production-module tests passed on 2026-10-11 with Rust 1.96.0 and cached `eg_types` and `serde_json` dependencies. Restoring the old scheme check makes the invalid-scheme test fail at `provides: 1vendor:search`. |
+| EG-TYPED-PACKS-R042.2 | Signed dispatch, durable claim read, and unchanged owner state on refusal. | Not run. This remains open; the native slice does not verify the parent. |
+
+The native harness loads the unchanged production module path with `#[path]`; it uses no behavior substitutes. To repeat from the repository root with compatible cached Rust dependencies:
+
+```sh
+work=$(mktemp -d)
+printf '#[path = "%s/src/server/handlers/admin/connector_pack/import/annotations.rs"]\nmod annotations;\n' "$PWD" > "$work/native.rs"
+rustc --test --edition=2021 "$work/native.rs" \
+  -L "dependency=$CACHED_RUST_DEPS" \
+  --extern "eg_types=$(find "$CACHED_RUST_DEPS" -name 'libeg_types-*.rlib' -print -quit)" \
+  --extern "serde_json=$(find "$CACHED_RUST_DEPS" -name 'libserde_json-*.rlib' -print -quit)" \
+  -o "$work/native-tests"
+"$work/native-tests" --nocapture
+```
+
+The full served test suite and hosted CI were not run for this native slice.

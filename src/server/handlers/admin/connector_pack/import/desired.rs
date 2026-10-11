@@ -16,6 +16,7 @@ use eg_types::contract::Digest256;
 use crate::server::persistence::agent_library::AgentLibraryStore;
 use crate::server::persistence::connector_pack::ConnectorPackMemberRow;
 
+use super::annotations::partition_capabilities;
 use super::facts::{component_kind, facts};
 use super::validation::{entry_description, section_bytes, violation};
 
@@ -371,13 +372,6 @@ fn add_mcp_resource_attributes(
     if let Some(schema) = &entry.output_schema {
         attributes.insert("mcp.result_schema_digest".into(), schema.sha256.to_hex());
     }
-}
-
-fn partition_capabilities(values: &[String]) -> (Vec<String>, Vec<String>) {
-    values
-        .iter()
-        .cloned()
-        .partition(|iri| iri.starts_with("eg:"))
 }
 
 fn bounded_summary(entry: &PackEntry, body: &[u8]) -> String {

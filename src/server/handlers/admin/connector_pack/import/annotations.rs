@@ -129,7 +129,10 @@ fn native_under(iri: &str, root: &str) -> bool {
 
 fn absolute_iri(value: &str) -> bool {
     value.split_once(':').is_some_and(|(scheme, rest)| {
-        !scheme.is_empty()
+        scheme
+            .as_bytes()
+            .first()
+            .is_some_and(u8::is_ascii_alphabetic)
             && !rest.is_empty()
             && scheme.bytes().all(|byte| {
                 byte.is_ascii_alphanumeric() || byte == b'+' || byte == b'-' || byte == b'.'
@@ -137,6 +140,14 @@ fn absolute_iri(value: &str) -> bool {
     }) && !value
         .bytes()
         .any(|byte| byte.is_ascii_whitespace() || byte.is_ascii_control())
+}
+
+/// Split already validated capability claims without promoting foreign terms.
+pub(super) fn partition_capabilities(values: &[String]) -> (Vec<String>, Vec<String>) {
+    values
+        .iter()
+        .cloned()
+        .partition(|iri| iri.starts_with("eg:"))
 }
 
 fn iso_4217(code: &str) -> bool {
@@ -244,3 +255,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "capability_tests.rs"]
+mod capability_tests;
