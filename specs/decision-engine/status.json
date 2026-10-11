@@ -574,7 +574,7 @@
         "52f333ca756e"
       ],
       "verified_by": [
-        "src/server/handlers/decide/stat_tests.rs:866"
+        "src/server/handlers/decide/stat_tests.rs:868"
       ]
     },
     {
@@ -1294,7 +1294,7 @@
         "fa780d3e101a"
       ],
       "verified_by": [
-        "src/server/handlers/decide/stat_tests.rs:977"
+        "src/server/handlers/decide/stat_tests.rs:979"
       ]
     },
     {
@@ -1308,7 +1308,7 @@
         "fa780d3e101a"
       ],
       "verified_by": [
-        "src/server/handlers/decide/stat_tests.rs:1109"
+        "src/server/handlers/decide/stat_tests.rs:1111"
       ]
     },
     {
@@ -2728,12 +2728,15 @@
     {
       "id": "EG-DECISION-ENGINE-R122",
       "title": "Synthetic decision data stays separate from calibration",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "0c9f08ddbbae",
         "534f763afc81",
         "cfbe22464008"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/handlers/decide/stat_tests.rs:569"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R123",
