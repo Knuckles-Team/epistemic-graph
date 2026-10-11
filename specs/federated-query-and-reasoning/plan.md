@@ -141,7 +141,7 @@ References
 
 Candidate EG:2 requires REST catalog schema evolution, time travel, and both reading and writing Iceberg v2 manifests. R079 defines compatibility; R080 defines write authority. The graph remains the sole authoritative write boundary. External analytic engines consume its projections.
 
-Data flow: served authoritative graph mutation -> committed graph version and source LSN -> `LakeManager::drain_series` (`src/server/lake/mod.rs:602`) -> `materialize_batch` (`:537`) -> `prepare_materialization` (`src/server/lake/catalog_ops.rs:104`) -> `LakeTable::iceberg_manifests` (`crates/eg-lake/src/lib.rs:299`) -> `build_iceberg_manifests` (`crates/eg-lake/src/iceberg_avro.rs:371`) -> durable engine artifact store -> committed catalog metadata -> authenticated REST load/time-travel -> external reader.
+Data flow: served authoritative graph mutation -> committed graph version and source LSN -> `LakeManager::drain_series` (`src/server/lake/mod.rs:602`) -> `materialize_batch` (`:537`) -> `prepare_materialization` (`src/server/lake/catalog_ops.rs:104`) -> `LakeTable::iceberg_manifests` (`crates/eg-lake/src/lib.rs:299`) -> `build_iceberg_manifests` (`crates/eg-lake/src/iceberg_avro.rs:371`) -> durable engine artifact store. Read flow: committed catalog metadata -> authenticated REST load/time-travel -> external reader.
 
 Types: extend `SchemaChangeKind` and introduce `ManifestPublication` in `crates/eg-types/src/lake_catalog.rs`. Bind tenant, graph version and source LSN to schema and snapshot IDs. Include format version, artifact locations and digests. Schema changes preserve field IDs and retained schema history.
 

@@ -1282,7 +1282,7 @@
     },
     {
       "id": "EG-FEDERATED-QUERY-R079",
-      "title": "Table-format catalog serves schema evolution and snapshot time travel (rollup)",
+      "title": "Iceberg v2 catalog interoperability (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
