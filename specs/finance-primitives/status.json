@@ -12,6 +12,10 @@
     "EG-FINANCE-PRIMITIVES-R004.2",
     "EG-FINANCE-PRIMITIVES-R004.2.1",
     "EG-FINANCE-PRIMITIVES-R004.2.2",
+    "EG-FINANCE-PRIMITIVES-R004.2.3",
+    "EG-FINANCE-PRIMITIVES-R004.2.4",
+    "EG-FINANCE-PRIMITIVES-R004.2.5",
+    "EG-FINANCE-PRIMITIVES-R004.2.6",
     "EG-FINANCE-PRIMITIVES-R004.3",
     "EG-FINANCE-PRIMITIVES-R004.3.1",
     "EG-FINANCE-PRIMITIVES-R004.3.2",
@@ -76,7 +80,7 @@
       ],
       "verified_by": [
         "crates/eg-compute/src/finance/market/record_tests.rs:405",
-        "src/server/graph_schema/finance_tests.rs:138"
+        "src/server/graph_schema/finance_tests.rs:139"
       ]
     },
     {
@@ -128,13 +132,13 @@
         "0ae2193fae8d"
       ],
       "verified_by": [
-        "src/server/graph_schema/finance_tests.rs:297"
+        "src/server/graph_schema/finance_tests.rs:299"
       ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R004.2",
       "title": "finance-v1 Account/Activity/Lot/Position/PortfolioGroup/StrategySpec/StrategyRun/LeverageTerms Rust record types",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "a189dbe4067f",
         "fd0aa73cb7b5"
@@ -142,27 +146,71 @@
       "verified_by": [],
       "rollup_of": [
         "EG-FINANCE-PRIMITIVES-R004.2.1",
-        "EG-FINANCE-PRIMITIVES-R004.2.2"
+        "EG-FINANCE-PRIMITIVES-R004.2.2",
+        "EG-FINANCE-PRIMITIVES-R004.2.3",
+        "EG-FINANCE-PRIMITIVES-R004.2.4",
+        "EG-FINANCE-PRIMITIVES-R004.2.5",
+        "EG-FINANCE-PRIMITIVES-R004.2.6"
       ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R004.2.1",
       "title": "Account and Position OWL classes and SHACL shapes",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "1d12fc4e1fff",
+        "994ffe8ffa60",
         "a189dbe4067f",
         "fd0aa73cb7b5"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/graph_schema/finance_tests.rs:230",
+        "src/server/graph_schema/finance_tests.rs:260",
+        "src/server/graph_schema/finance_tests.rs:45"
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R004.2.2",
       "title": "Activity and Lot OWL classes and SHACL shapes",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "1d12fc4e1fff",
+        "994ffe8ffa60",
         "a189dbe4067f",
         "fd0aa73cb7b5"
       ],
+      "verified_by": [
+        "src/server/graph_schema/finance_tests.rs:230",
+        "src/server/graph_schema/finance_tests.rs:260",
+        "src/server/graph_schema/finance_tests.rs:45"
+      ]
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R004.2.3",
+      "title": "PortfolioGroup ontology and shapes",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R004.2.4",
+      "title": "StrategySpec ontology and shapes",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R004.2.5",
+      "title": "StrategyRun ontology and shapes",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R004.2.6",
+      "title": "LeverageTerms ontology and shapes",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {
@@ -684,8 +732,8 @@
         "532418b7e55b"
       ],
       "verified_by": [
-        "src/server/graph_schema/finance_tests.rs:229",
-        "src/server/graph_schema/finance_tests.rs:82"
+        "src/server/graph_schema/finance_tests.rs:230",
+        "src/server/graph_schema/finance_tests.rs:83"
       ]
     },
     {
