@@ -22,3 +22,10 @@ Governing spec: [spec.md](spec.md). Design: [plan.md](plan.md).
 - [ ] **T18 - R001.17:** Parity test against the deleted module.
 
 Order: R001.5 and R001.6 prerequisites, then R001.1-R001.3, R001.7-R001.8, R001.4, R001.9-R001.13, then SDK and graph-os rows.
+- [ ] **T-R002 - EG-INGEST-WORKER-R002:** Ontology induction from text stays a draft until it passes checks (rollup).
+- [ ] **T-R002 - EG-INGEST-WORKER-R002.1:** `OntologyProposal` typed model
+- [ ] **T-R002 - EG-INGEST-WORKER-R002.2:** Coverage and redundancy checks as replaceable defaults
+- [ ] **T-R002 - EG-INGEST-WORKER-R002.3:** Attach at the ingest job body
+- [ ] **T-R002 - EG-INGEST-WORKER-R002.4:** Draft retention refusal
+- [ ] **T-R002 - EG-INGEST-WORKER-R002.5:** Check results in the job trace
+- [ ] **T-R002 - EG-INGEST-WORKER-R002.6:** Claim-to-admission proof

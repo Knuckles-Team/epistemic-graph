@@ -69,7 +69,14 @@
     "EG-FINANCE-PRIMITIVES-R014",
     "EG-FINANCE-PRIMITIVES-R015",
     "EG-FINANCE-PRIMITIVES-R016",
-    "EG-FINANCE-PRIMITIVES-R017"
+    "EG-FINANCE-PRIMITIVES-R017",
+    "EG-FINANCE-PRIMITIVES-R018",
+    "EG-FINANCE-PRIMITIVES-R018.1",
+    "EG-FINANCE-PRIMITIVES-R018.2",
+    "EG-FINANCE-PRIMITIVES-R018.3",
+    "EG-FINANCE-PRIMITIVES-R018.4",
+    "EG-FINANCE-PRIMITIVES-R018.5",
+    "EG-FINANCE-PRIMITIVES-R018.6"
   ],
   "requirements": [
     {
@@ -795,6 +802,63 @@
         "crates/eg-compute/src/finance/market/record_tests.rs:379",
         "crates/eg-compute/src/finance/market/record_tests.rs:420"
       ]
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R018",
+      "title": "Factor research records each factor as a typed node (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-FINANCE-PRIMITIVES-R018.1",
+        "EG-FINANCE-PRIMITIVES-R018.2",
+        "EG-FINANCE-PRIMITIVES-R018.3",
+        "EG-FINANCE-PRIMITIVES-R018.4",
+        "EG-FINANCE-PRIMITIVES-R018.5",
+        "EG-FINANCE-PRIMITIVES-R018.6"
+      ]
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R018.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R018.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R018.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R018.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R018.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R018.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     }
   ]
 }
