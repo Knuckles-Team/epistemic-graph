@@ -1,6 +1,6 @@
 # EG-SUPPLY-VOCAB — Supply-chain and service-impact vocabulary
 
-Status: PROPOSED. Owner: epistemic-graph. Cross-repo IDs: agent-packages connectors (`erpnext-agent`, `uptime-kuma-agent`, `container-manager-mcp`, `salesforce-agent`, `fan-manager`: class resolution and access contracts), `EG-CQ-XSRC-001` (consumer), `EG-UNIFIED-DATA-PLANE-R030` and `EG-FEDERATED-QUERY-R072` (mechanism).
+Owner: epistemic-graph. Cross-repo IDs: agent-packages connectors (`erpnext-agent`, `uptime-kuma-agent`, `container-manager-mcp`, `salesforce-agent`, `fan-manager`: class resolution and access contracts), `EG-CQ-XSRC-001` (consumer), `EG-UNIFIED-DATA-PLANE-R030` and `EG-FEDERATED-QUERY-R072` (mechanism).
 Public provenance: gap found while reading `specs/cross-source-competency` (`plan.md` MISSING list); decisions are recorded in [plan.md](plan.md#decisions).
 
 ## Purpose and user stories

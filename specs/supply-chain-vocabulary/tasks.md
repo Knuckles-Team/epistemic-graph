@@ -1,6 +1,6 @@
 # EG-SUPPLY-VOCAB — Implementation tasks
 
-Status: PROPOSED. Governing spec: [spec.md](spec.md). Design: [plan.md](plan.md). Producers first; each child is one 5-minute unit.
+Governing spec: [spec.md](spec.md). Design: [plan.md](plan.md). Producers first; each child is one 5-minute unit.
 
 - [ ] Physical and commercial supply chain terms (rollup). **EG-SUPPLY-VOCAB-R001**
   - [ ] Shared supplier and item vocabulary (rollup). **EG-SUPPLY-VOCAB-R001.1**

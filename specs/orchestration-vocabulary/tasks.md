@@ -1,6 +1,6 @@
 # EG-ORCH-VOCAB — Implementation tasks
 
-Status: PROPOSED. Governing spec: [spec.md](spec.md). Design: [design.md](plan.md).
+Governing spec: [spec.md](spec.md). Design: [design.md](plan.md).
 
 Producer first: terms, then shapes, then projection call sites, then query tests. Rows within a rollup are independent 5-minute units unless the Verification names another.
 

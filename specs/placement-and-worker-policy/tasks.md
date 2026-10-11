@@ -1,6 +1,6 @@
 # EG-PLACEMENT implementation tasks
 
-Status: PROPOSED. Governing spec: [spec.md](spec.md). Design: [plan.md](plan.md).
+Governing spec: [spec.md](spec.md). Design: [plan.md](plan.md).
 
 - [ ] **T1 - R001:** Deployment-placement question and assembled step graph go through the engine decision functionality (rollup).
 - [ ] **T2 - R001.1:** Prerequisite (decision-engine): standalone topology Decide question.
