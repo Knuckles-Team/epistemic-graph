@@ -46,3 +46,8 @@ At every merge, compare the source SHA in this table to the public default branc
 - [x] **C-18 — EG-CONTRACT-R048:** Declare the work-claim and evidence DTO bounds in the Rust schema source. Emit strict booleans and unique-item validators from the generator. Merge the PR and record the merged commit.
 - [ ] **C-19 — EG-CONTRACT-R050:** Generated client ingests OTLP logs
 - [ ] **C-20 — EG-CONTRACT-R051:** Generated client ingests RunTrace
+
+## 2026-10-11 lint formatter provisioning
+
+- [x] EG-CONTRACT-R031.1: Install manifest-selected Rust and rustfmt before lint formatting; 38 focused Python regressions pass. Existing-toolchain execution confirms manifest resolution, not a clean-host download.
+- [ ] EG-CONTRACT-R031.2: Publish complete same-tree zero-backlog census and independent clippy/formatting results. Earlier C-10 implementation checkmarks do not establish this complete acceptance.

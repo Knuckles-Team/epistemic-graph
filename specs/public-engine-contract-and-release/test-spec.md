@@ -32,3 +32,9 @@ The `engine-main-wheel` job runs `scripts/release_wheel_smoke.sh` on the built w
 - The test refuses each probe input: blank tenant, zero lease, string clock, zero and 4097 in-flight limits.
 - The test refuses a string `resolved`, duplicate exclusions and a blank bundle id.
 - `gen_contract --check` regenerates the Python models byte for byte.
+
+## EG-CONTRACT-R031 quality-gate evidence boundaries
+
+R031.1 uses tests/test_ci_change_scope.py::test_lint_installs_manifest_rustfmt_before_all_formatting_steps to assert unconditional manifest-resolved provisioning before both formatting paths. Run it alongside tests/test_rustfmt_scope.py. It is setup coverage only.
+
+R031.2 remains unbound until the full same-tree complexity, duplication, dependency, architecture and documentation censuses plus independent clippy and formatting evidence are published. A static workflow assertion cannot qualify those runtime checks.
