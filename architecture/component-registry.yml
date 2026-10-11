@@ -3979,6 +3979,7 @@ components:
       - "tests/test_jscpd_per_commit_gate.py"
       - "tests/test_raft_cluster_ci_gate.py"
       - "tests/test_release_python_suite_contract.py"
+      - "tests/test_pages_workflow_contract.py"
       - "tests/test_normal_release_publication.py"
       - "tests/test_normal_release_routing.py"
       - "tests/test_arm64_linker.py"
