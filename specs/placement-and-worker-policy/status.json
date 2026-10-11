@@ -312,9 +312,13 @@
     {
       "id": "EG-PLACEMENT-R003.1",
       "title": "Name the constant",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "871e31f80156"
+      ],
+      "verified_by": [
+        "src/server/handlers/jobs/submit.rs:425"
+      ]
     },
     {
       "id": "EG-PLACEMENT-R003.2",
