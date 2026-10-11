@@ -75,6 +75,8 @@ const JOB_PUBLICATION_PLAN_VERSION: u16 = 1;
 #[cfg(feature = "raft")]
 const MAX_JOB_PUBLICATION_PLAN_BYTES: usize = 16 * 1024 * 1024;
 
+#[cfg(test)]
+mod association_hash_tests;
 mod core;
 mod executor_claim;
 mod executor_loop;
