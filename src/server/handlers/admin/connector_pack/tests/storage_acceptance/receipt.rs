@@ -39,6 +39,9 @@ fn evidence(store: &AgentLibraryStore, batch_id: &str) -> (MutationBatchRecord, 
         replay.operation_replay_digest
     );
     assert_eq!(receipt.envelope_digest, envelope.authority.context_digest);
+    let result: MutationResult =
+        eg_storage::decode_ledger_record(record.result_msgpack.as_ref().unwrap()).unwrap();
+    assert_eq!(receipt.result, result);
     let rows = eg_transaction::read_outbox(&read, batch_id).unwrap();
     assert_eq!(rows.len(), record.batch.outbox.len());
     for (ordinal, (row, intent)) in rows.iter().zip(&record.batch.outbox).enumerate() {
@@ -173,6 +176,7 @@ async fn committed_multi_intent_receipt_binds_all_effects_and_survives_replay() 
     assert_eq!(intents[3].topic, CONNECTOR_PACK_IMPORT_TOPIC);
     let pack_record: PackImportRecord =
         eg_storage::decode_ledger_record(&intents[3].payload).unwrap();
+    assert!(components.contains(&pack_record.server.component.component_id));
     assert_eq!(pack_record.record_id, imported.record_id);
     assert_eq!(pack_record.pack_digest, imported.pack_digest);
     assert_all_fields_bound(intents, receipt.effect_digest.unwrap());
