@@ -263,7 +263,14 @@
     "EG-DECISION-ENGINE-R131.3",
     "EG-DECISION-ENGINE-R131.4",
     "EG-DECISION-ENGINE-R131.5",
-    "EG-DECISION-ENGINE-R131.6"
+    "EG-DECISION-ENGINE-R131.6",
+    "EG-DECISION-ENGINE-R132",
+    "EG-DECISION-ENGINE-R132.1",
+    "EG-DECISION-ENGINE-R132.2",
+    "EG-DECISION-ENGINE-R132.3",
+    "EG-DECISION-ENGINE-R132.4",
+    "EG-DECISION-ENGINE-R132.5",
+    "EG-DECISION-ENGINE-R132.6"
   ],
   "requirements": [
     {
@@ -3344,6 +3351,63 @@
     },
     {
       "id": "EG-DECISION-ENGINE-R131.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R132",
+      "title": "Retrieved entries carry a trust tier and a poisoned-entry check gates premises (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R132.1",
+        "EG-DECISION-ENGINE-R132.2",
+        "EG-DECISION-ENGINE-R132.3",
+        "EG-DECISION-ENGINE-R132.4",
+        "EG-DECISION-ENGINE-R132.5",
+        "EG-DECISION-ENGINE-R132.6"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R132.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R132.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R132.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R132.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R132.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R132.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],

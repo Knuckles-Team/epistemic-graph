@@ -318,3 +318,12 @@ The existing admin holder test retains its historical Content assertions.
 - `EG-DECISION-ENGINE-R131.4`: `crates/eg-compute/src/assemble/tests/limit_refusal.rs::breach_abstains_with_rule_id`.
 - `EG-DECISION-ENGINE-R131.5`: `crates/eg-compute/src/assemble/tests/limit_refusal.rs::breach_observation_links_signal`.
 - `EG-DECISION-ENGINE-R131.6`: `tests/decide/test_limit_guard_served.py::test_oversize_order_refused_and_recorded`.
+
+### EG-DECISION-ENGINE-R132 tests
+
+- `EG-DECISION-ENGINE-R132.1`: `crates/eg-types/src/decision/entry_trust.rs::tests::entry_trust_round_trips`.
+- `EG-DECISION-ENGINE-R132.2`: `crates/eg-types/src/decision/entry_trust.rs::tests::lower_tier_never_overrides_higher`.
+- `EG-DECISION-ENGINE-R132.3`: `crates/eg-compute/src/assemble/tests/entry_trust_wiring.rs::admit_runs_before_premises`.
+- `EG-DECISION-ENGINE-R132.4`: `crates/eg-compute/src/assemble/tests/entry_trust_refusal.rs::poisoned_only_premise_abstains`.
+- `EG-DECISION-ENGINE-R132.5`: `crates/eg-compute/src/assemble/tests/entry_trust_refusal.rs::refused_entries_are_recorded`.
+- `EG-DECISION-ENGINE-R132.6`: `tests/decide/test_entry_trust_served.py::test_unverified_entry_cannot_override_verified`.

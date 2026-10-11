@@ -84,7 +84,7 @@ All terms go in `crates/eg-core/ontology/virtual_graph-v1.ttl` (namespace `vg:`)
 
 ## Wiring
 
-- **Read path:** `eg-rdf::source_selection` gains `AuthorityRow` (parsed from the composed graph schema sources: `GraphSchemaSources` in `crates/eg-core/src/graph/schema_sources.rs`) and a `ConnectedSources` view built from the owner-scoped foreign catalog of the calling tenant and actor. `select_sources` takes both. The fixture type stays for unit tests; the live read is the "later child" the module doc names, and it is where this spec plugs in.
+- **Read path:** `eg-rdf::source_selection` gains `AuthorityRow` (parsed from the composed graph schema sources: `GraphSchemaSources` in `crates/eg-core/src/graph/schema_sources.rs`). It also gains a `ConnectedSources` view built from the owner-scoped foreign catalog of the calling tenant and actor. `select_sources` takes both. The fixture type stays for unit tests; the live read is the "later child" the module doc names, and it is where this spec plugs in.
 - **Connected check:** a row is *connected* when its connection's `vg:foreignSourceName` resolves in the caller's catalog scope (R013) to a spec whose kind matches `vg:authorityContract` (R073 variants `Api`, `Mcp`, `A2a`, `GraphQl`; the existing SQL, Iceberg, Spark and SPARQL source kinds map to `virtual-graph`). A name that exists only under another principal counts as unconnected for this caller, with the R013 refusal kept for execution.
 - **Scopes:** only existing scopes: `kg:read` style read scope of the select method; `governance:propose` for proposing. One new approver scope, `governance:approve-source-authority`, is a BLOCKED dependency below (owner: engine identity, `EG-IDENTITY-R004` generated scope registry; it cannot be hand-added).
 - **Approval path:** `GOVERNED_KINDS` in `crates/eg-types/src/governed_change.rs` holds one kind. A second kind `governed.source-authority` (proposer `governance:propose`, approver `governance:approve-source-authority`, two-person rule already built in) is the approval record. `GraphSchema.AttachApproved` (`src/server/graph_schema/approved.rs`) currently renders repair shapes only (`render_repair_shapes`, error "needs a repair operation"); it gains a second candidate type "authority" whose candidate bytes are the authority Turtle and whose digest the approval lease binds (`verify_schema_approval` already binds kind, target and `candidate_digest`).
@@ -115,7 +115,7 @@ Losers are kept as ordered `alternates`. Alternates never answer unless the winn
 For comparison, R072 today picks the last inserted mapping; this order replaces that.
 
 **D5. Unconnected authority: DECIDED, typed abstention by default, declared fallback only.**
-The winner is checked in order: its mapping is approved (else `UnapprovedMapping`), connected for the caller (else `Unconnected`), contract kind matches the registered spec (else `ContractMismatch`), fresh enough (else `Stale`; a stale accelerated copy falls back to a live read if the contract allows, as `AccelerationPolicy::resolve_mode` already does, and abstains `Stale` otherwise). On any failure: if the failing row has `allowFallback true`, the next ordered alternate is tried and the premise records `FallbackFrom { row, reason }`; else the verdict is `Abstained { reason, source, concept }`. The engine never silently substitutes another source or another class (R072 already refuses the class substitution). Typed reasons: `Unconnected`, `UnapprovedMapping`, `Stale`, `ContractMismatch`, `Ambiguous`, plus the existing `Uncovered` and `Disconnected`. `EG-CQ-XSRC-R006.3` consumes these as its `abstentions` variants (it lists the first four of: Unconnected, Uncovered, Disconnected, UnapprovedMapping; this spec adds `Stale`, `ContractMismatch`, `Ambiguous`).
+The winner is checked in order: its mapping is approved (else `UnapprovedMapping`), connected for the caller (else `Unconnected`), contract kind matches the registered spec (else `ContractMismatch`), fresh enough (else `Stale`). A stale accelerated copy falls back to a live read if the contract allows, as `AccelerationPolicy::resolve_mode` already does. Otherwise it abstains `Stale`. On any failure, the next ordered alternate is tried when the failing row has `allowFallback true`, and the premise records `FallbackFrom { row, reason }`. Otherwise the verdict is `Abstained { reason, source, concept }`. The engine never silently substitutes another source or another class (R072 already refuses the class substitution). Typed reasons: `Unconnected`, `UnapprovedMapping`, `Stale`, `ContractMismatch`, `Ambiguous`, plus the existing `Uncovered` and `Disconnected`. `EG-CQ-XSRC-R006.3` consumes these as its `abstentions` variants (it lists Unconnected, Uncovered, Disconnected and UnapprovedMapping; this spec adds `Stale`, `ContractMismatch` and `Ambiguous`).
 No authority row at all for a class: if exactly one approved mapping covers it, serve it and mark the premise `Implicit` (keeps R072 behaviour); if more than one approved mapping covers it, `Abstained::Ambiguous` (this removes the silent overwrite).
 
 **D6. Materialisation: DECIDED, virtual default.** `vg:materialisation` absent or `virtual` means fetch at query time. `accelerated` is allowed only with a reason, a freshness bound and the source `copy` capability. Execution of the copy is `EG-UNIFIED-DATA-PLANE-R038` and is not re-specified.
@@ -157,3 +157,18 @@ Executing the fetch, pushdown and the copy pipeline (R073, R046, R069, R038); en
 
 - BLOCKED: scope `governance:approve-source-authority` and kind `governed.source-authority`. Owner: epistemic-graph engine identity (`EG-IDENTITY-R004` generated scope registry, scopes are generated from capability declarations, not hand-added). Child `EG-SRC-AUTH-R003.1` declares it; `R003.3` onward wait on it.
 - BLOCKED: the live ontology and mapping-catalog search of `EG-FEDERATED-QUERY-R072` (a later child, not in the repository). `R004.1` supplies the authority-aware slice against the fixture; the live read child `R004.5` is the join point and is owned by `federated-query-and-reasoning`.
+
+## Source trust role (R010)
+
+Data flow: served cross-source report -> federated plan builder (`crates/eg-plan/src/federation.rs`) -> `select_sources` (`crates/eg-rdf/src/source_selection.rs:172`) -> `role_order` -> verdict, premises and audit.
+
+Types: `SourceRole`, `Premise::Role`, reason `RoleInsufficient`. Attach point: `select_sources` candidate ordering. Production caller: the Wiring row creates the call site in `federation.rs`. Failure behavior: an inspiration-only source abstains for a current-state question.
+
+Existing code: `crates/eg-rdf/src/source_selection.rs:26`, `source_selection.rs:65`, `source_selection.rs:102`, `source_selection.rs:172`. Reachable today: no; `select_sources` has no production caller. Search terms used with no match: live_truth, LiveTruth, historical, inspiration, SourceRole, trust_level.
+
+Decision: store the role on the connection and order by it before rank, so one declaration governs every class the source maps. Rejected alternative: encode the role as a low rank number, because rank is per class and cannot express trust.
+
+Cross-repository: graph-os prints the role in the "sources used and why" block; owner prefix `GRAPHOS-INTENT`, contract `AuthorityAudit`.
+
+References
+- No paper is cited.
