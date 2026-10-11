@@ -262,6 +262,13 @@ The generated lifecycle records test existence, independently of execution resul
 
 R079.1 proves the content taxonomy only. R079.2 through R079.5 retain the parent ingestion, duplicate/size, SQL, and retrieval-feedback obligations. R080.1 proves the typed provenance rule only; R080.2 requires the real six-rung integration fixture. R102.1 proves the typed activation sequence only; R102.2 requires a real shadow ingestion and approval-gated activation. These requirements use the existing source-ingestion, enrichment, and approved-schema owners. They introduce no second write authority. Their planned fixtures are not execution evidence.
 
+## Retention boundaries
+
+Library records retain their complete inputs indefinitely. Graph input retention uses the existing Blob CAS lifecycle.
+Compaction starts at the committed-record age. Input retirement starts at the compaction age.
+The implementation retains graph summaries indefinitely. R066.4 tracks the remaining record-expiry requirement.
+R066 remains incomplete until that requirement has implementation and acceptance coverage.
+
 ### 2026-10-11: bounded topology oracle coverage for R110.1
 
 Extend the assembly topology tests with a fixed-seed property fixture using five
@@ -301,3 +308,10 @@ This assembly test does not establish graph-source acceptance.
 The isolated Rust harness passed all nine class/label combinations and replay checks.
 It compiled the current assembly and solver modules against cached real dependencies.
 The full Cargo suite and hosted CI remain unrun for this change.
+
+## Retrieval refusal envelope (R029)
+
+The served refusal test inspects `Response.error` and `Response.error_detail` separately.
+The error code is `PARAMETER_INVALID`; the detail names `UNSUPPORTED_RETRIEVAL_PLAN` and the rejected option.
+The test also requires an absent result.
+This fixture covers registry refusal only; representative retrieval-plan selection requires the integration test described in R029.

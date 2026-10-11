@@ -168,6 +168,23 @@ The following fixtures are planned and unexecuted. Their producer-only tests rem
 | EG-DECISION-ENGINE-R080.2 | `tests/test_decision_ingestion_acceptance.py::test_real_extractors_follow_the_lowest_sufficient_rung` | SPECIFIED; no executed integration proof |
 | EG-DECISION-ENGINE-R102.2 | `src/server/graph_schema/approved/tests.rs::schema_repair_requires_real_shadow_ingest_before_activation` | SPECIFIED; no executed integration proof |
 
+## Retention acceptance
+
+The following tests use the served decision path and persistent stores.
+Their bindings establish coverage. Native execution remains unrun in this delivery slice.
+
+| Requirement | Proving test | Scope |
+|---|---|---|
+| EG-DECISION-ENGINE-R066.1 | `src/server/handlers/decide/stat_tests/retention_tests.rs::library_records_survive_every_retention_window` | Zero windows and maximum time preserve complete library record bytes. |
+| EG-DECISION-ENGINE-R066.2 | `src/server/handlers/decide/stat_tests/retention_tests.rs::graph_inputs_expire_at_the_configured_boundaries` | Graph inputs compact at 100 milliseconds and retire 200 milliseconds later. Summaries retain their digests. |
+| EG-DECISION-ENGINE-R066.3 | `src/server/handlers/decide/stat_tests/retention_tests.rs::evaluate_only_leaves_no_committed_records` | Sixteen evaluations leave statistical and library record stores empty. |
+| EG-DECISION-ENGINE-R066.4 | Planned: `graph_summaries_expire_on_policy_window` | No implementation or test exists. Graph summaries currently remain indefinitely. |
+
+Run `cargo test --lib --features decide,query,blob retention_tests` for the new native fixtures.
+The existing graph-log fixture also checks CAS restoration, forged blobs, and retirement.
+Run `cargo test --lib --features decide,query,blob graph_sourced_records_are_principal_scoped_not_tenant_scoped_on_log_read` for that fixture.
+Local Rust formatting and 12 Python decision-contract checks passed. Those checks do not execute retention behavior.
+
 ## Bounded topology oracle
 
 | Requirement | Proving test |

@@ -145,16 +145,29 @@ async fn an_unregistered_retrieval_plan_is_refused_through_decide() {
         kind: AgentComponentKind::FeatureSchema,
         definition_digest: format!("sha256:{}", "0".repeat(64)),
     };
-    let error = decide(
-        &h,
+    let response = super::super::statistical::handle_decide(
+        &h.state,
+        1,
+        &verified(),
         declared_request(
             &unresolved_schema,
             vec![declared("retrieval-plan:vector-only", 0)],
         ),
     )
-    .await
-    .expect_err("must be refused");
-    assert!(error.contains("UNSUPPORTED_RETRIEVAL_PLAN"), "got: {error}");
+    .await;
+    assert!(
+        response.result.is_none(),
+        "a refused option must not yield a decision"
+    );
+    assert_eq!(response.error.as_deref(), Some("PARAMETER_INVALID"));
+    assert!(
+        response.error_detail.as_deref().is_some_and(|detail| {
+            detail.contains("UNSUPPORTED_RETRIEVAL_PLAN")
+                && detail.contains("retrieval-plan:vector-only")
+        }),
+        "expected the registry refusal detail, got: {:?}",
+        response.error_detail
+    );
 }
 
 #[tokio::test]

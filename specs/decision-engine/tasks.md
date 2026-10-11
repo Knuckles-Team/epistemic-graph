@@ -167,3 +167,8 @@ Existing source modules and tests provide foundations, but this spec does not as
 
 - [x] **EG-DECISION-ENGINE-R121.1:** Add assembly and replay regression for typed premise classes and misleading labels.
 - [ ] **EG-DECISION-ENGINE-R121.2:** Carry graph provenance through statistical answers, immutable input identity, and replay.
+
+- [x] **EG-DECISION-ENGINE-R066.1:** Exclude library records from statistical retention; add the stored-byte acceptance fixture.
+- [x] **EG-DECISION-ENGINE-R066.2:** Add exact graph-input window acceptance through the real retention implementation.
+- [x] **EG-DECISION-ENGINE-R066.3:** Assert repeated evaluate-only calls leave both committed-record stores empty.
+- [ ] **EG-DECISION-ENGINE-R066.4:** Define and implement graph-summary expiry without breaking digest and replay contracts.
