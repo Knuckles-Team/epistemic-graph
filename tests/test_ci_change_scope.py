@@ -133,6 +133,31 @@ def test_pr_runtime_gates_do_not_wait_for_self_hosted_runners() -> None:
         "${{ github.event_name == 'push' && "
         "fromJSON('[\"self-hosted\", \"homelab\"]') || 'ubuntu-latest' }}"
     )
-    for name in ("gates", "gates-facade", "gates-crates"):
+    for name in ("gates", "gates-facade"):
         assert jobs[name]["runs-on"] == selector
         assert jobs[name]["if"] == "needs.changes.outputs.code == 'true'"
+
+
+def test_workspace_gates_use_hosted_runner_with_required_headers() -> None:
+    """EG-CONTRACT-R035: prerequisite installation must work on every event."""
+    jobs = yaml.safe_load((ROOT / ".github/workflows/release.yml").read_text())["jobs"]
+    job = jobs["gates-crates"]
+    assert job["runs-on"] == "ubuntu-latest"
+    assert job["needs"] == "changes"
+    assert job["if"] == "needs.changes.outputs.code == 'true'"
+    assert job["timeout-minutes"] == (
+        "${{ github.event_name == 'pull_request' && 10 || 60 }}"
+    )
+    installs = [
+        step
+        for step in job["steps"]
+        if step.get("name") == "Install librdkafka/Cyrus-SASL build headers"
+    ]
+    assert len(installs) == 1
+    assert "if" not in installs[0]
+    assert installs[0]["run"] == (
+        "set -euo pipefail\n"
+        "sudo apt-get update\n"
+        "sudo apt-get install -y --no-install-recommends "
+        "libsasl2-dev libcurl4-openssl-dev\n"
+    )

@@ -468,7 +468,7 @@ jobs:
     name: gates (workspace crates)
     needs: changes
     if: needs.changes.outputs.code == 'true'
-    runs-on: ${{ github.event_name == 'push' && fromJSON('["self-hosted", "homelab"]') || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     steps:
       - *eg-gates-checkout
 

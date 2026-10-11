@@ -92,3 +92,14 @@ write its output before the overall job ends, so an interrupted cold gate does
 not discard every completed compilation. This does not cache final test-binary
 linking. Hosted cold and warm runs must establish whether the gate meets the
 ten-minute target. Test scope, failure propagation, and existing timeouts stay intact.
+
+### 2026-10-11: run workspace gates on the supported hosted runner
+
+EG-CONTRACT-R035 keeps the workspace-crates gate on `ubuntu-latest` for every
+release workflow event. The gate requires the declared Cyrus-SASL and curl
+build headers, installed by its existing Ubuntu provisioning step. Selecting
+the already-supported hosted runner makes that prerequisite reproducible
+without changing any self-hosted security policy. Preserve the exact package
+installation, test commands, dependency graph, event scope and timeout.
+The workflow regression pins hosted placement and unconditional provisioning;
+native end-to-end acceptance still requires the hosted job to finish.
