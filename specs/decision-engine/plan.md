@@ -578,3 +578,117 @@ Cross-repository: `AU-` memory callers may attach a tier to an entry; owner pref
 
 References
 - No paper is cited.
+
+## Run trace and runtime quota (R133)
+
+Consumers: AU-CONTROL-R040 (run trace), AU-CONTROL-R041 (runtime quota).
+
+Data flow: `Decide` wire method -> `handle_decide` (`src/server/handlers/decide/stat_decide.rs:48`) -> `runtime_quota_outcome` at `stat_decide.rs:134` -> `decide_runtime_quota` (`crates/eg-types/src/decision/run_governance.rs`, new) -> sealed `Advisory` with one option per value. Trace: harness run end -> `RunTraceRecord` -> evidence participant (`crates/eg-types/src/outcome_bundle.rs:56`) -> `RunTrace` node linked by `project` (`crates/eg-durable/src/project.rs:68`).
+
+Types: `RunTraceRecord`, `RuntimeQuota`, `QuotaDefaults`, `QuestionKind::RuntimeQuota`. Attach point: the dispatch match at `stat_decide.rs:134`. Production caller: the Wiring row creates the match arm. Failure behavior: an over-ceiling request refuses; a missing fact abstains to the defaults.
+
+Existing code: `crates/eg-types/src/outcome_bundle.rs:56`, `crates/eg-durable/src/project.rs:68`, `crates/eg-core/ontology/orchestration-v1.ttl:250`, `crates/eg-types/src/decision/topology.rs:75`. Reachable today: no for the quota decision and for an agent-run trace write; the `RunTrace` class exists in the ontology only. Search terms used with no match: `quota`, `wall_time`, `process_limit`, `memory_limit`, `RuntimeQuota`. Moves from agent-utilities: none named.
+
+Decision: the engine fixes the numbers and the harness enforces them, so a tenant policy changes limits without a harness release. Rejected alternative: constants in the harness, because they cannot differ per tenant or task class.
+
+Cross-repository: `AU-CONTROL-R041` receives `RuntimeQuota` and enforces it; `AU-CONTROL-R040` emits the run events that become the trace.
+
+References
+- No paper is cited.
+
+## Task planning and selection (R134)
+
+Consumers: AU-CONTROL-R042 (tool selection), AU-CONTROL-R043 (decomposition and routing). The skill-library plan has no named consumer yet.
+
+Data flow: `Decide` wire method -> `handle_decide` (`src/server/handlers/decide/stat_decide.rs:48`) -> `task_plan_outcome` / `tool_relevance_outcome` at `stat_decide.rs:134` -> `plan_over_skills`, `decompose_task`, `rank_tools_by_relevance` (`crates/eg-types/src/decision/task_plan.rs`, new) -> `smallest_covering_subset` (`tool_subset.rs:58`) -> sealed answer.
+
+Types: `Subtask`, `AggregationOp`, `SkillStep`, `TaskPlan`. Attach point: the dispatch match at `stat_decide.rs:134`. Production caller: the Wiring row creates the arms. Failure behavior: an uncovered subtask or empty catalog abstains; a cycle refuses.
+
+Moves from agent-utilities: `agent_utilities/capabilities/fleet_tool_search.py:54`, `agent_utilities/graph/planning/__init__.py:165`, `agent_utilities/decide/consumers/task_planner.py:211`.
+
+Existing code: `crates/eg-types/src/decision/statistical/tool_subset.rs:58`, `crates/eg-types/src/decision/topology.rs:110`, `crates/eg-compute/src/assemble/topology.rs:54`, `crates/eg-compute/src/assemble/conclude.rs:99`, `src/server/handlers/decide/stat_tool_subset.rs:33`. Reachable today: yes for the covering subset (`tool_subset_outcome` is matched at `stat_decide.rs:134`) and for topology `pose`; no for relevance search, decomposition with an independence flag and the skill plan. Search terms used with no match: `skill_plan`, `SkillPlan`, `plan_skills`, `decompose`, `aggregation`. The existing `EG-DECISION-ENGINE-R045` owns the covering subset and is reused, not extended, because it selects by coverage and has no relevance score.
+
+Decision: one `TaskPlan` question kind returns subtasks, skills and operator together, so the harness applies one record. Rejected alternative: separate kinds per step, because the harness would stitch plans and lose the shared premises.
+
+Cross-repository: `AU-CONTROL-R042` and `AU-CONTROL-R043` receive the tool list and the plan and apply them.
+
+References
+- arXiv:2605.15132 — Rose et al., "APWA: A Distributed Architecture for Parallelizable Agentic Workflows" (2026)
+- arXiv:2606.18051 — Gao, "Compositional Skill Routing for LLM Agents: Decompose, Retrieve, and Compose" (2026)
+
+## Compiled program store (R135)
+
+Consumers: AU-HARNESS-R023.
+
+Data flow: harness run end -> `compile_program` (`crates/eg-types/src/decision/program_store.rs`, new) -> commit through `handle_decision_commit` -> `AgentLibraryStore`; later `Decide` wire method -> `handle_decide` (`src/server/handlers/decide/stat_decide.rs:48`) -> `program_lookup_outcome` at `stat_decide.rs:134` -> `lookup_program` -> stored program.
+
+Types: `CompiledProgram`, `ProgramStep`, `MAX_PROGRAM_STEPS`. Attach point: the dispatch match at `stat_decide.rs:134`. Production caller: the Wiring row creates the arm. Failure behavior: an unsuccessful run or an overlong trace refuses; a missing program abstains.
+
+Moves from agent-utilities: `agent_utilities/observability/replay_engine.py:48`.
+
+Existing code: `src/server/handlers/decide/candidates.rs:415`, `src/server/handlers/decide/stat_tool_subset.rs:33`. Reachable today: no. `crates/eg-tsdb/src/derive/mod.rs:152` defines a `Program` for derived series, which is a different type. Search terms used with no match: `task_signature`, `TaskSignature`, `compiled_program`, `store_program`, `lookup_program`, `MAX_PROGRAM_STEPS`.
+
+Decision: the engine owns the program store, so every harness replica shares one program per signature. Rejected alternative: a harness-local cache, because replicas would compile and store duplicates.
+
+Cross-repository: `AU-HARNESS-R023` replays the returned program; it does not store or choose one.
+
+References
+- arXiv:2606.17929 — Li, "PreAct: Computer-Using Agents that Get Faster on Repeated Tasks" (2026)
+
+## Evolution round verdict and stage model allocation (R136)
+
+Consumers: AU-HARNESS-R025 (round verdict), AU-SEMANTIC-R029 (stage allocation).
+
+Data flow: `Decide` wire method -> `handle_decide` (`src/server/handlers/decide/stat_decide.rs:48`) -> `round_verdict_outcome` / `stage_allocation_outcome` at `stat_decide.rs:134` -> `decide_round_verdict` / `allocate_stage_models` (`crates/eg-types/src/decision/evolution_round.rs`, new) -> sealed answer.
+
+Types: `PredictionDeclaration`, `RoundVerdict`, `EvolutionDefaults`, `StageAllocation`, `RunBudget`. Attach point: the dispatch match at `stat_decide.rs:134`. Production caller: the Wiring row creates the arms. Failure behavior: an empty prediction abstains; an unaffordable budget refuses.
+
+Moves from agent-utilities: `agent_utilities/decide/consumers/routing.py:58` (allocation). The verdict has no code to move.
+
+Existing code: `src/server/handlers/decide/stat_tool_subset.rs:33`, `src/server/handlers/decide/candidates.rs:415`. Reachable today: no. `EG-DECISION-ENGINE-R035` owns routing among models, but it chooses one option per request and has no budget across stages, so this rollup is separate. Search terms used with no match: `falsified`, `flip_fraction`, `PredictionVerdict`, `stage_budget`, `ModelAllocation`, `model_per_stage`.
+
+Decision: the engine returns a verdict and an allocation as records, so the harness keeps or reverts a change by reading one field. Rejected alternative: the harness compares outcomes itself, because each harness would apply a different threshold.
+
+Cross-repository: `AU-HARNESS-R025` keeps or reverts on the verdict; `AU-SEMANTIC-R029` applies the allocation and the limit.
+
+References
+- arXiv:2604.25850 — Lin et al., "Agentic Harness Engineering: Observability-Driven Automatic Evolution of Coding-Agent Harnesses" (2026)
+- arXiv:2604.07725 — Maheswaran et al., "Squeeze Evolve: Unified Multi-Model Orchestration for Verifier-Free Evolution" (2026)
+
+## Context budget and parallel-map limits (R137)
+
+Consumers: AU-CONTEXT-R004 (context budget and plan), AU-HARNESS-R026 (parallel-map limits).
+
+Data flow: `Decide` wire method -> `handle_decide` (`src/server/handlers/decide/stat_decide.rs:48`) -> `context_budget_outcome` at `stat_decide.rs:134` -> `decide_over_window` (`crates/eg-types/src/decision/context_budget.rs`, new) -> sealed answer carrying policy, budget, limits and plan.
+
+Types: `ParallelMapLimits`, `WindowBudget`, `OverWindowPlan`; `ContextPolicy` is reused. Attach point: the dispatch match at `stat_decide.rs:134`. Production caller: the Wiring row creates the arm. Failure behavior: an exhausted budget or too many items refuses; a missing window abstains to the default.
+
+Moves from agent-utilities: `agent_utilities/rlm/config.py:60`, `agent_utilities/knowledge_graph/retrieval/context_knapsack.py:422`.
+
+Existing code: `crates/eg-types/src/decision/statistical/harness_config.rs:81`, `crates/eg-compute/src/assemble/eliminate.rs:97`, `crates/eg-compute/src/assemble/eliminate.rs:138`, `src/server/handlers/decide/candidates.rs:415`. Reachable today: yes for the window elimination in `eliminate.rs:97`, which discards a candidate whose window is too small; no for the over-window plan and the limits. `EG-DECISION-ENGINE-R128` owns the context policy and thresholds and is reused; this rollup adds the recursive plan and the limits that `EG-DECISION-ENGINE-R128` does not cover. Search terms used with no match: `over_window`, `window_fraction`, `max_items`, `OverWindow`.
+
+Decision: the engine returns the plan and the limits together, so the harness never exceeds a budget it did not receive. Rejected alternative: limits set in harness configuration, because they could not follow the task class.
+
+Cross-repository: `AU-CONTEXT-R004` assembles context from the plan; `AU-HARNESS-R026` enforces the limits in fan-out.
+
+References
+- arXiv:2512.24601 — Zhang et al., "Recursive Language Models" (2026)
+
+## Red-team records and probe verdict (R138)
+
+Consumers: AU-QUAL-R009.
+
+Data flow: `Decide` wire method -> `handle_decide` (`src/server/handlers/decide/stat_decide.rs:48`) -> `probe_verdict_outcome` at `stat_decide.rs:134` -> `select_scorers`, `decide_probe_verdict` (`crates/eg-types/src/decision/red_team.rs`, new) -> sealed answer.
+
+Types: `RedTeamAttack`, `RedTeamTransform`, `RedTeamScorer`, `ProbeVerdict`. Attach point: the dispatch match at `stat_decide.rs:134`. Production caller: the Wiring row creates the arm. Failure behavior: a category with no scorer abstains; a missing score is inconclusive.
+
+Moves from agent-utilities: `agent_utilities/harness/reliability_scorers.py:1`.
+
+Existing code: `src/server/handlers/decide/candidates.rs:415`, `src/server/handlers/decide/stat_tool_subset.rs:33`. Reachable today: no. Search terms used with no match: `red_team`, `redteam`, `RedTeam`, `jailbreak`, `prompt_injection`, `attack`, `score_probe`.
+
+Decision: the engine decides the verdict from stored records, so every harness reads one result for one probe. Rejected alternative: scoring in the harness, because the records and thresholds would differ per harness.
+
+Cross-repository: `AU-QUAL-R009` runs the probe, submits the scorer results and reports the verdict.
+
+References
+- arXiv:2605.04019 — Dheekonda et al., "Redefining AI Red Teaming in the Agentic Era: From Weeks to Hours" (2026)
