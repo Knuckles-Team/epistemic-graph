@@ -235,3 +235,7 @@ Increase its option count from 4,000 to 5,000, yielding 150,000 estimated tokens
 Keep the label estimate, token budget, feature-width checks, and bounded-shortlist assertions unchanged.
 This test repair changes no runtime behavior or acceptance state.
 The bound test covers the large-option scorer fixture only; R083.2 still requires real OptionFacts integration.
+
+## Retry allowance model
+
+The dependency-free `topology/retry_allowance.rs` owns the checked local 1-to-0 transition. `capacity_commit.rs` re-exports its public types, preserving the existing caller path. Invalid counts and exhausted allowances fail without mutation. Durable consumption and handler admission remain separate requirements; this copyable model is not a shared authorization store.

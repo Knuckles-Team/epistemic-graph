@@ -13,12 +13,9 @@
 
 use crate::native_control::CapacityDecision;
 
-/// What a denied capacity acquisition grants the caller next: never a
-/// partial hold, exactly one further decision request.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct RetryAllowance {
-    pub further_decisions: u8,
-}
+#[path = "retry_allowance.rs"]
+mod retry_allowance;
+pub use retry_allowance::{RetryAllowance, RetryAllowanceError};
 
 /// The outcome of committing a topology-backed decision's synthesis
 /// evidence together with its capacity acquisition.
