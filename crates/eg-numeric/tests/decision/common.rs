@@ -72,14 +72,23 @@ pub fn window() -> RecordWindow {
 }
 
 pub fn option_ids() -> Vec<String> {
-    (0..OPTIONS).map(|j| format!("option-{j}")).collect()
+    option_ids_for(OPTIONS)
+}
+
+pub fn option_ids_for(options: usize) -> Vec<String> {
+    (0..options).map(|j| format!("option-{j}")).collect()
 }
 
 /// Deterministic rows: the gold option's `quality` is higher by a margin that
 /// the `noise` column occasionally erodes.
 pub fn rows(item: usize, gold: usize) -> Vec<i64> {
+    rows_for(item, gold, OPTIONS)
+}
+
+pub fn rows_for(item: usize, gold: usize, options: usize) -> Vec<i64> {
+    assert!(gold < options);
     let mut out = Vec::new();
-    for j in 0..OPTIONS {
+    for j in 0..options {
         let quality = if j == gold { 2.0 } else { 0.0 } + ((item * 7 + j * 13) % 10) as f64 / 5.0;
         let noise = ((item * 3 + j * 5) % 7) as f64 / 7.0;
         out.push((quality * 4_294_967_296.0) as i64);
@@ -89,13 +98,22 @@ pub fn rows(item: usize, gold: usize) -> Vec<i64> {
 }
 
 pub fn gold_item(item: usize, seed: usize, source: LabelSource) -> LabelledItem {
-    let gold = (item + seed) % OPTIONS;
+    gold_item_for(item, seed, source, OPTIONS)
+}
+
+pub fn gold_item_for(
+    item: usize,
+    seed: usize,
+    source: LabelSource,
+    options: usize,
+) -> LabelledItem {
+    let gold = (item + seed) % options;
     LabelledItem {
         item_id: format!("gold-{seed}-{item:04}"),
         recorded_at_ms: 1_000 + item as u64,
         class_key: "eg:task/research".to_string(),
-        candidate_ids: bounded(option_ids()),
-        features: bounded(rows(item + seed, gold)),
+        candidate_ids: bounded(option_ids_for(options)),
+        features: bounded(rows_for(item + seed, gold, options)),
         label: ItemLabel::Gold {
             acceptable: bounded(vec![format!("option-{gold}")]),
             source,
