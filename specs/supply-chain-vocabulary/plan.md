@@ -14,7 +14,7 @@ Status: PROPOSED. Governing spec: [spec.md](spec.md).
 
 ## Architecture
 
-Owner of every term: `epistemic-graph`, `crates/eg-core/ontology/`. Sources keep their data; each source's ontology and access contract are attached and a `vg:VirtualMapping` (`virtual_graph-v1.ttl:107`, `vg:mapsOntologyClass` line 72, `vg:approved` line 94) maps its native entity to these classes. Source choice comes from `vg:SourceAuthority` rows (`EG-CQ-XSRC-R001`), planning from `EG-FEDERATED-QUERY-R072/R073`.
+Owner of every term: `epistemic-graph`, `crates/eg-core/ontology/`. Sources keep their data. Each source's ontology and access contract are attached and a `vg:VirtualMapping` (`virtual_graph-v1.ttl:107`, `vg:mapsOntologyClass` line 72, `vg:approved` line 94) maps its native entity to these classes. Source choice comes from `vg:SourceAuthority` rows (`EG-CQ-XSRC-R001`), planning from `EG-FEDERATED-QUERY-R072/R073`.
 
 ```
 question "how does the supply chain affect our services?"
@@ -47,10 +47,10 @@ Prefixes: `kg:` = `http://knuckles.team/kg#`; `infra:` = `http://knuckles.team/k
 | `kg:suppliesItem` | object property | `kg:Supplier` to `kg:SupplyChainItem` | derived from PO: `PurchaseOrder -suppliedBy-> Supplier`, `PurchaseOrder -contains-> Item` |
 | `kg:realizedByAsset` | object property | `kg:SupplyChainItem` to `kg:AssetInstance` (`trm-v1.ttl`) | ERPNext Asset links item to a deployed asset |
 | `kg:assetHost` | object property | `kg:AssetInstance` to `infra:Host` | asserted only through approved `owl:sameAs` or a CMDB CI link |
-| `infra:serviceRunsOn` | object property | `infra:Service` to `infra:Host`; subproperty of `infra:runsOn` | projected only for independently identified Service records; never infer this edge from an arbitrary runsOn triple |
-| `kg:suppliesService` | object property | `kg:Supplier` to `infra:Service` | derived; physical chain `suppliesItem, realizedByAsset, assetHost, ^infra:serviceRunsOn` (a service runs on a host); software chain `^publishedBy, ^versionOf, ^usesComponent` (publisher to component to version to service) |
+| `infra:serviceRunsOn` | object property | `infra:Service` to `infra:Host`. Subproperty of `infra:runsOn` | projected only for independently identified Service records. Never infer this edge from an arbitrary runsOn triple |
+| `kg:suppliesService` | object property | `kg:Supplier` to `infra:Service` | derived. Physical chain `suppliesItem, realizedByAsset, assetHost, ^infra:serviceRunsOn` (a service runs on a host). Software chain `^publishedBy, ^versionOf, ^usesComponent` (publisher to component to version to service) |
 
-`infra:runsOn` also links containers and pods to hardware. The physical chain must therefore use `infra:serviceRunsOn`; a container-only or pod-only runsOn fixture must not infer suppliesService or retype the runtime entity as a Service.
+`infra:runsOn` also links containers and pods to hardware. The physical chain must therefore use `infra:serviceRunsOn`. A container-only or pod-only runsOn fixture must not infer suppliesService or retype the runtime entity as a Service.
 
 Reuse, not redefinition: `kg:suppliedBy` is **not** redeclared in this work; trm-v1.ttl already declares it for TechnologyProduct to Vendor. `erpnext.ttl` fixes its domain to `:PurchaseOrder`; a shared property must not be constrained by one module (the `trm-v1.ttl` `trmCurrentValue` precedent). The cross-source spec's "`:suppliedBy` item to supplier" is replaced by `kg:suppliesItem` (Decision D5).
 
@@ -130,7 +130,7 @@ A digest match is an exact key; a name-only match is always a proposal, never au
 
 ## Wiring
 
-- Ontology load: eg-core loads every `crates/eg-core/ontology/*-v1.ttl`; new files follow the `-v1` naming and are registered wherever the existing files are enumerated (find the list with `rg -n "company_infra-v1" crates/`).
+- Ontology load: eg-core loads every `crates/eg-core/ontology/*-v1.ttl`. New files follow the `-v1` naming and are registered wherever the existing files are enumerated (find the list with `rg -n "company_infra-v1" crates/`).
 - Mappings: `vg:VirtualMapping` fixtures under `crates/eg-core/tests/fixtures/` loaded by the same harness as `EG-CQ-XSRC-R002.7`.
 - Authority rows (which source wins per class): `EG-CQ-XSRC-R002.5/.6`, `R003.1-.3`; this spec supplies the per-concept source table below, they declare the rows.
 - Scopes: no new scope; reads use the existing federated-query read scope in `EG-IDENTITY-001`.
@@ -142,7 +142,7 @@ A digest match is an exact key; a name-only match is always a proposal, never au
 Evidence: `:supports` (`core-foundation-v1.ttl:575`) is defined as Evidence to claim ("SUPPORTS edge convention"); reusing it for service to capability mixes two meanings. `archimate-v1.ttl` declares only element anchors (`:BusinessCapability` line 19, `:Change` 33) and **no relationship properties**; the relationships live in the archimate-mcp ontology as reified `:ArchimateRelationship` plus direct `:relRealization`/`:relServing` (`archimate-mcp/.../ontology/archimate.ttl:106,397,402`), needing two hops and a model to be loaded. LeanIX uses a connector-side `supports` (Application to BusinessCapability, `leanix-agent/connector_manifest.yml:13`). Decision: one direct property, filled by three mappings (LeanIX `supports`; ArchiMate Realization or Serving from an application element to a capability; a CMDB business-service relation). Alternative: the ArchiMate relationship as the only form, rejected because it makes the report depend on an authored model. Revisit if archimate becomes the authority; then declare `kg:supportsCapability rdfs:subPropertyOf` nothing and keep the mapping.
 
 **D2. erpnext suppliers and purchase orders: CONFIRMED, with a mapping gap.**
-Tool `erpnext_agent_resource` (`erpnext_agent/mcp/mcp_resource.py:16`), actions `list_documents`, `get_document` (dispatch to `api_client_resource.py`), doctypes `Supplier`, `Item`, `Purchase Order`. Access contracts `supplierAccess`, `itemAccess`, `purchaseOrderAccess` exist in `erpnext_agent/ontology/access_contracts.ttl` (mcp_tool, offset pagination, pushdown filter and limit). The sync presets (`connectors/mcp_source_presets.json`) cover only Item and Sales Order, which does not matter for virtual access. Gaps: Supplier/Item/PurchaseOrder `ontology_class` unresolved in the manifest (row `EG-SUPPLY-VOCAB-R005.3`, agent-packages); `list_documents` does not return PO child lines, so item to supplier needs `get_document` per PO (row R005.2).
+Tool `erpnext_agent_resource` (`erpnext_agent/mcp/mcp_resource.py:16`), actions `list_documents`, `get_document` (dispatch to `api_client_resource.py`), doctypes `Supplier`, `Item`, `Purchase Order`. Access contracts `supplierAccess`, `itemAccess`, `purchaseOrderAccess` exist in `erpnext_agent/ontology/access_contracts.ttl` (mcp_tool, offset pagination, pushdown filter and limit). The sync presets (`connectors/mcp_source_presets.json`) cover only Item and Sales Order, which does not matter for virtual access. Gaps: Supplier/Item/PurchaseOrder `ontology_class` unresolved in the manifest (row `EG-SUPPLY-VOCAB-R005.3`, agent-packages). `list_documents` does not return PO child lines, so item to supplier needs `get_document` per PO (row R005.2).
 
 **D2b. uptime service health: CONFIRMED operation, no service link.**
 `uptime_kuma_monitors` action `get_monitors`/`get_monitor` and `uptime_kuma_status` action `get_heartbeats` (`uptime_kuma_agent/mcp_server.py:74,140`). Resource `UptimeMonitor` and `HeartbeatStat` in the manifest. No access-contract `.ttl` was found under `uptime_kuma_agent/ontology/` (row R006.2 adds it, agent-packages). A monitor is not a `Service`; it resolves to one by name or URL host (blocking keys above). `lgtm-mcp` also lists `UptimeMonitor`/`HeartbeatStat` (rank 2).
@@ -159,7 +159,7 @@ Tool `erpnext_agent_resource` (`erpnext_agent/mcp/mcp_resource.py:16`), actions 
 | `Supplier` | erpnext | leanix `Provider` | `erpnext_agent_resource list_documents` (doctype Supplier); `leanix_source_factsheets` (`leanix_agent/mcp_server.py:172`, Provider in manifest) | |
 | `SupplyChainItem` | erpnext | | `erpnext_agent_resource list_documents` (Item) | |
 | `suppliesItem` | erpnext PO | | `list_documents` (Purchase Order) + `get_document` for lines | |
-| `realizedByAsset` | | | no verified connected operation joins purchased Item to deployed AssetInstance | **BLOCKED**: owner operator plus erpnext-agent/servicenow mapping; identify the Item-to-Asset field before declaring the physical chain covered. Return typed Uncovered until then |
+| `realizedByAsset` | | | no verified connected operation joins purchased Item to deployed AssetInstance | **BLOCKED**: owner operator plus erpnext-agent/servicenow mapping. Identify the Item-to-Asset field before declaring the physical chain covered. Return typed Uncovered until then |
 | `AssetInstance` / `assetHost` | servicenow CMDB | erpnext asset | `get_cmdb_instances` (`servicenow_api/mcp_server.py:182`); systems-manager `HardwareNode` | erpnext Asset doctype read not verified; not used |
 | `SoftwareComponent`, `ComponentVersion`, `containsComponent` | dockerhub (SBOM) | gitlab `dependencies` | `hub_scout` actions `sbom`, `summary` (`dockerhub_api/mcp/mcp_scout.py:23-28`); `gitlab_vulnerabilities` action `dependencies` (`gitlab_api/mcp_server.py:1119`) | github dependency graph: only `github_dependabot` alerts found, no SBOM action |
 | `Vulnerability`, `affectsComponent` | dockerhub (`cves`, `vulnerabilities`) | gitlab (`get_project`), github Dependabot | `hub_scout`; `gitlab_vulnerabilities`; `github_dependabot` actions list/get (`github_agent/mcp/mcp_dependabot.py:150`) | |
@@ -168,8 +168,8 @@ Tool `erpnext_agent_resource` (`erpnext_agent/mcp/mcp_resource.py:16`), actions 
 | `Service` health | uptime | lgtm | `uptime_kuma_status get_heartbeats` | |
 | `deployedAs` (workload) | container-manager | portainer `Service`/`Stack` | `list_pods`, `list_containers` | |
 | `Customer` | salesforce `Account` | twenty `Company`, erpnext `Customer` | `salesforce_soql` (`mcp/mcp_salesforce.py:27`); twenty GraphQL `crm` tool | |
-| `CustomerContract` | salesforce | | `salesforce_soql` can query the standard `Contract` sObject if enabled in the org; the connector ontology declares no `Contract` class | **twenty: no contract object in manifest (Company, Opportunity, CrmNote, CrmTask, PipelineStage); not available.** erpnext: no contract doctype in `erpnext.ttl` |
-| `coversService` | | | no connected source records which service a contract covers | **BLOCKED**: Salesforce standard `Contract` has no service field; needs either a custom field or a curated link. Owner: operator (CRM data) plus `EG-SUPPLY-VOCAB-R005.9` mapping once the field is named. Until then the report abstains `Uncovered` for contract questions |
+| `CustomerContract` | salesforce | | `salesforce_soql` can query the standard `Contract` sObject if enabled in the org. The connector ontology declares no `Contract` class | **twenty: no contract object in manifest (Company, Opportunity, CrmNote, CrmTask, PipelineStage). Not available.** erpnext: no contract doctype in `erpnext.ttl` |
+| `coversService` | | | no connected source records which service a contract covers | **BLOCKED**: Salesforce standard `Contract` has no service field. Needs either a custom field or a curated link. Owner: operator (CRM data) plus `EG-SUPPLY-VOCAB-R005.9` mapping once the field is named. Until then the report abstains `Uncovered` for contract questions |
 | `Incident`, `Change`, `affectsService` | servicenow | erpnext `ErpNextIssue` (incident only) | `get_change_request_ci`, `get_cmdb_instances` | |
 | `supportsCapability` | leanix | archimate | LeanIX `supports` relation (manifest); `relRealization`/`relServing` | |
 | `HostLimit.readingValue` (temperature) | fan-manager | | `TemperatureReading.celsius`, `ThermalTrend.maxCelsius` (manifest fields) | |
@@ -204,7 +204,7 @@ Ontology parse test and shape tests in `crates/eg-core/tests/`; `cargo test -p e
 
 ## Out of scope
 
-Copying source data; the authority vocabulary (`EG-CQ-XSRC-R001`); the federated planner; entity-resolution scoring; the report type; building new connector tools (only mapping and access-contract rows in agent-packages).
+Copying source data. The authority vocabulary (`EG-CQ-XSRC-R001`). The federated planner. Entity-resolution scoring. The report type. Building new connector tools (only mapping and access-contract rows in agent-packages).
 
 ## Amendments
 

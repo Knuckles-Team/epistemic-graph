@@ -202,7 +202,7 @@
     },
     {
       "id": "EG-SRC-AUTH-R003.3",
-      "title": "`AttachApproved` accepts an authority candidate; the approval lease binds its digest",
+      "title": "`AttachApproved` accepts an authority candidate. The approval lease binds its digest",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

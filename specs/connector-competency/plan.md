@@ -10,7 +10,7 @@ The engine answers connector competency questions through its existing
 [federated query contract](../federated-query-and-reasoning/spec.md) and
 [unified data plane](../unified-data-plane/spec.md). Reuse their ontology-driven
 source selection, approved virtual mappings, query planning, and provenance
-interfaces; do not introduce a separate connector-specific query planner.
+interfaces. Do not introduce a separate connector-specific query planner.
 
 The ontology describes source access contracts. Records remain at their source
 and are fetched at query time through MCP, A2A, API, GraphQL, or virtual-graph
@@ -298,7 +298,7 @@ Evidence that the file-name method misfired (all read from the files):
 - `catalog-v1.ttl` is a generated 40-line `owl:imports` aggregate with zero terms.
 - `company-v1.ttl` is the agent-company model (`:Company`, `:WorkItem`, `:KeyPerformanceIndicator`, `:PayrollRecord`); no `Customer`, `Supplier`, `PurchaseOrder`, `Invoice`, `Opportunity` or `Contact` exists in any `.ttl`.
 - `life-v1.ttl` is biology; `environment-v1.ttl` is ecology and weather; `harness-v1.ttl` models agent-harness scaffolding evolution.
-- Terms are in a sibling file the name did not suggest: Home Assistant `:Device`/`:Entity` and the fan-manager `:HealthTrend` family are in `infrastructure-v1.ttl`; Paperless `:Tag`/`:Correspondent` and Gramps `:Family` are in `personal-v1.ttl`; `:PullRequest`, `:MergeRequest`, `:PipelineRun` are in `sdlc_lifecycle-v1.ttl`.
+- Terms are in a sibling file the name did not suggest: Home Assistant `:Device`/`:Entity` and the fan-manager `:HealthTrend` family are in `infrastructure-v1.ttl`. Paperless `:Tag`/`:Correspondent` and Gramps `:Family` are in `personal-v1.ttl`. `:PullRequest`, `:MergeRequest`, `:PipelineRun` are in `sdlc_lifecycle-v1.ttl`.
 - Classes used but never declared: `:Repository` (referenced by `infrastructure-v1` `ContainerImage` and `sdlc_lifecycle-v1` `aliasOf`), `:Application` (range of `identity-v1` `:assignedApp`). No `Worktree` or `Branch` term exists.
 - Two Incident IRIs exist: `core-foundation-v1` and `archimate-v1` both describe `http://knuckles.team/kg#Incident` (the latter adds the ApplicationEvent crosswalk); `infrastructure-v1` owns the distinct infrastructure namespace Incident. ServiceNow uses the shared kg IRI, never the infrastructure Incident.
 
@@ -390,7 +390,7 @@ Other decisions:
 
 ### 2026-10-11 Vocabulary reassignments and DECIDED outcomes (from EG-CONN-AUDIT)
 
-Evidence: the audit opened each of the 19 assigned ontology files; the Audit record above holds the method and per-connector table. Rows `EG-CQ-CONN-R0nn.1` and `.2` for each connector below, the Coverage table and the Questions-table vocabulary column were corrected in this pass; the ontology terms themselves land through `EG-CQ-CONN-R068` to `R083`.
+Evidence: the audit opened each of the 19 assigned ontology files. The Audit record above holds the method and per-connector table. Rows `EG-CQ-CONN-R0nn.1` and `.2` for each connector below, the Coverage table and the Questions-table vocabulary column were corrected in this pass. The ontology terms themselves land through `EG-CQ-CONN-R068` to `R083`.
 
 | Connector | Old statement (vocabulary) | New statement (vocabulary) |
 |---|---|---|
@@ -413,7 +413,7 @@ Evidence: the audit opened each of the 19 assigned ontology files; the Audit rec
 | stirlingpdf | `documentation-v1.ttl` | `action-v1.ttl` |
 | twenty | `company-v1.ttl` | `commercial-v1.ttl` |
 
-DECIDED outcomes: home-assistant uses `infrastructure-v1.ttl` (`:Device`, `:Entity` are documented as Home Assistant terms); langfuse uses `orchestration-v1.ttl` (`harness-v1` models harness scaffolding, not LLM traces); ciso-assistant and onetrust use `government-v1.ttl` (`governance-core-v1.shapes.ttl` holds four NodeShapes and no class or property).
+DECIDED outcomes: home-assistant uses `infrastructure-v1.ttl` (`:Device`, `:Entity` are documented as Home Assistant terms). Langfuse uses `orchestration-v1.ttl` (`harness-v1` models harness scaffolding, not LLM traces). Ciso-assistant and onetrust use `government-v1.ttl` (`governance-core-v1.shapes.ttl` holds four NodeShapes and no class or property).
 
 Commerce exception: the audit proposed a new `commerce-v1.ttl` for erpnext, salesforce and twenty. This duplicates `EG-SUPPLY-VOCAB` (`commercial-v1.ttl`), so those three connectors are reassigned to `commercial-v1.ttl` (row `EG-CQ-CONN-R083`). Terms the audit wanted that `EG-SUPPLY-VOCAB` does not specify (compared by name in its requirements.md): `:Party`, `:PurchaseOrder` (only named in `EG-SUPPLY-VOCAB-R005.3`, never declared), `:PurchaseInvoice`, `:Opportunity`, `:Contact`, `:lastActivityAt`. It does cover `:Customer`.
 

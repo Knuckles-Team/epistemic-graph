@@ -24,7 +24,7 @@ The request envelope and signed body are distinct: the codec canonicalizes only 
 1. **Catalog audit:** enumerate every Rust-dispatched method and error, compare generated descriptors to reachable server paths, and correct missing transaction conflict error mapping.
 2. **One Python shape:** replace duplicate hand-written DTO definitions with generated re-exports; preserve import compatibility through aliases only where named and tested.
 3. **Codec parity:** build Rust WASM from pinned tool versions, compare both embedded copies, run Go/JS/Python/Rust vectors, and record source and artifact hashes. Reduce size by removing unused decode paths before changing optimization flags.
-4. **Package:** include catalogs, schemas and receipt in wheel data; clean-install into a new virtual environment and verify loader digests and typed operations. Avoid source-tree fallbacks.
+4. **Package:** include catalogs, schemas and receipt in wheel data. Clean-install into a new virtual environment and verify loader digests and typed operations. Avoid source-tree fallbacks.
 5. **CI:** run full root Python tests with the kernel/engine build in hosted CI, static contract reachability, Go/JS tests, all release feature profiles, and differential quality scanners. Tests needing a service start one from checked-in fixtures; deployment/soak has its own documented workflow.
 6. **Release:** build the wheel twice in clean environments, compare normalized artifacts, install from the built wheel, run consumer parity and mark a precise commit/tag. Record evidence per requirement.
 
@@ -46,5 +46,5 @@ Run Go commands from `clients/go` and npm commands from `clients/js`. If a named
 
 - Catalog metadata is generated from Rust code because server dispatch and stable errors are EG authority.
 - The contract receipt binds all language projections to one revision; a package containing current JSON but stale WASM is invalid.
-- Hosted CI may split bounded fast checks from long soak; a missing external environment cannot convert a required public gate into a permanent skip.
+- Hosted CI may split bounded fast checks from long soak. A missing external environment cannot convert a required public gate into a permanent skip.
 - Quality scans are differential over changed production code with explicit tracked configuration, and manual scanners remain observable release evidence.

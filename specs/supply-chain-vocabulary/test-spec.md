@@ -4,9 +4,9 @@ Status: PROPOSED. Governing spec: [spec.md](spec.md).
 
 | Test ID | Requirement | Level | Setup and input | Expected observation | Evidence |
 |---|---|---|---|---|---|
-| T-001 | FR-001 | Reasoner | Four-edge physical chain fixture | `suppliesService` inferred for a typed Service via serviceRunsOn; bare container/pod runsOn does not infer it or a Service type; nameless supplier refused | PENDING |
+| T-001 | FR-001 | Reasoner | Four-edge physical chain fixture | `suppliesService` inferred for a typed Service via serviceRunsOn. Bare container/pod runsOn does not infer it or a Service type. Nameless supplier refused | PENDING |
 | T-001.1 | EG-SUPPLY-VOCAB-R001.1.1 | Native parser | Exact shared ontology file | Class and superclass triples, labels, suppliesItem domain/range, no suppliedBy redeclaration | `crates/eg-rdf/tests/supply_chain_declarations.rs` |
-| T-001.2 | EG-SUPPLY-VOCAB-R001.1.2 | Catalog and reasoner | Default catalog plus supplier, item and vendor instances | Valid registered document; Vendor and domain/range entailment; no reverse Supplier inference | PENDING |
+| T-001.2 | EG-SUPPLY-VOCAB-R001.1.2 | Catalog and reasoner | Default catalog plus supplier, item and vendor instances | Valid registered document. Vendor and domain/range entailment. No reverse Supplier inference | PENDING |
 | T-002 | FR-002 | Reasoner | Service, workload, image, version fixture | `usesComponent` inferred; versionless component and bad severity refused | PENDING |
 | T-003 | FR-003 | Shape | Contract fixtures: valid, no customer, no service; ontology scan | Faults refused; no `ChangeRequest` class; `affectsService` accepts `kg:Change` | PENDING |
 | T-003.1 | EG-SUPPLY-VOCAB-R003.7 | Native parser | `commercial-v1.ttl` and fixtures | Test asserts both `Customer` and `Supplier` entail `Organization` and no `:Party` class exists. | `crates/eg-rdf/tests/commercial_terms.rs::party_links_reuse_organization` |
@@ -35,7 +35,7 @@ Named tests below are planned, not executed evidence.
 
 ## Negative and boundary cases
 
-Unapproved mapping makes a class uncovered; unconnected procurement source gives an abstention; a name-only supplier match across erpnext and dockerhub is never joined before approval; a limit with a reading but no limit is refused.
+Unapproved mapping makes a class uncovered. Unconnected procurement source gives an abstention. A name-only supplier match across erpnext and dockerhub is never joined before approval. A limit with a reading but no limit is refused.
 
 ## Quality and release proof
 

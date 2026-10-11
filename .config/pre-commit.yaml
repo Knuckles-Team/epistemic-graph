@@ -85,6 +85,10 @@ repos:
     stages: [pre-commit]
   - id: spec-decomposition
     stages: [pre-commit]
+  - id: spec-standard
+    stages: [pre-commit]
+  - id: ste-staged
+    stages: [pre-commit]
   - id: spec-trailers
     stages: [pre-push]
 - repo: https://github.com/jendrikseipp/vulture

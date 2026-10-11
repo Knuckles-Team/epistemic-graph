@@ -66,7 +66,7 @@ For each holding/watchlist item and horizon, a recommendation is `accumulate`, `
 
 Finance events use a versioned envelope `(tenant, event_id, topic, subject, occurrence_time, known_at, source_digest, payload_version)`. `finance.flip` keeps its existing stable ID. Add `finance.price`, `finance.dca_due` and `finance.margin_threshold` facts as needed; replay and outbox publication are idempotent. Delivery channels and scheduling remain consumers. An event never authorizes a trade.
 
-An optional external portfolio source can attach read-only through EG's typed source registry. A one-way mapper converts source activities into F1 records with original source key, source revision and digest; re-import is idempotent, deletions become explicit tombstone/correction records, and source schema drift rejects or quarantines records. The external database retains its own schema and migrations. EG never writes into it and never shares its storage ownership. This optional connector is independent of completing F1–F5.
+An optional external portfolio source can attach read-only through EG's typed source registry. A one-way mapper converts source activities into F1 records with original source key, source revision and digest. Re-import is idempotent, deletions become explicit tombstone/correction records, and source schema drift rejects or quarantines records. The external database retains its own schema and migrations. EG never writes into it and never shares its storage ownership. This optional connector is independent of completing F1–F5.
 
 ### F7. Quality and provenance (EG-FINANCE-PRIMITIVES-R013)
 

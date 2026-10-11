@@ -11,7 +11,7 @@ Public provenance: closes three engine-side design gaps so each keeps one decisi
 
 ## Requirements and acceptance
 
-- FR-001: A `Placement` Decide question over in_process/compose/helm/swarm returns a typed record or typed abstention; it never takes a lease (R001).
+- FR-001: A `Placement` Decide question over in_process/compose/helm/swarm returns a typed record or typed abstention. It never takes a lease (R001).
 - FR-002: `AgentAssemble` returns an ordered deployment step graph from a published template (R001.12, R001.13).
 - FR-003: Autosize, lane floors, widths, routing and queue-depth limit are served engine settings; the worker holds none (R002).
 - FR-004: `MineAssociate` refuses more than 31 distinct items with its own typed refusal, and the kernel cannot overflow (R003).
