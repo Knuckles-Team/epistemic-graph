@@ -457,7 +457,7 @@
         "52f333ca756e"
       ],
       "verified_by": [
-        "src/server/persistence/agent_component.rs:1099"
+        "src/server/persistence/agent_component.rs:1101"
       ]
     },
     {
@@ -559,7 +559,7 @@
         "9079ca7b0ddd"
       ],
       "verified_by": [
-        "crates/eg-types/src/agent_component.rs:2112"
+        "crates/eg-types/src/agent_component.rs:2278"
       ]
     },
     {
@@ -585,9 +585,9 @@
         "d6baf6dfc8c9"
       ],
       "verified_by": [
-        "src/server/persistence/decision_record/tests.rs:165",
-        "src/server/persistence/decision_record/tests.rs:194",
-        "src/server/persistence/decision_record/tests.rs:220"
+        "src/server/persistence/decision_record/tests.rs:167",
+        "src/server/persistence/decision_record/tests.rs:196",
+        "src/server/persistence/decision_record/tests.rs:222"
       ]
     },
     {
@@ -1170,7 +1170,7 @@
         "fa780d3e101a"
       ],
       "verified_by": [
-        "crates/eg-types/src/agent_component.rs:1804"
+        "crates/eg-types/src/agent_component.rs:1970"
       ]
     },
     {
@@ -1183,9 +1183,9 @@
         "fa780d3e101a"
       ],
       "verified_by": [
-        "src/server/persistence/decision_record/tests.rs:166",
-        "src/server/persistence/decision_record/tests.rs:221",
-        "src/server/persistence/decision_record/tests.rs:240"
+        "src/server/persistence/decision_record/tests.rs:168",
+        "src/server/persistence/decision_record/tests.rs:223",
+        "src/server/persistence/decision_record/tests.rs:242"
       ]
     },
     {
@@ -1359,7 +1359,7 @@
       ],
       "verified_by": [
         "crates/eg-numeric/tests/decision/scorer_promotion.rs:179",
-        "crates/eg-types/src/agent_component.rs:2141"
+        "crates/eg-types/src/agent_component.rs:2307"
       ]
     },
     {
@@ -1528,7 +1528,7 @@
         "c4c13898a493"
       ],
       "verified_by": [
-        "src/server/persistence/decision_record/tests.rs:260"
+        "src/server/persistence/decision_record/tests.rs:262"
       ]
     },
     {
@@ -1748,7 +1748,7 @@
         "a1bb9fb9503e"
       ],
       "verified_by": [
-        "crates/eg-types/src/agent_component.rs:2169"
+        "crates/eg-types/src/agent_component.rs:2335"
       ]
     },
     {
