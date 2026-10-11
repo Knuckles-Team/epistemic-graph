@@ -1296,13 +1296,16 @@ mod tests {
                 "swarm-topology-shapes",
                 "699371a30c9e2b770bc565df246fbdfeb7525614e3557b25fc22923b82ea9e9c",
             ),
+            // R004.1 and R004.2.1/.2 added the asset-class migration and portfolio
+            // records; semantic acceptance/refusal fixtures live in
+            // src/server/graph_schema/finance_tests.rs. Pin both updated artifacts.
             (
                 "finance",
-                "9cadbbd05049f96cdc4766dec4d1f70ca70ea3a3c5ada0bb2257610339930e01",
+                "cea770e406de84a6366aa23607594e98bf96ebfac229f30230bef0c63ff35ff9",
             ),
             (
                 "finance-shapes",
-                "c5c8e77e8d79283a6fe53dd97a22e16561012088f18d902793b3cb7aa197a239",
+                "77c33f7959115828a21b5f3a161de10bc8e24eeeee039abca6557681d1b9925c",
             ),
             (
                 "worldview",
