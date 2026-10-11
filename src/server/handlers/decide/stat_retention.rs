@@ -166,6 +166,13 @@ enum Step {
 }
 
 fn due(entry: &DecisionLogEntry, policy: &StatisticalPolicy, now_ms: u64) -> Option<Step> {
+    // Library evidence remains reproducible indefinitely, regardless of policy.
+    if matches!(
+        entry.record.candidate_source,
+        eg_types::decision::CandidateSourceRecord::AgentLibrary { .. }
+    ) {
+        return None;
+    }
     let inline = matches!(
         entry.record.inputs.feature_matrix,
         FeatureMatrixRef::Inline { .. }
