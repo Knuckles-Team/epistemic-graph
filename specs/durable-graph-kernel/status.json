@@ -16,10 +16,17 @@
     "EG-DURABLE-KERNEL-R010",
     "EG-DURABLE-KERNEL-R011",
     "EG-DURABLE-KERNEL-R011.1",
+    "EG-DURABLE-KERNEL-R011.2",
+    "EG-DURABLE-KERNEL-R011.3",
+    "EG-DURABLE-KERNEL-R011.4",
     "EG-DURABLE-KERNEL-R012",
     "EG-DURABLE-KERNEL-R013",
     "EG-DURABLE-KERNEL-R014",
     "EG-DURABLE-KERNEL-R014.1",
+    "EG-DURABLE-KERNEL-R014.2",
+    "EG-DURABLE-KERNEL-R014.3",
+    "EG-DURABLE-KERNEL-R014.4",
+    "EG-DURABLE-KERNEL-R014.5",
     "EG-DURABLE-KERNEL-R015",
     "EG-DURABLE-KERNEL-R016",
     "EG-DURABLE-KERNEL-R017",
@@ -268,14 +275,17 @@
     {
       "id": "EG-DURABLE-KERNEL-R011",
       "title": "Clippy and targeted tests cover the full and all-features builds",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "9794030f6459",
         "a676823d2b54"
       ],
       "verified_by": [],
       "rollup_of": [
-        "EG-DURABLE-KERNEL-R011.1"
+        "EG-DURABLE-KERNEL-R011.1",
+        "EG-DURABLE-KERNEL-R011.2",
+        "EG-DURABLE-KERNEL-R011.3",
+        "EG-DURABLE-KERNEL-R011.4"
       ]
     },
     {
@@ -292,6 +302,27 @@
         "crates/eg-types/src/pre_merge_test_module.rs:138",
         "crates/eg-types/src/pre_merge_test_module.rs:152"
       ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R011.2",
+      "title": "Concrete required-module manifest",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R011.3",
+      "title": "Pre-merge runtime execution",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R011.4",
+      "title": "Exact-head CI acceptance receipts",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R012",
@@ -324,14 +355,18 @@
     {
       "id": "EG-DURABLE-KERNEL-R014",
       "title": "Raft cluster tests pass reliably under load",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "3a14159c3768",
         "a676823d2b54"
       ],
       "verified_by": [],
       "rollup_of": [
-        "EG-DURABLE-KERNEL-R014.1"
+        "EG-DURABLE-KERNEL-R014.1",
+        "EG-DURABLE-KERNEL-R014.2",
+        "EG-DURABLE-KERNEL-R014.3",
+        "EG-DURABLE-KERNEL-R014.4",
+        "EG-DURABLE-KERNEL-R014.5"
       ]
     },
     {
@@ -348,6 +383,34 @@
         "src/raft/flake_budget.rs:128",
         "src/raft/flake_budget.rs:85"
       ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R014.2",
+      "title": "Bounded representative CPU load",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R014.3",
+      "title": "Repeated loaded-test harness",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R014.4",
+      "title": "Loaded leader-rebalance acceptance",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R014.5",
+      "title": "Loaded three-node placement acceptance",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R015",
