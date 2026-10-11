@@ -617,8 +617,8 @@ mod tests {
 
     /// A deterministic mock planner: NL in → a CANNED query out. Proves the EG-078 seam
     /// with NO LLM/network, exactly the shape the engine core drives.
-    struct MockPlanner {
-        canned: String,
+    pub(super) struct MockPlanner {
+        pub(super) canned: String,
     }
     impl NlPlanner for MockPlanner {
         fn plan(&self, _nl: &str, _hint: &str) -> Result<String, String> {

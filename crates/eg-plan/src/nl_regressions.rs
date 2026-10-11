@@ -1,16 +1,7 @@
 //! Regression coverage for the public NL planning/execution entry points.
 
+use super::tests::MockPlanner;
 use super::*;
-
-struct MockPlanner {
-    canned: String,
-}
-
-impl NlPlanner for MockPlanner {
-    fn plan(&self, _nl: &str, _hint: &str) -> Result<String, String> {
-        Ok(self.canned.clone())
-    }
-}
 
 #[test]
 fn legacy_nl_entry_points_refuse_over_budget_output_before_parsing() {
