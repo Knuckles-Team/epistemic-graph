@@ -8,7 +8,7 @@
 - [x] **EG-UNIFIED-DATA-PLANE-R002 (rollup):** Merge source registration, owner scope, secret references, verified outbound checks and five-part adapter contract; depends on EG-FEDERATED-QUERY-R013. Split by code root per SPEC-SIZING-AND-DEPENDENCIES.md (score > 6, 3 code roots): LANDED only when R002.1, R002.2 and R002.3 are all LANDED.
   - [x] **EG-UNIFIED-DATA-PLANE-R002.1:** Verify the outbound destination before persisting a `ForeignSourceSpec::Sql` registration (producer path, `src/server/foreign_catalog.rs` + `crates/eg-plan/src/federation_ssrf.rs`). No dependency.
   - [x] **EG-UNIFIED-DATA-PLANE-R002.2:** Verify the outbound destination before persisting an OBDA `external_sources` registration (consumer path, `src/server/handlers/rdf/obda.rs`); depends on EG-UNIFIED-DATA-PLANE-R002.1.
-  - [x] **EG-UNIFIED-DATA-PLANE-R002.3:** Verify the outbound destination before persisting a kernel mirror-target registration (sink path); depends on EG-UNIFIED-DATA-PLANE-R002.1 and the same-repo EG-DURABLE-KERNEL-R024 (BUILDING; no mirror-target registration code root exists yet).
+  - [x] **EG-UNIFIED-DATA-PLANE-R002.3:** Verify the outbound destination before persisting a kernel mirror-target registration (sink path). Depends on EG-UNIFIED-DATA-PLANE-R002.1 and the same-repo EG-DURABLE-KERNEL-R024 (BUILDING; no mirror-target registration code root exists yet).
 - [x] **EG-UNIFIED-DATA-PLANE-R003:** Build versioned typed catalog extraction with OBDA and `schema_context` consumers; depends on EG-UNIFIED-DATA-PLANE-R002.
 - [x] **EG-UNIFIED-DATA-PLANE-R003.1:** Typed, hashed `AttachedCatalogGraph` model with reorder-stable hashing and duplicate-table refusal; part of EG-UNIFIED-DATA-PLANE-R003 (parent rollup).
 - [x] **EG-UNIFIED-DATA-PLANE-R004:** Add bounded profiling, JSON shape, dependency inference and fixed-seed Leiden grouping; depends on EG-UNIFIED-DATA-PLANE-R003.
@@ -41,7 +41,7 @@
 - [x] **EG-UNIFIED-DATA-PLANE-R011:** Freshness-aware native/live/accelerated router and EXPLAIN; depends on EG-UNIFIED-DATA-PLANE-R007.
 - [x] **EG-UNIFIED-DATA-PLANE-R011.1:** Typed `FreshnessRoute`/`ReadYourWritesWait` refusing an unbounded wait; part of EG-UNIFIED-DATA-PLANE-R011 (parent rollup).
 - [x] **EG-UNIFIED-DATA-PLANE-R012:** Governed idempotent write-back through SDK/app API and EG-DURABLE-KERNEL-R031 audit; depends on EG-UNIFIED-DATA-PLANE-R002.
-- [x] **EG-UNIFIED-DATA-PLANE-R012.1:** Typed `AttachedSourceWriteRequest`/`validate` model in `eg-types::attached_source_governance` with refusal tests for missing approval, audit reservation, idempotency key and business-logic-bypassing direct writes; depends on EG-UNIFIED-DATA-PLANE-R012.
+- [x] **EG-UNIFIED-DATA-PLANE-R012.1:** Typed `AttachedSourceWriteRequest`/`validate` model in `eg-types::attached_source_governance` with refusal tests for missing approval, audit reservation, idempotency key and business-logic-bypassing direct writes. Depends on EG-UNIFIED-DATA-PLANE-R012.
 
 ## Dialects and conformance
 
@@ -126,7 +126,7 @@
 
 ## Native hosting and app admission
 
-Native storage and wire work (EG-DURABLE-KERNEL-R032/EG-DURABLE-KERNEL-R033/EG-DURABLE-KERNEL-R034–EG-DURABLE-KERNEL-R036/EG-DURABLE-KERNEL-R037–EG-DURABLE-KERNEL-R042) is implemented and evidenced by `durable-graph-kernel`; the one-way Ghostfolio import EG-FINANCE-PRIMITIVES-R012 is implemented and evidenced by `finance-primitives`. This spec consumes their exact-head test receipts before app admission, without duplicating those work items.
+Native storage and wire work (EG-DURABLE-KERNEL-R032/EG-DURABLE-KERNEL-R033/EG-DURABLE-KERNEL-R034–EG-DURABLE-KERNEL-R036/EG-DURABLE-KERNEL-R037–EG-DURABLE-KERNEL-R042) is implemented and evidenced by `durable-graph-kernel`. The one-way Ghostfolio import EG-FINANCE-PRIMITIVES-R012 is implemented and evidenced by `finance-primitives`. This spec consumes their exact-head test receipts before app admission, without duplicating those work items.
 
 - [x] **EG-UNIFIED-DATA-PLANE-R025:** Separate pgrx companion spike and go/no-go ADR; depends on EG-UNIFIED-DATA-PLANE-R001.
 - [x] **EG-UNIFIED-DATA-PLANE-R025.1:** `PgrxSpikeDecision` typed model plus full-scope-evidence refusal (`crates/eg-types/src/pgrx_spike.rs`).
@@ -155,14 +155,14 @@ Native storage and wire work (EG-DURABLE-KERNEL-R032/EG-DURABLE-KERNEL-R033/EG-D
 - [ ] **EG-UNIFIED-DATA-PLANE-R028.2:** Run the Postgres regression suite and SQLancer-style generated corpora against EG.
   - [x] **EG-UNIFIED-DATA-PLANE-R028.2.1:** `run_differential_harness`/`DifferentialCaseEvaluator` runner assembling a baseline from fake evaluators (`crates/eg-types/src/pg_diff_baseline.rs`); no live Postgres instance needed.
 - [ ] **EG-UNIFIED-DATA-PLANE-R028.3:** Run the captured-application-traffic corpus and publish the harness report.
-- [x] **EG-UNIFIED-DATA-PLANE-R033 (rollup) / Gramps P6:** Separate explicitly authorized production cutover, replica, independent nightly export and 30-day read-only SQLite fallback; depends on EG-UNIFIED-DATA-PLANE-R026 and every P0–P5 acceptance artifact.
+- [x] **EG-UNIFIED-DATA-PLANE-R033 (rollup) / Gramps P6:** Separate explicitly authorized production cutover, replica, independent nightly export and 30-day read-only SQLite fallback. Depends on EG-UNIFIED-DATA-PLANE-R026 and every P0–P5 acceptance artifact.
   - [x] **EG-UNIFIED-DATA-PLANE-R033.1:** `GrampsCutoverGoAhead` typed model plus P5-exit/approver/fallback-window refusals (`crates/eg-types/src/gramps_cutover_gate.rs`).
   - [ ] **EG-UNIFIED-DATA-PLANE-R033.2:** Real production cutover: Postgres replica, nightly independent XML export, and the rehearsed failover test.
 
 ## Virtual graphs
 
 - [x] **EG-UNIFIED-DATA-PLANE-R037:** Ship `core:virtual-graph@1` with SHACL shapes and positive and negative fixtures.
-- [ ] **EG-UNIFIED-DATA-PLANE-R038 (rollup):** Write a hashed `MetadataContract` for every source kind; add the acceleration policy; prove live reads by default and copy only for declared hot subsets.
+- [ ] **EG-UNIFIED-DATA-PLANE-R038 (rollup):** Write a hashed `MetadataContract` for every source kind. Add the acceleration policy. Prove live reads by default and copy only for declared hot subsets.
   - [x] **EG-UNIFIED-DATA-PLANE-R038.1:** `MetadataContract`/`AccelerationPolicy` typed model plus capability refusal and watermark-missing live fallback (`crates/eg-types/src/metadata_acceleration.rs`).
   - [ ] **EG-UNIFIED-DATA-PLANE-R038.2:** Real per-source-kind discovery writing the contract, the copy pipeline, and EXPLAIN's per-fragment live/copy reporting.
 

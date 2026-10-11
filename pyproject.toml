@@ -291,4 +291,5 @@ mcp_server = false
 # binary if wanted; the release CI builds the standard `--release` main wheel.
 
 [tool.pipelines_hooks.ste]
-exempt = ["specs/*", "specs/**/*"]
+paths = ["README.md", "AGENTS.md", "CLAUDE.md", "CONTRIBUTING.md", "CHANGELOG.md", "docs", "specs"]
+exempt = ["specs/_template/*"]

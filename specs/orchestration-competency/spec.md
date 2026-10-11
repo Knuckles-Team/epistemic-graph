@@ -25,7 +25,7 @@ A question is **answered** when one query over the ontology returns a correct, p
 ## Requirements and acceptance
 
 - FR-001: Each of questions 1-7 has one rollup row and an end-to-end acceptance test asserting a non-empty, provenance-carrying answer or the typed abstention.
-- FR-002: The composed answer is produced by the assemble handler; no parallel planner, router, guardrail engine or topology chooser is added.
+- FR-002: The composed answer is produced by the assemble handler. No parallel planner, router, guardrail engine or topology chooser is added.
 - FR-003: Each probe in R009 is an acceptance test through the graph-os intent tools, recorded with its previously observed result.
 - SC-001: All 8 plus 1 rollups have passing acceptance children on a fixture graph.
 
@@ -46,4 +46,4 @@ Owned: ontology gaps, SHACL shapes, source-authority mappings, fixtures and acce
 
 ## Virtual-first: the engine reaches source data, it does not copy it
 
-What is ingested from a connected source is its **ontology and access contract**. The data stays in the source; the engine fetches it at query time through an ontology-driven virtual graph, selected by the ontology's source declarations. The contract kinds are A2A, MCP, API (REST), GraphQL and virtual-graph contracts over relational or document stores. A question is answered by federating over those contracts. Copying a source into the engine is an optimisation that needs its own stated reason (latency, availability, history); it is never the default and never a precondition for answering.
+What is ingested from a connected source is its **ontology and access contract**. The data stays in the source. The engine fetches it at query time through an ontology-driven virtual graph, selected by the ontology's source declarations. The contract kinds are A2A, MCP, API (REST), GraphQL and virtual-graph contracts over relational or document stores. A question is answered by federating over those contracts. Copying a source into the engine is an optimisation that needs its own stated reason (latency, availability, history). It is never the default and never a precondition for answering.

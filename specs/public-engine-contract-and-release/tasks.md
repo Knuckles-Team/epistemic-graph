@@ -5,8 +5,8 @@
 - [x] **C-01 — EG-CONTRACT-R001, EG-CONTRACT-R005:** Audit and converge all Python method DTOs on generated strict models; verify with EG-T-04.
 - [x] **C-02 — EG-CONTRACT-R014, EG-CONTRACT-R015:** Complete catalog error sets, conflict mapping, scope projection and wheel contents; verify with EG-T-01/EG-T-02/EG-T-03.
 - [x] **C-03 — EG-CONTRACT-R004, EG-CONTRACT-R006:** Rebuild and measure both WASM codec copies and replay cross-language vectors; verify with EG-T-05/EG-T-06.
-- [x] **C-04 — EG-CONTRACT-R007, EG-CONTRACT-R008, EG-CONTRACT-R016, EG-CONTRACT-R017, EG-CONTRACT-R019, EG-CONTRACT-R020:** Make reachability and current-tree static gates follow real code paths; verify with mutation fixtures EG-T-09.
-- [x] **C-05 — EG-CONTRACT-R009, EG-CONTRACT-R018, EG-CONTRACT-R021:** Run the root Python suite, lifecycle cases and supported feature matrix in hosted CI; verify with EG-T-07/EG-T-10.
+- [x] **C-04 — EG-CONTRACT-R007, EG-CONTRACT-R008, EG-CONTRACT-R016, EG-CONTRACT-R017, EG-CONTRACT-R019, EG-CONTRACT-R020:** Make reachability and current-tree static gates follow real code paths. Verify with mutation fixtures EG-T-09.
+- [x] **C-05 — EG-CONTRACT-R009, EG-CONTRACT-R018, EG-CONTRACT-R021:** Run the root Python suite, lifecycle cases and supported feature matrix in hosted CI. Verify with EG-T-07/EG-T-10.
 - [x] **C-06 — EG-CONTRACT-R003, EG-CONTRACT-R010, EG-CONTRACT-R011, EG-CONTRACT-R012, EG-CONTRACT-R013, EG-CONTRACT-R022, EG-CONTRACT-R023:** Prove wheel/privacy and exact-tree quality gates without new clones or live-host dependencies; verify with EG-T-08.
 - [x] **C-07 — EG-CONTRACT-R024, EG-CONTRACT-R038, EG-CONTRACT-R039:** Lock the final pre-commit/codespell configuration, regenerate and check the contract receipt on every source change that affects it, and run the duplication gate against the full combined diff compared to `origin/main`.
 - [x] **C-08 — EG-CONTRACT-R002:** Add a served Python Agent Library and Decide journey in hosted CI using a disposable engine and the installed wheel; verify with EG-T-11.
@@ -19,8 +19,8 @@
 - [x] **C-01 — EG-CONTRACT-R001, EG-CONTRACT-R005:** Audit and converge all Python method DTOs on generated strict models; verify with EG-T-04.
 - [x] **C-02 — EG-CONTRACT-R014, EG-CONTRACT-R015:** Complete catalog error sets, conflict mapping, scope projection and wheel contents; verify with EG-T-01/EG-T-02/EG-T-03.
 - [x] **C-03 — EG-CONTRACT-R004, EG-CONTRACT-R006:** Rebuild and measure both WASM codec copies and replay cross-language vectors; verify with EG-T-05/EG-T-06.
-- [x] **C-04 — EG-CONTRACT-R007, EG-CONTRACT-R008, EG-CONTRACT-R016, EG-CONTRACT-R017, EG-CONTRACT-R019, EG-CONTRACT-R020:** Make reachability and current-tree static gates follow real code paths; verify with mutation fixtures EG-T-09.
-- [x] **C-05 — EG-CONTRACT-R009, EG-CONTRACT-R018, EG-CONTRACT-R021:** Run the root Python suite, lifecycle cases and supported feature matrix in hosted CI; verify with EG-T-07/EG-T-10.
+- [x] **C-04 — EG-CONTRACT-R007, EG-CONTRACT-R008, EG-CONTRACT-R016, EG-CONTRACT-R017, EG-CONTRACT-R019, EG-CONTRACT-R020:** Make reachability and current-tree static gates follow real code paths. Verify with mutation fixtures EG-T-09.
+- [x] **C-05 — EG-CONTRACT-R009, EG-CONTRACT-R018, EG-CONTRACT-R021:** Run the root Python suite, lifecycle cases and supported feature matrix in hosted CI. Verify with EG-T-07/EG-T-10.
 - [x] **C-06 — EG-CONTRACT-R003, EG-CONTRACT-R010, EG-CONTRACT-R011, EG-CONTRACT-R012, EG-CONTRACT-R013, EG-CONTRACT-R022, EG-CONTRACT-R023:** Prove wheel/privacy and exact-tree quality gates without new clones or live-host dependencies; verify with EG-T-08.
 - [x] **C-07 — EG-CONTRACT-R024, EG-CONTRACT-R038, EG-CONTRACT-R039:** Lock the final pre-commit/codespell configuration, regenerate and check the contract receipt on every source change that affects it, and run the duplication gate against the full combined diff compared to `origin/main`.
 - [x] **C-08.1 — EG-CONTRACT-R002.1:** Add the served `Decide` tenant auth-boundary refusal test (`tests/test_decide_auth_boundary.py`) against the suite's disposable-engine session fixture.
