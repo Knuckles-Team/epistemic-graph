@@ -84,3 +84,41 @@ fn native_guardrail_query_proves_exact_and_subclass_rules_only() {
         ));
     }
 }
+
+#[test]
+fn malformed_guardrail_publish_preserves_its_declared_error_code() {
+    use eg_types::agent_component::{
+        AgentComponentDraft, AgentComponentKind, DraftPublication, DraftSubject,
+    };
+    let digest = format!("sha256:{}", "1".repeat(64));
+    let draft = AgentComponentDraft::bare(
+        DraftSubject {
+            component_id: "rule:missing-attributes",
+            kind: AgentComponentKind::GuardrailRule,
+            version: "1.0.0",
+            content_digest: &digest,
+            summary: "guardrail validation fixture",
+        },
+        DraftPublication {
+            tenant_id: "tenant-a",
+            actor_scope: "scope:a",
+            purpose_id: "agent-component:publish",
+            policy_digest: &digest,
+            source_revision: "revision-1",
+            source_revision_digest: &digest,
+        },
+    );
+    let error = draft
+        .validate()
+        .expect_err("a rule needs its governed class and source generation");
+    let code = error.split_once(':').unwrap().0;
+    assert_eq!(code, "MALFORMED_GUARDRAIL_RULE");
+    assert!(eg_capabilities::error_routing::method_allows_error(
+        "AgentComponent",
+        code
+    ));
+    assert!(!eg_capabilities::error_routing::method_allows_error(
+        "CapabilityCoverage",
+        code
+    ));
+}

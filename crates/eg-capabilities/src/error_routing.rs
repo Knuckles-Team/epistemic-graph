@@ -106,6 +106,7 @@ const DOMAIN_PREFIXES: &[(&str, &[&str])] = &[
     ),
 ];
 const EXACT_METHOD_ERRORS: &[(&str, &[&str])] = &[
+    ("AgentComponent", &["MALFORMED_GUARDRAIL_RULE"]),
     (
         "GuardrailEntailment",
         &["GUARDRAIL_SCOPE_TOO_LARGE", "MALFORMED_GUARDRAIL_RULE"],
