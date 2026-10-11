@@ -195,8 +195,8 @@ Existing source modules and tests provide foundations, but this spec does not as
 - [x] **EG-DECISION-ENGINE-R127.2.3:** Qualify the generated guardrail client against a compiled server and real published rule set. Native dispatcher acceptance and the hosted real-engine generated-client fixture pass. The generated sender, typed decoder and request/response schemas are exercised against published rules, including subclass/exact matching and foreign-tenant refusal. Exact source and run evidence is in `evidence/gr1080-native-20261011/guardrail-results.json`.
 
 - [x] **EG-DECISION-ENGINE-R073.4:** Qualify committed receipt binding and typed owner replay with native execution.
-  The named receipt fixture and adjacent served storage fixtures pass; exact source and results are in `evidence/gr1080-native-20261011/fixture-repair-results.json`.
+  The named receipt fixture and adjacent served storage fixtures pass; exact source and results are in `evidence/gr1080-native-20261011/final-native-results.json`.
 
 - [x] **EG-DECISION-ENGINE-R073.3:** Add production fresh-open, five-table empty-catalog, reopen, and genuine-predecessor no-write proofs in `agent_library/open_tests.rs`.
 - [x] **EG-DECISION-ENGINE-R073.5:** Bind existing transitive and diamond tests. Add signed withdrawal Search, historical Content, and new-pin refusal proof in `tests/withdrawal.rs`.
-- [ ] Run native R073.3/R073.5 acceptance tests.
+- [x] Run native R073.3/R073.5 acceptance tests. Production-open, withdrawal, transitive/diamond and related pin cases pass; exact source and results are in `evidence/gr1080-native-20261011/final-native-results.json`.

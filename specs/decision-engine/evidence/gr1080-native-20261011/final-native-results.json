@@ -1,0 +1,254 @@
+{
+  "source_commit": "70dc26d43c1e71674f1524ce90b0d0810d787b0f",
+  "base_commit": "e5190222b38d628b7d0f268ce4c46b184a170ee1",
+  "binary": "target-isolated/debug/deps/epistemic_graph-1dea97f4f4aaa5cc",
+  "binary_sha256": "5157ba75632664cd4e7a9553a61ac7f96b183b6e869b85add30b251f7eab257f",
+  "test_command": [
+    "<binary>",
+    "--exact",
+    "<test>",
+    "--nocapture"
+  ],
+  "counts": {
+    "passed": 17,
+    "failed": 0,
+    "unrun": 0
+  },
+  "results": [
+    {
+      "test": "server::handlers::admin::connector_pack::tests::withdrawal::withdrawn_tool_leaves_search_but_keeps_historical_content",
+      "status": "passed",
+      "exit_code": 0,
+      "seconds": 0.094,
+      "log": "final-withdrawn_tool_leaves_search_but_keeps_historical_content.log"
+    },
+    {
+      "test": "server::handlers::admin::connector_pack::tests::content_model::capability_annotations_remain_declared_after_import",
+      "status": "passed",
+      "exit_code": 0,
+      "seconds": 0.063,
+      "log": "final-capability_annotations_remain_declared_after_import.log"
+    },
+    {
+      "test": "server::handlers::admin::connector_pack::tests::storage_acceptance::competing_imports_have_one_head_winner_without_loser_effects",
+      "status": "passed",
+      "exit_code": 0,
+      "seconds": 0.112,
+      "log": "final-competing_imports_have_one_head_winner_without_loser_effects.log"
+    },
+    {
+      "test": "server::persistence::agent_library::open_tests::fresh_open_initializes_all_pack_tables_and_reopens_empty",
+      "status": "passed",
+      "exit_code": 0,
+      "seconds": 0.022,
+      "log": "final-fresh_open_initializes_all_pack_tables_and_reopens_empty.log"
+    },
+    {
+      "test": "server::persistence::agent_library::open_tests::production_open_refuses_each_genuine_predecessor_without_writing",
+      "status": "passed",
+      "exit_code": 0,
+      "seconds": 0.018,
+      "log": "final-production_open_refuses_each_genuine_predecessor_without_writing.log"
+    },
+    {
+      "test": "server::handlers::admin::connector_pack::tests::storage_acceptance::receipt::committed_multi_intent_receipt_binds_all_effects_and_survives_replay",
+      "status": "passed",
+      "exit_code": 0,
+      "seconds": 0.117,
+      "log": "final-committed_multi_intent_receipt_binds_all_effects_and_survives_replay.log"
+    },
+    {
+      "test": "server::handlers::admin::connector_pack::tests::content_model::a_changed_leaf_revises_transitive_reference_pins_once",
+      "status": "passed",
+      "exit_code": 0,
+      "seconds": 0.131,
+      "log": "final-a_changed_leaf_revises_transitive_reference_pins_once.log"
+    },
+    {
+      "test": "server::handlers::admin::connector_pack::tests::content_model::a_shared_descendant_diamond_revises_each_component_once",
+      "status": "passed",
+      "exit_code": 0,
+      "seconds": 0.126,
+      "log": "final-a_shared_descendant_diamond_revises_each_component_once.log"
+    },
+    {
+      "test": "server::handlers::admin::connector_pack::tests::content_model::an_identical_head_with_stale_pins_remains_unchanged",
+      "status": "passed",
+      "exit_code": 0,
+      "seconds": 0.14,
+      "log": "final-an_identical_head_with_stale_pins_remains_unchanged.log"
+    },
+    {
+      "test": "server::handlers::admin::connector_pack::tests::content_model::a_changed_pack_repairs_already_stale_server_and_reference_pins",
+      "status": "passed",
+      "exit_code": 0,
+      "seconds": 0.18,
+      "log": "final-a_changed_pack_repairs_already_stale_server_and_reference_pins.log"
+    },
+    {
+      "test": "server::handlers::admin::connector_pack::tests::content_model::package_versions_produce_equal_pins_in_independent_stores",
+      "status": "passed",
+      "exit_code": 0,
+      "seconds": 0.097,
+      "log": "final-package_versions_produce_equal_pins_in_independent_stores.log"
+    },
+    {
+      "test": "server::handlers::admin::connector_pack::tests::content_model::a_server_contract_version_change_revises_its_pin",
+      "status": "passed",
+      "exit_code": 0,
+      "seconds": 0.084,
+      "log": "final-a_server_contract_version_change_revises_its_pin.log"
+    },
+    {
+      "test": "server::handlers::admin::connector_pack::tests::content_model::a_server_name_change_revises_its_pin",
+      "status": "passed",
+      "exit_code": 0,
+      "seconds": 0.083,
+      "log": "final-a_server_name_change_revises_its_pin.log"
+    },
+    {
+      "test": "server::handlers::admin::connector_pack::tests::content_model::a_server_instructions_change_revises_its_pin",
+      "status": "passed",
+      "exit_code": 0,
+      "seconds": 0.089,
+      "log": "final-a_server_instructions_change_revises_its_pin.log"
+    },
+    {
+      "test": "server::handlers::admin::connector_pack::tests::admin::a_rejected_import_mutates_nothing_in_the_catalog",
+      "status": "passed",
+      "exit_code": 0,
+      "seconds": 0.329,
+      "log": "final-a_rejected_import_mutates_nothing_in_the_catalog.log"
+    },
+    {
+      "test": "server::handlers::admin::connector_pack::tests::outbox::an_admin_forced_reproject_redrives_a_stale_projection_without_losing_later_work",
+      "status": "passed",
+      "exit_code": 0,
+      "seconds": 10.643,
+      "log": "final-an_admin_forced_reproject_redrives_a_stale_projection_without_losing_later_work.log"
+    },
+    {
+      "test": "server::handlers::admin::connector_pack::tests::storage_acceptance::multi_component_import_emits_one_durable_event_per_component",
+      "status": "passed",
+      "exit_code": 0,
+      "seconds": 0.081,
+      "log": "final-multi_component_import_emits_one_durable_event_per_component.log"
+    }
+  ],
+  "compile": {
+    "command": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "epistemic-graph",
+      "--lib",
+      "--no-default-features",
+      "--features",
+      "server,redb,blob,decide,query,security,federation-sql,obda,owl,shacl,knowledge-batch,program-optimization,kv,tsdb,nl-query,ann-redb",
+      "-j",
+      "4",
+      "--no-run"
+    ],
+    "timeout": "20m plus 30s termination grace",
+    "exit_code": 0,
+    "wall_seconds": 141.67,
+    "profile": "repository profile.test unchanged: opt-level 1, debug 0, incremental true, codegen-units 256",
+    "target": "same repair worktree target-isolated",
+    "log": "final-native-compile.log"
+  },
+  "cache_provenance": {
+    "original_checkout_commit": "7c572aab45554e7d524e223773058efbdba21bed",
+    "original_cache": "eg-storage-lock/target-isolated",
+    "copy_method": "cp -a --reflink=auto; independent inodes, no hardlinks",
+    "intermediate_acceptance_commits": [
+      "29d7b11c7f66184300b55c2bf57db41e9e6c552e",
+      "718b10d6537b76786685bbef1965fdd7bf9f2d4b"
+    ],
+    "reuse": "All repair iterations used the same dedicated worktree and target-isolated; original worktrees and caches retained."
+  },
+  "capability_contract": {
+    "source_commit": "70dc26d43c1e71674f1524ce90b0d0810d787b0f",
+    "command": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "eg-capabilities",
+      "--features",
+      "contract",
+      "-j",
+      "4"
+    ],
+    "counts": {
+      "passed": 105,
+      "failed": 0,
+      "ignored": 0
+    },
+    "wall_seconds": 13.56,
+    "test_environment": {
+      "python": "3.12.14",
+      "pydantic": "2.14.0",
+      "ruff": "0.15.12"
+    },
+    "first_attempt": {
+      "exit_code": 101,
+      "passed": 67,
+      "failed": 2,
+      "cause": "Subprocess PATH lacked Ruff and selected Python without Pydantic. No source or expectation change; retry used the existing test venv and pinned Ruff environment."
+    },
+    "log": "capability-contract-tests-equipped.log"
+  },
+  "contract_generation": {
+    "command": [
+      "cargo",
+      "run",
+      "--locked",
+      "--profile",
+      "test",
+      "-p",
+      "eg-capabilities",
+      "--features",
+      "contract",
+      "--bin",
+      "gen_contract",
+      "-j",
+      "4"
+    ],
+    "wall_seconds": 325.31,
+    "exit_code": 0,
+    "artifacts_rendered": 73,
+    "files_changed": 5,
+    "freshness": {
+      "command": [
+        "target-isolated/debug/gen_contract",
+        "--check"
+      ],
+      "exit_code": 0,
+      "artifacts_matched": 73
+    },
+    "logs": [
+      "contract-regeneration.log",
+      "contract-freshness-final.log"
+    ]
+  },
+  "resolved_failure": "AgentComponent now declares only the existing COMPONENT_WITHDRAWN code in its exact method allowance; unrelated-method denial remains covered.",
+  "remaining_issue": "Concurrent BlobBegin returned INTERNAL with unclassified detail in the original fixture. A version-admission race is plausible, not yet proven. No Blob production change is included.",
+  "text_logs": "Preserved locally; publication held pending separate approval.",
+  "precommit": {
+    "source_commit": "70dc26d43c1e71674f1524ce90b0d0810d787b0f",
+    "command": [
+      "pre-commit",
+      "run",
+      "--config",
+      ".config/pre-commit.yaml",
+      "--files",
+      "<all branch-changed files>"
+    ],
+    "exit_code": 0,
+    "passed_hooks": 42,
+    "no_applicable_files_hooks": 6,
+    "log": "precommit-stable-final.log",
+    "cache": "Separate task-local cache; existing cache/configuration retained. pipelines remains at configured main."
+  }
+}
