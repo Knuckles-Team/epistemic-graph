@@ -140,7 +140,7 @@ Existing source modules and tests provide foundations, but this spec does not as
 - [ ] **EG-DECISION-ENGINE-R113.2.3:** Denied transaction fixture (planned; not run)
 - [ ] **EG-DECISION-ENGINE-R113.2.4:** Transaction recovery fixture (planned; not run)
 - [ ] **EG-DECISION-ENGINE-R113.3:** One retry after capacity denial (planned; not run)
-- [ ] **EG-DECISION-ENGINE-R113.3.1:** Consume the typed allowance once (planned; not run)
+- [x] **EG-DECISION-ENGINE-R113.3.1:** Consume the typed allowance once; direct native module tests pass. Durable and handler enforcement remain open.
 - [ ] **EG-DECISION-ENGINE-R113.3.2:** Durable consumption fixture (planned; not run)
 - [ ] **EG-DECISION-ENGINE-R113.3.3:** Handler retry fixture (planned; not run)
 - [ ] **EG-DECISION-ENGINE-R116:** Consumers reach EG only through the versioned client contract
