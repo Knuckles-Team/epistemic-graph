@@ -295,3 +295,49 @@ pub fn pack_digest(index: &ConnectorPackIndex) -> Result<Digest256, String> {
     fields.extend(digests.iter().map(|digest| digest.as_bytes().as_slice()));
     Digest256::framed(PACK_DIGEST_DOMAIN, &fields)
 }
+
+#[cfg(test)]
+mod measured_model_tests {
+    use super::*;
+
+    // spec: EG-TYPED-PACKS-R048.5
+    #[test]
+    fn measured_pack_model_digest_preserves_absence_and_binds_provenance() {
+        let baseline = serde_json::json!({
+            "provider":"vendor", "model_identity":"vendor/model-1",
+            "context_window_tokens":128000, "max_output_tokens":8192,
+            "supports_tools":true, "supports_structured_output":true, "supports_vision":false
+        });
+        let facts: PackModelFacts = serde_json::from_value(baseline.clone()).unwrap();
+        let absent = model_facts_digest(&facts).unwrap();
+        assert_eq!(
+            absent.to_hex(),
+            "2cd426b67300c0fafcc3ee9ff4eb80b6095152b6680e2840377d11ea457e2307"
+        );
+        for (field, values) in [
+            ("shell_proficiency", ["high", "low"]),
+            ("stopping_behaviour", ["balanced", "stops_early"]),
+        ] {
+            let mut wire = baseline.clone();
+            wire[field] = serde_json::json!({"value":values[0], "evaluation_run_ref":{"evaluation_id":"eval:42", "digest":"opaque"}});
+            let measured =
+                model_facts_digest(&serde_json::from_value(wire.clone()).unwrap()).unwrap();
+            assert_ne!(measured, absent);
+            for (key, value) in [("evaluation_id", "eval:43"), ("digest", "changed")] {
+                let mut changed = wire.clone();
+                changed[field]["evaluation_run_ref"][key] = value.into();
+                assert_ne!(
+                    model_facts_digest(&serde_json::from_value(changed).unwrap()).unwrap(),
+                    measured
+                );
+            }
+            wire[field]["value"] = values[1].into();
+            assert_ne!(
+                model_facts_digest(&serde_json::from_value(wire.clone()).unwrap()).unwrap(),
+                measured
+            );
+            wire[field]["value"] = "unknown".into();
+            assert!(serde_json::from_value::<PackModelFacts>(wire).is_err());
+        }
+    }
+}

@@ -271,3 +271,17 @@ Reused: the catalog projection, the skill type overrides and the snapshot digest
 Decision: render on read from the graph. Rejected: keep static package snapshots, because they fall behind the code between releases.
 
 Cross-repository rows: the `AU-SKILLS` row that consumes the package depends on the contract name `RenderedSkillPackage`.
+
+### Signed model facts source (R048.5)
+
+The pack model DTO now carries both measured fields. Rust and Python pack digest
+writers append present values and evaluation references. Absent values retain
+the existing signed digest vector. The normal importer copies the measured facts
+into the model profile. The served regression uses the existing signed client,
+Blob CAS upload, pack importer and component read operation.
+
+Acceptance remains pending until the warm validator regenerates the contract
+schemas and Python DTOs, runs the native tests and runs the served regression.
+The enum refusal assertion exercises the generated typed client boundary.
+A server-side malformed enum probe still needs evidence at the signed wire boundary.
+Test bindings alone do not establish served acceptance.
