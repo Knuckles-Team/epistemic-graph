@@ -50,3 +50,9 @@ Producer first: ontology gaps, shapes and authority mappings before fixtures and
 - [ ] EG-CQ-ORCH-R009.4 Probe (graph-os): Why does graph-os use the intent surface?
 - [ ] EG-CQ-ORCH-R009.5 Probe (graph-os): Find a tool that lists Docker containers.
 - [ ] EG-CQ-ORCH-R009.6 Probe (graph-os): Delegate: list running containers.
+- [ ] EG-CQ-ORCH-R010.1 Add the architecture view types
+- [ ] EG-CQ-ORCH-R010.2 Derive containers from code and diagrams
+- [ ] EG-CQ-ORCH-R010.3 Serve the view through the query path
+- [ ] EG-CQ-ORCH-R010.4 Abstain when no source supports a container
+- [ ] EG-CQ-ORCH-R010.5 Cite the support of every container
+- [ ] EG-CQ-ORCH-R010.6 Prove the view through the served operation

@@ -8,7 +8,7 @@ Governing spec: [spec.md](spec.md).
 
 - `Supplier`, `SupplyChain`, `Vulnerability`, `SoftwareComponent` and `ComponentVersion` have no class declaration in any eg-core `.ttl`. `Customer` appears only in a comment (`archimate-v1.ttl:15`, "an ERPNext :Employee or :Customer").
 - The connectors already declare several of these **in the same `kg#` namespace** (`http://knuckles.team/kg#`): `erpnext.ttl` declares `:Supplier`, `:Item`, `:PurchaseOrder`, `:Customer`, `:suppliedBy` (domain `:PurchaseOrder`, range `:Supplier`); `dockerhub_api` ontology declares `:Vulnerability` and `:hasVulnerability` (`ContainerImage` to `Vulnerability`, `dockerhub_api/ontology/*.ttl:40,76`); `container-manager-mcp` `container.ttl:83` declares `:usesImage`. eg-core must declare the same IRIs so the connector ontologies merge instead of forking.
-- `:Change` already exists (`archimate-v1.ttl:33`, a ServiceNow change request, subclass of `:BusinessProcess`), and `:Incident` exists twice: `kg#Incident` (`archimate-v1.ttl:40`, ServiceNow, subclass of `:ApplicationEvent`) and `infra:Incident` (`infrastructure-v1.ttl:98`, a correlated health event). A new `:ChangeRequest` would duplicate `:Change`.
+- `:Change` already exists (`archimate-v1.ttl:33`, a ServiceNow change request, subclass of `:BusinessProcess`), and `:Incident` exists twice: `kg#Incident` (`archimate-v1.ttl:40`, ServiceNow, subclass of `:ApplicationEvent`) and `infra:Incident` (`infrastructure-v1.ttl:98`, a correlated health event). A new `:ChangeRequest` duplicates `:Change`.
 - Namespace split: `infrastructure-v1.ttl` uses `@prefix : <http://knuckles.team/kg/infrastructure#>` (`:Service` line 614, `:Host` 520, `:Rack` 619, `:ContainerImage` 34, `:runsOn` 411, `:dependsOn` 204, `:buildsImageFor` 169, `:affectsEntity` 139), while `archimate-v1.ttl`, `trm-v1.ttl` (`:Vendor` 298, `:TechnologyProduct` 336, `:AssetInstance`) and `core-foundation-v1.ttl` (`:Organization` 660, `:supports` 575) use `kg#`. Terms below are written with `kg:` and `infra:` prefixes to avoid the ambiguity the cross-source plan has.
 - Host limits: `infrastructure-v1.ttl` has `:capacityTb` (storage arrays only) and no temperature or limit terms; fan-manager's thermal data is only referenced in comments.
 
@@ -221,3 +221,19 @@ Missing illustrative properties require bounded producer rows with named tests b
 Contact joins use approved opaque identity links, never raw email matching.
 Connector payload availability remains unverified and cannot be inferred from ontology declarations.
 Live competency tests must abstain when required source fields or approved mappings are absent.
+
+## Ecosystem package risk propagation (R009)
+
+Data flow: served impact operation → `handle_impact` (`src/server/handlers/mining/impact.rs:264`) → `propagate_package_risk` (new, `crates/eg-core/src/ecosystem.rs`) → `PackageImpact` list with paths.
+
+Types: `:EcosystemPackage`, `:affectsPackage`, `PackageImpact { dependent, path, severity }` and `PackageRefusal::UnknownPackage`.
+
+Attach point: the package branch of `handle_impact`, called by the server dispatch. The transitive `:dependsOn` property and its inverse already exist (`core-foundation-v1.ttl:306`, `:414`).
+
+Failure behavior: an unknown package returns the typed refusal. A cycle in dependencies ends at the depth bound and marks the result `truncated`.
+
+Reused: `:dependsOn`, the impact handler and the supply-chain ontology. New: one class, one property and one propagation function.
+
+Decision: reverse traversal at query time. Rejected: materialize every transitive edge, because each change rewrites every materialized edge.
+
+Cross-repository rows: the `AU-ECOSYSTEM` rows that ingest package manifests depend on the class name `:EcosystemPackage`.

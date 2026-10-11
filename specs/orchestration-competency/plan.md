@@ -145,3 +145,19 @@ Composition is the engine's decision functionality: `graph.assemble()` (`EG-DECI
   - "Why does graph-os use the intent surface?": previously pending.
   - "Find a tool that lists Docker containers.": previously pending.
   - "Delegate: list running containers.": previously pending.
+
+## Architecture views derived from the graph (R010)
+
+Data flow: served impact operation → `handle_impact` (`src/server/handlers/mining/impact.rs:264`) → `derive_architecture_view` (new, `crates/eg-core/src/architecture_view.rs`) → `ArchitectureView` with containers, edges and support ids.
+
+Types: `ArchitectureView`, `ViewContainer { name, technology, support }`, `ViewEdge { from, to, kind, call_count }`, and `ViewAbstained::NoSupportingSource`.
+
+Attach point: the read handler `handle_impact`, which the server dispatches in production. The view branch is new. The derivation reads only nodes already in the graph and writes nothing.
+
+Failure behavior: a scope with no supporting source returns the typed abstention. A diagram element with no matching package stays a container flagged `diagram_only`.
+
+Reused: the call graph from `crates/eg-compute/src/parser/resolve.rs:63` and the impact handler. New: three types and one derivation function.
+
+Decision: derive on read from the graph. Rejected: store a rendered diagram per repository, because it goes stale at the next ingest.
+
+Cross-repository rows: the `AU-WEBUI` row that draws the view depends on the contract name `ArchitectureView`.

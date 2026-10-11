@@ -88,3 +88,9 @@ Producer first: terms, then shapes, then projection call sites, then query tests
 - [ ] EG-ORCH-VOCAB-R011.9 Replace a fact by a newer measurement
 - [ ] EG-ORCH-VOCAB-R011.10 Apply the envelope through the governed path
 - [ ] EG-ORCH-VOCAB-R011.11 Prove the loop closes
+- [ ] EG-ORCH-VOCAB-R012.1 Add the spec-folder node kinds
+- [ ] EG-ORCH-VOCAB-R012.2 Classify a spec-folder file
+- [ ] EG-ORCH-VOCAB-R012.3 Attach the classifier to repository indexing
+- [ ] EG-ORCH-VOCAB-R012.4 Refuse an unclassifiable file
+- [ ] EG-ORCH-VOCAB-R012.5 Record the rule that decided
+- [ ] EG-ORCH-VOCAB-R012.6 Prove folder ingestion end to end

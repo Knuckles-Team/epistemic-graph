@@ -125,7 +125,14 @@
     "EG-TYPED-PACKS-R097",
     "EG-TYPED-PACKS-R097.1",
     "EG-TYPED-PACKS-R098",
-    "EG-TYPED-PACKS-R099"
+    "EG-TYPED-PACKS-R099",
+    "EG-TYPED-PACKS-R100",
+    "EG-TYPED-PACKS-R100.1",
+    "EG-TYPED-PACKS-R100.2",
+    "EG-TYPED-PACKS-R100.3",
+    "EG-TYPED-PACKS-R100.4",
+    "EG-TYPED-PACKS-R100.5",
+    "EG-TYPED-PACKS-R100.6"
   ],
   "requirements": [
     {
@@ -1443,6 +1450,63 @@
         "crates/eg-numeric/src/prototype.rs:60",
         "crates/eg-numeric/src/prototype.rs:70"
       ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R100",
+      "title": "Skill packages are rendered on demand from graph content (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-TYPED-PACKS-R100.1",
+        "EG-TYPED-PACKS-R100.2",
+        "EG-TYPED-PACKS-R100.3",
+        "EG-TYPED-PACKS-R100.4",
+        "EG-TYPED-PACKS-R100.5",
+        "EG-TYPED-PACKS-R100.6"
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R100.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R100.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R100.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R100.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R100.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R100.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     }
   ]
 }
