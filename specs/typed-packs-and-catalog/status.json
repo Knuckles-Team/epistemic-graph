@@ -2,7 +2,7 @@
   "schema_version": 2,
   "spec_id": "EG-TYPED-PACKS",
   "owner_repo": "epistemic-graph",
-  "delivery_state": "LANDED",
+  "delivery_state": "SPECIFIED",
   "requirement_ids": [
     "EG-TYPED-PACKS-R001",
     "EG-TYPED-PACKS-R002",
@@ -54,6 +54,11 @@
     "EG-TYPED-PACKS-R046",
     "EG-TYPED-PACKS-R047",
     "EG-TYPED-PACKS-R048",
+    "EG-TYPED-PACKS-R048.1",
+    "EG-TYPED-PACKS-R048.2",
+    "EG-TYPED-PACKS-R048.3",
+    "EG-TYPED-PACKS-R048.4",
+    "EG-TYPED-PACKS-R048.5",
     "EG-TYPED-PACKS-R049",
     "EG-TYPED-PACKS-R050",
     "EG-TYPED-PACKS-R051",
@@ -72,6 +77,9 @@
     "EG-TYPED-PACKS-R064",
     "EG-TYPED-PACKS-R065",
     "EG-TYPED-PACKS-R066",
+    "EG-TYPED-PACKS-R066.1",
+    "EG-TYPED-PACKS-R066.2",
+    "EG-TYPED-PACKS-R066.3",
     "EG-TYPED-PACKS-R067",
     "EG-TYPED-PACKS-R068",
     "EG-TYPED-PACKS-R069",
@@ -692,10 +700,52 @@
     {
       "id": "EG-TYPED-PACKS-R048",
       "title": "ModelProfile cost, latency, modality and capability facts",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "db863f1e2afd"
       ],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-TYPED-PACKS-R048.1",
+        "EG-TYPED-PACKS-R048.2",
+        "EG-TYPED-PACKS-R048.3",
+        "EG-TYPED-PACKS-R048.4",
+        "EG-TYPED-PACKS-R048.5"
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R048.1",
+      "title": "Context window is a named model fact",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R048.2",
+      "title": "A measured fact cites the evaluation run that produced it",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R048.3",
+      "title": "Shell proficiency is a measured model fact",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R048.4",
+      "title": "Stopping behaviour is a measured model fact",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R048.5",
+      "title": "Pack import round-trips the new model facts",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {
@@ -871,10 +921,36 @@
     {
       "id": "EG-TYPED-PACKS-R066",
       "title": "OWL/rule classification over model and capability facts",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "f50555aa6421"
       ],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-TYPED-PACKS-R066.1",
+        "EG-TYPED-PACKS-R066.2",
+        "EG-TYPED-PACKS-R066.3"
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R066.1",
+      "title": "SHACL shapes validate the measured model facts",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R066.2",
+      "title": "The task class carries a shell-centric fact",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R066.3",
+      "title": "The shell-centric fact is inherited by task subclasses",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {

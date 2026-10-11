@@ -122,3 +122,14 @@ The following tests cover existing native validation and digest behavior. They d
 
 TP-10, TP-11, and applicable quality gates remain required on the merged exact head.
 These partial regressions intentionally carry no acceptance binding that would mark R043 VERIFIED.
+
+## Harness configuration evidence
+
+- `EG-TYPED-PACKS-R048.1`: `crates/eg-types/src/agent_component/facts.rs::tests::context_window_zero_is_refused`.
+- `EG-TYPED-PACKS-R048.2`: `crates/eg-types/src/agent_component/facts.rs::tests::measured_fact_requires_run_ref`.
+- `EG-TYPED-PACKS-R048.3`: `crates/eg-types/src/agent_component.rs::tests::absent_shell_proficiency_keeps_digest`.
+- `EG-TYPED-PACKS-R048.4`: `crates/eg-types/src/agent_component.rs::tests::measured_model_facts_change_digest`.
+- `EG-TYPED-PACKS-R048.5`: `tests/typed_packs/test_model_harness_facts.py::test_model_profile_round_trip`.
+- `EG-TYPED-PACKS-R066.1`: `crates/eg-core/tests/harness_shapes.rs::model_fact_shapes_reject_missing_run`.
+- `EG-TYPED-PACKS-R066.2`: `crates/eg-core/tests/swarm_topology_shapes.rs::shell_centric_must_be_boolean`.
+- `EG-TYPED-PACKS-R066.3`: `crates/eg-core/tests/swarm_topology_shapes.rs::shell_centric_inherits_or_is_absent`.
