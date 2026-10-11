@@ -2899,7 +2899,7 @@
     {
       "id": "EG-DECISION-ENGINE-R127",
       "title": "Guardrail entailment lists the rules a task must follow",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "18a745706c46",
         "534f763afc81"
@@ -2920,15 +2920,15 @@
         "30405ee73d13"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/guardrail.rs:184",
-        "crates/eg-types/src/decision/guardrail.rs:209",
-        "crates/eg-types/src/decision/guardrail.rs:216"
+        "crates/eg-types/src/decision/guardrail.rs:239",
+        "crates/eg-types/src/decision/guardrail.rs:264",
+        "crates/eg-types/src/decision/guardrail.rs:271"
       ]
     },
     {
       "id": "EG-DECISION-ENGINE-R127.2",
       "title": "The guardrail-entailment query is served, backed by a stored rule set",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "253a69935dfd",
         "30405ee73d13",
@@ -2956,16 +2956,29 @@
     {
       "id": "EG-DECISION-ENGINE-R127.2.2",
       "title": "The guardrail-entailment query answers over the wire",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "e7580aeb141f"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/decision/guardrail.rs:201",
+        "src/server/handlers/decide/guardrail_tests.rs:139",
+        "src/server/handlers/decide/guardrail_tests.rs:161",
+        "src/server/handlers/decide/guardrail_tests.rs:78"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R127.2.3",
       "title": "The guardrail-entailment query gets a generated client method",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "2110b293cdf0",
+        "d13f43cd3e1f",
+        "f5677b486e1f"
+      ],
+      "verified_by": [
+        "tests/test_guardrail_entailment_served.py:49"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R128",
