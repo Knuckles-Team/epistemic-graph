@@ -1,0 +1,144 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EG-DECISION-ENGINE-R090.3 native resource receipt",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "requirement",
+    "status",
+    "clock",
+    "quantile",
+    "required_profile",
+    "build_provenance",
+    "architecture",
+    "ceiling",
+    "cases",
+    "memory",
+    "runner_binary_bytes",
+    "server_binary_bytes"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "requirement": {
+      "const": "EG-DECISION-ENGINE-R090.3"
+    },
+    "status": {
+      "enum": [
+        "failed",
+        "inconclusive",
+        "accepted_pending_build_provenance"
+      ]
+    },
+    "clock": {
+      "const": "CLOCK_THREAD_CPUTIME_ID"
+    },
+    "quantile": {
+      "const": "nearest_rank"
+    },
+    "required_profile": {
+      "const": "scorer-validation"
+    },
+    "build_provenance": {
+      "const": "external_receipt_required"
+    },
+    "cases": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "rows",
+          "features",
+          "width",
+          "shortlist",
+          "trainable_parameters",
+          "warmup_calls",
+          "measured_calls",
+          "p99_cpu_ns",
+          "parameter_and_latency_accepted"
+        ],
+        "properties": {
+          "rows": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "features": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "width": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "shortlist": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "trainable_parameters": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "warmup_calls": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "p99_cpu_ns": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "measured_calls": {
+            "type": "integer",
+            "minimum": 1000
+          },
+          "name": {
+            "enum": [
+              "fitted_promotion_recipe",
+              "maximum_legal_shape"
+            ]
+          },
+          "parameter_and_latency_accepted": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "runner_binary_bytes": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "server_binary_bytes": {
+      "type": "null"
+    },
+    "memory": {
+      "type": "object",
+      "required": [
+        "metric",
+        "bytes",
+        "status",
+        "scorer_specific_resident_bytes"
+      ],
+      "properties": {
+        "metric": {
+          "const": "whole_runner_peak_rss_upper_bound"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "status": {
+          "enum": [
+            "accepted_upper_bound",
+            "inconclusive_scorer_specific_memory"
+          ]
+        },
+        "scorer_specific_resident_bytes": {
+          "type": "null"
+        }
+      }
+    }
+  }
+}
