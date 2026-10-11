@@ -195,8 +195,8 @@ in eg-core would invert the dependency layering. Test the shipped foundation,
 orchestration and capability documents, including a positive step-order fixture,
 unrelated-superclass negatives and a planted disjointness contradiction.
 The remaining step properties, shapes, rule scope and consumer wiring remain open.
-Parsed-source corpus counts are refreshed; parser-only checks do not establish
-native reasoner consistency. Native acceptance remains unverified: compilation
-of `eg-types` was terminated by SIGKILL before these tests executed. Full-corpus
-native validation is also outstanding. Test binding markers remain absent until
-the native acceptance tests execute successfully.
+Parsed-source corpus counts are refreshed. Parser-only checks do not establish native reasoner consistency.
+Compilation of `eg-types` terminated by SIGKILL before these tests executed.
+Full-corpus native validation also remains unrun.
+Test markers bind the existing acceptance tests to their owning rows.
+The generated lifecycle records test existence, independently of execution results.

@@ -255,11 +255,25 @@ The same fitted calibration is reused without size-specific temperature tuning.
 This is deterministic synthetic test evidence, not a production-data claim.
 Native execution remains pending after the local eg-types compile was SIGKILLed;
 formatting and fixture checks do not satisfy native acceptance.
-No spec binding marker is added before that native run.
+The test marker binds the existing fixture to R084.1.
+The generated lifecycle records test existence, independently of execution results.
 
 ## Ingestion and schema completion boundaries
 
 R079.1 proves the content taxonomy only. R079.2 through R079.5 retain the parent ingestion, duplicate/size, SQL, and retrieval-feedback obligations. R080.1 proves the typed provenance rule only; R080.2 requires the real six-rung integration fixture. R102.1 proves the typed activation sequence only; R102.2 requires a real shadow ingestion and approval-gated activation. These requirements use the existing source-ingestion, enrichment, and approved-schema owners. They introduce no second write authority. Their planned fixtures are not execution evidence.
+
+### 2026-10-11: bounded topology oracle coverage for R110.1
+
+Extend the assembly topology tests with a fixed-seed property fixture using five
+mandatory components in each of two slots and varied width/round choices. Count
+the actual returned model variables and certificate selection entries, including
+an exactly twenty-variable case. Independently enumerate all topology tuples;
+the ten candidate bits are mandatory, leaving at most sixteen feasible one-hot
+combinations per fixture. Check feasibility and both topology objective levels,
+including demand, capacity, deadline and token caps. Native execution remains
+pending; formatting and standalone fixture arithmetic are not native acceptance.
+The test binds R110.1 under the published spec standard.
+Generated delivery state records test existence, not successful native execution.
 
 ### 2026-10-11: bounded solver completion telemetry (R072.1)
 
@@ -284,3 +298,10 @@ outbox and competing head compare-and-set behavior. These child tests do not
 complete R073: direct multi-intent receipt digest coverage and an owner-table /
 current-format refusal audit remain separate acceptance work. Native execution
 is reported separately from the existence of these acceptance tests.
+
+## Retrieval refusal envelope (R029)
+
+The served refusal test inspects `Response.error` and `Response.error_detail` separately.
+The error code is `PARAMETER_INVALID`; the detail names `UNSUPPORTED_RETRIEVAL_PLAN` and the rejected option.
+The test also requires an absent result.
+This fixture covers registry refusal only; representative retrieval-plan selection requires the integration test described in R029.

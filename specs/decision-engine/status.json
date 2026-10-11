@@ -700,6 +700,7 @@
       "landed_in": [
         "52f333ca756e",
         "5951a4a6272e",
+        "9f300857d769",
         "b2d01ed93bd8"
       ],
       "verified_by": [
@@ -824,7 +825,7 @@
         "fa780d3e101a"
       ],
       "verified_by": [
-        "src/server/handlers/decide/stat_tests/consumer_tests.rs:408"
+        "src/server/handlers/decide/stat_tests/consumer_tests.rs:421"
       ]
     },
     {
@@ -850,7 +851,7 @@
         "fa780d3e101a"
       ],
       "verified_by": [
-        "src/server/handlers/decide/stat_tests/consumer_tests.rs:212"
+        "src/server/handlers/decide/stat_tests/consumer_tests.rs:225"
       ]
     },
     {
@@ -903,7 +904,7 @@
         "a742d4439964"
       ],
       "verified_by": [
-        "src/server/handlers/decide/stat_tests/consumer_tests.rs:275"
+        "src/server/handlers/decide/stat_tests/consumer_tests.rs:288"
       ]
     },
     {
@@ -1396,7 +1397,7 @@
         "8d4f409785b2"
       ],
       "verified_by": [
-        "src/server/handlers/decide/stat_tests/consumer_tests.rs:581"
+        "src/server/handlers/decide/stat_tests/consumer_tests.rs:594"
       ]
     },
     {
@@ -1841,7 +1842,7 @@
     {
       "id": "EG-DECISION-ENGINE-R084",
       "title": "Conformal calibration as primary rung over temperature scaling",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "1e9ea1ef3790",
         "4952a2edced4"
@@ -1854,11 +1855,14 @@
     {
       "id": "EG-DECISION-ENGINE-R084.1",
       "title": "ECE/coverage measurement across option sets of varying size",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "481fa6ea2c55",
         "7765cab2e500"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-numeric/tests/decision/calibration_coverage.rs:37"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R085",
@@ -2343,7 +2347,7 @@
     {
       "id": "EG-DECISION-ENGINE-R110",
       "title": "Topology optimization model rows with a brute-force oracle",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "534f763afc81",
         "c0edc96d1e10"
@@ -2356,9 +2360,14 @@
     {
       "id": "EG-DECISION-ENGINE-R110.1",
       "title": "Topology brute-force oracle property test covers n<=20 variables",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "1bd4d6b1cdea",
+        "1e1a100670b5"
+      ],
+      "verified_by": [
+        "crates/eg-compute/src/assemble/tests/topology_oracle.rs:144"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R111",

@@ -173,5 +173,6 @@ The native harness is evidence for the listed source tests only. It does not sub
 R042.2 adds signed G12 rejection cases with bounded owner-table, body-liveness,
 and outbox snapshots plus persisted native/foreign claim and warning checks.
 R093.2 extends forced Reproject with colliding member labels, durable schema
-inspection, and fresh-key repeat identity checks. These tests are LANDED-only
-evidence until native execution succeeds; no acceptance test binding is added.
+inspection, and fresh-key repeat identity checks.
+The test markers bind these existing acceptance tests to their owning rows.
+Native execution remains unrun. The generated lifecycle records test existence, independently of execution results.

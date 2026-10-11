@@ -178,7 +178,7 @@ async fn a_pack_without_schema_is_visible_at_once_and_one_with_schema_after_proj
     }
 }
 
-// spec: EG-TYPED-PACKS-R006
+// spec: EG-TYPED-PACKS-R006, EG-TYPED-PACKS-R093.2
 #[tokio::test]
 async fn an_admin_forced_reproject_redrives_a_stale_projection_without_losing_later_work() {
     let served = Served::new();
