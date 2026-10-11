@@ -495,11 +495,26 @@ pack Import admission does not establish a production Blob CAS fix.
 
 ## Invariant gate on promoted rules (R129)
 
-Flow: R034 proposal → `check_rule_against_invariants` → active rule or `RejectedInvariant` record.
-The attach point is the promotion path after the R034 proposal; the first child row locates it.
-The change reuses `entailed_guardrails` and the weakest-premise evidence class from R002.
-Decision: the invariant check precedes the confidence threshold. A rejected alternative is a high confidence bypass, because repeated human overrides can agree and still be wrong.
-Handoff: agent-utilities applies the verdict inside a run and holds no copy of the invariants.
+Current delivery is limited to EG-DECISION-ENGINE-R129.2: the typed
+`RulePromotionVerdict` in `crates/eg-types/src/decision/guardrail.rs` contains
+`Promotable` and `RejectedInvariant { invariant_iri: String }`, following the
+existing string IRI convention and snake_case serde representation. Positive
+roundtrips and malformed-payload refusals bind to the literal child spec ID.
+This enum-only delivery does not implement the invariant gate.
+
+The proposed R034 attach point is not established. The current R034 test at
+`crates/eg-epistemic/src/query.rs:661` proves a read-only evidence-removal
+`MinimalFlipSet` proposal; it does not promote a rule. `GuardrailRule` in
+`crates/eg-types/src/decision/guardrail.rs:62` contains task applicability
+metadata (`rule_id`, `applies_to_class`, `source_generation`), with no rule
+predicate or contradiction semantics. `entailed_guardrails` establishes task
+applicability only, so it cannot implement an invariant contradiction check.
+
+EG-DECISION-ENGINE-R129 and children .1/.3/.4/.5/.6 remain open. The promotion
+owner and rule/invariant semantics must be established before wiring a pure
+check, confidence ordering, audit persistence, or served acceptance. The
+intended invariant check must precede any confidence threshold; consensus
+cannot grant a bypass. No new promotion machinery is introduced by .2.
 
 ### Current harness producer boundary (R128.3, R128.7)
 
