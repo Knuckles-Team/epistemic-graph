@@ -2,7 +2,7 @@
   "schema_version": 2,
   "spec_id": "EG-TYPED-PACKS",
   "owner_repo": "epistemic-graph",
-  "delivery_state": "SPECIFIED",
+  "delivery_state": "LANDED",
   "requirement_ids": [
     "EG-TYPED-PACKS-R001",
     "EG-TYPED-PACKS-R002",
@@ -128,12 +128,13 @@
       "title": "Engine-owned body storage with guarded refcounts and reconciliation",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "022736782512",
         "023b482a38d3",
         "dcc5d53c04f9",
         "f6bd64b35e00"
       ],
       "verified_by": [
-        "src/server/handlers/admin/connector_pack/tests/admin.rs:227"
+        "src/server/handlers/admin/connector_pack/tests/admin.rs:241"
       ]
     },
     {
@@ -141,11 +142,13 @@
       "title": "Import boundary enforces archive integrity, importer binding and G1-G21",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "022736782512",
+        "209d6806510e",
         "db863f1e2afd",
         "f6bd64b35e00"
       ],
       "verified_by": [
-        "src/server/handlers/admin/connector_pack/tests/admin.rs:382"
+        "src/server/handlers/admin/connector_pack/tests/admin.rs:440"
       ]
     },
     {
@@ -170,7 +173,7 @@
         "f6bd64b35e00"
       ],
       "verified_by": [
-        "src/server/handlers/admin/connector_pack/tests/admin.rs:448"
+        "src/server/handlers/admin/connector_pack/tests/admin.rs:542"
       ]
     },
     {
@@ -190,11 +193,13 @@
       "title": "Admin-controlled pack importer binding and entry retirement",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "022736782512",
+        "209d6806510e",
         "a1bb9fb9503e",
         "f6bd64b35e00"
       ],
       "verified_by": [
-        "src/server/handlers/admin/connector_pack/tests/admin.rs:298"
+        "src/server/handlers/admin/connector_pack/tests/admin.rs:321"
       ]
     },
     {
@@ -290,7 +295,7 @@
         "db863f1e2afd"
       ],
       "verified_by": [
-        "src/server/handlers/admin/connector_pack/tests/admin.rs:33"
+        "src/server/handlers/admin/connector_pack/tests/admin.rs:47"
       ]
     },
     {
@@ -302,7 +307,7 @@
         "daa948722eca"
       ],
       "verified_by": [
-        "crates/eg-types/src/agent_component.rs:1265"
+        "crates/eg-types/src/agent_component.rs:1271"
       ]
     },
     {
@@ -541,7 +546,7 @@
         "f41725ac0f6f"
       ],
       "verified_by": [
-        "crates/eg-types/src/agent_component.rs:1304"
+        "crates/eg-types/src/agent_component.rs:1310"
       ]
     },
     {
@@ -592,7 +597,7 @@
     {
       "id": "EG-TYPED-PACKS-R042",
       "title": "Typed capability annotations: provides and requires_capabilities",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "a1bb9fb9503e"
       ],
@@ -620,9 +625,15 @@
     {
       "id": "EG-TYPED-PACKS-R042.2",
       "title": "Served capability claim and refusal proof",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "481fa6ea2c55",
+        "c764285d098c"
+      ],
+      "verified_by": [
+        "src/server/handlers/admin/connector_pack/tests/admin.rs:440",
+        "src/server/handlers/admin/connector_pack/tests/content_model.rs:594"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R043",
@@ -1157,7 +1168,7 @@
     {
       "id": "EG-TYPED-PACKS-R093",
       "title": "Turtle parser blank-node identities do not collide",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "90f5578ae2f4",
         "f17f47ab300f"
@@ -1182,9 +1193,14 @@
     {
       "id": "EG-TYPED-PACKS-R093.2",
       "title": "Reproject-path blank-node isolation",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "481fa6ea2c55",
+        "c764285d098c"
+      ],
+      "verified_by": [
+        "src/server/handlers/admin/connector_pack/tests/outbox.rs:181"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R094",

@@ -5,6 +5,7 @@ use crate::protocol::{GraphType, Method, ResultPayload};
 use crate::server::persistence::redb_backend::RedbBackend;
 use crate::server::persistence::PersistenceBackend;
 use eg_types::contract::Nonce;
+use eg_types::mutation_batch::CommittedVersion;
 
 use super::{
     commit_lifecycle, lifecycle_batch_id, lifecycle_was_committed, LifecycleCommitRequest,
@@ -295,6 +296,21 @@ async fn delete_purges_receipts_of_a_prior_incarnation() {
     .await
     .expect("delete retires the first incarnation");
 
+    assert!(
+        persistence
+            .read_mutation_batch(
+                &crate::persist::sanitize(graph),
+                &first_create.record.batch.batch_id
+            )
+            .await
+            .unwrap()
+            .is_none(),
+        "DeleteGraph purges the prior graph receipt"
+    );
+    persistence.shutdown();
+    drop(persistence);
+    let persistence = open_backend(&dir);
+
     // The SAME idempotency key, action, graph and principal that named the
     // first incarnation's CreateGraph must NOT replay its now-purged receipt:
     // the second incarnation commits as a fresh batch with its own outcome.
@@ -323,6 +339,62 @@ async fn delete_purges_receipts_of_a_prior_incarnation() {
     assert_eq!(
         second_create.record.batch.batch_id, first_create.record.batch.batch_id,
         "the batch id is deterministic from action/tenant/graph/principal/key, reused across incarnations"
+    );
+
+    let (
+        CommittedVersion::Graph {
+            target: first_target,
+            ..
+        },
+        CommittedVersion::Graph {
+            source: second_source,
+            target: second_target,
+        },
+    ) = (
+        first_create.record.committed_version,
+        second_create.record.committed_version,
+    )
+    else {
+        panic!("lifecycle commits must carry graph versions");
+    };
+    assert!(
+        second_source > first_target,
+        "DeleteGraph advances the prior graph version"
+    );
+    assert_eq!(
+        second_target,
+        second_source + 1,
+        "recreation advances the graph version once"
+    );
+    persistence.shutdown();
+    drop(persistence);
+    let persistence = open_backend(&dir);
+    let replay = commit_lifecycle(
+        LifecycleCommitRequest::new(
+            &persistence,
+            "create",
+            crate::server::mutation_batch::CommitOrigin {
+                request_id: 4,
+                principal,
+            },
+            "reused-create-key",
+            graph,
+            create_method(),
+            &create_result,
+        )
+        .with_attempt_nonce(Some(Nonce::from_bytes([14; 32])))
+        .with_tenant_scope(TENANT),
+    )
+    .await
+    .expect("the new incarnation still replays after restart");
+    assert!(replay.replayed);
+    assert_eq!(
+        replay.record.committed_version,
+        second_create.record.committed_version
+    );
+    assert_eq!(
+        replay.record.result_msgpack,
+        second_create.record.result_msgpack
     );
 
     persistence.shutdown();

@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "spec_id": "EG-ORCH-VOCAB-001",
+  "spec_id": "EG-ORCH-VOCAB",
   "owner_repo": "epistemic-graph",
   "delivery_state": "SPECIFIED",
   "requirement_ids": [
@@ -69,9 +69,15 @@
     {
       "id": "EG-ORCH-VOCAB-R001.1",
       "title": "Add class `:TaskStep`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "232da0d60c91",
+        "481fa6ea2c55",
+        "fcf70c5bf0a8"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/orchestration_vocabulary.rs:31"
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R001.2",
@@ -225,9 +231,15 @@
     {
       "id": "EG-ORCH-VOCAB-R004.1",
       "title": "Add class `:BestPractice`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "232da0d60c91",
+        "481fa6ea2c55",
+        "fcf70c5bf0a8"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/orchestration_vocabulary.rs:64"
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R004.2",

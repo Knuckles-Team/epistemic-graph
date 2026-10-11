@@ -6,6 +6,8 @@
 
 #[path = "decision/admission.rs"]
 mod admission;
+#[path = "decision/calibration_coverage.rs"]
+mod calibration_coverage;
 #[path = "decision/common.rs"]
 mod common;
 #[path = "decision/drift.rs"]

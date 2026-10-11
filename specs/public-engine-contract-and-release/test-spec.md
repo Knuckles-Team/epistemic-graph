@@ -12,7 +12,7 @@
 | EG-T-06 | EG-C-06 | Reproducibility | Build codec and wheel twice on declared toolchains and compare normalized hashes. | Identical bytes/digests or a documented deterministic normalization; measured WASM size within declared budget. |
 | EG-T-07 | EG-C-07/08 | Hosted integration | CI builds engine and Python kernel from commit, starts local test service, installs wheel, executes full root Python and Go/JS client tests. | Same commit and digest throughout; no external host or preexisting credential; no skipped required test. |
 | EG-T-08 | EG-C-08/09 | Static and quality | Run CCCC, KISS, jscpd, Dupehound and source privacy/secret scanners on exact PR and release trees. | No new duplicate/complexity/privacy violation; a scanner failure names owned source rather than a missing live service. |
-| EG-T-09 | EG-C-01/09 | Mutation checks | Add an undeclared error, a duplicate method ID, a stale dispatch target and a new copied encoder in isolated test fixtures. | Contract/dispatch/duplication gates each reject the corresponding defect. |
+| EG-T-09 | EG-C-01/09 | Mutation checks | Plant undeclared errors, duplicate method IDs, stale dispatch targets and copied encoders in isolated fixtures. | Contract/dispatch/duplication gates each reject the corresponding defect. |
 | EG-T-10 | EG-C-07 | Release matrix | Validate default, full and supported optional Cargo feature sets and wheel architecture/profile matrix. | Every supported feature is exercised; a new feature cannot silently drop from the matrix. |
 | EG-T-11 | EG-C-10 | Served Python | Build and install wheel outside checkout, start a disposable server with two tenants and policy fixtures, publish/read/import an Agent Library pack, then invoke Decide. | Authorized round trip succeeds through the wire; denied tenant/import cases return declared codes and leave no durable side effect; replay after restart preserves the result. |
 
@@ -32,3 +32,9 @@ The `engine-main-wheel` job runs `scripts/release_wheel_smoke.sh` on the built w
 - The test refuses each probe input: blank tenant, zero lease, string clock, zero and 4097 in-flight limits.
 - The test refuses a string `resolved`, duplicate exclusions and a blank bundle id.
 - `gen_contract --check` regenerates the Python models byte for byte.
+
+## EG-CONTRACT-R031 quality-gate evidence boundaries
+
+R031.1 uses tests/test_ci_change_scope.py::test_lint_installs_manifest_rustfmt_before_all_formatting_steps to assert unconditional manifest-resolved provisioning before both formatting paths. Run it alongside tests/test_rustfmt_scope.py. It is setup coverage only.
+
+R031.2 remains unbound until maintainers publish the full same-tree complexity, duplication, dependency, architecture and documentation censuses. They must also publish independent clippy and formatting evidence. A static workflow assertion cannot qualify those runtime checks.

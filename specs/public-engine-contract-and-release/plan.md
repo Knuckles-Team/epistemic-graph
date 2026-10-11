@@ -40,7 +40,7 @@ npm test
 python3 -m pytest -q tests/test_generated_client_contract.py tests/test_contract_method_reachability.py
 ```
 
-Run Go commands from `clients/go` and npm commands from `clients/js`. If a named Python test is moved, update this plan with its replacement before removing the gate. The complete merge gate is `bash scripts/ci_parity.sh` plus the hosted release workflow. Any integration service used by tests must start from a checked-in container/fixture recipe in CI and be torn down by the job.
+Run Go commands from `clients/go` and npm commands from `clients/js`. If a named Python test is moved, update this plan with its replacement before removing the gate. The complete merge gate is `bash scripts/ci_parity.sh` plus the hosted release workflow. CI must start each integration service from a checked-in container/fixture recipe. The job must tear down each service.
 
 ## Design decisions
 
@@ -124,3 +124,38 @@ StatisticalErrorCode diagnostic arguments. Inline cfg(test) modules are excluded
 structurally. Regressions retain production before and after test modules,
 feature-gated production, called helpers and formatted refusal strings, while
 excluding an uncalled helper and typed diagnostic text.
+
+### 2026-10-11: keep cache reports on the build backend after daemon loss
+
+EG-CONTRACT-R009 scopes the shared GitHub cache backend settings to the server
+and full-facade jobs. The build, explicit statistics, and action cleanup therefore
+receive the same backend and main-only write policy. The compiler wrapper stays
+on the same two build/test steps. Statistics describe only the current daemon.
+A restart resets its counters. This does not prove the earlier daemon wrote nothing. This fixes the reporting configuration mismatch without explaining why
+the facade daemon stopped or claiming a runtime improvement.
+
+### 2026-10-11: keep the cache idle window above the bounded validation job
+
+EG-CONTRACT-R009 sets `SCCACHE_IDLE_TIMEOUT=7200` in the existing shared server
+and facade backend settings. In pinned sccache 0.16.0, incoming requests reset
+the idle timer; an active compilation does not inhibit it. A finite two-hour
+window exceeds both jobs' existing maximum of 60 minutes and retains eventual
+idle shutdown on persistent runners. The job deadlines, test scope, wrapper
+scope, and main-only cache writes remain unchanged. This prevents the documented
+idle-shutdown hazard within a fresh job daemon's lifetime. It does not prove the
+historical EOF cause or establish a facade speedup. Statistics synthesize zero
+counters from caller configuration when no daemon is reachable; they do not
+start a replacement daemon.
+
+### 2026-10-11: provision the manifest toolchain before lint formatting
+
+EG-CONTRACT-R031 requires the lint job to install the toolchain selected by
+`rust-toolchain.toml`, with rustfmt, before pre-commit or the explicit formatting
+check can invoke it. Reuse the workflow's manifest-resolved rustup installation
+pattern rather than duplicating its channel pin or relying on the hosted image.
+The workflow regression checks unconditional provisioning and step ordering for
+both PR-scoped and full-publication formatting. This repairs runner setup only;
+full hosted quality-gate and runtime acceptance remain independently required.
+
+R031.1 owns only the runner setup regression. R031.2 preserves the outstanding complete same-tree census and independent clippy/formatting evidence.
+A setup-only test cannot qualify the broad parent requirement.

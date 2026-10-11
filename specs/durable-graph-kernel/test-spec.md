@@ -129,3 +129,30 @@ R014, R014.3, R014.4, and R014.5 remain open.
 Run `python -m pytest -q tests/test_validate_raft_cluster.py`. Controlled Cargo subprocesses check both exact test names over two loaded repetitions. They check separate traces and result records, invalid repeat refusal, empty-selection refusal, and failure retention despite later successes.
 
 Use `RAFT_LOAD_WORKERS=2 RAFT_LOAD_REPEATS=2 scripts/validate-raft-cluster.sh` on a Rust-capable host. Each execution creates a fresh directory under `target/raft-cluster-runs` with `results.jsonl` and separate trace logs. `RAFT_LOAD_OUTPUT` changes that parent directory. The harness performs no diagnostic retries. Process fixtures do not prove Rust cluster execution; R014.3.2, R014.4 and R014.5 remain open.
+
+### Lifecycle and fixture validation
+
+Published source: [cf7010728682663f735516ee276f423476d3690b](https://github.com/Knuckles-Team/epistemic-graph/commit/cf7010728682663f735516ee276f423476d3690b).
+Review: [PR 445](https://github.com/Knuckles-Team/epistemic-graph/pull/445).
+
+`control_maintenance_reused_label_admits_at_the_current_version` checks fresh control admission for a reused label.
+`delete_purges_receipts_of_a_prior_incarnation` checks receipt removal, restart, fresh recreation, and the new incarnation's stable replay.
+Graph replay completes its fresh control owner phase without opening replayed graph owner rows.
+Native facade execution remains pending; this record does not establish R049 acceptance.
+The original EG318 database-lock failure remains unreproduced.
+
+Run `mkdir -p target-isolated/tmp` from the checkout.
+Run `TMPDIR="$PWD/target-isolated/tmp" rustc --edition 2021 --test src/test_support.rs -o target-isolated/fixture-path-tests`.
+Run `target-isolated/fixture-path-tests`.
+The standalone helper test checks 2,048 distinct paths across eight threads.
+This helper test does not establish native facade acceptance.
+
+### Clippy profile declaration coverage
+
+`test_required_clippy_profiles_and_command_are_declared` checks both required profiles, warning enforcement, and Kafka build headers.
+`test_required_clippy_declaration_drift_is_refused` rejects configuration changes that remove those obligations.
+Run `pytest --noconftest -o addopts='' tests/test_release_feature_matrix.py -q`.
+The suite passed 19 tests on the published source; Ruff lint and formatting checks also passed.
+The official generator retains SPECIFIED for R011, R011.3, and R011.4.
+Only the configuration child R011.5 gains its own generated evidence.
+The parent binding records partial declaration coverage; it does not prove native runtime or exact-head acceptance.

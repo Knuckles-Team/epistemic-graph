@@ -632,3 +632,56 @@ mod tests {
         .is_err());
     }
 }
+
+/// Bounded owner evidence for signed refusal tests; never compiled into service builds.
+#[cfg(test)]
+impl AgentLibraryStore {
+    pub(crate) fn connector_pack_refusal_snapshot(&self, tenant: &str) -> serde_json::Value {
+        use redb::ReadableTable;
+        let read = self.read().unwrap();
+        let mut tables = serde_json::Map::new();
+        macro_rules! capture {
+            ($table:ident) => {{
+                let table = read.open_owner_table(eg_storage::$table).unwrap();
+                let rows: Vec<_> = table
+                    .iter()
+                    .unwrap()
+                    .map(|row| {
+                        let (key, value) = row.unwrap();
+                        (format!("{:?}", key.value()), value.value().to_vec())
+                    })
+                    .collect();
+                assert!(rows.len() <= 64, "bounded isolated fixture");
+                tables.insert(stringify!($table).into(), serde_json::json!(rows));
+            }};
+        }
+        capture!(CONNECTOR_PACK_HEADS);
+        capture!(CONNECTOR_PACK_MEMBERS);
+        capture!(CONNECTOR_PACK_IMPORTS);
+        capture!(CONNECTOR_PACK_BODY_HOLDERS);
+        capture!(AGENT_COMPONENT_REVISIONS);
+        let heads = read
+            .open_owner_table(eg_storage::AGENT_COMPONENT_HEADS)
+            .unwrap();
+        let heads: Vec<_> = heads
+            .iter()
+            .unwrap()
+            .map(|row| {
+                let (key, value) = row.unwrap();
+                (format!("{:?}", key.value()), value.value())
+            })
+            .collect();
+        assert!(heads.len() <= 64, "bounded isolated fixture");
+        tables.insert("AGENT_COMPONENT_HEADS".into(), serde_json::json!(heads));
+        let owner = self.scope_handle(tenant).unwrap();
+        let read = self.kernel.read_scope(&owner).unwrap();
+        let batches = eg_transaction::read_batches(&read).unwrap();
+        assert!(batches.len() <= 64, "bounded isolated fixture");
+        let outbox: Vec<_> = batches
+            .iter()
+            .flat_map(|record| eg_transaction::read_outbox(&read, &record.batch.batch_id).unwrap())
+            .collect();
+        tables.insert("outbox".into(), serde_json::json!(outbox));
+        serde_json::Value::Object(tables)
+    }
+}

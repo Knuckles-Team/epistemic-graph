@@ -482,14 +482,7 @@ mod eg318_dispatch_tests {
     }
 
     fn state_min() -> DurableTestState {
-        let dir = std::env::temp_dir().join(format!(
-            "eg318-dispatch-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("system clock after epoch")
-                .as_nanos()
-        ));
+        let dir = crate::test_support::temp_dir("eg318-dispatch", "state");
         let dir_string = dir.to_string_lossy().to_string();
         let persistence: Arc<dyn PersistenceBackend> = Arc::new(
             RedbBackend::open(dir_string.clone(), 64).expect("open authoritative test backend"),

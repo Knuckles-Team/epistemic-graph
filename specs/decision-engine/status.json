@@ -117,8 +117,13 @@
     "EG-DECISION-ENGINE-R078.2",
     "EG-DECISION-ENGINE-R079",
     "EG-DECISION-ENGINE-R079.1",
+    "EG-DECISION-ENGINE-R079.2",
+    "EG-DECISION-ENGINE-R079.3",
+    "EG-DECISION-ENGINE-R079.4",
+    "EG-DECISION-ENGINE-R079.5",
     "EG-DECISION-ENGINE-R080",
     "EG-DECISION-ENGINE-R080.1",
+    "EG-DECISION-ENGINE-R080.2",
     "EG-DECISION-ENGINE-R081",
     "EG-DECISION-ENGINE-R082",
     "EG-DECISION-ENGINE-R083",
@@ -157,6 +162,7 @@
     "EG-DECISION-ENGINE-R101",
     "EG-DECISION-ENGINE-R102",
     "EG-DECISION-ENGINE-R102.1",
+    "EG-DECISION-ENGINE-R102.2",
     "EG-DECISION-ENGINE-R103",
     "EG-DECISION-ENGINE-R104",
     "EG-DECISION-ENGINE-R105",
@@ -519,7 +525,7 @@
         "9079ca7b0ddd"
       ],
       "verified_by": [
-        "crates/eg-types/src/agent_component.rs:2105"
+        "crates/eg-types/src/agent_component.rs:2111"
       ]
     },
     {
@@ -1129,7 +1135,7 @@
         "fa780d3e101a"
       ],
       "verified_by": [
-        "crates/eg-types/src/agent_component.rs:1797"
+        "crates/eg-types/src/agent_component.rs:1803"
       ]
     },
     {
@@ -1318,7 +1324,7 @@
       ],
       "verified_by": [
         "crates/eg-numeric/tests/decision/scorer_promotion.rs:179",
-        "crates/eg-types/src/agent_component.rs:2134"
+        "crates/eg-types/src/agent_component.rs:2140"
       ]
     },
     {
@@ -1483,7 +1489,7 @@
     {
       "id": "EG-DECISION-ENGINE-R072",
       "title": "Decision observability spans and metrics",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "1e9ea1ef3790",
         "2a0d6eae0918",
@@ -1497,9 +1503,13 @@
     {
       "id": "EG-DECISION-ENGINE-R072.1",
       "title": "Solver node count and optimality gap are emitted on the Assemble/solver path",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "7e2feaaad52d"
+      ],
+      "verified_by": [
+        "crates/eg-compute/tests/solve/instrumentation.rs:8"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R073",
@@ -1515,12 +1525,15 @@
     {
       "id": "EG-DECISION-ENGINE-R074",
       "title": "Agent-slot component-kind closure rule kept current",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "1e9ea1ef3790",
+        "51f9c8eb6f1d",
         "a4804f87c971"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_decision_static_contracts.py:135"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R075",
@@ -1580,7 +1593,7 @@
         "a1bb9fb9503e"
       ],
       "verified_by": [
-        "crates/eg-types/src/agent_component.rs:2162"
+        "crates/eg-types/src/agent_component.rs:2168"
       ]
     },
     {
@@ -1623,14 +1636,18 @@
     {
       "id": "EG-DECISION-ENGINE-R079",
       "title": "Per-unit embedding admission classifier for ingestion",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "1e9ea1ef3790",
         "dd6d5b55fb20"
       ],
       "verified_by": [],
       "rollup_of": [
-        "EG-DECISION-ENGINE-R079.1"
+        "EG-DECISION-ENGINE-R079.1",
+        "EG-DECISION-ENGINE-R079.2",
+        "EG-DECISION-ENGINE-R079.3",
+        "EG-DECISION-ENGINE-R079.4",
+        "EG-DECISION-ENGINE-R079.5"
       ]
     },
     {
@@ -1646,16 +1663,45 @@
       ]
     },
     {
+      "id": "EG-DECISION-ENGINE-R079.2",
+      "title": "Embedding admission at the ingestion boundary",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R079.3",
+      "title": "Duplicate and size admission",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R079.4",
+      "title": "SQL column admission",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R079.5",
+      "title": "Retrieval feedback admission",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
       "id": "EG-DECISION-ENGINE-R080",
       "title": "Ingestion cost ladder with provenance rungs",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "1e0050b97b3a",
         "1e9ea1ef3790"
       ],
       "verified_by": [],
       "rollup_of": [
-        "EG-DECISION-ENGINE-R080.1"
+        "EG-DECISION-ENGINE-R080.1",
+        "EG-DECISION-ENGINE-R080.2"
       ]
     },
     {
@@ -1670,6 +1716,13 @@
         "crates/eg-types/src/decision/ingestion_ladder.rs:72",
         "crates/eg-types/src/decision/ingestion_ladder.rs:90"
       ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R080.2",
+      "title": "Served enrichment ladder qualification",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "EG-DECISION-ENGINE-R081",
@@ -1704,9 +1757,12 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [
         "1e9ea1ef3790",
+        "7a89c881dad4",
         "e9da9f0a77e1"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "crates/eg-numeric/tests/decision/scorer.rs:367"
+      ],
       "rollup_of": [
         "EG-DECISION-ENGINE-R083.1",
         "EG-DECISION-ENGINE-R083.2"
@@ -1733,7 +1789,7 @@
     {
       "id": "EG-DECISION-ENGINE-R084",
       "title": "Conformal calibration as primary rung over temperature scaling",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "1e9ea1ef3790",
         "4952a2edced4"
@@ -1746,9 +1802,14 @@
     {
       "id": "EG-DECISION-ENGINE-R084.1",
       "title": "ECE/coverage measurement across option sets of varying size",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "481fa6ea2c55",
+        "7765cab2e500"
+      ],
+      "verified_by": [
+        "crates/eg-numeric/tests/decision/calibration_coverage.rs:37"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R085",
@@ -2097,14 +2158,15 @@
     {
       "id": "EG-DECISION-ENGINE-R102",
       "title": "Schema repair proposals pass a decided mapping and shadow-branch check",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "202b90167359",
         "534f763afc81"
       ],
       "verified_by": [],
       "rollup_of": [
-        "EG-DECISION-ENGINE-R102.1"
+        "EG-DECISION-ENGINE-R102.1",
+        "EG-DECISION-ENGINE-R102.2"
       ]
     },
     {
@@ -2120,6 +2182,13 @@
         "crates/eg-types/src/graph_schema/shadow_branch.rs:88",
         "crates/eg-types/src/graph_schema/shadow_branch.rs:95"
       ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R102.2",
+      "title": "Served shadow repair qualification",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "EG-DECISION-ENGINE-R103",
@@ -2225,7 +2294,7 @@
     {
       "id": "EG-DECISION-ENGINE-R110",
       "title": "Topology optimization model rows with a brute-force oracle",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "534f763afc81",
         "c0edc96d1e10"
@@ -2238,9 +2307,14 @@
     {
       "id": "EG-DECISION-ENGINE-R110.1",
       "title": "Topology brute-force oracle property test covers n<=20 variables",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "1bd4d6b1cdea",
+        "1e1a100670b5"
+      ],
+      "verified_by": [
+        "crates/eg-compute/src/assemble/tests/topology_oracle.rs:144"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R111",
@@ -2299,11 +2373,11 @@
         "93183139d2e2"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/topology/capacity_commit.rs:113",
-        "crates/eg-types/src/decision/topology/capacity_commit.rs:128",
-        "crates/eg-types/src/decision/topology/capacity_commit.rs:140",
-        "crates/eg-types/src/decision/topology/capacity_commit.rs:152",
-        "crates/eg-types/src/decision/topology/capacity_commit.rs:177"
+        "crates/eg-types/src/decision/topology/capacity_commit.rs:110",
+        "crates/eg-types/src/decision/topology/capacity_commit.rs:125",
+        "crates/eg-types/src/decision/topology/capacity_commit.rs:137",
+        "crates/eg-types/src/decision/topology/capacity_commit.rs:149",
+        "crates/eg-types/src/decision/topology/capacity_commit.rs:174"
       ]
     },
     {
@@ -2362,9 +2436,14 @@
     {
       "id": "EG-DECISION-ENGINE-R113.3.1",
       "title": "Consume the typed allowance once",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "cb8662f24bef"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/decision/topology/retry_allowance.rs:35",
+        "crates/eg-types/src/decision/topology/retry_allowance.rs:49"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R113.3.2",
@@ -2553,12 +2632,15 @@
     {
       "id": "EG-DECISION-ENGINE-R123",
       "title": "Solve DTOs canonical in eg-types, no duplicate copies",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "51f9c8eb6f1d",
         "534f763afc81",
         "a4804f87c971"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_decision_static_contracts.py:77"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R124",

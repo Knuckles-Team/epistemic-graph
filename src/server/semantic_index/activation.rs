@@ -19,8 +19,8 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
 use super::{
-    semantic_owner_principal, semantic_registry, semantic_scope_verifier, semantic_server_secrets,
-    tenant_semantic_owner_file, upgrade,
+    semantic_owner_principal, semantic_registry, semantic_registry_key, semantic_scope_verifier,
+    semantic_server_secrets, tenant_semantic_owner_file, upgrade, SemanticRegistryKey,
 };
 
 const ROOT: &str = "/etc/agent-utilities/rf019";
@@ -88,13 +88,13 @@ pub struct PendingRf019Activation {
 }
 
 static ACTIVATED: OnceLock<Mutex<HashMap<String, Grant>>> = OnceLock::new();
-static OPENED: OnceLock<Mutex<HashSet<(String, String)>>> = OnceLock::new();
+static OPENED: OnceLock<Mutex<HashSet<SemanticRegistryKey>>> = OnceLock::new();
 
 fn activated() -> &'static Mutex<HashMap<String, Grant>> {
     ACTIVATED.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-fn opened() -> &'static Mutex<HashSet<(String, String)>> {
+fn opened() -> &'static Mutex<HashSet<SemanticRegistryKey>> {
     OPENED.get_or_init(|| Mutex::new(HashSet::new()))
 }
 
@@ -667,7 +667,7 @@ pub(super) fn open_service(
     binding_id: &str,
 ) -> Result<Arc<SemanticIndexService>, String> {
     let grant = verified_open_grant(persist_dir, tenant, binding_id)?;
-    let key = (tenant.to_string(), binding_id.to_string());
+    let key = semantic_registry_key(persist_dir, tenant, binding_id)?;
     let mut registry = semantic_registry()
         .lock()
         .map_err(|_| "semantic index owner registry is unavailable".to_string())?;

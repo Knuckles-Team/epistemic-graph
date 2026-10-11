@@ -2,7 +2,7 @@
 
 ## Design decisions
 
-The implementation extends EG's current typed pack, component, schema, outbox and capability registry. It does not add a separate pack database, a dynamic response envelope, a second contract generator or a graph projection side channel. The public wire is generated from `eg-capabilities`; canonical receipt content must be compared byte for byte. Changes to a shared wire shape land as one coordinated revision across Rust, generated Python/Go/JS and the SDK TCK.
+The implementation extends EG's current typed pack, component, schema, outbox and capability registry. It adds no separate pack database or dynamic response envelope. It adds no second contract generator or graph projection side channel. The public wire is generated from `eg-capabilities`; canonical receipt content must be compared byte for byte. Changes to a shared wire shape land as one coordinated revision across Rust, generated Python/Go/JS and the SDK TCK.
 
 The order below minimizes incompatible intermediate states. A step may be a verification or repair of existing code. The existence of a module is not proof that the step is accepted. Each step maps to `tasks.md` and `test-spec.md`.
 
@@ -123,6 +123,20 @@ The per-tenant lock serializes pack mutations but does not replace in-write head
 
 ## Amendments
 
+### 2026-10-11: served admin regression fixtures
+
+R002, R003 and R007 retain their runtime contracts. The import fixture must use
+the deterministic connector/digest/expected-binding key before testing index
+validation. Validation refusals, including `RETIRED_ENTRY_RETURNED`, are typed
+`PackImportResult::Rejected` violations. Compare catalog state after retirement
+with state after the refused reimport, so the retirement itself is not mistaken
+for a rejected-import mutation. Reconciliation preserves every historical
+revision holder. Revised and withdrawn bodies remain readable by pinned revision
+(PACK-05). Only unheld bodies are orphans. The served regression
+asserts historical and current body bytes after the sweep.
+Catalog snapshot assertions share one helper.
+This removes repeated setup without changing typed refusals or before/after equality checks.
+
 ### 2026-10-11: capability annotation acceptance
 
 EG-TYPED-PACKS-R042.1 tests the production G12 validator and claim partition for both annotation fields. The parser now requires an ASCII letter at the start of an absolute IRI scheme. Foreign terms retain their exact text in the declared partition. EG-TYPED-PACKS-R042.2 keeps signed dispatch, persisted claims, and refusal atomicity open. Native tests alone do not close the parent requirement.
@@ -153,3 +167,12 @@ The bounded Cargo attempt used `cargo test --offline -p epistemic-graph --lib --
 It exited 101 before compilation because the offline registry lacked `hex`.
 Served import, persisted modality facts, refusal atomicity, TP-10, TP-11, and release gates remain unverified.
 The native harness is evidence for the listed source tests only. It does not substitute for served acceptance.
+
+### 2026-10-11 served regression slice
+
+R042.2 adds signed G12 rejection cases with bounded owner-table, body-liveness,
+and outbox snapshots plus persisted native/foreign claim and warning checks.
+R093.2 extends forced Reproject with colliding member labels, durable schema
+inspection, and fresh-key repeat identity checks.
+The test markers bind these existing acceptance tests to their owning rows.
+Native execution remains unrun. The generated lifecycle records test existence, independently of execution results.

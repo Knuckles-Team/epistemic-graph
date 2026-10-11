@@ -52,3 +52,11 @@ already declares that action. Register it as an engine user scope, preserving
 federation:admin as admin and rejecting wildcard classification. This grants no
 scope to a principal and leaves verified owner isolation and kg:read unchanged.
 The native authorized-action census exposed the omission.
+
+## Semantic owner registry identity
+
+The R005 registry must key the canonical persistence root, tenant, and binding.
+Distinct roots must never share a semantic owner; aliases of one root must share its handle.
+The existing activation grant and verified-principal checks remain mandatory.
+`semantic_owner_registry_is_scoped_to_persistence_root` must prove root isolation and canonical alias reuse.
+Native facade acceptance remains pending.

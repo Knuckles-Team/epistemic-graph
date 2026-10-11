@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "spec_id": "EG-IDENTITY-001",
+  "spec_id": "EG-IDENTITY",
   "owner_repo": "epistemic-graph",
   "delivery_state": "SPECIFIED",
   "requirement_ids": [
@@ -63,6 +63,7 @@
       "title": "Semantic workers use one identity across queue classes",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "1c6b4c961a40",
         "62bec8a1ae94",
         "6c11520aebfc"
       ],

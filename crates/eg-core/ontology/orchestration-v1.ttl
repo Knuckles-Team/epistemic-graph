@@ -1,3 +1,4 @@
+@prefix bfo: <http://purl.obolibrary.org/obo/BFO_> .
 @prefix fibo-fi: <https://spec.edmcouncil.org/fibo/ontology/FBC/FinancialInstruments/FinancialInstruments/> .
 @prefix fibo-org: <https://spec.edmcouncil.org/fibo/ontology/FND/Organizations/Organizations/> .
 @prefix bibo: <http://purl.org/ontology/bibo/> .
@@ -10,6 +11,11 @@
 @prefix prov: <http://www.w3.org/ns/prov#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+:TaskStep a owl:Class ;
+    rdfs:label "Task Step" ;
+    rdfs:comment "An ordered step in a task, compatible with the shared precedes relation." ;
+    rdfs:subClassOf bfo:0000001 .
 
 :AnalyticsJob a owl:Class ;
     rdfs:label "AnalyticsJob" ;

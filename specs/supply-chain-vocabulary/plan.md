@@ -1,6 +1,6 @@
 # EG-SUPPLY-VOCAB — Design and implementation plan
 
-Status: PROPOSED. Governing spec: [spec.md](spec.md).
+Governing spec: [spec.md](spec.md).
 
 ## Problem and evidence
 
@@ -206,22 +206,14 @@ Ontology parse test and shape tests in `crates/eg-core/tests/`; `cargo test -p e
 
 Copying source data. The authority vocabulary (`EG-CQ-XSRC-R001`). The federated planner. Entity-resolution scoring. The report type. Building new connector tools (only mapping and access-contract rows in agent-packages).
 
-## Amendments
+## Commercial acceptance
 
-### 2026-10-11 Commercial terms from the connector vocabulary audit
-
-Erpnext, salesforce and twenty need commercial terms. The connector vocabulary audit found them missing. Rows `EG-SUPPLY-VOCAB-R003.7` to `R003.12` add them, reusing `kg:Organization` and `kg:Person`. `EG-CQ-CONN-R083` points here.
-
-### 2026-10-11 Restore commercial registry and negative acceptance
-
-Old statement: the commercial consolidation omitted registry, catalog, namespace and Opportunity date acceptance.
-New statement: EG-SUPPLY-VOCAB-R003.13 through R003.17 restore those obligations within the existing commercial owner.
-Evidence: PR #413 removed former EG-CONN-AUDIT-R016.1, R016.2, R016.3 and R016.7 acceptance.
-R003.13, R003.14 and R003.15 respectively retain the first three obligations in commercial-v1.
-R003.16 supplies closeDate; R003.17 retains the former Opportunity shape's valid and invalid fixtures.
-No parallel commerce-v1 module is authorized. Existing R003.7 through R003.12 keep their identities and current semantic decisions.
-The original Party/Contact representation differs from PR #418; this amendment does not resolve that separate semantic review.
-All five new rows remain SPECIFIED. Named tests are planned, not executed evidence.
+Rows `EG-SUPPLY-VOCAB-R003.7` through `R003.17` own commercial declarations and acceptance.
+Erpnext, Salesforce, and Twenty use `commercial-v1.ttl`; `EG-CQ-CONN-R083` owns their mapping acceptance.
+The vocabulary reuses `kg:Organization` and `kg:Person` for Party and Contact representations.
+R003.13 registers the module and generated catalog entry.
+R003.14 registers its shapes companion; R003.15 checks namespace compatibility.
+R003.16 supplies closeDate; R003.17 checks valid and invalid Opportunity fixtures.
 
 Implementation follows tasks.md producer order. Registration precedes declarations; closeDate and the shapes companion precede Opportunity validation.
 Tests check exact RDF types, canonical IRIs, domains and ranges. Existing shared property domains must not narrow.
@@ -229,37 +221,3 @@ Missing illustrative properties require bounded producer rows with named tests b
 Contact joins use approved opaque identity links, never raw email matching.
 Connector payload availability remains unverified and cannot be inferred from ontology declarations.
 Live competency tests must abstain when required source fields or approved mappings are absent.
-
-### 2026-10-11 Preserve historical requirement IDs
-
-Old statement: migration removed historical requirement rows and deferred retirement records.
-New statement: these permanent IDs remain explicit RETIRED tombstones with named replacements.
-Evidence: PR #413 migration, PR #418 vocabulary decisions, PR #419 commercial acceptance, and PR #421 noncommercial acceptance.
-The shared retirement parser now permits historical prefixes on retired rows.
-The amendment supersedes earlier pending-retirement statements and broad R016-to-R083 mapping.
-R016 producers belong to EG-SUPPLY-VOCAB-R003; R017 commercial acceptance belongs to EG-CQ-CONN-R083.
-Current active requirements, status evidence, and vocabulary decisions remain unchanged.
-These 173 historical IDs are not delivered requirements or runtime evidence.
-
-Original Party and Contact semantics were superseded and narrowed by PR #418, not proven fulfilled.
-Organization and Person representations describe the current contract; they do not satisfy the original broader semantics automatically.
-The original acceptance below remains historical evidence, not an active request to restore superseded semantics.
-
-#### Historical acceptance record
-
-Source: `b52f912f:specs/connector-vocabulary-audit/requirements.md` and its generated `status.json`.
-Every original row below was SPECIFIED, with empty landed_in and verified_by evidence.
-The following original requirement and verification text is preserved verbatim for historical interpretation only.
-
-| Historical ID | Original requirement | Original verification |
-|---|---|---|
-| `EG-CONN-AUDIT-R016` | **commerce-v1.ttl additions rollup.** 9 child rows, one per missing term (plus setup rows); becomes LANDED when every child is LANDED. Children: `EG-CONN-AUDIT-R016.1` to `EG-CONN-AUDIT-R016.9`. | Children landed. |
-| `EG-CONN-AUDIT-R016.1` | **create commerce-v1.ttl.** Create `crates/eg-core/ontology/commerce-v1.ttl` (owl:Ontology header, `owl:imports core`, prefix block) and register module `commerce` v1 in `crates/eg-core/src/graph/schema_sources.rs` next to the `personal`/`government` CoreSpec entries; regenerate `catalog-v1.ttl`. Producer for every other child of this rollup. Owner: epistemic-graph; coordinate with any in-flight lane that adds CRM/contact classes (listmonk, postiz, mattermost) so `Contact` is declared once. | `cargo test -p eg-core --test ontology_audit_commerce module_loads` asserts the module loads and is in the catalog. |
-| `EG-CONN-AUDIT-R016.2` | **shapes companion for commerce-v1.** Create `crates/eg-core/ontology/commerce-v1.shapes.ttl` (precedent: `finance-v1.shapes.ttl`) and set `shapes: Some(include_str!(...))` on the `commerce` CoreSpec in `schema_sources.rs`. Empty shapes graph is valid; each term child below adds its own NodeShape. Reuse an existing companion without replacing its shapes; delivery still requires the named registry-load test. | `ontology_audit_commerce_v1::shapes_module_loads`. |
-| `EG-CONN-AUDIT-R016.3` | **Commerce namespace compatibility.** Verify commerce-v1.ttl uses the existing `http://knuckles.team/kg#` namespace and imports shared terms instead of creating a CommerceFile class for a filesystem artifact. Needed by: erpnext. | `ontology_audit_commerce_v1::shared_namespace` checks canonical IRIs and rejects duplicate incompatible declarations. |
-| `EG-CONN-AUDIT-R016.4` | **Party.** Add owl:Class `:Party` (person-or-organization party; role semantics reuse supply-chain terms; partyRole requires its own producer before a role shape is added) to `crates/eg-core/ontology/commerce-v1.ttl`. No partyRole shape until its bounded property producer lands. Needed by: erpnext, salesforce, twenty. | `ontology_audit_commerce_v1::Party_declared` loads the module, checks the canonical class IRI and permits person and organization parties without inferring that every party is an organization. |
-| `EG-CONN-AUDIT-R016.5` | **PurchaseOrder.** Add owl:Class `:PurchaseOrder` (purchase order with orderedFrom Party, dueDate) to `crates/eg-core/ontology/commerce-v1.ttl`. Needed by: erpnext. | `ontology_audit_commerce_v1::PurchaseOrder_declared` loads the module and asserts the term (ASK over rdf:type / rdfs:domain). |
-| `EG-CONN-AUDIT-R016.6` | **PurchaseInvoice.** Add owl:Class `:PurchaseInvoice` (invoice with amount and invoiceDate (ERPNext purchase invoice)) to `crates/eg-core/ontology/commerce-v1.ttl`. Needed by: erpnext. | `ontology_audit_commerce_v1::PurchaseInvoice_declared` loads the module and asserts the term (ASK over rdf:type / rdfs:domain). |
-| `EG-CONN-AUDIT-R016.7` | **Opportunity.** Add owl:Class `:Opportunity` (open deal: amount, closeDate, ownedBy) to `crates/eg-core/ontology/commerce-v1.ttl`. SHACL: closeDate minCount 1, in `commerce-v1.shapes.ttl`. Needed by: salesforce, twenty. | `ontology_audit_commerce_v1::Opportunity_declared` loads the module and asserts the term (ASK over rdf:type / rdfs:domain) and that a violating fixture fails the shape. |
-| `EG-CONN-AUDIT-R016.8` | **Contact.** Add owl:Class `:Contact` (subClassOf core:Person; emailAddress, worksAt Party) to `crates/eg-core/ontology/commerce-v1.ttl`. Needed by: salesforce, twenty. | `ontology_audit_commerce_v1::Contact_declared` loads the module and asserts the term (ASK over rdf:type / rdfs:domain). |
-| `EG-CONN-AUDIT-R016.9` | **lastActivityAt.** Add owl:DatatypeProperty `:lastActivityAt` (Party|Contact -> xsd:dateTime) to `crates/eg-core/ontology/commerce-v1.ttl`. Needed by: twenty. | `ontology_audit_commerce_v1::lastActivityAt_declared` loads the module and asserts the term (ASK over rdf:type / rdfs:domain). |

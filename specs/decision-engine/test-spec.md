@@ -43,7 +43,6 @@ Check metric labels omit raw facts and errors omit invisible component identifie
 | EG-DECISION-ENGINE-R118 | Two source pools with independently labeled successes/failures, one sparse pool and two tenant scopes yield reproducible posterior, Brier/log/decomposition/calibration scores; the governed value agrees in decision policy, retrieval rank and UQL. | Self-reported labels, invisible outcomes and missing pool history cannot improve another tenant's score; a caller-supplied weight cannot override the materialization; sparse history abstains. |
 | EG-DECISION-ENGINE-R119 | A fixed bitemporal series produces exact purged/embargoed walk-forward folds, proportional shared-cap allocations, real trial-count DSR, split PBO, incumbent DM, option contributions and byte-identical sealed replay after checkpoint resume. | Future-known rows, overlap, changed source/head/policy digest, over-cap allocation, policy-dependent environment, bad supersedes digest and malformed `REPLAY WALK FORWARD` refuse without a sealed run or head promotion. |
 
-
 For each changed code path run focused Rust/Python/client tests, `cargo fmt --check`, workspace Clippy with applicable features, generated contract freshness, CCCC, KISS, Dupehound and jscpd differential with zero new pairs. Hosted CI runs build/package tests for affected features and the locally provisioned served journey. Optional cloud/cluster/identity-provider tests run in a separate deployment qualification and cannot block normal external PRs merely because no live environment exists. An acceptance record is complete only when every relevant A–E case and gate has a result tied to the same published commit; `SOURCE_LANDED` stays distinct from `ACCEPTED`.
 
 ### EG-DECISION-ENGINE-R113.1: capacity commit type
@@ -78,11 +77,11 @@ It does not verify a durable transaction or enforce retry use at runtime.
 EG-DECISION-ENGINE-R113.2 tracks the atomic transaction.
 EG-DECISION-ENGINE-R113.3 tracks retry enforcement.
 
-
 ### Planned runtime checks for EG-DECISION-ENGINE-R113
 
-These tests are planned and unexecuted. Their names do not identify existing tests.
-All runtime rows below remain SPECIFIED.
+Except for the local retry model noted below, these tests are planned and unexecuted.
+Those planned test names do not identify existing tests.
+The transaction and durable runtime rows remain SPECIFIED. The local retry model has direct native proof.
 Each fixture is a bounded acceptance slice. It does not include the missing transaction implementation.
 
 On 2026-10-11, source inspection found separate write owners:
@@ -107,7 +106,7 @@ The request fixture in `.3.3` depends on those operations.
 | EG-DECISION-ENGINE-R113.2.2 | `src/server/persistence/decision_record/tests.rs` | `topology_commit_publishes_capacity_and_evidence` | SPECIFIED; not run |
 | EG-DECISION-ENGINE-R113.2.3 | `src/server/persistence/decision_record/tests.rs` | `topology_capacity_denial_leaves_no_commit_parts` | SPECIFIED; not run |
 | EG-DECISION-ENGINE-R113.2.4 | `src/server/persistence/decision_record/tests.rs` | `topology_commit_recovery_preserves_atomic_outcome` | SPECIFIED; not run |
-| EG-DECISION-ENGINE-R113.3.1 | `crates/eg-types/src/decision/topology/capacity_commit.rs` | `tests::retry_allowance_consumes_once` | SPECIFIED; not run |
+| EG-DECISION-ENGINE-R113.3.1 | `crates/eg-types/src/decision/topology/retry_allowance.rs` | `tests::retry_allowance_consumes_once`, `tests::invalid_allowances_fail_without_mutation` | Direct native module tests pass; workspace integration not run |
 | EG-DECISION-ENGINE-R113.3.2 | `src/server/persistence/decision_record/tests.rs` | `topology_denial_allowance_consumption_survives_restart` | SPECIFIED; not run |
 | EG-DECISION-ENGINE-R113.3.3 | `src/server/handlers/decide/commit.rs` | `tests::topology_denial_accepts_one_followup_request` | SPECIFIED; not run |
 
@@ -133,7 +132,6 @@ EG-DECISION-ENGINE-R090.2 requires `tests/decision_resident_scorer.rs::compiled_
 EG-DECISION-ENGINE-R090.3 requires `benches/decision_resident_scorer.rs::resident_scorer_meets_declared_budget`.
 Both checks remain planned and unrun. Budget declarations do not establish either result.
 
-
 ### R093.2 planned served acceptance
 
 These tests are planned and have not run.
@@ -143,3 +141,38 @@ These tests are planned and have not run.
 | EG-DECISION-ENGINE-R093.2.1 | `tests/synthetic/test_synthetic_decision_export.py::test_corpus_collects_seeded_served_results` | Exported candidates match recorded served-client results. |
 | EG-DECISION-ENGINE-R093.2.2 | `tests/synthetic/test_synthetic_decision_export.py::test_served_labels_require_collected_results` | Invalid provenance and labels fail closed. |
 | EG-DECISION-ENGINE-R093.2.3 | `tests/synthetic/test_served_corpus_training.py::test_training_consumes_served_ground_truth` | Training consumes episodes collected from a real server. |
+
+## Static contract checks
+
+Run `python -m pytest -q tests/test_decision_static_contracts.py` without a native engine build.
+R074 checks the full component enum and agent-slot references against the closure documentation.
+R123 scans Rust sources under `src` and `crates` for duplicate solve DTO declarations.
+The scan permits explicitly listed, unrelated domain homonyms.
+Negative fixtures add duplicate declarations, remove documented kinds, and introduce an undocumented slot reference.
+These checks prove source and documentation consistency only. They do not execute solver behavior.
+
+## Local retry model verification
+
+Run `rustc --edition=2021 --test crates/eg-types/src/decision/topology/retry_allowance.rs -o /path/to/retry-tests`, then run that binary. This compiles the exact production module without a substitute dependency. The tests cover the 1-to-0 transition, repeated refusal, zero, and all 254 malformed counts. The module remains re-exported through `capacity_commit` for existing callers. This proves only EG-DECISION-ENGINE-R113.3.1; copies do not share state. Durable and handler enforcement remain required by R113.3.2 and R113.3.3.
+
+## Ingestion and schema integration acceptance
+
+The following fixtures are planned and unexecuted. Their producer-only tests remain valid for the narrower producer children. They do not prove these integration requirements.
+
+| Requirement | Planned fixture | Acceptance state |
+|---|---|---|
+| EG-DECISION-ENGINE-R079.2 | `tests/test_decision_ingestion_acceptance.py::test_ingestion_embedding_admission_and_cheaper_index_skip` | SPECIFIED; no executed integration proof |
+| EG-DECISION-ENGINE-R079.3 | `tests/test_decision_ingestion_acceptance.py::test_duplicate_and_oversized_units_do_not_embed` | SPECIFIED; no executed integration proof |
+| EG-DECISION-ENGINE-R079.4 | `tests/test_decision_ingestion_acceptance.py::test_sql_column_kinds_and_cardinality_control_embedding` | SPECIFIED; no executed integration proof |
+| EG-DECISION-ENGINE-R079.5 | `tests/test_decision_ingestion_acceptance.py::test_retrieval_feedback_demotes_unused_content` | SPECIFIED; no executed integration proof |
+| EG-DECISION-ENGINE-R080.2 | `tests/test_decision_ingestion_acceptance.py::test_real_extractors_follow_the_lowest_sufficient_rung` | SPECIFIED; no executed integration proof |
+| EG-DECISION-ENGINE-R102.2 | `src/server/graph_schema/approved/tests.rs::schema_repair_requires_real_shadow_ingest_before_activation` | SPECIFIED; no executed integration proof |
+
+## Bounded topology oracle
+
+| Requirement | Proving test |
+|---|---|
+| EG-DECISION-ENGINE-R110.1 | `crates/eg-compute/src/assemble/tests/topology_oracle.rs::property_oracle_agrees_with_the_solver_for_instances_up_to_twenty_variables` checks 66 fixtures and twenty actual variables. |
+
+Native execution remains pending after dependency compilation exceeded local resources.
+The isolated fixture arithmetic check does not execute the assembly or solver.

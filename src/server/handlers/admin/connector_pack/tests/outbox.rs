@@ -178,7 +178,7 @@ async fn a_pack_without_schema_is_visible_at_once_and_one_with_schema_after_proj
     }
 }
 
-// spec: EG-TYPED-PACKS-R006
+// spec: EG-TYPED-PACKS-R006, EG-TYPED-PACKS-R093.2
 #[tokio::test]
 async fn an_admin_forced_reproject_redrives_a_stale_projection_without_losing_later_work() {
     let served = Served::new();
@@ -190,14 +190,26 @@ async fn an_admin_forced_reproject_redrives_a_stale_projection_without_losing_la
         uri: format!("ontology://{schema}/core.ttl"),
         name: "core.ttl".to_string(),
         media_type: "text/turtle",
-        body: b"<https://example.org/Thing> a <http://www.w3.org/2002/07/owl#Class> .\n".to_vec(),
+        body: b"_:b0 <https://example.org/member> <https://example.org/first> .\n".to_vec(),
         input_schema: None,
         annotations: PackAnnotations::default(),
         references: Vec::new(),
     };
+    let mut other_ontology = ontology.clone();
+    other_ontology.uri = format!("ontology://{schema}/other.ttl");
+    other_ontology.name = "other.ttl".to_string();
+    other_ontology.body =
+        b"_:b0 <https://example.org/member> <https://example.org/second> .\n".to_vec();
     let first = super::imported(
         &served,
-        &build_pack(schema, &[tool(schema, "b", "Tool b."), ontology.clone()]),
+        &build_pack(
+            schema,
+            &[
+                tool(schema, "b", "Tool b."),
+                ontology.clone(),
+                other_ontology.clone(),
+            ],
+        ),
         None,
     )
     .await;
@@ -227,6 +239,57 @@ async fn an_admin_forced_reproject_redrives_a_stale_projection_without_losing_la
         searchable_ids(&served).await.contains(&tool_b),
         "the forced Reproject flips the head visible"
     );
+    // Read the durable backend, not a helper composition or the resident cache.
+    let sources = projected_schema(&served, schema).await;
+    let source = sources.dynamic.get(&format!("pack:{schema}")).unwrap();
+    let triples = eg_rdf::mapping::parse_turtle(source.ontology_ttl.as_deref().unwrap()).unwrap();
+    assert_eq!(triples.len(), 2);
+    let identities: std::collections::BTreeSet<_> = triples
+        .iter()
+        .map(|triple| {
+            triple
+                .to_string()
+                .split_whitespace()
+                .next()
+                .unwrap()
+                .to_string()
+        })
+        .collect();
+    assert_eq!(
+        identities.len(),
+        2,
+        "each member's _:b0 must remain distinct"
+    );
+    assert!(identities.iter().all(|identity| identity.starts_with("_:")));
+    let store = served.state.write().await.ensure_agent_library().unwrap();
+    let connector = ResourceId::new(schema).unwrap();
+    let before = store.connector_pack_status(TENANT, &connector).unwrap();
+    let key = "reproject:schema-pack-reproject:fresh";
+    let _: eg_types::connector_pack::PackImportReceipt = ok(
+        "Reproject",
+        served
+            .pack(
+                key,
+                eg_types::connector_pack::ConnectorPackOp::Reproject {
+                    request: eg_types::connector_pack::ConnectorPackReprojectRequest {
+                        context: super::context(key),
+                        connector: connector.clone(),
+                    },
+                },
+            )
+            .await,
+    );
+    let repeated = projected_schema(&served, schema).await;
+    assert_eq!(repeated.composed_digest(), sources.composed_digest());
+    assert_eq!(repeated, sources);
+    assert_eq!(
+        store
+            .connector_pack_status(TENANT, &connector)
+            .unwrap()
+            .head,
+        before.head,
+        "fresh-key reproject preserves pack and catalog identity"
+    );
     // Later work: a second import lands after the forced Reproject and still
     // becomes visible once its own projection runs -- the forced reproject did
     // not lose or block it.
@@ -239,6 +302,7 @@ async fn an_admin_forced_reproject_redrives_a_stale_projection_without_losing_la
                 tool(schema, "b", "Tool b."),
                 tool(schema, "c", "Tool c."),
                 ontology,
+                other_ontology,
             ],
         ),
         Some(super::head_of(&first)),
@@ -303,4 +367,23 @@ async fn every_native_store_is_reachable_through_its_scope_selector() {
         .await,
     );
     assert_eq!(mismatched, "OUTBOX_SCOPE_MISMATCH");
+}
+
+async fn projected_schema(
+    served: &Served,
+    connector: &str,
+) -> std::sync::Arc<crate::graph::GraphSchemaSources> {
+    let graph = crate::server::graph_schema::pack_projection_graph_name(
+        TENANT,
+        &ResourceId::new(connector).unwrap(),
+    )
+    .unwrap();
+    let backend = served.state.read().await.persistence.clone().unwrap();
+    backend
+        .read_authoritative_graph_snapshot(&crate::persist::sanitize(&graph))
+        .await
+        .unwrap()
+        .unwrap()
+        .0
+        .schema_sources
 }

@@ -1,6 +1,6 @@
 # EG-INGEST-WORKER — Durable ingest worker
 
-Status: PROPOSED. Owner: epistemic-graph (queue, policy, metrics); runner owned by the connector SDK repository; host by graph-os. Cross-repo IDs: EG-DURABLE-KERNEL-R071 to R077, EG-REPO-INGEST-R002, R006.
+Owner: epistemic-graph (queue, policy, metrics); runner owned by the connector SDK repository; host by graph-os. Cross-repo IDs: EG-DURABLE-KERNEL-R071 to R077, EG-REPO-INGEST-R002, R006.
 Public provenance: replaces the agent-utilities `kg-ingest-worker` console script (module ingest_worker.py, 427 lines), deleted by commit b02e39950, which claimed an engine-served durable-job path replaces it. This spec makes that claim true.
 
 ## Purpose and user stories

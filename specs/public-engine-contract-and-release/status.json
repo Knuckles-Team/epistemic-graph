@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "spec_id": "EG-CONTRACT-001",
+  "spec_id": "EG-CONTRACT",
   "owner_repo": "epistemic-graph",
   "delivery_state": "SPECIFIED",
   "requirement_ids": [
@@ -42,6 +42,8 @@
     "EG-CONTRACT-R029",
     "EG-CONTRACT-R030",
     "EG-CONTRACT-R031",
+    "EG-CONTRACT-R031.1",
+    "EG-CONTRACT-R031.2",
     "EG-CONTRACT-R032",
     "EG-CONTRACT-R033",
     "EG-CONTRACT-R034",
@@ -249,10 +251,10 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "26a77bc6a6c4",
+        "29021f36eeee",
+        "2f4f3a17a5b5",
         "5c5b8c630a52",
-        "8baee8a94894",
-        "8f2ada3bca74",
-        "c835ce794b21"
+        "8baee8a94894"
       ],
       "verified_by": [
         "tests/test_release_python_suite_contract.py:111",
@@ -528,10 +530,36 @@
     {
       "id": "EG-CONTRACT-R031",
       "title": "Complexity, duplication and architecture censuses pass at zero backlog",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
-        "be0f1acb05c6"
+        "a0da67babeae",
+        "be0f1acb05c6",
+        "e729dc1650b6"
       ],
+      "verified_by": [
+        "tests/test_ci_change_scope.py:166"
+      ],
+      "rollup_of": [
+        "EG-CONTRACT-R031.1",
+        "EG-CONTRACT-R031.2"
+      ]
+    },
+    {
+      "id": "EG-CONTRACT-R031.1",
+      "title": "Lint runner provisions the manifest-selected formatter",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "733e1766936b"
+      ],
+      "verified_by": [
+        "tests/test_ci_change_scope.py:167"
+      ]
+    },
+    {
+      "id": "EG-CONTRACT-R031.2",
+      "title": "Complete zero-backlog quality-gate acceptance",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {

@@ -24,6 +24,7 @@ Status key: `[ ]` queued, `[-]` in progress, `[x]` verified at cited main revisi
 - [x] **EG-DURABLE-KERNEL-R011.2:** Concrete required-module manifest. See the exact paths and proving tests in `requirements.md`.
 - [ ] **EG-DURABLE-KERNEL-R011.3:** Pre-merge runtime execution. See the exact paths and proving tests in `requirements.md`.
 - [ ] **EG-DURABLE-KERNEL-R011.4:** Exact-head CI acceptance receipts. See the exact paths and proving tests in `requirements.md`.
+- [ ] **EG-DURABLE-KERNEL-R011.5:** Check required Clippy profile declarations and refusal cases. Runtime acceptance remains under R011.3 and R011.4.
 - [ ] **EG-DURABLE-KERNEL-R014:** Raft cluster tests pass reliably under load
 - [x] **EG-DURABLE-KERNEL-R014.1:** Typed flake-budget / retry-policy model for load-test retries
 - [-] **EG-DURABLE-KERNEL-R014.2:** Bounded representative CPU load; process tests passed, pending main validation. See the exact paths and proving tests in `requirements.md`.

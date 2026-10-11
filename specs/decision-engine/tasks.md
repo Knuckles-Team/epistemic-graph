@@ -94,12 +94,12 @@
 - [ ] D26 **EG-DECISION-ENGINE-R039.1 (reopened 2026-10-09, audit gap):** Routing prefers the lower-cost legal option when accounting data distinguishes candidates. Only abstain-on-missing-cost exists today. Routing has no preference for the lower-cost legal option when usage/cost accounting data is actually present and distinguishes candidates. Test: `src/server/handlers/decide/stat_tests/consumer_tests.rs::routing_prefers_the_lower_cost_legal_option_when_accounting_data_distinguishes_candidates`.
 - [ ] D27 **EG-DECISION-ENGINE-R041.1 (reopened 2026-10-09, audit gap):** Connector-event evaluate-only triage path with sampled audit logging. No connector-event evaluate-only triage path or sampled-audit mechanism exists. Inbound connector events must be classified via the decision ladder in evaluate-only mode with a sampled fraction logged for audit. Test: `src/server/handlers/decide/stat_tests/consumer_tests.rs::connector_event_triage_is_evaluate_only_and_logs_a_sampled_fraction_for_audit`.
 - [ ] D28 **EG-DECISION-ENGINE-R054.1 (reopened 2026-10-09, audit gap):** TTL/SHACL generation artifact for the Decide/DecisionFit/DecisionEval contract exists. No TTL/SHACL generation artifact exists for the Decide, DecisionFit, and DecisionEval contract and DecisionRecord v2 schema. Test: `contract/tests/decide_contract_generation.rs::ttl_and_shacl_artifacts_are_generated_and_match_the_decide_fit_eval_contract`.
-- [ ] D29 **EG-DECISION-ENGINE-R072.1 (reopened 2026-10-09, audit gap):** Solver node count and optimality gap are emitted on the Assemble/solver path. Solver node count and optimality gap are never emitted as spans/metrics on the Assemble/solver path, though other decision observability fields are. Test: `crates/eg-compute/tests/solve/instrumentation.rs::assemble_emits_solver_node_count_and_optimality_gap_metrics`.
+- D29 **EG-DECISION-ENGINE-R072.1:** Capture solver node count and optional checked optimality gap through `crates/eg-compute/tests/solve/instrumentation.rs::assemble_emits_solver_node_count_and_optimality_gap_metrics`. The exact production telemetry helper ran successfully (3 tests); the native solver-entry capture test has not been run.
 - [ ] D30 **EG-DECISION-ENGINE-R084.1 (reopened 2026-10-09, audit gap):** ECE/coverage measurement across option sets of varying size. No expected-calibration-error/coverage measurement exists across option sets of varying size. Fixtures are fixed at 3 options, so the declared coverage-holds-without-a-size-specific-parameter claim is untested. Test: `tests/decision/calibration_coverage.rs::measures_ece_and_empirical_coverage_across_option_sets_of_varying_size`.
 - [ ] D31 **EG-DECISION-ENGINE-R088.1 (reopened 2026-10-09, audit gap):** Belief-as-of-t uses the bitemporal AS OF mechanism, not a bespoke per-feature recompute. Belief-as-of-t is currently a bespoke per-feature recompute rather than going through the required bitemporal AS OF query mechanism over temporal slices. Test: `crates/eg-types/src/decision/rapid_r088.rs::tests::belief_as_of_successive_prefixes_matches_direct_bitemporal_as_of_queries`.
 - [ ] D32 **EG-DECISION-ENGINE-R099.1 (reopened 2026-10-09, audit gap):** Wikidata alignment connector and schema_mappings SHACL validation exist. No Wikidata connector, schema_mappings data, or SHACL test exists supplying the Region/Country/Taxon/Food/Nutrient entity-resolution keys EG-DECISION-ENGINE-R032 consumes. Test: `tests/connectors/wikidata_alignment.rs::schema_mappings_validate_against_world_model_shacl_shapes_and_resolve_expected_entities`.
 - [ ] D33 **EG-DECISION-ENGINE-R109.1 (reopened 2026-10-09, audit gap):** Topology admissibility entailment test varies the composed schema digest. Entailment lives in `topology_schema.rs::entail`, not the named `admissible.rs`, and no test varies the composed schema digest to show the derived TopologyAdmissible facts and eliminated options actually change. Test: `crates/eg-compute/src/assemble/topology/admissible.rs::tests::varying_the_composed_schema_digest_changes_derived_topology_admissibility`.
-- [ ] D34 **EG-DECISION-ENGINE-R110.1 (reopened 2026-10-09, audit gap):** Topology brute-force oracle property test covers n<=20 variables. No n<=20 property oracle for topology exists; only 9 fixed cases on one template are tested today. Test: `crates/eg-compute/src/assemble/topology/model.rs::tests::property_oracle_agrees_with_the_solver_for_instances_up_to_twenty_variables`.
+- [x] D34 **EG-DECISION-ENGINE-R110.1:** Add the independent bounded topology oracle in `crates/eg-compute/src/assemble/tests/topology_oracle.rs`. The test covers 66 deterministic fixtures and counts twenty actual solver variables. Native execution remains pending.
 - [ ] D35 **EG-DECISION-ENGINE-R111.1 (reopened 2026-10-09, audit gap):** Topology selection is exposed as its own standalone typed Decide question. No dispatch-level standalone typed Topology Decide question exists; topology selection is still only reachable inside `graph.assemble()`. Test: `src/server/handlers/decide/stat_tests/consumer_tests.rs::a_standalone_topology_decide_question_returns_a_typed_decision_record`.
 - [ ] D36 **EG-DECISION-ENGINE-R117.1 (reopened 2026-10-09, audit gap):** UQL/SQL/PromQL golden-equivalence and 4-metric DecisionEval report test. No UQL/SQL/PromQL golden-equivalence test or 4-metric DecisionEval report test exists for the DERIVE series functions. Test: `crates/eg-tsdb/tests/derive_golden.rs::uql_sql_promql_outputs_agree_on_golden_reference_and_decisioneval_reports_all_four_feature_power_metrics`.
 - [ ] D37 **EG-DECISION-ENGINE-R118.1 (reopened 2026-10-09, audit gap):** Reputation-view test exists outside the unrelated privacy regression fixture. No real test of the reputation materialization exists. Only incidental fixture text inside an unrelated privacy regression test currently touches this path. Test: `crates/eg-numeric/src/decision/reputation.rs::tests::sparse_pool_abstains_and_authority_policy_retrieval_candidate_and_uql_source_reliability_agree`.
@@ -130,7 +130,7 @@ Existing source modules and tests provide foundations, but this spec does not as
 - [ ] **EG-DECISION-ENGINE-R093.2.1:** Collect seeded results through the existing served client.
 - [ ] **EG-DECISION-ENGINE-R093.2.2:** Bind served labels to collected results and refuse invalid provenance.
 - [ ] **EG-DECISION-ENGINE-R093.2.3:** Verify training consumes real served episodes.
-- [x] **EG-DECISION-ENGINE-R102:** Schema repair proposals pass a decided mapping and shadow-branch check
+- [ ] **EG-DECISION-ENGINE-R102:** Schema repair proposals pass a decided mapping and shadow-branch check
 - [x] **EG-DECISION-ENGINE-R102.1:** Typed schema-repair activation gate (producer-first split of R102)
 - [ ] **EG-DECISION-ENGINE-R113:** EG commits capacity acquisition atomically with synthesis evidence
 - [x] **EG-DECISION-ENGINE-R113.1:** Typed atomic capacity/synthesis-evidence commit outcome (producer-first split of R113)
@@ -140,7 +140,7 @@ Existing source modules and tests provide foundations, but this spec does not as
 - [ ] **EG-DECISION-ENGINE-R113.2.3:** Denied transaction fixture (planned; not run)
 - [ ] **EG-DECISION-ENGINE-R113.2.4:** Transaction recovery fixture (planned; not run)
 - [ ] **EG-DECISION-ENGINE-R113.3:** One retry after capacity denial (planned; not run)
-- [ ] **EG-DECISION-ENGINE-R113.3.1:** Consume the typed allowance once (planned; not run)
+- [x] **EG-DECISION-ENGINE-R113.3.1:** Consume the typed allowance once; direct native module tests pass. Durable and handler enforcement remain open.
 - [ ] **EG-DECISION-ENGINE-R113.3.2:** Durable consumption fixture (planned; not run)
 - [ ] **EG-DECISION-ENGINE-R113.3.3:** Handler retry fixture (planned; not run)
 - [ ] **EG-DECISION-ENGINE-R116:** Consumers reach EG only through the versioned client contract
@@ -152,3 +152,15 @@ Existing source modules and tests provide foundations, but this spec does not as
 
 - [ ] EG-DECISION-ENGINE-R090.2: Verify compiled in-process scoring without external runtimes.
 - [ ] EG-DECISION-ENGINE-R090.3: Measure parameter count, memory, binary footprint, and p99 CPU latency.
+
+- [x] EG-DECISION-ENGINE-R074: Check component-kind closure documentation with positive and adversarial source fixtures.
+- [x] EG-DECISION-ENGINE-R123: Scan canonical solve DTO declarations and reject planted duplicates.
+
+## Remaining integration acceptance
+
+- [ ] **EG-DECISION-ENGINE-R079.2:** Embedding admission at the ingestion boundary; producer tests do not close this integration requirement.
+- [ ] **EG-DECISION-ENGINE-R079.3:** Duplicate and size admission; producer tests do not close this integration requirement.
+- [ ] **EG-DECISION-ENGINE-R079.4:** SQL column admission; producer tests do not close this integration requirement.
+- [ ] **EG-DECISION-ENGINE-R079.5:** Retrieval feedback admission; producer tests do not close this integration requirement.
+- [ ] **EG-DECISION-ENGINE-R080.2:** Served enrichment ladder qualification; producer tests do not close this integration requirement.
+- [ ] **EG-DECISION-ENGINE-R102.2:** Served shadow repair qualification; producer tests do not close this integration requirement.

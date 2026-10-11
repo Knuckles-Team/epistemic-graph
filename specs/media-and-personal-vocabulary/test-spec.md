@@ -1,6 +1,6 @@
 # EG-MEDIA-VOCAB — Test specification
 
-Status: PROPOSED. Governing spec: [spec.md](spec.md).
+Governing spec: [spec.md](spec.md).
 
 | Test ID | Requirement | Level | Setup and input | Expected observation | Evidence |
 |---|---|---|---|---|---|
@@ -16,20 +16,3 @@ Missing leg (jellyfin unconnected): typed abstention. Raw email in Subscriber: S
 ## Quality and release proof
 
 `cargo test -p eg-core`, repo CCCC/jscpd/dupehound/KISS gates; record revision and output link per row.
-
-## Permanent-ID lineage validation
-
-Documentation-only validation for `EG-MEDIA-VOCAB-X-R001` through
-`EG-MEDIA-VOCAB-X-R013` and their active replacements `EG-MEDIA-VOCAB-R021`
-through `EG-MEDIA-VOCAB-R033`:
-
-- Compare the original rows at `b52f912f` with the active rows after applying
-  only the one-to-one ID substitution; acceptance and verification must match.
-- Require exactly thirteen RETIRED historical rows, each naming its unique
-  active replacement, and preserve every pre-existing active row verbatim.
-- Regenerate `status.json` with `pipelines-hook spec-status --write`; require
-  all thirteen historical rows to be RETIRED, with the named replacement in
-  the reason, and all pre-existing status/evidence records unchanged.
-- Run `pipelines-hook spec-standard`, the scoped status freshness check, and
-  changed-file pre-commit gates. No connector implementation test or delivery
-  credit follows from these documentation checks.

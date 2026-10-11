@@ -253,7 +253,7 @@
         "f17f47ab300f"
       ],
       "verified_by": [
-        "src/server/graph_schema/compose.rs:825"
+        "src/server/graph_schema/compose.rs:834"
       ]
     },
     {
@@ -896,10 +896,13 @@
       "title": "NL results are never cached on the NL text",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "8710a3709c47"
+        "8710a3709c47",
+        "d2cb221aa148"
       ],
       "verified_by": [
-        "src/server/handlers/query/nl.rs:158"
+        "src/server/handlers/query/nl.rs:171",
+        "src/server/handlers/query/nl.rs:177",
+        "src/server/handlers/query/nl.rs:200"
       ]
     },
     {

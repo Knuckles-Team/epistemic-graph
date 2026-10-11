@@ -156,7 +156,7 @@ This register inventories all 118 decision-owned obligations. `Historical label`
 | EG-DECISION-ENGINE-R071 | T2 | LANDED | NOT_RUN | DecideText UQL-like front end, kept out of the ordinary UQL parser and wire::Op/wire::Plan |
 | EG-DECISION-ENGINE-R072 | T2 | LANDED | NOT_RUN | Observability: OTel spans/metrics for resolution-kind distribution, abstention rate, evidence-class distribution, solver nodes/gap, ESS, latency percentiles |
 | EG-DECISION-ENGINE-R073 | T3 | LANDED | NOT_RUN | PA2 — Store: four new owner tables, format-v3 open-time refusal, N-intent receipt, batch pin resolver, Withdrawn handling, head CAS, per-component outbox events |
-| EG-DECISION-ENGINE-R074 | — | CLOSED | NOT_RUN | AgentComponentKind closure-rule doc is stale (Shapes/A2aAgentCard/Decide kinds break "every kind referenced from an agent slot") |
+| EG-DECISION-ENGINE-R074 | `tests/test_decision_static_contracts.py` | CLOSED | PASS | The closure rule lists every component kind. The consistency test checks enum and slot references. |
 | EG-DECISION-ENGINE-R075 | T4 | BUILT | NOT_RUN | G6 — Component-id uniqueness and forbidden (Decide-owned) kinds |
 | EG-DECISION-ENGINE-R076 | T4 | BUILT | NOT_RUN | Opt-in nested Pydantic models for decision-type result markers only (2.27.x-scoped subset, precedes the full migration) |
 | EG-DECISION-ENGINE-R077 | T3 | LANDED | NOT_RUN | Shared component schema bump 2→3 (Decide owns numbering; pack adds Withdrawn + new kinds) — one co-landing step |
@@ -216,7 +216,6 @@ The ceiling now refuses 10,000 microseconds, which exceeds the single-digit-mill
 
 R090.2 retains compiled execution acceptance. R090.3 retains measured resource acceptance. Both children remain specified until their checks pass.
 
-
 ## Amendments
 
 ### 2026-10-11: retain R093 served acceptance
@@ -238,3 +237,67 @@ unexpected fields and another operation's result shape must fail closed. Nullabl
 status and receipt results remain valid only for their corresponding operations.
 The native wrapper regression and generated Python runtime tests cover this fix;
 the separate served-instance and documentation acceptance work remains open.
+
+### 2026-10-11: repair the R083 option-count fixture
+
+The large-option scorer fixture estimated 120,000 tokens but required more than 128,000.
+Increase its option count from 4,000 to 5,000, yielding 150,000 estimated tokens.
+Keep the label estimate, token budget, feature-width checks, and bounded-shortlist assertions unchanged.
+This test repair changes no runtime behavior or acceptance state.
+The bound test covers the large-option scorer fixture only; R083.2 still requires real OptionFacts integration.
+
+## Retry allowance model
+
+The dependency-free `topology/retry_allowance.rs` owns the checked local 1-to-0 transition. `capacity_commit.rs` re-exports its public types, preserving the existing caller path. Invalid counts and exhausted allowances fail without mutation. Durable consumption and handler admission remain separate requirements; this copyable model is not a shared authorization store.
+
+## Canonical source contracts
+
+`eg-types/src/solve` owns solver DTO definitions. Compute modules re-export those types.
+The duplicate-declaration scan covers Rust files under `src` and `crates`.
+The scan permits one declaration for each explicitly listed unrelated domain homonym.
+`AgentComponentKind` documents every enum variant in its slot-or-catalog closure rule.
+The consistency check compares enum variants and agent-slot references with that rule.
+
+### 2026-10-11: variable-option calibration acceptance fixture
+
+R084.1 gains a native integration fixture fitting one mixed-size resident scorer
+and measuring served ECE and empirical coverage separately at 2, 3, 5, and 8 options.
+The same fitted calibration is reused without size-specific temperature tuning.
+This is deterministic synthetic test evidence, not a production-data claim.
+Native execution remains pending after the local eg-types compile was SIGKILLed;
+formatting and fixture checks do not satisfy native acceptance.
+The test marker binds the existing fixture to R084.1.
+The generated lifecycle records test existence, independently of execution results.
+
+## Ingestion and schema completion boundaries
+
+R079.1 proves the content taxonomy only. R079.2 through R079.5 retain the parent ingestion, duplicate/size, SQL, and retrieval-feedback obligations. R080.1 proves the typed provenance rule only; R080.2 requires the real six-rung integration fixture. R102.1 proves the typed activation sequence only; R102.2 requires a real shadow ingestion and approval-gated activation. These requirements use the existing source-ingestion, enrichment, and approved-schema owners. They introduce no second write authority. Their planned fixtures are not execution evidence.
+
+### 2026-10-11: bounded topology oracle coverage for R110.1
+
+Extend the assembly topology tests with a fixed-seed property fixture using five
+mandatory components in each of two slots and varied width/round choices. Count
+the actual returned model variables and certificate selection entries, including
+an exactly twenty-variable case. Independently enumerate all topology tuples;
+the ten candidate bits are mandatory, leaving at most sixteen feasible one-hot
+combinations per fixture. Check feasibility and both topology objective levels,
+including demand, capacity, deadline and token caps. Native execution remains
+pending; formatting and standalone fixture arithmetic are not native acceptance.
+The test binds R110.1 under the published spec standard.
+Generated delivery state records test existence, not successful native execution.
+
+### 2026-10-11: bounded solver completion telemetry (R072.1)
+
+Emit one `eg_compute::solve` completion event after the actual search returns its
+certificate. Report `solver_nodes`, `optimality_gap_available`, and, only when
+both endpoints exist and checked subtraction yields a nonnegative value,
+`optimality_gap`. The gap is the absolute scalarized minimization objective gap,
+exported as an approximate f64 for telemetry; certificate integers stay exact.
+Missing endpoints, invalid ordering, and arithmetic overflow omit the gap rather
+than imply optimality. No model inputs, identifiers, selections, or tenant data
+are recorded. Add helper and actual solver-path capture regressions without
+changing search behavior or certificate serialization. Native solver-path
+test was not run. A rustc test harness importing the exact production metrics
+module with the existing tracing rlib passed all 3 helper/capture tests. This
+command does not execute the native solver-entry regression. The regression
+source is bound to R072.1; generated spec state and test execution are separate.

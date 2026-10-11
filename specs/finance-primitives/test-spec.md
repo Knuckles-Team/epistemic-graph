@@ -27,7 +27,6 @@ Every test below runs with generated or checked-in synthetic fixtures. No existi
 | EG-FINANCE-PRIMITIVES-R002 | Golden vectors for every moved kernel match finance alias, generic API and UQL where exposed; generated method schema/count and Python bindings agree; bounded regime derivation reports exact state/work. | Changed precision, duplicated implementation, unknown method alias, nonfinite/short series, insufficient regime state budget and stale generated bindings refuse or fail the build. |
 | EG-FINANCE-PRIMITIVES-R003 | Skilled and overfit fixtures use all 15 sealed CSCV splits; skilled produces 0/15 and deliberately overfit 15/15; a tie exactly at median is not counted. Re-sealing identical input yields identical digest and verify result. | Caller supplies three attractive performance rows against 15 contradictory splits, unequal candidate rows, zero splits, nonfinite score or tampered split evidence: seal/verify refuses or recomputes from the true matrix, never reports the supplied headline. |
 
-
 For any valid activity sequence: activity permutation with the same canonical ordering yields one digest. A higher known-at correction cannot alter an earlier as-of query. A split preserves aggregate basis. A transfer conserves quantity/cash across included accounts after explicit fees. A buy followed by a complete sell has zero remaining units. A valuation currency conversion round trip is bounded by the declared rounding unit. Property generators must shrink to a minimal counterexample and persist a regression vector for failures.
 
 For any strategy: identical spec and input digests yield byte-identical proposals and run evidence; increasing data known-at cannot retroactively change an earlier replay; no strategy result serializes an executable broker order. For any risk scenario, changing a maintenance margin or multiplier must change the documented threshold monotonically where the model's assumptions imply monotonicity; document exceptions.
@@ -85,3 +84,19 @@ Existing parent acceptance remains unchanged. Each intended test below must run 
 
 These six module tests prove the typed envelope only. R011 retains transactional publication and idempotent delivery acceptance.
 R011.2 and R011.3 track that runtime acceptance without claiming these module tests prove it.
+
+## Remaining record-schema producers
+
+| ID | Positive proof | Negative proof | Proving test |
+|---|---|---|---|
+| EG-FINANCE-PRIMITIVES-R004.2.3 | A valid `PortfolioGroup` record conforms to its declared shape. Its class exists in the composed finance module. | Missing required fields, invalid links, and unknown vocabulary refuse. | `src/server/graph_schema/finance_tests.rs::shapes::portfolio_group_schema_acceptance (intended test)` |
+| EG-FINANCE-PRIMITIVES-R004.2.4 | A valid `StrategySpec` record conforms to its declared shape. Its class exists in the composed finance module. | Missing required fields, invalid links, and unknown vocabulary refuse. | `src/server/graph_schema/finance_tests.rs::shapes::strategy_spec_schema_acceptance (intended test)` |
+| EG-FINANCE-PRIMITIVES-R004.2.5 | A valid `StrategyRun` record conforms to its declared shape. Its class exists in the composed finance module. | Missing required fields, invalid links, and unknown vocabulary refuse. | `src/server/graph_schema/finance_tests.rs::shapes::strategy_run_schema_acceptance (intended test)` |
+| EG-FINANCE-PRIMITIVES-R004.2.6 | A valid `LeverageTerms` record conforms to its declared shape. Its class exists in the composed finance module. | Missing required fields, invalid links, and unknown vocabulary refuse. | `src/server/graph_schema/finance_tests.rs::shapes::leverage_terms_schema_acceptance (intended test)` |
+
+## Complete schema acceptance
+
+| ID | Positive proof | Negative proof | Proving test |
+|---|---|---|---|
+| EG-FINANCE-PRIMITIVES-R004.2.1.1 | Valid `Account/Position` fixtures accept every declared value of accountKind and costBasisMethod. | Omit each required field separately. Use literal values for IRI links. Wrong datatypes, duplicate singleton fields, and unknown vocabulary refuse. | `src/server/graph_schema/finance_tests.rs::shapes::account_position_complete_schema_matrix (intended test)` |
+| EG-FINANCE-PRIMITIVES-R004.2.2.1 | Valid `Activity/Lot` fixtures accept every declared value of activityKind. | Omit each required field separately. Use literal values for IRI links. Wrong datatypes, duplicate singleton fields, and unknown vocabulary refuse. | `src/server/graph_schema/finance_tests.rs::shapes::activity_lot_complete_schema_matrix (intended test)` |

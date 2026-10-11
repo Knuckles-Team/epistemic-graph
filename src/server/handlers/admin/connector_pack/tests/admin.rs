@@ -16,6 +16,20 @@ use super::{
 
 const CONNECTOR: &str = "pack-admin";
 
+async fn catalog_status(
+    served: &Served,
+    connector: &str,
+) -> eg_types::connector_pack::ConnectorPackStatus {
+    served
+        .state
+        .write()
+        .await
+        .ensure_agent_library()
+        .unwrap()
+        .connector_pack_status(TENANT, &ResourceId::new(connector).unwrap())
+        .unwrap()
+}
+
 fn rejected_codes(result: PackImportResult) -> Vec<PackViolationCode> {
     match result {
         PackImportResult::Rejected { violations, .. } => {
@@ -239,7 +253,7 @@ async fn holder_refcounts_transition_across_unchanged_revised_and_withdrawn_entr
     )
     .await;
     // Next release: `a` unchanged, `b` revised (new body, new holder), `c`
-    // withdrawn (dropped from the pack, its holder becomes an orphan).
+    // withdrawn (dropped from the pack, its historical holder stays live).
     let b_revised = tool(CONNECTOR, "b", "Tool b, revised.");
     let second = imported(
         &served,
@@ -252,8 +266,8 @@ async fn holder_refcounts_transition_across_unchanged_revised_and_withdrawn_entr
         "unchanged/revised/withdrawn dispositions all land in one commit: {:?}",
         second.counts
     );
-    // `b`'s revised body and `c`'s withdrawn body are now orphans; `a` and the
-    // revised `b` stay held.
+    // Retained revisions are still pinned: neither the old `b` body nor
+    // withdrawn `c` is an orphan. The sweep must preserve their exact bytes.
     let key = "reconcile:pack-admin-transitions";
     let report: PackBodyReconcileReport = ok(
         "ReconcileBodies",
@@ -269,30 +283,39 @@ async fn holder_refcounts_transition_across_unchanged_revised_and_withdrawn_entr
             .await,
     );
     assert_eq!(
-        report.orphaned, 2,
-        "the old `b` body and the withdrawn `c` body are reclaimed: {report:?}"
+        report.scanned, 5,
+        "all distinct revision bodies remain held"
     );
-    let content: eg_types::agent_component::AgentComponentContentResult = ok(
-        "Content",
-        served
-            .call(
-                "content:pack-admin-transitions:b",
-                crate::protocol::Method::AgentComponent {
-                    op: eg_types::agent_component::AgentComponentOp::Content {
-                        request: eg_types::agent_component::AgentComponentContentRequest {
-                            tenant_id: TENANT.to_string(),
-                            component_id: "mcp:pack-admin/tool/b".to_string(),
-                            entry_revision: None,
+    assert_eq!(report.orphaned, 0, "historical bodies are not orphans");
+    assert_eq!(
+        report.released, 0,
+        "no historical reference may be released"
+    );
+    for (name, revision, expected) in [
+        ("a", Some(1), &a.body),
+        ("b", Some(1), &b.body),
+        ("c", Some(1), &c.body),
+        ("b", None, &b_revised.body),
+    ] {
+        let content: eg_types::agent_component::AgentComponentContentResult = ok(
+            "Content",
+            served
+                .call(
+                    &format!("content:pack-admin-transitions:{name}:{revision:?}"),
+                    crate::protocol::Method::AgentComponent {
+                        op: eg_types::agent_component::AgentComponentOp::Content {
+                            request: eg_types::agent_component::AgentComponentContentRequest {
+                                tenant_id: TENANT.to_string(),
+                                component_id: format!("mcp:pack-admin/tool/{name}"),
+                                entry_revision: revision,
+                            },
                         },
                     },
-                },
-            )
-            .await,
-    );
-    assert_eq!(
-        content.body, b_revised.body,
-        "the revised body, not the orphaned one, still reads back held"
-    );
+                )
+                .await,
+        );
+        assert_eq!(&content.body, expected, "retained body {name}:{revision:?}");
+    }
 }
 
 // spec: EG-TYPED-PACKS-R007
@@ -328,14 +351,6 @@ async fn bind_unbind_and_retire_require_admin_connector_pack_and_the_head_surviv
         .map(|name| tool(connector, name, "A tool."))
         .collect();
     let first = imported(&served, &build_pack(connector, &tools), None).await;
-    let before = served
-        .state
-        .write()
-        .await
-        .ensure_agent_library()
-        .unwrap()
-        .connector_pack_status(TENANT, &ResourceId::new(connector).unwrap())
-        .unwrap();
     let retire_key = format!("retire:{connector}:b");
     let retired: PackRetireResult = ok(
         "Retire",
@@ -353,33 +368,76 @@ async fn bind_unbind_and_retire_require_admin_connector_pack_and_the_head_surviv
             .await,
     );
     assert_eq!(retired.retired.len(), 1);
+    let before = catalog_status(&served, connector).await;
     let mut returning = tools.clone();
     returning.push(tool(connector, "d", "A new tool."));
-    let error = refused(
-        "reimporting a retired entry",
-        import(
-            &served,
-            &build_pack(connector, &returning),
-            Some(head_of(&first)),
-        )
-        .await,
+    assert_eq!(
+        rejected_codes(ok(
+            "Import",
+            import(
+                &served,
+                &build_pack(connector, &returning),
+                Some(head_of(&first)),
+            )
+            .await,
+        )),
+        [PackViolationCode::RetiredEntryReturned],
     );
-    assert_eq!(error, "RETIRED_ENTRY_RETURNED");
-    let after = served
-        .state
-        .write()
-        .await
-        .ensure_agent_library()
-        .unwrap()
-        .connector_pack_status(TENANT, &ResourceId::new(connector).unwrap())
-        .unwrap();
+    let after = catalog_status(&served, connector).await;
     assert_eq!(
         before, after,
         "the rejected reimport must not mutate the head"
     );
 }
 
-// spec: EG-TYPED-PACKS-R003
+/// Owner rows plus exact body reads and liveness of every admitted revision.
+async fn refusal_snapshot(served: &Served, connector: &str) -> serde_json::Value {
+    let store = served.state.write().await.ensure_agent_library().unwrap();
+    let blob = served.state.read().await.blob.clone().unwrap();
+    let mut bodies = Vec::new();
+    for member in store
+        .connector_pack_members(TENANT, &ResourceId::new(connector).unwrap())
+        .unwrap()
+    {
+        let entry = store
+            .current_component(TENANT, &member.component_id)
+            .unwrap()
+            .unwrap();
+        for revision in 1..=entry.entry_revision {
+            let pointer = store
+                .connector_pack_content_pointer(TENANT, &member.component_id, Some(revision))
+                .unwrap();
+            let bytes = crate::server::blob::engine_bodies::read_engine_body(
+                blob.store.as_ref(),
+                TENANT,
+                &pointer.engine_manifest_digest,
+                pointer.body_sha256,
+                pointer.length,
+            )
+            .unwrap();
+            let holder = crate::server::blob::engine_bodies::engine_body_holder(
+                TENANT,
+                &pointer.body_sha256,
+            );
+            let live = blob
+                .store
+                .has_named_holder(&pointer.engine_manifest_digest, &holder)
+                .unwrap();
+            assert!(live);
+            bodies.push(serde_json::json!([
+                format!("{pointer:?}"),
+                bytes,
+                live,
+                blob.store
+                    .refcount(&pointer.engine_manifest_digest)
+                    .unwrap()
+            ]));
+        }
+    }
+    serde_json::json!({"owner": store.connector_pack_refusal_snapshot(TENANT), "bodies": bodies})
+}
+
+// spec: EG-TYPED-PACKS-R003, EG-TYPED-PACKS-R042.2
 #[tokio::test]
 async fn a_rejected_import_mutates_nothing_in_the_catalog() {
     let served = Served::new();
@@ -391,14 +449,7 @@ async fn a_rejected_import_mutates_nothing_in_the_catalog() {
         None,
     )
     .await;
-    let before = served
-        .state
-        .write()
-        .await
-        .ensure_agent_library()
-        .unwrap()
-        .connector_pack_status(TENANT, &ResourceId::new(connector).unwrap())
-        .unwrap();
+    let before = refusal_snapshot(&served, connector).await;
     // A second release whose entry list is out of its required sort order
     // (validate_header requires ascending, unique URIs) -- malformed, so a
     // rejection that must leave the catalog untouched.
@@ -420,7 +471,7 @@ async fn a_rejected_import_mutates_nothing_in_the_catalog() {
             ConnectorPackOp::Import {
                 request: Box::new(eg_types::connector_pack::ConnectorPackImportRequest {
                     context: context(key),
-                    index,
+                    index: index.clone(),
                     expected_head: Some(head_of(&first)),
                     allow_mass_withdrawal: false,
                 }),
@@ -428,21 +479,64 @@ async fn a_rejected_import_mutates_nothing_in_the_catalog() {
         )
         .await;
     assert_eq!(
-        rejected_codes(ok("Import", rejected)),
-        [PackViolationCode::MalformedIndex]
+        refused("noncanonical import key", rejected),
+        "IDEMPOTENCY_CONFLICT",
     );
-    let after = served
-        .state
-        .write()
-        .await
-        .ensure_agent_library()
-        .unwrap()
-        .connector_pack_status(TENANT, &ResourceId::new(connector).unwrap())
-        .unwrap();
+    assert_eq!(
+        rejected_codes(ok(
+            "Import",
+            import(&served, &(index, archive), Some(head_of(&first))).await,
+        )),
+        [PackViolationCode::MalformedIndex],
+    );
+    let after = refusal_snapshot(&served, connector).await;
     assert_eq!(
         before, after,
         "a rejected import must commit zero catalog mutation"
     );
+
+    for field in ["provides", "requires_capabilities"] {
+        for (iri, code) in [
+            (
+                "eg:capability/retrieval/web-searc",
+                PackViolationCode::UnknownCapabilityIri,
+            ),
+            ("1vendor:search", PackViolationCode::InvalidAnnotation),
+        ] {
+            let mut candidate = tool(connector, "a", &format!("Rejected {field}: {iri}"));
+            candidate.annotations =
+                serde_json::from_value(serde_json::json!({field: [iri]})).unwrap();
+            let pack = build_pack(connector, &[candidate]);
+            served.upload(&pack.1).await;
+            let blob = served.state.read().await.blob.clone().unwrap();
+            let blob_counts = (
+                blob.store.blob_count().unwrap(),
+                blob.store.chunk_count().unwrap(),
+            );
+            let before = refusal_snapshot(&served, connector).await;
+            assert_eq!(
+                rejected_codes(ok(
+                    "Import",
+                    import(&served, &pack, Some(head_of(&first))).await
+                )),
+                [code],
+                "{field}: {iri}"
+            );
+            assert_eq!(
+                refusal_snapshot(&served, connector).await,
+                before,
+                "{field}: {iri}"
+            );
+            assert_eq!(
+                (
+                    blob.store.blob_count().unwrap(),
+                    blob.store.chunk_count().unwrap()
+                ),
+                blob_counts,
+                "rejected bodies never enter the engine CAS"
+            );
+        }
+    }
 }
 
 // spec: EG-TYPED-PACKS-R005
