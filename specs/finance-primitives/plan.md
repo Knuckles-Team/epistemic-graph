@@ -15,6 +15,13 @@ RDFLib parse of all 36 registered documents confirms that total. It also confirm
 This cross-parser check is supporting evidence; the changed native census test
 still requires execution. It does not establish the remaining served finance work.
 
+The existing native finance tests passed at that same immutable head. Bind the
+unchanged catalog placement, valid-record, and malformed-record tests to R004.2.1
+and R004.2.2. They exercise Account, Position, Activity, and Lot declarations and
+their SHACL records. The failure fixtures cover missing links and invalid vocabulary.
+Evidence: [facade job 114434983311](https://github.com/Knuckles-Team/epistemic-graph/actions/runs/38127544759/job/114434983311).
+These individual passes do not make the failed overall facade job successful.
+
 ## Sequence
 
 1. **Contract foundation (EG-FINANCE-PRIMITIVES-R004, EG-FINANCE-PRIMITIVES-R006).** Add typed versioned records, ontology and SHACL shapes, temporal revision resolution and session/calendar semantics. Review migration of existing asset-class values. Generate clients and prove old `FinanceMarket` decoding.
