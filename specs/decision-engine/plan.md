@@ -261,3 +261,15 @@ No spec binding marker is added before that native run.
 ## Ingestion and schema completion boundaries
 
 R079.1 proves the content taxonomy only. R079.2 through R079.5 retain the parent ingestion, duplicate/size, SQL, and retrieval-feedback obligations. R080.1 proves the typed provenance rule only; R080.2 requires the real six-rung integration fixture. R102.1 proves the typed activation sequence only; R102.2 requires a real shadow ingestion and approval-gated activation. These requirements use the existing source-ingestion, enrichment, and approved-schema owners. They introduce no second write authority. Their planned fixtures are not execution evidence.
+
+### 2026-10-11: bounded topology oracle coverage for R110.1
+
+Extend the assembly topology tests with a fixed-seed property fixture using five
+mandatory components in each of two slots and varied width/round choices. Count
+the actual returned model variables and certificate selection entries, including
+an exactly twenty-variable case. Independently enumerate all topology tuples;
+the ten candidate bits are mandatory, leaving at most sixteen feasible one-hot
+combinations per fixture. Check feasibility and both topology objective levels,
+including demand, capacity, deadline and token caps. Native execution remains
+pending; formatting and standalone fixture arithmetic are not native acceptance.
+No verification binding marker or acceptance-state change is added.
