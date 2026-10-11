@@ -167,3 +167,11 @@ The bounded Cargo attempt used `cargo test --offline -p epistemic-graph --lib --
 It exited 101 before compilation because the offline registry lacked `hex`.
 Served import, persisted modality facts, refusal atomicity, TP-10, TP-11, and release gates remain unverified.
 The native harness is evidence for the listed source tests only. It does not substitute for served acceptance.
+
+### 2026-10-11 served regression slice
+
+R042.2 adds signed G12 rejection cases with bounded owner-table, body-liveness,
+and outbox snapshots plus persisted native/foreign claim and warning checks.
+R093.2 extends forced Reproject with colliding member labels, durable schema
+inspection, and fresh-key repeat identity checks. These tests are LANDED-only
+evidence until native execution succeeds; no acceptance test binding is added.

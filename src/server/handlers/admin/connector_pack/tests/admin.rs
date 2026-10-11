@@ -390,6 +390,53 @@ async fn bind_unbind_and_retire_require_admin_connector_pack_and_the_head_surviv
     );
 }
 
+/// Owner rows plus exact body reads and liveness of every admitted revision.
+async fn refusal_snapshot(served: &Served, connector: &str) -> serde_json::Value {
+    let store = served.state.write().await.ensure_agent_library().unwrap();
+    let blob = served.state.read().await.blob.clone().unwrap();
+    let mut bodies = Vec::new();
+    for member in store
+        .connector_pack_members(TENANT, &ResourceId::new(connector).unwrap())
+        .unwrap()
+    {
+        let entry = store
+            .current_component(TENANT, &member.component_id)
+            .unwrap()
+            .unwrap();
+        for revision in 1..=entry.entry_revision {
+            let pointer = store
+                .connector_pack_content_pointer(TENANT, &member.component_id, Some(revision))
+                .unwrap();
+            let bytes = crate::server::blob::engine_bodies::read_engine_body(
+                blob.store.as_ref(),
+                TENANT,
+                &pointer.engine_manifest_digest,
+                pointer.body_sha256,
+                pointer.length,
+            )
+            .unwrap();
+            let holder = crate::server::blob::engine_bodies::engine_body_holder(
+                TENANT,
+                &pointer.body_sha256,
+            );
+            let live = blob
+                .store
+                .has_named_holder(&pointer.engine_manifest_digest, &holder)
+                .unwrap();
+            assert!(live);
+            bodies.push(serde_json::json!([
+                format!("{pointer:?}"),
+                bytes,
+                live,
+                blob.store
+                    .refcount(&pointer.engine_manifest_digest)
+                    .unwrap()
+            ]));
+        }
+    }
+    serde_json::json!({"owner": store.connector_pack_refusal_snapshot(TENANT), "bodies": bodies})
+}
+
 // spec: EG-TYPED-PACKS-R003
 #[tokio::test]
 async fn a_rejected_import_mutates_nothing_in_the_catalog() {
@@ -402,7 +449,7 @@ async fn a_rejected_import_mutates_nothing_in_the_catalog() {
         None,
     )
     .await;
-    let before = catalog_status(&served, connector).await;
+    let before = refusal_snapshot(&served, connector).await;
     // A second release whose entry list is out of its required sort order
     // (validate_header requires ascending, unique URIs) -- malformed, so a
     // rejection that must leave the catalog untouched.
@@ -442,11 +489,54 @@ async fn a_rejected_import_mutates_nothing_in_the_catalog() {
         )),
         [PackViolationCode::MalformedIndex],
     );
-    let after = catalog_status(&served, connector).await;
+    let after = refusal_snapshot(&served, connector).await;
     assert_eq!(
         before, after,
         "a rejected import must commit zero catalog mutation"
     );
+
+    for field in ["provides", "requires_capabilities"] {
+        for (iri, code) in [
+            (
+                "eg:capability/retrieval/web-searc",
+                PackViolationCode::UnknownCapabilityIri,
+            ),
+            ("1vendor:search", PackViolationCode::InvalidAnnotation),
+        ] {
+            let mut candidate = tool(connector, "a", &format!("Rejected {field}: {iri}"));
+            candidate.annotations =
+                serde_json::from_value(serde_json::json!({field: [iri]})).unwrap();
+            let pack = build_pack(connector, &[candidate]);
+            served.upload(&pack.1).await;
+            let blob = served.state.read().await.blob.clone().unwrap();
+            let blob_counts = (
+                blob.store.blob_count().unwrap(),
+                blob.store.chunk_count().unwrap(),
+            );
+            let before = refusal_snapshot(&served, connector).await;
+            assert_eq!(
+                rejected_codes(ok(
+                    "Import",
+                    import(&served, &pack, Some(head_of(&first))).await
+                )),
+                [code],
+                "{field}: {iri}"
+            );
+            assert_eq!(
+                refusal_snapshot(&served, connector).await,
+                before,
+                "{field}: {iri}"
+            );
+            assert_eq!(
+                (
+                    blob.store.blob_count().unwrap(),
+                    blob.store.chunk_count().unwrap()
+                ),
+                blob_counts,
+                "rejected bodies never enter the engine CAS"
+            );
+        }
+    }
 }
 
 // spec: EG-TYPED-PACKS-R005
