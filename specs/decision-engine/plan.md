@@ -456,11 +456,11 @@ Cross-repository rows:
 - The `GRAPHOS-A2A` row for admission refuses a task without a committed `HarnessConfig` answer.
 - The `SDK-CONNECTOR-CONTROL` row for tool `read_only` and `side_effects` facts feeds the tool-subset candidates.
 
-### 2026-10-11 amendment: committed R073.4 receipt acceptance
+### Committed pack receipt binding (R073.4)
 
 The signed served fixture commits three components and one pack intent.
 The fixture reads the typed replay receipt, committed batch and physical outbox through scoped owner APIs.
 An independent digest oracle checks every intent and header against the committed receipt.
 The fixture retries through `commit_pack_write` with a fresh nonce and refuses any new owner application.
 The handler catalog shortcut answers repeated imports before owner admission; it does not exercise typed receipt replay.
-The fixture checks that shortcut separately. Native execution remains pending parent coordination.
+The fixture checks that shortcut separately.

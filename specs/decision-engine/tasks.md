@@ -194,5 +194,5 @@ Existing source modules and tests provide foundations, but this spec does not as
 
 - [ ] **EG-DECISION-ENGINE-R127.2.3:** Qualify the generated guardrail client against a compiled server and real published rule set. Generated sender, typed decoder, request/response schemas and the real-engine acceptance fixture are present; native execution remains pending. No-engine transport/validation tests are supporting checks, not the required end-to-end acceptance.
 
-- [x] **EG-DECISION-ENGINE-R073.4:** Bind committed receipts to every served import intent and exercise typed owner replay.
-  Run the named native fixture and adjacent storage fixtures before accepting this requirement.
+- [ ] **EG-DECISION-ENGINE-R073.4:** Qualify committed receipt binding and typed owner replay with native execution.
+  Run the named receipt fixture and adjacent served storage fixtures from `test-spec.md`.

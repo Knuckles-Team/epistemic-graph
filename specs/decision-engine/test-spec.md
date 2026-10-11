@@ -281,4 +281,3 @@ The fixture separately checks the served catalog shortcut and unchanged owner ro
 
 Run `cargo test --lib --features blob committed_multi_intent_receipt_binds_all_effects_and_survives_replay`.
 Then run `cargo test --lib --features blob storage_acceptance` for the adjacent served storage fixtures.
-Neither native command ran in this slice. Parent coordination owns native execution.
