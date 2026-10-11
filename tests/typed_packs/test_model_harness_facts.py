@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+from typing import Any
 
 import pytest
 from conftest import TEST_TENANT, request_context
@@ -28,7 +29,7 @@ from epistemic_graph.generated.connector_pack import (
 
 @pytest.mark.spec("EG-TYPED-PACKS-R048.5")
 def test_model_profile_round_trip() -> None:
-    model = {
+    model: dict[str, Any] = {
         "provider": "test-provider",
         "model_identity": "test-model",
         "context_window_tokens": 128_000,

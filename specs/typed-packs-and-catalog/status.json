@@ -861,7 +861,7 @@
       ],
       "verified_by": [
         "crates/eg-types/src/connector_pack/digest.rs:303",
-        "tests/typed_packs/test_model_harness_facts.py:29"
+        "tests/typed_packs/test_model_harness_facts.py:30"
       ]
     },
     {
