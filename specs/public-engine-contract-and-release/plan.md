@@ -60,3 +60,16 @@ derive their census from the declared catalog instead of pinning historical
 totals. The scanner wiring regression recognizes the blocking conditional
 pre-commit step for PR-diff and full-publication checks without changing the
 intentional pipelines@main workflow policy or pinned scanner binaries.
+
+### 2026-10-11: cache server compilation without bypassing source builds
+
+EG-CONTRACT-R009 retains the unconditional locked, full-featured server build
+and same-run revision/digest-verified artifact handoff. The server preparation
+job installs a pinned sccache before enabling its compiler wrapper only for
+that build step. This addresses the prior missing-wrapper CI incident without
+changing local Cargo configuration, wheel builds, or the other validation jobs.
+GitHub's built-in cache backend needs no repository secret; only main writes,
+and other refs read. Cargo still checks the current source and sccache keys
+cacheable compiler outputs by compiler inputs; final binary linking still runs.
+Cache statistics make warm reuse observable. The ten-minute target remains
+unproven until a main cache seed and a subsequent hosted run are measured.
