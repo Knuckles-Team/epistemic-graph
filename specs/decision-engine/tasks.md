@@ -193,3 +193,6 @@ Existing source modules and tests provide foundations, but this spec does not as
 - [ ] **EG-DECISION-ENGINE-R128.15:** End-to-end proof uses the served path. A served test must publish a model profile with measured facts, submit `Method::Decide` for `harness_config` over the wire, and assert the answer, premises and the unchanged tool-subset result. A second case must submit a profile without `shellProficiency` and assert the `tool_set` abstention. Test: `tests/decide/test_harness_config_served.py::test_harness_config_end_to_end`.
 
 - [ ] **EG-DECISION-ENGINE-R127.2.3:** Qualify the generated guardrail client against a compiled server and real published rule set. Generated sender, typed decoder, request/response schemas and the real-engine acceptance fixture are present; native execution remains pending. No-engine transport/validation tests are supporting checks, not the required end-to-end acceptance.
+
+- [x] **EG-DECISION-ENGINE-R073.4:** Bind committed receipts to every served import intent and exercise typed owner replay.
+  Run the named native fixture and adjacent storage fixtures before accepting this requirement.
