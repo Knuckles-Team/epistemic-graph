@@ -1631,9 +1631,14 @@
     {
       "id": "EG-DECISION-ENGINE-R073.3",
       "title": "Fresh owner open and outdated-format refusal",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "44e16218bb0a"
+      ],
+      "verified_by": [
+        "src/server/persistence/agent_library/open_tests.rs:49",
+        "src/server/persistence/agent_library/open_tests.rs:6"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R073.4",
@@ -1645,9 +1650,15 @@
     {
       "id": "EG-DECISION-ENGINE-R073.5",
       "title": "Batch pins and withdrawn-component reads",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "44e16218bb0a"
+      ],
+      "verified_by": [
+        "src/server/handlers/admin/connector_pack/tests/content_model.rs:369",
+        "src/server/handlers/admin/connector_pack/tests/content_model.rs:404",
+        "src/server/handlers/admin/connector_pack/tests/withdrawal.rs:43"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R074",

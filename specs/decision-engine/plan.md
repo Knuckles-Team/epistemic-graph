@@ -167,7 +167,7 @@ This register inventories all 118 decision-owned obligations. `Historical label`
 | EG-DECISION-ENGINE-R070 | T2 | LANDED | NOT_RUN | No-good-cut re-solve loop for post-solve validators (template/graph validation, L4 negotiation) |
 | EG-DECISION-ENGINE-R071 | T2 | LANDED | NOT_RUN | DecideText UQL-like front end, kept out of the ordinary UQL parser and wire::Op/wire::Plan |
 | EG-DECISION-ENGINE-R072 | T2 | LANDED | NOT_RUN | Observability: OTel spans/metrics for resolution-kind distribution, abstention rate, evidence-class distribution, solver nodes/gap, ESS, latency percentiles |
-| EG-DECISION-ENGINE-R073 | T3 | LANDED | NOT_RUN | PA2 — Store: four new owner tables, format-v3 open-time refusal, N-intent receipt, batch pin resolver, Withdrawn handling, head CAS, per-component outbox events |
+| EG-DECISION-ENGINE-R073 | T3 | LANDED | NOT_RUN | PA2 — Store: five ConnectorPack tables within the 21-table Agent Library registry, lineage-based open-time refusal, N-intent receipt, batch pin resolver, Withdrawn handling, head CAS, per-component outbox events |
 | EG-DECISION-ENGINE-R074 | `tests/test_decision_static_contracts.py` | CLOSED | PASS | The closure rule lists every component kind. The consistency test checks enum and slot references. |
 | EG-DECISION-ENGINE-R075 | T4 | BUILT | NOT_RUN | G6 — Component-id uniqueness and forbidden (Decide-owned) kinds |
 | EG-DECISION-ENGINE-R076 | T4 | BUILT | NOT_RUN | Opt-in nested Pydantic models for decision-type result markers only (2.27.x-scoped subset, precedes the full migration) |
@@ -455,3 +455,18 @@ Cross-repository rows:
 - The `AU-HARNESS` row for the evaluation runner writes the measured facts that `EG-TYPED-PACKS-R048.3` and `R048.4` store.
 - The `GRAPHOS-A2A` row for admission refuses a task without a committed `HarnessConfig` answer.
 - The `SDK-CONNECTOR-CONTROL` row for tool `read_only` and `side_effects` facts feeds the tool-subset candidates.
+
+### Production open and withdrawal acceptance
+
+R073.3 uses `AgentLibraryStore::open`, the production entry point in `src/server/persistence/agent_library.rs`.
+The current Agent Library registry declares 21 owner tables, including five ConnectorPack tables.
+Those tables are heads, members, imports, body holders, and bindings.
+The registry, layout digest, and declared predecessors govern compatibility; a standalone format-v3 label does not.
+Fresh-open tests must read every pack table, inspect an empty catalog, and repeat after reopen.
+Genuine predecessor files must fail through this entry point without changing their bytes.
+
+R073.5 reuses the served transitive-chain and diamond-pin tests in `content_model.rs`.
+A signed Search test must exclude a withdrawn tool while retaining a published positive control.
+Signed Content must still return the withdrawn tool's historical pinned body.
+A new dependency on that withdrawn tool must fail with `COMPONENT_WITHDRAWN`.
+The acceptance slice changes tests and documentation only.
