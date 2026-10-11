@@ -371,6 +371,9 @@ jobs:
     # Build and cleanup must choose the same backend if the daemon restarts.
     # Backend settings alone do not wrap any other Cargo command.
     env: &eg-validation-compiler-cache-backend
+      # Requests reset idle time; a long active compile does not. Keep this
+      # finite, but above both jobs' maximum 60-minute execution window.
+      SCCACHE_IDLE_TIMEOUT: '7200'
       SCCACHE_GHA_ENABLED: 'true'
       SCCACHE_GHA_RW_MODE: ${{ github.ref == 'refs/heads/main' && 'READ_WRITE' || 'READ_ONLY' }}
     steps:
