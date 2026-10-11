@@ -200,3 +200,10 @@ Existing source modules and tests provide foundations, but this spec does not as
 - [x] **EG-DECISION-ENGINE-R073.3:** Add production fresh-open, five-table empty-catalog, reopen, and genuine-predecessor no-write proofs in `agent_library/open_tests.rs`.
 - [x] **EG-DECISION-ENGINE-R073.5:** Bind existing transitive and diamond tests. Add signed withdrawal Search, historical Content, and new-pin refusal proof in `tests/withdrawal.rs`.
 - [x] Run native R073.3/R073.5 acceptance tests. Production-open, withdrawal, transitive/diamond and related pin cases pass; exact source and results are in `evidence/gr1080-native-20261011/final-native-results.json`.
+- [ ] **EG-DECISION-ENGINE-R129:** Promoted rules cannot contradict a stored invariant (rollup). The engine must check every rule promoted from repeated human overrides against stored invariants.
+- [ ] **EG-DECISION-ENGINE-R129.1:** Locate and wire the attach point. The implementer must find where a proposal from R034 becomes an active rule and record `file:line` in `plan.md`..
+- [ ] **EG-DECISION-ENGINE-R129.2:** Typed `RulePromotionVerdict`. Add `RulePromotionVerdict { Promotable, RejectedInvariant { invariant_iri } }` to `crates/eg-types/src/decision/guardrail.rs`..
+- [ ] **EG-DECISION-ENGINE-R129.3:** Pure invariant check. Add `check_rule_against_invariants(rule, invariants)` to `guardrail.rs`.
+- [ ] **EG-DECISION-ENGINE-R129.4:** Consensus gives no override. The check must run before any confidence threshold.
+- [ ] **EG-DECISION-ENGINE-R129.5:** Wire the check into promotion. The promotion path must call `check_rule_against_invariants` and persist a `RejectedInvariant` record for audit.
+- [ ] **EG-DECISION-ENGINE-R129.6:** End-to-end proof over the wire. A served test must submit five overrides of a rule that violates a stored invariant and assert rejection.

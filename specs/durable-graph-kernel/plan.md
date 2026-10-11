@@ -199,3 +199,10 @@ This documentation repair adds no Rust execution evidence or runtime acceptance.
 ### 2026-10-11: repeated loaded harness
 
 R014.3.1 adds bounded repetitions and per-invocation evidence to the existing CPU-load supervisor. R014.3.2 retains Rust FlakeBudget-driven diagnostic retries. R014.4 and R014.5 remain open until actual Rust cluster execution is recorded.
+
+## Recovered requirement: shared KV-cache tier
+
+Data flow: consumer put → `KvBlockKey` → tiered store → budgeted eviction → other consumer get.
+Attach point: `crates/eg-kvcache/src/{version,shared,tiered}.rs`; the served operation is located by R083.4.
+Reuses the existing tiered, cold and graph-importance modules.
+Decision: key by model version plus prefix hash. Rejected: session-keyed blocks, which cannot be shared across parallel instances.
