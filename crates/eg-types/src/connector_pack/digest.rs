@@ -102,17 +102,40 @@ fn optional_u64(value: Option<u64>) -> Vec<u8> {
 
 /// The digest of a declared model profile.
 pub fn model_facts_digest(facts: &PackModelFacts) -> Result<Digest256, String> {
+    let mut fields = vec![
+        facts.provider.as_bytes().to_vec(),
+        facts.model_identity.as_bytes().to_vec(),
+        facts.context_window_tokens.to_be_bytes().to_vec(),
+        facts.max_output_tokens.to_be_bytes().to_vec(),
+        tri(facts.supports_tools).to_vec(),
+        tri(facts.supports_structured_output).to_vec(),
+        tri(facts.supports_vision).to_vec(),
+    ];
+    for (name, fact) in [
+        (
+            "shell_proficiency",
+            facts
+                .shell_proficiency
+                .as_ref()
+                .map(|f| (f.value.as_str(), &f.evaluation_run_ref)),
+        ),
+        (
+            "stopping_behaviour",
+            facts
+                .stopping_behaviour
+                .as_ref()
+                .map(|f| (f.value.as_str(), &f.evaluation_run_ref)),
+        ),
+    ] {
+        if let Some((value, reference)) = fact {
+            for part in [name, value, &reference.evaluation_id, &reference.digest] {
+                fields.push(part.as_bytes().to_vec());
+            }
+        }
+    }
     Digest256::framed(
         MODEL_FACTS_DIGEST_DOMAIN,
-        &[
-            facts.provider.as_bytes(),
-            facts.model_identity.as_bytes(),
-            &facts.context_window_tokens.to_be_bytes(),
-            &facts.max_output_tokens.to_be_bytes(),
-            &tri(facts.supports_tools),
-            &tri(facts.supports_structured_output),
-            &tri(facts.supports_vision),
-        ],
+        &fields.iter().map(Vec::as_slice).collect::<Vec<_>>(),
     )
 }
 

@@ -129,20 +129,20 @@ def _list_digest(domain: bytes, values: Sequence[str] | None) -> bytes:
 
 
 def _model_facts_digest(model: PackModelFacts) -> bytes:
-    return _raw_digest(
-        framed_sha256(
-            _MODEL_FACTS_DIGEST_DOMAIN,
-            [
-                _text(model.provider),
-                _text(model.model_identity),
-                _u64(model.context_window_tokens),
-                _u64(model.max_output_tokens),
-                _tri(model.supports_tools),
-                _tri(model.supports_structured_output),
-                _tri(model.supports_vision),
-            ],
-        )
-    )
+    fields = [
+        _text(model.provider), _text(model.model_identity),
+        _u64(model.context_window_tokens), _u64(model.max_output_tokens),
+        _tri(model.supports_tools), _tri(model.supports_structured_output), _tri(model.supports_vision),
+    ]
+    for name in ("shell_proficiency", "stopping_behaviour"):
+        fact = getattr(model, name)
+        if fact is not None:
+            fields.extend([
+                _text(name), _text(fact.value.value),
+                _text(fact.evaluation_run_ref.evaluation_id),
+                _text(fact.evaluation_run_ref.digest),
+            ])
+    return _raw_digest(framed_sha256(_MODEL_FACTS_DIGEST_DOMAIN, fields))
 
 
 def _annotations_digest(annotations: PackAnnotations) -> bytes:
