@@ -169,8 +169,7 @@ pub(super) fn persistence_id(principal: &str) -> String {
 pub(super) fn ok<T: DeserializeOwned>(label: &str, response: Response) -> T {
     assert!(
         response.error.is_none(),
-        "{label} was refused: {:?}",
-        response.error
+        "{label} was refused: {response:?}"
     );
     let value = match response.result {
         Some(ResultPayload::Raw(bytes)) => {
@@ -385,6 +384,15 @@ pub(super) async fn import(
 ) -> Response {
     let (mut index, archive) = pack.clone();
     index.archive.blob_digest = served.upload(&archive).await;
+    import_uploaded(served, index, expected_head).await
+}
+
+/// Import an already uploaded pack as the admin, over `expected_head`.
+pub(super) async fn import_uploaded(
+    served: &Served,
+    index: ConnectorPackIndex,
+    expected_head: Option<eg_types::connector_pack::PackHeadRef>,
+) -> Response {
     let key = format!(
         "connector-pack:{}:import:{}:{}",
         index.connector.as_str(),

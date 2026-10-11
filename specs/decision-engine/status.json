@@ -1621,7 +1621,7 @@
         "771c32a45353"
       ],
       "verified_by": [
-        "src/server/handlers/admin/connector_pack/tests/storage_acceptance.rs:28"
+        "src/server/handlers/admin/connector_pack/tests/storage_acceptance.rs:29"
       ]
     },
     {
@@ -1629,10 +1629,12 @@
       "title": "Competing served imports share one head compare-and-set",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "257e9bef60eb",
+        "4ec396b2fe02",
         "771c32a45353"
       ],
       "verified_by": [
-        "src/server/handlers/admin/connector_pack/tests/storage_acceptance.rs:73"
+        "src/server/handlers/admin/connector_pack/tests/storage_acceptance.rs:74"
       ]
     },
     {
@@ -1664,11 +1666,14 @@
       "title": "Batch pins and withdrawn-component reads",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "44e16218bb0a"
+        "27157a8a5dcf",
+        "44e16218bb0a",
+        "515777a98b6e"
       ],
       "verified_by": [
-        "src/server/handlers/admin/connector_pack/tests/content_model.rs:369",
-        "src/server/handlers/admin/connector_pack/tests/content_model.rs:404",
+        "crates/eg-capabilities/src/error_routing.rs:317",
+        "src/server/handlers/admin/connector_pack/tests/content_model.rs:371",
+        "src/server/handlers/admin/connector_pack/tests/content_model.rs:406",
         "src/server/handlers/admin/connector_pack/tests/withdrawal.rs:43"
       ]
     },
@@ -2103,7 +2108,7 @@
         "26be257523bc"
       ],
       "verified_by": [
-        "tests/test_decision_resident_scorer.py:142"
+        "tests/test_decision_resident_scorer.py:143"
       ]
     },
     {

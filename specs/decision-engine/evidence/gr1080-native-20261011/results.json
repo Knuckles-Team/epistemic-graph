@@ -1,0 +1,333 @@
+{
+  "source_commit": "29d7b11c7f66184300b55c2bf57db41e9e6c552e",
+  "results": [
+    {
+      "pr": "445",
+      "name": "server::mutation_batch::lifecycle_tests::create_lifecycle_replay_keeps_one_stable_receipt",
+      "command": [
+        "target-isolated/debug/deps/epistemic_graph-44c15ffaa3e68f17",
+        "--exact",
+        "server::mutation_batch::lifecycle_tests::create_lifecycle_replay_keeps_one_stable_receipt",
+        "--nocapture"
+      ],
+      "status": "passed",
+      "exit_code": 0,
+      "elapsed_seconds": 0.093,
+      "log": "native-445-create_lifecycle_replay_keeps_one_stable_receipt.log"
+    },
+    {
+      "pr": "445",
+      "name": "server::mutation_batch::lifecycle_tests::delete_lifecycle_replay_keeps_one_stable_receipt",
+      "command": [
+        "target-isolated/debug/deps/epistemic_graph-44c15ffaa3e68f17",
+        "--exact",
+        "server::mutation_batch::lifecycle_tests::delete_lifecycle_replay_keeps_one_stable_receipt",
+        "--nocapture"
+      ],
+      "status": "passed",
+      "exit_code": 0,
+      "elapsed_seconds": 0.115,
+      "log": "native-445-delete_lifecycle_replay_keeps_one_stable_receipt.log"
+    },
+    {
+      "pr": "445",
+      "name": "server::mutation_batch::lifecycle_tests::delete_purges_receipts_of_a_prior_incarnation",
+      "command": [
+        "target-isolated/debug/deps/epistemic_graph-44c15ffaa3e68f17",
+        "--exact",
+        "server::mutation_batch::lifecycle_tests::delete_purges_receipts_of_a_prior_incarnation",
+        "--nocapture"
+      ],
+      "status": "passed",
+      "exit_code": 0,
+      "elapsed_seconds": 0.12,
+      "log": "native-445-delete_purges_receipts_of_a_prior_incarnation.log"
+    },
+    {
+      "pr": "445",
+      "name": "server::mutation_batch::lifecycle_tests::lifecycle_receipt_is_not_replayed_across_tenants",
+      "command": [
+        "target-isolated/debug/deps/epistemic_graph-44c15ffaa3e68f17",
+        "--exact",
+        "server::mutation_batch::lifecycle_tests::lifecycle_receipt_is_not_replayed_across_tenants",
+        "--nocapture"
+      ],
+      "status": "passed",
+      "exit_code": 0,
+      "elapsed_seconds": 0.059,
+      "log": "native-445-lifecycle_receipt_is_not_replayed_across_tenants.log"
+    },
+    {
+      "pr": "445",
+      "name": "redb_store::shard::tests::control_maintenance_reused_label_admits_at_the_current_version",
+      "command": [
+        "target-isolated/debug/deps/epistemic_graph-44c15ffaa3e68f17",
+        "--exact",
+        "redb_store::shard::tests::control_maintenance_reused_label_admits_at_the_current_version",
+        "--nocapture"
+      ],
+      "status": "passed",
+      "exit_code": 0,
+      "elapsed_seconds": 0.02,
+      "log": "native-445-control_maintenance_reused_label_admits_at_the_current_version.log"
+    },
+    {
+      "pr": "445",
+      "name": "test_support::concurrent_temporary_paths_are_unique",
+      "command": [
+        "target-isolated/debug/deps/epistemic_graph-44c15ffaa3e68f17",
+        "--exact",
+        "test_support::concurrent_temporary_paths_are_unique",
+        "--nocapture"
+      ],
+      "status": "passed",
+      "exit_code": 0,
+      "elapsed_seconds": 0.011,
+      "log": "native-445-concurrent_temporary_paths_are_unique.log"
+    },
+    {
+      "pr": "458",
+      "name": "server::handlers::admin::connector_pack::tests::admin::a_rejected_import_mutates_nothing_in_the_catalog",
+      "command": [
+        "target-isolated/debug/deps/epistemic_graph-44c15ffaa3e68f17",
+        "--exact",
+        "server::handlers::admin::connector_pack::tests::admin::a_rejected_import_mutates_nothing_in_the_catalog",
+        "--nocapture"
+      ],
+      "status": "passed",
+      "exit_code": 0,
+      "elapsed_seconds": 0.284,
+      "log": "native-458-a_rejected_import_mutates_nothing_in_the_catalog.log"
+    },
+    {
+      "pr": "458",
+      "name": "server::handlers::admin::connector_pack::tests::content_model::capability_annotations_remain_declared_after_import",
+      "command": [
+        "target-isolated/debug/deps/epistemic_graph-44c15ffaa3e68f17",
+        "--exact",
+        "server::handlers::admin::connector_pack::tests::content_model::capability_annotations_remain_declared_after_import",
+        "--nocapture"
+      ],
+      "status": "failed",
+      "exit_code": 101,
+      "elapsed_seconds": 0.059,
+      "log": "native-458-capability_annotations_remain_declared_after_import.log"
+    },
+    {
+      "pr": "458",
+      "name": "server::handlers::admin::connector_pack::tests::outbox::an_admin_forced_reproject_redrives_a_stale_projection_without_losing_later_work",
+      "command": [
+        "target-isolated/debug/deps/epistemic_graph-44c15ffaa3e68f17",
+        "--exact",
+        "server::handlers::admin::connector_pack::tests::outbox::an_admin_forced_reproject_redrives_a_stale_projection_without_losing_later_work",
+        "--nocapture"
+      ],
+      "status": "passed",
+      "exit_code": 0,
+      "elapsed_seconds": 10.255,
+      "log": "native-458-an_admin_forced_reproject_redrives_a_stale_projection_without_losing_later_work.log"
+    },
+    {
+      "pr": "464",
+      "name": "server::handlers::decide::stat_tests::consumer_tests::an_unregistered_retrieval_plan_is_refused_through_decide",
+      "command": [
+        "target-isolated/debug/deps/epistemic_graph-44c15ffaa3e68f17",
+        "--exact",
+        "server::handlers::decide::stat_tests::consumer_tests::an_unregistered_retrieval_plan_is_refused_through_decide",
+        "--nocapture"
+      ],
+      "status": "passed",
+      "exit_code": 0,
+      "elapsed_seconds": 0.035,
+      "log": "native-464-an_unregistered_retrieval_plan_is_refused_through_decide.log"
+    },
+    {
+      "pr": "465",
+      "name": "server::handlers::decide::stat_tests::retention_tests::library_records_survive_every_retention_window",
+      "command": [
+        "target-isolated/debug/deps/epistemic_graph-44c15ffaa3e68f17",
+        "--exact",
+        "server::handlers::decide::stat_tests::retention_tests::library_records_survive_every_retention_window",
+        "--nocapture"
+      ],
+      "status": "passed",
+      "exit_code": 0,
+      "elapsed_seconds": 0.064,
+      "log": "native-465-library_records_survive_every_retention_window.log"
+    },
+    {
+      "pr": "465",
+      "name": "server::handlers::decide::stat_tests::retention_tests::graph_inputs_expire_at_the_configured_boundaries",
+      "command": [
+        "target-isolated/debug/deps/epistemic_graph-44c15ffaa3e68f17",
+        "--exact",
+        "server::handlers::decide::stat_tests::retention_tests::graph_inputs_expire_at_the_configured_boundaries",
+        "--nocapture"
+      ],
+      "status": "passed",
+      "exit_code": 0,
+      "elapsed_seconds": 0.064,
+      "log": "native-465-graph_inputs_expire_at_the_configured_boundaries.log"
+    },
+    {
+      "pr": "465",
+      "name": "server::handlers::decide::stat_tests::retention_tests::evaluate_only_leaves_no_committed_records",
+      "command": [
+        "target-isolated/debug/deps/epistemic_graph-44c15ffaa3e68f17",
+        "--exact",
+        "server::handlers::decide::stat_tests::retention_tests::evaluate_only_leaves_no_committed_records",
+        "--nocapture"
+      ],
+      "status": "passed",
+      "exit_code": 0,
+      "elapsed_seconds": 0.099,
+      "log": "native-465-evaluate_only_leaves_no_committed_records.log"
+    },
+    {
+      "pr": "466",
+      "name": "server::handlers::admin::connector_pack::tests::storage_acceptance::multi_component_import_emits_one_durable_event_per_component",
+      "command": [
+        "target-isolated/debug/deps/epistemic_graph-44c15ffaa3e68f17",
+        "--exact",
+        "server::handlers::admin::connector_pack::tests::storage_acceptance::multi_component_import_emits_one_durable_event_per_component",
+        "--nocapture"
+      ],
+      "status": "passed",
+      "exit_code": 0,
+      "elapsed_seconds": 0.086,
+      "log": "native-466-multi_component_import_emits_one_durable_event_per_component.log"
+    },
+    {
+      "pr": "466",
+      "name": "server::handlers::admin::connector_pack::tests::storage_acceptance::competing_imports_have_one_head_winner_without_loser_effects",
+      "command": [
+        "target-isolated/debug/deps/epistemic_graph-44c15ffaa3e68f17",
+        "--exact",
+        "server::handlers::admin::connector_pack::tests::storage_acceptance::competing_imports_have_one_head_winner_without_loser_effects",
+        "--nocapture"
+      ],
+      "status": "failed",
+      "exit_code": 101,
+      "elapsed_seconds": 0.07,
+      "log": "native-466-competing_imports_have_one_head_winner_without_loser_effects.log"
+    },
+    {
+      "pr": "467",
+      "name": "server::foreign_catalog::tests::outbound_verification::a_disallowed_sql_destination_is_refused_and_never_persisted",
+      "command": [
+        "target-isolated/debug/deps/epistemic_graph-44c15ffaa3e68f17",
+        "--exact",
+        "server::foreign_catalog::tests::outbound_verification::a_disallowed_sql_destination_is_refused_and_never_persisted",
+        "--nocapture"
+      ],
+      "status": "passed",
+      "exit_code": 0,
+      "elapsed_seconds": 0.01,
+      "log": "native-467-a_disallowed_sql_destination_is_refused_and_never_persisted.log"
+    },
+    {
+      "pr": "467",
+      "name": "server::foreign_catalog::tests::outbound_verification::an_allowed_sql_destination_still_registers",
+      "command": [
+        "target-isolated/debug/deps/epistemic_graph-44c15ffaa3e68f17",
+        "--exact",
+        "server::foreign_catalog::tests::outbound_verification::an_allowed_sql_destination_still_registers",
+        "--nocapture"
+      ],
+      "status": "passed",
+      "exit_code": 0,
+      "elapsed_seconds": 0.01,
+      "log": "native-467-an_allowed_sql_destination_still_registers.log"
+    },
+    {
+      "pr": "467",
+      "name": "server::handlers::rdf::obda::outbound_verification_tests::a_disallowed_obda_destination_is_refused_before_registration",
+      "command": [
+        "target-isolated/debug/deps/epistemic_graph-44c15ffaa3e68f17",
+        "--exact",
+        "server::handlers::rdf::obda::outbound_verification_tests::a_disallowed_obda_destination_is_refused_before_registration",
+        "--nocapture"
+      ],
+      "status": "passed",
+      "exit_code": 0,
+      "elapsed_seconds": 0.01,
+      "log": "native-467-a_disallowed_obda_destination_is_refused_before_registration.log"
+    },
+    {
+      "pr": "467",
+      "name": "server::handlers::rdf::obda::outbound_verification_tests::an_allowed_obda_destination_still_connects",
+      "command": [
+        "target-isolated/debug/deps/epistemic_graph-44c15ffaa3e68f17",
+        "--exact",
+        "server::handlers::rdf::obda::outbound_verification_tests::an_allowed_obda_destination_still_connects",
+        "--nocapture"
+      ],
+      "status": "passed",
+      "exit_code": 0,
+      "elapsed_seconds": 0.01,
+      "log": "native-467-an_allowed_obda_destination_still_connects.log"
+    },
+    {
+      "pr": "467",
+      "name": "server::tests::foreign_tenancy::foreign_column_read_is_owner_scoped_and_mapping_gated",
+      "command": [
+        "target-isolated/debug/deps/epistemic_graph-44c15ffaa3e68f17",
+        "--exact",
+        "server::tests::foreign_tenancy::foreign_column_read_is_owner_scoped_and_mapping_gated",
+        "--nocapture"
+      ],
+      "status": "passed",
+      "exit_code": 0,
+      "elapsed_seconds": 0.055,
+      "log": "native-467-foreign_column_read_is_owner_scoped_and_mapping_gated.log"
+    },
+    {
+      "pr": "469",
+      "name": "server::handlers::decide::stat_tests::fit_evaluate_publish_and_decide_end_to_end",
+      "command": [
+        "target-isolated/debug/deps/epistemic_graph-44c15ffaa3e68f17",
+        "--exact",
+        "server::handlers::decide::stat_tests::fit_evaluate_publish_and_decide_end_to_end",
+        "--nocapture"
+      ],
+      "status": "passed",
+      "exit_code": 0,
+      "elapsed_seconds": 0.803,
+      "log": "native-469-fit_evaluate_publish_and_decide_end_to_end.log"
+    },
+    {
+      "pr": "470",
+      "name": "server::handlers::decide::commit::tests::topology_commit_refuses_uncoordinated_owners",
+      "command": [
+        "target-isolated/debug/deps/epistemic_graph-44c15ffaa3e68f17",
+        "--exact",
+        "server::handlers::decide::commit::tests::topology_commit_refuses_uncoordinated_owners",
+        "--nocapture"
+      ],
+      "status": "passed",
+      "exit_code": 0,
+      "elapsed_seconds": 0.107,
+      "log": "native-470-topology_commit_refuses_uncoordinated_owners.log"
+    }
+  ],
+  "missing": [
+    {
+      "pr": "445",
+      "name": "semantic_owner_registry_is_scoped_to_persistence_root",
+      "matches": [],
+      "reason": "Module is gated by ann-redb (src/server/mod.rs:355), absent from the feature set."
+    }
+  ],
+  "counts": {
+    "passed": 20,
+    "failed": 2,
+    "unrun": 1
+  },
+  "host": "GR1080",
+  "rustc": "1.96.0 (ac68faa20 2026-05-25)",
+  "original_cache_checkout_commit": "7c572aab45554e7d524e223773058efbdba21bed",
+  "cache_copy_method": "cp -a --reflink=auto; distinct files, no hardlinks; original cache preserved",
+  "binary_sha256": "bd7de860c3669c7fe1df0d0a6e198f9f8d68da3b5499cc0990f7130aba0b324b",
+  "source_changes": false,
+  "tracing": "PR474 excluded; no ptrace attempt or permission change"
+}

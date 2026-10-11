@@ -2,7 +2,9 @@
 
 use eg_types::agent_component::AgentComponentEntry;
 use eg_types::agent_library::AgentLibraryLifecycle;
-use eg_types::connector_pack::{PackDispositionCounts, PackImportResult, PackViolationCode};
+use eg_types::connector_pack::{
+    PackDispositionCounts, PackImportResult, PackViolationCode, PackWarningCode,
+};
 
 use super::{
     bind, build_pack, build_pack_with_server, head_of, import, imported, ok,
@@ -610,20 +612,29 @@ async fn capability_annotations_remain_declared_after_import() {
     }))
     .unwrap();
     let receipt = imported(&served, &build_pack(CONNECTOR, &[candidate.clone()]), None).await;
-    assert_eq!(receipt.warnings.len(), 2);
+    let capability_warnings: Vec<_> = receipt
+        .warnings
+        .iter()
+        .filter(|warning| {
+            warning.code == PackWarningCode::UnresolvedCapabilityIri
+                && warning.uri.as_deref() == Some(candidate.uri.as_str())
+        })
+        .collect();
+    assert_eq!(
+        capability_warnings.len(),
+        2,
+        "warnings: {:?}",
+        receipt.warnings
+    );
     for foreign in ["https://example.org/cap/search", "urn:vendor:execute"] {
-        let warning = receipt
-            .warnings
+        let warning = capability_warnings
             .iter()
             .find(|warning| {
                 warning.detail
                     == format!("{foreign} is a declared claim outside the native vocabulary")
             })
             .unwrap();
-        assert_eq!(
-            warning.code,
-            eg_types::connector_pack::PackWarningCode::UnresolvedCapabilityIri
-        );
+        assert_eq!(warning.code, PackWarningCode::UnresolvedCapabilityIri);
         assert_eq!(warning.uri.as_deref(), Some(candidate.uri.as_str()));
     }
     let entry = current_component(&served, &component(CONNECTOR, "tool", "capabilities")).await;

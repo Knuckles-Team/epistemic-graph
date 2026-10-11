@@ -1,0 +1,34 @@
+{
+  "source_commit": "29d7b11c7f66184300b55c2bf57db41e9e6c552e",
+  "first": [
+    "cargo",
+    "test",
+    "--locked",
+    "-p",
+    "epistemic-graph",
+    "--lib",
+    "--no-default-features",
+    "--features",
+    "server,redb,blob,decide,query,security,federation-sql,obda,owl,shacl",
+    "-j",
+    "4",
+    "--no-run"
+  ],
+  "expanded": [
+    "cargo",
+    "test",
+    "--locked",
+    "-p",
+    "epistemic-graph",
+    "--lib",
+    "--no-default-features",
+    "--features",
+    "server,redb,blob,decide,query,security,federation-sql,obda,owl,shacl,knowledge-batch,program-optimization,kv,tsdb,nl-query",
+    "-j",
+    "4",
+    "--no-run"
+  ],
+  "timeout_each": "20m plus 30s termination grace",
+  "further_feature_broadening_allowed": false,
+  "next_source_commit": "718b10d6537b76786685bbef1965fdd7bf9f2d4b"
+}

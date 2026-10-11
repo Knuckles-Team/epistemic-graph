@@ -1,0 +1,158 @@
+{
+  "compiled_source_commit": "fe3a15a0067482e517aae09e5257246a5005d0ca",
+  "execution_head": "07b7fb74712f7296df51d275a5be815814a395a9",
+  "base_commit": "e5190222b38d628b7d0f268ce4c46b184a170ee1",
+  "source_note": "Only Python fixture, documentation and generated status updates since compilation started; native source unchanged.",
+  "binary": "target-isolated/debug/deps/epistemic_graph-1dea97f4f4aaa5cc",
+  "binary_sha256": "e8b8fcf11c4b05a63aa3ed8b2ade5c6c8c0bd453d78917f7a85745a6969a64b3",
+  "command": [
+    "<binary>",
+    "--exact",
+    "<test>",
+    "--nocapture"
+  ],
+  "counts": {
+    "passed": 16,
+    "failed": 1,
+    "unrun": 0
+  },
+  "results": [
+    {
+      "test": "server::handlers::admin::connector_pack::tests::content_model::capability_annotations_remain_declared_after_import",
+      "status": "passed",
+      "exit_code": 0,
+      "seconds": 0.06,
+      "log": "repair-capability_annotations_remain_declared_after_import.log"
+    },
+    {
+      "test": "server::handlers::admin::connector_pack::tests::storage_acceptance::competing_imports_have_one_head_winner_without_loser_effects",
+      "status": "passed",
+      "exit_code": 0,
+      "seconds": 0.104,
+      "log": "repair-competing_imports_have_one_head_winner_without_loser_effects.log"
+    },
+    {
+      "test": "server::persistence::agent_library::open_tests::fresh_open_initializes_all_pack_tables_and_reopens_empty",
+      "status": "passed",
+      "exit_code": 0,
+      "seconds": 0.021,
+      "log": "repair-fresh_open_initializes_all_pack_tables_and_reopens_empty.log"
+    },
+    {
+      "test": "server::persistence::agent_library::open_tests::production_open_refuses_each_genuine_predecessor_without_writing",
+      "status": "passed",
+      "exit_code": 0,
+      "seconds": 0.017,
+      "log": "repair-production_open_refuses_each_genuine_predecessor_without_writing.log"
+    },
+    {
+      "test": "server::handlers::admin::connector_pack::tests::withdrawal::withdrawn_tool_leaves_search_but_keeps_historical_content",
+      "status": "failed",
+      "exit_code": 101,
+      "seconds": 0.088,
+      "log": "repair-withdrawn_tool_leaves_search_but_keeps_historical_content.log"
+    },
+    {
+      "test": "server::handlers::admin::connector_pack::tests::storage_acceptance::receipt::committed_multi_intent_receipt_binds_all_effects_and_survives_replay",
+      "status": "passed",
+      "exit_code": 0,
+      "seconds": 0.117,
+      "log": "repair-committed_multi_intent_receipt_binds_all_effects_and_survives_replay.log"
+    },
+    {
+      "test": "server::handlers::admin::connector_pack::tests::content_model::a_changed_leaf_revises_transitive_reference_pins_once",
+      "status": "passed",
+      "exit_code": 0,
+      "seconds": 0.119,
+      "log": "repair-a_changed_leaf_revises_transitive_reference_pins_once.log"
+    },
+    {
+      "test": "server::handlers::admin::connector_pack::tests::content_model::a_shared_descendant_diamond_revises_each_component_once",
+      "status": "passed",
+      "exit_code": 0,
+      "seconds": 0.122,
+      "log": "repair-a_shared_descendant_diamond_revises_each_component_once.log"
+    },
+    {
+      "test": "server::handlers::admin::connector_pack::tests::content_model::an_identical_head_with_stale_pins_remains_unchanged",
+      "status": "passed",
+      "exit_code": 0,
+      "seconds": 0.136,
+      "log": "repair-an_identical_head_with_stale_pins_remains_unchanged.log"
+    },
+    {
+      "test": "server::handlers::admin::connector_pack::tests::content_model::a_changed_pack_repairs_already_stale_server_and_reference_pins",
+      "status": "passed",
+      "exit_code": 0,
+      "seconds": 0.184,
+      "log": "repair-a_changed_pack_repairs_already_stale_server_and_reference_pins.log"
+    },
+    {
+      "test": "server::handlers::admin::connector_pack::tests::content_model::package_versions_produce_equal_pins_in_independent_stores",
+      "status": "passed",
+      "exit_code": 0,
+      "seconds": 0.097,
+      "log": "repair-package_versions_produce_equal_pins_in_independent_stores.log"
+    },
+    {
+      "test": "server::handlers::admin::connector_pack::tests::content_model::a_server_contract_version_change_revises_its_pin",
+      "status": "passed",
+      "exit_code": 0,
+      "seconds": 0.154,
+      "log": "repair-a_server_contract_version_change_revises_its_pin.log"
+    },
+    {
+      "test": "server::handlers::admin::connector_pack::tests::content_model::a_server_name_change_revises_its_pin",
+      "status": "passed",
+      "exit_code": 0,
+      "seconds": 0.115,
+      "log": "repair-a_server_name_change_revises_its_pin.log"
+    },
+    {
+      "test": "server::handlers::admin::connector_pack::tests::content_model::a_server_instructions_change_revises_its_pin",
+      "status": "passed",
+      "exit_code": 0,
+      "seconds": 0.097,
+      "log": "repair-a_server_instructions_change_revises_its_pin.log"
+    },
+    {
+      "test": "server::handlers::admin::connector_pack::tests::admin::a_rejected_import_mutates_nothing_in_the_catalog",
+      "status": "passed",
+      "exit_code": 0,
+      "seconds": 0.317,
+      "log": "repair-a_rejected_import_mutates_nothing_in_the_catalog.log"
+    },
+    {
+      "test": "server::handlers::admin::connector_pack::tests::outbox::an_admin_forced_reproject_redrives_a_stale_projection_without_losing_later_work",
+      "status": "passed",
+      "exit_code": 0,
+      "seconds": 10.384,
+      "log": "repair-an_admin_forced_reproject_redrives_a_stale_projection_without_losing_later_work.log"
+    },
+    {
+      "test": "server::handlers::admin::connector_pack::tests::storage_acceptance::multi_component_import_emits_one_durable_event_per_component",
+      "status": "passed",
+      "exit_code": 0,
+      "seconds": 0.078,
+      "log": "repair-multi_component_import_emits_one_durable_event_per_component.log"
+    }
+  ],
+  "compile": {
+    "exit_code": 0,
+    "wall_seconds": 196.8,
+    "profile": "repository profile.test unchanged",
+    "cache": "same dedicated repair worktree and target-isolated as diagnostic build",
+    "log": "fixture-repair-compile.log",
+    "features": "server,redb,blob,decide,query,security,federation-sql,obda,owl,shacl,knowledge-batch,program-optimization,kv,tsdb,nl-query,ann-redb",
+    "jobs": 4
+  },
+  "remaining_failure": {
+    "test": "withdrawn_tool_leaves_search_but_keeps_historical_content",
+    "error": "INTERNAL",
+    "error_detail": "method response code is not declared for this operation",
+    "source_issue": "AgentComponent exact method error set omits COMPONENT_WITHDRAWN; the request boundary rewrites the actual owner refusal.",
+    "proposed_patch": "Add only COMPONENT_WITHDRAWN to AgentComponent exact error codes; add routing regression and regenerate contract artifacts.",
+    "status": "Production fix not yet applied."
+  },
+  "text_logs": "Preserved locally; publication pending separate approval."
+}
