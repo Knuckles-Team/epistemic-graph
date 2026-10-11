@@ -136,7 +136,7 @@ The latency boundary accepts 9,999 microseconds and refuses 10,000 microseconds.
 
 ### Remaining R090 acceptance
 
-EG-DECISION-ENGINE-R090.2 requires `tests/decision_resident_scorer.rs::compiled_engine_scores_without_external_runtime`.
+EG-DECISION-ENGINE-R090.2 requires `tests/test_decision_resident_scorer.py::test_compiled_engine_scores_without_external_runtime`.
 EG-DECISION-ENGINE-R090.3 requires `benches/decision_resident_scorer.rs::resident_scorer_meets_declared_budget`.
 Both checks remain planned and unrun. Budget declarations do not establish either result.
 

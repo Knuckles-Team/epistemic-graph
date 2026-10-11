@@ -717,6 +717,12 @@ jobs:
 
       - *eg-gates-pydeps
 
+      - name: Install native scorer tracing prerequisite
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends strace
+          strace --help | grep -F -- '--kill-on-exit'
+
       - name: Install pytest, its plugins, PyYAML, and maturin (metadata only — see below)
         run: python -m pip install --disable-pip-version-check pytest pytest-xdist pytest-timeout pytest-asyncio pyyaml 'maturin>=1,<2'
 
