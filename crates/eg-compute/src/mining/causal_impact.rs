@@ -176,6 +176,7 @@ mod tests {
         (20.0, 5.507_248_237_212_467_5e-89),
     ];
 
+    // spec: EG-FEDERATED-QUERY-R056
     #[test]
     fn two_sided_p_keeps_relative_accuracy_in_the_far_tail() {
         // `1 - erf(z / sqrt 2)` returns 0 (or noise at the approximation's

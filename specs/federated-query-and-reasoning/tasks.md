@@ -61,3 +61,8 @@ Check boxes describe work remaining for this combined contract. They do not cert
 - [ ] **EG-FEDERATED-QUERY-R074:** Served `select_topology` reasoning-policy op
 - [ ] **EG-FEDERATED-QUERY-R075:** Generated client method for `select_topology`
 - [ ] **EG-FEDERATED-QUERY-R076:** Canonical ontology hash for a Turtle payload
+
+- [x] EG-FEDERATED-QUERY-R056: execute the exact causal-impact and shared numeric
+  source modules, confirm all five tests pass, and bind the independent literal
+  far-tail regression to the existing requirement. Full-crate and hosted gates
+  remain separate from this pure-module proof.
