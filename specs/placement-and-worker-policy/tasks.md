@@ -39,6 +39,6 @@ Status: PROPOSED. Governing spec: [spec.md](spec.md). Design: [plan.md](plan.md)
 - [ ] **T35 - R003.3:** Accept at the cap, refuse above.
 - [ ] **T36 - R003.4:** Defence in depth in the kernel.
 - [ ] **T37 - R003.5:** Plain labels are accepted and stored opaque.
-- [ ] **T38 - R003.6:** Cap is counted after hashing and equals the raw distinct count.
+- [ ] **T38 - R003.6:** Cap is counted after hashing; verify deterministic behavior on bounded fixtures.
 
 Order: R003 (independent, smallest), R002.1-R002.5 with the durable-kernel rows, then R002 rewordings; R001.1 (decision-engine R111.1) before R001.2-R001.11; R001.12-R001.14 last.

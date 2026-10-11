@@ -346,7 +346,7 @@
     },
     {
       "id": "EG-PLACEMENT-R003.6",
-      "title": "Cap is counted after hashing and equals the raw distinct count",
+      "title": "Cap is counted after hashing; verify deterministic behavior on bounded fixtures",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
