@@ -64,3 +64,9 @@ Governing spec: [spec.md](spec.md). Design: [plan.md](plan.md). Producers first;
   - [ ] Class-only impact query fixture. **EG-SUPPLY-VOCAB-R008.1**
   - [ ] Recorded-response fixture: one row per source concept. **EG-SUPPLY-VOCAB-R008.2**
   - [ ] Blocked-register test. **EG-SUPPLY-VOCAB-R008.3**
+- [ ] EG-SUPPLY-VOCAB-R009.1 Add the ecosystem package class
+- [ ] EG-SUPPLY-VOCAB-R009.2 Propagate a finding to dependents
+- [ ] EG-SUPPLY-VOCAB-R009.3 Attach propagation to the impact operation
+- [ ] EG-SUPPLY-VOCAB-R009.4 Refuse an unknown package
+- [ ] EG-SUPPLY-VOCAB-R009.5 Show the dependency path
+- [ ] EG-SUPPLY-VOCAB-R009.6 Prove propagation through the served operation

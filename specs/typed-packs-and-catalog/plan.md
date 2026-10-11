@@ -255,3 +255,19 @@ annotations do not yet carry these fields, and the importer sets them to absent.
 R048.5 remains open. R066.1 owns the separate SHACL shapes and evaluation links.
 Before integration, regenerate the contract surfaces from the Rust schema source
 and check them. Producer tests do not substitute for that check.
+
+## Skill packages rendered on demand (R100)
+
+Data flow: fleet catalog list wire method → `skill_row` (`src/server/dispatch/consensus/fleet_catalog/project.rs:271`) → `render_skill_package` (new) → `FleetCatalogRow::Skill` with a `RenderedSkillPackage` → listing.
+
+Types: `RenderedSkillPackage { uri, digest, ontology_refs, graph_revision }` and `RenderRefusal::DanglingOntologyRef`. The row type `FleetSkillRow` (`crates/eg-types/src/fleet_catalog/row.rs:103`) gains an optional rendered package.
+
+Attach point: `skill_row`, called by the catalog projection for each skill. Today the row carries only classification fields.
+
+Failure behavior: a dangling reference lists the skill without a package and names the missing term. Rendering reads the graph and writes nothing.
+
+Reused: the catalog projection, the skill type overrides and the snapshot digest at `project.rs:336`. New: one type, one render function and one refusal.
+
+Decision: render on read from the graph. Rejected: keep static package snapshots, because they fall behind the code between releases.
+
+Cross-repository rows: the `AU-SKILLS` row that consumes the package depends on the contract name `RenderedSkillPackage`.

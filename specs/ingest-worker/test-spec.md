@@ -16,3 +16,9 @@ Blank job_id or target, unknown kind, wrong tenant claim, duplicate delivery aft
 ## Quality and release proof
 
 Run cargo test for the touched crates in CI, the SDK unit tests, and the spec-status and spec-decomposition hooks.
+
+## EG-INGEST-WORKER-R002 acceptance
+
+| ID | Requirement | Type | Fixture | Expected | Status |
+|---|---|---|---|---|---|
+| T-R002 | R002.6 | Integration | One passing and one failing document | Admitted and Draft states | PENDING |
