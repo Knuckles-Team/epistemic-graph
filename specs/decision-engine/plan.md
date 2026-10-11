@@ -226,7 +226,10 @@ The leaf covers declared budgets only; it does not establish measured resident-s
 
 The ceiling now refuses 10,000 microseconds, which exceeds the single-digit-millisecond contract.
 
-R090.2 retains compiled execution acceptance. R090.3 retains measured resource acceptance. Both children remain specified until their checks pass.
+R090.2 has scoped compiled-runtime acceptance in the successful Python job of
+Release run 38148086774. R090.3 has the paired native receipts linked by the test
+specification; the standalone run meets its measured limits. Neither result
+claims that every served parent path or the complete Release workflow passed.
 
 ## Amendments
 
@@ -563,6 +566,18 @@ Reused: `GuardrailRule` storage and `guardrail_entailment_query` (`guardrail.rs:
 Decision: refuse at the decision chokepoint, so no caller can skip the check. Rejected alternative: check inside each caller, because one missed caller bypasses the limit.
 
 Cross-repository: `AU-` rows may surface the refusal; the owning policy gate keeps enforcement.
+
+### Resident scorer resource measurement (R090.3)
+
+The benchmark lives in `crates/eg-numeric/benches/decision_resident_scorer.rs`, beside the production scorer. It reuses the promotion fit recipe and maximum legal head dimensions at 256 rows, timing individual production forward calls with Linux thread CPU time under the existing release profile. Whole-runner peak RSS is a conservative upper bound: above 8 MiB leaves scorer-specific memory inconclusive. Runner executable size is reported separately from server footprint. Acceptance requires an external receipt of the effective optimized build and passing measured limits; source publication alone does not verify the requirement.
+
+Native measurement on 2026-10-11 met both parameter and CPU latency limits but
+reported 124,788,736 bytes of whole-runner peak RSS against an 8 MiB ceiling.
+That first Cargo-launched result is inconclusive and remains recorded. A direct
+run of the identical executable subsequently met all measured limits, with
+2,850,816 bytes peak RSS independently corroborated by external time. The test
+specification links both structured receipts and exact release provenance. The
+launch-dependent difference is observed; its precise cause is not established.
 
 ## Retrieved-entry trust (R132)
 

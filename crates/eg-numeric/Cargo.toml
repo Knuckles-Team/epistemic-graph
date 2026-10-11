@@ -124,6 +124,7 @@ num-complex = { version = "0.4", default-features = false, optional = true }
 rustfft = { version = "6.4", optional = true }
 
 [dev-dependencies]
+libc = "0.2"
 # Shared Decide-layer fixtures (`eg_types::test_support::decision`).
 eg-types = { path = "../eg-types", features = ["test-support"] }
 # The offline scorer-training example reads an FX-SYNTH gold corpus exported as
@@ -135,4 +136,9 @@ rmp-serde = "1.3"
 
 [[example]]
 name = "decision_scorer_train"
+required-features = ["decision"]
+
+[[bench]]
+name = "decision_resident_scorer"
+harness = false
 required-features = ["decision"]
