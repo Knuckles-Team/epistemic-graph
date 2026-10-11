@@ -97,3 +97,32 @@ Rejected alternatives:
 - **Priority rule.** Pick one relation type to "win" per endpoint pair by a fixed precedence order. Rejected: it is not a representation at all — every lower-priority relation between the same two endpoints is unrepresentable the moment a higher-priority one exists, which is exactly the silent-drop failure mode this decision exists to close.
 - **Set-of-types on one edge.** Keep one edge per endpoint pair and widen its `relation_type` field to a set. Rejected: it collapses distinct relations' independent properties, provenance and lifecycle (add/remove/invalidate timing) onto one shared record, and a removal of one type cannot be expressed without either deleting the whole edge or mutating the set in place with no edge-level audit trail.
 - **Reified relation nodes.** Model each relation as its own graph node with edges to its source and target. Rejected: it multiplies node count by the relation volume, forces every relation-aware query through an extra hop, and provides no benefit over a typed edge for a binary relation that carries no further relations of its own.
+
+## Amendments
+
+### 2026-10-11: correct acceptance-evidence scope
+
+Audit of revision `660ae016` found that the bindings for
+`EG-REPO-INGEST-R003.1`–`EG-REPO-INGEST-R003.11` identified typed enum
+serialization and local claim-list checks in
+`crates/eg-types/src/source_ingestion/tests.rs`. These remain useful
+supplementary unit evidence, but do not execute the migrated capabilities or
+prove that their legacy modules no longer perform the same computation.
+The child acceptance and therefore the R003 rollup remain unverified by this
+evidence. Reopening T1 and T1a–T1k records that proof gap, not a conclusion that
+all implementation is absent.
+
+The R008-bound test in `src/server/handlers/repository_index_tests.rs` constructs
+roughly 60 MB of payload, exceeds the 48 MiB write-set ceiling, and invokes
+`lower()` on the full and halved fixtures. It proves the stable refusal prefix
+and successful lowering of the smaller fixture. It does not exercise a batch
+above 64 MiB through a served request, graph commit, or SDK halve-and-resend
+retry. T2 remains open for that integration proof; its already established
+contract and lowering checks remain supplementary evidence.
+
+Remove full-acceptance bindings from these unchanged test bodies and regenerate
+status with the official spec hooks. Preserve every normative requirement and
+all existing implementation. Historical landing trailers remain historical
+implementation evidence; a generated LANDED state without `verified_by` does
+not establish acceptance. Full acceptance still requires the consumer/retirement
+and served boundary evidence specified in requirements.md and test-spec.md.
