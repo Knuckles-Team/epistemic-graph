@@ -116,7 +116,8 @@
     "cargo_launch_peak_rss_bytes": 124788736,
     "launch_dependent_rss_difference_observed": true,
     "precise_cause_established": false,
-    "served_acceptance": false
+    "served_acceptance": false,
+    "fixture_scope": "Maximum legal head dimensions, 256-row fixture: width, features and shortlist are maximal; varying legal row counts are not exhaustively covered. Raw measurement name maximum_legal_shape is preserved."
   },
   "launch": {
     "method": "direct executable under /usr/bin/time -v in a separate shell",

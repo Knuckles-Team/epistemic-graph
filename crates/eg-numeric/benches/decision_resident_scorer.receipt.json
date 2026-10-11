@@ -143,6 +143,7 @@
     "parameter_and_latency_limits_passed": true,
     "resident_memory_accepted": false,
     "reason": "Whole-runner peak RSS exceeds the 8 MiB ceiling; scorer-specific resident memory is not established.",
-    "served_acceptance": false
+    "served_acceptance": false,
+    "fixture_scope": "Maximum legal head dimensions, 256-row fixture: width, features and shortlist are maximal; varying legal row counts are not exhaustively covered. Raw measurement name maximum_legal_shape is preserved."
   }
 }
