@@ -59,3 +59,11 @@ Distinct roots must never share a semantic owner; aliases of one root must share
 The existing activation grant and verified-principal checks remain mandatory.
 `semantic_owner_registry_is_scoped_to_persistence_root` must prove root isolation and canonical alias reuse.
 Native facade acceptance remains pending.
+
+## Policy-bound run scope (R008)
+
+Flow: stored policy node → `scope_within_bound` → `ScopeExceedsPolicy` refusal at plan admission.
+The attach point is the plan-admission path beside `policy_admin.rs`; the first child row locates it.
+The change reuses the existing verified-principal binding and the audit append from R002.
+Decision: the engine reads the bound from the stored node, not from the plan body. A rejected alternative is deriving scope from the plan, because a model-written plan could then widen its own bound.
+Handoff: graph-os must check the same bound when work enters; agent-utilities only applies the engine's refusal.
