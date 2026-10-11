@@ -109,6 +109,8 @@
     "EG-DURABLE-KERNEL-R072",
     "EG-DURABLE-KERNEL-R073",
     "EG-DURABLE-KERNEL-R074",
+    "EG-DURABLE-KERNEL-R074.1",
+    "EG-DURABLE-KERNEL-R074.2",
     "EG-DURABLE-KERNEL-R075",
     "EG-DURABLE-KERNEL-R076",
     "EG-DURABLE-KERNEL-R077",
@@ -1469,7 +1471,32 @@
     },
     {
       "id": "EG-DURABLE-KERNEL-R074",
-      "title": "Served worker registry",
+      "title": "Served worker registry (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DURABLE-KERNEL-R074.1",
+        "EG-DURABLE-KERNEL-R074.2"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R074.1",
+      "title": "Typed worker registry producer and pure lifecycle",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "e7b0f9f670c9"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/worker_registry.rs:188",
+        "crates/eg-types/src/worker_registry.rs:209",
+        "crates/eg-types/src/worker_registry.rs:254",
+        "crates/eg-types/src/worker_registry.rs:274"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R074.2",
+      "title": "Served worker registry integration",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

@@ -198,9 +198,13 @@
     {
       "id": "EG-PLACEMENT-R002.1",
       "title": "Register carries capacity",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "e7b0f9f670c9"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/worker_registry.rs:189"
+      ]
     },
     {
       "id": "EG-PLACEMENT-R002.2",
