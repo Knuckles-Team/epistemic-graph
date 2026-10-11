@@ -79,7 +79,7 @@ def test_model_profile_round_trip() -> None:
             await _bind(client, connector, IMPORTER)
             server = ConnectorPackEntryContent(
                 kind=PackEntryKind.MCP_SERVER,
-                uri=f"mcp://{connector}/server",
+                uri=f"mcp-server://{connector}",
                 name=connector,
                 media_type="application/json",
                 body=b'{"name":"model-harness-facts"}',
