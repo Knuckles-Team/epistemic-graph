@@ -35,7 +35,7 @@
     "failed": 0,
     "unrun": 0
   },
-  "scope": "Three native guardrail dispatcher/policy tests plus semantic registry isolation; generated-client acceptance remains pending.",
+  "scope": "Three local native guardrail dispatcher/policy tests plus semantic registry isolation; real generated-client acceptance passed in the parent-verified exact-main hosted run.",
   "compile": {
     "command": [
       "cargo",
@@ -65,5 +65,20 @@
     "--nocapture"
   ],
   "cache_provenance": "Independent copy of the 29d7b11 acceptance cache, originally seeded from the existing eg-storage-lock target-isolated cache at checkout 7c572aab45554e7d524e223773058efbdba21bed. Earlier checkout and caches preserved.",
-  "text_logs": "Preserved locally; publication pending separate approval."
+  "text_logs": "Preserved locally; publication pending separate approval.",
+  "generated_client": {
+    "status": "passed",
+    "test": "tests/test_guardrail_entailment_served.py::test_generated_guardrail_entailment_queries_published_rules",
+    "source_commit": "e5190222b38d628b7d0f268ce4c46b184a170ee1",
+    "source_tree": "aeed5bbf1cdd0ae7aebd56e7521a75ec4de303bd",
+    "run_id": 38148086774,
+    "job_id": 114499779006,
+    "url": "https://github.com/Knuckles-Team/epistemic-graph/actions/runs/38148086774/job/114499779006",
+    "suite_counts": {
+      "collected": 3749,
+      "passed": 3702,
+      "skipped": 47
+    },
+    "provenance": "Parent verified exact source/artifact and complete skip list; the real generated-client guardrail test executed and passed. No duplicate local server/codec build was performed."
+  }
 }
