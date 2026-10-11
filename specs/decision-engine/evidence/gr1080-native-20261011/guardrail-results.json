@@ -1,0 +1,69 @@
+{
+  "source_commit": "718b10d6537b76786685bbef1965fdd7bf9f2d4b",
+  "results": [
+    {
+      "test": "server::handlers::decide::guardrail_tests::guardrail_dispatch_proves_subclass_visibility_and_restart_stability",
+      "exit_code": 0,
+      "status": "passed",
+      "seconds": 0.065,
+      "log": "guardrail-guardrail_dispatch_proves_subclass_visibility_and_restart_stability.log"
+    },
+    {
+      "test": "server::handlers::decide::guardrail_tests::guardrail_dispatch_refuses_foreign_tenants_and_malformed_tasks",
+      "exit_code": 0,
+      "status": "passed",
+      "seconds": 0.027,
+      "log": "guardrail-guardrail_dispatch_refuses_foreign_tenants_and_malformed_tasks.log"
+    },
+    {
+      "test": "server::handlers::decide::guardrail_tests::guardrail_policy_is_read_only_and_declares_store_refusals",
+      "exit_code": 0,
+      "status": "passed",
+      "seconds": 0.012,
+      "log": "guardrail-guardrail_policy_is_read_only_and_declares_store_refusals.log"
+    },
+    {
+      "test": "server::semantic_index::semantic_owner_registry_is_scoped_to_persistence_root",
+      "exit_code": 0,
+      "status": "passed",
+      "seconds": 0.019,
+      "log": "guardrail-semantic_owner_registry_is_scoped_to_persistence_root.log"
+    }
+  ],
+  "counts": {
+    "passed": 4,
+    "failed": 0,
+    "unrun": 0
+  },
+  "scope": "Three native guardrail dispatcher/policy tests plus semantic registry isolation; generated-client acceptance remains pending.",
+  "compile": {
+    "command": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "epistemic-graph",
+      "--lib",
+      "--no-default-features",
+      "--features",
+      "server,redb,blob,decide,query,security,federation-sql,obda,owl,shacl,knowledge-batch,program-optimization,kv,tsdb,nl-query,ann-redb",
+      "-j",
+      "4",
+      "--no-run"
+    ],
+    "timeout": "20m plus 30s termination grace",
+    "exit_code": 0,
+    "wall_seconds": 695.04,
+    "log": "guardrail-native-compile.log",
+    "profile": "repository profile.test unchanged"
+  },
+  "binary_sha256": "d4cb48755d52d9a84cbd1d653a269a0c4d8e2eacaaae7cd1242b1e4abfe3abf3",
+  "test_command": [
+    "<binary>",
+    "--exact",
+    "<test>",
+    "--nocapture"
+  ],
+  "cache_provenance": "Independent copy of the 29d7b11 acceptance cache, originally seeded from the existing eg-storage-lock target-isolated cache at checkout 7c572aab45554e7d524e223773058efbdba21bed. Earlier checkout and caches preserved.",
+  "text_logs": "Preserved locally; publication pending separate approval."
+}
