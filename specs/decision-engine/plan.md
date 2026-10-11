@@ -276,3 +276,11 @@ test was not run. A rustc test harness importing the exact production metrics
 module with the existing tracing rlib passed all 3 helper/capture tests. This
 command does not execute the native solver-entry regression. The regression
 source is bound to R072.1; generated spec state and test execution are separate.
+
+### 2026-10-11 amendment: bounded R073 storage acceptance
+
+Add R073.1 and R073.2 for the existing served import path's durable per-component
+outbox and competing head compare-and-set behavior. These child tests do not
+complete R073: direct multi-intent receipt digest coverage and an owner-table /
+current-format refusal audit remain separate acceptance work. Native execution
+is reported separately from the existence of these acceptance tests.

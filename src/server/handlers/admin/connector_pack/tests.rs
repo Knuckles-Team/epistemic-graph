@@ -30,6 +30,7 @@ mod ontology;
 #[cfg(feature = "shacl")]
 mod outbox;
 mod self_served_catalog;
+mod storage_acceptance;
 
 const SECRET: &str = "connector-pack-served-fixture-secret"; // sanitizer:ignore
 /// The fixed tenant `auth::request_context_policy` expects under `cfg(test)`.
