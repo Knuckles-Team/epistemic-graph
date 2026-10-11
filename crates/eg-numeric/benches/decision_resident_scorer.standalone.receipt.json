@@ -45,7 +45,8 @@
     "cargo_compile_seconds": 503.0,
     "total_wall_seconds": 504.766,
     "cargo_exit_code": 2,
-    "source_stable": true
+    "source_stable": true,
+    "measurement_host_ref": "decision_resident_scorer.receipt.json#/build/measurement_host"
   },
   "executable": {
     "relative_path": "target-isolated/release/deps/decision_resident_scorer-1a76d6ff619967da",
