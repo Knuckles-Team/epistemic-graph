@@ -422,3 +422,20 @@ def test_mounted_kernel_command_propagates_codegen_without_changing_release_cont
     destination = _kernel_build.build_kernel(spec)
     assert destination.read_bytes() == b"kernel"
     assert destination.stat().st_mode & 0o777 == 0o755
+
+
+def test_python_suite_installs_native_scorer_tracing_before_full_suite() -> None:
+    job = _python_suite_job()
+    steps = job["steps"]
+    install = next(
+        step
+        for step in steps
+        if step.get("name") == "Install native scorer tracing prerequisite"
+    )
+    assert "apt-get install -y --no-install-recommends strace" in install["run"]
+    assert "strace --help | grep -F -- '--kill-on-exit'" in install["run"]
+    assert "if" not in install
+    assert steps.index(install) < steps.index(_test_step(job))
+    assert " -m " not in _test_step(job)["run"].split("pytest tests/", 1)[1], (
+        "native acceptance must not be silently deselected"
+    )

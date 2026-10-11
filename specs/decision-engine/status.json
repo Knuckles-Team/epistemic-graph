@@ -2072,9 +2072,13 @@
     {
       "id": "EG-DECISION-ENGINE-R090.2",
       "title": "Compiled resident scorer execution",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "26be257523bc"
+      ],
+      "verified_by": [
+        "tests/test_decision_resident_scorer.py:142"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R090.3",
