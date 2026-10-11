@@ -4,7 +4,7 @@
 
 1. **Freeze the baseline.** Record exact public default-branch SHA, method registry, current feature profiles, source kinds, index generations and existing tests. Classify each stable obligation as source present, absent, or incompatible; retain separate acceptance status. Do not translate a historical `BUILT` label into current acceptance.
 2. **Close the read contract.** Make UQL grammar, lowering, printer, method registry, generated Python sender, proof and error codes agree. Add `LET`/`JOIN`, named score channels and `EXPLAIN`/`PROFILE` only where they can execute; otherwise return `UQL_UNSUPPORTED` with a stable span. Preserve the shared read snapshot and typed parameter path.
-3. **Qualify federation phase 1.** Run full-fetch versus optimized oracles for SQL, HTTP, OBDA and registered foreign sources. Repair any unsound pushdown or missing residual, validate read-only rendering and single outbound guard, and attach budget/trace to the served plan.
+3. **Qualify federation phase 1.** Run full-fetch versus optimized oracles for SQL, HTTP, OBDA and registered foreign sources. Repair any unsound pushdown or missing residual. Validate read-only rendering and single outbound guard. Attach budget/trace to the served plan.
 4. **Complete phase 2.** Add column-carrying rows, direct OBDA solutions, per-source concurrency, SPARQL `SERVICE` bind joins, Iceberg manifest pruning and RemoteEngine pushdown. Keep each capability off until its conformance oracle passes. The attached-source owner supplies registry identity and approved mappings.
 5. **Complete phase 3.** Add persisted source statistics with provenance, freshness/owner-bound fragment caching and additional source kinds. Cache only when the source watermark is known and current. Retire alternate path-specific guards and source catalogs once callers use the common route.
 6. **Close semantic reads.** Finish generation fencing, restart/replay, filtered text/vector/edge retrieval and mixed traversal top-k. Run corpus reasoning and proof verification, including disjointness and skipped-event rebuild. Expose index fallback in explain output.
@@ -159,7 +159,7 @@ Attach point: the listener dispatch in `src/server/lake/rest/mod.rs`, before `co
 Failure: a projected write returns `PROJECTION_READ_ONLY` and the graph is unchanged.
 Existing code: `crates/eg-lake/src/catalog.rs:27`; `crates/eg-core/src/projection_catalog.rs:75`; `crates/eg-plan/src/federation.rs:933`; `src/server/lake/rest/catalog.rs:318`, `:349`. Reachable today: SQL write refusal yes; projection write refusal no.
 Reuses the shared read-only SQL check pattern. New: the typed access value and the route refusal.
-Decision: one refusal at the listener. Rejected: per-route checks, which a new route could skip.
+Decision: one refusal at the listener. Rejected: per-route checks, which a new route may skip.
 Cross-repository: none.
 
 References
