@@ -268,6 +268,20 @@ These acceptance tests require the consumer prerequisites described in the plan.
 - `EG-DECISION-ENGINE-R128.14`: `crates/eg-capabilities/tests/contract_schema.rs::question_kind_lists_harness_config`.
 - `EG-DECISION-ENGINE-R128.15`: `tests/decide/test_harness_config_served.py::test_harness_config_end_to_end`.
 
+## Committed pack receipt binding
+
+`storage_acceptance::receipt::committed_multi_intent_receipt_binds_all_effects_and_survives_replay` covers EG-DECISION-ENGINE-R073.4.
+The fixture signs served imports and reads the typed receipt, batch and physical outbox from the owner.
+It checks three component intents and one pack intent against an independent digest oracle.
+Each omission, adjacent swap, topic change, key change and payload change must alter the digest.
+Each header name, value, removal and addition must alter the digest.
+A fresh nonce replays through `commit_pack_write`; any new owner application panics.
+The receipt and batch remain equal, and nonce reuse fails.
+The fixture separately checks the served catalog shortcut and unchanged owner rows.
+
+Run `cargo test --lib --features blob committed_multi_intent_receipt_binds_all_effects_and_survives_replay`.
+Then run `cargo test --lib --features blob storage_acceptance` for the adjacent served storage fixtures.
+
 ## R073.3 and R073.5 production acceptance
 
 | Requirement | Proving tests | Expected evidence |

@@ -167,7 +167,7 @@ This register inventories all 118 decision-owned obligations. `Historical label`
 | EG-DECISION-ENGINE-R070 | T2 | LANDED | NOT_RUN | No-good-cut re-solve loop for post-solve validators (template/graph validation, L4 negotiation) |
 | EG-DECISION-ENGINE-R071 | T2 | LANDED | NOT_RUN | DecideText UQL-like front end, kept out of the ordinary UQL parser and wire::Op/wire::Plan |
 | EG-DECISION-ENGINE-R072 | T2 | LANDED | NOT_RUN | Observability: OTel spans/metrics for resolution-kind distribution, abstention rate, evidence-class distribution, solver nodes/gap, ESS, latency percentiles |
-| EG-DECISION-ENGINE-R073 | T3 | LANDED | NOT_RUN | PA2 — Store: five ConnectorPack tables within the 21-table Agent Library registry, lineage-based open-time refusal, N-intent receipt, batch pin resolver, Withdrawn handling, head CAS, per-component outbox events |
+| EG-DECISION-ENGINE-R073 | T3 | LANDED | NOT_RUN | PA2 — Store: five ConnectorPack tables within the 21-table Agent Library registry. Lineage-based open-time refusal, N-intent receipts, batch pins, Withdrawn handling, head CAS, and per-component outbox events. |
 | EG-DECISION-ENGINE-R074 | `tests/test_decision_static_contracts.py` | CLOSED | PASS | The closure rule lists every component kind. The consistency test checks enum and slot references. |
 | EG-DECISION-ENGINE-R075 | T4 | BUILT | NOT_RUN | G6 — Component-id uniqueness and forbidden (Decide-owned) kinds |
 | EG-DECISION-ENGINE-R076 | T4 | BUILT | NOT_RUN | Opt-in nested Pydantic models for decision-type result markers only (2.27.x-scoped subset, precedes the full migration) |
@@ -455,6 +455,15 @@ Cross-repository rows:
 - The `AU-HARNESS` row for the evaluation runner writes the measured facts that `EG-TYPED-PACKS-R048.3` and `R048.4` store.
 - The `GRAPHOS-A2A` row for admission refuses a task without a committed `HarnessConfig` answer.
 - The `SDK-CONNECTOR-CONTROL` row for tool `read_only` and `side_effects` facts feeds the tool-subset candidates.
+
+### Committed pack receipt binding (R073.4)
+
+The signed served fixture commits three components and one pack intent.
+The fixture reads the typed replay receipt, committed batch and physical outbox through scoped owner APIs.
+An independent digest oracle checks every intent and header against the committed receipt.
+The fixture retries through `commit_pack_write` with a fresh nonce and refuses any new owner application.
+The handler catalog shortcut answers repeated imports before owner admission; it does not exercise typed receipt replay.
+The fixture checks that shortcut separately.
 
 ### Production open and withdrawal acceptance
 
