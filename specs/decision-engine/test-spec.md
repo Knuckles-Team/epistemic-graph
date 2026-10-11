@@ -281,3 +281,15 @@ The fixture separately checks the served catalog shortcut and unchanged owner ro
 
 Run `cargo test --lib --features blob committed_multi_intent_receipt_binds_all_effects_and_survives_replay`.
 Then run `cargo test --lib --features blob storage_acceptance` for the adjacent served storage fixtures.
+
+## R073.3 and R073.5 production acceptance
+
+| Requirement | Proving tests | Expected evidence |
+|---|---|---|
+| `EG-DECISION-ENGINE-R073.3` | `src/server/persistence/agent_library/open_tests.rs::fresh_open_initializes_all_pack_tables_and_reopens_empty` | Production open exposes five empty pack tables and an empty catalog before and after reopen. The registry contains 21 owner tables. |
+| `EG-DECISION-ENGINE-R073.3` | `src/server/persistence/agent_library/open_tests.rs::production_open_refuses_each_genuine_predecessor_without_writing` | Every declared Agent Library predecessor fails twice by name. Both failures preserve the exact file bytes. |
+| `EG-DECISION-ENGINE-R073.5` | `src/server/handlers/admin/connector_pack/tests/content_model.rs::a_changed_leaf_revises_transitive_reference_pins_once` and `a_shared_descendant_diamond_revises_each_component_once` | Transitive and diamond references pin the committed revisions once. Repeated imports preserve revisions. |
+| `EG-DECISION-ENGINE-R073.5` | `src/server/handlers/admin/connector_pack/tests/withdrawal.rs::withdrawn_tool_leaves_search_but_keeps_historical_content` | Signed Search initially returns both tools. Withdrawal removes one; the published control remains. Signed historical Content returns exact bytes. A new pin refuses with `COMPONENT_WITHDRAWN` and creates no component. |
+
+The existing lineage tests retain their independent file-digest and manifest-order assertions.
+The existing admin holder test retains its historical Content assertions.

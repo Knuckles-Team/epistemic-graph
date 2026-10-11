@@ -196,3 +196,7 @@ Existing source modules and tests provide foundations, but this spec does not as
 
 - [ ] **EG-DECISION-ENGINE-R073.4:** Qualify committed receipt binding and typed owner replay with native execution.
   Run the named receipt fixture and adjacent served storage fixtures from `test-spec.md`.
+
+- [x] **EG-DECISION-ENGINE-R073.3:** Add production fresh-open, five-table empty-catalog, reopen, and genuine-predecessor no-write proofs in `agent_library/open_tests.rs`.
+- [x] **EG-DECISION-ENGINE-R073.5:** Bind existing transitive and diamond tests. Add signed withdrawal Search, historical Content, and new-pin refusal proof in `tests/withdrawal.rs`.
+- [ ] Run native R073.3/R073.5 acceptance tests.
