@@ -148,27 +148,68 @@ pub(crate) async fn handle_nl_query(
 
 #[cfg(all(test, feature = "nl-query"))]
 mod tests {
-    /// `handle_nl_query` answers through `result_response`, which has no dependency on
-    /// the engine's `ResultCache` at all — there is no cache key read or write on this
-    /// path, so a non-deterministic planner answer can never be served stale from a
-    /// prior, differently-planned request (EG-FEDERATED-QUERY-R058.3.1). This guard
-    /// pins that structural guarantee in the handler's own source: if `handle_nl_query`
-    /// is ever rewired through the cache-aware `served_response`/`ResultCache` path, it
-    /// fails loudly instead of silently regressing.
+    // Keep the scan outside its own fixtures and the unrelated transaction handler.
+    // Missing boundaries must fail rather than silently scan an empty slice.
+    fn check_nl_cache_isolation(src: &str) -> Result<(), &'static str> {
+        let (production, _) = src
+            .split_once("\n#[cfg(all(test, feature = \"nl-query\"))]\nmod tests {")
+            .ok_or("missing test-module boundary")?;
+        let (_, nl) = production
+            .split_once("\npub(crate) fn handle_nl_query_plan(")
+            .ok_or("missing NL planner boundary")?;
+        if !nl.contains("pub(crate) async fn handle_nl_query(")
+            || !nl.contains("result_response::<query_results::NlQuery>")
+        {
+            return Err("missing uncached NL handler response path");
+        }
+        if nl.contains("ResultCache") || nl.contains("served_response") {
+            return Err("NL handlers reference the result cache");
+        }
+        Ok(())
+    }
+
     // spec: EG-FEDERATED-QUERY-R058.3.1
     #[test]
     fn nl_query_handler_never_touches_result_cache() {
+        assert_eq!(check_nl_cache_isolation(include_str!("nl.rs")), Ok(()));
+    }
+
+    // spec: EG-FEDERATED-QUERY-R058.3.1
+    #[test]
+    fn nl_cache_guard_rejects_injected_cache_references() {
         let src = include_str!("nl.rs");
-        assert!(
-            !src.contains("ResultCache"),
-            "NlQuery's handlers must never reference ResultCache: an NL-planned query is \
-             non-deterministic, so caching on the NL text risks serving a stale or wrong \
-             result"
-        );
-        assert!(
-            !src.contains("served_response("),
-            "NlQuery must answer via result_response (uncached), not the cache-aware \
-             served_response helper Sql/Uql use"
-        );
+        for reference in [
+            "ResultCache::default()",
+            "served_response(req_id, rows)",
+            "served_response::<query_results::NlQuery>(req_id, rows)",
+        ] {
+            let mutated = src.replacen(
+                "    let state = ctx.state;",
+                &format!("    let _ = {reference};\n    let state = ctx.state;"),
+                1,
+            );
+            assert_ne!(mutated, src, "injection anchor must exist");
+            assert_eq!(
+                check_nl_cache_isolation(&mutated),
+                Err("NL handlers reference the result cache"),
+                "missed {reference}"
+            );
+        }
+    }
+
+    // spec: EG-FEDERATED-QUERY-R058.3.1
+    #[test]
+    fn nl_cache_guard_fails_closed_on_missing_boundaries_or_response() {
+        let src = include_str!("nl.rs");
+        for required in [
+            "\n#[cfg(all(test, feature = \"nl-query\"))]\nmod tests {",
+            "\npub(crate) fn handle_nl_query_plan(",
+            "pub(crate) async fn handle_nl_query(",
+            "result_response::<query_results::NlQuery>",
+        ] {
+            let mutated = src.replacen(required, "missing", 1);
+            assert_ne!(mutated, src, "boundary anchor must exist");
+            assert!(check_nl_cache_isolation(&mutated).is_err());
+        }
     }
 }
