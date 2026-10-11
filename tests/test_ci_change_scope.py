@@ -164,6 +164,7 @@ def test_workspace_gates_use_hosted_runner_with_required_headers() -> None:
 
 
 # spec: EG-CONTRACT-R031
+# spec: EG-CONTRACT-R031.1
 def test_lint_installs_manifest_rustfmt_before_all_formatting_steps() -> None:
     workflow = yaml.safe_load((ROOT / ".github/workflows/release.yml").read_text())
     steps = workflow["jobs"]["lint-and-architecture"]["steps"]

@@ -135,3 +135,7 @@ pattern rather than duplicating its channel pin or relying on the hosted image.
 The workflow regression checks unconditional provisioning and step ordering for
 both PR-scoped and full-publication formatting. This repairs runner setup only;
 full hosted quality-gate and runtime acceptance remain independently required.
+
+R031.1 owns only the runner setup regression. R031.2 preserves the outstanding
+complete same-tree census and independent clippy/formatting evidence, preventing
+a setup-only test from qualifying the broad parent requirement.
