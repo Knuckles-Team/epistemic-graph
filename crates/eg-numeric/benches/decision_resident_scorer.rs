@@ -25,6 +25,12 @@ use std::hint::black_box;
 const SAMPLES: usize = 1_000;
 const WARMUP: usize = 100;
 
+#[cfg(target_os = "linux")]
+fn require_optimized_profile() {
+    #[cfg(debug_assertions)]
+    panic!("use the optimized release profile");
+}
+
 fn q(value: i64) -> QuantisedValue {
     QuantisedValue {
         scale: QuantScaleTag::Q32,
@@ -212,7 +218,7 @@ fn measure(name: &str, head: &DecisionHeadBody, rows: &[Vec<i64>]) -> Value {
 // spec: EG-DECISION-ENGINE-R090.3
 #[cfg(target_os = "linux")]
 fn resident_scorer_meets_declared_budget() -> i32 {
-    assert!(!cfg!(debug_assertions), "use the optimized release profile");
+    require_optimized_profile();
     // Same 200-item, seed-0, 60-iteration fit as scorer_promotion.rs.
     let trained = fit_eval::fitted(HeadKind::OptionAttention, &common::gold_dataset(200, 0));
     assert!(trained
