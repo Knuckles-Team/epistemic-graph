@@ -67,3 +67,28 @@ and its other children remain open. Normal warm-tree reproduction is
 Run `cargo test -p eg-compute mining::association`.
 Isolated compilation includes the complete production association and math modules with real serde_json.
 This proves native kernel behavior, not server transport or durable execution.
+
+## R011 and R014 runtime acceptance
+
+These rows track unverified acceptance. Planned test names do not claim existing implementations or passing results.
+The producer children retain their current evidence. Neither producer proves runtime execution.
+
+| Requirement | Proving tests and source | Acceptance |
+|---|---|---|
+| EG-DURABLE-KERNEL-R011.2 | Planned tests in `crates/eg-types/src/pre_merge_test_module.rs`: `required_manifest_covers_runtime_categories` and `required_manifest_rejects_empty_selection`. | Pending runtime acceptance. |
+| EG-DURABLE-KERNEL-R011.3 | Planned tests in `tests/test_required_runtime_gate.py`: `test_pull_request_executes_required_categories` and `test_failed_or_empty_category_blocks_acceptance`. | Pending runtime acceptance. |
+| EG-DURABLE-KERNEL-R011.4 | CI receipts must name `published-full`, `workspace-all-features`, and every selected runtime test. R011.2 and R011.3 test names define the gate checks. | Pending runtime acceptance. |
+| EG-DURABLE-KERNEL-R014.2 | Planned tests in `tests/test_validate_raft_cluster.py`: `test_cpu_load_runs_during_cluster_test`, `test_zero_load_workers_refused`, and `test_load_workers_stop_on_failure`. | Pending runtime acceptance. |
+| EG-DURABLE-KERNEL-R014.3 | Planned tests in `tests/test_validate_raft_cluster.py`: `test_repeats_both_cluster_tests`, `test_retry_budget_is_bounded`, and `test_retry_preserves_failure_and_trace`. | Pending runtime acceptance. |
+| EG-DURABLE-KERNEL-R014.4 | `src/raft/tests.rs::multi_node_group_join_then_leader_rebalance` must pass every recorded loaded repetition without flaky failures. The record must include at least two repetitions. | Pending runtime acceptance. |
+| EG-DURABLE-KERNEL-R014.5 | `src/raft/tests.rs::placement_admin_wire_rpc::placement_admin_wire_rpcs_move_data_across_a_real_three_node_cluster` must pass every recorded loaded repetition without flaky failures. The record must include at least two repetitions. | Pending runtime acceptance. |
+
+R011.2 must list each selected module and its feature flags before R011.3 execution.
+Existing runtime anchors include `src/raft/tests.rs::durable_log_replays_from_redb_after_restart`.
+Backup anchors include `crates/eg-transaction/src/tests/backup_replay.rs::a_coordinator_backup_preserves_every_consumed_nonce_and_receipt`.
+Persistence anchors include `src/raft/tests.rs::fault_injection_no_committed_log_entry_lost_on_restart`.
+These anchors do not replace the complete three-category manifest.
+R011.4 receipts must link passing logs for every manifest entry and both clippy profiles.
+R014.4 and R014.5 depend on R014.2 and R014.3.
+The loaded evidence must record every attempt, including retries and failed first attempts.
+A successful retry does not satisfy the parent's requirement for no flaky failures.
