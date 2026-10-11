@@ -2951,9 +2951,9 @@
         "30405ee73d13"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/guardrail.rs:239",
-        "crates/eg-types/src/decision/guardrail.rs:264",
-        "crates/eg-types/src/decision/guardrail.rs:271"
+        "crates/eg-types/src/decision/guardrail.rs:292",
+        "crates/eg-types/src/decision/guardrail.rs:317",
+        "crates/eg-types/src/decision/guardrail.rs:324"
       ]
     },
     {
@@ -2994,7 +2994,7 @@
         "e7580aeb141f"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/guardrail.rs:201",
+        "crates/eg-types/src/decision/guardrail.rs:254",
         "src/server/handlers/decide/guardrail_tests.rs:139",
         "src/server/handlers/decide/guardrail_tests.rs:161",
         "src/server/handlers/decide/guardrail_tests.rs:78"
@@ -3184,9 +3184,14 @@
     {
       "id": "EG-DECISION-ENGINE-R129.2",
       "title": "Typed `RulePromotionVerdict`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "e28229b1148f"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/decision/guardrail.rs:215",
+        "crates/eg-types/src/decision/guardrail.rs:239"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R129.3",
