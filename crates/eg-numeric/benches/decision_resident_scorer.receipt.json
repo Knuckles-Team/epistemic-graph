@@ -43,7 +43,41 @@
     "cargo_compile_seconds": 503.0,
     "total_wall_seconds": 504.766,
     "cargo_exit_code": 2,
-    "source_stable": true
+    "source_stable": true,
+    "measurement_host": {
+      "captured_utc": "2026-10-11T17:09:29Z",
+      "capture_scope": "same measurement host, captured after the paired runs",
+      "cpu_model": "Intel(R) Core(TM) i7-6700 CPU @ 3.40GHz",
+      "os_name": "Ubuntu 26.04.1 LTS",
+      "kernel_release": "7.0.0-38-generic",
+      "architecture": "x86_64",
+      "cpu_limits": {
+        "affinity_logical_cpus": 8,
+        "cgroup_version": 2,
+        "ancestor_quotas": [
+          {
+            "quota_us": null,
+            "period_us": 100000
+          },
+          {
+            "quota_us": null,
+            "period_us": 100000
+          },
+          {
+            "quota_us": null,
+            "period_us": 100000
+          },
+          {
+            "quota_us": null,
+            "period_us": 100000
+          }
+        ],
+        "effective_cgroup_quota_cores": null,
+        "cgroup_quota_status": "unlimited",
+        "effective_capacity_cores": 8
+      },
+      "cargo_build_jobs": 3
+    }
   },
   "executable": {
     "relative_path": "target-isolated/release/deps/decision_resident_scorer-1a76d6ff619967da",
