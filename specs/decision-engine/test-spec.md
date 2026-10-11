@@ -331,16 +331,16 @@ The existing admin holder test retains its historical Content assertions.
 ### EG-DECISION-ENGINE-R133 tests
 
 - `EG-DECISION-ENGINE-R133.1`: `crates/eg-types/src/decision/run_governance.rs::tests::quota_round_trips`.
-- `EG-DECISION-ENGINE-R133.2`: `crates/eg-types/src/decision/run_governance.rs::tests::request_only_tightens_quota`.
+- `EG-DECISION-ENGINE-R133.2`: `crates/eg-types/src/decision/run_governance.rs::tests::request_only_tightens_quota`: omission uses D; tightening uses R; D < R <= C uses D; R > C refuses before clamping.
 - `EG-DECISION-ENGINE-R133.3`: `src/server/handlers/decide/stat_tests/runtime_quota_tests.rs::decide_routes_runtime_quota`.
 - `EG-DECISION-ENGINE-R133.4`: `src/server/handlers/decide/stat_tests/runtime_quota_tests.rs::missing_task_class_abstains_to_default`.
-- `EG-DECISION-ENGINE-R133.5`: `crates/eg-durable/src/project.rs::tests::run_trace_is_linked_to_unit`.
-- `EG-DECISION-ENGINE-R133.6`: `tests/decide/test_runtime_quota_served.py::test_quota_and_trace_end_to_end`.
+- `EG-DECISION-ENGINE-R133.5`: `src/redb_store/work_item/commit.rs::tests::run_trace_is_linked_to_unit`.
+- `EG-DECISION-ENGINE-R133.6`: `tests/decide/test_runtime_quota_served.py::test_quota_and_trace_end_to_end`: query quotas through read-only Decide, commit the trace through CommitWorkItemResult, then query the produced link; an invalid fence creates neither trace nor link.
 
 ### EG-DECISION-ENGINE-R134 tests
 
 - `EG-DECISION-ENGINE-R134.1`: `crates/eg-types/src/decision/task_plan.rs::tests::task_plan_round_trips`.
-- `EG-DECISION-ENGINE-R134.2`: `crates/eg-types/src/decision/task_plan.rs::tests::relevant_tools_fit_budget`.
+- `EG-DECISION-ENGINE-R134.2`: `crates/eg-types/src/decision/task_plan.rs::tests::relevant_tools_fit_budget`: floor/top-k filtering precedes R045 coverage-per-token selection; include cost/id ties, a lower-relevance coverage winner, and uncovered-capability refusal.
 - `EG-DECISION-ENGINE-R134.3`: `crates/eg-types/src/decision/task_plan.rs::tests::independent_subtasks_set_flag_and_operator`.
 - `EG-DECISION-ENGINE-R134.4`: `crates/eg-types/src/decision/task_plan.rs::tests::plan_respects_dependencies`.
 - `EG-DECISION-ENGINE-R134.5`: `src/server/handlers/decide/stat_tests/task_plan_tests.rs::decide_routes_task_plan`.
@@ -360,7 +360,7 @@ The existing admin holder test retains its historical Content assertions.
 ### EG-DECISION-ENGINE-R136 tests
 
 - `EG-DECISION-ENGINE-R136.1`: `crates/eg-types/src/decision/evolution_round.rs::tests::round_types_round_trip`.
-- `EG-DECISION-ENGINE-R136.2`: `crates/eg-types/src/decision/evolution_round.rs::tests::verdict_follows_flip_fraction`.
+- `EG-DECISION-ENGINE-R136.2`: `crates/eg-types/src/decision/evolution_round.rs::tests::verdict_follows_flip_fraction`, including five declared-direction and five opposite flips at 0.5 yielding `unverified`; add `crates/eg-types/src/decision/evolution_round.rs::tests::simultaneous_thresholds_are_unverified`.
 - `EG-DECISION-ENGINE-R136.3`: `crates/eg-types/src/decision/evolution_round.rs::tests::stronger_models_go_to_high_impact_stages`.
 - `EG-DECISION-ENGINE-R136.4`: `src/server/handlers/decide/stat_tests/evolution_round_tests.rs::decide_routes_round_kinds`.
 - `EG-DECISION-ENGINE-R136.5`: `src/server/handlers/decide/stat_tests/evolution_round_tests.rs::empty_prediction_abstains`.
