@@ -1,0 +1,18 @@
+# EG-MEDIA-VOCAB — Test specification
+
+Status: PROPOSED. Governing spec: [spec.md](spec.md).
+
+| Test ID | Requirement | Level | Setup and input | Expected observation | Evidence |
+|---|---|---|---|---|---|
+| T-001 | FR-001 | Unit | load media-v1.ttl, content-v1.ttl with shapes | classes resolve, `:Transcript` not redefined, SHACL pass/fail fixtures behave | PENDING |
+| T-002 | FR-002 | Contract | per-connector mapping fixture | every row names an existing class/property and `vg:sourceKind` mcp | PENDING |
+| T-003 | FR-003 | Integration | recorded arr, qbittorrent, jellyfin responses | films downloaded but not in library, provenance per leg | PENDING |
+| T-004 | FR-004 | Negative | connector fixture lacking the operation | typed abstention naming the operation and owner | PENDING |
+
+## Negative and boundary cases
+
+Missing leg (jellyfin unconnected): typed abstention. Raw email in Subscriber: SHACL violation. Hash case mismatch: normalised to lower case. Tenant denial follows the engine contract.
+
+## Quality and release proof
+
+`cargo test -p eg-core`, repo CCCC/jscpd/dupehound/KISS gates; record revision and output link per row.
