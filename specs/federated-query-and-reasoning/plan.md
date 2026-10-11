@@ -9,7 +9,7 @@
 5. **Complete phase 3.** Add persisted source statistics with provenance, freshness/owner-bound fragment caching and additional source kinds. Cache only when the source watermark is known and current. Retire alternate path-specific guards and source catalogs once callers use the common route.
 6. **Close semantic reads.** Finish generation fencing, restart/replay, filtered text/vector/edge retrieval and mixed traversal top-k. Run corpus reasoning and proof verification, including disjointness and skipped-event rebuild. Expose index fallback in explain output.
 7. **Close numerical surfaces.** Implement exact/golden series, attribution, propagation, barrier and motif kernels behind one public syntax and shared compute code. Add deterministic seed and budget handling before enabling a new operator on the served wire.
-8. **Publish evidence.** For each stable ID, record merged public SHA, exact test profile, positive/negative result, quality gate result and client/generator version in the native spec evidence. Mark `ACCEPTED` only after exact-head gates and affected downstream client compatibility pass.
+8. **Publish evidence.** For each stable ID, record these in the native spec evidence: merged public SHA, exact test profile, positive and negative result, quality gate result, and client and generator version. Mark `ACCEPTED` only after exact-head gates and affected downstream client compatibility pass.
 
 9. **Ontology source selection.** Add a read method that takes question classes and returns the class path and per-class approved mappings with premises. Reuse the reasoner for subclass entailment and the unified-data-plane mapping approval state. Add operation-bound source kinds to the foreign source registry under the shared outbound guard. (EG-FEDERATED-QUERY-R072, EG-FEDERATED-QUERY-R073)
 
@@ -96,8 +96,8 @@ At main `6bf4ea1c7e80a375e7053e677b0ed28c162131ec`, the complete production
 `eg-numeric` error, math, reduce, validate and kernels modules compiled in a
 standalone Rust 1.96.0 test harness linked to the cached real `libm` dependency.
 All five causal-impact tests passed. The acceptance test compares two-sided
-probabilities at both signs of z = 3, 6, 8, 10 and 20 against checked-in
-mpmath 1.3.0 50-digit references at relative tolerance below 1e-12, plus
+probabilities at both signs of z = 3, 6, 8, 10 and 20. It uses checked-in
+mpmath 1.3.0 50-digit references at relative tolerance below 1e-12. It also covers
 zero and positive-infinity boundaries. The production path calls the shared
 `normal_sf`; no copied approximation, substitute kernel or mock was used.
 
@@ -144,7 +144,7 @@ Types: `SchemaChangeKind` gains `ReorderColumn`; the table keeps one schema vers
 Attach point: `commit_table`; its production caller is the listener route dispatch. Today `commit_table` only compacts, and `evolve_add_column` (`crates/eg-lake/src/lib.rs:179`) is reached from `src/server/lake/mod.rs:243` but not from a REST route.
 Failure: an unapproved destructive change or an unknown column is refused with a typed code and no new version.
 Existing code: `src/server/lake/rest/catalog.rs:270`, `:318`; `src/server/lake/catalog_ops.rs:184`; `crates/eg-lake/src/lib.rs:179`, `:241`, `:285`; `crates/eg-lake/src/iceberg.rs:315`, `:348`; `crates/eg-lake/src/iceberg_avro.rs:371`, `:408`; `crates/eg-types/src/lake_catalog.rs:216`, `:248`. Reachable today: load and time travel yes; schema evolution through REST no.
-Reuses the table builder, the manifest writer and the compatibility classifier. New: drop, rename, reorder and the commit-route wiring.
+Reuses the table builder, the manifest writer and the compatibility classifier. New: drop, rename, reorder. New: the commit-route wiring.
 Decision: evolve through the standard commit route. Rejected: a private admin call, which external engines cannot use.
 Cross-repository: the authenticated catalog is owned by `EG-UNIFIED-DATA-PLANE-R039`; this rollup adds no new access rule.
 
@@ -199,7 +199,7 @@ Cross-repository: `AU-RETRIEVAL-R005` consumes the verdict and ends the loop. `E
 References
 - arXiv:2606.13814 — Kieback et al., "TASR: Training-Free Adaptive Stopping for Iterative Retrieval" (2026)
 
-## EG-FEDERATED-QUERY-R083 Arbitration between model prior and retrieved evidence
+## EG-FEDERATED-QUERY-R083 Arbitration between model prior and evidence
 
 Data flow: harness prior probe -> served cross-modal query carrying the prior `Candidate` -> `eg_plan::execute` (`crates/eg-plan/src/exec.rs:536`) -> `arbitrate` -> `ArbitrationVerdict` -> harness answers or reports the abstention.
 Types: `Candidate`, `EvidenceClass`, `ArbitrationVerdict`, `ArbitrationChoice`. The harness runs the probe; EG decides.

@@ -1510,7 +1510,7 @@
     },
     {
       "id": "EG-FEDERATED-QUERY-R083",
-      "title": "Arbitration between model prior and retrieved evidence (rollup)",
+      "title": "Arbitration between model prior and evidence (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
