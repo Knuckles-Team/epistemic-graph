@@ -59,3 +59,56 @@ fn concurrent_temporary_paths_are_unique() {
     let unique: std::collections::HashSet<_> = paths.iter().collect();
     assert_eq!(unique.len(), paths.len());
 }
+
+/// Isolate an exact outbound allowlist for a server fixture and restore it on drop.
+/// Both constructors use the durable-fixture environment lock when crypto is enabled.
+#[cfg(feature = "federation-sql")]
+pub(crate) struct FederationAllowGuard {
+    previous: Option<std::ffi::OsString>,
+    _lock: tokio::sync::RwLockWriteGuard<'static, ()>,
+}
+
+#[cfg(feature = "federation-sql")]
+impl FederationAllowGuard {
+    fn install(origin: &str, lock: tokio::sync::RwLockWriteGuard<'static, ()>) -> Self {
+        let key = eg_plan::federation::HTTP_JSON_FEDERATION_ALLOW_ENV;
+        let previous = std::env::var_os(key);
+        std::env::set_var(key, origin);
+        Self {
+            previous,
+            _lock: lock,
+        }
+    }
+
+    fn env_lock() -> &'static tokio::sync::RwLock<()> {
+        #[cfg(any(feature = "security", feature = "raft"))]
+        {
+            &crate::crypto::TEST_ENV_LOCK
+        }
+        #[cfg(not(any(feature = "security", feature = "raft")))]
+        {
+            static LOCK: tokio::sync::RwLock<()> = tokio::sync::RwLock::const_new(());
+            &LOCK
+        }
+    }
+
+    pub(crate) fn blocking(origin: &str) -> Self {
+        Self::install(origin, Self::env_lock().blocking_write())
+    }
+
+    pub(crate) async fn acquire(origin: &str) -> Self {
+        Self::install(origin, Self::env_lock().write().await)
+    }
+}
+
+#[cfg(feature = "federation-sql")]
+impl Drop for FederationAllowGuard {
+    fn drop(&mut self) {
+        let key = eg_plan::federation::HTTP_JSON_FEDERATION_ALLOW_ENV;
+        if let Some(previous) = self.previous.take() {
+            std::env::set_var(key, previous);
+        } else {
+            std::env::remove_var(key);
+        }
+    }
+}

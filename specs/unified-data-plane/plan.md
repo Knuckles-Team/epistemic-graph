@@ -18,6 +18,21 @@ The durable record must contain `{source_id, tenant_id, owner_id, endpoint_bindi
 
 An adapter provides `connect`, `render`, `read_catalog`, `decode_types`, and `capture` or an explicit no-capture result. Capability flags are versioned and testable: projection, predicate, limit, join, aggregate, order, transaction snapshot, and capture mode. The renderer quotes identifiers and binds values using the source dialect; it never concatenates user values into SQL. The catalog reader records stable object IDs, schema version, keys, FKs, indexes, views, enums, JSON shape and source provenance. Unknown types remain opaque typed values rather than silent text casts.
 
+### SQL destination fixture contract
+
+The SQL registration fixtures for EG-UNIFIED-DATA-PLANE-R002.1 and the OBDA
+constructor fixtures for EG-UNIFIED-DATA-PLANE-R002.2 explicitly allow
+`127.0.0.1:5432` for positive cases and install an empty allowlist for refusals.
+Loopback is not implicitly trusted. A restore-on-drop test guard holds the shared
+crypto environment write lock, or a local lock when crypto is not compiled, for
+both synchronous and asynchronous callers. The foreign-column owner/mapping
+fixture uses this admitted numeric address so DNS failure cannot mask its refusal
+assertions; those assertions run before any SQL connection.
+
+OBDA constructor checks exercise destination validation only. They do not prove
+R002.2's mixed allowed/disallowed `register_table_sources` batch acceptance;
+that registry-level test remains required.
+
 ## Contracts and data flow
 
 1. **Source registry.** A source record binds stable ID, tenant/owner, verified endpoint, secret reference, dialect and version, read/write/mirror capabilities, quota, mapping versions and capture position. Provisioning is an authenticated governed mutation. One registry identity is passed to OBDA, SQL federation, CDC and mirror sinks. Do not resolve arbitrary request-supplied DSNs. Revocation blocks new plans and drains active readers under an explicit policy.
