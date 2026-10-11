@@ -1,0 +1,56 @@
+# Implementable tasks
+
+Tasks mirror requirements.md rows; check a task only when its evidence is linked.
+
+- [ ] Authority vocabulary (rollup). **EG-SRC-AUTH-R001**
+  - [ ] Add class `vg:SourceAuthority` with `vg:authoritativeSource`, `vg:authorityFor`, `vg:authorityRank`. **EG-SRC-AUTH-R001.1**
+  - [ ] Add `vg:authorityFacet` and `vg:authorityMapping`. **EG-SRC-AUTH-R001.2**
+  - [ ] Add `vg:scopeTenant`, `vg:scopePartition`, `vg:freshnessMaxAgeSeconds`. **EG-SRC-AUTH-R001.3**
+  - [ ] Add `vg:authorityContract` and `vg:allowFallback`. **EG-SRC-AUTH-R001.4**
+  - [ ] Add `vg:materialisation` and `vg:materialisationReason`. **EG-SRC-AUTH-R001.5**
+  - [ ] Add `vg:foreignSourceName` on `vg:SourceConnection`; widen the domain of `vg:approved` to `vg:SourceAuthority`. **EG-SRC-AUTH-R001.6**
+- [ ] Authority shapes (rollup). **EG-SRC-AUTH-R002**
+  - [ ] Shape: required cardinalities and node kinds **EG-SRC-AUTH-R002.1**
+  - [ ] Shape: mapping belongs to the named source and maps the named class. **EG-SRC-AUTH-R002.2**
+  - [ ] Shape: a facet must be projected by the mapping. **EG-SRC-AUTH-R002.3**
+  - [ ] Shape: contract kind agrees with the connection's source kind. **EG-SRC-AUTH-R002.4**
+  - [ ] Shape: accelerated materialisation needs reason, freshness bound and connection capability `copy`. **EG-SRC-AUTH-R002.5**
+  - [ ] Shape: equal-rank claims by different sources on one (class, facet, scope) are refused inside one graph. **EG-SRC-AUTH-R002.6**
+- [ ] Who may assert authority (rollup). **EG-SRC-AUTH-R003**
+  - [ ] Declare kind `governed.source-authority` with approver scope `governance:approve-source-authority` in `GOVERNED_KINDS`. **EG-SRC-AUTH-R003.1**
+  - [ ] Attach refuses `vg:approved true` inside a `Pack` or `Ingestion` origin schema source. **EG-SRC-AUTH-R003.2**
+  - [ ] `AttachApproved` accepts an authority candidate; the approval lease binds its digest. **EG-SRC-AUTH-R003.3**
+  - [ ] Planner derives effectiveness from origin, not from the flag. **EG-SRC-AUTH-R003.4**
+  - [ ] Proposed rows are listed, never selected. **EG-SRC-AUTH-R003.5**
+- [ ] Selection reads authority (rollup). **EG-SRC-AUTH-R004**
+  - [ ] Add `AuthorityRow` and `with_authority` to `CoverageFixture`; replace the silent `insert` overwrite by a list per class. **EG-SRC-AUTH-R004.1**
+  - [ ] `Premise::Authority` with row, source, class, facet, rank, scope, origin, generation. **EG-SRC-AUTH-R004.2**
+  - [ ] `Covered` gains `alternates`; order candidates by rank. **EG-SRC-AUTH-R004.3**
+  - [ ] Superclass authority is inherited; a subclass row overrides it. **EG-SRC-AUTH-R004.4**
+  - [ ] Live read: parse authority rows from the composed graph schema sources. **EG-SRC-AUTH-R004.5**
+  - [ ] Build the `ConnectedSources` view from the owner-scoped foreign catalog. **EG-SRC-AUTH-R004.6**
+  - [ ] Facet-aware selection: a question reading property `p` uses the facet row for `p` before the class row. **EG-SRC-AUTH-R004.7**
+- [ ] Tie-breaking (rollup). **EG-SRC-AUTH-R005**
+  - [ ] Order: facet over class over nearest superclass. **EG-SRC-AUTH-R005.1**
+  - [ ] Scope specificity: matching tenant and partition beat unscoped. **EG-SRC-AUTH-R005.2**
+  - [ ] Equal everything, different sources: `Abstained::Ambiguous` listing both rows; never choose by name. **EG-SRC-AUTH-R005.3**
+  - [ ] `Premise::Tiebreak { winner, loser, rule }` records the deciding step. **EG-SRC-AUTH-R005.4**
+- [ ] Typed abstention (rollup). **EG-SRC-AUTH-R006**
+  - [ ] Add `CoverageResult::Abstained { class, facet, reason, source, premises }` and the reason enum `Unconnected | UnapprovedMapping | Stale | ContractMismatch | Ambiguous`. **EG-SRC-AUTH-R006.1**
+  - [ ] Unconnected rank-1 authority abstains naming source and concept. **EG-SRC-AUTH-R006.2**
+  - [ ] `allowFallback` tries the next ordered alternate and records `FallbackFrom`. **EG-SRC-AUTH-R006.3**
+  - [ ] Freshness: a stale copy falls back to live; stale and no live route abstains `Stale`. **EG-SRC-AUTH-R006.4**
+  - [ ] No authority row: one approved mapping serves with `Premise::Implicit`; several abstain `Ambiguous`. **EG-SRC-AUTH-R006.5**
+- [ ] Audit trail (rollup). **EG-SRC-AUTH-R007**
+  - [ ] Add `AuthorityAudit` and `AuditEntry` types. **EG-SRC-AUTH-R007.1**
+  - [ ] Build the audit from verdicts and premises only. **EG-SRC-AUTH-R007.2**
+  - [ ] Audit lists `not_used` rows with reason (including `Proposed`). **EG-SRC-AUTH-R007.3**
+  - [ ] Wire the audit into the cross-source report's `sources_used`. **EG-SRC-AUTH-R007.4**
+  - [ ] Print the block in the served intent tool. **EG-SRC-AUTH-R007.5**
+- [ ] Materialisation policy (rollup). **EG-SRC-AUTH-R008**
+  - [ ] Selection reports `mode: live` for a `virtual` row and refuses a copy route for it. **EG-SRC-AUTH-R008.1**
+  - [ ] An `accelerated` row resolves through `AccelerationPolicy` and carries its reason into the audit. **EG-SRC-AUTH-R008.2**
+- [ ] Consumers and acceptance (rollup). **EG-SRC-AUTH-R009**
+  - [ ] Fixture: ServiceNow rank 1 and PagerDuty rank 2 for `:Incident`. **EG-SRC-AUTH-R009.1**
+  - [ ] Decisive test: swapping two ranks changes `sources_used` with equal query text. **EG-SRC-AUTH-R009.2**
+  - [ ] Re-point `EG-CQ-XSRC-R001.1` and `R001.2` to this spec and mark them delivered by `R001.*` and `R002.*`. **EG-SRC-AUTH-R009.3**

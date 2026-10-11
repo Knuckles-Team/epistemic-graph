@@ -1,0 +1,53 @@
+# Implementable tasks
+
+Tasks mirror requirements.md rows; check a task only when its evidence is linked.
+
+- [ ] **DPV-001 · EG-DATAPLAT-VOCAB-R001:** Shared terms and mapping properties (rollup).
+- [ ] **DPV-002 · EG-DATAPLAT-VOCAB-R001.1:** Add `dp:DataStore`, `dp:storeFamily`, `dp:inStore`, `dp:viaConnection`, `dp:asOf` to the new vocabulary file.
+- [ ] **DPV-003 · EG-DATAPLAT-VOCAB-R001.2:** Add `dp:StoreMapping` (subclass of `vg:VirtualMapping`) with `dp:contractKind`, `dp:viaOperation`, `dp:accelerationMode`, `dp:materialisationReason`.
+- [ ] **DPV-004 · EG-DATAPLAT-VOCAB-R001.3:** Add `document` to the `vg:sourceKind` list comment and `sh:in` of the source-connection shape.
+- [ ] **DPV-005 · EG-DATAPLAT-VOCAB-R001.4:** Register `core:data-platform@1` as a core schema source next to `core:virtual-graph@1`.
+- [ ] **DPV-006 · EG-DATAPLAT-VOCAB-R002:** Relational and document store terms (rollup).
+- [ ] **DPV-007 · EG-DATAPLAT-VOCAB-R002.1:** Add `dp:Database`, `dp:Schema`, `dp:Table`, `dp:View`, `dp:Column`, `dp:ForeignKey`.
+- [ ] **DPV-008 · EG-DATAPLAT-VOCAB-R002.2:** Add `dp:inSchema`, `dp:hasColumn`, `dp:referencesTable`, `dp:isPrimaryKey`, `dp:sqlDialect` with domain/range.
+- [ ] **DPV-009 · EG-DATAPLAT-VOCAB-R002.3:** Add `dp:Collection`, `dp:DocumentField`, `dp:fieldPath`, `dp:fieldType`, `dp:presenceRatio`, `dp:documentCount`.
+- [ ] **DPV-010 · EG-DATAPLAT-VOCAB-R002.4:** Add a shape: `dp:fieldType` is in the `DocumentFieldType` list (including `Mixed`); `dp:presenceRatio` is in [0,1].
+- [ ] **DPV-011 · EG-DATAPLAT-VOCAB-R003:** Object and vector store terms (rollup).
+- [ ] **DPV-012 · EG-DATAPLAT-VOCAB-R003.1:** Add `dp:Bucket`, `dp:StoredObject`, `dp:objectKey`, `dp:byteSize`, `dp:lastModified`; no content property.
+- [ ] **DPV-013 · EG-DATAPLAT-VOCAB-R003.2:** Add `dp:VectorCollection`, `dp:EmbeddingSpace`, `dp:embeddingModel`, `dp:dimensions`, `dp:distanceMetric`, `dp:usesEmbeddingSpace`, `dp:vectorCount`.
+- [ ] **DPV-014 · EG-DATAPLAT-VOCAB-R003.3:** Add a shape: `dp:dimensions` positive integer; exactly one embedding space per vector collection.
+- [ ] **DPV-015 · EG-DATAPLAT-VOCAB-R004:** Stream, analytics and ML terms (rollup).
+- [ ] **DPV-016 · EG-DATAPLAT-VOCAB-R004.1:** Add `dp:Topic`, `dp:Partition`, `dp:ConsumerGroup`, `dp:PartitionLag`, `dp:partitionOf`, `dp:subscribesTo`, `dp:lag`, `dp:groupState`.
+- [ ] **DPV-017 · EG-DATAPLAT-VOCAB-R004.2:** Add a shape: `dp:lag` integer >= 0 and `dp:asOf` required on `dp:PartitionLag`.
+- [ ] **DPV-018 · EG-DATAPLAT-VOCAB-R004.3:** Add `dp:AnalyticsSite`, `dp:BehaviorMetric`, `dp:metricName`, `dp:metricValue`, `dp:windowDays`, `dp:dimensionName`, `dp:dimensionValue`.
+- [ ] **DPV-019 · EG-DATAPLAT-VOCAB-R004.4:** Add `dp:Dataset` as a subclass of core `:Dataset`, `dp:Model` as a general trained-model class (not equivalent to the narrower LLM/embedding `:Model`), `dp:TrainingRun`, `dp:EvaluationResult`, `dp:trainedOn`, `dp:producedModel`, `dp:evaluatedOn`, `dp:baselineRun`.
+- [ ] **DPV-020 · EG-DATAPLAT-VOCAB-R005:** Secret metadata only (openbao) (rollup).
+- [ ] **DPV-021 · EG-DATAPLAT-VOCAB-R005.1:** Add `dp:SecretEngine`, `dp:SecretPath`, `dp:AccessPolicy`, `dp:RotationState`, `dp:hasRotationState`, `dp:lastRotatedAt`, `dp:currentVersion`, `dp:pathName`, `dp:PolicyPathGrant`, `dp:grantPolicy`, `dp:grantPath`, `dp:grantsCapability`, `dp:leaseExpiresAt`.
+- [ ] **DPV-022 · EG-DATAPLAT-VOCAB-R005.2:** Add closed shapes (`sh:closed true`) for the five secret-metadata classes, including `dp:PolicyPathGrant`; allow only applicable metadata properties and reject every other property.
+- [ ] **DPV-023 · EG-DATAPLAT-VOCAB-R005.3:** Refusal test row: a `dp:SecretPath` carrying a `value` (and one carrying `token`) triple fails validation, and the vocabulary file contains no property named value, secret, token, password, ciphertext or rules.
+- [ ] **DPV-024 · EG-DATAPLAT-VOCAB-R005.4:** Add a mapping-validator rule that refuses a `dp:StoreMapping` whose `dp:viaOperation` is `openbao_mcp_kv:kv2_get`, `kv1_get`, `openbao_mcp_logical:read` or `unwrap`.
+- [ ] **DPV-025 · EG-DATAPLAT-VOCAB-R005.5:** Add a grant shape with exactly one policy, exactly one secret path and at least one capability string in `read list create update delete sudo deny`; validate distinct permissions on two paths.
+- [ ] **DPV-026 · EG-DATAPLAT-VOCAB-R006:** Per-connector mapping fixtures (rollup).
+- [ ] **DPV-027 · EG-DATAPLAT-VOCAB-R006.1:** Add the `sql` `dp:StoreMapping` fixture for `sql_schema:tables`, `columns`, `foreign_keys`, `constraints` with `dp:accelerationMode` V (reason recorded where M).
+- [ ] **DPV-028 · EG-DATAPLAT-VOCAB-R006.2:** Add the `documentdb` `dp:StoreMapping` fixture for `documentdb_collections:list_collections`, `documentdb_analysis:aggregate` with `dp:accelerationMode` V (reason recorded where M).
+- [ ] **DPV-029 · EG-DATAPLAT-VOCAB-R006.3:** Add the `objectstore` `dp:StoreMapping` fixture for `buckets:list`, `objects:list`, `objects:head` with `dp:accelerationMode` V (reason recorded where M).
+- [ ] **DPV-030 · EG-DATAPLAT-VOCAB-R006.4:** Add the `vector` `dp:StoreMapping` fixture for `vector_collection_management:list_collections` with `dp:accelerationMode` V (reason recorded where M).
+- [ ] **DPV-031 · EG-DATAPLAT-VOCAB-R006.5:** Add the `kafka` `dp:StoreMapping` fixture for `kafka_groups:lags`, `kafka_partitions:list`, `kafka_topics:list` with `dp:accelerationMode` V; M for sustained lag (reason recorded where M).
+- [ ] **DPV-032 · EG-DATAPLAT-VOCAB-R006.6:** Add the `openbao` `dp:StoreMapping` fixture for `openbao_mcp_sys:get_mounts`, `openbao_mcp_logical:list` with `dp:accelerationMode` V (reason recorded where M).
+- [ ] **DPV-033 · EG-DATAPLAT-VOCAB-R006.7:** Add the `clarity` `dp:StoreMapping` fixture for `clarity_insights:get_data_export` with `dp:accelerationMode` V up to 3 days; M beyond (reason recorded where M).
+- [ ] **DPV-034 · EG-DATAPLAT-VOCAB-R006.8:** Add the `data-science` `dp:StoreMapping` fixture for `load_dataset`, `dataset_lineage`, `rank_models`, `evaluate_model` with `dp:accelerationMode` V; M for run history (reason recorded where M).
+- [ ] **DPV-035 · EG-DATAPLAT-VOCAB-R007:** Mode and discovery guards (rollup).
+- [ ] **DPV-036 · EG-DATAPLAT-VOCAB-R007.1:** Add a shape rule: `materialised` without `dp:materialisationReason` is a violation; `virtual` needs none.
+- [ ] **DPV-037 · EG-DATAPLAT-VOCAB-R007.2:** Add a shape rule: `contractKind = mcp-operation` requires `dp:viaOperation`.
+- [ ] **DPV-038 · EG-DATAPLAT-VOCAB-R007.3:** Add a test that no `dp:` term or mapping fixture declares a discovery operation: relational/document entries come from `vg:MetadataContract` only.
+- [ ] **DPV-039 · EG-DATAPLAT-VOCAB-R007.4:** Add a test that every fixture mapping not marked `materialised` has no `AccelerationPolicy` and every `materialised` one cites R038.
+- [ ] **DPV-040 · EG-DATAPLAT-VOCAB-R008:** Alignment with package-local ontologies (rollup).
+- [ ] **DPV-041 · EG-DATAPLAT-VOCAB-R008.1:** Add an alignment table (package term -> `dp:` term, `rdfs:subClassOf` / `owl:equivalentProperty`) for sql and documentdb.
+- [ ] **DPV-042 · EG-DATAPLAT-VOCAB-R008.2:** Add the alignment table for objectstore and vector.
+- [ ] **DPV-043 · EG-DATAPLAT-VOCAB-R008.3:** Add the alignment table for kafka, openbao, clarity, data-science.
+- [ ] **DPV-044 · EG-DATAPLAT-VOCAB-R009:** Connector operations this vocabulary needs (cross-repo rollup).
+- [ ] **DPV-045 · EG-DATAPLAT-VOCAB-R009.1:** Cross-repo, owner `objectstore-mcp`.
+- [ ] **DPV-046 · EG-DATAPLAT-VOCAB-R009.2:** Cross-repo, owner `vector-mcp`.
+- [ ] **DPV-047 · EG-DATAPLAT-VOCAB-R009.3:** Cross-repo, owner `openbao-mcp`.
+- [ ] **DPV-048 · EG-DATAPLAT-VOCAB-R009.4:** Cross-repo, owner `clarity-api`.
+- [ ] **DPV-049 · EG-DATAPLAT-VOCAB-R009.5:** Cross-repo, owner `data-science-mcp`.
