@@ -60,8 +60,8 @@ pub use content::{
 };
 pub use facts::{
     AgentComponentFacts, CostFacts, DeclaredCost, DeclaredLatency, FactQuality, MeasuredFact,
-    ModalityFacts, ObservationRef, PriceSource, PromptMode, ShellProficiency, ToolEffect,
-    ToolsetTransport,
+    ModalityFacts, ObservationRef, PriceSource, PromptMode, ShellProficiency, StoppingBehaviour,
+    ToolEffect, ToolsetTransport,
 };
 pub use search::{
     decode_search_cursor, encode_search_cursor, AgentComponentSearchPage,
@@ -743,6 +743,14 @@ fn digest_with(draft: &AgentComponentDraft, version: DigestVersion) -> String {
     format!("{DIGEST_PREFIX}{}", hex::encode(hasher.finalize()))
 }
 
+// Absent fields emit no bytes, retaining the existing v3/v4 digest vectors.
+fn put_measured_fact(hasher: &mut Sha256, field: &str, value: &str, reference: &ObservationRef) {
+    put_text(hasher, field);
+    put_text(hasher, value);
+    put_text(hasher, &reference.evaluation_id);
+    put_text(hasher, &reference.digest);
+}
+
 fn put_facts(hasher: &mut Sha256, facts: &AgentComponentFacts) {
     put_text(hasher, facts.label());
     match facts {
@@ -758,6 +766,8 @@ fn put_facts(hasher: &mut Sha256, facts: &AgentComponentFacts) {
             cost,
             latency_declared,
             latency_observed_ref,
+            shell_proficiency,
+            stopping_behaviour,
         } => {
             put_text(hasher, provider);
             put_text(hasher, model_identity);
@@ -779,6 +789,22 @@ fn put_facts(hasher: &mut Sha256, facts: &AgentComponentFacts) {
                 hasher,
                 latency_observed_ref.as_ref().map(|r| r.digest.as_str()),
             );
+            if let Some(fact) = shell_proficiency {
+                put_measured_fact(
+                    hasher,
+                    "shell_proficiency",
+                    fact.value.as_str(),
+                    &fact.evaluation_run_ref,
+                );
+            }
+            if let Some(fact) = stopping_behaviour {
+                put_measured_fact(
+                    hasher,
+                    "stopping_behaviour",
+                    fact.value.as_str(),
+                    &fact.evaluation_run_ref,
+                );
+            }
         }
         AgentComponentFacts::SystemPrompt {
             prompt_mode,
@@ -1375,6 +1401,8 @@ mod tests {
             cost: None,
             latency_declared: None,
             latency_observed_ref: None,
+            shell_proficiency: None,
+            stopping_behaviour: None,
         }
     }
 
@@ -1426,6 +1454,144 @@ mod tests {
         let mut source = draft("model:opus", AgentComponentKind::ModelProfile);
         source.facts = model_facts(200_000, 64_000);
         source
+    }
+
+    // spec: EG-TYPED-PACKS-R048.3
+    // spec: EG-TYPED-PACKS-R048.4
+    #[test]
+    fn absent_shell_proficiency_keeps_digest() {
+        let source = model();
+        // Literal v3/v4 vectors from the pre-extension canonical encoding.
+        assert_eq!(
+            digest_with(&source, DigestVersion::V3),
+            "sha256:352d92993b78d950b04561413119bd5784d494c5b864f073ed45b6e6c660e20a"
+        );
+        assert_eq!(
+            definition_digest(&source),
+            "sha256:2eb3573421dd9f68a5fda2551fe733fd79d3309020a608b2bc268c1d5bfc5bdc"
+        );
+        let mut wire = serde_json::to_value(&source).unwrap();
+        assert!(wire["facts"].get("shell_proficiency").is_none());
+        assert!(wire["facts"].get("stopping_behaviour").is_none());
+        let absent: AgentComponentDraft = serde_json::from_value(wire.clone()).unwrap();
+        assert_eq!(absent, source);
+        wire["facts"]["shell_proficiency"] = serde_json::Value::Null;
+        wire["facts"]["stopping_behaviour"] = serde_json::Value::Null;
+        let explicit_null: AgentComponentDraft = serde_json::from_value(wire).unwrap();
+        assert_eq!(explicit_null, source);
+        explicit_null.validate().unwrap();
+    }
+
+    fn measured_model() -> AgentComponentDraft {
+        let mut source = model();
+        let AgentComponentFacts::ModelProfile {
+            shell_proficiency,
+            stopping_behaviour,
+            ..
+        } = &mut source.facts
+        else {
+            unreachable!()
+        };
+        let reference = ObservationRef {
+            evaluation_id: "eval:42".into(),
+            digest: "opaque-run-digest".into(),
+        };
+        *shell_proficiency = Some(MeasuredFact {
+            value: ShellProficiency::High,
+            evaluation_run_ref: reference.clone(),
+        });
+        *stopping_behaviour = Some(MeasuredFact {
+            value: StoppingBehaviour::Balanced,
+            evaluation_run_ref: reference,
+        });
+        source
+    }
+
+    // spec: EG-TYPED-PACKS-R048.3
+    // spec: EG-TYPED-PACKS-R048.4
+    #[test]
+    fn measured_model_facts_change_digest() {
+        let source = measured_model();
+        source.validate().unwrap();
+        let expected = definition_digest(&source);
+        assert_ne!(expected, definition_digest(&model()));
+        let wire = serde_json::to_value(&source).unwrap();
+        let round_trip: AgentComponentDraft = serde_json::from_value(wire.clone()).unwrap();
+        assert_eq!(round_trip, source);
+        for (field, values) in [
+            ("shell_proficiency", ["low", "medium"]),
+            ("stopping_behaviour", ["stops_early", "over_verifies"]),
+        ] {
+            for value in values {
+                let mut changed = wire.clone();
+                changed["facts"][field]["value"] = value.into();
+                let changed: AgentComponentDraft = serde_json::from_value(changed).unwrap();
+                assert_ne!(definition_digest(&changed), expected, "{field}: {value}");
+            }
+            for reference_field in ["evaluation_id", "digest"] {
+                let mut changed = wire.clone();
+                changed["facts"][field]["evaluation_run_ref"][reference_field] =
+                    "different-reference".into();
+                let changed: AgentComponentDraft = serde_json::from_value(changed).unwrap();
+                assert_ne!(
+                    definition_digest(&changed),
+                    expected,
+                    "{field}: {reference_field}"
+                );
+            }
+            let mut changed = wire.clone();
+            changed["facts"].as_object_mut().unwrap().remove(field);
+            let changed: AgentComponentDraft = serde_json::from_value(changed).unwrap();
+            assert_ne!(definition_digest(&changed), expected, "absent {field}");
+        }
+    }
+
+    // spec: EG-TYPED-PACKS-R048.3
+    // spec: EG-TYPED-PACKS-R048.4
+    #[test]
+    fn measured_model_facts_refuse_malformed_references() {
+        let wire = serde_json::to_value(measured_model()).unwrap();
+        for field in ["shell_proficiency", "stopping_behaviour"] {
+            for bad in [
+                serde_json::Value::Null,
+                serde_json::json!({}),
+                serde_json::json!({"evaluation_id": "eval:42", "digest": ""}),
+                serde_json::json!({"evaluation_id": " padded", "digest": "opaque"}),
+                serde_json::json!({"evaluation_id": "bad\nref", "digest": "opaque"}),
+            ] {
+                let mut changed = wire.clone();
+                changed["facts"][field]["evaluation_run_ref"] = bad;
+                assert!(serde_json::from_value::<AgentComponentDraft>(changed).is_err());
+            }
+            let mut missing = wire.clone();
+            missing["facts"][field]
+                .as_object_mut()
+                .unwrap()
+                .remove("evaluation_run_ref");
+            assert!(serde_json::from_value::<AgentComponentDraft>(missing).is_err());
+            let mut unknown = wire.clone();
+            unknown["facts"][field]["value"] = "unknown".into();
+            assert!(serde_json::from_value::<AgentComponentDraft>(unknown).is_err());
+        }
+        for corrupt_shell in [true, false] {
+            let mut source = measured_model();
+            let AgentComponentFacts::ModelProfile {
+                shell_proficiency,
+                stopping_behaviour,
+                ..
+            } = &mut source.facts
+            else {
+                unreachable!()
+            };
+            let reference = if corrupt_shell {
+                &mut shell_proficiency.as_mut().unwrap().evaluation_run_ref
+            } else {
+                &mut stopping_behaviour.as_mut().unwrap().evaluation_run_ref
+            };
+            reference.digest.clear();
+            assert!(source.validate().is_err());
+            assert!(AgentComponentEntry::publish(source, 1, 1_000).is_err());
+        }
     }
 
     #[test]
