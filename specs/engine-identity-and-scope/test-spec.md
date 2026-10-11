@@ -63,3 +63,4 @@ Review: [PR 445](https://github.com/Knuckles-Team/epistemic-graph/pull/445).
 `dispatch_attributes_every_queue_class_to_the_one_verified_principal` retains its verified-principal and spoofed-consumer assertions.
 Native execution of both tests remains pending.
 Hosted facade execution must establish R005 acceptance; source inspection alone does not establish it.
+| I-11 | R008 | A principal with a stored policy node allowing two tools; plans naming two tools and three tools. | The two-tool plan passes. The three-tool plan returns `ScopeExceedsPolicy` naming the third tool, and an audit record exists. |
