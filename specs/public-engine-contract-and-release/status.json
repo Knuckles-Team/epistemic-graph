@@ -337,11 +337,12 @@
         "15acf1a959e5",
         "19d0663aaf5c",
         "394f82a01e83",
+        "515777a98b6e",
         "b8aac182d679"
       ],
       "verified_by": [
         "crates/eg-capabilities/src/contract/errors.rs:470",
-        "crates/eg-capabilities/src/error_routing.rs:314"
+        "crates/eg-capabilities/src/error_routing.rs:326"
       ]
     },
     {

@@ -1660,9 +1660,11 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "27157a8a5dcf",
-        "44e16218bb0a"
+        "44e16218bb0a",
+        "515777a98b6e"
       ],
       "verified_by": [
+        "crates/eg-capabilities/src/error_routing.rs:317",
         "src/server/handlers/admin/connector_pack/tests/content_model.rs:371",
         "src/server/handlers/admin/connector_pack/tests/content_model.rs:406",
         "src/server/handlers/admin/connector_pack/tests/withdrawal.rs:43"
