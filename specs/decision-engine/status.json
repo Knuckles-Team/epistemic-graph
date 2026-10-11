@@ -559,7 +559,7 @@
         "9079ca7b0ddd"
       ],
       "verified_by": [
-        "crates/eg-types/src/agent_component.rs:2111"
+        "crates/eg-types/src/agent_component.rs:2112"
       ]
     },
     {
@@ -789,7 +789,7 @@
         "b23e8815f42c"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/statistical.rs:344"
+        "crates/eg-types/src/decision/statistical.rs:345"
       ]
     },
     {
@@ -822,7 +822,7 @@
         "b23e8815f42c"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/statistical.rs:351"
+        "crates/eg-types/src/decision/statistical.rs:352"
       ]
     },
     {
@@ -1170,7 +1170,7 @@
         "fa780d3e101a"
       ],
       "verified_by": [
-        "crates/eg-types/src/agent_component.rs:1803"
+        "crates/eg-types/src/agent_component.rs:1804"
       ]
     },
     {
@@ -1359,7 +1359,7 @@
       ],
       "verified_by": [
         "crates/eg-numeric/tests/decision/scorer_promotion.rs:179",
-        "crates/eg-types/src/agent_component.rs:2140"
+        "crates/eg-types/src/agent_component.rs:2141"
       ]
     },
     {
@@ -1748,7 +1748,7 @@
         "a1bb9fb9503e"
       ],
       "verified_by": [
-        "crates/eg-types/src/agent_component.rs:2168"
+        "crates/eg-types/src/agent_component.rs:2169"
       ]
     },
     {
@@ -3054,9 +3054,16 @@
     {
       "id": "EG-DECISION-ENGINE-R128.3",
       "title": "The answer type states each part and its abstention",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "43baea1a279c",
+        "f00f7d76de1d"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/decision/statistical/harness_config.rs:204",
+        "crates/eg-types/src/decision/statistical/harness_config.rs:234",
+        "crates/eg-types/src/decision/statistical/harness_config.rs:261"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R128.4",
@@ -3082,9 +3089,13 @@
     {
       "id": "EG-DECISION-ENGINE-R128.7",
       "title": "Action space follows shell proficiency and task class",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "f00f7d76de1d"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/decision/statistical/harness_config.rs:282"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R128.8",

@@ -230,3 +230,10 @@ and the candidate component URI. It must check both exact foreign claim details
 and the persisted native/declared provides/requires partition. Unrelated server
 description warnings must not affect the capability-warning count. Assertion
 failures must retain the full warning list and served refusal details.
+
+### Current producer boundary (R048.2)
+
+`MeasuredFact<T>` and `ShellProficiency` live in the existing facts module.
+The required evaluation reference reuses measured-latency validation at decode
+and through `validate`; digest text retains the existing opaque reference rules.
+Profile attachment, digest integration, import and persistence remain separate leaves.
