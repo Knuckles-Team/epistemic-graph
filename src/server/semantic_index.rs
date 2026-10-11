@@ -200,21 +200,33 @@ pub(crate) fn semantic_cursor_secret() -> [u8; 32] {
 }
 
 /// Process-local registry of open semantic-index owners, keyed by
-/// `(tenant, binding)`.
+/// `(canonical persistence root, tenant, binding)`.
 ///
 /// A registry rather than an open-per-request because redb owns the file: two
 /// live handles on one owner is a hard failure, not a slow path. This mirrors
 /// `sql_tables::open_or_get` exactly, including its "the physical-open layer
 /// answers WHICH FILE, never IS THIS CALLER ALLOWED" split -- authorization is
 /// the adapter's job, above this.
+type SemanticRegistryKey = (PathBuf, String, String);
+
 #[allow(clippy::type_complexity)]
-fn semantic_registry(
-) -> &'static std::sync::Mutex<std::collections::HashMap<(String, String), Arc<SemanticIndexService>>>
-{
+fn semantic_registry() -> &'static std::sync::Mutex<
+    std::collections::HashMap<SemanticRegistryKey, Arc<SemanticIndexService>>,
+> {
     static REGISTRY: std::sync::OnceLock<
-        std::sync::Mutex<std::collections::HashMap<(String, String), Arc<SemanticIndexService>>>,
+        std::sync::Mutex<std::collections::HashMap<SemanticRegistryKey, Arc<SemanticIndexService>>>,
     > = std::sync::OnceLock::new();
     REGISTRY.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+fn semantic_registry_key(
+    persist_dir: &std::path::Path,
+    tenant: &str,
+    binding_id: &str,
+) -> Result<SemanticRegistryKey, String> {
+    let root = std::fs::canonicalize(persist_dir)
+        .map_err(|_| "semantic index persistence root is unavailable".to_string())?;
+    Ok((root, tenant.to_string(), binding_id.to_string()))
 }
 
 /// Route both ordinary opens and existing-owner reads through the same v3
@@ -251,16 +263,16 @@ pub(crate) fn open_semantic_service(
     // check and the v3 install; this check alone is not a cross-process lock.
     // It runs before the registry lookup, including for already-open handles.
     refuse_split_semantic_owner(persist_dir, tenant)?;
-    let key = (tenant.to_string(), binding_id.to_string());
+    let dir = legacy_semantic_owner_dir(persist_dir, tenant, binding_id);
+    std::fs::create_dir_all(&dir)
+        .map_err(|_| "semantic index owner directory is unavailable".to_string())?;
+    let key = semantic_registry_key(persist_dir, tenant, binding_id)?;
     let mut registry = semantic_registry()
         .lock()
         .map_err(|_| "semantic index owner registry is unavailable".to_string())?;
     if let Some(service) = registry.get(&key) {
         return Ok(Arc::clone(service));
     }
-    let dir = legacy_semantic_owner_dir(persist_dir, tenant, binding_id);
-    std::fs::create_dir_all(&dir)
-        .map_err(|_| "semantic index owner directory is unavailable".to_string())?;
     let (proof, _) = *semantic_server_secrets();
     let service = Arc::new(
         SemanticIndexService::open(
@@ -759,3 +771,23 @@ mod sql_source_read_tests;
 /// here.
 #[cfg(all(test, feature = "query", feature = "redb"))]
 mod dispatch_pipeline_tests;
+
+#[cfg(test)]
+#[test]
+fn semantic_owner_registry_is_scoped_to_persistence_root() {
+    let first_root = crate::test_support::temp_dir("eg-semantic-registry", "first");
+    let second_root = crate::test_support::temp_dir("eg-semantic-registry", "second");
+    let tenant = "tenant-registry-isolation";
+    let binding = "binding:registry-isolation";
+    let first = open_semantic_service(&first_root, tenant, binding).unwrap();
+    let second = open_semantic_service(&second_root, tenant, binding).unwrap();
+    assert!(
+        !Arc::ptr_eq(&first, &second),
+        "distinct roots own distinct stores"
+    );
+    let alias = open_semantic_service(&first_root.join("."), tenant, binding).unwrap();
+    assert!(
+        Arc::ptr_eq(&first, &alias),
+        "one physical root reuses its owner"
+    );
+}

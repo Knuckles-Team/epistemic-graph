@@ -184,3 +184,13 @@ This documentation repair adds no Rust execution evidence or runtime acceptance.
 ### 2026-10-11: repeated loaded harness
 
 R014.3.1 adds bounded repetitions and per-invocation evidence to the existing CPU-load supervisor. R014.3.2 retains Rust FlakeBudget-driven diagnostic retries. R014.4 and R014.5 remain open until actual Rust cluster execution is recorded.
+
+### 2026-10-11: lifecycle control admission and fixture isolation
+
+R049 previously reused a control maintenance claim after graph-generation receipts were purged.
+The control owner must bind each claim to its in-transaction version.
+The graph owner must retain caller-key replay and nonce enforcement.
+`delete_purges_receipts_of_a_prior_incarnation` must prove recreation and subsequent replay across restart.
+R011 test fixtures previously assumed nanosecond timestamps were unique.
+The shared temporary-path helper must add a process-local sequence; concurrent path tests must prove uniqueness.
+The native facade failure log identifies both failures; runtime acceptance remains pending.

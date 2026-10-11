@@ -489,18 +489,16 @@ impl Shard {
         operation_id: &str,
         version: u64,
     ) -> Result<MutationBatch, String> {
-        drain_batch(
-            &self.control,
-            operation_id,
-            GRAPH_SHARD_CONTROL_GRAPH,
-            version,
-        )
+        // The control scope survives graph-generation receipt purges. Reusing
+        // a caller key after DeleteGraph must admit fresh control rows too.
+        let claim = format!("{operation_id}:control-v{version}");
+        drain_batch(&self.control, &claim, GRAPH_SHARD_CONTROL_GRAPH, version)
     }
 
     /// The control member every shard group carries.
     fn control_intent<'a>(&'a self, op_id: &'a str) -> CurrentIntent<'a, GraphShardOwner> {
         CurrentIntent::maintenance(&self.control, move |version| {
-            drain_batch(&self.control, op_id, GRAPH_SHARD_CONTROL_GRAPH, version)
+            self.maintenance_batch_at(op_id, version)
         })
     }
 
@@ -1330,6 +1328,26 @@ mod tests {
         let names: Vec<String> = graphs.iter().map(|g| (*g).to_string()).collect();
         let handles = shard.graph_handles(&names).unwrap();
         names.into_iter().zip(handles).collect()
+    }
+
+    #[test]
+    fn control_maintenance_reused_label_admits_at_the_current_version() {
+        let path = temp_path("control-reused-label");
+        let shard = Shard::open(&path).unwrap();
+        let mut claims = Vec::new();
+        for _ in 0..2 {
+            let (group, batches) = shard.admit_maintenance(&[], "reused-caller-key").unwrap();
+            assert!(matches!(group.begun(0).unwrap(), Begin::Apply { .. }));
+            claims.push(batches[0].idempotency_key().to_string());
+            ShardWrite::open(&shard, &group, &[], &batches)
+                .unwrap()
+                .finish()
+                .unwrap();
+            shard.commit_drain(group, &batches, 0).unwrap();
+        }
+        assert_ne!(claims[0], claims[1]);
+        drop(shard);
+        let _ = std::fs::remove_file(path);
     }
 
     /// The seam end to end: N graph members plus the control member write their
