@@ -215,3 +215,15 @@ The leaf covers declared budgets only; it does not establish measured resident-s
 The ceiling now refuses 10,000 microseconds, which exceeds the single-digit-millisecond contract.
 
 R090.2 retains compiled execution acceptance. R090.3 retains measured resource acceptance. Both children remain specified until their checks pass.
+
+
+## Amendments
+
+### 2026-10-11: retain R093 served acceptance
+
+The previous R093 rollup recorded only its provenance-type child, R093.1.
+Its text explicitly left served export unbuilt, but the generated parent state was VERIFIED.
+R093.2 now records that remainder with three planned children.
+The original parent acceptance remains unchanged.
+`export_gold_corpus` currently calls `generate_gold_set` and exports `SOURCE_IN_PROCESS` labels.
+This correction claims no served implementation or runtime test result.

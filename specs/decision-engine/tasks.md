@@ -124,8 +124,12 @@ Existing source modules and tests provide foundations, but this spec does not as
 - [x] **EG-DECISION-ENGINE-R085:** Legal option sets are derived from the ontology, never received as-is
 - [ ] **EG-DECISION-ENGINE-R090:** Resident native decision-scorer head in eg-decision
 - [x] **EG-DECISION-ENGINE-R090.1:** Typed resident-scorer budget (producer-first split of R090)
-- [x] **EG-DECISION-ENGINE-R093:** Resident scorer is trained from the served synthetic-episode generator
+- [ ] **EG-DECISION-ENGINE-R093:** Resident scorer is trained from the served synthetic-episode generator
 - [x] **EG-DECISION-ENGINE-R093.1:** Typed served-path provenance and ground-truth verification
+- [ ] **EG-DECISION-ENGINE-R093.2:** Complete served corpus export and training acceptance.
+- [ ] **EG-DECISION-ENGINE-R093.2.1:** Collect seeded results through the existing served client.
+- [ ] **EG-DECISION-ENGINE-R093.2.2:** Bind served labels to collected results and refuse invalid provenance.
+- [ ] **EG-DECISION-ENGINE-R093.2.3:** Verify training consumes real served episodes.
 - [x] **EG-DECISION-ENGINE-R102:** Schema repair proposals pass a decided mapping and shadow-branch check
 - [x] **EG-DECISION-ENGINE-R102.1:** Typed schema-repair activation gate (producer-first split of R102)
 - [x] **EG-DECISION-ENGINE-R113:** EG commits capacity acquisition atomically with synthesis evidence
