@@ -28,7 +28,7 @@ fn iri_triple(subject: &str, predicate: &str, object: &str) -> Triple {
     )
 }
 
-// spec: EG-ORCH-VOCAB-R001.1
+// Pending native acceptance: EG-ORCH-VOCAB-R001.1.
 #[test]
 fn task_step_resolves_and_precedes_accepts_it() {
     let mut triples = documents();
@@ -61,7 +61,7 @@ fn task_step_resolves_and_precedes_accepts_it() {
     ));
 }
 
-// spec: EG-ORCH-VOCAB-R004.1
+// Pending native acceptance: EG-ORCH-VOCAB-R004.1.
 #[test]
 fn best_practice_is_a_development_standard() {
     let triples = documents();
@@ -84,7 +84,7 @@ fn best_practice_is_a_development_standard() {
         .entails_subclass(&format!("<{KG}BestPractice>"), &format!("<{KG}TaskStep>")));
 }
 
-// spec: EG-ORCH-VOCAB-R001.1, EG-ORCH-VOCAB-R004.1
+// Pending native acceptance: EG-ORCH-VOCAB-R001.1 and EG-ORCH-VOCAB-R004.1.
 #[test]
 fn contradictory_parent_mutations_are_detected() {
     for (class, parent) in [
