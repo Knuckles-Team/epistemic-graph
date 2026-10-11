@@ -37,7 +37,7 @@ Specs are already designed. The work is implementation, delivered in very small,
 
 **Time and size**
 - One agent delivers one PR in 5 minutes or less. No agent or sub-agent runs longer than 5 minutes; an orchestrator dispatches the next slice to a fresh agent.
-- Self-timer (hard): run `date +%s > /tmp/agent-start-$$` as your FIRST command, and before every later step check elapsed with `echo $(( $(date +%s) - $(cat /tmp/agent-start-*) ))`. At 300 s, stop starting new work. At 480 s, commit what passes, push it, open the PR, report and STOP. Never exceed 600 s. Never wait on CI or background jobs; use `git commit --no-verify` and `git push --no-verify` after running pre-commit on the changed files yourself.
+- Self-timer (hard): run `date +%s > /tmp/agent-start-$$` as your FIRST command, and before every later step check elapsed with `echo $(( $(date +%s) - $(cat /tmp/agent-start-*) ))`. At 300 s, stop starting new work. At 480 s, commit what passes, push it, open the PR, report and STOP. Never exceed 600 s. Keep installed commit/push hooks enabled; use the immutable-range publication procedure below and report required gate time separately.
 - CI turns around in 5 minutes or less. PR CI runs the fast subset: lint, type check, the spec check, and only the tests and crates the diff touches. Pushes to main run the full suite.
 - CI timer (hard): every PR-path job carries `timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}`, so a PR gate is killed at 10 minutes and a slow gate shows up as a failure instead of a silent queue.
 - Never spawn sub-agents from a delivery agent.
@@ -71,8 +71,8 @@ Specs are already designed. The work is implementation, delivered in very small,
 
 **Before every push**
 - Work in a real `git worktree add` from `origin/main`. Never edit a shared checkout, never `git stash`, never `git add -A`, never force-push.
-- Run the repo's own pre-commit on the changed files: `uvx --from pre-commit==4.6.0 pre-commit run --files $(git diff --name-only origin/main...HEAD)`. Fix every failure. No `noqa`, `type: ignore`, skip, xfail or whitelist entries to pass a gate.
-- Run the targeted tests only, never a full suite. Run the type checker on every changed file, and keep each function at cyclomatic complexity 10 or less.
+- Run the configured commit and push stages against immutable refs as described below. Fix every failure. No `noqa`, `type: ignore`, skip, xfail or whitelist entries to pass a gate.
+- Select targeted tests for local feedback, and honor broader checks required by the configured gates. Run the type checker on every changed file, and keep each function at cyclomatic complexity 10 or less.
 
 **Landing**
 - Every PR lands within minutes of going green; no PR sits idle. Mechanical conflicts (generated files, Markdown, `status.json`) are resolved automatically by the merge-train tool. Real conflicts are additive in most cases and are resolved, not deferred.
@@ -165,6 +165,46 @@ Use the engineering guide's command section and `.config/pre-commit.yaml` as
 the gate definitions. Commit-stage checks cover the fast source boundaries;
 manual and hosted checks cover the broader feature, scanner, and wheel work.
 `scripts/ci_parity.sh` composes the local tiers when that workload is authorized.
+
+### Publish a frozen, explicit range
+
+Fetch the intended target's remote refs before the first push (for example,
+`git fetch origin refs/heads/main:refs/remotes/origin/main`). Finish generators,
+including spec status, and commit their outputs before freezing the candidate.
+Record the immutable source `HEAD_SHA`, the PR merge-base against the fetched
+target, and the actual outgoing push base `BASE_SHA`; these can differ. For an
+existing remote branch, the push base is its advertised old SHA. For a new branch,
+pre-commit 4.6.2 finds commits absent from local `--remotes=origin` refs and uses
+the first outgoing commit's parent; a root commit selects all files. Stale remote
+refs can therefore widen the push range beyond the PR diff.
+
+With those recorded SHAs, run both configured stages:
+
+```bash
+pre-commit run --config .config/pre-commit.yaml --hook-stage pre-commit \
+  --from-ref "$BASE_SHA" --to-ref "$HEAD_SHA"
+pre-commit run --config .config/pre-commit.yaml --hook-stage pre-push \
+  --from-ref "$BASE_SHA" --to-ref "$HEAD_SHA"
+```
+
+Check the PR merge-base range too if it includes files outside the push range.
+Record the checked file count and each stage's result. Keep the checkout frozen
+through both stages: 4.6.2 compares the entire worktree diff before/after each hook,
+so another writer can falsely produce “files modified by this hook.” If a hook or
+generator changes files, commit the result and check the new immutable range.
+Verify `git status --short` and `git rev-parse HEAD` before ordinary `git push`;
+preserve and explicitly account for pre-existing unrelated dirty/untracked files.
+Do not disable installed hooks or suppress genuine manifest-triggered full Rust
+checks. Setting `PRE_COMMIT_FROM_REF` externally does not fix a push range: the
+hook runner overwrites it from its computed arguments.
+
+Record pre-commit's version and the resolved pipelines checkout SHA. Its cache
+lookup uses the literal repository/ref key, so `pipelines@main` can reuse an old
+checkout. Keep the sanctioned `rev: main`; when refresh is needed, use a separate
+refreshed `PRE_COMMIT_HOME` and preserve shared caches. These behaviors were
+checked in pre-commit 4.6.2's `commands/hook_impl.py::_pre_push_ns`,
+`commands/run.py` (range environment and worktree diff comparison), and
+`store.py::_new_repo`; recheck those sources when upgrading the runner.
 
 Investigate each failure at the failing source and revision. Do not hide an
 unavailable tool with a skip, weaken a scanner, or call an advisory result a
