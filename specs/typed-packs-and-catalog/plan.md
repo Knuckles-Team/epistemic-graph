@@ -2,7 +2,7 @@
 
 ## Design decisions
 
-The implementation extends EG's current typed pack, component, schema, outbox and capability registry. It does not add a separate pack database, a dynamic response envelope, a second contract generator or a graph projection side channel. The public wire is generated from `eg-capabilities`; canonical receipt content must be compared byte for byte. Changes to a shared wire shape land as one coordinated revision across Rust, generated Python/Go/JS and the SDK TCK.
+The implementation extends EG's current typed pack, component, schema, outbox and capability registry. It adds no separate pack database or dynamic response envelope. It adds no second contract generator or graph projection side channel. The public wire is generated from `eg-capabilities`; canonical receipt content must be compared byte for byte. Changes to a shared wire shape land as one coordinated revision across Rust, generated Python/Go/JS and the SDK TCK.
 
 The order below minimizes incompatible intermediate states. A step may be a verification or repair of existing code. The existence of a module is not proof that the step is accepted. Each step maps to `tasks.md` and `test-spec.md`.
 
@@ -122,6 +122,20 @@ One graph owns a bounded ordered map of `GraphSchemaSource { source_id, origin, 
 The per-tenant lock serializes pack mutations but does not replace in-write head compare-and-swap. Cancellation is checked before expensive reasoning and before atomic commit; a cancelled request must release the lock. Outbox failure is a durable failed state, not a swallowed log; retry is bounded and does not collateral-dead-letter unrelated events. Projection's graph write uses a grant scoped to that outbox row. Clustered writes for this family are `LocalOnly`. Incompatible owner layout fails by named refusal at the manifest read; an offline upgrade path is rejected. The first schema corpus remains generated from typed Rust authority and preserves its public IRI vocabulary. New source and row types require the same generated contract/receipt update and compatibility tests.
 
 ## Amendments
+
+### 2026-10-11: served admin regression fixtures
+
+R002, R003 and R007 retain their runtime contracts. The import fixture must use
+the deterministic connector/digest/expected-binding key before testing index
+validation. Validation refusals, including `RETIRED_ENTRY_RETURNED`, are typed
+`PackImportResult::Rejected` violations. Compare catalog state after retirement
+with state after the refused reimport, so the retirement itself is not mistaken
+for a rejected-import mutation. Reconciliation preserves every historical
+revision holder. Revised and withdrawn bodies remain readable by pinned revision
+(PACK-05). Only unheld bodies are orphans. The served regression
+asserts historical and current body bytes after the sweep.
+Catalog snapshot assertions share one helper.
+This removes repeated setup without changing typed refusals or before/after equality checks.
 
 ### 2026-10-11: capability annotation acceptance
 

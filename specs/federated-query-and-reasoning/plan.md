@@ -26,7 +26,7 @@
 ## Decisions and risk controls
 
 - Favor narrow extensions to existing `eg-plan`, `eg-rdf`, `eg-query`, `eg-numeric` and server paths. No second query planner, registry, schema authority, index lifecycle or statistical kernel.
-- Keep optimizer fallback reachable for differential testing and incident mitigation, but never use it to bypass authorization or an outbound refusal.
+- Keep optimizer fallback reachable for differential testing and incident mitigation. Never bypass authorization or an outbound refusal.
 - Treat SQL without explicit ordering as an unordered relation; tests compare multisets. With explicit ordering, compare ordered rows and top-N exactly.
 - Treat source-feature claims as untrusted until probes or conformance establish them; a failed probe lowers capability.
 - A missing watermark disables foreign-result cache. A failed semantic generation activation leaves the prior valid generation or uses a correct fallback. It does not return silently stale rows.
@@ -104,3 +104,15 @@ zero and positive-infinity boundaries. The production path calls the shared
 The literal test binding records this pure-module leaf only. The standalone
 harness does not establish the full eg-compute crate, server, client, cross-host
 or hosted release gates. No broader acceptance is claimed.
+
+## Amendments
+
+### 2026-10-11 — EG-FEDERATED-QUERY-R058.3.1 source-guard repair
+
+Scope the no-cache guard to production NL handlers, excluding the adjacent
+transaction handler and the test module's own forbidden-reference fixtures.
+Missing source boundaries fail closed. Negative controls inject `ResultCache`,
+a direct `served_response` call, and a generic `served_response` call into
+the production NL section. Preserve the uncached response-path assertion.
+Standalone exact-source Rust tests establish this structural guard only; they
+do not establish full facade compilation or end-to-end NL query behavior.

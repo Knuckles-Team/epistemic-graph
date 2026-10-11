@@ -53,3 +53,19 @@ The 2026-10-11 bounded local run instead compiled the exact module with `rustc
 --test --edition=2021`, importing production numeric modules by path and linking
 the cached real libm. This is pure-module acceptance, not a full-crate or hosted
 release result. See the owning plan's audit record for revision and limits.
+
+### 2026-10-11 — NL cache source guard (EG-FEDERATED-QUERY-R058.3.1)
+
+Base: `f154c5b4a115713ab8ff3e1d9643e2295c4ebe43`. Extract the exact `nl.rs`
+test module into a standalone Rust test crate. Keep the original `nl.rs`
+alongside it to preserve `include_str!` resolution. The old guard fails
+(exit 101, one failed test). All three repaired tests pass (exit 0).
+The real NL source remains uncached. The guard rejects injected `ResultCache`
+references and direct or generic cache-aware response calls. Missing
+production/test boundaries and the uncached response path fail closed.
+
+The probe uses `rustc --edition=2021 --test --cfg 'feature="nl-query"' probe.rs`.
+It excludes production compilation and proves the source guard only. Native
+facade execution was not repeated in this repair; the separate native failure
+and resource limits remain outside this evidence. Rust formatting, diff
+whitespace, and public-spec checks pass. No production API or grammar changes.

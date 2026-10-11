@@ -193,9 +193,7 @@ def _assert_required_clippy_declarations(workflow):
         assert len(matches) == 1, f"required Clippy profile must occur once: {name}"
         assert shlex.split(matches[0]["flags"]) == shlex.split(flags)
     commands = [
-        step
-        for step in job["steps"]
-        if step.get("run", "").startswith("cargo clippy ")
+        step for step in job["steps"] if step.get("run", "").startswith("cargo clippy ")
     ]
     assert len(commands) == 1, "expected one executable Clippy command"
     command = commands[0]
