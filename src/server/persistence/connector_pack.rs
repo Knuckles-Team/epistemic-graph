@@ -660,6 +660,19 @@ impl AgentLibraryStore {
         capture!(CONNECTOR_PACK_IMPORTS);
         capture!(CONNECTOR_PACK_BODY_HOLDERS);
         capture!(AGENT_COMPONENT_REVISIONS);
+        let heads = read
+            .open_owner_table(eg_storage::AGENT_COMPONENT_HEADS)
+            .unwrap();
+        let heads: Vec<_> = heads
+            .iter()
+            .unwrap()
+            .map(|row| {
+                let (key, value) = row.unwrap();
+                (format!("{:?}", key.value()), value.value())
+            })
+            .collect();
+        assert!(heads.len() <= 64, "bounded isolated fixture");
+        tables.insert("AGENT_COMPONENT_HEADS".into(), serde_json::json!(heads));
         let owner = self.scope_handle(tenant).unwrap();
         let read = self.kernel.read_scope(&owner).unwrap();
         let batches = eg_transaction::read_batches(&read).unwrap();
