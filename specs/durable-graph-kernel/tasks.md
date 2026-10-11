@@ -68,7 +68,9 @@ Status key: `[ ]` queued, `[-]` in progress, `[x]` verified at cited main revisi
 - [ ] **EG-DURABLE-KERNEL-R073:** Generated client method for the task queue
 - [ ] **EG-DURABLE-KERNEL-R074:** Served worker registry
 - [ ] **EG-DURABLE-KERNEL-R075:** Reserved-worker admission decision
-- [ ] **EG-DURABLE-KERNEL-R076:** Scheduler config and lane floors
+- [ ] **EG-DURABLE-KERNEL-R076:** Scheduler config and lane floors (rollup; waits for both children)
+- [x] **EG-DURABLE-KERNEL-R076.1:** Pure authoritative SchedulerConfig, defaults, bounds and over-subscription refusal tests
+- [ ] **EG-DURABLE-KERNEL-R076.2:** Served setting and admission/queue integration consuming R076.1
 - [ ] **EG-DURABLE-KERNEL-R077:** Shard-writer width served by the scheduler surface
 - [ ] **EG-DURABLE-KERNEL-R078:** Bitemporal stamping served method
 - [ ] **EG-DURABLE-KERNEL-R079:** Served as-of filtering
