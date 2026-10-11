@@ -197,7 +197,7 @@ mod mine_associate_submission_tests {
         assert_eq!(response.error.as_deref(), Some("INVALID_ARGUMENT"));
         assert_eq!(
             response.error_detail.as_deref(),
-            Some("association job distinct-item cardinality exceeds 31")
+            Some("association job exceeds the distinct-item limit")
         );
     }
 
