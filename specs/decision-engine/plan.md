@@ -478,6 +478,8 @@ R073.5 reuses the served transitive-chain and diamond-pin tests in `content_mode
 A signed Search test must exclude a withdrawn tool while retaining a published positive control.
 Signed Content must still return the withdrawn tool's historical pinned body.
 A new dependency on that withdrawn tool must fail with `COMPONENT_WITHDRAWN`.
+The Publish request must pass structural validation before served admission.
+Assert the stable refusal code separately from its human-readable detail.
 The acceptance slice changes tests and documentation only.
 
 ### Competing pack import acceptance (R073.2)
