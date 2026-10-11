@@ -227,16 +227,15 @@ The original parent acceptance remains unchanged.
 `export_gold_corpus` currently calls `generate_gold_set` and exports `SOURCE_IN_PROCESS` labels.
 This correction claims no served implementation or runtime test result.
 
-### 2026-10-11: decode job results by request operation
+### Operation-selected job decoding (R063)
 
-EG-DECISION-ENGINE-R063 previously generated senders but no method-level typed
-decoder for DecisionFit and DecisionEval after results became operation-specific.
-Generate each operation's result model from its existing Rust marker and require
-an explicit operation when decoding. Unknown operations, wrong method identity,
-unexpected fields and another operation's result shape must fail closed. Nullable
-status and receipt results remain valid only for their corresponding operations.
-The native wrapper regression and generated Python runtime tests cover this fix;
-the separate served-instance and documentation acceptance work remains open.
+DecisionFit and DecisionEval result models derive from each operation's existing
+Rust marker. Their typed decoders require an explicit request operation.
+Unknown operations, wrong method identity, unexpected fields and another
+operation's result shape fail closed. Nullable status and receipt results are
+valid only for their corresponding operations. Heterogeneous JSON test payloads
+have explicit type annotations, including fixtures that inject nested unknown
+fields to exercise strict validation.
 
 ### 2026-10-11: repair the R083 option-count fixture
 
@@ -308,12 +307,6 @@ test was not run. A rustc test harness importing the exact production metrics
 module with the existing tracing rlib passed all 3 helper/capture tests. This
 command does not execute the native solver-entry regression. The regression
 source is bound to R072.1; generated spec state and test execution are separate.
-
-### 2026-10-11: type-check operation decoder fixtures (R063)
-
-Annotate the heterogeneous JSON payloads in the operation-selected decoder
-regressions explicitly. Preserve the nested unexpected-field mutation and all
-fail-closed assertions while making the fixtures valid mypy targets.
 
 ### 2026-10-11: typed decision provenance acceptance
 
