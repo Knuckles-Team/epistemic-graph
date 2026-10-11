@@ -281,6 +281,11 @@ Blob CAS upload, pack importer and component read operation.
 
 Acceptance remains pending until the warm validator regenerates the contract
 schemas and Python DTOs, runs the native tests and runs the served regression.
-The enum refusal assertion exercises the generated typed client boundary.
-A server-side malformed enum probe still needs evidence at the signed wire boundary.
+The regression sends each unknown enum through the raw MessagePack transport.
+It expects `INVALID_ARGUMENT` with detail `invalid request encoding`, then checks
+that no pack head, receipt, server component or model component exists.
+The decoder rejects these enums before signature or digest validation. The test
+then submits the original signature with all three camelCase aliases and requires
+successful import and canonical readback. Alias decoding must preserve the signed
+canonical body. These aliases do not establish R048.1 ontology or Python naming.
 Test bindings alone do not establish served acceptance.

@@ -19,7 +19,11 @@ from epistemic_graph import (
     ConnectorPackClient,
     ConnectorPackEntryContent,
 )
-from epistemic_graph.client import EpistemicGraphClient, _canonical_method_body
+from epistemic_graph.client import (
+    EpistemicGraphClient,
+    _canonical_method_body,
+    _decode_send_result,
+)
 from epistemic_graph.connector_pack import connector_pack_import_key
 from epistemic_graph.generated.connector_pack import (
     PackAnnotations,
@@ -184,7 +188,8 @@ def test_model_profile_round_trip() -> None:
                 method="ConnectorPack",
             )
             assert not accepted.get("error"), accepted
-            assert accepted["result"]["result"] == "imported", accepted
+            imported = _decode_send_result("ConnectorPack", accepted.get("result"))
+            assert imported["result"] == "imported", imported
             stored = await client._send(
                 "AgentComponent",
                 {
