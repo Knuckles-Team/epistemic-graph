@@ -28,27 +28,35 @@ def git(*args: str) -> bytes:
     return subprocess.check_output(["git", *args], stderr=subprocess.DEVNULL)
 
 
+def verified_range() -> list[str]:
+    """Require a complete immutable range and its clean checked-out tip."""
+    if git("status", "--porcelain", "-z", "--untracked-files=no"):
+        raise ValueError("tracked worktree is dirty")
+    base = os.environ.get("PRE_COMMIT_FROM_REF", "")
+    head = os.environ.get("PRE_COMMIT_TO_REF", "")
+    for ref in (base, head):
+        if not re.fullmatch(r"[0-9a-f]{40}", ref):
+            raise ValueError("unknown range ref")
+        git("rev-parse", "--verify", f"{ref}^{{commit}}")
+    if git("rev-parse", "HEAD").decode().strip() != head:
+        raise ValueError("checkout is not range tip")
+    return [base, head]
+
+
 def verified_diff(scope: str) -> bytes:
-    """Raise on unavailable refs, dirty state, or a checkout unlike the push tip."""
-    if scope == "staged":
+    """Explicit commit ranges share push validation; ordinary commits use index."""
+    if scope not in {"staged", "push"}:
+        raise ValueError("full scan mode")
+    has_range = any(
+        key in os.environ for key in ("PRE_COMMIT_FROM_REF", "PRE_COMMIT_TO_REF")
+    )
+    if scope == "push" or has_range:
+        refs = verified_range()
+    else:
         git("rev-parse", "--verify", "HEAD^{commit}")
         if git("diff", "--raw", "--no-renames", "--ignore-submodules=none", "-z"):
             raise ValueError("index/worktree disagree")
         refs = ["--cached", "HEAD"]
-    elif scope == "push":
-        if git("status", "--porcelain", "-z", "--untracked-files=no"):
-            raise ValueError("tracked worktree is dirty")
-        base = os.environ.get("PRE_COMMIT_FROM_REF", "")
-        head = os.environ.get("PRE_COMMIT_TO_REF", "")
-        for ref in (base, head):
-            if not re.fullmatch(r"[0-9a-f]{40}", ref):
-                raise ValueError("unknown push ref")
-            git("rev-parse", "--verify", f"{ref}^{{commit}}")
-        if git("rev-parse", "HEAD").decode().strip() != head:
-            raise ValueError("checkout is not push tip")
-        refs = [base, head]
-    else:
-        raise ValueError("full scan mode")
     return git("diff", "--raw", "--no-renames", "-z", *refs)
 
 

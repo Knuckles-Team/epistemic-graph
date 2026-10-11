@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -280,8 +282,9 @@ def test_local_scope_fails_closed_on_real_git_changes(local_gate_repo, change) -
     assert not gate.can_skip("staged", [gate.SKILL])
 
 
-def test_local_push_requires_exact_clean_tip_and_available_history(
-    local_gate_repo, monkeypatch
+@pytest.mark.parametrize("mode", ["staged", "push"])
+def test_explicit_range_requires_exact_clean_tip_and_available_history(
+    local_gate_repo, monkeypatch, mode
 ) -> None:
     gate, git = local_gate_repo
     base = git("rev-parse", "HEAD")
@@ -291,23 +294,23 @@ def test_local_push_requires_exact_clean_tip_and_available_history(
     head = git("rev-parse", "HEAD")
     monkeypatch.setenv("PRE_COMMIT_FROM_REF", base)
     monkeypatch.setenv("PRE_COMMIT_TO_REF", head)
-    assert gate.can_skip("push", ["docs/guide.md"])
+    assert gate.can_skip(mode, ["docs/guide.md"])
     monkeypatch.setenv("CI", "false")
-    assert not gate.can_skip("push", ["docs/guide.md"])
+    assert not gate.can_skip(mode, ["docs/guide.md"])
     monkeypatch.delenv("CI")
     for invalid in ("", "0" * 40, base):
         monkeypatch.setenv("PRE_COMMIT_TO_REF", invalid)
-        assert not gate.can_skip("push", ["docs/guide.md"])
+        assert not gate.can_skip(mode, ["docs/guide.md"])
     monkeypatch.setenv("PRE_COMMIT_TO_REF", head)
     monkeypatch.setenv("PRE_COMMIT_FROM_REF", "f" * 40)
-    assert not gate.can_skip("push", ["docs/guide.md"])
+    assert not gate.can_skip(mode, ["docs/guide.md"])
     monkeypatch.setenv("PRE_COMMIT_FROM_REF", head)
-    assert not gate.can_skip("push", ["docs/guide.md"])
+    assert not gate.can_skip(mode, ["docs/guide.md"])
     monkeypatch.setenv("PRE_COMMIT_FROM_REF", base)
     Path("src/lib.rs").write_text("dirty\n")
-    assert not gate.can_skip("push", ["docs/guide.md"])
+    assert not gate.can_skip(mode, ["docs/guide.md"])
     git("add", "src/lib.rs")
-    assert not gate.can_skip("push", ["docs/guide.md"])
+    assert not gate.can_skip(mode, ["docs/guide.md"])
 
 
 def test_local_scope_absent_repository_runs_full(tmp_path, monkeypatch) -> None:
@@ -371,3 +374,37 @@ def test_ignored_executable_mode_forces_full_scan(local_gate_repo) -> None:
     git("config", "core.filemode", "false")
     Path(gate.SKILL).chmod(0o755)
     assert not gate.can_skip("staged", [gate.SKILL])
+
+
+@pytest.mark.parametrize("present", ["PRE_COMMIT_FROM_REF", "PRE_COMMIT_TO_REF"])
+def test_partial_range_never_falls_back_to_staged_docs(
+    local_gate_repo, monkeypatch, present
+):
+    gate, git = local_gate_repo
+    Path(gate.SKILL).write_text("updated\n")
+    git("add", gate.SKILL)
+    assert gate.can_skip("staged", [gate.SKILL])
+    monkeypatch.setenv(present, git("rev-parse", "HEAD"))
+    assert not gate.can_skip("staged", [gate.SKILL])
+
+
+def test_frozen_commit_stage_entry_uses_complete_range(local_gate_repo, monkeypatch):
+    gate, git = local_gate_repo
+    base = git("rev-parse", "HEAD")
+    Path(gate.SKILL).write_text("updated\n")
+    git("add", gate.SKILL)
+    git("commit", "-qm", "frozen docs")
+    head = git("rev-parse", "HEAD")
+    assert not gate.can_skip("staged", [gate.SKILL])
+    monkeypatch.setenv("PRE_COMMIT_FROM_REF", base)
+    monkeypatch.setenv("PRE_COMMIT_TO_REF", head)
+    monkeypatch.setenv("PYTHONPATH", str(ROOT))
+    hooks = yaml.safe_load((ROOT / ".config/pre-commit.yaml").read_text())["repos"]
+    for hook in (h for repo in hooks for h in repo["hooks"]):
+        if hook["id"] not in gate.SCANNERS:
+            continue
+        command = [sys.executable, *hook["entry"].split()[1:], gate.SKILL]
+        result = subprocess.run(command, capture_output=True, text=True, env=os.environ)
+        assert result.returncode == 0, result.stderr
+        assert "scan unnecessary" in result.stdout
+    assert not git("status", "--porcelain")
