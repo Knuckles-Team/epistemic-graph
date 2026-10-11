@@ -17,8 +17,8 @@ use crate::connector_pack::{
     ConnectorPackBindingResult, McpCatalogSnapshotBinding, PackBodyReconcileReport,
     PackImportReceipt, PackImportResult, PackRetireResult,
 };
-use crate::decision::{AssemblyResult, DecisionCommitResult};
 use crate::decision::coverage::CapabilityCoverageResult;
+use crate::decision::{AssemblyResult, DecisionCommitResult};
 use crate::series_expr::DerivedSeriesReceipt;
 #[cfg(feature = "query")]
 use crate::storage_wire::SqlSourceBatchResult;

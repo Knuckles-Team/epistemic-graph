@@ -305,7 +305,13 @@ fn candidate_scope_at_the_boundary_builds_one_more_is_refused() {
 
     let sorted_tools = |n: usize| -> Vec<eg_types::decision::CandidateFacts> {
         (0..n)
-            .map(|i| tool(&format!("tool-{i:04}"), &["eg:capability/retrieval/web-search"], Some(1)))
+            .map(|i| {
+                tool(
+                    &format!("tool-{i:04}"),
+                    &["eg:capability/retrieval/web-search"],
+                    Some(1),
+                )
+            })
             .collect()
     };
     let at_boundary = super::super::inputs(
