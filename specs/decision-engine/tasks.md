@@ -164,3 +164,6 @@ Existing source modules and tests provide foundations, but this spec does not as
 - [ ] **EG-DECISION-ENGINE-R079.5:** Retrieval feedback admission; producer tests do not close this integration requirement.
 - [ ] **EG-DECISION-ENGINE-R080.2:** Served enrichment ladder qualification; producer tests do not close this integration requirement.
 - [ ] **EG-DECISION-ENGINE-R102.2:** Served shadow repair qualification; producer tests do not close this integration requirement.
+
+- [x] **EG-DECISION-ENGINE-R121.1:** Add assembly and replay regression for typed premise classes and misleading labels.
+- [ ] **EG-DECISION-ENGINE-R121.2:** Carry graph provenance through statistical answers, immutable input identity, and replay.

@@ -290,3 +290,14 @@ test was not run. A rustc test harness importing the exact production metrics
 module with the existing tracing rlib passed all 3 helper/capture tests. This
 command does not execute the native solver-entry regression. The regression
 source is bound to R072.1; generated spec state and test execution are separate.
+
+### 2026-10-11: typed decision provenance acceptance
+
+R121.1 exercises the existing typed `PremiseRef` owner through assembly and replay.
+The test varies misleading labels independently from premise classes.
+R121.2 retains graph candidate provenance, record sealing, and replay integration.
+Graph candidates currently discard typed Claim/Evidence provenance while retaining scalar features.
+This assembly test does not establish graph-source acceptance.
+The isolated Rust harness passed all nine class/label combinations and replay checks.
+It compiled the current assembly and solver modules against cached real dependencies.
+The full Cargo suite and hosted CI remain unrun for this change.
