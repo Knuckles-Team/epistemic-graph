@@ -539,4 +539,4 @@ acceptance remain open under their separate leaves.
 
 ### 2026-10-11 — R090.3 lean native measurement owner
 
-Move the benchmark code root to `crates/eg-numeric/benches/decision_resident_scorer.rs`, beside the production scorer. Reuse the promotion fit recipe and maximum legal shape; time individual production forward calls with Linux thread CPU time. Whole-runner peak RSS is a conservative upper bound only: above 8 MiB leaves scorer-specific memory inconclusive. Runner executable size is reported separately from server footprint. Native optimized measurements are pending; R090.3 remains SPECIFIED.
+Move the benchmark code root to `crates/eg-numeric/benches/decision_resident_scorer.rs`, beside the production scorer. Reuse the promotion fit recipe and maximum legal shape; time individual production forward calls with Linux thread CPU time. Whole-runner peak RSS is a conservative upper bound only: above 8 MiB leaves scorer-specific memory inconclusive. Runner executable size is reported separately from server footprint. Native optimized measurements are pending; R090.3 remains unverified. The generated LANDED state records source publication only.

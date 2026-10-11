@@ -2070,7 +2070,7 @@
     {
       "id": "EG-DECISION-ENGINE-R090",
       "title": "Resident native decision-scorer head in eg-decision",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "19b44d216062",
         "1e9ea1ef3790",
@@ -2114,8 +2114,10 @@
     {
       "id": "EG-DECISION-ENGINE-R090.3",
       "title": "Measured resident scorer resource budget",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "a74dd0fd7a54"
+      ],
       "verified_by": []
     },
     {
