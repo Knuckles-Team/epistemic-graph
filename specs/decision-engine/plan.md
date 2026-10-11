@@ -257,3 +257,7 @@ This is deterministic synthetic test evidence, not a production-data claim.
 Native execution remains pending after the local eg-types compile was SIGKILLed;
 formatting and fixture checks do not satisfy native acceptance.
 No spec binding marker is added before that native run.
+
+## Ingestion and schema completion boundaries
+
+R079.1 proves the content taxonomy only. R079.2 through R079.5 retain the parent ingestion, duplicate/size, SQL, and retrieval-feedback obligations. R080.1 proves the typed provenance rule only; R080.2 requires the real six-rung integration fixture. R102.1 proves the typed activation sequence only; R102.2 requires a real shadow ingestion and approval-gated activation. These requirements use the existing source-ingestion, enrichment, and approved-schema owners. They introduce no second write authority. Their planned fixtures are not execution evidence.
