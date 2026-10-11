@@ -1,5 +1,20 @@
 # Delivery plan
 
+## 2026-10-11: reconcile the composed finance corpus census
+
+R004.2.1 and R004.2.2 added 95 triples to the existing finance module:
+45 for Account/Position and 50 for Activity/Lot. Update the existing composed
+corpus regression to include those declarations. Preserve every other census
+assertion. The four new class links raise the named subclass count by four.
+The asset-class comment migration replaces one triple without a net increase.
+The shipped ontology and its admission policy do not change in this repair.
+
+The native facade run on 43423bcd reported 13,751 composed triples. An independent
+RDFLib parse of all 36 registered documents confirms that total. It also confirms
+13,565 semantic axioms, 462 named subclass links, and unchanged header/import/property counts.
+This cross-parser check is supporting evidence; the changed native census test
+still requires execution. It does not establish the remaining served finance work.
+
 ## Sequence
 
 1. **Contract foundation (EG-FINANCE-PRIMITIVES-R004, EG-FINANCE-PRIMITIVES-R006).** Add typed versioned records, ontology and SHACL shapes, temporal revision resolution and session/calendar semantics. Review migration of existing asset-class values. Generate clients and prove old `FinanceMarket` decoding.

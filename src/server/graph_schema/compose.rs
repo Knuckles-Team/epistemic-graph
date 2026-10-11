@@ -717,7 +717,10 @@ ex:parent a owl:AsymmetricProperty .
         // MetadataContract/VirtualMapping classes and properties plus
         // `core:virtual-graph-shapes@1`'s SHACL shapes (EG-UNIFIED-DATA-PLANE-R037),
         // and their catalog import.
-        assert_eq!(composed.ontology.len(), 13_656);
+        // +95: Account/Position (45) and Activity/Lot (50) declarations and
+        // properties (EG-FINANCE-PRIMITIVES-R004.2.1/R004.2.2). The asset-class
+        // comment replacement changes content, not the triple count.
+        assert_eq!(composed.ontology.len(), 13_751);
 
         let ontology_subjects: BTreeSet<String> = composed
             .ontology
@@ -761,7 +764,9 @@ ex:parent a owl:AsymmetricProperty .
         // +178: the finance module (EH-411); +30: EH-420/EH-421 finance records.
         // +9: EH-517 trading-class skos mappings.
         // +84: the virtual-graph module (EG-UNIFIED-DATA-PLANE-R037).
-        assert_eq!(semantic_axioms, 13_470);
+        // +95: the portfolio-accounting declarations above are semantic axioms;
+        // the ontology headers and import edges are unchanged.
+        assert_eq!(semantic_axioms, 13_565);
 
         let count_type = |object: &str| {
             composed
@@ -813,7 +818,8 @@ ex:parent a owl:AsymmetricProperty .
             // +5 (EH-408/409/410): the five infrastructure classes above; +6 (EH-410):
             // the security-audit and pipeline-event feed classes; +25: swarm topology.
             // +9: finance (EH-411); +1: EH-420/EH-421.
-            458
+            // +4: Account, Position, Activity and Lot specialize BFO GDC.
+            462
         );
     }
 
