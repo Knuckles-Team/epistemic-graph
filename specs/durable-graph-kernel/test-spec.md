@@ -70,12 +70,12 @@ This proves native kernel behavior, not server transport or durable execution.
 
 ## R011 and R014 runtime acceptance
 
-These rows track unverified acceptance. Planned test names do not claim existing implementations or passing results.
+These rows separate declaration evidence from runtime acceptance. Planned test names do not claim passing results.
 The producer children retain their current evidence. Neither producer proves runtime execution.
 
 | Requirement | Proving tests and source | Acceptance |
 |---|---|---|
-| EG-DURABLE-KERNEL-R011.2 | Planned tests in `crates/eg-types/src/pre_merge_test_module.rs`: `required_manifest_covers_runtime_categories` and `required_manifest_rejects_empty_selection`. | Pending runtime acceptance. |
+| EG-DURABLE-KERNEL-R011.2 | `crates/eg-types/src/pre_merge_test_module.rs`: `required_manifest_covers_runtime_categories`, `required_manifest_rejects_empty_selection`, and `required_manifest_anchors_exist_in_source`. | Eight source-module tests passed with Rust 1.96.0. Runtime acceptance remains open under R011.3 and R011.4. |
 | EG-DURABLE-KERNEL-R011.3 | Planned tests in `tests/test_required_runtime_gate.py`: `test_pull_request_executes_required_categories` and `test_failed_or_empty_category_blocks_acceptance`. | Pending runtime acceptance. |
 | EG-DURABLE-KERNEL-R011.4 | CI receipts must name `published-full`, `workspace-all-features`, and every selected runtime test. R011.2 and R011.3 test names define the gate checks. | Pending runtime acceptance. |
 | EG-DURABLE-KERNEL-R014.2 | Planned tests in `tests/test_validate_raft_cluster.py`: `test_cpu_load_runs_during_cluster_test`, `test_zero_load_workers_refused`, and `test_load_workers_stop_on_failure`. | Pending runtime acceptance. |
@@ -92,3 +92,23 @@ R011.4 receipts must link passing logs for every manifest entry and both clippy 
 R014.4 and R014.5 depend on R014.2 and R014.3.
 The loaded evidence must record every attempt, including retries and failed first attempts.
 A successful retry does not satisfy the parent's requirement for no flaky failures.
+
+### R011.2 manifest evidence (2026-10-11)
+
+The existing typed declaration now records feature flags and builds Cargo arguments.
+Each command uses `test --locked --lib --no-default-features`.
+
+| Category | Package | Filter | Features |
+|---|---|---|---|
+| raft | epistemic-graph | `raft::` | `cluster` |
+| backup | eg-transaction | `tests::backup_replay::` | none |
+| persistence | epistemic-graph | `server::persistence::` | `full` |
+
+Source inspection confirmed the module paths, package names, and feature gates.
+The source-binding test checks existing runtime test names in each selected module.
+The discovery-refusal test uses fixtures; it is not a compiled runtime inventory.
+Validation command: `rustc --edition 2021 --test crates/eg-types/src/pre_merge_test_module.rs -o /tmp/required-manifest-tests && /tmp/required-manifest-tests`.
+Result: eight tests passed, zero failed, zero ignored.
+No raft, backup, persistence, or clippy runtime gate ran for this slice.
+R011.3 must obtain test names from compiled library targets and run every selected test.
+R011.4 must record the exact-head runtime and clippy receipts.

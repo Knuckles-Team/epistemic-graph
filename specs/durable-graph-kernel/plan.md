@@ -154,3 +154,11 @@ That script records no representative-load generator or repeated-load evidence.
 `src/raft/tests.rs` contains both named cluster tests.
 `src/raft/harness/trace_capture.rs` owns existing causal trace capture.
 No runtime suite ran during this spec-only repair.
+
+### 2026-10-11: concrete runtime manifest
+
+R011.2 extends `RequiredTestModule` with explicit features and Cargo arguments.
+The manifest selects real library-test modules in the engine and transaction crate.
+`validate_selection` refuses an empty or mismatched discovery inventory.
+Eight source-module tests passed with Rust 1.96.0, including source-anchor checks.
+This evidence completes the manifest child only. R011, R011.3, and R011.4 remain open.

@@ -21,7 +21,7 @@ Status key: `[ ]` queued, `[-]` in progress, `[x]` verified at cited main revisi
 
 - [ ] **EG-DURABLE-KERNEL-R011:** Clippy and targeted tests cover the full and all-features builds
 - [x] **EG-DURABLE-KERNEL-R011.1:** RequiredTestModuleCategory/RequiredTestModule typed category and validated declaration
-- [ ] **EG-DURABLE-KERNEL-R011.2:** Concrete required-module manifest. See the exact paths and proving tests in `requirements.md`.
+- [x] **EG-DURABLE-KERNEL-R011.2:** Concrete required-module manifest. See the exact paths and proving tests in `requirements.md`.
 - [ ] **EG-DURABLE-KERNEL-R011.3:** Pre-merge runtime execution. See the exact paths and proving tests in `requirements.md`.
 - [ ] **EG-DURABLE-KERNEL-R011.4:** Exact-head CI acceptance receipts. See the exact paths and proving tests in `requirements.md`.
 - [ ] **EG-DURABLE-KERNEL-R014:** Raft cluster tests pass reliably under load
