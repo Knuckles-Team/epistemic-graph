@@ -133,3 +133,6 @@ Existing source modules and tests provide foundations, but this spec does not as
 - [ ] **EG-DECISION-ENGINE-R116:** Consumers reach EG only through the versioned client contract
 - [x] **EG-DECISION-ENGINE-R116.1:** A typed gate admits only the published client-contract call path
 - [ ] **EG-DECISION-ENGINE-R116.2:** Every generated client method is wired through the contract-only gate
+
+- [x] EG-DECISION-ENGINE-R090.1: Run six native budget tests and bind exact boundary/refusal coverage.
+- [ ] EG-DECISION-ENGINE-R090: Retain the separate compiled-scorer benchmark obligation.
