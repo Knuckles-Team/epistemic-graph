@@ -1701,9 +1701,12 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [
         "1e9ea1ef3790",
+        "7a89c881dad4",
         "e9da9f0a77e1"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "crates/eg-numeric/tests/decision/scorer.rs:367"
+      ],
       "rollup_of": [
         "EG-DECISION-ENGINE-R083.1",
         "EG-DECISION-ENGINE-R083.2"
