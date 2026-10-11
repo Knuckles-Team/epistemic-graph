@@ -100,7 +100,10 @@ fixture = dict(
     source_repository="Knuckles-Team/agent-utilities",
     source_commit="134576bd0f5931a9b22ed3c3859a3f4350731ad6",
     deletion_commit="92974bae8c3ed3a270f582300b7458d4f53571c4",
-    source_path="agent_utilities/knowledge_graph/analytics_worker.py",
+    source_path=(
+        "repo://Knuckles-Team/agent-utilities/"
+        "agent_utilities/knowledge_graph/analytics_worker.py"
+    ),
     source_sha256=hashlib.sha256(source.encode()).hexdigest(),
     extraction=(
         "Unmodified mining definitions executed via AST; "

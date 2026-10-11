@@ -2,7 +2,7 @@
   "source_repository": "Knuckles-Team/agent-utilities",
   "source_commit": "134576bd0f5931a9b22ed3c3859a3f4350731ad6",
   "deletion_commit": "92974bae8c3ed3a270f582300b7458d4f53571c4",
-  "source_path": "agent_utilities/knowledge_graph/analytics_worker.py",
+  "source_path": "repo://Knuckles-Team/agent-utilities/agent_utilities/knowledge_graph/analytics_worker.py",
   "source_sha256": "1975cb7217cf691e07fe544ed3fce1f5974b5fdabd12f535feb81f93170f07ef",
   "extraction": "Unmodified mining definitions executed via AST; unrelated transport and config imports omitted.",
   "transactions": [
