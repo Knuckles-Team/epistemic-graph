@@ -8,7 +8,8 @@ use eg_types::contract::ResourceId;
 use eg_types::mutation_batch::MutationOutboxRecord;
 
 use super::{
-    bind, build_pack, head_of, import, imported, ok, refused, tool, Served, ADMIN, TENANT,
+    bind, build_pack, head_of, import, import_uploaded, imported, ok, refused, tool, Served, ADMIN,
+    TENANT,
 };
 
 mod receipt;
@@ -83,9 +84,14 @@ async fn competing_imports_have_one_head_winner_without_loser_effects() {
     .await;
     let left = build_pack(CONNECTOR, &[tool(CONNECTOR, "a", "Left.")]);
     let right = build_pack(CONNECTOR, &[tool(CONNECTOR, "a", "Right.")]);
+    // Prepare both inputs before racing only the pack head compare-and-set.
+    let mut left_index = left.0.clone();
+    left_index.archive.blob_digest = served.upload(&left.1).await;
+    let mut right_index = right.0.clone();
+    right_index.archive.blob_digest = served.upload(&right.1).await;
     let (left_result, right_result) = tokio::join!(
-        import(&served, &left, Some(head_of(&initial))),
-        import(&served, &right, Some(head_of(&initial)))
+        import_uploaded(&served, left_index, Some(head_of(&initial))),
+        import_uploaded(&served, right_index, Some(head_of(&initial)))
     );
     assert_ne!(left_result.error.is_some(), right_result.error.is_some());
     let (winner, loser, loser_pack) = if left_result.error.is_none() {

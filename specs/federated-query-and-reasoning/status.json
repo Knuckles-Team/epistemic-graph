@@ -372,7 +372,7 @@
         "c3b87d31ac11"
       ],
       "verified_by": [
-        "crates/eg-capabilities/tests/contract_registry.rs:220"
+        "crates/eg-capabilities/tests/contract_registry.rs:221"
       ]
     },
     {
