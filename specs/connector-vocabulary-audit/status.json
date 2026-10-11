@@ -1,0 +1,1584 @@
+{
+  "schema_version": 2,
+  "spec_id": "connector-vocabulary-audit",
+  "owner_repo": "specs-audit-connector-vocab",
+  "delivery_state": "SPECIFIED",
+  "requirement_ids": [
+    "EG-CONN-AUDIT-R001",
+    "EG-CONN-AUDIT-R001.1",
+    "EG-CONN-AUDIT-R001.2",
+    "EG-CONN-AUDIT-R001.3",
+    "EG-CONN-AUDIT-R001.4",
+    "EG-CONN-AUDIT-R001.5",
+    "EG-CONN-AUDIT-R001.6",
+    "EG-CONN-AUDIT-R001.7",
+    "EG-CONN-AUDIT-R001.8",
+    "EG-CONN-AUDIT-R001.9",
+    "EG-CONN-AUDIT-R001.10",
+    "EG-CONN-AUDIT-R001.11",
+    "EG-CONN-AUDIT-R001.12",
+    "EG-CONN-AUDIT-R001.13",
+    "EG-CONN-AUDIT-R001.14",
+    "EG-CONN-AUDIT-R001.15",
+    "EG-CONN-AUDIT-R001.16",
+    "EG-CONN-AUDIT-R001.17",
+    "EG-CONN-AUDIT-R001.18",
+    "EG-CONN-AUDIT-R001.19",
+    "EG-CONN-AUDIT-R001.20",
+    "EG-CONN-AUDIT-R001.21",
+    "EG-CONN-AUDIT-R001.22",
+    "EG-CONN-AUDIT-R001.23",
+    "EG-CONN-AUDIT-R001.24",
+    "EG-CONN-AUDIT-R001.25",
+    "EG-CONN-AUDIT-R001.26",
+    "EG-CONN-AUDIT-R002",
+    "EG-CONN-AUDIT-R002.1",
+    "EG-CONN-AUDIT-R002.2",
+    "EG-CONN-AUDIT-R002.3",
+    "EG-CONN-AUDIT-R002.4",
+    "EG-CONN-AUDIT-R002.5",
+    "EG-CONN-AUDIT-R002.6",
+    "EG-CONN-AUDIT-R002.7",
+    "EG-CONN-AUDIT-R002.8",
+    "EG-CONN-AUDIT-R002.9",
+    "EG-CONN-AUDIT-R002.10",
+    "EG-CONN-AUDIT-R002.11",
+    "EG-CONN-AUDIT-R002.12",
+    "EG-CONN-AUDIT-R002.13",
+    "EG-CONN-AUDIT-R002.14",
+    "EG-CONN-AUDIT-R002.15",
+    "EG-CONN-AUDIT-R002.16",
+    "EG-CONN-AUDIT-R002.17",
+    "EG-CONN-AUDIT-R002.18",
+    "EG-CONN-AUDIT-R002.19",
+    "EG-CONN-AUDIT-R002.20",
+    "EG-CONN-AUDIT-R002.21",
+    "EG-CONN-AUDIT-R002.22",
+    "EG-CONN-AUDIT-R002.23",
+    "EG-CONN-AUDIT-R003",
+    "EG-CONN-AUDIT-R003.1",
+    "EG-CONN-AUDIT-R003.2",
+    "EG-CONN-AUDIT-R003.3",
+    "EG-CONN-AUDIT-R003.4",
+    "EG-CONN-AUDIT-R003.5",
+    "EG-CONN-AUDIT-R003.6",
+    "EG-CONN-AUDIT-R003.7",
+    "EG-CONN-AUDIT-R003.8",
+    "EG-CONN-AUDIT-R004",
+    "EG-CONN-AUDIT-R004.1",
+    "EG-CONN-AUDIT-R004.2",
+    "EG-CONN-AUDIT-R004.3",
+    "EG-CONN-AUDIT-R004.4",
+    "EG-CONN-AUDIT-R004.5",
+    "EG-CONN-AUDIT-R004.6",
+    "EG-CONN-AUDIT-R005",
+    "EG-CONN-AUDIT-R005.1",
+    "EG-CONN-AUDIT-R005.2",
+    "EG-CONN-AUDIT-R005.3",
+    "EG-CONN-AUDIT-R005.4",
+    "EG-CONN-AUDIT-R005.5",
+    "EG-CONN-AUDIT-R005.6",
+    "EG-CONN-AUDIT-R005.7",
+    "EG-CONN-AUDIT-R006",
+    "EG-CONN-AUDIT-R006.1",
+    "EG-CONN-AUDIT-R006.2",
+    "EG-CONN-AUDIT-R006.3",
+    "EG-CONN-AUDIT-R006.4",
+    "EG-CONN-AUDIT-R006.5",
+    "EG-CONN-AUDIT-R006.6",
+    "EG-CONN-AUDIT-R006.7",
+    "EG-CONN-AUDIT-R006.8",
+    "EG-CONN-AUDIT-R006.9",
+    "EG-CONN-AUDIT-R006.10",
+    "EG-CONN-AUDIT-R006.11",
+    "EG-CONN-AUDIT-R007",
+    "EG-CONN-AUDIT-R007.1",
+    "EG-CONN-AUDIT-R007.2",
+    "EG-CONN-AUDIT-R007.3",
+    "EG-CONN-AUDIT-R007.4",
+    "EG-CONN-AUDIT-R007.5",
+    "EG-CONN-AUDIT-R007.6",
+    "EG-CONN-AUDIT-R008",
+    "EG-CONN-AUDIT-R008.1",
+    "EG-CONN-AUDIT-R008.2",
+    "EG-CONN-AUDIT-R008.3",
+    "EG-CONN-AUDIT-R008.4",
+    "EG-CONN-AUDIT-R008.5",
+    "EG-CONN-AUDIT-R008.6",
+    "EG-CONN-AUDIT-R008.7",
+    "EG-CONN-AUDIT-R009",
+    "EG-CONN-AUDIT-R009.1",
+    "EG-CONN-AUDIT-R009.2",
+    "EG-CONN-AUDIT-R009.3",
+    "EG-CONN-AUDIT-R009.4",
+    "EG-CONN-AUDIT-R009.5",
+    "EG-CONN-AUDIT-R009.6",
+    "EG-CONN-AUDIT-R009.7",
+    "EG-CONN-AUDIT-R009.8",
+    "EG-CONN-AUDIT-R009.9",
+    "EG-CONN-AUDIT-R010",
+    "EG-CONN-AUDIT-R010.1",
+    "EG-CONN-AUDIT-R010.2",
+    "EG-CONN-AUDIT-R010.3",
+    "EG-CONN-AUDIT-R011",
+    "EG-CONN-AUDIT-R011.1",
+    "EG-CONN-AUDIT-R011.2",
+    "EG-CONN-AUDIT-R011.3",
+    "EG-CONN-AUDIT-R011.4",
+    "EG-CONN-AUDIT-R011.5",
+    "EG-CONN-AUDIT-R012",
+    "EG-CONN-AUDIT-R012.1",
+    "EG-CONN-AUDIT-R012.2",
+    "EG-CONN-AUDIT-R012.3",
+    "EG-CONN-AUDIT-R012.4",
+    "EG-CONN-AUDIT-R012.5",
+    "EG-CONN-AUDIT-R013",
+    "EG-CONN-AUDIT-R013.1",
+    "EG-CONN-AUDIT-R013.2",
+    "EG-CONN-AUDIT-R013.3",
+    "EG-CONN-AUDIT-R013.4",
+    "EG-CONN-AUDIT-R014",
+    "EG-CONN-AUDIT-R014.1",
+    "EG-CONN-AUDIT-R014.2",
+    "EG-CONN-AUDIT-R014.3",
+    "EG-CONN-AUDIT-R014.4",
+    "EG-CONN-AUDIT-R014.5",
+    "EG-CONN-AUDIT-R014.6",
+    "EG-CONN-AUDIT-R014.7",
+    "EG-CONN-AUDIT-R014.8",
+    "EG-CONN-AUDIT-R015",
+    "EG-CONN-AUDIT-R015.1",
+    "EG-CONN-AUDIT-R016",
+    "EG-CONN-AUDIT-R016.1",
+    "EG-CONN-AUDIT-R016.2",
+    "EG-CONN-AUDIT-R016.3",
+    "EG-CONN-AUDIT-R016.4",
+    "EG-CONN-AUDIT-R016.5",
+    "EG-CONN-AUDIT-R016.6",
+    "EG-CONN-AUDIT-R016.7",
+    "EG-CONN-AUDIT-R016.8",
+    "EG-CONN-AUDIT-R016.9",
+    "EG-CONN-AUDIT-R017",
+    "EG-CONN-AUDIT-R017.1",
+    "EG-CONN-AUDIT-R017.2",
+    "EG-CONN-AUDIT-R017.3",
+    "EG-CONN-AUDIT-R017.4",
+    "EG-CONN-AUDIT-R017.5",
+    "EG-CONN-AUDIT-R017.6",
+    "EG-CONN-AUDIT-R017.7",
+    "EG-CONN-AUDIT-R017.8",
+    "EG-CONN-AUDIT-R017.9",
+    "EG-CONN-AUDIT-R017.10",
+    "EG-CONN-AUDIT-R017.11",
+    "EG-CONN-AUDIT-R017.12",
+    "EG-CONN-AUDIT-R017.13",
+    "EG-CONN-AUDIT-R017.14",
+    "EG-CONN-AUDIT-R017.15",
+    "EG-CONN-AUDIT-R017.16",
+    "EG-CONN-AUDIT-R017.17",
+    "EG-CONN-AUDIT-R017.18"
+  ],
+  "requirements": [
+    {
+      "id": "EG-CONN-AUDIT-R001",
+      "title": "infrastructure-v1.ttl additions rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CONN-AUDIT-R001.1",
+        "EG-CONN-AUDIT-R001.2",
+        "EG-CONN-AUDIT-R001.3",
+        "EG-CONN-AUDIT-R001.4",
+        "EG-CONN-AUDIT-R001.5",
+        "EG-CONN-AUDIT-R001.6",
+        "EG-CONN-AUDIT-R001.7",
+        "EG-CONN-AUDIT-R001.8",
+        "EG-CONN-AUDIT-R001.9",
+        "EG-CONN-AUDIT-R001.10",
+        "EG-CONN-AUDIT-R001.11",
+        "EG-CONN-AUDIT-R001.12",
+        "EG-CONN-AUDIT-R001.13",
+        "EG-CONN-AUDIT-R001.14",
+        "EG-CONN-AUDIT-R001.15",
+        "EG-CONN-AUDIT-R001.16",
+        "EG-CONN-AUDIT-R001.17",
+        "EG-CONN-AUDIT-R001.18",
+        "EG-CONN-AUDIT-R001.19",
+        "EG-CONN-AUDIT-R001.20",
+        "EG-CONN-AUDIT-R001.21",
+        "EG-CONN-AUDIT-R001.22",
+        "EG-CONN-AUDIT-R001.23",
+        "EG-CONN-AUDIT-R001.24",
+        "EG-CONN-AUDIT-R001.25",
+        "EG-CONN-AUDIT-R001.26"
+      ]
+    },
+    {
+      "id": "EG-CONN-AUDIT-R001.1",
+      "title": "shapes companion for infrastructure-v1",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R001.2",
+      "title": "AutomationJob",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R001.3",
+      "title": "AutomationJobTemplate",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R001.4",
+      "title": "jobStatus",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R001.5",
+      "title": "ranAgainstHost",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R001.6",
+      "title": "routeHostname",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R001.7",
+      "title": "upstreamAddress",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R001.8",
+      "title": "Alert",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R001.9",
+      "title": "alertSeverity",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R001.10",
+      "title": "alertState",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R001.11",
+      "title": "firingSince",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R001.12",
+      "title": "alertsOn",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R001.13",
+      "title": "lastPushedAt",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R001.14",
+      "title": "pullCount",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R001.15",
+      "title": "entityState",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R001.16",
+      "title": "unavailableSince",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R001.17",
+      "title": "desiredReplicas",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R001.18",
+      "title": "runningReplicas",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R001.19",
+      "title": "stackSourceRepository",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R001.20",
+      "title": "ManagementEnvironment",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R001.21",
+      "title": "pendingUpdateCount",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R001.22",
+      "title": "uptimeSeconds",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R001.23",
+      "title": "recordType",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R001.24",
+      "title": "recordValue",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R001.25",
+      "title": "lastConnectionStatus",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R001.26",
+      "title": "lastConnectionError",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R002",
+      "title": "sdlc_lifecycle-v1.ttl additions rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CONN-AUDIT-R002.1",
+        "EG-CONN-AUDIT-R002.2",
+        "EG-CONN-AUDIT-R002.3",
+        "EG-CONN-AUDIT-R002.4",
+        "EG-CONN-AUDIT-R002.5",
+        "EG-CONN-AUDIT-R002.6",
+        "EG-CONN-AUDIT-R002.7",
+        "EG-CONN-AUDIT-R002.8",
+        "EG-CONN-AUDIT-R002.9",
+        "EG-CONN-AUDIT-R002.10",
+        "EG-CONN-AUDIT-R002.11",
+        "EG-CONN-AUDIT-R002.12",
+        "EG-CONN-AUDIT-R002.13",
+        "EG-CONN-AUDIT-R002.14",
+        "EG-CONN-AUDIT-R002.15",
+        "EG-CONN-AUDIT-R002.16",
+        "EG-CONN-AUDIT-R002.17",
+        "EG-CONN-AUDIT-R002.18",
+        "EG-CONN-AUDIT-R002.19",
+        "EG-CONN-AUDIT-R002.20",
+        "EG-CONN-AUDIT-R002.21",
+        "EG-CONN-AUDIT-R002.22",
+        "EG-CONN-AUDIT-R002.23"
+      ]
+    },
+    {
+      "id": "EG-CONN-AUDIT-R002.1",
+      "title": "shapes companion for sdlc_lifecycle-v1",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R002.2",
+      "title": "Repository",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R002.3",
+      "title": "Branch",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R002.4",
+      "title": "branchOf",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R002.5",
+      "title": "headCommit",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R002.6",
+      "title": "isDefaultBranch",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R002.7",
+      "title": "blockedBy",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R002.8",
+      "title": "assignedTo",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R002.9",
+      "title": "ticketStatus",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R002.10",
+      "title": "closesTicket",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R002.11",
+      "title": "proposalState",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R002.12",
+      "title": "requestedReviewer",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R002.13",
+      "title": "PipelineJob",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R002.14",
+      "title": "pipelineJobOf",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R002.15",
+      "title": "IterationCycle",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R002.16",
+      "title": "inCycle",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R002.17",
+      "title": "WorkModule",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R002.18",
+      "title": "inModule",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R002.19",
+      "title": "ticketDueDate",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R002.20",
+      "title": "Worktree",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R002.21",
+      "title": "worktreeState",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R002.22",
+      "title": "tracksBranch",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R002.23",
+      "title": "proposalBranch",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R003",
+      "title": "archimate-v1.ttl additions rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CONN-AUDIT-R003.1",
+        "EG-CONN-AUDIT-R003.2",
+        "EG-CONN-AUDIT-R003.3",
+        "EG-CONN-AUDIT-R003.4",
+        "EG-CONN-AUDIT-R003.5",
+        "EG-CONN-AUDIT-R003.6",
+        "EG-CONN-AUDIT-R003.7",
+        "EG-CONN-AUDIT-R003.8"
+      ]
+    },
+    {
+      "id": "EG-CONN-AUDIT-R003.1",
+      "title": "shapes companion for archimate-v1",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R003.2",
+      "title": "ApplicationComponent",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R003.3",
+      "title": "ArchimateRelationship",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R003.4",
+      "title": "relationshipType",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R003.5",
+      "title": "ConfigurationItem",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R003.6",
+      "title": "affectsConfigurationItem",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R003.7",
+      "title": "incidentState",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R003.8",
+      "title": "incidentAssignee",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R004",
+      "title": "documentation-v1.ttl additions rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CONN-AUDIT-R004.1",
+        "EG-CONN-AUDIT-R004.2",
+        "EG-CONN-AUDIT-R004.3",
+        "EG-CONN-AUDIT-R004.4",
+        "EG-CONN-AUDIT-R004.5",
+        "EG-CONN-AUDIT-R004.6"
+      ]
+    },
+    {
+      "id": "EG-CONN-AUDIT-R004.1",
+      "title": "shapes companion for documentation-v1",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R004.2",
+      "title": "WebSnapshot",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R004.3",
+      "title": "ArchiveResult",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R004.4",
+      "title": "hasArchiveResult",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R004.5",
+      "title": "extractorName",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R004.6",
+      "title": "resultStatus",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R005",
+      "title": "process_intelligence-v1.ttl additions rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CONN-AUDIT-R005.1",
+        "EG-CONN-AUDIT-R005.2",
+        "EG-CONN-AUDIT-R005.3",
+        "EG-CONN-AUDIT-R005.4",
+        "EG-CONN-AUDIT-R005.5",
+        "EG-CONN-AUDIT-R005.6",
+        "EG-CONN-AUDIT-R005.7"
+      ]
+    },
+    {
+      "id": "EG-CONN-AUDIT-R005.1",
+      "title": "EpcFunction",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R005.2",
+      "title": "EpcRuleOperator",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R005.3",
+      "title": "flowsTo",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R005.4",
+      "title": "ProcessInstance",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R005.5",
+      "title": "instanceOfProcessModel",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R005.6",
+      "title": "stoppedAtActivity",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R005.7",
+      "title": "raisedIncident",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R006",
+      "title": "government-v1.ttl additions rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CONN-AUDIT-R006.1",
+        "EG-CONN-AUDIT-R006.2",
+        "EG-CONN-AUDIT-R006.3",
+        "EG-CONN-AUDIT-R006.4",
+        "EG-CONN-AUDIT-R006.5",
+        "EG-CONN-AUDIT-R006.6",
+        "EG-CONN-AUDIT-R006.7",
+        "EG-CONN-AUDIT-R006.8",
+        "EG-CONN-AUDIT-R006.9",
+        "EG-CONN-AUDIT-R006.10",
+        "EG-CONN-AUDIT-R006.11"
+      ]
+    },
+    {
+      "id": "EG-CONN-AUDIT-R006.1",
+      "title": "shapes companion for government-v1",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R006.2",
+      "title": "RiskScenario",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R006.3",
+      "title": "mitigatesRisk",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R006.4",
+      "title": "inFramework",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R006.5",
+      "title": "riskAffectsService",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R006.6",
+      "title": "PrivacyAssessment",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R006.7",
+      "title": "ProcessingActivity",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R006.8",
+      "title": "assessmentCovers",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R006.9",
+      "title": "assessmentDueDate",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R006.10",
+      "title": "assessedVendor",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R006.11",
+      "title": "assessmentStatus",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R007",
+      "title": "core-foundation-v1.ttl additions rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CONN-AUDIT-R007.1",
+        "EG-CONN-AUDIT-R007.2",
+        "EG-CONN-AUDIT-R007.3",
+        "EG-CONN-AUDIT-R007.4",
+        "EG-CONN-AUDIT-R007.5",
+        "EG-CONN-AUDIT-R007.6"
+      ]
+    },
+    {
+      "id": "EG-CONN-AUDIT-R007.1",
+      "title": "shapes companion for core-foundation-v1",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R007.2",
+      "title": "GlossaryTerm",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R007.3",
+      "title": "termAssignedTo",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R007.4",
+      "title": "counterparty",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R007.5",
+      "title": "agreementExpiresAt",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R007.6",
+      "title": "hasRenewalAction",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R008",
+      "title": "finance-v1.ttl additions rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CONN-AUDIT-R008.1",
+        "EG-CONN-AUDIT-R008.2",
+        "EG-CONN-AUDIT-R008.3",
+        "EG-CONN-AUDIT-R008.4",
+        "EG-CONN-AUDIT-R008.5",
+        "EG-CONN-AUDIT-R008.6",
+        "EG-CONN-AUDIT-R008.7"
+      ]
+    },
+    {
+      "id": "EG-CONN-AUDIT-R008.1",
+      "title": "shapes companion for finance-v1",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R008.2",
+      "title": "orderQty",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R008.3",
+      "title": "Budget",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R008.4",
+      "title": "budgetLimit",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R008.5",
+      "title": "LedgerTransaction",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R008.6",
+      "title": "chargedToBudget",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R008.7",
+      "title": "transactionAmount",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R009",
+      "title": "personal-v1.ttl additions rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CONN-AUDIT-R009.1",
+        "EG-CONN-AUDIT-R009.2",
+        "EG-CONN-AUDIT-R009.3",
+        "EG-CONN-AUDIT-R009.4",
+        "EG-CONN-AUDIT-R009.5",
+        "EG-CONN-AUDIT-R009.6",
+        "EG-CONN-AUDIT-R009.7",
+        "EG-CONN-AUDIT-R009.8",
+        "EG-CONN-AUDIT-R009.9"
+      ]
+    },
+    {
+      "id": "EG-CONN-AUDIT-R009.1",
+      "title": "birthPlace",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R009.2",
+      "title": "birthYear",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R009.3",
+      "title": "documentType",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R009.4",
+      "title": "dueDate",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R009.5",
+      "title": "totalAmount",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R009.6",
+      "title": "FileShare",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R009.7",
+      "title": "sharesFile",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R009.8",
+      "title": "isPublicLink",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R009.9",
+      "title": "shareExpiresAt",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R010",
+      "title": "virtual_graph-v1.ttl additions rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CONN-AUDIT-R010.1",
+        "EG-CONN-AUDIT-R010.2",
+        "EG-CONN-AUDIT-R010.3"
+      ]
+    },
+    {
+      "id": "EG-CONN-AUDIT-R010.1",
+      "title": "NamedGraph",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R010.2",
+      "title": "tripleCount",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R010.3",
+      "title": "lastModifiedAt",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R011",
+      "title": "identity-v1.ttl additions rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CONN-AUDIT-R011.1",
+        "EG-CONN-AUDIT-R011.2",
+        "EG-CONN-AUDIT-R011.3",
+        "EG-CONN-AUDIT-R011.4",
+        "EG-CONN-AUDIT-R011.5"
+      ]
+    },
+    {
+      "id": "EG-CONN-AUDIT-R011.1",
+      "title": "shapes companion for identity-v1",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R011.2",
+      "title": "Application",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R011.3",
+      "title": "OidcClient",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R011.4",
+      "title": "roleGrantsAccessTo",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R011.5",
+      "title": "accountStatus",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R012",
+      "title": "orchestration-v1.ttl additions rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CONN-AUDIT-R012.1",
+        "EG-CONN-AUDIT-R012.2",
+        "EG-CONN-AUDIT-R012.3",
+        "EG-CONN-AUDIT-R012.4",
+        "EG-CONN-AUDIT-R012.5"
+      ]
+    },
+    {
+      "id": "EG-CONN-AUDIT-R012.1",
+      "title": "shapes companion for orchestration-v1",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R012.2",
+      "title": "promptVersion",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R012.3",
+      "title": "tokenCost",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R012.4",
+      "title": "tracePrompt",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R012.5",
+      "title": "evaluationScore",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R013",
+      "title": "enterprise-v1.ttl additions rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CONN-AUDIT-R013.1",
+        "EG-CONN-AUDIT-R013.2",
+        "EG-CONN-AUDIT-R013.3",
+        "EG-CONN-AUDIT-R013.4"
+      ]
+    },
+    {
+      "id": "EG-CONN-AUDIT-R013.1",
+      "title": "shapes companion for enterprise-v1",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R013.2",
+      "title": "factSheetType",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R013.3",
+      "title": "lifecyclePhase",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R013.4",
+      "title": "activeUserCount",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R014",
+      "title": "nutrition-v1.ttl additions rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CONN-AUDIT-R014.1",
+        "EG-CONN-AUDIT-R014.2",
+        "EG-CONN-AUDIT-R014.3",
+        "EG-CONN-AUDIT-R014.4",
+        "EG-CONN-AUDIT-R014.5",
+        "EG-CONN-AUDIT-R014.6",
+        "EG-CONN-AUDIT-R014.7",
+        "EG-CONN-AUDIT-R014.8"
+      ]
+    },
+    {
+      "id": "EG-CONN-AUDIT-R014.1",
+      "title": "Recipe",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R014.2",
+      "title": "usesIngredient",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R014.3",
+      "title": "ShoppingListItem",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R014.4",
+      "title": "MealPlanEntry",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R014.5",
+      "title": "WorkoutRoutine",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R014.6",
+      "title": "Exercise",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R014.7",
+      "title": "includesExercise",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R014.8",
+      "title": "WorkoutSession",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R015",
+      "title": "action-v1.ttl additions rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CONN-AUDIT-R015.1"
+      ]
+    },
+    {
+      "id": "EG-CONN-AUDIT-R015.1",
+      "title": "failureReason",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R016",
+      "title": "commerce-v1.ttl additions rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CONN-AUDIT-R016.1",
+        "EG-CONN-AUDIT-R016.2",
+        "EG-CONN-AUDIT-R016.3",
+        "EG-CONN-AUDIT-R016.4",
+        "EG-CONN-AUDIT-R016.5",
+        "EG-CONN-AUDIT-R016.6",
+        "EG-CONN-AUDIT-R016.7",
+        "EG-CONN-AUDIT-R016.8",
+        "EG-CONN-AUDIT-R016.9"
+      ]
+    },
+    {
+      "id": "EG-CONN-AUDIT-R016.1",
+      "title": "create commerce-v1.ttl",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R016.2",
+      "title": "shapes companion for commerce-v1",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R016.3",
+      "title": "CommerceFile",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R016.4",
+      "title": "Party",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R016.5",
+      "title": "PurchaseOrder",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R016.6",
+      "title": "PurchaseInvoice",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R016.7",
+      "title": "Opportunity",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R016.8",
+      "title": "Contact",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R016.9",
+      "title": "lastActivityAt",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R017",
+      "title": "Reassignments rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CONN-AUDIT-R017.1",
+        "EG-CONN-AUDIT-R017.2",
+        "EG-CONN-AUDIT-R017.3",
+        "EG-CONN-AUDIT-R017.4",
+        "EG-CONN-AUDIT-R017.5",
+        "EG-CONN-AUDIT-R017.6",
+        "EG-CONN-AUDIT-R017.7",
+        "EG-CONN-AUDIT-R017.8",
+        "EG-CONN-AUDIT-R017.9",
+        "EG-CONN-AUDIT-R017.10",
+        "EG-CONN-AUDIT-R017.11",
+        "EG-CONN-AUDIT-R017.12",
+        "EG-CONN-AUDIT-R017.13",
+        "EG-CONN-AUDIT-R017.14",
+        "EG-CONN-AUDIT-R017.15",
+        "EG-CONN-AUDIT-R017.16",
+        "EG-CONN-AUDIT-R017.17",
+        "EG-CONN-AUDIT-R017.18"
+      ]
+    },
+    {
+      "id": "EG-CONN-AUDIT-R017.1",
+      "title": "reassign ciso-assistant",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R017.2",
+      "title": "reassign dockerhub",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R017.3",
+      "title": "reassign egeria",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R017.4",
+      "title": "reassign erpnext",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R017.5",
+      "title": "reassign github",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R017.6",
+      "title": "reassign gitlab",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R017.7",
+      "title": "reassign gramps",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R017.8",
+      "title": "reassign home-assistant",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R017.9",
+      "title": "reassign langfuse",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R017.10",
+      "title": "reassign legal-peripherals",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R017.11",
+      "title": "reassign nextcloud",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R017.12",
+      "title": "reassign onetrust",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R017.13",
+      "title": "reassign paperless-ngx",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R017.14",
+      "title": "reassign repository-manager",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R017.15",
+      "title": "reassign salesforce",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R017.16",
+      "title": "reassign servicenow",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R017.17",
+      "title": "reassign stirlingpdf",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONN-AUDIT-R017.18",
+      "title": "reassign twenty",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    }
+  ]
+}
