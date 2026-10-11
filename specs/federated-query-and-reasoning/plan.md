@@ -9,7 +9,7 @@
 5. **Complete phase 3.** Add persisted source statistics with provenance, freshness/owner-bound fragment caching and additional source kinds. Cache only when the source watermark is known and current. Retire alternate path-specific guards and source catalogs once callers use the common route.
 6. **Close semantic reads.** Finish generation fencing, restart/replay, filtered text/vector/edge retrieval and mixed traversal top-k. Run corpus reasoning and proof verification, including disjointness and skipped-event rebuild. Expose index fallback in explain output.
 7. **Close numerical surfaces.** Implement exact/golden series, attribution, propagation, barrier and motif kernels behind one public syntax and shared compute code. Add deterministic seed and budget handling before enabling a new operator on the served wire.
-8. **Publish evidence.** For each stable ID, record merged public SHA, exact test profile, positive/negative result, quality gate result and client/generator version in the native spec evidence. Mark `ACCEPTED` only after exact-head gates and affected downstream client compatibility pass.
+8. **Publish evidence.** For each stable ID, record these in the native spec evidence. Record the merged public SHA, exact test profile, positive and negative result, quality gate result, and client and generator version. Mark `ACCEPTED` only after exact-head gates and affected downstream client compatibility pass.
 
 9. **Ontology source selection.** Add a read method that takes question classes and returns the class path and per-class approved mappings with premises. Reuse the reasoner for subclass entailment and the unified-data-plane mapping approval state. Add operation-bound source kinds to the foreign source registry under the shared outbound guard. (EG-FEDERATED-QUERY-R072, EG-FEDERATED-QUERY-R073)
 
@@ -96,8 +96,8 @@ At main `6bf4ea1c7e80a375e7053e677b0ed28c162131ec`, the complete production
 `eg-numeric` error, math, reduce, validate and kernels modules compiled in a
 standalone Rust 1.96.0 test harness linked to the cached real `libm` dependency.
 All five causal-impact tests passed. The acceptance test compares two-sided
-probabilities at both signs of z = 3, 6, 8, 10 and 20 against checked-in
-mpmath 1.3.0 50-digit references at relative tolerance below 1e-12, plus
+probabilities at both signs of z = 3, 6, 8, 10 and 20. It uses checked-in
+mpmath 1.3.0 50-digit references at relative tolerance below 1e-12. It also covers
 zero and positive-infinity boundaries. The production path calls the shared
 `normal_sf`; no copied approximation, substitute kernel or mock was used.
 
@@ -143,8 +143,8 @@ Data flow: Iceberg REST commit → `commit_table` (`src/server/lake/rest/catalog
 Types: `SchemaChangeKind` gains `ReorderColumn`; the table keeps one schema version per change. Field ids stay stable across renames.
 Attach point: `commit_table`; its production caller is the listener route dispatch. Today `commit_table` only compacts, and `evolve_add_column` (`crates/eg-lake/src/lib.rs:179`) is reached from `src/server/lake/mod.rs:243` but not from a REST route.
 Failure: an unapproved destructive change or an unknown column is refused with a typed code and no new version.
-Existing code: `src/server/lake/rest/catalog.rs:270`, `:318`; `src/server/lake/catalog_ops.rs:184`; `crates/eg-lake/src/lib.rs:179`, `:241`, `:285`; `crates/eg-lake/src/iceberg.rs:315`, `:348`; `crates/eg-lake/src/iceberg_avro.rs:371`, `:408`; `crates/eg-types/src/lake_catalog.rs:216`, `:248`. Reachable today: load and time travel yes; schema evolution through REST no.
-Reuses the table builder, the manifest writer and the compatibility classifier. New: drop, rename and reorder, and the commit-route wiring.
+Existing code: `src/server/lake/rest/catalog.rs:270`, `:318`; `src/server/lake/catalog_ops.rs:184`. Also `crates/eg-lake/src/lib.rs:179`, `:241`, `:285`; `crates/eg-lake/src/iceberg.rs:315`, `:348`. Also `crates/eg-lake/src/iceberg_avro.rs:371`, `:408`; `crates/eg-types/src/lake_catalog.rs:216`, `:248`. Reachable today: load and time travel yes; schema evolution through REST no.
+Reuses the table builder. Reuses the manifest writer. Reuses the compatibility classifier. New: drop, rename and reorder. New: commit-route wiring.
 Decision: evolve through the standard commit route. Rejected: a private admin call, which external engines cannot use.
 Cross-repository: the authenticated catalog is owned by `EG-UNIFIED-DATA-PLANE-R039`; this rollup adds no new access rule.
 
@@ -164,3 +164,54 @@ Cross-repository: none.
 
 References
 - No paper is cited.
+
+## EG-FEDERATED-QUERY-R081 Retrieval sufficiency verdict with repair step, fallback policy and round limit
+
+Data flow: served cross-modal query -> `eg_plan::execute` (`crates/eg-plan/src/exec.rs:536`) -> `fuse_rrf` (`crates/eg-plan/src/exec.rs:848`) -> `judge_sufficiency` -> `SufficiencyVerdict` with repair and fallback -> harness applies the next round.
+Types: `SufficiencyVerdict`, `SufficiencyRule`, `RepairStep`, `FallbackPolicy`. The call carries `round` and `round_limit`; the harness owns the loop counter and EG owns the limit it is given.
+Attach point: `execute` at `crates/eg-plan/src/exec.rs:536`. Production caller: `crates/eg-graphql/src/crossmodal.rs:429`.
+Failure: A missing round limit returns `RETRIEVAL_ROUND_LIMIT_REQUIRED`. A strict insufficient verdict abstains.
+Consumers: AU-RETRIEVAL (R004)
+Moves from agent-utilities: executable_rag.py:87 (sufficiency rule), executable_rag.py:198 (repair choice), hybrid_retriever.py:1957 (fallback policy)
+Existing code: `crates/eg-plan/src/exec.rs:536`; `crates/eg-plan/src/exec.rs:848`; `crates/eg-plan/src/exec.rs:1436` (diversified ranking); `crates/eg-plan/src/runtime.rs:61`; `crates/eg-compute/src/assemble/conclude.rs:69` (typed abstention pattern). Reachable today: no.
+Existing-code search: no sufficiency check and no fallback policy exist in the engine. Search terms: `sufficien`, `fallback_policy`, `FallbackPolicy`, `extractive`, `round_limit`, `max_rounds`.
+Reuses: the ranked `RowSet` from `fuse_rrf` and the typed abstention pattern. New: the verdict type, the rule, the repair order.
+Decision: EG decides sufficiency, repair and fallback per call and hands them to the harness. Rejected alternative: keep the rule in the harness, because each harness must otherwise carry its own threshold.
+Cross-repository: `AU-RETRIEVAL-R004` consumes the verdict and applies the repair. `EG-DECISION-ENGINE-R100` receives the premise. The decision engine spec is edited by another lane; this rollup adds no row there.
+
+References
+- No paper is cited.
+
+## EG-FEDERATED-QUERY-R082 Iterative retrieval stop rule with a calibrated confidence margin
+
+Data flow: served cross-modal query with round history -> `eg_plan::execute` (`crates/eg-plan/src/exec.rs:536`) -> `decide_stop` -> `StopVerdict` with reason -> harness stops or runs the next round.
+Types: `CalibrationTable`, `RoundCalibration`, `StopVerdict`, `StopReason`. The table maps each round to a baseline confidence and a margin threshold.
+Attach point: `execute` at `crates/eg-plan/src/exec.rs:536`, beside the sufficiency judgement. Production caller: `crates/eg-graphql/src/crossmodal.rs:429`.
+Failure: A round outside the table returns `ROUND_NOT_CALIBRATED` and the loop continues to the round limit.
+Consumers: AU-RETRIEVAL (R005)
+Moves from agent-utilities: adaptive_stopping.py:151 (stop rule), adaptive_stopping.py:80 (calibration table)
+Existing code: `crates/eg-plan/src/exec.rs:536`; `crates/eg-compute/src/finance/market/confidence.rs:113` (calibrated confidence with abstention, a separate finance rule). Reachable today: no.
+Existing-code search: no stop rule exists in the engine. Search terms: `calibrat`, `confidence_margin`, `stop_reason`, `StopReason`, `round_limit`. The only `stop_reason` hit is the job lease cycle in `src/server/handlers/jobs/executor_claim.rs:82`, which is unrelated.
+Reuses: the round history sent by the caller. New: the table, the rule, the verdict.
+Decision: One fixed rule over a calibration table with no learned part. Rejected alternative: a learned stopping classifier, because it needs labelled data and drifts without notice.
+Cross-repository: `AU-RETRIEVAL-R005` consumes the verdict and ends the loop. `EG-FEDERATED-QUERY-R081` supplies the round limit.
+
+References
+- arXiv:2606.13814 — Kieback et al., "TASR: Training-Free Adaptive Stopping for Iterative Retrieval" (2026)
+
+## EG-FEDERATED-QUERY-R083 Arbitration between model prior and evidence
+
+Data flow: harness prior probe -> served cross-modal query carrying the prior `Candidate` -> `eg_plan::execute` (`crates/eg-plan/src/exec.rs:536`) -> `arbitrate` -> `ArbitrationVerdict` -> harness answers or reports the abstention.
+Types: `Candidate`, `EvidenceClass`, `ArbitrationVerdict`, `ArbitrationChoice`. The harness runs the probe; EG decides.
+Attach point: `execute` at `crates/eg-plan/src/exec.rs:536`. Production caller: `crates/eg-graphql/src/crossmodal.rs:429`.
+Failure: A gap below the margin returns `ARBITRATION_ABSTAIN` with both candidates. A candidate without a class returns `CANDIDATE_CLASS_REQUIRED`.
+Consumers: AU-RETRIEVAL (R006)
+Moves from agent-utilities: shortcut_risks.py:42, agent_control_contracts.py:73 (prior probe and evidence classes)
+Existing code: `crates/eg-plan/src/exec.rs:536`; `crates/eg-compute/src/assemble/conclude.rs:69` (typed abstention pattern). Reachable today: no.
+Existing-code search: no arbitration exists in the engine. Search terms: `arbitrat`, `abstain`, `margin`, `parametric`, `prior_probe`.
+Reuses: the typed abstention pattern and the ranked evidence side. New: the candidate type, the margin rule, the verdict.
+Decision: One margin rule in the engine over two candidates. Rejected alternative: a learned arbiter, because it needs labelled disagreement data.
+Cross-repository: `AU-RETRIEVAL-R006` runs the prior probe and applies the verdict. `EG-FEDERATED-QUERY-R081` and `R082` share the premise record.
+
+References
+- arXiv:2606.08397 — Xu et al., "TrustMargin: Training-Free Arbitration between Parametric Memory and Retrieved Evidence in Large Language Models" (2026)
