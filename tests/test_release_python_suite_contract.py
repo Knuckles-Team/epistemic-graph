@@ -22,6 +22,8 @@ import yaml
 
 REPO = Path(__file__).resolve().parents[1]
 WORKFLOW = REPO / ".github" / "workflows" / "release.yml"
+# These tests inspect workflow configuration only, without building an engine.
+pytestmark = pytest.mark.no_engine
 
 
 def _workflow() -> dict:
@@ -37,6 +39,39 @@ def _test_step(job: dict) -> dict:
         if str(step.get("name", "")).startswith("Test (root Python suite"):
             return step
     raise AssertionError("python-suite job has no root-suite Test step")
+
+
+@pytest.mark.parametrize(
+    "job_name",
+    ["gates", "gates-facade", "gates-variants", "gates-crates", "python-suite"],
+)
+def test_capability_dependencies_bootstrap_uv_for_the_test_interpreter(
+    job_name: str,
+) -> None:
+    steps = _workflow()["jobs"][job_name]["steps"]
+    install = next(
+        step
+        for step in steps
+        if step.get("name") == "Install locked capability-test Python dependencies"
+    )
+    setup = next(
+        step
+        for step in steps[: steps.index(install)]
+        if step.get("uses", "").startswith("astral-sh/setup-uv@")
+    )
+    assert setup["uses"] == (
+        "astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e"
+    )
+    assert setup["with"]["version"] == "0.11.7"
+    assert "if" not in setup
+    assert 'uv pip install --python "$(command -v python)" ' in install["run"]
+    python_setup = next(
+        step
+        for step in steps[: steps.index(install)]
+        if step.get("uses", "").startswith("actions/setup-python@")
+        or step.get("with", {}).get("activate-environment") is True
+    )
+    assert "if" not in python_setup
 
 
 @pytest.mark.spec("EG-CONTRACT-R009")

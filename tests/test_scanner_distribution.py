@@ -211,6 +211,17 @@ def _assert_runtime_contract_jobs(jobs, security):
     }
 
 
+@pytest.mark.parametrize("job_name", ["lint-and-architecture", "spec-gates"])
+def test_spec_status_gates_have_full_checkout_history(job_name: str):
+    """Spec-status derives generated status from commit trailers in git history."""
+    steps = _workflow()["jobs"][job_name]["steps"]
+    checkout = next(
+        step for step in steps if step.get("uses", "").startswith("actions/checkout@")
+    )
+    assert checkout["with"]["fetch-depth"] == 0
+    assert checkout["with"]["persist-credentials"] is False
+
+
 def test_release_scanner_job_is_full_history_advisory_and_pinned():
     document = _workflow()
     jobs = document["jobs"]
