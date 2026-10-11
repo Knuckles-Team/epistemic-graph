@@ -48,6 +48,55 @@ def load_manifest(path: Path) -> dict[str, Any]:
     return document
 
 
+def _group_name(
+    group: dict[str, Any], label: str, seen_names: set[str], problems: list[str]
+) -> str:
+    name = group.get("name")
+    if not isinstance(name, str) or not name.strip():
+        problems.append(f"{label} has no non-empty 'name'")
+        name = label
+    elif name in seen_names:
+        problems.append(f"group '{name}' is declared more than once")
+    seen_names.add(name)
+    return name
+
+
+def _validate_resources(group: dict[str, Any], name: str, problems: list[str]) -> None:
+    warm_target = group.get("warm_target")
+    if not isinstance(warm_target, str) or not warm_target.strip():
+        problems.append(f"group '{name}' has no non-empty 'warm_target'")
+
+    headroom = group.get("headroom_reservation")
+    if (
+        isinstance(headroom, bool)
+        or not isinstance(headroom, (int, float))
+        or not 0.0 < float(headroom) < 1.0
+    ):
+        problems.append(
+            f"group '{name}' has an invalid 'headroom_reservation' "
+            "(must be a number strictly between 0 and 1)"
+        )
+
+
+def _validate_hosts(
+    group: dict[str, Any], name: str, seen_hosts: dict[str, str], problems: list[str]
+) -> None:
+    hosts = group.get("hosts")
+    if not isinstance(hosts, list) or not hosts:
+        problems.append(f"group '{name}' has no non-empty 'hosts' list")
+        return
+    for host in hosts:
+        if not isinstance(host, str) or not host.strip():
+            problems.append(f"group '{name}' has a non-string host entry")
+            continue
+        if host in seen_hosts:
+            problems.append(
+                f"host '{host}' is claimed by both '{seen_hosts[host]}' and '{name}'"
+            )
+        else:
+            seen_hosts[host] = name
+
+
 def validate_groups(groups: list[Any]) -> list[str]:
     """Return a list of human-readable problems; empty means valid."""
 
@@ -59,44 +108,9 @@ def validate_groups(groups: list[Any]) -> list[str]:
         if not isinstance(group, dict):
             problems.append(f"{label} is not a mapping")
             continue
-        name = group.get("name")
-        if not isinstance(name, str) or not name.strip():
-            problems.append(f"{label} has no non-empty 'name'")
-            name = label
-        elif name in seen_names:
-            problems.append(f"group '{name}' is declared more than once")
-        seen_names.add(name)
-
-        warm_target = group.get("warm_target")
-        if not isinstance(warm_target, str) or not warm_target.strip():
-            problems.append(f"group '{name}' has no non-empty 'warm_target'")
-
-        headroom = group.get("headroom_reservation")
-        if (
-            isinstance(headroom, bool)
-            or not isinstance(headroom, (int, float))
-            or not 0.0 < float(headroom) < 1.0
-        ):
-            problems.append(
-                f"group '{name}' has an invalid 'headroom_reservation' "
-                "(must be a number strictly between 0 and 1)"
-            )
-
-        hosts = group.get("hosts")
-        if not isinstance(hosts, list) or not hosts:
-            problems.append(f"group '{name}' has no non-empty 'hosts' list")
-            hosts = []
-        for host in hosts:
-            if not isinstance(host, str) or not host.strip():
-                problems.append(f"group '{name}' has a non-string host entry")
-                continue
-            if host in seen_hosts:
-                problems.append(
-                    f"host '{host}' is claimed by both '{seen_hosts[host]}' "
-                    f"and '{name}'"
-                )
-            else:
-                seen_hosts[host] = name
+        name = _group_name(group, label, seen_names, problems)
+        _validate_resources(group, name, problems)
+        _validate_hosts(group, name, seen_hosts, problems)
     return problems
 
 

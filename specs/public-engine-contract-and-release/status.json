@@ -290,6 +290,7 @@
         "a3e3d9924822"
       ],
       "verified_by": [
+        "tests/test_check_fanout_host_groups.py:118",
         "tests/test_check_fanout_host_groups.py:25",
         "tests/test_check_fanout_host_groups.py:48",
         "tests/test_check_fanout_host_groups.py:75",

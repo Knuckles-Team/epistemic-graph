@@ -17,7 +17,8 @@ The Rust ``method-codec`` profile supplies the module bytes directly. The
 builder verifies the WebAssembly header and refuses an import section, then
 ``--check`` compares both client copies byte for byte and reports their SHA-256
 digests. The generated-artifact ledger separately pins the committed SHA-256
-for each copy. No post-link executable or archive is needed.
+for each copy. Regeneration updates those existing pins with the module bytes.
+No post-link executable or archive is needed.
 """
 
 from __future__ import annotations
@@ -25,11 +26,14 @@ from __future__ import annotations
 import argparse
 import hashlib
 import os
+import re
 import subprocess
 import sys
 from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING
+
+import tomllib
 
 if TYPE_CHECKING:
     from configure_rust_path_remap import encoded_rustflags
@@ -40,9 +44,9 @@ else:
         from scripts.configure_rust_path_remap import encoded_rustflags
 
 try:
-    from generated_artifacts import verify as verify_artifact_pins
+    import generated_artifacts
 except ModuleNotFoundError:  # imported as a package in tests
-    from scripts.generated_artifacts import verify as verify_artifact_pins
+    from scripts import generated_artifacts
 
 ROOT = Path(__file__).resolve().parents[1]
 TARGET = "wasm32-unknown-unknown"
@@ -126,7 +130,7 @@ def verify_no_imports(module: bytes) -> None:
 def _check_artifact_pins(root: Path) -> bool:
     """Require both client copies to match their reviewed ledger hashes."""
 
-    verified, problems = verify_artifact_pins(root)
+    verified, problems = generated_artifacts.verify(root)
     required = {f"{client}/{MODULE}" for client in CLIENT_DIRS}
     for path in sorted(required - verified):
         problems.append(f"missing verified pin: {path}")
@@ -165,11 +169,67 @@ def check(root: Path, module: bytes) -> int:
     return 0
 
 
-def write(root: Path, module: bytes) -> int:
-    """Place the fresh module in every client directory."""
+def _validate_codec_entries(root: Path, required: set[str]) -> None:
+    """Require the existing reviewed codec paths and reproducibility contract."""
 
+    entries = generated_artifacts.load(root)
+    for path in required:
+        entry = entries.get(path)
+        if (
+            entry is None
+            or entry.path != path
+            or entry.reproducer != "python3 scripts/build_method_codec_wasm.py --check"
+            or entry.proven_by != "language-clients"
+        ):
+            raise generated_artifacts.LedgerError(
+                f"unexpected codec ledger entry: {path}"
+            )
+
+
+def _updated_artifact_pins(root: Path, module: bytes) -> str:
+    """Prepare only the existing codec pins; reject unexpected ledger changes."""
+
+    required = {f"{client}/{MODULE}" for client in CLIENT_DIRS}
+    _validate_codec_entries(root, required)
+    ledger = root / generated_artifacts.LEDGER
+    if ledger.is_symlink():
+        raise generated_artifacts.LedgerError("codec ledger must not be a symlink")
+    original = ledger.read_text(encoding="utf-8")
+    expected = tomllib.loads(original)
+    hashes = []
+    for raw in expected["artifact"]:
+        if raw["path"] in required:
+            raw["sha256"] = _sha256(module)
+        hashes.append(raw["sha256"])
+    # Preserve comments and formatting. Only the ordinary one-line hash fields
+    # are editable; semantic equality below refuses ambiguous/multiline layouts.
+    pattern = re.compile(r'(?m)^(sha256\s*=\s*["\'])([0-9a-f]{64})(["\'])')
+    matches = list(pattern.finditer(original))
+    if len(matches) != len(hashes):
+        raise generated_artifacts.LedgerError("unsupported ledger hash layout")
+    updated = original
+    for match, digest in reversed(list(zip(matches, hashes, strict=True))):
+        updated = updated[: match.start(2)] + digest + updated[match.end(2) :]
+    if tomllib.loads(updated) != expected:
+        raise generated_artifacts.LedgerError("refused unexpected ledger changes")
+    return updated
+
+
+def write(root: Path, module: bytes) -> int:
+    """Place the fresh module and matching existing pins in the repository."""
+
+    verify_no_imports(module)
+    try:
+        ledger = _updated_artifact_pins(root, module)
+        for client in CLIENT_DIRS:
+            if (root / client / MODULE).is_symlink():
+                raise generated_artifacts.LedgerError("codec must not be a symlink")
+    except generated_artifacts.LedgerError as exc:
+        print(f"REFUSED: {exc}", file=sys.stderr)
+        return 1
     for client in CLIENT_DIRS:
         (root / client / MODULE).write_bytes(module)
+    (root / generated_artifacts.LEDGER).write_text(ledger, encoding="utf-8")
     clients = ", ".join(CLIENT_DIRS)
     print(f"wrote {MODULE} sha256={_sha256(module)} ({len(module)} bytes) to {clients}")
     return 0
