@@ -80,7 +80,7 @@ Status key: `[ ]` queued, `[-]` in progress, `[x]` verified at cited main revisi
 - [ ] **EG-DURABLE-KERNEL-R081:** Generated client methods for bitemporal operations
 - [ ] **EG-DURABLE-KERNEL-R082:** Analytics worker parity: association-rule mining jobs run on the engine's own durable job plane
 - [ ] **EG-DURABLE-KERNEL-R082.1:** A submitted `MineAssociate` job is claimed and published by the colocated executor with no external worker
-- [ ] **EG-DURABLE-KERNEL-R082.2:** `MineAssociate` submission refuses a payload outside the governed schema
+- [x] **EG-DURABLE-KERNEL-R082.2:** `MineAssociate` submission refuses a payload outside the governed schema
 - [ ] **EG-DURABLE-KERNEL-R082.3:** Distinct-item cap and opaque-reference rule are decided and enforced at submit
 - [ ] **EG-DURABLE-KERNEL-R082.4:** Association-rule identity is byte-identical to the old worker's
 - [ ] **EG-DURABLE-KERNEL-R082.5:** The staged result has the 11-column knowledge-batch shape

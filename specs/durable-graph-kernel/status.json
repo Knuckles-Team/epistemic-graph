@@ -1630,9 +1630,15 @@
     {
       "id": "EG-DURABLE-KERNEL-R082.2",
       "title": "`MineAssociate` submission refuses a payload outside the governed schema",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "839c2e0d1ee2"
+      ],
+      "verified_by": [
+        "src/server/handlers/jobs/graph_tests.rs:145",
+        "src/server/handlers/jobs/graph_tests.rs:170",
+        "src/server/handlers/jobs/graph_tests.rs:245"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R082.3",

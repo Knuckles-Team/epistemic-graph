@@ -32,6 +32,8 @@ use crate::protocol::{Method, Request, Response};
 mod framing;
 mod tls;
 
+#[cfg(all(test, feature = "jobs"))]
+pub(crate) use framing::decode_request_payload;
 pub(crate) use framing::validate_nested_msgpack;
 #[cfg(test)]
 use framing::{

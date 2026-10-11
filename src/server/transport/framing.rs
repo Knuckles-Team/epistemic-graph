@@ -266,18 +266,26 @@ where
     ) {
         return Err(FrameReadError::Closed(None));
     }
-    if validate_msgpack_frame(&payload, limits.msgpack_items).is_err() {
-        return Err(FrameReadError::Rejected(Response::err(
-            recover_request_id(&payload),
+    decode_request_payload(&payload, limits.msgpack_items).map_err(FrameReadError::Rejected)
+}
+
+/// Decode the bounded native request body, preserving typed refusal and correlation.
+pub(crate) fn decode_request_payload(
+    payload: &[u8],
+    max_items: usize,
+) -> Result<Request, Response> {
+    if validate_msgpack_frame(payload, max_items).is_err() {
+        return Err(Response::err(
+            recover_request_id(payload),
             "INVALID_ARGUMENT: invalid or over-complex request encoding",
-        )));
+        ));
     }
-    match rmp_serde::from_slice(&payload) {
+    match rmp_serde::from_slice(payload) {
         Ok(request) => Ok(request),
-        Err(_) => Err(FrameReadError::Rejected(Response::err(
-            recover_request_id(&payload),
+        Err(_) => Err(Response::err(
+            recover_request_id(payload),
             "INVALID_ARGUMENT: invalid request encoding",
-        ))),
+        )),
     }
 }
 

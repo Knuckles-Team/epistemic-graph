@@ -36,3 +36,24 @@ R074.2 remains pending: exercise these transitions through real authenticated di
 ## T-KG-14 scheduler configuration producer
 
 R076.1 and EG-PLACEMENT-R002.2 bind native tests in `crates/eg-types/src/scheduler_config.rs`: real-serde default and override round trips; exact floor sum; over-subscription; u32::MAX floor overflow; zero disabling bounds; CPU >1000, memory=0 and blank-lane refusals; missing/unknown/negative/out-of-range wire fields. Run `cargo test -p eg-types scheduler_config::tests` on a warm build, or compile that exact source with real serde/serde_json dependencies for isolated producer evidence. The latter is not full-crate or server validation. R076.2 still requires the served settings/admission scenario.
+
+## T-KG-15 association submission schema
+
+R082.2 binds the table-driven tests in `src/server/handlers/jobs/graph_tests.rs`.
+Fifteen malformed outer-list, transaction-list and item shapes go through the
+actual native request-body decoder and return `INVALID_ARGUMENT`, correlation
+id 82, a bounded encoding detail and no result. A matching valid full request
+is decoded and submitted to the real governor with support 0.1, confidence 0.5
+and fpgrowth defaults. Governor tables cover NaN, both infinities, thresholds
+outside [0, 1], unknown algorithms, all five accepted names/aliases and inclusive
+0/1 boundaries. The production reader uses the same decoder; no second refusal
+implementation is introduced for tests.
+
+2026-10-11 focused evidence: the exact complete submission-test module plus the
+two existing hash tests passed (6 tests), compiled against real serde,
+rmp-serde, sha2 and the actual jobs-enabled eg-types crate. The harness includes
+the exact production decoder, governor, submit validator and authority/hash
+functions. This proves schema admission and decoding, not socket serving,
+authentication, persistence or the executor lifecycle. The broader R082 rollup
+and its other children remain open. Normal warm-tree reproduction is
+`cargo test --lib --features jobs mine_associate_submission_tests`.
