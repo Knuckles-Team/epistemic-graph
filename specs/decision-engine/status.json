@@ -1622,6 +1622,7 @@
       "title": "Competing served imports share one head compare-and-set",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "257e9bef60eb",
         "4ec396b2fe02",
         "771c32a45353"
       ],
@@ -1658,6 +1659,7 @@
       "title": "Batch pins and withdrawn-component reads",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "27157a8a5dcf",
         "44e16218bb0a"
       ],
       "verified_by": [
