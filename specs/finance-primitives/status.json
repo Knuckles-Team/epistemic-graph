@@ -14,11 +14,26 @@
     "EG-FINANCE-PRIMITIVES-R004.2.2",
     "EG-FINANCE-PRIMITIVES-R004.3",
     "EG-FINANCE-PRIMITIVES-R004.3.1",
+    "EG-FINANCE-PRIMITIVES-R004.3.2",
+    "EG-FINANCE-PRIMITIVES-R004.3.2.1",
+    "EG-FINANCE-PRIMITIVES-R004.3.2.2",
+    "EG-FINANCE-PRIMITIVES-R004.3.2.3",
+    "EG-FINANCE-PRIMITIVES-R004.3.2.4",
+    "EG-FINANCE-PRIMITIVES-R004.3.2.5",
+    "EG-FINANCE-PRIMITIVES-R004.3.2.6",
+    "EG-FINANCE-PRIMITIVES-R004.3.2.7",
+    "EG-FINANCE-PRIMITIVES-R004.3.2.8",
+    "EG-FINANCE-PRIMITIVES-R004.3.3",
+    "EG-FINANCE-PRIMITIVES-R004.3.3.1",
+    "EG-FINANCE-PRIMITIVES-R004.3.3.2",
     "EG-FINANCE-PRIMITIVES-R005",
     "EG-FINANCE-PRIMITIVES-R005.1",
     "EG-FINANCE-PRIMITIVES-R005.1.1",
     "EG-FINANCE-PRIMITIVES-R005.2",
     "EG-FINANCE-PRIMITIVES-R005.2.1",
+    "EG-FINANCE-PRIMITIVES-R005.2.2",
+    "EG-FINANCE-PRIMITIVES-R005.2.3",
+    "EG-FINANCE-PRIMITIVES-R005.2.4",
     "EG-FINANCE-PRIMITIVES-R006",
     "EG-FINANCE-PRIMITIVES-R007",
     "EG-FINANCE-PRIMITIVES-R007.1",
@@ -30,6 +45,10 @@
     "EG-FINANCE-PRIMITIVES-R010.1",
     "EG-FINANCE-PRIMITIVES-R011",
     "EG-FINANCE-PRIMITIVES-R011.1",
+    "EG-FINANCE-PRIMITIVES-R011.2",
+    "EG-FINANCE-PRIMITIVES-R011.2.1",
+    "EG-FINANCE-PRIMITIVES-R011.2.2",
+    "EG-FINANCE-PRIMITIVES-R011.3",
     "EG-FINANCE-PRIMITIVES-R012",
     "EG-FINANCE-PRIMITIVES-R012.1",
     "EG-FINANCE-PRIMITIVES-R012.2",
@@ -90,7 +109,7 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R004",
       "title": "finance-v1 asset, account, and strategy record types",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "0ae2193fae8d"
       ],
@@ -149,14 +168,16 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R004.3",
       "title": "finance-v1 record-type server wiring and contract regeneration",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "fcca865a0505",
         "fd0aa73cb7b5"
       ],
       "verified_by": [],
       "rollup_of": [
-        "EG-FINANCE-PRIMITIVES-R004.3.1"
+        "EG-FINANCE-PRIMITIVES-R004.3.1",
+        "EG-FINANCE-PRIMITIVES-R004.3.2",
+        "EG-FINANCE-PRIMITIVES-R004.3.3"
       ]
     },
     {
@@ -174,9 +195,107 @@
       ]
     },
     {
+      "id": "EG-FINANCE-PRIMITIVES-R004.3.2",
+      "title": "Served record registration and round trips",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-FINANCE-PRIMITIVES-R004.3.2.1",
+        "EG-FINANCE-PRIMITIVES-R004.3.2.2",
+        "EG-FINANCE-PRIMITIVES-R004.3.2.3",
+        "EG-FINANCE-PRIMITIVES-R004.3.2.4",
+        "EG-FINANCE-PRIMITIVES-R004.3.2.5",
+        "EG-FINANCE-PRIMITIVES-R004.3.2.6",
+        "EG-FINANCE-PRIMITIVES-R004.3.2.7",
+        "EG-FINANCE-PRIMITIVES-R004.3.2.8"
+      ]
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R004.3.2.1",
+      "title": "Account served entry point",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R004.3.2.2",
+      "title": "Activity served entry point",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R004.3.2.3",
+      "title": "Lot served entry point",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R004.3.2.4",
+      "title": "Position served entry point",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R004.3.2.5",
+      "title": "PortfolioGroup served entry point",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R004.3.2.6",
+      "title": "StrategySpec served entry point",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R004.3.2.7",
+      "title": "StrategyRun served entry point",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R004.3.2.8",
+      "title": "LeverageTerms served entry point",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R004.3.3",
+      "title": "Record contract and generated-client acceptance",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-FINANCE-PRIMITIVES-R004.3.3.1",
+        "EG-FINANCE-PRIMITIVES-R004.3.3.2"
+      ]
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R004.3.3.1",
+      "title": "Finance record contract regeneration",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R004.3.3.2",
+      "title": "Finance generated-client round trips",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
       "id": "EG-FINANCE-PRIMITIVES-R005",
       "title": "Deterministic fixed-point portfolio accounting",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
@@ -216,11 +335,14 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R005.2",
       "title": "Specific-lot/average-cost elections and transfer/split invariants",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-FINANCE-PRIMITIVES-R005.2.1"
+        "EG-FINANCE-PRIMITIVES-R005.2.1",
+        "EG-FINANCE-PRIMITIVES-R005.2.2",
+        "EG-FINANCE-PRIMITIVES-R005.2.3",
+        "EG-FINANCE-PRIMITIVES-R005.2.4"
       ]
     },
     {
@@ -235,6 +357,27 @@
         "crates/eg-compute/src/finance/lot_accounting.rs:385",
         "crates/eg-compute/src/finance/lot_accounting.rs:406"
       ]
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R005.2.2",
+      "title": "Average-cost election",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R005.2.3",
+      "title": "Transfer conservation",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R005.2.4",
+      "title": "Split basis preservation",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R006",
@@ -357,13 +500,15 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R011",
       "title": "Finance alerts published through the finance outbox",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "3eeb3126f421"
       ],
       "verified_by": [],
       "rollup_of": [
-        "EG-FINANCE-PRIMITIVES-R011.1"
+        "EG-FINANCE-PRIMITIVES-R011.1",
+        "EG-FINANCE-PRIMITIVES-R011.2",
+        "EG-FINANCE-PRIMITIVES-R011.3"
       ]
     },
     {
@@ -376,6 +521,38 @@
       "verified_by": [
         "crates/eg-types/src/finance_event_envelope.rs:102"
       ]
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R011.2",
+      "title": "Finance transactional append",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-FINANCE-PRIMITIVES-R011.2.1",
+        "EG-FINANCE-PRIMITIVES-R011.2.2"
+      ]
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R011.2.1",
+      "title": "Finance envelope to outbox intent",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R011.2.2",
+      "title": "Finance event atomic commit",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R011.3",
+      "title": "Finance delivery replay",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R012",
