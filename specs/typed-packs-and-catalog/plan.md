@@ -2,7 +2,7 @@
 
 ## Design decisions
 
-The implementation extends EG's current typed pack, component, schema, outbox and capability registry. It does not add a separate pack database, a dynamic response envelope, a second contract generator or a graph projection side channel. The public wire is generated from `eg-capabilities`; canonical receipt content must be compared byte for byte. Changes to a shared wire shape land as one coordinated revision across Rust, generated Python/Go/JS and the SDK TCK.
+The implementation extends EG's current typed pack, component, schema, outbox and capability registry. It adds no separate pack database or dynamic response envelope. It adds no second contract generator or graph projection side channel. The public wire is generated from `eg-capabilities`; canonical receipt content must be compared byte for byte. Changes to a shared wire shape land as one coordinated revision across Rust, generated Python/Go/JS and the SDK TCK.
 
 The order below minimizes incompatible intermediate states. A step may be a verification or repair of existing code. The existence of a module is not proof that the step is accepted. Each step maps to `tasks.md` and `test-spec.md`.
 
@@ -131,8 +131,8 @@ validation. Validation refusals, including `RETIRED_ENTRY_RETURNED`, are typed
 `PackImportResult::Rejected` violations. Compare catalog state after retirement
 with state after the refused reimport, so the retirement itself is not mistaken
 for a rejected-import mutation. Reconciliation preserves every historical
-revision holder; revised and withdrawn bodies remain readable by pinned revision
-(PACK-05), and only genuinely unheld bodies are orphans. The served regression
+revision holder. Revised and withdrawn bodies remain readable by pinned revision
+(PACK-05). Only unheld bodies are orphans. The served regression
 asserts historical and current body bytes after the sweep.
 
 ### 2026-10-11: capability annotation acceptance
