@@ -107,7 +107,7 @@ Each command uses `test --locked --lib --no-default-features`.
 Source inspection confirmed the module paths, package names, and feature gates.
 The source-binding test checks existing runtime test names in each selected module.
 The discovery-refusal test uses fixtures; it is not a compiled runtime inventory.
-Validation command: `rustc --edition 2021 --test crates/eg-types/src/pre_merge_test_module.rs -o /tmp/required-manifest-tests && /tmp/required-manifest-tests`.
+Portable reproduction from the checkout root: `mkdir -p target && rustc --edition 2021 --test crates/eg-types/src/pre_merge_test_module.rs -o target/required-manifest-tests && target/required-manifest-tests`.
 Result: eight tests passed, zero failed, zero ignored.
 No raft, backup, persistence, or clippy runtime gate ran for this slice.
 R011.3 must obtain test names from compiled library targets and run every selected test.

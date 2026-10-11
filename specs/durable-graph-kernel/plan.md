@@ -174,3 +174,9 @@ workers and the command process group on success, failure, SIGINT, or SIGTERM.
 The supervisor logs worker count, process IDs, duration bound, and measured elapsed time.
 Unconfigured callers keep the existing unloaded command. R014.3 through R014.5
 remain open: process-fixture tests do not prove loaded Rust cluster acceptance.
+
+### 2026-10-11: make manifest reproduction portable
+
+R011.2 reproduction writes its disposable binary beneath the checkout's target directory.
+The public-spec gate and its regression test must reject machine-specific paths.
+This documentation repair adds no Rust execution evidence or runtime acceptance.

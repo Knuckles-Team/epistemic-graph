@@ -449,10 +449,12 @@
       "title": "Every tracked test file has a recognized component-registry owner",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "85ce2ac73a96",
         "a3e3d9924822"
       ],
       "verified_by": [
-        "tests/test_check_registry_test_ownership_completeness.py:23"
+        "tests/test_check_registry_test_ownership_completeness.py:24",
+        "tests/test_check_registry_test_ownership_completeness.py:31"
       ]
     },
     {

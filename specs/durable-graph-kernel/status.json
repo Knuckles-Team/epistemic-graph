@@ -308,12 +308,14 @@
       "title": "Concrete required-module manifest",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "85ce2ac73a96",
         "a430c82b18b2"
       ],
       "verified_by": [
         "crates/eg-types/src/pre_merge_test_module.rs:232",
         "crates/eg-types/src/pre_merge_test_module.rs:279",
-        "crates/eg-types/src/pre_merge_test_module.rs:295"
+        "crates/eg-types/src/pre_merge_test_module.rs:295",
+        "scripts/tests/test_public_spec_inventory.py:102"
       ]
     },
     {
@@ -396,9 +398,11 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "1cf93eec4282",
+        "85ce2ac73a96",
         "86913890006d"
       ],
       "verified_by": [
+        "tests/test_check_registry_test_ownership_completeness.py:31",
         "tests/test_validate_raft_cluster.py:15"
       ]
     },
