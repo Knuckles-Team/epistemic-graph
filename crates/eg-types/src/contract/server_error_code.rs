@@ -74,6 +74,7 @@ closed_error_codes! {
         FleetRevisionConflict => "FLEET_REVISION_CONFLICT",
         FleetSnapshotTooLarge => "FLEET_SNAPSHOT_TOO_LARGE",
         ForeignSourcePolicyUnbootstrapped => "FOREIGN_SOURCE_POLICY_UNBOOTSTRAPPED",
+        GovernedActorUnstamped => "GOVERNED_ACTOR_UNSTAMPED",
         GraphNotFound => "GRAPH_NOT_FOUND",
         IdentityAlreadyInitialized => "IDENTITY_ALREADY_INITIALIZED",
         IdentityBadCredential => "IDENTITY_BAD_CREDENTIAL",

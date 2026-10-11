@@ -103,3 +103,15 @@ without changing any self-hosted security policy. Preserve the exact package
 installation, test commands, dependency graph, event scope and timeout.
 The workflow regression pins hosted placement and unconditional provisioning;
 native end-to-end acceptance still requires the hosted job to finish.
+
+### 2026-10-11: restore complete capability contracts
+
+EG-CONTRACT-R014 publishes the existing governed-actor refusal and routes it only
+to GovernedChange, preserving the fail-closed replicated actor boundary.
+EG-IDENTITY-R004 registers the already-declared federation:read action as an
+engine user scope; this changes no grants, owner checks, or the handler's kg:read
+requirement. EG-DECISION-ENGINE-R063 extends the existing Python generator with
+operation-selected typed decision-fit and decision-eval decoding, including
+nullable status/receipt results and strict rejection of wrong operation shapes.
+Regenerate all contract artifacts with the native generator and retain the
+existing refusal, scope-census, wrapper and byte-for-byte freshness guards.

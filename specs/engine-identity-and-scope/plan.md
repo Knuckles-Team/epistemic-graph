@@ -44,3 +44,11 @@ The transition response contains old/new mode, epoch and revocation receipt. Ses
 ### Scope registry
 
 Capability descriptors declare exact scope and class. The generator validates uniqueness and coverage, emits the registry with methods/errors and publishes its digest in the wheel. Server authorization resolves only exact declared scopes. Delegation cannot convert service-only into a human grant; approval cannot be inferred from wildcard or broad graph admin. Finance, fleet and other domain scopes enter through their owning capabilities, and stale undeclared names are rejected during generation. A consumer may generate a local allowlist from this catalog but cannot claim a broader class.
+
+### 2026-10-11: classify the declared foreign-read scope
+
+EG-IDENTITY-R004 previously omitted federation:read even though QueryForeignColumns
+already declares that action. Register it as an engine user scope, preserving
+federation:admin as admin and rejecting wildcard classification. This grants no
+scope to a principal and leaves verified owner isolation and kg:read unchanged.
+The native authorized-action census exposed the omission.

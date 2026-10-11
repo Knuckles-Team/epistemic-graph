@@ -27,7 +27,7 @@ mod package;
 mod runtime;
 mod surfaces;
 
-use adapters::{TypedOperationAdapter, TYPED_OPERATION_ADAPTERS};
+use adapters::{TypedOperationAdapter, OPERATION_DECODERS, TYPED_OPERATION_ADAPTERS};
 use digest::digest_module;
 #[cfg(test)]
 use dto::CANONICAL_DIGEST_SPECS;
@@ -672,7 +672,15 @@ fn push_typed_decode(out: &mut String, id: &str, declared: Option<&Declared>, sp
     if dto_result_model(id).is_some() || modelled_scalar(declared).is_some() {
         return;
     }
-    if let Some(model) = space.result_model(id) {
+    if OPERATION_DECODERS.contains(&id) {
+        models::push_operation_decode(
+            out,
+            id,
+            &snake_case(id),
+            declared.expect("declared operations"),
+            space,
+        );
+    } else if let Some(model) = space.result_model(id) {
         push_decode(out, id, &snake_case(id), model);
     }
 }

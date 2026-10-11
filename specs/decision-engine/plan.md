@@ -227,3 +227,14 @@ R093.2 now records that remainder with three planned children.
 The original parent acceptance remains unchanged.
 `export_gold_corpus` currently calls `generate_gold_set` and exports `SOURCE_IN_PROCESS` labels.
 This correction claims no served implementation or runtime test result.
+
+### 2026-10-11: decode job results by request operation
+
+EG-DECISION-ENGINE-R063 previously generated senders but no method-level typed
+decoder for DecisionFit and DecisionEval after results became operation-specific.
+Generate each operation's result model from its existing Rust marker and require
+an explicit operation when decoding. Unknown operations, wrong method identity,
+unexpected fields and another operation's result shape must fail closed. Nullable
+status and receipt results remain valid only for their corresponding operations.
+The native wrapper regression and generated Python runtime tests cover this fix;
+the separate served-instance and documentation acceptance work remains open.

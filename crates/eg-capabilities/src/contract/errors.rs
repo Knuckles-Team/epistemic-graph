@@ -74,6 +74,7 @@ const CODE_CLASSES: &[(&str, &str)] = &[
     ("BUSY", "capacity"),
     ("INTERNAL", "internal"),
     ("ELEVATION_ACTOR_UNSTAMPED", "internal"),
+    ("GOVERNED_ACTOR_UNSTAMPED", "internal"),
     ("SCHEMA_INCONSISTENT", "schema"),
 ];
 
@@ -142,6 +143,7 @@ const HTTP_HINTS: &[(&str, u16)] = &[
     ("CAPACITY_UNAVAILABLE", 503),
     ("DECISIONS", 503),
     ("ELEVATION_ACTOR_UNSTAMPED", 500),
+    ("GOVERNED_ACTOR_UNSTAMPED", 500),
     ("SCHEMA_INCONSISTENT", 409),
     ("GRAPH_NOT_FOUND", 404),
     ("TELEMETRY_WINDOW_TOO_LARGE", 413),

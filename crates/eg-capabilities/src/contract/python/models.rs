@@ -19,7 +19,8 @@ use std::fmt::Write as _;
 
 use serde_json::{Map, Value};
 
-use super::super::results::{Catalog, Declared};
+use super::super::results::{Body, Catalog, Declared};
+use super::adapters::OPERATION_DECODERS;
 use super::dto::ref_name;
 use super::dto_surfaces::DTO_SURFACES;
 use super::{definition_origin, error_code_definitions};
@@ -113,6 +114,10 @@ fn merged_definitions(document: &Value, catalog: &Catalog) -> Map<String, Value>
 fn result_models(hoister: &mut hoist::Hoister, catalog: &Catalog) -> BTreeMap<String, ResultModel> {
     let mut out = BTreeMap::new();
     for (id, declared) in &catalog.methods {
+        if OPERATION_DECODERS.contains(id) {
+            register_operation_models(hoister, &mut out, id, declared);
+            continue;
+        }
         let Some((schema, nullable)) = modelled_body(declared) else {
             continue;
         };
@@ -130,9 +135,57 @@ fn result_models(hoister: &mut hoist::Hoister, catalog: &Catalog) -> BTreeMap<St
     out
 }
 
+/// Register each declared operation separately plus the typed return union.
+fn register_operation_models(
+    hoister: &mut hoist::Hoister,
+    out: &mut BTreeMap<String, ResultModel>,
+    id: &str,
+    declared: &Declared,
+) {
+    assert!(declared.by_op, "{id} needs per-operation result markers");
+    let mut variants = Vec::new();
+    for (op, body) in &declared.bodies {
+        let (schema, nullable) =
+            modelled_result_body(body).expect("typed operation decoder requires a modelled result");
+        let schema = if nullable {
+            serde_json::json!({"anyOf": [schema, {"type": "null"}]})
+        } else {
+            schema.clone()
+        };
+        let name = format!("{id}{}Result", super::names::pascal(op));
+        let reference = hoister.register(&name, schema);
+        let name = ref_name(&reference)
+            .expect("registered operation result")
+            .to_string();
+        variants.push(reference);
+        out.insert(
+            format!("{id}.{op}"),
+            ResultModel {
+                name,
+                nullable: false,
+            },
+        );
+    }
+    let name = format!("{id}Result");
+    let reference = hoister.register(&name, serde_json::json!({"anyOf": variants}));
+    let name = ref_name(&reference)
+        .expect("registered result union")
+        .to_string();
+    out.insert(
+        id.to_string(),
+        ResultModel {
+            name,
+            nullable: false,
+        },
+    );
+}
+
 /// The schema of a single, non-dynamic body in a modelled encoding.
 fn modelled_body(declared: &Declared) -> Option<(&Value, bool)> {
-    let body = declared.single()?;
+    modelled_result_body(declared.single()?)
+}
+
+fn modelled_result_body(body: &Body) -> Option<(&Value, bool)> {
     if body.dynamic.is_some() {
         return None;
     }
@@ -241,6 +294,43 @@ pub(super) fn push_decode(out: &mut String, id: &str, name: &str, model: (&str, 
         "    ",
         "return decode_result",
         &[&id, &runtime, "result"],
+    );
+}
+
+/// Decode exactly the request operation's result, never another operation's shape.
+pub(super) fn push_operation_decode(
+    out: &mut String,
+    id: &str,
+    name: &str,
+    declared: &Declared,
+    space: &ModelSpace,
+) {
+    let (result, _) = space.result_model(id).expect("operation result union");
+    out.push_str("\n\n");
+    push_def_head(
+        out,
+        &format!("decode_{name}"),
+        &["result: OpaqueResult", "*", "operation: str"],
+        &format!("{MODELS_ALIAS}.{result}"),
+    );
+    out.push_str(
+        "    \"\"\"Validate the result against the request operation's exact contract.\"\"\"\n",
+    );
+    out.push_str("    annotations = {\n");
+    for op in declared.bodies.keys() {
+        let (model, _) = space
+            .result_model(&format!("{id}.{op}"))
+            .expect("operation model");
+        let _ = writeln!(out, "        {op:?}: models().{model},");
+    }
+    out.push_str("    }\n    if operation not in annotations:\n");
+    let _ = writeln!(
+        out,
+        "        raise ValueError(f\"unknown {id} operation: {{operation}}\")"
+    );
+    let _ = writeln!(
+        out,
+        "    return decode_result({id:?}, annotations[operation], result)"
     );
 }
 

@@ -19,6 +19,10 @@ pub(super) struct TypedOperationAdapter {
     pub(super) result_is_union: bool,
 }
 
+/// Families with a method-level decoder selected by the caller's request op.
+/// Bodies and operation names come from the Rust result markers, never this list.
+pub(super) const OPERATION_DECODERS: &[&str] = &["DecisionFit", "DecisionEval"];
+
 pub(super) const TYPED_OPERATION_ADAPTERS: &[TypedOperationAdapter] = &[
     TypedOperationAdapter {
         method: "AgentComponent",
