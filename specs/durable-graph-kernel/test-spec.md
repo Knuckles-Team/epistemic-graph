@@ -78,7 +78,7 @@ The producer children retain their current evidence. Neither producer proves run
 | EG-DURABLE-KERNEL-R011.2 | `crates/eg-types/src/pre_merge_test_module.rs`: `required_manifest_covers_runtime_categories`, `required_manifest_rejects_empty_selection`, and `required_manifest_anchors_exist_in_source`. | Eight source-module tests passed with Rust 1.96.0. Runtime acceptance remains open under R011.3 and R011.4. |
 | EG-DURABLE-KERNEL-R011.3 | Planned tests in `tests/test_required_runtime_gate.py`: `test_pull_request_executes_required_categories` and `test_failed_or_empty_category_blocks_acceptance`. | Pending runtime acceptance. |
 | EG-DURABLE-KERNEL-R011.4 | CI receipts must name `published-full`, `workspace-all-features`, and every selected runtime test. R011.2 and R011.3 test names define the gate checks. | Pending runtime acceptance. |
-| EG-DURABLE-KERNEL-R014.2 | Planned tests in `tests/test_validate_raft_cluster.py`: `test_cpu_load_runs_during_cluster_test`, `test_zero_load_workers_refused`, and `test_load_workers_stop_on_failure`. | Pending runtime acceptance. |
+| EG-DURABLE-KERNEL-R014.2 | Process tests in `tests/test_validate_raft_cluster.py`: `test_cpu_load_runs_during_cluster_test`, `test_zero_load_workers_refused`, and `test_load_workers_stop_on_failure`. | Process lifecycle tested; loaded Rust acceptance remains in R014.4 and R014.5. |
 | EG-DURABLE-KERNEL-R014.3 | Planned tests in `tests/test_validate_raft_cluster.py`: `test_repeats_both_cluster_tests`, `test_retry_budget_is_bounded`, and `test_retry_preserves_failure_and_trace`. | Pending runtime acceptance. |
 | EG-DURABLE-KERNEL-R014.4 | `src/raft/tests.rs::multi_node_group_join_then_leader_rebalance` must pass every recorded loaded repetition without flaky failures. The record must include at least two repetitions. | Pending runtime acceptance. |
 | EG-DURABLE-KERNEL-R014.5 | `src/raft/tests.rs::placement_admin_wire_rpc::placement_admin_wire_rpcs_move_data_across_a_real_three_node_cluster` must pass every recorded loaded repetition without flaky failures. The record must include at least two repetitions. | Pending runtime acceptance. |
@@ -112,3 +112,14 @@ Result: eight tests passed, zero failed, zero ignored.
 No raft, backup, persistence, or clippy runtime gate ran for this slice.
 R011.3 must obtain test names from compiled library targets and run every selected test.
 R011.4 must record the exact-head runtime and clippy receipts.
+
+### R014.2 process evidence (2026-10-11)
+
+Run `python -m pytest -q tests/test_validate_raft_cluster.py`.
+Twenty-one tests exercise the real shell entry point and CPU worker processes.
+A controlled Cargo fixture checks that compilation precedes load and workers remain alive.
+Linux fixtures also check increasing worker CPU time during the command.
+Cases cover count and duration refusals, command failure, SIGINT, and SIGTERM.
+The suite also covers timeout, unexpected worker exit, build failure, Cargo child cleanup, and unchanged unloaded runs.
+This is process-harness evidence, not a passing Rust cluster run.
+R014, R014.3, R014.4, and R014.5 remain open.

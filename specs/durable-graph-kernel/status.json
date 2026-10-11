@@ -393,9 +393,14 @@
     {
       "id": "EG-DURABLE-KERNEL-R014.2",
       "title": "Bounded representative CPU load",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "1cf93eec4282",
+        "86913890006d"
+      ],
+      "verified_by": [
+        "tests/test_validate_raft_cluster.py:15"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R014.3",
