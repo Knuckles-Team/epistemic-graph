@@ -20,6 +20,7 @@ pub mod keyed;
 pub mod log;
 pub mod nl;
 pub mod outcome;
+pub mod placement;
 pub mod retrieval;
 pub mod retrieval_adapter;
 pub mod retrieval_generation;

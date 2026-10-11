@@ -84,9 +84,15 @@
     {
       "id": "EG-PLACEMENT-R001.3",
       "title": "Target registry",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "92a78d0a890b"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/decision/statistical/placement.rs:45",
+        "crates/eg-types/src/decision/statistical/placement.rs:61",
+        "crates/eg-types/src/decision/statistical/placement.rs:77"
+      ]
     },
     {
       "id": "EG-PLACEMENT-R001.4",
