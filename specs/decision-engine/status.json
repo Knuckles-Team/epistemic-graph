@@ -117,8 +117,13 @@
     "EG-DECISION-ENGINE-R078.2",
     "EG-DECISION-ENGINE-R079",
     "EG-DECISION-ENGINE-R079.1",
+    "EG-DECISION-ENGINE-R079.2",
+    "EG-DECISION-ENGINE-R079.3",
+    "EG-DECISION-ENGINE-R079.4",
+    "EG-DECISION-ENGINE-R079.5",
     "EG-DECISION-ENGINE-R080",
     "EG-DECISION-ENGINE-R080.1",
+    "EG-DECISION-ENGINE-R080.2",
     "EG-DECISION-ENGINE-R081",
     "EG-DECISION-ENGINE-R082",
     "EG-DECISION-ENGINE-R083",
@@ -157,6 +162,7 @@
     "EG-DECISION-ENGINE-R101",
     "EG-DECISION-ENGINE-R102",
     "EG-DECISION-ENGINE-R102.1",
+    "EG-DECISION-ENGINE-R102.2",
     "EG-DECISION-ENGINE-R103",
     "EG-DECISION-ENGINE-R104",
     "EG-DECISION-ENGINE-R105",
@@ -1623,14 +1629,18 @@
     {
       "id": "EG-DECISION-ENGINE-R079",
       "title": "Per-unit embedding admission classifier for ingestion",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "1e9ea1ef3790",
         "dd6d5b55fb20"
       ],
       "verified_by": [],
       "rollup_of": [
-        "EG-DECISION-ENGINE-R079.1"
+        "EG-DECISION-ENGINE-R079.1",
+        "EG-DECISION-ENGINE-R079.2",
+        "EG-DECISION-ENGINE-R079.3",
+        "EG-DECISION-ENGINE-R079.4",
+        "EG-DECISION-ENGINE-R079.5"
       ]
     },
     {
@@ -1646,16 +1656,45 @@
       ]
     },
     {
+      "id": "EG-DECISION-ENGINE-R079.2",
+      "title": "Embedding admission at the ingestion boundary",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R079.3",
+      "title": "Duplicate and size admission",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R079.4",
+      "title": "SQL column admission",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R079.5",
+      "title": "Retrieval feedback admission",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
       "id": "EG-DECISION-ENGINE-R080",
       "title": "Ingestion cost ladder with provenance rungs",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "1e0050b97b3a",
         "1e9ea1ef3790"
       ],
       "verified_by": [],
       "rollup_of": [
-        "EG-DECISION-ENGINE-R080.1"
+        "EG-DECISION-ENGINE-R080.1",
+        "EG-DECISION-ENGINE-R080.2"
       ]
     },
     {
@@ -1670,6 +1709,13 @@
         "crates/eg-types/src/decision/ingestion_ladder.rs:72",
         "crates/eg-types/src/decision/ingestion_ladder.rs:90"
       ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R080.2",
+      "title": "Served enrichment ladder qualification",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "EG-DECISION-ENGINE-R081",
@@ -2102,14 +2148,15 @@
     {
       "id": "EG-DECISION-ENGINE-R102",
       "title": "Schema repair proposals pass a decided mapping and shadow-branch check",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "202b90167359",
         "534f763afc81"
       ],
       "verified_by": [],
       "rollup_of": [
-        "EG-DECISION-ENGINE-R102.1"
+        "EG-DECISION-ENGINE-R102.1",
+        "EG-DECISION-ENGINE-R102.2"
       ]
     },
     {
@@ -2125,6 +2172,13 @@
         "crates/eg-types/src/graph_schema/shadow_branch.rs:88",
         "crates/eg-types/src/graph_schema/shadow_branch.rs:95"
       ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R102.2",
+      "title": "Served shadow repair qualification",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "EG-DECISION-ENGINE-R103",
