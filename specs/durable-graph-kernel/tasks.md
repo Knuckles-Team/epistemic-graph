@@ -74,3 +74,15 @@ Status key: `[ ]` queued, `[-]` in progress, `[x]` verified at cited main revisi
 - [ ] **EG-DURABLE-KERNEL-R079:** Served as-of filtering
 - [ ] **EG-DURABLE-KERNEL-R080:** Served supersession
 - [ ] **EG-DURABLE-KERNEL-R081:** Generated client methods for bitemporal operations
+- [ ] **EG-DURABLE-KERNEL-R082:** Analytics worker parity: association-rule mining jobs run on the engine's own durable job plane
+- [ ] **EG-DURABLE-KERNEL-R082.1:** A submitted `MineAssociate` job is claimed and published by the colocated executor with no external worker
+- [ ] **EG-DURABLE-KERNEL-R082.2:** `MineAssociate` submission refuses a payload outside the governed schema
+- [ ] **EG-DURABLE-KERNEL-R082.3:** Distinct-item cap and opaque-reference rule are decided and enforced at submit
+- [ ] **EG-DURABLE-KERNEL-R082.4:** Association-rule identity is byte-identical to the old worker's
+- [ ] **EG-DURABLE-KERNEL-R082.5:** The staged result has the 11-column knowledge-batch shape
+- [ ] **EG-DURABLE-KERNEL-R082.6:** Rules are ordered and thresholded exactly as before
+- [ ] **EG-DURABLE-KERNEL-R082.7:** A running mining job observes cancellation, deadline and CPU budget
+- [ ] **EG-DURABLE-KERNEL-R082.8:** Failure codes and retry follow the durable retry policy
+- [ ] **EG-DURABLE-KERNEL-R082.9:** Colocated pool lease and poll interval are configurable
+- [ ] **EG-DURABLE-KERNEL-R082.10:** Remote workers remain supported through the existing coordinator operations
+- [ ] **EG-DURABLE-KERNEL-R082.11:** Cross-repo: graph-os hosts any remote worker process; agent-utilities does not

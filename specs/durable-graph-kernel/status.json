@@ -115,7 +115,19 @@
     "EG-DURABLE-KERNEL-R078",
     "EG-DURABLE-KERNEL-R079",
     "EG-DURABLE-KERNEL-R080",
-    "EG-DURABLE-KERNEL-R081"
+    "EG-DURABLE-KERNEL-R081",
+    "EG-DURABLE-KERNEL-R082",
+    "EG-DURABLE-KERNEL-R082.1",
+    "EG-DURABLE-KERNEL-R082.2",
+    "EG-DURABLE-KERNEL-R082.3",
+    "EG-DURABLE-KERNEL-R082.4",
+    "EG-DURABLE-KERNEL-R082.5",
+    "EG-DURABLE-KERNEL-R082.6",
+    "EG-DURABLE-KERNEL-R082.7",
+    "EG-DURABLE-KERNEL-R082.8",
+    "EG-DURABLE-KERNEL-R082.9",
+    "EG-DURABLE-KERNEL-R082.10",
+    "EG-DURABLE-KERNEL-R082.11"
   ],
   "requirements": [
     {
@@ -1505,6 +1517,103 @@
     {
       "id": "EG-DURABLE-KERNEL-R081",
       "title": "Generated client methods for bitemporal operations",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R082",
+      "title": "Analytics worker parity: association-rule mining jobs run on the engine's own durable job plane",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DURABLE-KERNEL-R082.1",
+        "EG-DURABLE-KERNEL-R082.2",
+        "EG-DURABLE-KERNEL-R082.3",
+        "EG-DURABLE-KERNEL-R082.4",
+        "EG-DURABLE-KERNEL-R082.5",
+        "EG-DURABLE-KERNEL-R082.6",
+        "EG-DURABLE-KERNEL-R082.7",
+        "EG-DURABLE-KERNEL-R082.8",
+        "EG-DURABLE-KERNEL-R082.9",
+        "EG-DURABLE-KERNEL-R082.10",
+        "EG-DURABLE-KERNEL-R082.11"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R082.1",
+      "title": "A submitted `MineAssociate` job is claimed and published by the colocated executor with no external worker",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R082.2",
+      "title": "`MineAssociate` submission refuses a payload outside the governed schema",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R082.3",
+      "title": "Distinct-item cap and opaque-reference rule are decided and enforced at submit",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R082.4",
+      "title": "Association-rule identity is byte-identical to the old worker's",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R082.5",
+      "title": "The staged result has the 11-column knowledge-batch shape",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R082.6",
+      "title": "Rules are ordered and thresholded exactly as before",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R082.7",
+      "title": "A running mining job observes cancellation, deadline and CPU budget",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R082.8",
+      "title": "Failure codes and retry follow the durable retry policy",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R082.9",
+      "title": "Colocated pool lease and poll interval are configurable",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R082.10",
+      "title": "Remote workers remain supported through the existing coordinator operations",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R082.11",
+      "title": "Cross-repo: graph-os hosts any remote worker process; agent-utilities does not",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
