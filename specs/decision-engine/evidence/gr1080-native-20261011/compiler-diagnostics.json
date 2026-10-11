@@ -1,0 +1,219 @@
+[
+  {
+    "code": "E0432",
+    "message": "unresolved import `core::knowledge_stream_result`",
+    "file": "src/server/handlers/jobs.rs",
+    "line": 100,
+    "column": 16
+  },
+  {
+    "code": "E0433",
+    "message": "cannot find module or crate `eg_program` in this scope",
+    "file": "src/server/handlers/jobs/program_validation.rs",
+    "line": 462,
+    "column": 22
+  },
+  {
+    "code": "E0433",
+    "message": "cannot find module or crate `eg_program` in this scope",
+    "file": "src/server/handlers/jobs/program_validation.rs",
+    "line": 464,
+    "column": 14
+  },
+  {
+    "code": "E0433",
+    "message": "cannot find module or crate `eg_program` in this scope",
+    "file": "src/server/handlers/jobs/program_validation.rs",
+    "line": 466,
+    "column": 22
+  },
+  {
+    "code": "E0433",
+    "message": "cannot find module or crate `eg_program` in this scope",
+    "file": "src/server/handlers/jobs/program_validation.rs",
+    "line": 473,
+    "column": 27
+  },
+  {
+    "code": "E0433",
+    "message": "cannot find module or crate `eg_program` in this scope",
+    "file": "src/server/handlers/jobs/program_validation.rs",
+    "line": 475,
+    "column": 14
+  },
+  {
+    "code": "E0433",
+    "message": "cannot find module or crate `eg_program` in this scope",
+    "file": "src/server/handlers/jobs/program_validation.rs",
+    "line": 477,
+    "column": 26
+  },
+  {
+    "code": "E0433",
+    "message": "cannot find module or crate `eg_program` in this scope",
+    "file": "src/server/handlers/jobs/program_validation.rs",
+    "line": 479,
+    "column": 14
+  },
+  {
+    "code": "E0433",
+    "message": "cannot find `kv` in `server`",
+    "file": "src/server/persistence/backup.rs",
+    "line": 1153,
+    "column": 33
+  },
+  {
+    "code": "E0433",
+    "message": "cannot find `kv` in `server`",
+    "file": "src/server/persistence/backup.rs",
+    "line": 1225,
+    "column": 42
+  },
+  {
+    "code": "E0425",
+    "message": "cannot find type `MiningTsdbBind` in module `super::super::mining`",
+    "file": "src/server/handlers/graph_ops/gateway_mining.rs",
+    "line": 18,
+    "column": 38
+  },
+  {
+    "code": "E0425",
+    "message": "cannot find type `MiningTsdbBind` in module `super::super::mining`",
+    "file": "src/server/handlers/graph_ops/gateway_mining.rs",
+    "line": 71,
+    "column": 38
+  },
+  {
+    "code": "E0425",
+    "message": "cannot find type `MiningTsdbBind` in module `super::super::mining`",
+    "file": "src/server/handlers/graph_ops/gateway_mining.rs",
+    "line": 130,
+    "column": 38
+  },
+  {
+    "code": "E0425",
+    "message": "cannot find type `MiningTsdbBind` in module `super::super::mining`",
+    "file": "src/server/handlers/graph_ops/gateway_mining.rs",
+    "line": 171,
+    "column": 38
+  },
+  {
+    "code": "E0425",
+    "message": "cannot find type `MiningTsdbBind` in module `super::super::mining`",
+    "file": "src/server/handlers/graph_ops/gateway_mining.rs",
+    "line": 294,
+    "column": 31
+  },
+  {
+    "code": "E0425",
+    "message": "cannot find value `tsdb_bind` in this scope",
+    "file": "src/server/handlers/graph_ops/gateway_mining.rs",
+    "line": 307,
+    "column": 47
+  },
+  {
+    "code": "E0425",
+    "message": "cannot find value `governed_ref` in this scope",
+    "file": "src/server/handlers/jobs/program_validation.rs",
+    "line": 26,
+    "column": 61
+  },
+  {
+    "code": "E0425",
+    "message": "cannot find value `governed_ref` in this scope",
+    "file": "src/server/handlers/jobs/program_validation.rs",
+    "line": 36,
+    "column": 76
+  },
+  {
+    "code": "E0425",
+    "message": "cannot find value `governed_ref` in this scope",
+    "file": "src/server/handlers/jobs/program_validation.rs",
+    "line": 216,
+    "column": 26
+  },
+  {
+    "code": "E0425",
+    "message": "cannot find value `governed_ref` in this scope",
+    "file": "src/server/handlers/jobs/program_validation.rs",
+    "line": 292,
+    "column": 22
+  },
+  {
+    "code": "E0425",
+    "message": "cannot find value `governed_ref` in this scope",
+    "file": "src/server/handlers/jobs/program_validation.rs",
+    "line": 296,
+    "column": 26
+  },
+  {
+    "code": "E0425",
+    "message": "cannot find type `PolicyEnvelope` in this scope",
+    "file": "src/server/handlers/jobs/program_validation.rs",
+    "line": 336,
+    "column": 17
+  },
+  {
+    "code": "E0425",
+    "message": "cannot find type `PolicyEnvelope` in this scope",
+    "file": "src/server/handlers/jobs/program_validation.rs",
+    "line": 372,
+    "column": 23
+  },
+  {
+    "code": "E0425",
+    "message": "cannot find type `PolicyEnvelope` in this scope",
+    "file": "src/server/handlers/jobs/program_validation.rs",
+    "line": 398,
+    "column": 55
+  },
+  {
+    "code": "E0425",
+    "message": "cannot find type `PolicyEnvelope` in this scope",
+    "file": "src/server/handlers/jobs/program_validation.rs",
+    "line": 421,
+    "column": 23
+  },
+  {
+    "code": "E0425",
+    "message": "cannot find function `governed_ref` in this scope",
+    "file": "src/server/handlers/jobs/program_validation.rs",
+    "line": 141,
+    "column": 21
+  },
+  {
+    "code": "E0433",
+    "message": "cannot find module or crate `eg_program` in this scope",
+    "file": "src/server/handlers/jobs/program_validation.rs",
+    "line": 406,
+    "column": 49
+  },
+  {
+    "code": "E0433",
+    "message": "cannot find type `ProgramModality` in this scope",
+    "file": "src/server/handlers/jobs/program_validation.rs",
+    "line": 458,
+    "column": 22
+  },
+  {
+    "code": "E0433",
+    "message": "cannot find type `ProgramModality` in this scope",
+    "file": "src/server/handlers/jobs/program_validation.rs",
+    "line": 460,
+    "column": 14
+  },
+  {
+    "code": "E0425",
+    "message": "cannot find function `governed_ref` in this scope",
+    "file": "src/server/handlers/jobs/program_validation.rs",
+    "line": 482,
+    "column": 53
+  },
+  {
+    "code": "E0425",
+    "message": "cannot find function `governed_ref` in this scope",
+    "file": "src/server/handlers/jobs/program_validation.rs",
+    "line": 486,
+    "column": 26
+  }
+]

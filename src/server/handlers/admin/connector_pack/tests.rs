@@ -169,8 +169,7 @@ pub(super) fn persistence_id(principal: &str) -> String {
 pub(super) fn ok<T: DeserializeOwned>(label: &str, response: Response) -> T {
     assert!(
         response.error.is_none(),
-        "{label} was refused: {:?}",
-        response.error
+        "{label} was refused: {response:?}"
     );
     let value = match response.result {
         Some(ResultPayload::Raw(bytes)) => {
