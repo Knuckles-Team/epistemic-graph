@@ -194,7 +194,7 @@ parser/reasoner acceptance lives in `crates/eg-rdf/tests/orchestration_vocabular
 Placing these tests in eg-core inverts the dependency layering. Tests cover the shipped foundation,
 orchestration and capability documents, including a positive step-order fixture,
 unrelated-superclass negatives and a planted disjointness contradiction.
-The remaining step properties, shapes, rule scope and consumer wiring remain open.
+Step properties, shapes, rule scope and consumer wiring remain open.
 Parsed-source corpus counts are refreshed. Parser-only checks do not establish native reasoner consistency.
 Compilation of `eg-types` terminated by SIGKILL before these tests executed.
 Full-corpus native validation also remains unrun.
