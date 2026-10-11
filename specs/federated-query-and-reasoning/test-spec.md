@@ -85,3 +85,30 @@ Column vectorization (R077): a bound text column answers a nearest-neighbour que
 | Schema evolution and time travel | R079.6 | One table takes a rename and a drop. Both snapshots load by time and their manifests read back. |
 | Unapproved drop | R079.4 | A drop without approval returns `SCHEMA_CHANGE_NOT_APPROVED` and keeps the schema version. |
 | Projection stays read-only | R080.6 | A graph write shows in the projection. A projected write returns `PROJECTION_READ_ONLY`. |
+
+### EG-FEDERATED-QUERY-R081 tests
+
+- `EG-FEDERATED-QUERY-R081.1`: `crates/eg-types/src/retrieval_verdict.rs::tests::verdict_round_trips_and_rejects_unknown`.
+- `EG-FEDERATED-QUERY-R081.2`: `crates/eg-plan/src/retrieval_verdict.rs::tests::repair_order_ends_at_round_limit`.
+- `EG-FEDERATED-QUERY-R081.3`: `crates/eg-plan/src/exec.rs::tests::execute_returns_verdict_for_rule_plan`.
+- `EG-FEDERATED-QUERY-R081.4`: `crates/eg-plan/src/retrieval_verdict.rs::tests::strict_insufficient_abstains`.
+- `EG-FEDERATED-QUERY-R081.5`: `crates/eg-plan/src/retrieval_verdict.rs::tests::verdict_premise_lists_all_fields`.
+- `EG-FEDERATED-QUERY-R081.6`: `tests/retrieval/test_sufficiency_served.py::test_insufficient_returns_boost_k`.
+
+### EG-FEDERATED-QUERY-R082 tests
+
+- `EG-FEDERATED-QUERY-R082.1`: `crates/eg-types/src/retrieval_stop.rs::tests::table_and_verdict_round_trip`.
+- `EG-FEDERATED-QUERY-R082.2`: `crates/eg-plan/src/retrieval_stop.rs::tests::repeat_and_margin_stops`.
+- `EG-FEDERATED-QUERY-R082.3`: `crates/eg-plan/src/exec.rs::tests::execute_returns_stop_verdict_with_history`.
+- `EG-FEDERATED-QUERY-R082.4`: `crates/eg-plan/src/retrieval_stop.rs::tests::uncalibrated_round_refuses`.
+- `EG-FEDERATED-QUERY-R082.5`: `crates/eg-plan/src/retrieval_stop.rs::tests::stop_premise_lists_margin_and_reason`.
+- `EG-FEDERATED-QUERY-R082.6`: `tests/retrieval/test_stop_rule_served.py::test_repeat_with_margin_stops`.
+
+### EG-FEDERATED-QUERY-R083 tests
+
+- `EG-FEDERATED-QUERY-R083.1`: `crates/eg-types/src/retrieval_arbitration.rs::tests::verdict_carries_both_candidates`.
+- `EG-FEDERATED-QUERY-R083.2`: `crates/eg-plan/src/retrieval_arbitration.rs::tests::margin_picks_or_abstains`.
+- `EG-FEDERATED-QUERY-R083.3`: `crates/eg-plan/src/exec.rs::tests::execute_returns_arbitration_for_prior_candidate`.
+- `EG-FEDERATED-QUERY-R083.4`: `crates/eg-plan/src/retrieval_arbitration.rs::tests::abstain_returns_both_candidates`.
+- `EG-FEDERATED-QUERY-R083.5`: `crates/eg-plan/src/retrieval_arbitration.rs::tests::arbitration_premise_lists_both_classes`.
+- `EG-FEDERATED-QUERY-R083.6`: `tests/retrieval/test_arbitration_served.py::test_small_gap_abstains_with_both`.
