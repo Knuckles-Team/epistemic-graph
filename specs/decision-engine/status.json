@@ -2299,11 +2299,11 @@
         "93183139d2e2"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/topology/capacity_commit.rs:113",
-        "crates/eg-types/src/decision/topology/capacity_commit.rs:128",
-        "crates/eg-types/src/decision/topology/capacity_commit.rs:140",
-        "crates/eg-types/src/decision/topology/capacity_commit.rs:152",
-        "crates/eg-types/src/decision/topology/capacity_commit.rs:177"
+        "crates/eg-types/src/decision/topology/capacity_commit.rs:110",
+        "crates/eg-types/src/decision/topology/capacity_commit.rs:125",
+        "crates/eg-types/src/decision/topology/capacity_commit.rs:137",
+        "crates/eg-types/src/decision/topology/capacity_commit.rs:149",
+        "crates/eg-types/src/decision/topology/capacity_commit.rs:174"
       ]
     },
     {
@@ -2362,9 +2362,14 @@
     {
       "id": "EG-DECISION-ENGINE-R113.3.1",
       "title": "Consume the typed allowance once",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "cb8662f24bef"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/decision/topology/retry_allowance.rs:35",
+        "crates/eg-types/src/decision/topology/retry_allowance.rs:49"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R113.3.2",
