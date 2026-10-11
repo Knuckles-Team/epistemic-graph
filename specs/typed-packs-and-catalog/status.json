@@ -128,6 +128,7 @@
       "title": "Engine-owned body storage with guarded refcounts and reconciliation",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "022736782512",
         "023b482a38d3",
         "dcc5d53c04f9",
         "f6bd64b35e00"
@@ -141,11 +142,12 @@
       "title": "Import boundary enforces archive integrity, importer binding and G1-G21",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "022736782512",
         "db863f1e2afd",
         "f6bd64b35e00"
       ],
       "verified_by": [
-        "src/server/handlers/admin/connector_pack/tests/admin.rs:382"
+        "src/server/handlers/admin/connector_pack/tests/admin.rs:393"
       ]
     },
     {
@@ -170,7 +172,7 @@
         "f6bd64b35e00"
       ],
       "verified_by": [
-        "src/server/handlers/admin/connector_pack/tests/admin.rs:448"
+        "src/server/handlers/admin/connector_pack/tests/admin.rs:466"
       ]
     },
     {
@@ -190,11 +192,12 @@
       "title": "Admin-controlled pack importer binding and entry retirement",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "022736782512",
         "a1bb9fb9503e",
         "f6bd64b35e00"
       ],
       "verified_by": [
-        "src/server/handlers/admin/connector_pack/tests/admin.rs:298"
+        "src/server/handlers/admin/connector_pack/tests/admin.rs:307"
       ]
     },
     {
