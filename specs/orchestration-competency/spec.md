@@ -1,6 +1,6 @@
 # EG-CQ-ORCH — Orchestration competency questions
 
-Status: PROPOSED. Owner: epistemic-graph. Cross-repo IDs: graph-os (intent-surface probes, rollup R009), agent-utilities (none required).
+Owner: epistemic-graph. Cross-repo IDs: graph-os (intent-surface probes, rollup R009), agent-utilities (none required).
 Public provenance: none; spec-only change.
 
 ## Purpose and user stories

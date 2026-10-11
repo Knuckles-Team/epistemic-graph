@@ -1,6 +1,6 @@
 # EG-REPO-INGEST test specification
 
-Status: PROPOSED. Tests here are required proof, not a claim that they already pass. Each fixture uses a temporary EG store and public synthetic source. No private repository, inventory, credential or network service is required for the offline tier.
+Tests here are required proof, not a claim that they already pass. Each fixture uses a temporary EG store and public synthetic source. No private repository, inventory, credential or network service is required for the offline tier.
 
 | Test ID | Covers | Fixture and action | Expected result | Tier |
 |---|---|---|---|---|

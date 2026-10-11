@@ -1,6 +1,6 @@
 # EG-MEDIA-VOCAB — Implementation tasks
 
-Status: PROPOSED. Governing spec: [spec.md](spec.md). Design: [plan.md](plan.md).
+Governing spec: [spec.md](spec.md). Design: [plan.md](plan.md).
 
 Tasks mirror requirements.md rows; check a task only when its evidence is linked.
 

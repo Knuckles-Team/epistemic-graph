@@ -1,6 +1,6 @@
 # EG-DATAPLAT-VOCAB — Data-platform vocabulary
 
-Status: PROPOSED. Owner: epistemic-graph. Cross-repo IDs: EG-DATAPLAT-VOCAB-R009.1 to .5 (objectstore-mcp, vector-mcp, openbao-mcp, clarity-api, data-science-mcp).
+Owner: epistemic-graph. Cross-repo IDs: EG-DATAPLAT-VOCAB-R009.1 to .5 (objectstore-mcp, vector-mcp, openbao-mcp, clarity-api, data-science-mcp).
 Public provenance: gap found by `specs/connector-competency` (EG-CQ-CONN-001), rows R012, R014, R016, R029, R041, R044, R058, R065.
 
 ## Purpose and user stories

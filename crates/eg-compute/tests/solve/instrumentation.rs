@@ -5,6 +5,7 @@ use super::support::{model, odd_cycle_cover, wide_config};
 #[path = "telemetry_capture.rs"]
 mod capture;
 
+// spec: EG-DECISION-ENGINE-R072.1
 #[test]
 fn assemble_emits_solver_node_count_and_optimality_gap_metrics() {
     let model = model(&odd_cycle_cover(1, 3));

@@ -1,6 +1,6 @@
 # EG-CQ-CONN — Design and implementation plan
 
-Status: PROPOSED. Owner: epistemic-graph. The governing behavior and requirement
+Owner: epistemic-graph. The governing behavior and requirement
 IDs are in [spec.md](spec.md) and [requirements.md](requirements.md). The complete
 question and vocabulary inventory remains in [design.md](plan.md).
 

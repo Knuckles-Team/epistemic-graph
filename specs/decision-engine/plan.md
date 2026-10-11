@@ -216,7 +216,6 @@ The ceiling now refuses 10,000 microseconds, which exceeds the single-digit-mill
 
 R090.2 retains compiled execution acceptance. R090.3 retains measured resource acceptance. Both children remain specified until their checks pass.
 
-
 ## Amendments
 
 ### 2026-10-11: retain R093 served acceptance
@@ -273,4 +272,7 @@ Missing endpoints, invalid ordering, and arithmetic overflow omit the gap rather
 than imply optimality. No model inputs, identifiers, selections, or tenant data
 are recorded. Add helper and actual solver-path capture regressions without
 changing search behavior or certificate serialization. Native solver-path
-execution remains pending; helper execution alone does not satisfy acceptance.
+test was not run. A rustc test harness importing the exact production metrics
+module with the existing tracing rlib passed all 3 helper/capture tests. This
+command does not execute the native solver-entry regression. The regression
+source is bound to R072.1; generated spec state and test execution are separate.

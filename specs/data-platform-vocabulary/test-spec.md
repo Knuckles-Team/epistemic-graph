@@ -1,6 +1,6 @@
 # EG-DATAPLAT-VOCAB — Test specification
 
-Status: PROPOSED. Governing spec: [spec.md](spec.md).
+Governing spec: [spec.md](spec.md).
 
 | Test ID | Requirement | Level | Setup and input | Expected observation | Evidence |
 |---|---|---|---|---|---|

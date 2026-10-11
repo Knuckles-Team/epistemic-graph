@@ -239,13 +239,11 @@ fn byte_heavy_result(count: usize, value: &str) -> IndexResult {
     }
 }
 
-/// EG-REPO-INGEST-R008: past the 64 MiB write-byte ceiling specifically --
-/// not the operation-count budget `a_batch_over_the_commit_budget_is_refused_
-/// whole` above exercises -- the batch is refused whole with the SAME stable
-/// [`BATCH_TOO_LARGE`] code, and halving it (the connector SDK's blind
-/// halve-and-resend retry, which acts on the code alone and never parses the
-/// message) is enough for the resend to commit.
-// spec: EG-REPO-INGEST-R008
+// Supplementary lowering-only evidence for EG-REPO-INGEST-R008.
+// The roughly 60 MB fixture crosses MAX_WRITE_SET_BYTES (48 MiB), not the
+// requirement's 64 MiB ceiling. lower() checks refusal and admission of the
+// halved write set; it does not submit, commit, or retry through a served client.
+// Full integration acceptance remains unverified by this test.
 #[test]
 fn a_batch_over_the_byte_ceiling_is_refused_and_a_halved_resend_succeeds() {
     let big_value = "x".repeat(300_000);

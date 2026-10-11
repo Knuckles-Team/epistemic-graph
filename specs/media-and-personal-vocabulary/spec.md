@@ -1,6 +1,6 @@
 # EG-MEDIA-VOCAB — Media and personal-content vocabulary
 
-Status: PROPOSED. Owner: epistemic-graph. Cross-repo IDs: EG-CQ-CONN (consumer, specs/connector-competency); connector owners arr-mcp, audiobookshelf-mcp, media-downloader, owncast-agent, rom-manager, audio-transcriber, scholarx, searxng-mcp (operations).
+Owner: epistemic-graph. Cross-repo IDs: EG-CQ-CONN (consumer, specs/connector-competency); connector owners arr-mcp, audiobookshelf-mcp, media-downloader, owncast-agent, rom-manager, audio-transcriber, scholarx, searxng-mcp (operations).
 Public provenance: gap found by specs/connector-competency (vocabulary MISSING for 15 connectors).
 
 ## Purpose and user stories
