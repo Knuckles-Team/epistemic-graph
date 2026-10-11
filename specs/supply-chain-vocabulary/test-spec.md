@@ -40,3 +40,4 @@ Unapproved mapping makes a class uncovered. Unconnected procurement source gives
 ## Quality and release proof
 
 `cargo test -p eg-core` for the ontology and shape tests and `uvx pipelines-hook spec-status` and `spec-decomposition`; record revision and output at landing. A fixture test is not served acceptance; served acceptance is `EG-CQ-XSRC-R007`.
+Ecosystem risk: a finding on a leaf package reaches every transitive dependent with its path; an unknown package is refused.

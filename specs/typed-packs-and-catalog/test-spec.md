@@ -143,3 +143,4 @@ These partial regressions intentionally carry no acceptance binding that would m
 - `EG-TYPED-PACKS-R045.7`: `src/server/handlers/decide/stat_tests/harness_config_tests.rs::mcp_hint_read_only_premise_is_unproven`.
 - `EG-TYPED-PACKS-R045.8`: `crates/eg-capabilities/src/contract/python/surfaces/tests.rs::pack_annotations_expose_harness_tool_facts`.
 - `EG-TYPED-PACKS-R045.9`: `tests/harness_config_tool_facts_served.rs::two_tool_pack_subset_respects_budget`.
+Skill package rendering: a changed referenced node changes the digest on the next listing; a dangling term is refused and the row stays listed.
