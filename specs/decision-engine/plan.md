@@ -361,6 +361,27 @@ Native fixture execution remains pending; source bindings and formatting do not 
 The reputation reader also excludes synthetic decisions before learning option reliability or scoring forecasters.
 The query-enabled pipeline fixture checks forecaster metrics, reputation counts, and the learned reliability provider.
 
+### R118.1.2 source reliability consumers
+
+`crates/eg-epistemic/src/model.rs::AuthorityPolicy` stores a global `f64` reliability multiplier.
+`src/server/handlers/query/explain_wire_a.rs::epistemic_status_wire` selects the default policy without reading source reputation.
+`crates/eg-epistemic/src/ranking.rs::RetrievalCandidate` also requires a scalar reliability.
+`src/server/handlers/query/explain_wire_b.rs::rank_by_provenance_wire` copies that scalar from the caller's request.
+Neither served consumer resolves a governed source identity through the visible decision log.
+
+`src/server/handlers/decide/stat_reputation.rs::learned_reliability` discards `Reputation::InsufficientHistory` and returns `None`.
+`crates/eg-plan/src/exec/reliability.rs::reliability_of` interprets `None` as permission to retain the graph prior.
+The result therefore loses the distinction between absent evidence and a visible sparse pool's abstention.
+Dense UQL results also use `anchored_reliability` with the graph prior instead of the materialized pooled estimate.
+
+A source-identity adapter must resolve subject kind, subject identity, and caller visibility before each consumer reads reputation.
+The read contract must distinguish absent evidence, insufficient history, and an estimated reliability.
+Each consumer must propagate the optional or typed result without coercing abstention into a scalar.
+The consumers must share the materialized estimate instead of recomputing it from different priors.
+`crates/eg-types/src/protocol/support_02.rs::AuthorityPolicyWire` and `support_03.rs::RetrievalCandidateWire` currently require scalar reliability fields.
+Any public contract change must preserve compatibility and regenerate its derived artifacts.
+Whole-query refusal, a NaN sentinel, and a helper-only test do not establish cross-surface abstention.
+
 ## HarnessConfig decision (R128)
 
 Data flow: `Method::Decide` (`src/server/dispatch/router/decision_plane.rs:95`) → `handle_decide` (`src/server/handlers/decide/statistical.rs:11`) → `stat_decide::handle_decide` (`stat_decide.rs:48`) → `harness_config_outcome` (new, beside the `tool_subset_outcome` match at `stat_decide.rs:134`) → `seal` (`stat_decide.rs:372`) → `handle_decision_commit` → committed record.

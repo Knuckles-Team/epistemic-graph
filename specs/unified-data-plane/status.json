@@ -184,6 +184,7 @@
       "landed_in": [
         "23ba8c7eab2a",
         "3dd56fe53283",
+        "b28c6e06c13a",
         "d603182af742"
       ],
       "verified_by": [
@@ -196,7 +197,8 @@
       "title": "Verify the outbound target before persisting an OBDA `external_sources` registration (consumer path)",
       "delivery_state": "LANDED",
       "landed_in": [
-        "23ba8c7eab2a"
+        "23ba8c7eab2a",
+        "b28c6e06c13a"
       ],
       "verified_by": []
     },

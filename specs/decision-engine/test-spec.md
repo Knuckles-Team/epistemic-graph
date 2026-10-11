@@ -223,6 +223,24 @@ Native execution remains pending.
 With `query`, the same fixture creates enough synthetic forecasts to reach the score support floor.
 It checks absent synthetic Brier, log-loss, and ECE rows, plus exact real reputation and learned-reliability counts.
 
+## R118.1.2 cross-surface acceptance prerequisites
+
+`src/server/handlers/decide/stat_tests/reputation_tests.rs` already contains the served decision-log fixture.
+`below_the_support_floor_a_reputation_has_no_numbers` covers sparse SQL output.
+`source_reliability_is_learned_from_the_visible_log` covers dense UQL learning and invisible-history fallback.
+Neither test proves agreement across authority policy, retrieval ranking, and UQL.
+
+Extend this fixture through the actual governed consumers after the plan's source-identity adapter and result contract exist.
+A visible sparse subject and a dense peer must share one pool and one materialization.
+All three consumers must preserve the sparse subject's typed abstention without producing a numeric reliability.
+All three consumers must use the dense subject's same materialized estimate, allowing only documented wire precision differences.
+Vary the graph prior and caller-supplied retrieval weight; neither may replace the governed estimate or suppress abstention.
+An absent subject must remain distinguishable from a visible subject below the support floor.
+Invisible outcomes and another tenant's dense history must not change either result or disclose hidden counts.
+The fixture must exercise real served adapters rather than manually assign equal scalar values.
+
+These acceptance tests require the consumer prerequisites described in the plan.
+
 ## Harness configuration evidence
 
 - `EG-DECISION-ENGINE-R128`: A served test submits one `harness_config` question and asserts the committed record names all three parts with premises..

@@ -722,6 +722,7 @@
       "landed_in": [
         "52f333ca756e",
         "5951a4a6272e",
+        "9f300857d769",
         "b2d01ed93bd8"
       ],
       "verified_by": [
@@ -1457,8 +1458,11 @@
     {
       "id": "EG-DECISION-ENGINE-R066.1",
       "title": "Preserve library inputs",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4e60c54e9e49",
+        "c6d7108187aa"
+      ],
       "verified_by": [
         "src/server/handlers/decide/stat_tests/retention_tests.rs:64"
       ]
@@ -1466,8 +1470,11 @@
     {
       "id": "EG-DECISION-ENGINE-R066.2",
       "title": "Expire graph inputs",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4e60c54e9e49",
+        "c6d7108187aa"
+      ],
       "verified_by": [
         "src/server/handlers/decide/stat_tests/retention_tests.rs:93"
       ]
@@ -1475,8 +1482,11 @@
     {
       "id": "EG-DECISION-ENGINE-R066.3",
       "title": "Evaluate without persistence",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4e60c54e9e49",
+        "c6d7108187aa"
+      ],
       "verified_by": [
         "src/server/handlers/decide/stat_tests/retention_tests.rs:129"
       ]
@@ -1599,8 +1609,10 @@
     {
       "id": "EG-DECISION-ENGINE-R073.1",
       "title": "One durable outbox event per imported component",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "771c32a45353"
+      ],
       "verified_by": [
         "src/server/handlers/admin/connector_pack/tests/storage_acceptance.rs:26"
       ]
@@ -1608,8 +1620,10 @@
     {
       "id": "EG-DECISION-ENGINE-R073.2",
       "title": "Competing served imports share one head compare-and-set",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "771c32a45353"
+      ],
       "verified_by": [
         "src/server/handlers/admin/connector_pack/tests/storage_acceptance.rs:71"
       ]
@@ -2509,8 +2523,10 @@
     {
       "id": "EG-DECISION-ENGINE-R113.2.1",
       "title": "Refuse an unsupported transaction boundary",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "347eb303fcc7"
+      ],
       "verified_by": [
         "src/server/handlers/decide/commit/tests.rs:121"
       ]
@@ -2741,8 +2757,10 @@
     {
       "id": "EG-DECISION-ENGINE-R121.1",
       "title": "Assembly answers use typed premise classes",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "a8e597dccba7"
+      ],
       "verified_by": [
         "crates/eg-compute/src/assemble/tests/evidence.rs:8"
       ]
@@ -2759,6 +2777,7 @@
       "title": "Synthetic decision data stays separate from calibration",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "0c9f08ddbbae",
         "534f763afc81",
         "cfbe22464008"
       ],
