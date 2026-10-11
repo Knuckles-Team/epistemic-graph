@@ -563,3 +563,7 @@ Reused: `GuardrailRule` storage and `guardrail_entailment_query` (`guardrail.rs:
 Decision: refuse at the decision chokepoint, so no caller can skip the check. Rejected alternative: check inside each caller, because one missed caller bypasses the limit.
 
 Cross-repository: `AU-` rows may surface the refusal; the owning policy gate keeps enforcement.
+
+### Resident scorer resource measurement (R090.3)
+
+The benchmark lives in `crates/eg-numeric/benches/decision_resident_scorer.rs`, beside the production scorer. It reuses the promotion fit recipe and maximum legal shape, timing individual production forward calls with Linux thread CPU time under the existing release profile. Whole-runner peak RSS is a conservative upper bound: above 8 MiB leaves scorer-specific memory inconclusive. Runner executable size is reported separately from server footprint. Acceptance requires an external receipt of the effective optimized build and passing measured limits; source publication alone does not verify the requirement.

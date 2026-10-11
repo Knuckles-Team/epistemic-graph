@@ -137,7 +137,7 @@ The latency boundary accepts 9,999 microseconds and refuses 10,000 microseconds.
 ### Remaining R090 acceptance
 
 EG-DECISION-ENGINE-R090.2 requires `tests/test_decision_resident_scorer.py::test_compiled_engine_scores_without_external_runtime`.
-EG-DECISION-ENGINE-R090.3 requires `benches/decision_resident_scorer.rs::resident_scorer_meets_declared_budget`.
+EG-DECISION-ENGINE-R090.3 requires `crates/eg-numeric/benches/decision_resident_scorer.rs::resident_scorer_meets_declared_budget`.
 Both checks remain planned and unrun. Budget declarations do not establish either result.
 
 ### R093.2 planned served acceptance
@@ -318,3 +318,11 @@ The existing admin holder test retains its historical Content assertions.
 - `EG-DECISION-ENGINE-R131.4`: `crates/eg-compute/src/assemble/tests/limit_refusal.rs::breach_abstains_with_rule_id`.
 - `EG-DECISION-ENGINE-R131.5`: `crates/eg-compute/src/assemble/tests/limit_refusal.rs::breach_observation_links_signal`.
 - `EG-DECISION-ENGINE-R131.6`: `tests/decide/test_limit_guard_served.py::test_oversize_order_refused_and_recorded`.
+
+### R090.3 native benchmark protocol (measurement pending)
+
+Run `cargo bench --locked -p eg-numeric --features decision --bench decision_resident_scorer --profile release` in the preserved native workspace. No Cargo build or native benchmark was run in the authoring workspace. Record the commit, Rust version, host CPU/OS, command, and any compiler/profile overrides with the JSON receipt. All measured scorer code must use optimization level 3; an opt-level 0 types build is not performance evidence. Debug assertions are refused, but this guard alone cannot prove optimization: the external build receipt is required.
+
+The harness emits schema-version 1 JSON (schema: `crates/eg-numeric/benches/decision_resident_scorer.schema.json`): `cases` contains fixture shape, actual trainable scalar count (linear weights plus seven attention tensors), calibration scalar count, warmup/sample counts, nearest-rank p99 nanoseconds and microseconds, and parameter/latency acceptance. Both fixtures execute 100 warmups and 1,000 individually clocked production `forward::read` calls. Fit/construction, validation, and result destruction are outside each timing window. The fitted case reuses the 200-label, seed-0, 60-iteration promotion recipe and asserts nonzero trained self weights; the shape case covers width 16, features 32, shortlist 64, and 256 rows.
+
+`memory.bytes` is Linux whole-runner lifetime peak RSS, including fitting and allocator overhead. At or below 8,388,608 bytes it proves a conservative upper bound; above that it is inconclusive for scorer-specific residency and leaves R090.3 unverified. No baseline subtraction or serialized-payload proxy is used. `runner_binary_bytes` measures the executable actually running; `server_binary_bytes` and scorer-specific bytes are null. Exact parameter/latency limits, one-unit excesses, RSS inconclusiveness, nearest-rank indexing, invalid-head refusal and out-of-distribution refusal are checked before measurement. Exit 0 means the measured upper bounds pass but build provenance still needs review; exit 1 means parameter/CPU failure; exit 2 means inconclusive memory or unsupported OS. Native measurements and requirement verification remain pending.
