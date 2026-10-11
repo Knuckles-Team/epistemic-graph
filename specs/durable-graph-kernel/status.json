@@ -1670,7 +1670,8 @@
       "title": "Rules are ordered and thresholded exactly as before",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "157e0a8e97a3"
+        "157e0a8e97a3",
+        "a35b312dbd40"
       ],
       "verified_by": [
         "crates/eg-compute/src/mining/association/parity_tests.rs:4",
