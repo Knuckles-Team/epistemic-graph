@@ -251,7 +251,8 @@ The existing capability projector emits `eg:fact/shellProficiency` and
 The producer tests cover both digest domains, value and provenance changes,
 malformed references, enum decoding and the actual projected atoms. Their test
 bindings do not establish signed pack import or served readback. R048.5 adds pack model annotations and import mapping for these fields.
-Its served acceptance remains open. R066.1 owns the separate SHACL shapes and evaluation links.
+Its native served acceptance passed. Go and JavaScript codec parity requires the separate client checks.
+R066.1 owns the separate SHACL shapes and evaluation links.
 Before integration, regenerate the contract surfaces from the Rust schema source
 and check them. Producer tests do not substitute for that check.
 
