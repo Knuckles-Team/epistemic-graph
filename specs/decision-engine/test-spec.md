@@ -30,7 +30,7 @@ Publish two templates and one A2A agent card with overlapping capabilities. Make
 
 ## E. Pack facts at the decision boundary
 
-Publish one pack-provided component with native and foreign capability annotations, cost, latency, modality, schema digest, model facts and `contract_pin`. Assemble from that component and assert every such premise remains a publisher claim in the record and explanation. The native capability may participate in an `is_a` derivation whose conclusion class is still claim; the foreign IRI remains an exact unentailed claim. Omit the member in a later valid pack and assert `Withdrawn` makes it ineligible. Re-import byte-identical entry content and assert its candidate digest and decision result do not churn. A stale projection marker must prevent a projected ontology or shape fact from entering a decision. Plant `DecisionRecord`, `DecisionHead` and `DecisionPolicy` pack entries and assert refusal before any decision-owned state changes. These probes use the pack API as a fixture; pack parser, body and crash recovery have their own acceptance suite.
+Publish one pack-provided component with native and foreign capability annotations, cost, latency, modality, schema digest, model facts and `contract_pin`. Assemble from that component and assert every such premise remains a publisher claim in the record and explanation. The native capability may participate in an `is_a` derivation whose conclusion class is still claim. The foreign IRI remains an exact unentailed claim. Omit the member in a later valid pack and assert `Withdrawn` makes it ineligible. Re-import byte-identical entry content and assert its candidate digest and decision result do not churn. A stale projection marker must prevent a projected ontology or shape fact from entering a decision. Plant `DecisionRecord`, `DecisionHead` and `DecisionPolicy` pack entries and assert refusal before any decision-owned state changes. These probes use the pack API as a fixture. Pack parser, body and crash recovery have their own acceptance suite.
 
 Check metric labels omit raw facts and errors omit invisible component identifiers. Every negative probe asserts no durable state change. A served test uses disposable credentials and a local policy fixture.
 
@@ -58,3 +58,9 @@ The equivalent direct native harness ran; the full Cargo crate build and hosted 
 This receipt covers typed declarations only, not measured latency or the parent R090 benchmark obligation.
 
 The latency boundary accepts 9,999 microseconds and refuses 10,000 microseconds.
+
+### Remaining R090 acceptance
+
+EG-DECISION-ENGINE-R090.2 requires `tests/decision_resident_scorer.rs::compiled_engine_scores_without_external_runtime`.
+EG-DECISION-ENGINE-R090.3 requires `benches/decision_resident_scorer.rs::resident_scorer_meets_declared_budget`.
+Both checks remain planned and unrun. Budget declarations do not establish either result.

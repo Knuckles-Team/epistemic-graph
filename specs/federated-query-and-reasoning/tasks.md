@@ -4,7 +4,7 @@ Check boxes describe work remaining for this combined contract. They do not cert
 
 ## UQL and served query
 
-- [x] Audit the public head for the single read-only UQL method, typed parameters and generated Python sender; remove any remaining duplicate query-text route. **EG-FEDERATED-QUERY-R020, EG-FEDERATED-QUERY-R025, EG-DURABLE-KERNEL-R023**
+- [x] Audit the public head for the single read-only UQL method, typed parameters and generated Python sender. Remove any remaining duplicate query-text route. **EG-FEDERATED-QUERY-R020, EG-FEDERATED-QUERY-R025, EG-DURABLE-KERNEL-R023**
 - [x] Close predicate/lexer/source/modality/traversal parity and canonical round-trip exhaustiveness, including generated grammar and feature-gated refusal. **EG-FEDERATED-QUERY-R021 and related rows (see requirements.md), EG-TYPED-PACKS-R080, EG-FEDERATED-QUERY-R061**
 - [x] Complete named subplans, score channels, budgets, proof, explain/profile, KnowledgeSet and shared DecideText lexing; prove served wire parity. **EG-FEDERATED-QUERY-R006, EG-FEDERATED-QUERY-R028, EG-FEDERATED-QUERY-R065, EG-FEDERATED-QUERY-R067, EG-FEDERATED-QUERY-R068, EG-FEDERATED-QUERY-R070, EG-DECISION-ENGINE-R104**
 - [x] Verify all executable UQL examples and stable error diagnostics against the current grammar. **EG-FEDERATED-QUERY-R064, EG-FEDERATED-QUERY-R026**
@@ -17,7 +17,7 @@ Check boxes describe work remaining for this combined contract. They do not cert
 - [x] Expose redacted trace and caller-lowered budget in served UQL `EXPLAIN`/`PROFILE`; verify no URL/DSN leakage. **EG-FEDERATED-QUERY-R044**
 - [x] Qualify capability model, shared renderer, typed budgets and optimized/full-fetch oracle on the exact public head. **EG-FEDERATED-QUERY-R038, EG-FEDERATED-QUERY-R041–EG-FEDERATED-QUERY-R043**
 - [x] Expose redacted trace and caller-lowered budget in served UQL `EXPLAIN`/`PROFILE`; verify no URL/DSN leakage. **EG-FEDERATED-QUERY-R044**
-- [x] Add typed column-carrying foreign rows and exact/inexact/unsupported residual handling; validate foreign-only predicates, projection dependencies and schema drift against a full-fetch oracle. **EG-FEDERATED-QUERY-R045**
+- [x] Add typed column-carrying foreign rows and exact/inexact/unsupported residual handling. Validate foreign-only predicates, projection dependencies and schema drift against a full-fetch oracle. **EG-FEDERATED-QUERY-R045**
 - [x] Execute approved OBDA virtual-graph solutions with typed ORDER/LIMIT/aggregate/join pushdown and sound fallback. **EG-FEDERATED-QUERY-R046, EG-FEDERATED-QUERY-R055**
 - [x] Bound source concurrency, learn/persist provenance-tagged stats, and cache only with fresh owner-bound watermarks. **EG-FEDERATED-QUERY-R018, EG-FEDERATED-QUERY-R047–EG-FEDERATED-QUERY-R049**
 - [x] Define `JoinCardinalityStatistic`/`StatisticsProvenance` in `crates/eg-plan/src/federation_stats.rs`, refusing a statistic built with no provenance. **EG-FEDERATED-QUERY-R048.1**
@@ -31,7 +31,7 @@ Check boxes describe work remaining for this combined contract. They do not cert
 - [x] Validate semantic and edge index lifecycle, filtered BM25/ANN correctness, mixed traversal top-k/shortfall, generation replay and RLS. **EG-FEDERATED-QUERY-R059, EG-FEDERATED-QUERY-R008, EG-FEDERATED-QUERY-R009, EG-FEDERATED-QUERY-R035, EG-FEDERATED-QUERY-R039, EG-FEDERATED-QUERY-R040**
 - [x] Restore index state on graph reopen within the bounded performance profile, and refuse reads while materialization is incomplete. **EG-FEDERATED-QUERY-R036**
 - [x] Validate current corpus compose, EL/RL/tableau consistency, disjointness, bounded derivation, proof and skipped-event rebuild. **EG-FEDERATED-QUERY-R001, EG-DURABLE-KERNEL-R002, EG-FEDERATED-QUERY-R004, EG-FEDERATED-QUERY-R006, EG-TYPED-PACKS-R071, EG-FEDERATED-QUERY-R010, EG-FEDERATED-QUERY-R011, EG-FEDERATED-QUERY-R012**
-- [x] Implement and validate shared series/attribution/impact/barrier/motif kernels with exact or seeded oracles and typed budgets; remove duplicate probability math. **EG-FEDERATED-QUERY-R030–EG-FEDERATED-QUERY-R031, EG-FEDERATED-QUERY-R032, EG-FEDERATED-QUERY-R033, EG-FEDERATED-QUERY-R034, EG-FEDERATED-QUERY-R037, EG-FEDERATED-QUERY-R056**
+- [x] Implement and validate shared series/attribution/impact/barrier/motif kernels with exact or seeded oracles and typed budgets. Remove duplicate probability math. **EG-FEDERATED-QUERY-R030–EG-FEDERATED-QUERY-R031, EG-FEDERATED-QUERY-R032, EG-FEDERATED-QUERY-R033, EG-FEDERATED-QUERY-R034, EG-FEDERATED-QUERY-R037, EG-FEDERATED-QUERY-R056**
 
 ## Additional coverage
 

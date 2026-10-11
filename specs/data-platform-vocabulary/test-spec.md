@@ -13,7 +13,7 @@ Status: PROPOSED. Governing spec: [spec.md](spec.md).
 | T-007 | FR-005 | Unit | resolve each alignment row | every package term maps to a `dp:` term | PENDING |
 | T-008 | FR-006 | Review | R009 rows exist for objectstore, vector, openbao, clarity, data-science | each names an owner repo and a fixture test | PENDING |
 
-| T-009 | FR-002 | Unit | one policy grants read on path A and deny on path B; then add an invalid permission | each grant retains its policy/path association; invalid permission rejected | PENDING |
+| T-009 | FR-002 | Unit | one policy grants read on path A and deny on path B. Then add an invalid permission | each grant retains its policy/path association. Invalid permission rejected | PENDING |
 
 ## Negative and boundary cases
 

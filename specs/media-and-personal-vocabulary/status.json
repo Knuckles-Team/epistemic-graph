@@ -931,7 +931,7 @@
     },
     {
       "id": "EG-MEDIA-VOCAB-R020.1",
-      "title": "Fixture and test: 'Which requested films are downloaded but not yet in the library?' across arr, qbittorrent, jellyfin; returns the film set difference with provenance per leg",
+      "title": "Fixture and test: 'Which requested films are downloaded but not yet in the library?' across arr, qbittorrent, jellyfin. Returns the film set difference with provenance per leg",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

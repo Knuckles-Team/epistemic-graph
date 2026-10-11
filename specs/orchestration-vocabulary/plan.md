@@ -45,7 +45,7 @@ Q5 bindings   :ModelProfile :needsSkill :stepAssignedAgent         component cat
 Q6/Q7 flow    :handsOffTo swarm:feeds swarm:loopsBackTo            template + assembled graph
 ```
 
-Writers (all existing): the Agent Library outbox projection (`EG-TYPED-PACKS-R006`; `src/server/connector_pack_projection.rs`, `src/server/persistence/agent_library/`) projects components, templates and library entries; the template projection (`EG-DECISION-ENGINE-R106`) projects topology facts; the assemble commit (`DecisionCommit` after `handle_agent_assemble`, `src/server/handlers/decide/assemble.rs`) projects the chosen assignment. Readers: the Q1-Q7 queries (federated query over the composed schema), `capability_coverage_query` (R126), `guardrail_entailment_query` (R127), and `graph.assemble()` itself for step expansion. External agent cards are fetched at query time through their A2A contract; only the card's declaration (name, skills, declared capabilities) is held, as a claim. Nothing here copies a source's data.
+Writers (all existing): the Agent Library outbox projection (`EG-TYPED-PACKS-R006`; `src/server/connector_pack_projection.rs`, `src/server/persistence/agent_library/`) projects components, templates and library entries. The template projection (`EG-DECISION-ENGINE-R106`) projects topology facts. The assemble commit (`DecisionCommit` after `handle_agent_assemble`, `src/server/handlers/decide/assemble.rs`) projects the chosen assignment. Readers: the Q1-Q7 queries (federated query over the composed schema), `capability_coverage_query` (R126), `guardrail_entailment_query` (R127), and `graph.assemble()` itself for step expansion. External agent cards are fetched at query time through their A2A contract. Only the card's declaration (name, skills, declared capabilities) is held, as a claim. Nothing here copies a source's data.
 
 ### Vocabulary
 
@@ -90,7 +90,7 @@ Loops: `CritiqueLoop`, `Debate` and `Council` are cyclic by design. Forward flow
 
 | Term | Written by | Read by |
 |---|---|---|
-| `:TaskStep`, `:hasStep`, `:precedes`, `:needsSkill`, `:requiresCapability` on steps | task decomposition facts from process/SDD sources (L0, virtual) or authored with the task; no new writer | Q1; `handle_agent_assemble` step expansion (R007.1) |
+| `:TaskStep`, `:hasStep`, `:precedes`, `:needsSkill`, `:requiresCapability` on steps | task decomposition facts from process/SDD sources (L0, virtual) or authored with the task. No new writer | Q1. `handle_agent_assemble` step expansion (R007.1) |
 | `:handsOffTo` | same decomposition source; or projected from `AgentGraphEdge` of a stored workflow | Q6 |
 | `:AgentKind`, `:hasAgentKind` | pack annotation on the component (typed annotations, `EG-TYPED-PACKS-R006`), projected by the outbox consumer | Q2, Q3 |
 | `swarm:requiresAgentKind`, `swarm:feeds`, `swarm:loopsBackTo` | template projection (`EG-DECISION-ENGINE-R106`) from `TopologyFacts` and `AgentGraphEdge`; assemble commit for chosen graphs | Q2, Q7; R046/R111 topology decision |
@@ -126,7 +126,7 @@ External A2A agent to library member: a card is published as an `AgentComponent`
 | `swarm:hasSlot` | `owl:ObjectProperty` | none declared (shape: subject is a template, max 6 slots) | Correct as a template-to-slot link. |
 | `swarm:minWidth`, `swarm:maxWidth` | `owl:DatatypeProperty` | range `xsd:nonNegativeInteger`; no domain (shape: on `swarm:Slot`, 1..16) | Correct, on slots. |
 | `swarm:TopologyTemplate` | `owl:Class` | n/a | Correct. |
-| `swarm:nodeKind` | `owl:DatatypeProperty`, range `xsd:string` | none; the shape reads it on the template (`$this swarm:nodeKind "fanout"/"join"`), not on a slot | Competency lists it under slot facts: wrong subject. |
+| `swarm:nodeKind` | `owl:DatatypeProperty`, range `xsd:string` | none. The shape reads it on the template (`$this swarm:nodeKind "fanout"/"join"`), not on a slot | Competency lists it under slot facts: wrong subject. |
 
 #### Corrections to `specs/orchestration-competency` (not edited there)
 
@@ -184,4 +184,4 @@ Questions and answers:
 
 ### Out of scope
 
-Solver or certificate changes; new wire methods or scopes; a task-decomposition engine (steps come from sources or authoring); conditional hand-off modelling beyond `AgentGraphEdge.condition`; generated-client work (`gen_contract` needs the build host); graph-os tool code.
+Solver or certificate changes. New wire methods or scopes. A task-decomposition engine (steps come from sources or authoring). Conditional hand-off modelling beyond `AgentGraphEdge.condition`. Generated-client work (`gen_contract` needs the build host). Graph-os tool code.

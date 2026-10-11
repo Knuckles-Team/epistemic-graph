@@ -234,7 +234,7 @@
     },
     {
       "id": "EG-DATAPLAT-VOCAB-R005.2",
-      "title": "Add closed shapes (`sh:closed true`) for the five secret-metadata classes, including `dp:PolicyPathGrant`; allow only their applicable metadata properties, including shared store/provenance links, and reject every other property. Touches `crates/eg-core/ontology/data_platform-v1.shapes.ttl`. Depends on `EG-DATAPLAT-VOCAB-R005.1`",
+      "title": "Add closed shapes (`sh:closed true`) for the five secret-metadata classes, including `dp:PolicyPathGrant`. Allow only their applicable metadata properties, including shared store/provenance links, and reject every other property. Touches `crates/eg-core/ontology/data_platform-v1.shapes.ttl`. Depends on `EG-DATAPLAT-VOCAB-R005.1`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

@@ -13,16 +13,16 @@
 
 | Decision | Required resolution and evidence |
 |---|---|
-| Accounting policy | State whether average cost is available for each account/tax context; persist the election and prevent silent retrospective changes. |
-| Monetary primitive | Reuse an existing checked decimal type if its scale and rounding semantics satisfy F2; otherwise add one in the finance compute boundary. |
+| Accounting policy | State whether average cost is available for each account/tax context. Persist the election and prevent silent retrospective changes. |
+| Monetary primitive | Reuse an existing checked decimal type if its scale and rounding semantics satisfy F2. Otherwise add one in the finance compute boundary. |
 | Price gaps | Decide which results become partial versus refused; never substitute another source, session or timeframe silently. |
 | Calendar data | Version offset spans and sessions as source facts so replay does not depend on the host time-zone database. |
-| Backtest statistics | Specify one split-result matrix contract shared by purged CV, deflated Sharpe and PBO; reject headline metrics that cannot be recomputed. |
+| Backtest statistics | Specify one split-result matrix contract shared by purged CV, deflated Sharpe and PBO. Reject headline metrics that cannot be recomputed. |
 | Leverage policies | Keep jurisdiction and provider-specific availability in versioned policy facts; do not hard-code an assumed live trading permission. |
 
 ## Integration contracts
 
-External connectors submit source events and revisions through the typed import boundary. The serving layer schedules recurring DCA intentions and consumes outbox facts; it cannot change EG calculations. The browser reads positions, comparisons, risk and snapshots with provenance and renders partial/abstain states. The execution system receives proposals only through its separate governed approval path. These interfaces are complete at the behavioral level here; companion repositories may add their own implementation details without changing EG's authority.
+External connectors submit source events and revisions through the typed import boundary. The serving layer schedules recurring DCA intentions and consumes outbox facts. It cannot change EG calculations. The browser reads positions, comparisons, risk and snapshots with provenance and renders partial/abstain states. The execution system receives proposals only through its separate governed approval path. These interfaces are complete at the behavioral level here. Companion repositories may add their own implementation details without changing EG's authority.
 
 ## Rollout
 
@@ -47,7 +47,7 @@ EG owns the `finance-v1` OWL/SHACL model, deterministic Rust calculations, typed
 | `crates/eg-compute/src/finance/` | Add fixed-point `accounting`, `strategy`, `risk` modules behind the existing compute crate. Reuse existing quantitative validation kernels. |
 | `crates/eg-types/src/compute_result/market/` | Extend versioned request/result contracts; regenerate language clients from canonical Rust contracts. |
 | `src/server/handlers/finance/` | Dispatch new FinanceMarket suboperations or a cohesive typed finance operation family; keep public method authorization and result mapping centralized. |
-| EG graph store, sealed-record guard and outbox | Persist immutable source facts and sealed results through the owner transaction; prohibit generic-node overwrites of sealed evidence. |
+| EG graph store, sealed-record guard and outbox | Persist immutable source facts and sealed results through the owner transaction. Prohibit generic-node overwrites of sealed evidence. |
 
 `FinancialInstrument` and `Listing` remain the shared keys. Avoid a second "portfolio database" or a copy of historical bars. A read model may cache a `Position` by `(tenant, account, as_of, input_digest, accounting_policy_version)`; it is discardable and recomputed after a revised activity, price or action. The account activity journal is authoritative for holdings. All keys include tenant and authorization scope; a cache cannot broaden visibility.
 
@@ -79,7 +79,7 @@ Use a `DecimalValue { mantissa: i128, scale: u8 }` style boundary or existing fi
 | Operation | Input | Output/refusal |
 |---|---|---|
 | `FinanceAccount.AppendActivity` | account, source/revision, activity and expected account head | committed digest/new head; conflict, invalid currency/quantity, unauthorized account |
-| `FinanceAccount.Project` | account or group, knowledge as-of, valuation as-of, basis policy, base currency | positions, lots, cash, P&L, returns, provenance and coverage; typed missing-data result |
+| `FinanceAccount.Project` | account or group, knowledge as-of, valuation as-of, basis policy, base currency | positions, lots, cash, P&L, returns, provenance and coverage. Typed missing-data result |
 | `FinanceReference.Upsert` | source revision, action/calendar/price, expected head | validated revision; conflict, bad chronology, unsupported action |
 | `FinanceStrategy.Evaluate` | spec digest, point-in-time universe and read snapshot | proposed actions and deterministic input digest; abstain/refusal |
 | `FinanceStrategy.Compare` | comparable strategy runs, common horizon/cost model | sealed `BacktestRun` set and comparison record; insufficient validation |
@@ -94,11 +94,11 @@ Names are design targets, not a claim that they exist today. Keep wire variants 
 2. Normalize activities and actions into an ordered immutable event stream. Validate balanced transfers and source provenance; apply splits and lot allocations with a selected accounting policy.
 3. Build cash, lots and positions; join valuations and FX at their specified times. Calculate P&L and returns only over covered periods, attaching missing-data reasons.
 4. Evaluate strategies over the same point-in-time inputs; seal runs and compare only compatible cohorts. Calibrate a recommendation or abstain; seal its `AnalysisSnapshot`.
-5. Atomically append event facts when thresholds or state transitions occur; downstream schedulers and notification adapters use stable event IDs and their own durable delivery state.
+5. Atomically append event facts when thresholds or state transitions occur. Downstream schedulers and notification adapters use stable event IDs and their own durable delivery state.
 
 ### Trust and execution boundary
 
-The finance compute path is deterministic and side-effect free except explicitly governed storage/outbox writes. A recommendation and `ProposedAction` are data. The execution adapter must separately obtain authorization, risk approval and a policy-valid lease. The EG protocol contains no generic `execute` conversion for proposed actions. Broker credentials are never accepted by these methods. External-source adapters use registry-scoped read capability and convert into canonical activities; they never receive EG store write credentials through a finance read response.
+The finance compute path is deterministic and side-effect free except explicitly governed storage/outbox writes. A recommendation and `ProposedAction` are data. The execution adapter must separately obtain authorization, risk approval and a policy-valid lease. The EG protocol contains no generic `execute` conversion for proposed actions. Broker credentials are never accepted by these methods. External-source adapters use registry-scoped read capability and convert into canonical activities. They never receive EG store write credentials through a finance read response.
 
 ### Migration and compatibility
 
