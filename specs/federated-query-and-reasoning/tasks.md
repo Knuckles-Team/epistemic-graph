@@ -79,13 +79,13 @@ Check boxes describe work remaining for this combined contract. They do not cert
   - [ ] **EG-FEDERATED-QUERY-R078.4:** Unverified caller refusal
   - [ ] **EG-FEDERATED-QUERY-R078.5:** Scope premise in the trace
   - [ ] **EG-FEDERATED-QUERY-R078.6:** Out-of-tenant read proof
-  - [ ] **EG-FEDERATED-QUERY-R079:** Lake catalog schema evolution and time travel (rollup).
-  - [ ] **EG-FEDERATED-QUERY-R079.1:** `ReorderColumn` kind and classification
-  - [ ] **EG-FEDERATED-QUERY-R079.2:** `evolve_column` for four change kinds
-  - [ ] **EG-FEDERATED-QUERY-R079.3:** Attach to the CommitTable route
-  - [ ] **EG-FEDERATED-QUERY-R079.4:** Unapproved destructive change refusal
-  - [ ] **EG-FEDERATED-QUERY-R079.5:** Schema version in the operation record
-  - [ ] **EG-FEDERATED-QUERY-R079.6:** Commit, time-travel and manifest proof
+  - [ ] **EG-FEDERATED-QUERY-R079:** Iceberg v2 catalog and manifest interoperability (rollup).
+  - [ ] **EG-FEDERATED-QUERY-R079.1:** Model. Add version-bound `ManifestPublication` and complete schema-change kinds.
+  - [ ] **EG-FEDERATED-QUERY-R079.2:** Behavior. Publish durable v2 manifests and preserve retained snapshot/schema compatibility.
+  - [ ] **EG-FEDERATED-QUERY-R079.3:** Wiring. Bind the production graph-to-lake publisher and serve committed catalog metadata.
+  - [ ] **EG-FEDERATED-QUERY-R079.4:** Refusal. Reject invalid publication, unapproved destructive evolution and projected mutation.
+  - [ ] **EG-FEDERATED-QUERY-R079.5:** Evidence. Correlate graph version, schema, snapshot and artifact digests with reader acceptance.
+  - [ ] **EG-FEDERATED-QUERY-R079.6:** Hot-path proof. Exercise served mutations and REST reads with an independent Iceberg reader.
   - [ ] **EG-FEDERATED-QUERY-R080:** Graph is the sole write boundary; projections are read-only (rollup).
   - [ ] **EG-FEDERATED-QUERY-R080.1:** `ProjectionAccess` typed model
   - [ ] **EG-FEDERATED-QUERY-R080.2:** `refuse_projection_write` classification
