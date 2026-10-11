@@ -15,21 +15,55 @@ fn collect_parsed<T, E: std::fmt::Display>(
         .collect()
 }
 
-/// Parse a Turtle document into oxrdf triples.
+/// Parse Turtle with fresh blank-node identities for this document.
 pub fn parse_turtle(doc: &str) -> Result<Vec<Triple>, String> {
+    let scope = oxrdf::BlankNode::default();
+    let triples = parse_turtle_for_composition(doc)?;
+    Ok(triples
+        .into_iter()
+        .map(|triple| scope_turtle_triple(triple, scope.as_str()))
+        .collect())
+}
+
+/// Read one member before the caller applies its own document-local namespace.
+/// Preserves source labels for existing catalog identities. Never union these
+/// triples without first scoping their blank nodes to the owning document.
+pub fn parse_turtle_for_composition(doc: &str) -> Result<Vec<Triple>, String> {
     collect_parsed("turtle", TurtleParser::new().for_reader(doc.as_bytes()))
+}
+
+fn scope_turtle_triple(mut triple: Triple, scope: &str) -> Triple {
+    if let oxrdf::NamedOrBlankNode::BlankNode(node) = triple.subject {
+        triple.subject = scoped_turtle_node(node, scope).into();
+    }
+    triple.object = match triple.object {
+        oxrdf::Term::BlankNode(node) => scoped_turtle_node(node, scope).into(),
+        #[cfg(feature = "sparql-star")]
+        oxrdf::Term::Triple(triple) => {
+            oxrdf::Term::Triple(Box::new(scope_turtle_triple(*triple, scope)))
+        }
+        other => other,
+    };
+    triple
+}
+
+fn scoped_turtle_node(node: oxrdf::BlankNode, scope: &str) -> oxrdf::BlankNode {
+    // Hex encodes arbitrary caller scopes without invalid labels or ambiguous joins.
+    let prefix: String = scope.bytes().map(|byte| format!("{byte:02x}")).collect();
+    oxrdf::BlankNode::new_unchecked(format!("s{prefix}x{}", node.as_str()))
 }
 
 /// Parse Turtle while refusing to retain more than `max_triples` emitted triples.
 /// The caller must enforce its document byte budget before calling this helper.
 pub fn parse_turtle_bounded(doc: &str, max_triples: usize) -> Result<Vec<Triple>, String> {
+    let scope = oxrdf::BlankNode::default();
     let mut triples = Vec::new();
     for (index, triple) in TurtleParser::new().for_reader(doc.as_bytes()).enumerate() {
         let triple = triple.map_err(|error| format!("turtle parse: {error}"))?;
         if index == max_triples {
             return Err(format!("turtle exceeds maximum of {max_triples} triples"));
         }
-        triples.push(triple);
+        triples.push(scope_turtle_triple(triple, scope.as_str()));
     }
     Ok(triples)
 }
@@ -128,5 +162,43 @@ mod bounded_tests {
         assert!(parse_turtle_bounded(document, 1)
             .unwrap_err()
             .contains("maximum of 1 triples"));
+    }
+}
+
+#[cfg(test)]
+mod identity_tests {
+    use super::*;
+
+    // spec: EG-TYPED-PACKS-R093.1
+    #[test]
+    fn independent_parses_keep_blank_nodes_local_and_references_intact() {
+        let doc = "_:b0 <urn:p> _:b0 . [] <urn:p> _:b0 .";
+        let first = parse_turtle(doc).unwrap();
+        let second = parse_turtle(doc).unwrap();
+        let bounded = parse_turtle_bounded(doc, 2).unwrap();
+        for triples in [&first, &second, &bounded] {
+            assert_eq!(
+                triples[0].subject.to_string(),
+                triples[0].object.to_string()
+            );
+            assert_eq!(triples[0].object, triples[1].object);
+            assert_ne!(triples[0].subject, triples[1].subject);
+        }
+        let subjects: std::collections::BTreeSet<_> = first
+            .iter()
+            .chain(&second)
+            .chain(&bounded)
+            .map(|triple| triple.subject.to_string())
+            .collect();
+        assert_eq!(subjects.len(), 6);
+    }
+
+    #[test]
+    fn composition_preserves_existing_explicit_blank_labels() {
+        let doc = "_:b0 <urn:p> _:b0 .";
+        let triples = parse_turtle_for_composition(doc).unwrap();
+        assert_eq!(triples[0].subject.to_string(), "_:b0");
+        assert_eq!(triples[0].object.to_string(), "_:b0");
+        assert_eq!(triples, parse_turtle_for_composition(doc).unwrap());
     }
 }

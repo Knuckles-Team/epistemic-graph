@@ -69,3 +69,8 @@ Every cross-cutting pack-import-safety defect is a named rule (G1-G21) in `epist
 | G21 | three_hundred_violations |
 
 A requirement is `ACCEPTED` only when every row's regression test passes against a merged exact head, exactly as the acceptance matrix above requires for PACK-06/08.
+
+| Repair | Requirement | Regression | Acceptance |
+| --- | --- | --- | --- |
+| TP-PARSE-IDENTITY | EG-TYPED-PACKS-R093.1 | Native public and bounded Turtle readers parse the same explicit and anonymous blank nodes independently, then union the results. | Six subjects stay distinct across three parses; same-document references remain equal; composition retains explicit source labels; existing bounded refusal tests pass. |
+| TP-REPROJECT-IDENTITY | EG-TYPED-PACKS-R093.2 | Served reproject combines independent connector-pack members with reused blank labels. | Isolated member identities and repeatable composed digests; remains open until the served regression executes. |

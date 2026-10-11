@@ -24,7 +24,8 @@ pub fn scoped_union(documents: &[String]) -> Result<RdfUnion, usize> {
         ntriples: String::new(),
     };
     for (file, document) in documents.iter().enumerate() {
-        let parsed = crate::mapping::parse_turtle(document).map_err(|_| file)?;
+        // This union owns the existing deterministic file-local namespace.
+        let parsed = crate::mapping::parse_turtle_for_composition(document).map_err(|_| file)?;
         for triple in parsed {
             let triple = scope_triple(triple, file);
             union.ntriples.push_str(&triple.to_string());

@@ -206,7 +206,7 @@ pub use lowering::{load_triples, lower_triples, register_named_graph, LoweredTri
 pub use parsing::parse_jsonld;
 pub use parsing::{
     from_nquads, from_trig, parse_nquads, parse_ntriples, parse_trig, parse_turtle,
-    parse_turtle_bounded,
+    parse_turtle_bounded, parse_turtle_for_composition,
 };
 #[cfg(feature = "rdf-xml")]
 pub use parsing::{from_rdfxml, parse_rdfxml};
