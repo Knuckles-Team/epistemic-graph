@@ -76,7 +76,6 @@ bootstrap skill, together with the [SDD full lifecycle](https://github.com/Knuck
 - [`EG-FEDERATED-QUERY`](federated-query-and-reasoning/spec.md) — federated query and reasoning contract.
 - [`EG-FINANCE-PRIMITIVES`](finance-primitives/spec.md) — native financial data and calculation primitives.
 - [`EG-CQ-CONN`](connector-competency/spec.md) — per-connector competency questions.
-- [`EG-CONN-AUDIT`](connector-vocabulary-audit/spec.md) — audit of the vocabulary assigned to 43 connectors: verdicts, missing terms, reassignments; PROPOSED.
 - [`EG-CQ-ORCH`](orchestration-competency/spec.md) — ontology-driven orchestration competency questions.
 - [`EG-INGEST-WORKER`](ingest-worker/spec.md) — durable ingest queue policy, lanes, and metrics.
 - [`EG-CONTRACT`](public-engine-contract-and-release/spec.md) — public engine contract and release proof.

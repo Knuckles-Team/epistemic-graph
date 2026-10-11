@@ -69,3 +69,19 @@ Tasks mirror requirements.md rows; check a task only when its evidence is linked
 - [ ] **CQ-065 · EG-CQ-CONN-R065:** vector rollup (EG-CQ-CONN-R065.1 single-source, .2 cross-source, .3 acceptance).
 - [ ] **CQ-066 · EG-CQ-CONN-R066:** wger rollup (EG-CQ-CONN-R066.1 single-source, .2 cross-source, .3 acceptance).
 - [ ] **CQ-067 · EG-CQ-CONN-R067:** contract kinds rollup (EG-CQ-CONN-R067.1 MCP, .2 A2A, .3 API, .4 GraphQL, .5 virtual graph, .6 declared materialisation).
+- [ ] **CQ-068 · EG-CQ-CONN-R068:** infrastructure-v1.ttl additions rollup (26 children).
+- [ ] **CQ-069 · EG-CQ-CONN-R069:** sdlc_lifecycle-v1.ttl additions rollup (23 children).
+- [ ] **CQ-070 · EG-CQ-CONN-R070:** archimate-v1.ttl additions rollup (8 children).
+- [ ] **CQ-071 · EG-CQ-CONN-R071:** documentation-v1.ttl additions rollup (6 children).
+- [ ] **CQ-072 · EG-CQ-CONN-R072:** process_intelligence-v1.ttl additions rollup (7 children).
+- [ ] **CQ-073 · EG-CQ-CONN-R073:** government-v1.ttl additions rollup (11 children).
+- [ ] **CQ-074 · EG-CQ-CONN-R074:** core-foundation-v1.ttl additions rollup (6 children).
+- [ ] **CQ-075 · EG-CQ-CONN-R075:** finance-v1.ttl additions rollup (7 children).
+- [ ] **CQ-076 · EG-CQ-CONN-R076:** personal-v1.ttl additions rollup (9 children).
+- [ ] **CQ-077 · EG-CQ-CONN-R077:** virtual_graph-v1.ttl additions rollup (3 children).
+- [ ] **CQ-078 · EG-CQ-CONN-R078:** identity-v1.ttl additions rollup (5 children).
+- [ ] **CQ-079 · EG-CQ-CONN-R079:** orchestration-v1.ttl additions rollup (5 children).
+- [ ] **CQ-080 · EG-CQ-CONN-R080:** enterprise-v1.ttl additions rollup (4 children).
+- [ ] **CQ-081 · EG-CQ-CONN-R081:** nutrition-v1.ttl additions rollup (8 children).
+- [ ] **CQ-082 · EG-CQ-CONN-R082:** action-v1.ttl additions rollup (1 children).
+- [ ] **CQ-083 · EG-CQ-CONN-R083:** erpnext, salesforce and twenty use the `EG-SUPPLY-VOCAB` commercial vocabulary (single row).

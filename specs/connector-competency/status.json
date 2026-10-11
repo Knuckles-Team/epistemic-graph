@@ -274,7 +274,152 @@
     "EG-CQ-CONN-R067.3",
     "EG-CQ-CONN-R067.4",
     "EG-CQ-CONN-R067.5",
-    "EG-CQ-CONN-R067.6"
+    "EG-CQ-CONN-R067.6",
+    "EG-CQ-CONN-R068",
+    "EG-CQ-CONN-R068.1",
+    "EG-CQ-CONN-R068.2",
+    "EG-CQ-CONN-R068.3",
+    "EG-CQ-CONN-R068.4",
+    "EG-CQ-CONN-R068.5",
+    "EG-CQ-CONN-R068.6",
+    "EG-CQ-CONN-R068.7",
+    "EG-CQ-CONN-R068.8",
+    "EG-CQ-CONN-R068.9",
+    "EG-CQ-CONN-R068.10",
+    "EG-CQ-CONN-R068.11",
+    "EG-CQ-CONN-R068.12",
+    "EG-CQ-CONN-R068.13",
+    "EG-CQ-CONN-R068.14",
+    "EG-CQ-CONN-R068.15",
+    "EG-CQ-CONN-R068.16",
+    "EG-CQ-CONN-R068.17",
+    "EG-CQ-CONN-R068.18",
+    "EG-CQ-CONN-R068.19",
+    "EG-CQ-CONN-R068.20",
+    "EG-CQ-CONN-R068.21",
+    "EG-CQ-CONN-R068.22",
+    "EG-CQ-CONN-R068.23",
+    "EG-CQ-CONN-R068.24",
+    "EG-CQ-CONN-R068.25",
+    "EG-CQ-CONN-R068.26",
+    "EG-CQ-CONN-R069",
+    "EG-CQ-CONN-R069.1",
+    "EG-CQ-CONN-R069.2",
+    "EG-CQ-CONN-R069.3",
+    "EG-CQ-CONN-R069.4",
+    "EG-CQ-CONN-R069.5",
+    "EG-CQ-CONN-R069.6",
+    "EG-CQ-CONN-R069.7",
+    "EG-CQ-CONN-R069.8",
+    "EG-CQ-CONN-R069.9",
+    "EG-CQ-CONN-R069.10",
+    "EG-CQ-CONN-R069.11",
+    "EG-CQ-CONN-R069.12",
+    "EG-CQ-CONN-R069.13",
+    "EG-CQ-CONN-R069.14",
+    "EG-CQ-CONN-R069.15",
+    "EG-CQ-CONN-R069.16",
+    "EG-CQ-CONN-R069.17",
+    "EG-CQ-CONN-R069.18",
+    "EG-CQ-CONN-R069.19",
+    "EG-CQ-CONN-R069.20",
+    "EG-CQ-CONN-R069.21",
+    "EG-CQ-CONN-R069.22",
+    "EG-CQ-CONN-R069.23",
+    "EG-CQ-CONN-R070",
+    "EG-CQ-CONN-R070.1",
+    "EG-CQ-CONN-R070.2",
+    "EG-CQ-CONN-R070.3",
+    "EG-CQ-CONN-R070.4",
+    "EG-CQ-CONN-R070.5",
+    "EG-CQ-CONN-R070.6",
+    "EG-CQ-CONN-R070.7",
+    "EG-CQ-CONN-R070.8",
+    "EG-CQ-CONN-R071",
+    "EG-CQ-CONN-R071.1",
+    "EG-CQ-CONN-R071.2",
+    "EG-CQ-CONN-R071.3",
+    "EG-CQ-CONN-R071.4",
+    "EG-CQ-CONN-R071.5",
+    "EG-CQ-CONN-R071.6",
+    "EG-CQ-CONN-R072",
+    "EG-CQ-CONN-R072.1",
+    "EG-CQ-CONN-R072.2",
+    "EG-CQ-CONN-R072.3",
+    "EG-CQ-CONN-R072.4",
+    "EG-CQ-CONN-R072.5",
+    "EG-CQ-CONN-R072.6",
+    "EG-CQ-CONN-R072.7",
+    "EG-CQ-CONN-R073",
+    "EG-CQ-CONN-R073.1",
+    "EG-CQ-CONN-R073.2",
+    "EG-CQ-CONN-R073.3",
+    "EG-CQ-CONN-R073.4",
+    "EG-CQ-CONN-R073.5",
+    "EG-CQ-CONN-R073.6",
+    "EG-CQ-CONN-R073.7",
+    "EG-CQ-CONN-R073.8",
+    "EG-CQ-CONN-R073.9",
+    "EG-CQ-CONN-R073.10",
+    "EG-CQ-CONN-R073.11",
+    "EG-CQ-CONN-R074",
+    "EG-CQ-CONN-R074.1",
+    "EG-CQ-CONN-R074.2",
+    "EG-CQ-CONN-R074.3",
+    "EG-CQ-CONN-R074.4",
+    "EG-CQ-CONN-R074.5",
+    "EG-CQ-CONN-R074.6",
+    "EG-CQ-CONN-R075",
+    "EG-CQ-CONN-R075.1",
+    "EG-CQ-CONN-R075.2",
+    "EG-CQ-CONN-R075.3",
+    "EG-CQ-CONN-R075.4",
+    "EG-CQ-CONN-R075.5",
+    "EG-CQ-CONN-R075.6",
+    "EG-CQ-CONN-R075.7",
+    "EG-CQ-CONN-R076",
+    "EG-CQ-CONN-R076.1",
+    "EG-CQ-CONN-R076.2",
+    "EG-CQ-CONN-R076.3",
+    "EG-CQ-CONN-R076.4",
+    "EG-CQ-CONN-R076.5",
+    "EG-CQ-CONN-R076.6",
+    "EG-CQ-CONN-R076.7",
+    "EG-CQ-CONN-R076.8",
+    "EG-CQ-CONN-R076.9",
+    "EG-CQ-CONN-R077",
+    "EG-CQ-CONN-R077.1",
+    "EG-CQ-CONN-R077.2",
+    "EG-CQ-CONN-R077.3",
+    "EG-CQ-CONN-R078",
+    "EG-CQ-CONN-R078.1",
+    "EG-CQ-CONN-R078.2",
+    "EG-CQ-CONN-R078.3",
+    "EG-CQ-CONN-R078.4",
+    "EG-CQ-CONN-R078.5",
+    "EG-CQ-CONN-R079",
+    "EG-CQ-CONN-R079.1",
+    "EG-CQ-CONN-R079.2",
+    "EG-CQ-CONN-R079.3",
+    "EG-CQ-CONN-R079.4",
+    "EG-CQ-CONN-R079.5",
+    "EG-CQ-CONN-R080",
+    "EG-CQ-CONN-R080.1",
+    "EG-CQ-CONN-R080.2",
+    "EG-CQ-CONN-R080.3",
+    "EG-CQ-CONN-R080.4",
+    "EG-CQ-CONN-R081",
+    "EG-CQ-CONN-R081.1",
+    "EG-CQ-CONN-R081.2",
+    "EG-CQ-CONN-R081.3",
+    "EG-CQ-CONN-R081.4",
+    "EG-CQ-CONN-R081.5",
+    "EG-CQ-CONN-R081.6",
+    "EG-CQ-CONN-R081.7",
+    "EG-CQ-CONN-R081.8",
+    "EG-CQ-CONN-R082",
+    "EG-CQ-CONN-R082.1",
+    "EG-CQ-CONN-R083"
   ],
   "requirements": [
     {
@@ -2508,6 +2653,1180 @@
     {
       "id": "EG-CQ-CONN-R067.6",
       "title": "Materialisation is declared, never implicit",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R068",
+      "title": "infrastructure-v1.ttl additions rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R068.1",
+        "EG-CQ-CONN-R068.2",
+        "EG-CQ-CONN-R068.3",
+        "EG-CQ-CONN-R068.4",
+        "EG-CQ-CONN-R068.5",
+        "EG-CQ-CONN-R068.6",
+        "EG-CQ-CONN-R068.7",
+        "EG-CQ-CONN-R068.8",
+        "EG-CQ-CONN-R068.9",
+        "EG-CQ-CONN-R068.10",
+        "EG-CQ-CONN-R068.11",
+        "EG-CQ-CONN-R068.12",
+        "EG-CQ-CONN-R068.13",
+        "EG-CQ-CONN-R068.14",
+        "EG-CQ-CONN-R068.15",
+        "EG-CQ-CONN-R068.16",
+        "EG-CQ-CONN-R068.17",
+        "EG-CQ-CONN-R068.18",
+        "EG-CQ-CONN-R068.19",
+        "EG-CQ-CONN-R068.20",
+        "EG-CQ-CONN-R068.21",
+        "EG-CQ-CONN-R068.22",
+        "EG-CQ-CONN-R068.23",
+        "EG-CQ-CONN-R068.24",
+        "EG-CQ-CONN-R068.25",
+        "EG-CQ-CONN-R068.26"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R068.1",
+      "title": "shapes companion for infrastructure-v1",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R068.2",
+      "title": "AutomationJob",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R068.3",
+      "title": "AutomationJobTemplate",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R068.4",
+      "title": "jobStatus",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R068.5",
+      "title": "ranAgainstHost",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R068.6",
+      "title": "routeHostname",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R068.7",
+      "title": "upstreamAddress",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R068.8",
+      "title": "Alert",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R068.9",
+      "title": "alertSeverity",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R068.10",
+      "title": "alertState",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R068.11",
+      "title": "firingSince",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R068.12",
+      "title": "alertsOn",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R068.13",
+      "title": "lastPushedAt",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R068.14",
+      "title": "pullCount",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R068.15",
+      "title": "entityState",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R068.16",
+      "title": "unavailableSince",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R068.17",
+      "title": "desiredReplicas",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R068.18",
+      "title": "runningReplicas",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R068.19",
+      "title": "stackSourceRepository",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R068.20",
+      "title": "ManagementEnvironment",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R068.21",
+      "title": "pendingUpdateCount",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R068.22",
+      "title": "uptimeSeconds",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R068.23",
+      "title": "recordType",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R068.24",
+      "title": "recordValue",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R068.25",
+      "title": "lastConnectionStatus",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R068.26",
+      "title": "lastConnectionError",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R069",
+      "title": "sdlc_lifecycle-v1.ttl additions rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R069.1",
+        "EG-CQ-CONN-R069.2",
+        "EG-CQ-CONN-R069.3",
+        "EG-CQ-CONN-R069.4",
+        "EG-CQ-CONN-R069.5",
+        "EG-CQ-CONN-R069.6",
+        "EG-CQ-CONN-R069.7",
+        "EG-CQ-CONN-R069.8",
+        "EG-CQ-CONN-R069.9",
+        "EG-CQ-CONN-R069.10",
+        "EG-CQ-CONN-R069.11",
+        "EG-CQ-CONN-R069.12",
+        "EG-CQ-CONN-R069.13",
+        "EG-CQ-CONN-R069.14",
+        "EG-CQ-CONN-R069.15",
+        "EG-CQ-CONN-R069.16",
+        "EG-CQ-CONN-R069.17",
+        "EG-CQ-CONN-R069.18",
+        "EG-CQ-CONN-R069.19",
+        "EG-CQ-CONN-R069.20",
+        "EG-CQ-CONN-R069.21",
+        "EG-CQ-CONN-R069.22",
+        "EG-CQ-CONN-R069.23"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R069.1",
+      "title": "shapes companion for sdlc_lifecycle-v1",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R069.2",
+      "title": "Repository",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R069.3",
+      "title": "Branch",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R069.4",
+      "title": "branchOf",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R069.5",
+      "title": "headCommit",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R069.6",
+      "title": "isDefaultBranch",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R069.7",
+      "title": "blockedBy",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R069.8",
+      "title": "assignedTo",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R069.9",
+      "title": "ticketStatus",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R069.10",
+      "title": "closesTicket",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R069.11",
+      "title": "proposalState",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R069.12",
+      "title": "requestedReviewer",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R069.13",
+      "title": "PipelineJob",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R069.14",
+      "title": "pipelineJobOf",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R069.15",
+      "title": "IterationCycle",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R069.16",
+      "title": "inCycle",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R069.17",
+      "title": "WorkModule",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R069.18",
+      "title": "inModule",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R069.19",
+      "title": "ticketDueDate",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R069.20",
+      "title": "Worktree",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R069.21",
+      "title": "worktreeState",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R069.22",
+      "title": "tracksBranch",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R069.23",
+      "title": "proposalBranch",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R070",
+      "title": "archimate-v1.ttl additions rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R070.1",
+        "EG-CQ-CONN-R070.2",
+        "EG-CQ-CONN-R070.3",
+        "EG-CQ-CONN-R070.4",
+        "EG-CQ-CONN-R070.5",
+        "EG-CQ-CONN-R070.6",
+        "EG-CQ-CONN-R070.7",
+        "EG-CQ-CONN-R070.8"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R070.1",
+      "title": "shapes companion for archimate-v1",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R070.2",
+      "title": "ApplicationComponent",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R070.3",
+      "title": "ArchimateRelationship",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R070.4",
+      "title": "relationshipType",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R070.5",
+      "title": "ConfigurationItem",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R070.6",
+      "title": "affectsConfigurationItem",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R070.7",
+      "title": "incidentState",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R070.8",
+      "title": "incidentAssignee",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R071",
+      "title": "documentation-v1.ttl additions rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R071.1",
+        "EG-CQ-CONN-R071.2",
+        "EG-CQ-CONN-R071.3",
+        "EG-CQ-CONN-R071.4",
+        "EG-CQ-CONN-R071.5",
+        "EG-CQ-CONN-R071.6"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R071.1",
+      "title": "shapes companion for documentation-v1",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R071.2",
+      "title": "WebSnapshot",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R071.3",
+      "title": "ArchiveResult",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R071.4",
+      "title": "hasArchiveResult",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R071.5",
+      "title": "extractorName",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R071.6",
+      "title": "resultStatus",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R072",
+      "title": "process_intelligence-v1.ttl additions rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R072.1",
+        "EG-CQ-CONN-R072.2",
+        "EG-CQ-CONN-R072.3",
+        "EG-CQ-CONN-R072.4",
+        "EG-CQ-CONN-R072.5",
+        "EG-CQ-CONN-R072.6",
+        "EG-CQ-CONN-R072.7"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R072.1",
+      "title": "EpcFunction",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R072.2",
+      "title": "EpcRuleOperator",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R072.3",
+      "title": "flowsTo",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R072.4",
+      "title": "ProcessInstance",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R072.5",
+      "title": "instanceOfProcessModel",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R072.6",
+      "title": "stoppedAtActivity",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R072.7",
+      "title": "raisedIncident",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R073",
+      "title": "government-v1.ttl additions rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R073.1",
+        "EG-CQ-CONN-R073.2",
+        "EG-CQ-CONN-R073.3",
+        "EG-CQ-CONN-R073.4",
+        "EG-CQ-CONN-R073.5",
+        "EG-CQ-CONN-R073.6",
+        "EG-CQ-CONN-R073.7",
+        "EG-CQ-CONN-R073.8",
+        "EG-CQ-CONN-R073.9",
+        "EG-CQ-CONN-R073.10",
+        "EG-CQ-CONN-R073.11"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R073.1",
+      "title": "shapes companion for government-v1",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R073.2",
+      "title": "RiskScenario",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R073.3",
+      "title": "mitigatesRisk",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R073.4",
+      "title": "inFramework",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R073.5",
+      "title": "riskAffectsService",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R073.6",
+      "title": "PrivacyAssessment",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R073.7",
+      "title": "ProcessingActivity",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R073.8",
+      "title": "assessmentCovers",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R073.9",
+      "title": "assessmentDueDate",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R073.10",
+      "title": "assessedVendor",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R073.11",
+      "title": "assessmentStatus",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R074",
+      "title": "core-foundation-v1.ttl additions rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R074.1",
+        "EG-CQ-CONN-R074.2",
+        "EG-CQ-CONN-R074.3",
+        "EG-CQ-CONN-R074.4",
+        "EG-CQ-CONN-R074.5",
+        "EG-CQ-CONN-R074.6"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R074.1",
+      "title": "shapes companion for core-foundation-v1",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R074.2",
+      "title": "GlossaryTerm",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R074.3",
+      "title": "termAssignedTo",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R074.4",
+      "title": "counterparty",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R074.5",
+      "title": "agreementExpiresAt",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R074.6",
+      "title": "hasRenewalAction",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R075",
+      "title": "finance-v1.ttl additions rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R075.1",
+        "EG-CQ-CONN-R075.2",
+        "EG-CQ-CONN-R075.3",
+        "EG-CQ-CONN-R075.4",
+        "EG-CQ-CONN-R075.5",
+        "EG-CQ-CONN-R075.6",
+        "EG-CQ-CONN-R075.7"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R075.1",
+      "title": "shapes companion for finance-v1",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R075.2",
+      "title": "orderQty",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R075.3",
+      "title": "Budget",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R075.4",
+      "title": "budgetLimit",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R075.5",
+      "title": "LedgerTransaction",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R075.6",
+      "title": "chargedToBudget",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R075.7",
+      "title": "transactionAmount",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R076",
+      "title": "personal-v1.ttl additions rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R076.1",
+        "EG-CQ-CONN-R076.2",
+        "EG-CQ-CONN-R076.3",
+        "EG-CQ-CONN-R076.4",
+        "EG-CQ-CONN-R076.5",
+        "EG-CQ-CONN-R076.6",
+        "EG-CQ-CONN-R076.7",
+        "EG-CQ-CONN-R076.8",
+        "EG-CQ-CONN-R076.9"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R076.1",
+      "title": "birthPlace",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R076.2",
+      "title": "birthYear",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R076.3",
+      "title": "documentType",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R076.4",
+      "title": "dueDate",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R076.5",
+      "title": "totalAmount",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R076.6",
+      "title": "FileShare",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R076.7",
+      "title": "sharesFile",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R076.8",
+      "title": "isPublicLink",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R076.9",
+      "title": "shareExpiresAt",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R077",
+      "title": "virtual_graph-v1.ttl additions rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R077.1",
+        "EG-CQ-CONN-R077.2",
+        "EG-CQ-CONN-R077.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R077.1",
+      "title": "NamedGraph",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R077.2",
+      "title": "tripleCount",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R077.3",
+      "title": "lastModifiedAt",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R078",
+      "title": "identity-v1.ttl additions rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R078.1",
+        "EG-CQ-CONN-R078.2",
+        "EG-CQ-CONN-R078.3",
+        "EG-CQ-CONN-R078.4",
+        "EG-CQ-CONN-R078.5"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R078.1",
+      "title": "shapes companion for identity-v1",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R078.2",
+      "title": "Application",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R078.3",
+      "title": "OidcClient",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R078.4",
+      "title": "roleGrantsAccessTo",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R078.5",
+      "title": "accountStatus",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R079",
+      "title": "orchestration-v1.ttl additions rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R079.1",
+        "EG-CQ-CONN-R079.2",
+        "EG-CQ-CONN-R079.3",
+        "EG-CQ-CONN-R079.4",
+        "EG-CQ-CONN-R079.5"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R079.1",
+      "title": "shapes companion for orchestration-v1",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R079.2",
+      "title": "promptVersion",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R079.3",
+      "title": "tokenCost",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R079.4",
+      "title": "tracePrompt",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R079.5",
+      "title": "evaluationScore",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R080",
+      "title": "enterprise-v1.ttl additions rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R080.1",
+        "EG-CQ-CONN-R080.2",
+        "EG-CQ-CONN-R080.3",
+        "EG-CQ-CONN-R080.4"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R080.1",
+      "title": "shapes companion for enterprise-v1",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R080.2",
+      "title": "factSheetType",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R080.3",
+      "title": "lifecyclePhase",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R080.4",
+      "title": "activeUserCount",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R081",
+      "title": "nutrition-v1.ttl additions rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R081.1",
+        "EG-CQ-CONN-R081.2",
+        "EG-CQ-CONN-R081.3",
+        "EG-CQ-CONN-R081.4",
+        "EG-CQ-CONN-R081.5",
+        "EG-CQ-CONN-R081.6",
+        "EG-CQ-CONN-R081.7",
+        "EG-CQ-CONN-R081.8"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R081.1",
+      "title": "Recipe",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R081.2",
+      "title": "usesIngredient",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R081.3",
+      "title": "ShoppingListItem",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R081.4",
+      "title": "MealPlanEntry",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R081.5",
+      "title": "WorkoutRoutine",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R081.6",
+      "title": "Exercise",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R081.7",
+      "title": "includesExercise",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R081.8",
+      "title": "WorkoutSession",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R082",
+      "title": "action-v1.ttl additions rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R082.1"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R082.1",
+      "title": "failureReason",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R083",
+      "title": "erpnext, salesforce and twenty vocabulary (rollup, single row)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
