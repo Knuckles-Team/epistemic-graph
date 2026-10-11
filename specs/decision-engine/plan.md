@@ -501,9 +501,18 @@ The change reuses `entailed_guardrails` and the weakest-premise evidence class f
 Decision: the invariant check precedes the confidence threshold. A rejected alternative is a high confidence bypass, because repeated human overrides can agree and still be wrong.
 Handoff: agent-utilities applies the verdict inside a run and holds no copy of the invariants.
 
-### Current harness producer boundary (R128.3, R128.7)
+### Current harness producer boundary (R128.2, R128.3, R128.7)
 
-`harness_config` owns `HarnessConfigAnswer`, per-part `HarnessPart` decisions,
+`harness_config` owns `HarnessConfigRequestBody` with params named
+`model_profile_ref`, `task_class`, `usable_context_budget_tokens`, `priority`
+and optional `expected_trajectory_tokens`. References reuse the opaque strings
+of `TypedValue::Iri`; this body adds no IRI syntax parser. Token counts reuse
+the nonnegative `u32` range of `ToolSubsetRequestBody`, including zero; decoding
+rejects negatives, overflow and non-integers. Priority reuses `LeasePriority`.
+All four required fields reject omission and null; an absent or null trajectory
+decodes to `None` and is omitted on serialization. Unknown fields are refused.
+
+The module also owns `HarnessConfigAnswer`, per-part `HarnessPart` decisions,
 and pure `decide_action_space`. Fractions reuse checked `UnitRationalWire` with
 a required Q32 denominator; tool subsets and missing-fact lists use `BoundedVec`.
 The selector accepts optional measured proficiency and optional resolved task
