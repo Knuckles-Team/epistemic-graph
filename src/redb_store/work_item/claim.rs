@@ -35,6 +35,15 @@ pub(crate) struct ClaimWorkItemScan {
     changed_work_item_ids: Vec<String>,
 }
 
+/// Choose a fence newer than either persisted authority counter. Refuse
+/// exhaustion before modifying the row rather than reusing a saturated fence.
+fn next_claim_epoch(props: &serde_json::Map<String, serde_json::Value>) -> Result<u64, String> {
+    property_u64(props, "lease_epoch")
+        .max(property_u64(props, "fencing_token"))
+        .checked_add(1)
+        .ok_or_else(|| "ClaimWorkItem lease fence overflow".to_string())
+}
+
 /// Retire an expired lease that has reached its attempt ceiling.
 fn retire_exhausted_lease(
     props: &mut serde_json::Map<String, serde_json::Value>,
@@ -104,16 +113,16 @@ pub(crate) fn claim_reclaim_expired_lease(
     node_id: &str,
     status: &str,
     now_s: f64,
-) -> bool {
+) -> Result<bool, String> {
     let attempts = property_u64(props, "attempt");
     let max_attempts = property_u64(props, "max_attempts").max(1);
-    let next_epoch = property_u64(props, "lease_epoch").saturating_add(1);
+    let next_epoch = next_claim_epoch(props)?;
     if attempts >= max_attempts {
         retire_exhausted_lease(props, node_id, status, now_s, next_epoch);
-        true
+        Ok(true)
     } else {
         reclaim_expired_lease(props, node_id, status, next_epoch);
-        false
+        Ok(false)
     }
 }
 
@@ -172,42 +181,42 @@ pub(crate) fn classify_claim_row(
     node_id: &str,
     mut props: serde_json::Map<String, serde_json::Value>,
     now_s: f64,
-) -> ClaimRowOutcome {
+) -> Result<ClaimRowOutcome, String> {
     if property_string(&props, "node_type") != "WorkItem" {
-        return ClaimRowOutcome::Skip;
+        return Ok(ClaimRowOutcome::Skip);
     }
     if property_string(&props, "tenant") != request.tenant_ref.as_str() {
-        return ClaimRowOutcome::Skip;
+        return Ok(ClaimRowOutcome::Skip);
     }
     let status = property_string(&props, "status").to_string();
     if matches!(status.as_str(), "leased" | "running")
         && property_f64(&props, "lease_expires_at") > now_s
     {
-        return ClaimRowOutcome::InFlight;
+        return Ok(ClaimRowOutcome::InFlight);
     }
     if request
         .work_item_id
         .as_deref()
         .is_some_and(|selected| selected != node_id)
     {
-        return ClaimRowOutcome::Skip;
+        return Ok(ClaimRowOutcome::Skip);
     }
     if matches!(status.as_str(), "leased" | "running")
-        && claim_reclaim_expired_lease(&mut props, node_id, &status, now_s)
+        && claim_reclaim_expired_lease(&mut props, node_id, &status, now_s)?
     {
-        return ClaimRowOutcome::Exhausted(props);
+        return Ok(ClaimRowOutcome::Exhausted(props));
     }
     if claim_candidate_is_excluded(&props, request, now_s) {
-        return ClaimRowOutcome::Skip;
+        return Ok(ClaimRowOutcome::Skip);
     }
     let deadline = claim_candidate_deadline(&props, now_s);
-    ClaimRowOutcome::Candidate((
+    Ok(ClaimRowOutcome::Candidate((
         property_u64(&props, "prio_bucket"),
         deadline,
         (property_f64(&props, "created_at") * 1000.0) as u64,
         node_id.to_string(),
         props,
-    ))
+    )))
 }
 
 /// One bounded pass over this graph's node rows, tallying the tenant's in-flight
@@ -233,7 +242,7 @@ pub(crate) fn scan_claim_work_item_candidates(
         let Ok(props) = decode_durable::<serde_json::Map<String, serde_json::Value>>(&bytes) else {
             continue;
         };
-        match classify_claim_row(request, node_id, props, now_s) {
+        match classify_claim_row(request, node_id, props, now_s)? {
             ClaimRowOutcome::Skip => {}
             ClaimRowOutcome::InFlight => scan.inflight = scan.inflight.saturating_add(1),
             ClaimRowOutcome::Exhausted(props) => {
@@ -287,8 +296,8 @@ pub(crate) fn claim_grant_lease(
     worker_id: &str,
     now_s: f64,
     lease_until_s: f64,
-) -> (u64, u64) {
-    let epoch = property_u64(props, "lease_epoch").saturating_add(1);
+) -> Result<(u64, u64), String> {
+    let epoch = next_claim_epoch(props)?;
     let attempt = property_u64(props, "attempt").saturating_add(1);
     props.insert("status".into(), serde_json::Value::String("leased".into()));
     props.insert(
@@ -312,7 +321,7 @@ pub(crate) fn claim_grant_lease(
     props.insert("heartbeat_at".into(), serde_json::Value::from(now_s));
     props.insert("updated_at".into(), serde_json::Value::from(now_s));
     props.insert("attempt".into(), serde_json::Value::from(attempt));
-    (epoch, attempt)
+    Ok((epoch, attempt))
 }
 
 struct ClaimWorkItemApply<'args, 'table, 'crypto> {
@@ -370,7 +379,7 @@ fn apply_claimed_work_item(
         crypto,
     } = input;
     let worker_id = &request.worker_ref;
-    let (epoch, attempt) = claim_grant_lease(&mut props, worker_id, now_s, lease_until_s);
+    let (epoch, attempt) = claim_grant_lease(&mut props, worker_id, now_s, lease_until_s)?;
     let kind = property_string(&props, "kind").to_string();
     let payload_ref = property_string(&props, "payload_ref").to_string();
     let max_attempts = property_u64(&props, "max_attempts").max(1);
@@ -474,4 +483,136 @@ pub(crate) fn apply_claim_work_item_row<'txn, 'crypto>(
         native_work_items: &mut *native_work_items,
         crypto,
     })?))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn lease_props(epoch: u64, token: u64) -> serde_json::Map<String, serde_json::Value> {
+        serde_json::json!({
+            "status": "running", "lease_epoch": epoch, "fencing_token": token,
+            "lease_owner": "old-worker", "lease_expires_at": 1.0,
+            "work_item_fence": format!("lease-fence-v1:{epoch}"),
+            "attempt": 1, "max_attempts": 3
+        })
+        .as_object()
+        .unwrap()
+        .clone()
+    }
+
+    #[test]
+    fn grant_refuses_either_exhausted_fence_without_mutation() {
+        for (epoch, token) in [(u64::MAX, 7), (7, u64::MAX), (u64::MAX, u64::MAX)] {
+            let mut props = lease_props(epoch, token);
+            let before = props.clone();
+            assert_eq!(
+                claim_grant_lease(&mut props, "new-worker", 2.0, 3.0),
+                Err("ClaimWorkItem lease fence overflow".into())
+            );
+            assert_eq!(props, before);
+        }
+    }
+
+    #[test]
+    fn reclaim_refuses_exhausted_fences_before_requeue_or_retirement() {
+        for (epoch, token) in [(u64::MAX, 7), (7, u64::MAX), (u64::MAX, u64::MAX)] {
+            for attempts in [1, 3] {
+                let mut props = lease_props(epoch, token);
+                props.insert("attempt".into(), attempts.into());
+                let before = props.clone();
+                assert_eq!(
+                    claim_reclaim_expired_lease(&mut props, "work-1", "running", 2.0),
+                    Err("ClaimWorkItem lease fence overflow".into())
+                );
+                assert_eq!(props, before);
+            }
+        }
+    }
+
+    #[test]
+    fn grant_advances_beyond_both_authority_counters() {
+        for (epoch, token) in [(4, 9), (9, 4), (u64::MAX - 1, u64::MAX - 1)] {
+            let mut props = lease_props(epoch, token);
+            let next = epoch.max(token) + 1;
+            assert_eq!(
+                claim_grant_lease(&mut props, "new-worker", 2.0, 3.0),
+                Ok((next, 2))
+            );
+            assert_eq!(props["lease_epoch"], next);
+            assert_eq!(props["fencing_token"], next);
+            assert_eq!(props["work_item_fence"], format!("lease-fence-v1:{next}"));
+            assert_eq!(props["lease_owner"], "new-worker");
+        }
+    }
+
+    #[test]
+    fn reclaim_then_grant_cannot_reuse_last_available_fence() {
+        let mut props = lease_props(u64::MAX - 1, u64::MAX - 1);
+        assert_eq!(
+            claim_reclaim_expired_lease(&mut props, "work-1", "running", 2.0),
+            Ok(false)
+        );
+        let reclaimed = props.clone();
+        assert!(claim_grant_lease(&mut props, "new-worker", 2.0, 3.0).is_err());
+        assert_eq!(props, reclaimed);
+    }
+
+    fn claim_request(selected: Option<&str>) -> crate::epistemic_operations::ClaimWorkItemRequest {
+        crate::epistemic_operations::ClaimWorkItemRequest {
+            schema_version: crate::epistemic_operations::ClaimWorkItemRequestSchemaVersion::V1,
+            tenant_ref: "tenant-a".into(),
+            work_item_id: selected.map(str::to_string),
+            queue_ref: None,
+            resource_class: None,
+            fairness_group: None,
+            worker_ref: "new-worker".into(),
+            now_ms: 2000,
+            lease_ms: 1000,
+            max_tenant_in_flight: 10,
+        }
+    }
+
+    #[test]
+    fn claim_classification_propagates_exhaustion_after_exact_id_filter() {
+        let mut props = lease_props(u64::MAX, u64::MAX);
+        props.insert("node_type".into(), "WorkItem".into());
+        props.insert("tenant".into(), "tenant-a".into());
+        assert!(matches!(
+            classify_claim_row(
+                &claim_request(Some("another-item")),
+                "work-1",
+                props.clone(),
+                2.0
+            ),
+            Ok(ClaimRowOutcome::Skip)
+        ));
+        assert!(matches!(
+            classify_claim_row(&claim_request(Some("work-1")), "work-1", props, 2.0),
+            Err(error) if error == "ClaimWorkItem lease fence overflow"
+        ));
+    }
+
+    #[test]
+    fn expired_reclaim_and_retirement_advance_the_fence() {
+        for attempts in [1, 3] {
+            let mut props = lease_props(4, 9);
+            props.insert("attempt".into(), attempts.into());
+            assert_eq!(
+                claim_reclaim_expired_lease(&mut props, "work-1", "running", 2.0),
+                Ok(attempts == 3)
+            );
+            assert_eq!(props["lease_epoch"], 10);
+            assert_eq!(props["fencing_token"], 10);
+            assert_eq!(
+                props["status"],
+                if attempts == 3 {
+                    "dead_letter"
+                } else {
+                    "ready"
+                }
+            );
+            assert!(props["lease_owner"].is_null());
+        }
+    }
 }

@@ -261,6 +261,24 @@ pub(super) fn submit_job_mine_associate(
     min_confidence: f64,
     algorithm: String,
 ) -> Result<(JobKind, String, String, serde_json::Value), Response> {
+    // Reject invalid parameters before traversing or pseudonymizing the input.
+    // A governed-payload refusal is caller input, not an internal engine fault.
+    if !min_support.is_finite()
+        || !(0.0..=1.0).contains(&min_support)
+        || !min_confidence.is_finite()
+        || !(0.0..=1.0).contains(&min_confidence)
+    {
+        return Err(Response::err(
+            req_id,
+            "INVALID_ARGUMENT: association job thresholds are invalid",
+        ));
+    }
+    if parse_algorithm(&algorithm).is_err() {
+        return Err(Response::err(
+            req_id,
+            "INVALID_ARGUMENT: unsupported association job algorithm",
+        ));
+    }
     // Durable worker input contains opaque item references only. Source
     // labels and personal identifiers never enter jobs.redb.
     let transactions: Vec<Vec<String>> = transactions
@@ -282,19 +300,11 @@ pub(super) fn submit_job_mine_associate(
         .flatten()
         .collect::<std::collections::BTreeSet<_>>()
         .len();
-    if !min_support.is_finite()
-        || !(0.0..=1.0).contains(&min_support)
-        || !min_confidence.is_finite()
-        || !(0.0..=1.0).contains(&min_confidence)
-        || distinct_items > 31
-    {
+    if distinct_items > 31 {
         return Err(Response::err(
             req_id,
-            "association job thresholds or distinct-item cardinality are invalid",
+            "INVALID_ARGUMENT: association job distinct-item cardinality exceeds 31",
         ));
-    }
-    if let Err(error) = parse_algorithm(&algorithm) {
-        return Err(Response::err(req_id, error));
     }
     let params = serde_json::json!({
         "min_support": min_support,

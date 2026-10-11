@@ -208,7 +208,8 @@ impl<'a> GraphTxn<'a> {
     /// `AS OF TX` history of what-we-believed is preserved. Matches the edge(s)
     /// between `(source_id, target_id)` whose canonical `relationship` field equals
     /// `relationship`
-    /// and that are not already closed at or before `invalid_at`. Returns how many
+    /// and whose transaction window is still open and validity is not already
+    /// closed at or before `invalid_at`. Returns how many
     /// edge blobs were updated. Deterministic in its args, so it replays identically
     /// from the WAL / on a Raft follower.
     pub fn invalidate_edge(
@@ -237,11 +238,13 @@ impl<'a> GraphTxn<'a> {
             if !rel_matches {
                 continue;
             }
-            // Skip an edge already closed at or before this instant (idempotent).
-            let already_closed = obj
-                .get("valid_until")
-                .and_then(|v| v.as_u64())
-                .is_some_and(|vu| vu <= invalid_at);
+            // A closed transaction window is immutable history, even when a
+            // later request supplies an earlier event-time close.
+            let already_closed = obj.get("tx_to").and_then(|v| v.as_u64()).is_some()
+                || obj
+                    .get("valid_until")
+                    .and_then(|v| v.as_u64())
+                    .is_some_and(|vu| vu <= invalid_at);
             if already_closed {
                 continue;
             }
@@ -269,6 +272,7 @@ impl<'a> GraphTxn<'a> {
     /// and a `supersedes` provenance pointer). Returns `Ok(())` once the new edge is
     /// added (endpoints must exist), after invalidating the prior. A missing new
     /// endpoint is refused before either edge or its ledger entries are changed.
+    /// A missing or already-closed prior is refused without adding a successor.
     // The nine args are three irreducible groups of distinct primitives — the new
     // edge (source, target, properties), the prior edge to close (source, target,
     // relationship) and the two bitemporal timestamps (valid_at, tx_now). Bundling
@@ -293,13 +297,16 @@ impl<'a> GraphTxn<'a> {
                 return Err(edge_endpoint_not_found(role, endpoint));
             }
         }
-        self.invalidate_edge(
+        if self.invalidate_edge(
             prior_source,
             prior_target,
             prior_relationship,
             valid_at,
             tx_now,
-        );
+        ) == 0
+        {
+            return Err("INVALID_ARGUMENT: prior edge is missing or already closed".into());
+        }
         self.add_edge(new_source, new_target, new_properties_msgpack)
     }
 }
