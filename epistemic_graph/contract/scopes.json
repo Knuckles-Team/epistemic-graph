@@ -382,6 +382,12 @@
     },
     {
       "approver_group": null,
+      "class": "user",
+      "owner": "engine",
+      "scope": "federation:read"
+    },
+    {
+      "approver_group": null,
       "class": "domain",
       "owner": "finance",
       "scope": "finance:alerts"

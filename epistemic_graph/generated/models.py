@@ -23577,6 +23577,39 @@ CreateUserRequestGroups = Annotated[list[str], AfterValidator(_eg_unique_items)]
 CreateUserRequestRoles = Annotated[list[str], AfterValidator(_eg_unique_items)]
 
 
+DecisionEvalReceiptResult = DecisionEvalReceipt | None
+
+
+DecisionEvalReceiptsResult = DecisionReceiptPage
+
+
+DecisionEvalStatusResult = DecisionJobRecord | None
+
+
+DecisionEvalSubmitResult = DecisionJobRecord
+
+
+DecisionEvalTimelineResult = DecisionReceiptTimelinePage
+
+
+DecisionEvalResult = (
+    DecisionEvalReceiptResult
+    | DecisionEvalReceiptsResult
+    | DecisionEvalStatusResult
+    | DecisionEvalSubmitResult
+    | DecisionEvalTimelineResult
+)
+
+
+DecisionFitStatusResult = DecisionJobRecord | None
+
+
+DecisionFitSubmitResult = DecisionJobRecord
+
+
+DecisionFitResult = DecisionFitStatusResult | DecisionFitSubmitResult
+
+
 DegreeCentralityAllResultValueItem = Annotated[
     tuple[str, float],
     Field(
@@ -25362,11 +25395,20 @@ __all__ = [
     "DecisionEvalOpSubmit",
     "DecisionEvalOpTimeline",
     "DecisionEvalReceipt",
+    "DecisionEvalReceiptResult",
+    "DecisionEvalReceiptsResult",
     "DecisionEvalRequest",
+    "DecisionEvalResult",
+    "DecisionEvalStatusResult",
+    "DecisionEvalSubmitResult",
+    "DecisionEvalTimelineResult",
     "DecisionFitOp",
     "DecisionFitOpStatus",
     "DecisionFitOpSubmit",
     "DecisionFitRequest",
+    "DecisionFitResult",
+    "DecisionFitStatusResult",
+    "DecisionFitSubmitResult",
     "DecisionHeadBody",
     "DecisionInputs",
     "DecisionJobKind",

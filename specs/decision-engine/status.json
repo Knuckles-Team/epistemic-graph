@@ -1365,13 +1365,16 @@
       "title": "Typed client wrappers and documentation for Decide",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "15acf1a959e5",
         "1e9ea1ef3790",
         "25cb8189575d",
         "2a0d6eae0918",
-        "8d4f409785b2"
+        "394f82a01e83"
       ],
       "verified_by": [
-        "crates/eg-capabilities/src/contract/python/tests.rs:818"
+        "crates/eg-capabilities/src/contract/python/tests.rs:818",
+        "tests/test_generated_models.py:139",
+        "tests/test_generated_models.py:176"
       ]
     },
     {
