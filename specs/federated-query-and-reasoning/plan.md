@@ -136,3 +136,31 @@ Cross-repository: `AU-SEMANTIC` rows pass the verified tenant through the reques
 
 References
 - No paper is cited.
+
+## EG-FEDERATED-QUERY-R079 lake catalog schema evolution and time travel
+
+Data flow: Iceberg REST commit → `commit_table` (`src/server/lake/rest/catalog.rs:318`) → `LakeManager::evolve_column` → `LakeTable::evolve_column` (`crates/eg-lake/src/lib.rs`) → new schema version in metadata → `load_table_as_of` (`src/server/lake/catalog_ops.rs:184`) resolves a snapshot by time.
+Types: `SchemaChangeKind` gains `ReorderColumn`; the table keeps one schema version per change. Field ids stay stable across renames.
+Attach point: `commit_table`; its production caller is the listener route dispatch. Today `commit_table` only compacts, and `evolve_add_column` (`crates/eg-lake/src/lib.rs:179`) is reached from `src/server/lake/mod.rs:243` but not from a REST route.
+Failure: an unapproved destructive change or an unknown column is refused with a typed code and no new version.
+Existing code: `src/server/lake/rest/catalog.rs:270`, `:318`; `src/server/lake/catalog_ops.rs:184`; `crates/eg-lake/src/lib.rs:179`, `:241`, `:285`; `crates/eg-lake/src/iceberg.rs:315`, `:348`; `crates/eg-lake/src/iceberg_avro.rs:371`, `:408`; `crates/eg-types/src/lake_catalog.rs:216`, `:248`. Reachable today: load and time travel yes; schema evolution through REST no.
+Reuses the table builder, the manifest writer and the compatibility classifier. New: drop, rename and reorder, and the commit-route wiring.
+Decision: evolve through the standard commit route. Rejected: a private admin call, which external engines cannot use.
+Cross-repository: the authenticated catalog is owned by `EG-UNIFIED-DATA-PLANE-R039`; this rollup adds no new access rule.
+
+References
+- No paper is cited.
+
+## EG-FEDERATED-QUERY-R080 read-only table projections
+
+Data flow: graph write → graph version → projection materialization (`crates/eg-core/src/projection_catalog.rs:75`) → lake table → Iceberg REST read; a projected write → `refuse_projection_write` → `PROJECTION_READ_ONLY`.
+Types: `ProjectionAccess{ReadOnly, Authoritative}` on every `TableEntry` (`crates/eg-lake/src/catalog.rs:27`).
+Attach point: the listener dispatch in `src/server/lake/rest/mod.rs`, before `commit_table` and `drop_table`. No production caller refuses a projection write today.
+Failure: a projected write returns `PROJECTION_READ_ONLY` and the graph is unchanged.
+Existing code: `crates/eg-lake/src/catalog.rs:27`; `crates/eg-core/src/projection_catalog.rs:75`; `crates/eg-plan/src/federation.rs:933`; `src/server/lake/rest/catalog.rs:318`, `:349`. Reachable today: SQL write refusal yes; projection write refusal no.
+Reuses the shared read-only SQL check pattern. New: the typed access value and the route refusal.
+Decision: one refusal at the listener. Rejected: per-route checks, which a new route could skip.
+Cross-repository: none.
+
+References
+- No paper is cited.

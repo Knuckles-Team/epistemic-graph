@@ -28,7 +28,14 @@
     "EG-INGEST-WORKER-R002.3",
     "EG-INGEST-WORKER-R002.4",
     "EG-INGEST-WORKER-R002.5",
-    "EG-INGEST-WORKER-R002.6"
+    "EG-INGEST-WORKER-R002.6",
+    "EG-INGEST-WORKER-R003",
+    "EG-INGEST-WORKER-R003.1",
+    "EG-INGEST-WORKER-R003.2",
+    "EG-INGEST-WORKER-R003.3",
+    "EG-INGEST-WORKER-R003.4",
+    "EG-INGEST-WORKER-R003.5",
+    "EG-INGEST-WORKER-R003.6"
   ],
   "requirements": [
     {
@@ -228,6 +235,63 @@
     },
     {
       "id": "EG-INGEST-WORKER-R002.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R003",
+      "title": "Documents become typed knowledge atoms with mandatory provenance (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-INGEST-WORKER-R003.1",
+        "EG-INGEST-WORKER-R003.2",
+        "EG-INGEST-WORKER-R003.3",
+        "EG-INGEST-WORKER-R003.4",
+        "EG-INGEST-WORKER-R003.5",
+        "EG-INGEST-WORKER-R003.6"
+      ]
+    },
+    {
+      "id": "EG-INGEST-WORKER-R003.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R003.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R003.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R003.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R003.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R003.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],

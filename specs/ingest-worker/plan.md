@@ -68,3 +68,18 @@ Cross-repository: the connector SDK runner (owner prefix `SDK-INGEST`, contract 
 
 References
 - arXiv:2511.11017 — Peshevski et al., "AI Agent-Driven Framework for Automated Product Knowledge Graph Construction in E-Commerce" (2025)
+
+## EG-INGEST-WORKER-R003 knowledge atoms
+
+Data flow: claim → `ingest_document` body (`crates/eg-capabilities/src/ingest_queue.rs`, created by R002.3) → `decompose` → atom store; query → `select_atoms` → context.
+Types: `KnowledgeAtom{atom_id, kind, text, provenance_key, tenant}` in `crates/eg-types/src/knowledge_atom.rs`.
+Attach point: the document job body and the context query path. Production caller: the runner of R001.14. No production caller exists today.
+Failure: an atom without provenance is refused and not stored.
+Existing code: `crates/eg-document/src/contract.rs:141` (chunk validation). Reachable today: no. Search terms with no hit: knowledge atom, memory atom, provenance_key, assemble_context, ContextPack.
+Reuses document chunks. New: the atom type, decomposition and selection.
+Decision: select atoms per query. Rejected: sending whole documents as context, which spends budget on irrelevant text.
+Cross-repository: the connector SDK runner (owner prefix `SDK-INGEST`, contract `run_ingest_worker`) hosts the body.
+
+References
+- arXiv:2606.12400 — Diao et al., "Doc-to-Atom: Learning to Compile and Compose Memory Atoms" (2026)
+- arXiv:2606.19847 — Yao et al., "AtomMem" (2026)

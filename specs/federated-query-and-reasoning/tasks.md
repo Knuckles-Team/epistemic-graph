@@ -79,3 +79,17 @@ Check boxes describe work remaining for this combined contract. They do not cert
   - [ ] **EG-FEDERATED-QUERY-R078.4:** Unverified caller refusal
   - [ ] **EG-FEDERATED-QUERY-R078.5:** Scope premise in the trace
   - [ ] **EG-FEDERATED-QUERY-R078.6:** Out-of-tenant read proof
+  - [ ] **EG-FEDERATED-QUERY-R079:** Lake catalog schema evolution and time travel (rollup).
+  - [ ] **EG-FEDERATED-QUERY-R079.1:** `ReorderColumn` kind and classification
+  - [ ] **EG-FEDERATED-QUERY-R079.2:** `evolve_column` for four change kinds
+  - [ ] **EG-FEDERATED-QUERY-R079.3:** Attach to the CommitTable route
+  - [ ] **EG-FEDERATED-QUERY-R079.4:** Unapproved destructive change refusal
+  - [ ] **EG-FEDERATED-QUERY-R079.5:** Schema version in the operation record
+  - [ ] **EG-FEDERATED-QUERY-R079.6:** Commit, time-travel and manifest proof
+  - [ ] **EG-FEDERATED-QUERY-R080:** Graph is the sole write boundary; projections are read-only (rollup).
+  - [ ] **EG-FEDERATED-QUERY-R080.1:** `ProjectionAccess` typed model
+  - [ ] **EG-FEDERATED-QUERY-R080.2:** `refuse_projection_write` classification
+  - [ ] **EG-FEDERATED-QUERY-R080.3:** Attach at the listener dispatch
+  - [ ] **EG-FEDERATED-QUERY-R080.4:** `PROJECTION_READ_ONLY` refusal
+  - [ ] **EG-FEDERATED-QUERY-R080.5:** Refusal and read-version evidence
+  - [ ] **EG-FEDERATED-QUERY-R080.6:** Write-then-read projection proof
