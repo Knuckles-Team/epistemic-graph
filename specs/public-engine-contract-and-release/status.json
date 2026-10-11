@@ -340,8 +340,8 @@
         "b8aac182d679"
       ],
       "verified_by": [
-        "crates/eg-capabilities/src/contract/errors.rs:466",
-        "crates/eg-capabilities/src/error_routing.rs:309"
+        "crates/eg-capabilities/src/contract/errors.rs:470",
+        "crates/eg-capabilities/src/error_routing.rs:314"
       ]
     },
     {
