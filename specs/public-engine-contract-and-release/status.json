@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "spec_id": "EG-CONTRACT-001",
+  "spec_id": "EG-CONTRACT",
   "owner_repo": "epistemic-graph",
   "delivery_state": "SPECIFIED",
   "requirement_ids": [
