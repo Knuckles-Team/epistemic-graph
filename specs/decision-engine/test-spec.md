@@ -36,6 +36,12 @@ Check metric labels omit raw facts and errors omit invisible component identifie
 
 ## H. Quality and acceptance matrix
 
+### EG-DECISION-ENGINE-R116.2: generated-client runtime admission
+
+Use the published Python contract against a disposable served fixture. Exercise an engine read and a decision call without importing `epistemic_graph.engine` or constructing a bespoke facade. Prove that the existing Rust `admit_call_path` runs before dispatch. Check the full generated method inventory, operation-specific adapters and `send_by_id` so an extra sender cannot bypass that boundary.
+
+Pass an empty contract version and a bespoke call path through the real runtime boundary. Both must fail before transport dispatch or any durable side effect. Attempt an arbitrary `_send` adapter and a caller-asserted `Contract` label; neither may substitute for the owned admission-to-dispatch binding. Include a mutation fixture that removes admission from one generated sender and proves the coverage check fails. Re-run generated artifact freshness after changing the generator. Direct gate unit tests, source-text checks and mocked successful dispatch do not replace the served acceptance fixture.
+
 ### EG-DECISION-ENGINE-R118 and EG-DECISION-ENGINE-R119 focused acceptance
 
 | ID | Positive fixture | Refusal and boundary fixture |
