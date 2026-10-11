@@ -200,12 +200,16 @@ def _assert_runtime_contract_jobs(jobs, security):
     assert "continue-on-error" not in runtime_contracts
     # CI runs the same pre-commit config as a local commit, so every
     # commit-stage architecture hook is a blocking CI gate by construction.
-    assert any(
-        str(step.get("run", "")).startswith(
-            "pre-commit run --config .config/pre-commit.yaml"
-        )
+    commands = [
+        line.strip()
         for step in runtime_contracts["steps"]
-    )
+        for line in str(step.get("run", "")).splitlines()
+    ]
+    for scope in ('--from-ref "$BASE" --to-ref "$HEAD"', "--all-files"):
+        assert (
+            f"pre-commit run --config .config/pre-commit.yaml {scope} "
+            "--show-diff-on-failure"
+        ) in commands
     assert "python3 scripts/check_universal_read_rls.py" in {
         step.get("run") for step in security["steps"]
     }
