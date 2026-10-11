@@ -105,8 +105,8 @@ R093.2 extends `an_admin_forced_reproject_redrives_a_stale_projection_without_lo
 The fixture reads authoritative persisted schema after signed Reproject and checks two distinct blank identities.
 A fresh request key repeats Reproject and preserves the composed digest, source catalogue, and connector head.
 Scoped formatting and diff checks do not execute these native tests.
-Both rows remain LANDED-only until native execution passes.
-No acceptance bindings mark either row VERIFIED.
+Native execution remains unrun for both rows.
+Test bindings record the existing acceptance fixtures, independently of execution results.
 
 ## Modality regression scope (EG-TYPED-PACKS-R043)
 

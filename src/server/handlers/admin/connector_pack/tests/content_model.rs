@@ -591,7 +591,8 @@ async fn withdrawing_most_of_a_connector_needs_the_admin_override() {
     }
 }
 
-/// R042.2: signed admission persists the G12 partition, including exact foreign text.
+// spec: EG-TYPED-PACKS-R042.2
+/// Signed admission persists the G12 partition, including exact foreign text.
 #[tokio::test]
 async fn capability_annotations_remain_declared_after_import() {
     let served = Served::new();

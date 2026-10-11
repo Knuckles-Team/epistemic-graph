@@ -28,7 +28,7 @@ fn iri_triple(subject: &str, predicate: &str, object: &str) -> Triple {
     )
 }
 
-// Pending native acceptance: EG-ORCH-VOCAB-R001.1.
+// spec: EG-ORCH-VOCAB-R001.1
 #[test]
 fn task_step_resolves_and_precedes_accepts_it() {
     let mut triples = documents();
@@ -61,7 +61,7 @@ fn task_step_resolves_and_precedes_accepts_it() {
     ));
 }
 
-// Pending native acceptance: EG-ORCH-VOCAB-R004.1.
+// spec: EG-ORCH-VOCAB-R004.1
 #[test]
 fn best_practice_is_a_development_standard() {
     let triples = documents();

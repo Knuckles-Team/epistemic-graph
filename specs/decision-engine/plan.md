@@ -255,7 +255,8 @@ The same fitted calibration is reused without size-specific temperature tuning.
 This is deterministic synthetic test evidence, not a production-data claim.
 Native execution remains pending after the local eg-types compile was SIGKILLed;
 formatting and fixture checks do not satisfy native acceptance.
-No spec binding marker is added before that native run.
+The test marker binds the existing fixture to R084.1.
+The generated lifecycle records test existence, independently of execution results.
 
 ## Ingestion and schema completion boundaries
 

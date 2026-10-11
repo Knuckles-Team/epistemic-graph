@@ -34,6 +34,7 @@ fn variable_dataset(sizes: &[usize], seed: usize) -> LabelledDataset {
     )
 }
 
+// spec: EG-DECISION-ENGINE-R084.1
 #[test]
 fn measures_ece_and_empirical_coverage_across_option_sets_of_varying_size() {
     let training = variable_dataset(&SIZES, 0);
