@@ -570,5 +570,8 @@ The benchmark lives in `crates/eg-numeric/benches/decision_resident_scorer.rs`, 
 
 Native measurement on 2026-10-11 met both parameter and CPU latency limits but
 reported 124,788,736 bytes of whole-runner peak RSS against an 8 MiB ceiling.
-The result is inconclusive, so R090.3 remains open. The test specification links
-the structured receipt and exact release executable provenance.
+That first Cargo-launched result is inconclusive and remains recorded. A direct
+run of the identical executable subsequently met all measured limits, with
+2,850,816 bytes peak RSS independently corroborated by external time. The test
+specification links both structured receipts and exact release provenance. The
+launch-dependent difference is observed; its precise cause is not established.

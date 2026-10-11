@@ -138,9 +138,9 @@ The latency boundary accepts 9,999 microseconds and refuses 10,000 microseconds.
 
 EG-DECISION-ENGINE-R090.2 requires `tests/test_decision_resident_scorer.py::test_compiled_engine_scores_without_external_runtime`.
 EG-DECISION-ENGINE-R090.3 requires `crates/eg-numeric/benches/decision_resident_scorer.rs::resident_scorer_meets_declared_budget`.
-R090.2 remains planned and unrun. R090.3 has the native measurement below, but
-its memory acceptance remains unresolved. Budget declarations do not establish
-either result.
+R090.2 remains planned and unrun. R090.3 has paired native measurements below:
+the Cargo launch is inconclusive; the standalone run meets the measured limits.
+Budget declarations alone do not establish either result.
 
 ### R090.3 native release measurement (2026-10-11)
 
@@ -161,8 +161,24 @@ Both cases meet the 700,000-parameter and 9,999-microsecond ceilings over 1,000
 calls after 100 warmups. The 637,136-byte runner produced a whole-runner peak RSS
 of 124,788,736 bytes, above the 8,388,608-byte ceiling. Its scorer-specific resident
 memory remains unknown. The native result is **inconclusive**, with exit code 2;
-R090.3 remains open. Neither serialized model size nor runner file length
-resolves this above-ceiling RSS result.
+Neither serialized model size nor runner file length resolves this above-ceiling
+RSS result. It remains preserved in the first receipt.
+
+### R090.3 standalone corroboration (2026-10-11)
+
+The [standalone receipt](../../crates/eg-numeric/benches/decision_resident_scorer.standalone.receipt.json)
+records the exact same executable, with no rebuild, fixture changes, reduced
+samples or baseline subtraction. A separate shell ran it under `/usr/bin/time -v`.
+Its SHA-256 remains `b648cd00dc5dae3d5648b269f5245db0175c3c5ae3d9f51611e4dea501c260a5`.
+
+The native peak RSS was 2,850,816 bytes; external time reported exactly 2,784 KiB.
+Both are below 8 MiB. The fitted and maximum-shape p99 CPU measurements were
+7.713 and 1205.546 microseconds; parameters remained 234 and 1360. The run exited
+0 in 0.99 seconds after the same 100 warmups and 1,000 samples per case.
+The standalone native fixture therefore meets all measured resource limits with
+verified release provenance. This does not establish served parent acceptance.
+The difference between launch methods is observed; startup or inherited
+high-water effects remain hypotheses, not an established causal attribution.
 
 ### R093.2 planned served acceptance
 
