@@ -227,3 +227,11 @@ R093.2 now records that remainder with three planned children.
 The original parent acceptance remains unchanged.
 `export_gold_corpus` currently calls `generate_gold_set` and exports `SOURCE_IN_PROCESS` labels.
 This correction claims no served implementation or runtime test result.
+
+### 2026-10-11: repair the R083 option-count fixture
+
+The large-option scorer fixture estimated 120,000 tokens but required more than 128,000.
+Increase its option count from 4,000 to 5,000, yielding 150,000 estimated tokens.
+Keep the label estimate, token budget, feature-width checks, and bounded-shortlist assertions unchanged.
+This test repair changes no runtime behavior or acceptance state.
+The bound test covers the large-option scorer fixture only; R083.2 still requires real OptionFacts integration.
