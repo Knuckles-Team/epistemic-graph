@@ -519,7 +519,7 @@
         "9079ca7b0ddd"
       ],
       "verified_by": [
-        "crates/eg-types/src/agent_component.rs:2105"
+        "crates/eg-types/src/agent_component.rs:2111"
       ]
     },
     {
@@ -1129,7 +1129,7 @@
         "fa780d3e101a"
       ],
       "verified_by": [
-        "crates/eg-types/src/agent_component.rs:1797"
+        "crates/eg-types/src/agent_component.rs:1803"
       ]
     },
     {
@@ -1318,7 +1318,7 @@
       ],
       "verified_by": [
         "crates/eg-numeric/tests/decision/scorer_promotion.rs:179",
-        "crates/eg-types/src/agent_component.rs:2134"
+        "crates/eg-types/src/agent_component.rs:2140"
       ]
     },
     {
@@ -1512,12 +1512,15 @@
     {
       "id": "EG-DECISION-ENGINE-R074",
       "title": "Agent-slot component-kind closure rule kept current",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "1e9ea1ef3790",
+        "51f9c8eb6f1d",
         "a4804f87c971"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_decision_static_contracts.py:135"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R075",
@@ -1577,7 +1580,7 @@
         "a1bb9fb9503e"
       ],
       "verified_by": [
-        "crates/eg-types/src/agent_component.rs:2162"
+        "crates/eg-types/src/agent_component.rs:2168"
       ]
     },
     {
@@ -1733,7 +1736,7 @@
     {
       "id": "EG-DECISION-ENGINE-R084",
       "title": "Conformal calibration as primary rung over temperature scaling",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "1e9ea1ef3790",
         "4952a2edced4"
@@ -1746,8 +1749,10 @@
     {
       "id": "EG-DECISION-ENGINE-R084.1",
       "title": "ECE/coverage measurement across option sets of varying size",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "7765cab2e500"
+      ],
       "verified_by": []
     },
     {
@@ -2299,11 +2304,11 @@
         "93183139d2e2"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/topology/capacity_commit.rs:113",
-        "crates/eg-types/src/decision/topology/capacity_commit.rs:128",
-        "crates/eg-types/src/decision/topology/capacity_commit.rs:140",
-        "crates/eg-types/src/decision/topology/capacity_commit.rs:152",
-        "crates/eg-types/src/decision/topology/capacity_commit.rs:177"
+        "crates/eg-types/src/decision/topology/capacity_commit.rs:110",
+        "crates/eg-types/src/decision/topology/capacity_commit.rs:125",
+        "crates/eg-types/src/decision/topology/capacity_commit.rs:137",
+        "crates/eg-types/src/decision/topology/capacity_commit.rs:149",
+        "crates/eg-types/src/decision/topology/capacity_commit.rs:174"
       ]
     },
     {
@@ -2362,9 +2367,14 @@
     {
       "id": "EG-DECISION-ENGINE-R113.3.1",
       "title": "Consume the typed allowance once",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "cb8662f24bef"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/decision/topology/retry_allowance.rs:35",
+        "crates/eg-types/src/decision/topology/retry_allowance.rs:49"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R113.3.2",
@@ -2553,12 +2563,15 @@
     {
       "id": "EG-DECISION-ENGINE-R123",
       "title": "Solve DTOs canonical in eg-types, no duplicate copies",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "51f9c8eb6f1d",
         "534f763afc81",
         "a4804f87c971"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_decision_static_contracts.py:77"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R124",

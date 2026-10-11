@@ -720,7 +720,8 @@ ex:parent a owl:AsymmetricProperty .
         // +95: Account/Position (45) and Activity/Lot (50) declarations and
         // properties (EG-FINANCE-PRIMITIVES-R004.2.1/R004.2.2). The asset-class
         // comment replacement changes content, not the triple count.
-        assert_eq!(composed.ontology.len(), 13_751);
+        // +8: TaskStep and BestPractice (EG-ORCH-VOCAB-R001.1/R004.1).
+        assert_eq!(composed.ontology.len(), 13_759);
 
         let ontology_subjects: BTreeSet<String> = composed
             .ontology
@@ -766,7 +767,8 @@ ex:parent a owl:AsymmetricProperty .
         // +84: the virtual-graph module (EG-UNIFIED-DATA-PLANE-R037).
         // +95: the portfolio-accounting declarations above are semantic axioms;
         // the ontology headers and import edges are unchanged.
-        assert_eq!(semantic_axioms, 13_565);
+        // +8: the two orchestration vocabulary class declarations.
+        assert_eq!(semantic_axioms, 13_573);
 
         let count_type = |object: &str| {
             composed
@@ -819,7 +821,8 @@ ex:parent a owl:AsymmetricProperty .
             // the security-audit and pipeline-event feed classes; +25: swarm topology.
             // +9: finance (EH-411); +1: EH-420/EH-421.
             // +4: Account, Position, Activity and Lot specialize BFO GDC.
-            462
+            // +2: TaskStep specializes Entity; BestPractice specializes DevelopmentStandard.
+            464
         );
     }
 

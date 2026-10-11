@@ -110,6 +110,21 @@ Out of scope: new analytics families, a schedule for mining jobs, and any change
 
 R076.2 remains responsible for scope, persistence, served reads/updates, lane membership and real admission/queue enforcement. Worker registration supplies capacity, not an alternative policy authority. R074 worker registration and these floor keys share canonical engine lane IDs; served integration must validate membership against the same registry.
 
+## Lifecycle control admission and fixture isolation
+
+The control owner must bind each R049 maintenance claim to its in-transaction version.
+The graph owner must retain caller-key replay and nonce enforcement.
+`delete_purges_receipts_of_a_prior_incarnation` must prove recreation and subsequent replay across restart.
+The shared temporary-path helper must add a process-local sequence; concurrent path tests must prove uniqueness.
+Native facade acceptance remains pending.
+
+## Clippy profile declaration coverage
+
+R011.5 checks both required Clippy profiles through the existing release feature-matrix suite.
+The R011 parent binding records partial declaration coverage only.
+R011.3 and R011.4 retain their runtime and exact-head receipt obligations.
+The generator must keep these three rows SPECIFIED until their own evidence exists.
+
 ## Amendments
 
 ### 2026-10-11: R082.6 historical ordering
@@ -184,21 +199,3 @@ This documentation repair adds no Rust execution evidence or runtime acceptance.
 ### 2026-10-11: repeated loaded harness
 
 R014.3.1 adds bounded repetitions and per-invocation evidence to the existing CPU-load supervisor. R014.3.2 retains Rust FlakeBudget-driven diagnostic retries. R014.4 and R014.5 remain open until actual Rust cluster execution is recorded.
-
-### 2026-10-11: lifecycle control admission and fixture isolation
-
-R049 previously reused a control maintenance claim after graph-generation receipts were purged.
-The control owner must bind each claim to its in-transaction version.
-The graph owner must retain caller-key replay and nonce enforcement.
-`delete_purges_receipts_of_a_prior_incarnation` must prove recreation and subsequent replay across restart.
-R011 test fixtures previously assumed nanosecond timestamps were unique.
-The shared temporary-path helper must add a process-local sequence; concurrent path tests must prove uniqueness.
-The native facade failure log identifies both failures; runtime acceptance remains pending.
-
-### 2026-10-11: distinguish profile declarations from runtime acceptance
-
-R011 previously lacked a test binding for its declared Clippy profiles.
-R011.5 adds configuration checks to the existing release feature-matrix suite.
-The parent binding records partial declaration coverage only.
-R011.3 and R011.4 retain their unchanged runtime and exact-head receipt obligations.
-The generator must keep the parent and those children SPECIFIED until their own evidence exists.

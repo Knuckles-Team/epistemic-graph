@@ -45,13 +45,10 @@ The transition response contains old/new mode, epoch and revocation receipt. Ses
 
 Capability descriptors declare exact scope and class. The generator validates uniqueness and coverage, emits the registry with methods/errors and publishes its digest in the wheel. Server authorization resolves only exact declared scopes. Delegation cannot convert service-only into a human grant; approval cannot be inferred from wildcard or broad graph admin. Finance, fleet and other domain scopes enter through their owning capabilities, and stale undeclared names are rejected during generation. A consumer may generate a local allowlist from this catalog but cannot claim a broader class.
 
-## Amendments
+## Semantic owner registry identity
 
-### 2026-10-11: semantic owner registry identity
-
-R005 previously keyed the process registry by tenant and binding alone.
-The registry must also key the canonical persistence root.
+The R005 registry must key the canonical persistence root, tenant, and binding.
 Distinct roots must never share a semantic owner; aliases of one root must share its handle.
 The existing activation grant and verified-principal checks remain mandatory.
 `semantic_owner_registry_is_scoped_to_persistence_root` must prove root isolation and canonical alias reuse.
-The native facade AdmitBinding conflict identifies this defect; runtime acceptance remains pending.
+Native facade acceptance remains pending.

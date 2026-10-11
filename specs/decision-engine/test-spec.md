@@ -81,8 +81,9 @@ EG-DECISION-ENGINE-R113.3 tracks retry enforcement.
 
 ### Planned runtime checks for EG-DECISION-ENGINE-R113
 
-These tests are planned and unexecuted. Their names do not identify existing tests.
-All runtime rows below remain SPECIFIED.
+Except for the local retry model noted below, these tests are planned and unexecuted.
+Those planned test names do not identify existing tests.
+The transaction and durable runtime rows remain SPECIFIED. The local retry model has direct native proof.
 Each fixture is a bounded acceptance slice. It does not include the missing transaction implementation.
 
 On 2026-10-11, source inspection found separate write owners:
@@ -107,7 +108,7 @@ The request fixture in `.3.3` depends on those operations.
 | EG-DECISION-ENGINE-R113.2.2 | `src/server/persistence/decision_record/tests.rs` | `topology_commit_publishes_capacity_and_evidence` | SPECIFIED; not run |
 | EG-DECISION-ENGINE-R113.2.3 | `src/server/persistence/decision_record/tests.rs` | `topology_capacity_denial_leaves_no_commit_parts` | SPECIFIED; not run |
 | EG-DECISION-ENGINE-R113.2.4 | `src/server/persistence/decision_record/tests.rs` | `topology_commit_recovery_preserves_atomic_outcome` | SPECIFIED; not run |
-| EG-DECISION-ENGINE-R113.3.1 | `crates/eg-types/src/decision/topology/capacity_commit.rs` | `tests::retry_allowance_consumes_once` | SPECIFIED; not run |
+| EG-DECISION-ENGINE-R113.3.1 | `crates/eg-types/src/decision/topology/retry_allowance.rs` | `tests::retry_allowance_consumes_once`, `tests::invalid_allowances_fail_without_mutation` | Direct native module tests pass; workspace integration not run |
 | EG-DECISION-ENGINE-R113.3.2 | `src/server/persistence/decision_record/tests.rs` | `topology_denial_allowance_consumption_survives_restart` | SPECIFIED; not run |
 | EG-DECISION-ENGINE-R113.3.3 | `src/server/handlers/decide/commit.rs` | `tests::topology_denial_accepts_one_followup_request` | SPECIFIED; not run |
 
@@ -143,3 +144,16 @@ These tests are planned and have not run.
 | EG-DECISION-ENGINE-R093.2.1 | `tests/synthetic/test_synthetic_decision_export.py::test_corpus_collects_seeded_served_results` | Exported candidates match recorded served-client results. |
 | EG-DECISION-ENGINE-R093.2.2 | `tests/synthetic/test_synthetic_decision_export.py::test_served_labels_require_collected_results` | Invalid provenance and labels fail closed. |
 | EG-DECISION-ENGINE-R093.2.3 | `tests/synthetic/test_served_corpus_training.py::test_training_consumes_served_ground_truth` | Training consumes episodes collected from a real server. |
+
+## Static contract checks
+
+Run `python -m pytest -q tests/test_decision_static_contracts.py` without a native engine build.
+R074 checks the full component enum and agent-slot references against the closure documentation.
+R123 scans Rust sources under `src` and `crates` for duplicate solve DTO declarations.
+The scan permits explicitly listed, unrelated domain homonyms.
+Negative fixtures add duplicate declarations, remove documented kinds, and introduce an undocumented slot reference.
+These checks prove source and documentation consistency only. They do not execute solver behavior.
+
+## Local retry model verification
+
+Run `rustc --edition=2021 --test crates/eg-types/src/decision/topology/retry_allowance.rs -o /path/to/retry-tests`, then run that binary. This compiles the exact production module without a substitute dependency. The tests cover the 1-to-0 transition, repeated refusal, zero, and all 254 malformed counts. The module remains re-exported through `capacity_commit` for existing callers. This proves only EG-DECISION-ENGINE-R113.3.1; copies do not share state. Durable and handler enforcement remain required by R113.3.2 and R113.3.3.

@@ -367,6 +367,11 @@ itself is intentionally empty to allow dynamic domain expansion without
 schema changes.  Teams link to domains via `worksOnDomain`.""" ;
     rdfs:subClassOf bfo:0000031 .
 
+:BestPractice a owl:Class ;
+    rdfs:label "Best Practice" ;
+    rdfs:comment "A recommended engineering practice governed as a development standard." ;
+    rdfs:subClassOf :DevelopmentStandard .
+
 :DevelopmentStandard a owl:Class ;
     rdfs:label "Development Standard" ;
     rdfs:comment """A codified engineering standard, coding guideline, or quality gate.
