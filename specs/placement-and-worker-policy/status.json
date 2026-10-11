@@ -366,9 +366,14 @@
     {
       "id": "EG-PLACEMENT-R003.6",
       "title": "Cap is counted after hashing; verify deterministic behavior on bounded fixtures",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "bc01fdc30bb0"
+      ],
+      "verified_by": [
+        "src/server/handlers/jobs/association_hash_tests.rs:33",
+        "src/server/handlers/jobs/association_hash_tests.rs:52"
+      ]
     }
   ]
 }
