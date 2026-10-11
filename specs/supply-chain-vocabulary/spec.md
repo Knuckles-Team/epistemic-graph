@@ -43,4 +43,4 @@ Non-goals: ingesting any source's data; a new decision or planning mechanism; Ar
 
 ## Open questions
 
-- None blocking the ontology. Two source gaps are recorded as BLOCKED in plan.md D4 with the owning repository.
+- None blocking the ontology. Source gaps, including the unverified Item-to-Asset link, are recorded as BLOCKED in plan.md D4 with the owning repository.

@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
-  "spec_id": "supply-chain-vocabulary",
-  "owner_repo": "specs-gap-supply-chain-vocab",
+  "spec_id": "EG-SUPPLY-VOCAB-001",
+  "owner_repo": "epistemic-graph",
   "delivery_state": "SPECIFIED",
   "requirement_ids": [
     "EG-SUPPLY-VOCAB-R001",

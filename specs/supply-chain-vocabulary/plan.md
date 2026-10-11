@@ -38,9 +38,12 @@ Prefixes: `kg:` = `http://knuckles.team/kg#`; `infra:` = `http://knuckles.team/k
 | `kg:suppliesItem` | object property | `kg:Supplier` to `kg:SupplyChainItem` | derived from PO: `PurchaseOrder -suppliedBy-> Supplier`, `PurchaseOrder -contains-> Item` |
 | `kg:realizedByAsset` | object property | `kg:SupplyChainItem` to `kg:AssetInstance` (`trm-v1.ttl`) | ERPNext Asset links item to a deployed asset |
 | `kg:assetHost` | object property | `kg:AssetInstance` to `infra:Host` | asserted only through approved `owl:sameAs` or a CMDB CI link |
-| `kg:suppliesService` | object property | `kg:Supplier` to `infra:Service` | derived; physical chain `suppliesItem, realizedByAsset, assetHost, ^infra:runsOn` (a service runs on a host); software chain `^publishedBy, ^versionOf, ^usesComponent` (publisher to component to version to service) |
+| `infra:serviceRunsOn` | object property | `infra:Service` to `infra:Host`; subproperty of `infra:runsOn` | projected only for independently identified Service records; never infer this edge from an arbitrary runsOn triple |
+| `kg:suppliesService` | object property | `kg:Supplier` to `infra:Service` | derived; physical chain `suppliesItem, realizedByAsset, assetHost, ^infra:serviceRunsOn` (a service runs on a host); software chain `^publishedBy, ^versionOf, ^usesComponent` (publisher to component to version to service) |
 
-Reuse, not redefinition: `kg:suppliedBy` is **not** redeclared in eg-core. `erpnext.ttl` fixes its domain to `:PurchaseOrder`; a shared property must not be constrained by one module (the `trm-v1.ttl` `trmCurrentValue` precedent). The cross-source spec's "`:suppliedBy` item to supplier" is replaced by `kg:suppliesItem` (Decision D5).
+`infra:runsOn` also links containers and pods to hardware. The physical chain must therefore use `infra:serviceRunsOn`; a container-only or pod-only runsOn fixture must not infer suppliesService or retype the runtime entity as a Service.
+
+Reuse, not redefinition: `kg:suppliedBy` is **not** redeclared in this work; trm-v1.ttl already declares it for TechnologyProduct to Vendor. `erpnext.ttl` fixes its domain to `:PurchaseOrder`; a shared property must not be constrained by one module (the `trm-v1.ttl` `trmCurrentValue` precedent). The cross-source spec's "`:suppliedBy` item to supplier" is replaced by `kg:suppliesItem` (Decision D5).
 
 ### Software supply chain — same file
 
@@ -147,6 +150,7 @@ Tool `erpnext_agent_resource` (`erpnext_agent/mcp/mcp_resource.py:16`), actions 
 | `Supplier` | erpnext | leanix `Provider` | `erpnext_agent_resource list_documents` (doctype Supplier); `leanix_source_factsheets` (`leanix_agent/mcp_server.py:172`, Provider in manifest) | |
 | `SupplyChainItem` | erpnext | | `erpnext_agent_resource list_documents` (Item) | |
 | `suppliesItem` | erpnext PO | | `list_documents` (Purchase Order) + `get_document` for lines | |
+| `realizedByAsset` | | | no verified connected operation joins purchased Item to deployed AssetInstance | **BLOCKED**: owner operator plus erpnext-agent/servicenow mapping; identify the Item-to-Asset field before declaring the physical chain covered. Return typed Uncovered until then |
 | `AssetInstance` / `assetHost` | servicenow CMDB | erpnext asset | `get_cmdb_instances` (`servicenow_api/mcp_server.py:182`); systems-manager `HardwareNode` | erpnext Asset doctype read not verified; not used |
 | `SoftwareComponent`, `ComponentVersion`, `containsComponent` | dockerhub (SBOM) | gitlab `dependencies` | `hub_scout` actions `sbom`, `summary` (`dockerhub_api/mcp/mcp_scout.py:23-28`); `gitlab_vulnerabilities` action `dependencies` (`gitlab_api/mcp_server.py:1119`) | github dependency graph: only `github_dependabot` alerts found, no SBOM action |
 | `Vulnerability`, `affectsComponent` | dockerhub (`cves`, `vulnerabilities`) | gitlab (`get_project`), github Dependabot | `hub_scout`; `gitlab_vulnerabilities`; `github_dependabot` actions list/get (`github_agent/mcp/mcp_dependabot.py:150`) | |
