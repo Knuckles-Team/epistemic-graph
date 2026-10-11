@@ -11,7 +11,7 @@ Tasks mirror requirements.md rows; check a task only when its evidence is linked
 - [ ] **DPV-007 · EG-DATAPLAT-VOCAB-R002.1:** Add `dp:Database`, `dp:Schema`, `dp:Table`, `dp:View`, `dp:Column`, `dp:ForeignKey`.
 - [ ] **DPV-008 · EG-DATAPLAT-VOCAB-R002.2:** Add `dp:inSchema`, `dp:hasColumn`, `dp:referencesTable`, `dp:isPrimaryKey`, `dp:sqlDialect` with domain/range.
 - [ ] **DPV-009 · EG-DATAPLAT-VOCAB-R002.3:** Add `dp:Collection`, `dp:DocumentField`, `dp:fieldPath`, `dp:fieldType`, `dp:presenceRatio`, `dp:documentCount`.
-- [ ] **DPV-010 · EG-DATAPLAT-VOCAB-R002.4:** Add a shape: `dp:fieldType` is in the `DocumentFieldType` list (incl.
+- [ ] **DPV-010 · EG-DATAPLAT-VOCAB-R002.4:** Add a shape: `dp:fieldType` is in the `DocumentFieldType` list (including `Mixed`); `dp:presenceRatio` is in [0,1].
 - [ ] **DPV-011 · EG-DATAPLAT-VOCAB-R003:** Object and vector store terms (rollup).
 - [ ] **DPV-012 · EG-DATAPLAT-VOCAB-R003.1:** Add `dp:Bucket`, `dp:StoredObject`, `dp:objectKey`, `dp:byteSize`, `dp:lastModified`; no content property.
 - [ ] **DPV-013 · EG-DATAPLAT-VOCAB-R003.2:** Add `dp:VectorCollection`, `dp:EmbeddingSpace`, `dp:embeddingModel`, `dp:dimensions`, `dp:distanceMetric`, `dp:usesEmbeddingSpace`, `dp:vectorCount`.
@@ -20,13 +20,13 @@ Tasks mirror requirements.md rows; check a task only when its evidence is linked
 - [ ] **DPV-016 · EG-DATAPLAT-VOCAB-R004.1:** Add `dp:Topic`, `dp:Partition`, `dp:ConsumerGroup`, `dp:PartitionLag`, `dp:partitionOf`, `dp:subscribesTo`, `dp:lag`, `dp:groupState`.
 - [ ] **DPV-017 · EG-DATAPLAT-VOCAB-R004.2:** Add a shape: `dp:lag` integer >= 0 and `dp:asOf` required on `dp:PartitionLag`.
 - [ ] **DPV-018 · EG-DATAPLAT-VOCAB-R004.3:** Add `dp:AnalyticsSite`, `dp:BehaviorMetric`, `dp:metricName`, `dp:metricValue`, `dp:windowDays`, `dp:dimensionName`, `dp:dimensionValue`.
-- [ ] **DPV-019 · EG-DATAPLAT-VOCAB-R004.4:** Add `dp:Dataset`, `dp:Model`, `dp:TrainingRun`, `dp:EvaluationResult`, `dp:trainedOn`, `dp:producedModel`, `dp:evaluatedOn`, `dp:baselineRun`.
+- [ ] **DPV-019 · EG-DATAPLAT-VOCAB-R004.4:** Add `dp:Dataset` as a subclass of core `:Dataset`, `dp:Model` as a general trained-model class (not equivalent to the narrower LLM/embedding `:Model`), `dp:TrainingRun`, `dp:EvaluationResult`, `dp:trainedOn`, `dp:producedModel`, `dp:evaluatedOn`, `dp:baselineRun`.
 - [ ] **DPV-020 · EG-DATAPLAT-VOCAB-R005:** Secret metadata only (openbao) (rollup).
-- [ ] **DPV-021 · EG-DATAPLAT-VOCAB-R005.1:** Add `dp:SecretEngine`, `dp:SecretPath`, `dp:AccessPolicy`, `dp:RotationState`, `dp:hasRotationState`, `dp:lastRotatedAt`, `dp:currentVersion`, `dp:grantsCapability`, `dp:leaseExpiresAt`.
-- [ ] **DPV-022 · EG-DATAPLAT-VOCAB-R005.2:** Add closed shapes (`sh:closed true`) for the four secret classes; any property outside the metadata list is a violation.
+- [ ] **DPV-021 · EG-DATAPLAT-VOCAB-R005.1:** Add `dp:SecretEngine`, `dp:SecretPath`, `dp:AccessPolicy`, `dp:RotationState`, `dp:hasRotationState`, `dp:lastRotatedAt`, `dp:currentVersion`, `dp:pathName`, `dp:PolicyPathGrant`, `dp:grantPolicy`, `dp:grantPath`, `dp:grantsCapability`, `dp:leaseExpiresAt`.
+- [ ] **DPV-022 · EG-DATAPLAT-VOCAB-R005.2:** Add closed shapes (`sh:closed true`) for the five secret-metadata classes, including `dp:PolicyPathGrant`; allow only applicable metadata properties and reject every other property.
 - [ ] **DPV-023 · EG-DATAPLAT-VOCAB-R005.3:** Refusal test row: a `dp:SecretPath` carrying a `value` (and one carrying `token`) triple fails validation, and the vocabulary file contains no property named value, secret, token, password, ciphertext or rules.
 - [ ] **DPV-024 · EG-DATAPLAT-VOCAB-R005.4:** Add a mapping-validator rule that refuses a `dp:StoreMapping` whose `dp:viaOperation` is `openbao_mcp_kv:kv2_get`, `kv1_get`, `openbao_mcp_logical:read` or `unwrap`.
-- [ ] **DPV-025 · EG-DATAPLAT-VOCAB-R005.5:** Add a shape: `dp:grantsCapability` is in `read list create update delete sudo deny`.
+- [ ] **DPV-025 · EG-DATAPLAT-VOCAB-R005.5:** Add a grant shape with exactly one policy, exactly one secret path and at least one capability string in `read list create update delete sudo deny`; validate distinct permissions on two paths.
 - [ ] **DPV-026 · EG-DATAPLAT-VOCAB-R006:** Per-connector mapping fixtures (rollup).
 - [ ] **DPV-027 · EG-DATAPLAT-VOCAB-R006.1:** Add the `sql` `dp:StoreMapping` fixture for `sql_schema:tables`, `columns`, `foreign_keys`, `constraints` with `dp:accelerationMode` V (reason recorded where M).
 - [ ] **DPV-028 · EG-DATAPLAT-VOCAB-R006.2:** Add the `documentdb` `dp:StoreMapping` fixture for `documentdb_collections:list_collections`, `documentdb_analysis:aggregate` with `dp:accelerationMode` V (reason recorded where M).

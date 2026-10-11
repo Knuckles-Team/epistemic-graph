@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
-  "spec_id": "data-platform-vocabulary",
-  "owner_repo": "specs-gap-dataplatform-vocab",
+  "spec_id": "EG-DATAPLAT-VOCAB-001",
+  "owner_repo": "epistemic-graph",
   "delivery_state": "SPECIFIED",
   "requirement_ids": [
     "EG-DATAPLAT-VOCAB-R001",
@@ -91,7 +91,7 @@
     },
     {
       "id": "EG-DATAPLAT-VOCAB-R001.4",
-      "title": "Register `core:data-platform@1` as a core schema source next to `core:virtual-graph@1`. Touches `crates/eg-core/src/schema_sources.rs`. Depends on `EG-DATAPLAT-VOCAB-R001.1`",
+      "title": "Register `core:data-platform@1` as a core schema source next to `core:virtual-graph@1`. Touches `crates/eg-core/src/graph/schema_sources.rs`. Depends on `EG-DATAPLAT-VOCAB-R001.1`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -206,7 +206,7 @@
     },
     {
       "id": "EG-DATAPLAT-VOCAB-R004.4",
-      "title": "Add `dp:Dataset`, `dp:Model`, `dp:TrainingRun`, `dp:EvaluationResult`, `dp:trainedOn`, `dp:producedModel`, `dp:evaluatedOn`, `dp:baselineRun`. Touches `crates/eg-core/ontology/data_platform-v1.ttl`. Depends on `EG-DATAPLAT-VOCAB-R001.1`",
+      "title": "Add `dp:Dataset` as a subclass of the existing core `:Dataset`, `dp:Model` as a general trained-model class (not equivalent to the narrower LLM/embedding `:Model`), `dp:TrainingRun`, `dp:EvaluationResult`, `dp:trainedOn`, `dp:producedModel`, `dp:evaluatedOn`, `dp:baselineRun`. Touches `crates/eg-core/ontology/data_platform-v1.ttl`. Depends on `EG-DATAPLAT-VOCAB-R001.1`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -227,14 +227,14 @@
     },
     {
       "id": "EG-DATAPLAT-VOCAB-R005.1",
-      "title": "Add `dp:SecretEngine`, `dp:SecretPath`, `dp:AccessPolicy`, `dp:RotationState`, `dp:hasRotationState`, `dp:lastRotatedAt`, `dp:currentVersion`, `dp:grantsCapability`, `dp:leaseExpiresAt`. Touches `crates/eg-core/ontology/data_platform-v1.ttl`. Depends on `EG-DATAPLAT-VOCAB-R001.1`",
+      "title": "Add `dp:SecretEngine`, `dp:SecretPath`, `dp:AccessPolicy`, `dp:RotationState`, `dp:hasRotationState`, `dp:lastRotatedAt`, `dp:currentVersion`, `dp:pathName`, `dp:PolicyPathGrant`, `dp:grantPolicy`, `dp:grantPath`, `dp:grantsCapability`, `dp:leaseExpiresAt`. Touches `crates/eg-core/ontology/data_platform-v1.ttl`. Depends on `EG-DATAPLAT-VOCAB-R001.1`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-DATAPLAT-VOCAB-R005.2",
-      "title": "Add closed shapes (`sh:closed true`) for the four secret classes; any property outside the metadata list is a violation. Touches `crates/eg-core/ontology/data_platform-v1.shapes.ttl`. Depends on `EG-DATAPLAT-VOCAB-R005.1`",
+      "title": "Add closed shapes (`sh:closed true`) for the five secret-metadata classes, including `dp:PolicyPathGrant`; allow only their applicable metadata properties, including shared store/provenance links, and reject every other property. Touches `crates/eg-core/ontology/data_platform-v1.shapes.ttl`. Depends on `EG-DATAPLAT-VOCAB-R005.1`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -255,7 +255,7 @@
     },
     {
       "id": "EG-DATAPLAT-VOCAB-R005.5",
-      "title": "Add a shape: `dp:grantsCapability` is in `read list create update delete sudo deny`. Touches `crates/eg-core/ontology/data_platform-v1.shapes.ttl`. Depends on `EG-DATAPLAT-VOCAB-R005.1`",
+      "title": "Add a shape: each `dp:PolicyPathGrant` has exactly one `dp:grantPolicy` (`dp:AccessPolicy`), exactly one `dp:grantPath` (`dp:SecretPath`), and at least one `dp:grantsCapability` string in `read list create update delete sudo deny`. Touches `crates/eg-core/ontology/data_platform-v1.shapes.ttl`. Depends on `EG-DATAPLAT-VOCAB-R005.1`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

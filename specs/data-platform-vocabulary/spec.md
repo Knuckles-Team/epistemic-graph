@@ -26,7 +26,7 @@ Vocabulary, shapes, mapping fixtures and validator rule in epistemic-graph. Mech
 | Requirement | Design section | Test ID | Evidence |
 |---|---|---|---|
 | FR-001 | plan.md Vocabulary | T-001, T-002 | PENDING |
-| FR-002 | plan.md Decisions 11 | T-003, T-004 | PENDING |
+| FR-002 | plan.md Decisions 11 | T-003, T-004, T-009 | PENDING |
 | FR-003 | plan.md Decisions 4 | T-005 | PENDING |
 | FR-004 | plan.md Decisions 3 | T-006 | PENDING |
 | FR-005 | plan.md Architecture | T-007 | PENDING |

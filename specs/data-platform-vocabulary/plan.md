@@ -50,15 +50,17 @@ Prefix `dp:` = `http://knuckles.team/kg/data-platform#`. All classes/properties 
 
 **Stream (8):** `dp:Topic`, `dp:Partition`, `dp:ConsumerGroup`, `dp:PartitionLag` (one group x partition measurement), `dp:partitionOf`, `dp:subscribesTo`, `dp:lag` (xsd:long), `dp:groupState`.
 
-**Secret metadata (9):** `dp:SecretEngine`, `dp:SecretPath`, `dp:AccessPolicy`, `dp:RotationState`, `dp:hasRotationState`, `dp:lastRotatedAt`, `dp:currentVersion`, `dp:grantsCapability` (AccessPolicy -> SecretPath; closed values `read list create update delete sudo deny`), `dp:leaseExpiresAt`. There is no value, ciphertext, token, HCL-rule-body or key property in the namespace.
+**Secret metadata:** `dp:SecretEngine`, `dp:SecretPath`, `dp:AccessPolicy`, `dp:RotationState`, `dp:hasRotationState`, `dp:lastRotatedAt`, `dp:currentVersion`, `dp:pathName` (SecretPath -> xsd:string), `dp:PolicyPathGrant` (class), `dp:grantPolicy` (PolicyPathGrant -> AccessPolicy), `dp:grantPath` (PolicyPathGrant -> SecretPath), `dp:grantsCapability` (PolicyPathGrant -> xsd:string; one or more closed values `read list create update delete sudo deny`), `dp:leaseExpiresAt`. There is no value, ciphertext, token, HCL-rule-body or key property in the namespace.
 
 **Analytics (5):** `dp:AnalyticsSite`, `dp:BehaviorMetric`, `dp:metricName`, `dp:metricValue`, `dp:windowDays`; dimension via `dp:dimensionName` / `dp:dimensionValue` (e.g. `URL`). `dp:AnalyticsSession` is declared but only populated if the connector exposes sessions (it does not today; see Decisions).
 
-**ML (8):** `dp:Dataset`, `dp:Model`, `dp:TrainingRun`, `dp:EvaluationResult`, `dp:trainedOn`, `dp:producedModel`, `dp:evaluatedOn`, `dp:baselineRun`.
+**ML (8):** `dp:Dataset` (subclass of existing `:Dataset` from core-foundation), `dp:Model` (a general trained-model class), `dp:TrainingRun`, `dp:EvaluationResult`, `dp:trainedOn`, `dp:producedModel`, `dp:evaluatedOn`, `dp:baselineRun`.
+
+Core alignment: `dp:Dataset` reuses the existing analysis-dataset meaning through subclassing. The existing `:Model` describes LLM/embedding deployment models; do not equate the broader `dp:Model` to it. Only an explicitly qualified LLM/embedding subtype of `dp:Model` may also subclass `:Model`. Kafka `dp:Topic` is distinct from the existing AgentBus `:Topic`.
 
 **Mapping (4, on `dp:StoreMapping`):** `dp:contractKind` (closed: `r2rml-sql`, `document-shape`, `mcp-operation`), `dp:viaOperation` (string `tool:action`, required when `contractKind = mcp-operation`), `dp:accelerationMode` (`virtual` | `materialised`), `dp:materialisationReason` (required when `materialised`).
 
-Total new terms: about 66 (classes 26, properties 40). `core:virtual-graph@1` gets one edit: `document` added to the `vg:sourceKind` list and to its `sh:in` (task R001.9).
+`core:virtual-graph@1` gets one edit: `document` added to the `vg:sourceKind` list and to its `sh:in` (task R001.3).
 
 ### SHACL (`data_platform-v1.shapes.ttl`)
 
@@ -66,7 +68,7 @@ Same style as `virtual_graph-v1.shapes.ttl`: SHACL Core plus aggregate-free `sh:
 
 - `dp:StoreFamilyShape`: `dp:storeFamily` exactly one, `sh:in` the eight families.
 - `dp:StoreMappingShape`: `dp:accelerationMode` exactly one `sh:in ("virtual" "materialised")`; `dp:contractKind` exactly one; `sh:sparql` rule: `materialised` without `dp:materialisationReason` is a violation; `contractKind = mcp-operation` without `dp:viaOperation` is a violation. Virtual is the default and needs no reason.
-- `dp:SecretPathShape` / `dp:AccessPolicyShape` / `dp:RotationStateShape` / `dp:SecretEngineShape`: `sh:closed true` with `sh:ignoredProperties (rdf:type rdfs:label)`, listing only the metadata properties above. Any other property (a value, `data`, `token`, `password`, `rules`, `ciphertext`) is itself the violation, the same technique as `vg:EndpointRefShape`. A second rule (`sh:sparql`) rejects any `dp:SecretPath` whose `dp:pathName` literal contains a `=` or a base64-looking run longer than 64 characters (guard against a value pasted into a path).
+- `dp:SecretPathShape` / `dp:AccessPolicyShape` / `dp:RotationStateShape` / `dp:SecretEngineShape` / `dp:PolicyPathGrantShape`: `sh:closed true` with `sh:ignoredProperties (rdf:type rdfs:label)`, listing only the metadata properties above and the applicable shared `dp:inStore`, `dp:viaConnection` and `dp:asOf` metadata properties. Each `dp:PolicyPathGrant` has exactly one `dp:grantPolicy`, exactly one `dp:grantPath`, and at least one enumerated `dp:grantsCapability`; permissions are scoped to that policy/path pair, never flattened onto the policy. A fixture gives one policy read on path A and deny on path B and preserves that association. Any other property (a value, `data`, `token`, `password`, `rules`, `ciphertext`) is itself the violation, the same technique as `vg:EndpointRefShape`. A second rule (`sh:sparql`) rejects any `dp:SecretPath` whose `dp:pathName` literal contains a `=` or a base64-looking run longer than 64 characters (guard against a value pasted into a path).
 - `dp:VectorCollectionShape`: `dp:dimensions` positive integer, one `dp:EmbeddingSpace`.
 - `dp:PartitionLagShape`: `dp:lag` integer >= 0, `dp:asOf` required.
 
