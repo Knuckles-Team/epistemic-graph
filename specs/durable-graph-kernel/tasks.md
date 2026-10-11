@@ -19,10 +19,17 @@ Status key: `[ ]` queued, `[-]` in progress, `[x]` verified at cited main revisi
 
 ## Decomposition children (tracked)
 
-- [x] **EG-DURABLE-KERNEL-R011:** Clippy and targeted tests cover the full and all-features builds
+- [ ] **EG-DURABLE-KERNEL-R011:** Clippy and targeted tests cover the full and all-features builds
 - [x] **EG-DURABLE-KERNEL-R011.1:** RequiredTestModuleCategory/RequiredTestModule typed category and validated declaration
-- [x] **EG-DURABLE-KERNEL-R014:** Raft cluster tests pass reliably under load
+- [ ] **EG-DURABLE-KERNEL-R011.2:** Concrete required-module manifest. See the exact paths and proving tests in `requirements.md`.
+- [ ] **EG-DURABLE-KERNEL-R011.3:** Pre-merge runtime execution. See the exact paths and proving tests in `requirements.md`.
+- [ ] **EG-DURABLE-KERNEL-R011.4:** Exact-head CI acceptance receipts. See the exact paths and proving tests in `requirements.md`.
+- [ ] **EG-DURABLE-KERNEL-R014:** Raft cluster tests pass reliably under load
 - [x] **EG-DURABLE-KERNEL-R014.1:** Typed flake-budget / retry-policy model for load-test retries
+- [ ] **EG-DURABLE-KERNEL-R014.2:** Bounded representative CPU load. See the exact paths and proving tests in `requirements.md`.
+- [ ] **EG-DURABLE-KERNEL-R014.3:** Repeated loaded-test harness. See the exact paths and proving tests in `requirements.md`.
+- [ ] **EG-DURABLE-KERNEL-R014.4:** Loaded leader-rebalance acceptance. See the exact paths and proving tests in `requirements.md`.
+- [ ] **EG-DURABLE-KERNEL-R014.5:** Loaded three-node placement acceptance. See the exact paths and proving tests in `requirements.md`.
 - [x] **EG-DURABLE-KERNEL-R024:** External graph and database backends become EG federation sources
 - [x] **EG-DURABLE-KERNEL-R024.1:** PostgreSQL/AGE backend becomes a ForeignSourceSpec source
 - [x] **EG-DURABLE-KERNEL-R024.2:** Fan-out backend becomes a MirrorTargetSpec federation mirror target
