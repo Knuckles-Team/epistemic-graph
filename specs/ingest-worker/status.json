@@ -21,7 +21,14 @@
     "EG-INGEST-WORKER-R001.14",
     "EG-INGEST-WORKER-R001.15",
     "EG-INGEST-WORKER-R001.16",
-    "EG-INGEST-WORKER-R001.17"
+    "EG-INGEST-WORKER-R001.17",
+    "EG-INGEST-WORKER-R002",
+    "EG-INGEST-WORKER-R002.1",
+    "EG-INGEST-WORKER-R002.2",
+    "EG-INGEST-WORKER-R002.3",
+    "EG-INGEST-WORKER-R002.4",
+    "EG-INGEST-WORKER-R002.5",
+    "EG-INGEST-WORKER-R002.6"
   ],
   "requirements": [
     {
@@ -165,6 +172,63 @@
     {
       "id": "EG-INGEST-WORKER-R001.17",
       "title": "Parity test against the deleted module",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R002",
+      "title": "Ontology induction from text stays a draft until it passes checks (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-INGEST-WORKER-R002.1",
+        "EG-INGEST-WORKER-R002.2",
+        "EG-INGEST-WORKER-R002.3",
+        "EG-INGEST-WORKER-R002.4",
+        "EG-INGEST-WORKER-R002.5",
+        "EG-INGEST-WORKER-R002.6"
+      ]
+    },
+    {
+      "id": "EG-INGEST-WORKER-R002.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R002.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R002.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R002.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R002.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R002.6",
+      "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

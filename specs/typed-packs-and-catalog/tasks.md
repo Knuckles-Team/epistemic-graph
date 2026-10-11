@@ -98,3 +98,9 @@ Mark a PACK requirement `LANDED` only with an exact merged EG commit. Mark it `A
 - [ ] **EG-TYPED-PACKS-R045.7:** No decision premise treats an unproven read-only claim as certified. The `HarnessConfig` handler (`EG-DECISION-ENGINE-R128.8`) and the capability rules (`crates/eg-rdf/src/rules/capability.rs:384`) must treat `read_only` as certified only when `declared_by` is `certified` or `connector`. A premise built from an `mcp_hint` claim must carry the label unproven.
 - [ ] **EG-TYPED-PACKS-R045.8:** The generated contract and Python client carry the new fields. `gen_contract --check` (`crates/eg-capabilities/Cargo.toml:102`) must pass after regeneration. The Python `PackAnnotations` model (`crates/eg-capabilities/src/contract/python/surfaces.rs:12`) must expose the three fields, so the SDK can import them.
 - [ ] **EG-TYPED-PACKS-R045.9:** End-to-end proof: a two-tool pack yields a budget-respecting subset. A served test must import a pack with two tools of known `schema_tokens` through the import path. It must then call `Decide` with `HarnessConfig` (`EG-DECISION-ENGINE-R128`) and a budget that fits one tool. The answer's tool subset must stay within that budget. A tool with no `schema_tokens` must produce an abstention.
+- [ ] EG-TYPED-PACKS-R100.1 Add the rendered skill package type
+- [ ] EG-TYPED-PACKS-R100.2 Render a package from graph content
+- [ ] EG-TYPED-PACKS-R100.3 Render when the catalog row is read
+- [ ] EG-TYPED-PACKS-R100.4 Refuse a skill with a dangling reference
+- [ ] EG-TYPED-PACKS-R100.5 Record the revision of every render
+- [ ] EG-TYPED-PACKS-R100.6 Prove regeneration after a change

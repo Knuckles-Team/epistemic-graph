@@ -100,3 +100,10 @@ R011.2 and R011.3 track that runtime acceptance without claiming these module te
 |---|---|---|---|
 | EG-FINANCE-PRIMITIVES-R004.2.1.1 | Valid `Account/Position` fixtures accept every declared value of accountKind and costBasisMethod. | Omit each required field separately. Use literal values for IRI links. Wrong datatypes, duplicate singleton fields, and unknown vocabulary refuse. | `src/server/graph_schema/finance_tests.rs::shapes::account_position_complete_schema_matrix (intended test)` |
 | EG-FINANCE-PRIMITIVES-R004.2.2.1 | Valid `Activity/Lot` fixtures accept every declared value of activityKind. | Omit each required field separately. Use literal values for IRI links. Wrong datatypes, duplicate singleton fields, and unknown vocabulary refuse. | `src/server/graph_schema/finance_tests.rs::shapes::activity_lot_complete_schema_matrix (intended test)` |
+
+## EG-FINANCE-PRIMITIVES-R018 acceptance
+
+| Scenario | Requirement | Fixture |
+|---|---|---|
+| Rank three factors | R018.6 | Three factors rank by absolute information ratio and write three nodes. |
+| Thin input | R018.4 | Zero and one row return `FACTOR_INSUFFICIENT_DATA`. |

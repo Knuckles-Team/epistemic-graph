@@ -251,7 +251,7 @@ These acceptance tests require the consumer prerequisites described in the plan.
 
 ## Harness configuration evidence
 
-- `EG-DECISION-ENGINE-R128`: A served test submits one `harness_config` question and asserts the committed record names all three parts with premises..
+- `EG-DECISION-ENGINE-R128`: A served test submits one `harness_config` question and asserts the committed record names all three parts with premises.
 - `EG-DECISION-ENGINE-R128.1`: `crates/eg-types/src/decision/statistical.rs::tests::harness_config_kind_serialises_snake_case`.
 - `EG-DECISION-ENGINE-R128.2`: `crates/eg-types/src/decision/statistical/harness_config.rs::tests::body_requires_every_input`.
 - `EG-DECISION-ENGINE-R128.3`: `crates/eg-types/src/decision/statistical/harness_config.rs::tests::answer_round_trips_through_serde`.
@@ -300,6 +300,24 @@ The existing admin holder test retains its historical Content assertions.
 - `EG-DECISION-ENGINE-R129.4`: `crates/eg-types/src/decision/guardrail.rs::tests::full_consensus_does_not_override`.
 - `EG-DECISION-ENGINE-R129.5`: `src/server/handlers/decide/stat_tests/rule_promotion_tests.rs::rejected_rule_is_audited_not_active`.
 - `EG-DECISION-ENGINE-R129.6`: `tests/decide/test_rule_promotion_served.py::test_invariant_blocks_promotion`.
+
+### EG-DECISION-ENGINE-R130 tests
+
+- `EG-DECISION-ENGINE-R130.1`: `crates/eg-epistemic/src/ranking.rs::tests::ranked_candidate_round_trips`.
+- `EG-DECISION-ENGINE-R130.2`: `crates/eg-epistemic/src/ranking.rs::tests::equal_codes_order_by_item_score`.
+- `EG-DECISION-ENGINE-R130.3`: `tests/decide/test_ranked_decide_served.py::test_decide_orders_by_calibrated_score`.
+- `EG-DECISION-ENGINE-R130.4`: `crates/eg-epistemic/src/ranking.rs::tests::uncalibrated_candidate_abstains`.
+- `EG-DECISION-ENGINE-R130.5`: `crates/eg-compute/src/assemble/tests/ranking_premises.rs::premises_name_tie_break`.
+- `EG-DECISION-ENGINE-R130.6`: `tests/decide/test_ranked_decide_served.py::test_tied_codes_resolve_by_item_score`.
+
+### EG-DECISION-ENGINE-R131 tests
+
+- `EG-DECISION-ENGINE-R131.1`: `crates/eg-types/src/decision/limit_guard.rs::tests::limit_types_round_trip`.
+- `EG-DECISION-ENGINE-R131.2`: `crates/eg-types/src/decision/limit_guard.rs::tests::check_returns_all_breaches`.
+- `EG-DECISION-ENGINE-R131.3`: `tests/decide/test_limit_guard_served.py::test_breach_refuses`.
+- `EG-DECISION-ENGINE-R131.4`: `crates/eg-compute/src/assemble/tests/limit_refusal.rs::breach_abstains_with_rule_id`.
+- `EG-DECISION-ENGINE-R131.5`: `crates/eg-compute/src/assemble/tests/limit_refusal.rs::breach_observation_links_signal`.
+- `EG-DECISION-ENGINE-R131.6`: `tests/decide/test_limit_guard_served.py::test_oversize_order_refused_and_recorded`.
 
 ### R090.3 native benchmark protocol (measurement pending)
 

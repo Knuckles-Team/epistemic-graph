@@ -537,6 +537,33 @@ lists and blank names during decode and explicit validation. All twelve presence
 are covered. QuestionKind, profile resolution, handlers, persistence and served
 acceptance remain open under their separate leaves.
 
+## Calibrated candidate ranking (R130)
+
+Data flow: `Decide` wire method -> `stat_decide` (`crates/eg-compute/src/assemble/conclude.rs`) -> `rank` (`crates/eg-epistemic/src/ranking.rs:116`) -> options and premises in the record.
+
+Types: `RankedCandidate`, `TieBreakPolicy`. Attach point: `rank`. Production caller: none exists today; the Wiring row creates it in the statistical `Decide` path. Failure behavior: an uncalibrated candidate abstains with `uncalibrated_candidate`.
+
+Reused: `RankWeights` (`ranking.rs:47`) and `evidence_quality`. New: the calibrated-first order and the item-level tie-break.
+
+Decision: tie-break by an item-level score. Rejected alternative: share one score across colliding codes, because it hides real differences between items.
+
+Cross-repository: `AU-` rows may show the premises; they own no ranking rule.
+
+References:
+- arXiv:2606.08604 — Tikhonovich et al., "Gryphon: A Unified Architecture for Semantic-ID Generation and Item-Level Scoring in Industrial Recommendations" (2026)
+
+## Limit guard pipeline (R131)
+
+Data flow: `Decide` wire method -> `conclude.rs` chokepoint -> `check_limits` (`crates/eg-types/src/decision/limit_guard.rs`) -> abstention `limit_breach` plus an observation node linked to the signal.
+
+Types: `LimitRule`, `LimitBreach`. Attach point: the stored-rule read at `guardrail.rs:201`, plus the chokepoint in `conclude.rs`. Production caller: the Wiring row creates the second call site. Failure behavior: a breach abstains; a missing rule set admits nothing new.
+
+Reused: `GuardrailRule` storage and `guardrail_entailment_query` (`guardrail.rs:201`). New: numeric limit metrics and the breach observation.
+
+Decision: refuse at the decision chokepoint, so no caller can skip the check. Rejected alternative: check inside each caller, because one missed caller bypasses the limit.
+
+Cross-repository: `AU-` rows may surface the refusal; the owning policy gate keeps enforcement.
+
 ### Resident scorer resource measurement (R090.3)
 
 The benchmark lives in `crates/eg-numeric/benches/decision_resident_scorer.rs`, beside the production scorer. It reuses the promotion fit recipe and maximum legal shape, timing individual production forward calls with Linux thread CPU time under the existing release profile. Whole-runner peak RSS is a conservative upper bound: above 8 MiB leaves scorer-specific memory inconclusive. Runner executable size is reported separately from server footprint. Acceptance requires an external receipt of the effective optimized build and passing measured limits; source publication alone does not verify the requirement.

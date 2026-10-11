@@ -67,3 +67,13 @@ The attach point is the plan-admission path beside `policy_admin.rs`; the first 
 The change reuses the existing verified-principal binding and the audit append from R002.
 Decision: the engine reads the bound from the stored node, not from the plan body. A rejected alternative is deriving scope from the plan, because a model-written plan could then widen its own bound.
 Handoff: graph-os must check the same bound when work enters; agent-utilities only applies the engine's refusal.
+
+## Principal-scoped knowledge segments (R023)
+
+Data flow: content-read wire method -> the retrieval function -> `visible_units` (`crates/eg-types/src/identity/segment.rs`) -> permitted current units plus an audit entry.
+
+Types: `KnowledgeUnit`, `share_scope`. Attach point: the retrieval function in the content-read path. Production caller: the content-read handler, created by the Wiring row. Failure behavior: out-of-scope reads return `OutOfScope` with the id only.
+
+Reused: the visibility pattern at `crates/eg-types/src/rbac_elevation/ledger.rs:268` and the audit append from R002. New: version lineage and share scope on stored units.
+
+Decision: access labels live in the unit itself, so every reader enforces them. Rejected alternative: a separate access table, because it can diverge from the unit it guards.

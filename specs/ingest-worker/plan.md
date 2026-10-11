@@ -55,3 +55,16 @@ Failed outcome: redeliver with jittered delay until the ceiling, then one dead-l
 ## Out of scope
 
 Kafka compatibility, the analytics worker, the job bodies' parsing and LLM logic (SDK existing runners).
+
+## EG-INGEST-WORKER-R002 ontology induction with admission tests
+
+Data flow: served ingest queue claim → runner → `ingest_document` body → induction → `score_proposal` (creates the call site in `crates/eg-capabilities/src/ingest_queue.rs`) → `Admitted` or `Draft` → instance population.
+Types: `OntologyProposal` in `crates/eg-types/src/ontology_proposal.rs`.
+Attach point: the job body after induction. The production caller is the runner of R001.14.
+Failure: a failing score keeps the draft and populates nothing.
+Reuses the queue and ack path of R001.4. New: the proposal and its scores.
+Decision: admit only after scoring. Rejected: admitting at once and repairing later, which pollutes instances.
+Cross-repository: the connector SDK runner (owner prefix `SDK-INGEST`, contract `run_ingest_worker`) hosts the body.
+
+References
+- arXiv:2511.11017 — Peshevski et al., "AI Agent-Driven Framework for Automated Product Knowledge Graph Construction in E-Commerce" (2025)

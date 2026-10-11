@@ -212,10 +212,7 @@ fn measure(name: &str, head: &DecisionHeadBody, rows: &[Vec<i64>]) -> Value {
 // Requirement EG-DECISION-ENGINE-R090.3; native receipt pending.
 #[cfg(target_os = "linux")]
 fn resident_scorer_meets_declared_budget() -> i32 {
-    assert!(
-        !cfg!(debug_assertions),
-        "use the optimized release profile"
-    );
+    assert!(!cfg!(debug_assertions), "use the optimized release profile");
     // Same 200-item, seed-0, 60-iteration fit as scorer_promotion.rs.
     let trained = fit_eval::fitted(HeadKind::OptionAttention, &common::gold_dataset(200, 0));
     assert!(trained

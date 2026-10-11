@@ -123,3 +123,16 @@ Data flow: SQL row write → `ColumnVectorBinding` check → queued embed → AN
 Attach point: `crates/eg-query/src/sql/ann.rs` and `ann_pushdown.rs`, which already own the ANN path.
 Reuses the existing ANN index and embedding call. Source data stays in the SQL table.
 Decision: opt-in binding per column. Rejected: embedding every text column, which spends embedder budget on unused columns.
+
+## EG-FEDERATED-QUERY-R078 tenant predicate inside the plan
+
+Data flow: served UQL statement → `dispatch_query_family` (`src/server/handlers/query/dispatch.rs:66`) → `handle_uql` (`src/server/handlers/query/uql_statement.rs:17`) → `inject_scope` → scan nodes → scoped rows.
+Types: `PlanScope{tenant, clearance_labels, verified}` in `crates/eg-query/src/plan_scope.rs`. The predicate set is closed: tenant equality and label subset.
+Attach point: after planning, before execution, so no scan runs unscoped. Production caller is `dispatch_query_family`.
+Failure: an unverified caller gets `PLAN_SCOPE_UNVERIFIED` and no read runs.
+Reuses the scope check pattern in `src/server/semantic_index.rs:145`. New: the plan-level predicate.
+Decision: scope inside the plan. Rejected: filtering result rows after retrieval, which leaks through counts, timing and ranking.
+Cross-repository: `AU-SEMANTIC` rows pass the verified tenant through the request context; owner prefix `AU-SEMANTIC`, contract `VerifiedRequestContext`.
+
+References
+- No paper is cited.
