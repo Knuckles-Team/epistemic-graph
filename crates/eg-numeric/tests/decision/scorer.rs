@@ -364,9 +364,10 @@ fn the_largest_legal_scorer_stays_inside_its_resident_cpu_and_memory_budget() {
 /// option were instead described to a model as text; scored from structured
 /// facts, width never depends on option count or label length, and scoring
 /// still succeeds.
+// spec: EG-DECISION-ENGINE-R083
 #[test]
 fn a_large_option_set_scores_because_width_is_bounded_by_cardinality_not_text() {
-    const LARGE_OPTION_COUNT: usize = 4_000;
+    const LARGE_OPTION_COUNT: usize = 5_000;
     // A generous per-option label estimate (a realistic tool/agent summary)
     // and a common chars-per-token ratio, so the contrast is not an
     // arbitrarily chosen number.

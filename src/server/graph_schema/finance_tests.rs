@@ -42,6 +42,7 @@ fn ex(local: &str) -> String {
     format!("<http://example.org/markets#{local}>")
 }
 
+// spec: EG-FINANCE-PRIMITIVES-R004.2.1, EG-FINANCE-PRIMITIVES-R004.2.2
 #[test]
 fn finance_is_a_core_module_within_the_catalog_bound_and_the_corpus_stays_coherent() {
     let classification = assert_core_catalog(&["finance", "finance-shapes"]);
@@ -226,7 +227,7 @@ mod shapes {
 
     const HASH: &str = "sha256:0000000000000000000000000000000000000000000000000000000000000000";
 
-    // spec: EG-FINANCE-PRIMITIVES-R014
+    // spec: EG-FINANCE-PRIMITIVES-R014, EG-FINANCE-PRIMITIVES-R004.2.1, EG-FINANCE-PRIMITIVES-R004.2.2
     #[test]
     fn well_formed_finance_records_conform() {
         let data = format!(
@@ -256,6 +257,7 @@ mod shapes {
         assert!(conforms(&data));
     }
 
+    // spec: EG-FINANCE-PRIMITIVES-R004.2.1, EG-FINANCE-PRIMITIVES-R004.2.2
     #[test]
     fn malformed_finance_records_are_violations() {
         let refused = [
