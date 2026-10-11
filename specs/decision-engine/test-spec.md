@@ -138,7 +138,31 @@ The latency boundary accepts 9,999 microseconds and refuses 10,000 microseconds.
 
 EG-DECISION-ENGINE-R090.2 requires `tests/test_decision_resident_scorer.py::test_compiled_engine_scores_without_external_runtime`.
 EG-DECISION-ENGINE-R090.3 requires `crates/eg-numeric/benches/decision_resident_scorer.rs::resident_scorer_meets_declared_budget`.
-Both checks remain planned and unrun. Budget declarations do not establish either result.
+R090.2 remains planned and unrun. R090.3 has the native measurement below, but
+its memory acceptance remains unresolved. Budget declarations do not establish
+either result.
+
+### R090.3 native release measurement (2026-10-11)
+
+The [structured receipt](../../crates/eg-numeric/benches/decision_resident_scorer.receipt.json)
+binds measured source `41cce5dd08d7f27aeacf23b6f01d177dfcbf7c59` to the executable
+SHA-256, file length, compiler identity, release flags and native benchmark JSON.
+The run used Rust 1.96.0 on `x86_64-unknown-linux-gnu`, optimization 3, thin LTO,
+one codegen unit, no debug assertions, and at most three build jobs. The initial
+build took 503 seconds within its 900-second bound; total command time was
+504.766 seconds. There was no package-profile override or facade build.
+
+| Case | Parameters | p99 thread CPU (microseconds) |
+| --- | ---: | ---: |
+| Fitted promotion recipe | 234 | 11.183 |
+| Maximum legal shape | 1360 | 1412.071 |
+
+Both cases meet the 700,000-parameter and 9,999-microsecond ceilings over 1,000
+calls after 100 warmups. The 637,136-byte runner produced a whole-runner peak RSS
+of 124,788,736 bytes, above the 8,388,608-byte ceiling. Its scorer-specific resident
+memory remains unknown. The native result is **inconclusive**, with exit code 2;
+R090.3 remains open. Neither serialized model size nor runner file length
+resolves this above-ceiling RSS result.
 
 ### R093.2 planned served acceptance
 
