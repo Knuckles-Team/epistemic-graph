@@ -86,3 +86,21 @@ The local `unified-data-plane` spec supplies `AttachedSourceIdentity`, owner gra
 ### Compatibility and observability
 
 Keep generated Rust/Python/wire method contracts synchronized. A grammar or error-code change requires canonical parser fixtures and generated client parity. Preserve read-only snapshot behavior; a new modality cannot bypass `Method::Uql` authorization or mutate state. Explain/profiling use registered source label, kind and short opaque fingerprint, never URL, DSN, credential or raw untrusted label. Metrics count budget refusals, source failures, fallback paths, remote bytes/rows, index-generation fallback, and reasoning rebuilds without high-cardinality secrets.
+
+## Audit record
+
+### 2026-10-11 — EG-FEDERATED-QUERY-R056 numerical tail acceptance
+
+At main `6bf4ea1c7e80a375e7053e677b0ed28c162131ec`, the complete production
+`crates/eg-compute/src/mining/causal_impact.rs` module and exact production
+`eg-numeric` error, math, reduce, validate and kernels modules compiled in a
+standalone Rust 1.96.0 test harness linked to the cached real `libm` dependency.
+All five causal-impact tests passed. The acceptance test compares two-sided
+probabilities at both signs of z = 3, 6, 8, 10 and 20 against checked-in
+mpmath 1.3.0 50-digit references at relative tolerance below 1e-12, plus
+zero and positive-infinity boundaries. The production path calls the shared
+`normal_sf`; no copied approximation, substitute kernel or mock was used.
+
+The literal test binding records this pure-module leaf only. The standalone
+harness does not establish the full eg-compute crate, server, client, cross-host
+or hosted release gates; no broader acceptance is claimed.

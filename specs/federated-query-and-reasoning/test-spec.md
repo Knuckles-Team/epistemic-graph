@@ -41,3 +41,15 @@ Run changed-file CCCC, Dupehound, KISS and differential jscpd from `.config/pre-
 ## Evidence record format
 
 For each accepted stable ID: `ID | public merged SHA | test command/profile | expected vs actual | quality gate | client/contract digest | reviewer/date`. A task checkbox, source branch, historical log or local-only build never substitutes for exact-head evidence. If a test is omitted, state the risk and named replacement before the ID can be accepted.
+
+## EG-FEDERATED-QUERY-R056 focused acceptance
+
+| Requirement | Proving test | Coverage and result |
+|---|---|---|
+| EG-FEDERATED-QUERY-R056 | `crates/eg-compute/src/mining/causal_impact.rs::tests::two_sided_p_keeps_relative_accuracy_in_the_far_tail` | Passed against exact production modules and real libm: independent literal probabilities for z = ±3, ±6, ±8, ±10, ±20 at relative error < 1e-12; z = 0 and +infinity boundaries. All five causal-impact tests passed. |
+
+Canonical crate command: `cargo test -p eg-compute --lib mining::causal_impact::tests`.
+The 2026-10-11 bounded local run instead compiled the exact module with `rustc
+--test --edition=2021`, importing production numeric modules by path and linking
+the cached real libm. This is pure-module acceptance, not a full-crate or hosted
+release result. See the owning plan's audit record for revision and limits.
