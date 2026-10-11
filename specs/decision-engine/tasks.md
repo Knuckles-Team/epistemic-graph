@@ -130,8 +130,15 @@ Existing source modules and tests provide foundations, but this spec does not as
 - [x] **EG-DECISION-ENGINE-R102.1:** Typed schema-repair activation gate (producer-first split of R102)
 - [ ] **EG-DECISION-ENGINE-R113:** EG commits capacity acquisition atomically with synthesis evidence
 - [x] **EG-DECISION-ENGINE-R113.1:** Typed atomic capacity/synthesis-evidence commit outcome (producer-first split of R113)
-- [ ] **EG-DECISION-ENGINE-R113.2:** Atomic commit transaction for capacity and synthesis evidence
-- [ ] **EG-DECISION-ENGINE-R113.3:** Enforce one retry after capacity denial
+- [ ] **EG-DECISION-ENGINE-R113.2:** Atomic commit transaction (planned; not run)
+- [ ] **EG-DECISION-ENGINE-R113.2.1:** Refuse an unsupported transaction boundary (planned; not run)
+- [ ] **EG-DECISION-ENGINE-R113.2.2:** Accepted transaction fixture (planned; not run)
+- [ ] **EG-DECISION-ENGINE-R113.2.3:** Denied transaction fixture (planned; not run)
+- [ ] **EG-DECISION-ENGINE-R113.2.4:** Transaction recovery fixture (planned; not run)
+- [ ] **EG-DECISION-ENGINE-R113.3:** One retry after capacity denial (planned; not run)
+- [ ] **EG-DECISION-ENGINE-R113.3.1:** Consume the typed allowance once (planned; not run)
+- [ ] **EG-DECISION-ENGINE-R113.3.2:** Durable consumption fixture (planned; not run)
+- [ ] **EG-DECISION-ENGINE-R113.3.3:** Handler retry fixture (planned; not run)
 - [ ] **EG-DECISION-ENGINE-R116:** Consumers reach EG only through the versioned client contract
 - [x] **EG-DECISION-ENGINE-R116.1:** A typed gate admits only the published client-contract call path
 - [ ] **EG-DECISION-ENGINE-R116.2:** Every generated client method is wired through the contract-only gate

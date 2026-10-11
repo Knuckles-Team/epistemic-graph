@@ -167,7 +167,14 @@
     "EG-DECISION-ENGINE-R113",
     "EG-DECISION-ENGINE-R113.1",
     "EG-DECISION-ENGINE-R113.2",
+    "EG-DECISION-ENGINE-R113.2.1",
+    "EG-DECISION-ENGINE-R113.2.2",
+    "EG-DECISION-ENGINE-R113.2.3",
+    "EG-DECISION-ENGINE-R113.2.4",
     "EG-DECISION-ENGINE-R113.3",
+    "EG-DECISION-ENGINE-R113.3.1",
+    "EG-DECISION-ENGINE-R113.3.2",
+    "EG-DECISION-ENGINE-R113.3.3",
     "EG-DECISION-ENGINE-R114",
     "EG-DECISION-ENGINE-R115",
     "EG-DECISION-ENGINE-R116",
@@ -2237,11 +2244,71 @@
       "title": "Atomic commit transaction",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R113.2.1",
+        "EG-DECISION-ENGINE-R113.2.2",
+        "EG-DECISION-ENGINE-R113.2.3",
+        "EG-DECISION-ENGINE-R113.2.4"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R113.2.1",
+      "title": "Refuse an unsupported transaction boundary",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R113.2.2",
+      "title": "Accepted transaction fixture",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R113.2.3",
+      "title": "Denied transaction fixture",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R113.2.4",
+      "title": "Transaction recovery fixture",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-DECISION-ENGINE-R113.3",
       "title": "One retry after capacity denial",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R113.3.1",
+        "EG-DECISION-ENGINE-R113.3.2",
+        "EG-DECISION-ENGINE-R113.3.3"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R113.3.1",
+      "title": "Consume the typed allowance once",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R113.3.2",
+      "title": "Durable consumption fixture",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R113.3.3",
+      "title": "Handler retry fixture",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
