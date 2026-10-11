@@ -2,7 +2,7 @@
   "schema_version": 2,
   "spec_id": "EG-TYPED-PACKS",
   "owner_repo": "epistemic-graph",
-  "delivery_state": "SPECIFIED",
+  "delivery_state": "LANDED",
   "requirement_ids": [
     "EG-TYPED-PACKS-R001",
     "EG-TYPED-PACKS-R002",
@@ -148,7 +148,7 @@
         "f6bd64b35e00"
       ],
       "verified_by": [
-        "src/server/handlers/admin/connector_pack/tests/admin.rs:393"
+        "src/server/handlers/admin/connector_pack/tests/admin.rs:440"
       ]
     },
     {
@@ -173,7 +173,7 @@
         "f6bd64b35e00"
       ],
       "verified_by": [
-        "src/server/handlers/admin/connector_pack/tests/admin.rs:452"
+        "src/server/handlers/admin/connector_pack/tests/admin.rs:542"
       ]
     },
     {
@@ -597,7 +597,7 @@
     {
       "id": "EG-TYPED-PACKS-R042",
       "title": "Typed capability annotations: provides and requires_capabilities",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "a1bb9fb9503e"
       ],
@@ -625,8 +625,10 @@
     {
       "id": "EG-TYPED-PACKS-R042.2",
       "title": "Served capability claim and refusal proof",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "c764285d098c"
+      ],
       "verified_by": []
     },
     {
@@ -1162,7 +1164,7 @@
     {
       "id": "EG-TYPED-PACKS-R093",
       "title": "Turtle parser blank-node identities do not collide",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "90f5578ae2f4",
         "f17f47ab300f"
@@ -1187,8 +1189,10 @@
     {
       "id": "EG-TYPED-PACKS-R093.2",
       "title": "Reproject-path blank-node isolation",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "c764285d098c"
+      ],
       "verified_by": []
     },
     {

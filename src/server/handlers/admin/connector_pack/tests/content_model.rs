@@ -590,3 +590,45 @@ async fn withdrawing_most_of_a_connector_needs_the_admin_override() {
         other => panic!("a mass withdrawal must be rejected: {other:?}"),
     }
 }
+
+/// R042.2: signed admission persists the G12 partition, including exact foreign text.
+#[tokio::test]
+async fn capability_annotations_remain_declared_after_import() {
+    let served = Served::new();
+    bind(&served, CONNECTOR, ADMIN).await;
+    let mut candidate = tool(
+        CONNECTOR,
+        "capabilities",
+        "Mixed native and foreign claims.",
+    );
+    candidate.annotations = serde_json::from_value(serde_json::json!({
+        "provides": ["eg:capability/retrieval", "https://example.org/cap/search"],
+        "requires_capabilities": ["eg:capability/action", "urn:vendor:execute"]
+    }))
+    .unwrap();
+    let receipt = imported(&served, &build_pack(CONNECTOR, &[candidate.clone()]), None).await;
+    assert_eq!(receipt.warnings.len(), 2);
+    for foreign in ["https://example.org/cap/search", "urn:vendor:execute"] {
+        let warning = receipt
+            .warnings
+            .iter()
+            .find(|warning| {
+                warning.detail
+                    == format!("{foreign} is a declared claim outside the native vocabulary")
+            })
+            .unwrap();
+        assert_eq!(
+            warning.code,
+            eg_types::connector_pack::PackWarningCode::UnresolvedCapabilityIri
+        );
+        assert_eq!(warning.uri.as_deref(), Some(candidate.uri.as_str()));
+    }
+    let entry = current_component(&served, &component(CONNECTOR, "tool", "capabilities")).await;
+    assert_eq!(entry.classification, ["eg:capability/retrieval"]);
+    assert_eq!(entry.required_capabilities, ["eg:capability/action"]);
+    assert_eq!(
+        entry.declared_capabilities,
+        ["https://example.org/cap/search"]
+    );
+    assert_eq!(entry.declared_required_capabilities, ["urn:vendor:execute"]);
+}
