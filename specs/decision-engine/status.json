@@ -2077,7 +2077,7 @@
         "26be257523bc"
       ],
       "verified_by": [
-        "tests/test_decision_resident_scorer.py:117"
+        "tests/test_decision_resident_scorer.py:142"
       ]
     },
     {
