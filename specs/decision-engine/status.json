@@ -1833,7 +1833,7 @@
     {
       "id": "EG-DECISION-ENGINE-R090",
       "title": "Resident native decision-scorer head in eg-decision",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "19b44d216062",
         "1e9ea1ef3790",
@@ -1847,11 +1847,19 @@
     {
       "id": "EG-DECISION-ENGINE-R090.1",
       "title": "Typed resident-scorer budget (producer-first split of R090)",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
-        "19b44d216062"
+        "010477d72b7f",
+        "19b44d216062",
+        "d68c292be084"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/decision/statistical/scorer.rs:156",
+        "crates/eg-types/src/decision/statistical/scorer.rs:164",
+        "crates/eg-types/src/decision/statistical/scorer.rs:172",
+        "crates/eg-types/src/decision/statistical/scorer.rs:180",
+        "crates/eg-types/src/decision/statistical/scorer.rs:189"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R091",
