@@ -115,7 +115,20 @@
     "EG-MEDIA-VOCAB-R030",
     "EG-MEDIA-VOCAB-R031",
     "EG-MEDIA-VOCAB-R032",
-    "EG-MEDIA-VOCAB-R033"
+    "EG-MEDIA-VOCAB-R033",
+    "EG-MEDIA-VOCAB-X-R001",
+    "EG-MEDIA-VOCAB-X-R002",
+    "EG-MEDIA-VOCAB-X-R003",
+    "EG-MEDIA-VOCAB-X-R004",
+    "EG-MEDIA-VOCAB-X-R005",
+    "EG-MEDIA-VOCAB-X-R006",
+    "EG-MEDIA-VOCAB-X-R007",
+    "EG-MEDIA-VOCAB-X-R008",
+    "EG-MEDIA-VOCAB-X-R009",
+    "EG-MEDIA-VOCAB-X-R010",
+    "EG-MEDIA-VOCAB-X-R011",
+    "EG-MEDIA-VOCAB-X-R012",
+    "EG-MEDIA-VOCAB-X-R013"
   ],
   "requirements": [
     {
@@ -1020,6 +1033,110 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
+    },
+    {
+      "id": "EG-MEDIA-VOCAB-X-R001",
+      "title": "RETIRED: moved to `EG-MEDIA-VOCAB-R021`",
+      "delivery_state": "RETIRED",
+      "landed_in": [],
+      "verified_by": [],
+      "retired_reason": "moved to `EG-MEDIA-VOCAB-R021`"
+    },
+    {
+      "id": "EG-MEDIA-VOCAB-X-R002",
+      "title": "RETIRED: moved to `EG-MEDIA-VOCAB-R022`",
+      "delivery_state": "RETIRED",
+      "landed_in": [],
+      "verified_by": [],
+      "retired_reason": "moved to `EG-MEDIA-VOCAB-R022`"
+    },
+    {
+      "id": "EG-MEDIA-VOCAB-X-R003",
+      "title": "RETIRED: moved to `EG-MEDIA-VOCAB-R023`",
+      "delivery_state": "RETIRED",
+      "landed_in": [],
+      "verified_by": [],
+      "retired_reason": "moved to `EG-MEDIA-VOCAB-R023`"
+    },
+    {
+      "id": "EG-MEDIA-VOCAB-X-R004",
+      "title": "RETIRED: moved to `EG-MEDIA-VOCAB-R024`",
+      "delivery_state": "RETIRED",
+      "landed_in": [],
+      "verified_by": [],
+      "retired_reason": "moved to `EG-MEDIA-VOCAB-R024`"
+    },
+    {
+      "id": "EG-MEDIA-VOCAB-X-R005",
+      "title": "RETIRED: moved to `EG-MEDIA-VOCAB-R025`",
+      "delivery_state": "RETIRED",
+      "landed_in": [],
+      "verified_by": [],
+      "retired_reason": "moved to `EG-MEDIA-VOCAB-R025`"
+    },
+    {
+      "id": "EG-MEDIA-VOCAB-X-R006",
+      "title": "RETIRED: moved to `EG-MEDIA-VOCAB-R026`",
+      "delivery_state": "RETIRED",
+      "landed_in": [],
+      "verified_by": [],
+      "retired_reason": "moved to `EG-MEDIA-VOCAB-R026`"
+    },
+    {
+      "id": "EG-MEDIA-VOCAB-X-R007",
+      "title": "RETIRED: moved to `EG-MEDIA-VOCAB-R027`",
+      "delivery_state": "RETIRED",
+      "landed_in": [],
+      "verified_by": [],
+      "retired_reason": "moved to `EG-MEDIA-VOCAB-R027`"
+    },
+    {
+      "id": "EG-MEDIA-VOCAB-X-R008",
+      "title": "RETIRED: moved to `EG-MEDIA-VOCAB-R028`",
+      "delivery_state": "RETIRED",
+      "landed_in": [],
+      "verified_by": [],
+      "retired_reason": "moved to `EG-MEDIA-VOCAB-R028`"
+    },
+    {
+      "id": "EG-MEDIA-VOCAB-X-R009",
+      "title": "RETIRED: moved to `EG-MEDIA-VOCAB-R029`",
+      "delivery_state": "RETIRED",
+      "landed_in": [],
+      "verified_by": [],
+      "retired_reason": "moved to `EG-MEDIA-VOCAB-R029`"
+    },
+    {
+      "id": "EG-MEDIA-VOCAB-X-R010",
+      "title": "RETIRED: moved to `EG-MEDIA-VOCAB-R030`",
+      "delivery_state": "RETIRED",
+      "landed_in": [],
+      "verified_by": [],
+      "retired_reason": "moved to `EG-MEDIA-VOCAB-R030`"
+    },
+    {
+      "id": "EG-MEDIA-VOCAB-X-R011",
+      "title": "RETIRED: moved to `EG-MEDIA-VOCAB-R031`",
+      "delivery_state": "RETIRED",
+      "landed_in": [],
+      "verified_by": [],
+      "retired_reason": "moved to `EG-MEDIA-VOCAB-R031`"
+    },
+    {
+      "id": "EG-MEDIA-VOCAB-X-R012",
+      "title": "RETIRED: moved to `EG-MEDIA-VOCAB-R032`",
+      "delivery_state": "RETIRED",
+      "landed_in": [],
+      "verified_by": [],
+      "retired_reason": "moved to `EG-MEDIA-VOCAB-R032`"
+    },
+    {
+      "id": "EG-MEDIA-VOCAB-X-R013",
+      "title": "RETIRED: moved to `EG-MEDIA-VOCAB-R033`",
+      "delivery_state": "RETIRED",
+      "landed_in": [],
+      "verified_by": [],
+      "retired_reason": "moved to `EG-MEDIA-VOCAB-R033`"
     }
   ]
 }
