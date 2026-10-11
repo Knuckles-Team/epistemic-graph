@@ -83,3 +83,48 @@ Cross-repository: the connector SDK runner (owner prefix `SDK-INGEST`, contract 
 References
 - arXiv:2606.12400 — Diao et al., "Doc-to-Atom: Learning to Compile and Compose Memory Atoms" (2026)
 - arXiv:2606.19847 — Yao et al., "AtomMem" (2026)
+
+## Document and transcript producers within R003
+
+Data flow: SDK ingestion runner -> served `SourceIngest` -> `prepare` -> normalization validation -> mapping -> atomic change envelope.
+The production route calls `prepare` at `src/server/dispatch/graph_pipeline/native_routes.rs:408`.
+It commits the envelope at `src/server/dispatch/graph_pipeline/native_routes.rs:429`.
+
+Existing code: `SourceIngestionRequest` at `crates/eg-types/src/source_ingestion.rs:265` validates the batch envelope.
+`prepare` at `src/server/handlers/source_ingestion.rs:155` authorizes requests and prepares the existing atomic projection.
+`resolve_mappings` at `src/server/handlers/source_ingestion.rs:385` resolves trusted mappings, rather than accepting caller-defined ontology authority.
+`DocumentData` at `crates/eg-document/src/document.rs:225` already holds content addresses, layout and chunk lineage.
+`NativeDocumentRuntime::decode_text` at `crates/eg-document/src/runtime.rs:79` decodes native text.
+Its existing production caller is `DecodedIngest::into_document` at `src/server/handlers/modality/ingest.rs:151`.
+The source pipeline must reuse document validation without invoking a second modality commit.
+Reachable today: yes for generic source ingestion and native document decoding; no for the new normalization and transcript validators.
+
+New code must add typed normalization receipts, transcript records and two validators before mapping.
+Searches for `TranscriptThread`, `TranscriptMessage`, `validate_transcript` and normalization quarantine found no equivalent source-ingestion validator.
+The graph must remain authoritative for accepted records, provenance, mapping revisions and source checkpoints.
+A quarantine envelope must store only restricted evidence; it must not advance the accepted checkpoint or publish failed projections.
+Raw content must retain its existing content-addressed admission boundary.
+The format registry must come from the trusted connector mapping revision.
+Transcript mappings must reuse existing message and concept vocabulary where applicable; they must not redefine media transcript segments.
+
+Decision: validate the complete source batch before committing its graph projection.
+Rejected alternative: commit individual messages or atoms during normalization, which exposes partial knowledge after failure.
+The named defaults `complete_document`, `content_identity`, `source_sequence` and `source_identity` must be replaceable through versioned policy.
+
+Cross-repository owners: `SDK-INGEST` must capture sources, parse external formats and submit normalized records under `run_ingest_worker`.
+`GRAPHOS-` owns the hosted entry and worker supervision; `AU-` applies received context and emits source events.
+EG must validate, store and select knowledge; no connector credential or source-effect loop moves into EG.
+R001 already owns queues and retries; R003.1 through R003.6 already own atom decomposition and selection.
+Decision rows R133 through R138 own run traces, plans and budgets; they do not own source transcript ingestion.
+
+### Source evidence mapping
+
+Queue authority: plans commit `e3e7260d41006035c5499b46686101c3f77e5302`, `spec-audit/writer-queue-merged/epistemic-graph.tsv`.
+Code and deduplication base: EG commit `3137ad4a02c50540a94c0523acc9638281532c9e`.
+
+| Queue line | Source paths | Citation | Requirement mapping |
+|---|---|---|---|
+| 47 | `prompts/conversations/old/paper_ingestion.txt`; `open-source-libraries/LeanRAG/README.md` | None in source queue | Extend R003 with R003.7 through R003.12: normalized documents, atomic publication and quarantine. |
+| 48 | `prompts/plans/om_plan.md`; `prompts/plans/temporal_update.md` | None in source queue | Extend R003 with R003.13 through R003.18: timestamped threads, messages, concept links and format refusal. |
+
+These inputs add no paper citation. Existing R003 research references inspire atom design only; they do not prove served acceptance.

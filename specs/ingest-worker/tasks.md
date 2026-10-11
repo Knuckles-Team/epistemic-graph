@@ -35,3 +35,15 @@ Order: R001.5 and R001.6 prerequisites, then R001.1-R001.3, R001.7-R001.8, R001.
 - [ ] **T-R003 - EG-INGEST-WORKER-R003.4:** Missing provenance refusal
 - [ ] **T-R003 - EG-INGEST-WORKER-R003.5:** Atom counts in the trace
 - [ ] **T-R003 - EG-INGEST-WORKER-R003.6:** Ingest-to-context proof
+- [ ] EG-INGEST-WORKER-R003.7: Model for document normalization.
+- [ ] EG-INGEST-WORKER-R003.8: Behavior for document normalization.
+- [ ] EG-INGEST-WORKER-R003.9: Wiring for document normalization.
+- [ ] EG-INGEST-WORKER-R003.10: Refusal for document normalization.
+- [ ] EG-INGEST-WORKER-R003.11: Evidence for document normalization.
+- [ ] EG-INGEST-WORKER-R003.12: Hot-path proof for document normalization.
+- [ ] EG-INGEST-WORKER-R003.13: Model for transcript ingestion.
+- [ ] EG-INGEST-WORKER-R003.14: Behavior for transcript ingestion.
+- [ ] EG-INGEST-WORKER-R003.15: Wiring for transcript ingestion.
+- [ ] EG-INGEST-WORKER-R003.16: Refusal for transcript ingestion.
+- [ ] EG-INGEST-WORKER-R003.17: Evidence for transcript ingestion.
+- [ ] EG-INGEST-WORKER-R003.18: Hot-path proof for transcript ingestion.

@@ -29,3 +29,20 @@ Run cargo test for the touched crates in CI, the SDK unit tests, and the spec-st
 |---|---|---|---|---|---|
 | T-R003 | R003.6 | Integration | One document and one query | Context from atoms with provenance keys | PENDING |
 | T-R003-N | R003.4 | Unit | An atom without provenance | `ATOM_PROVENANCE_MISSING`, none stored | PENDING |
+
+## Document and transcript producer acceptance
+
+The following tests define required acceptance; they do not record passing results.
+
+- `EG-INGEST-WORKER-R003.7`: `crates/eg-types/src/source_document.rs::tests::document_receipt_round_trips`.
+- `EG-INGEST-WORKER-R003.8`: `src/server/handlers/source_ingestion.rs::tests::complete_document_is_idempotent`.
+- `EG-INGEST-WORKER-R003.9`: `src/server/handlers/source_ingestion.rs::tests::prepare_validates_document_before_mapping`.
+- `EG-INGEST-WORKER-R003.10`: `src/server/handlers/source_ingestion.rs::tests::invalid_document_quarantines_without_partial_graph`.
+- `EG-INGEST-WORKER-R003.11`: `crates/eg-types/src/source_document.rs::tests::receipt_links_normalization_evidence`.
+- `EG-INGEST-WORKER-R003.12`: `tests/ingest/test_document_normalization_served.py::test_document_batch_is_atomic`.
+- `EG-INGEST-WORKER-R003.13`: `crates/eg-types/src/source_transcript.rs::tests::transcript_round_trips`.
+- `EG-INGEST-WORKER-R003.14`: `src/server/handlers/source_ingestion/transcript.rs::tests::source_sequence_and_identity_are_preserved`.
+- `EG-INGEST-WORKER-R003.15`: `src/server/handlers/source_ingestion/transcript.rs::tests::prepare_routes_declared_transcript_format`.
+- `EG-INGEST-WORKER-R003.16`: `src/server/handlers/source_ingestion/transcript.rs::tests::unknown_format_and_foreign_concept_are_refused`.
+- `EG-INGEST-WORKER-R003.17`: `src/server/handlers/source_ingestion/transcript.rs::tests::receipt_preserves_message_provenance`.
+- `EG-INGEST-WORKER-R003.18`: `tests/ingest/test_transcript_served.py::test_thread_messages_are_shared_within_scope`.
