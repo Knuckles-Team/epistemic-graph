@@ -57,6 +57,20 @@ fn cancel_status_refusal(
     None
 }
 
+fn release_work_item_lease(
+    props: &mut serde_json::Map<String, serde_json::Value>,
+    next_epoch: u64,
+    next_fencing_token: u64,
+) {
+    props.insert("lease_owner".into(), serde_json::Value::Null);
+    props.insert("lease_expires_at".into(), serde_json::Value::Null);
+    props.insert("lease_epoch".into(), serde_json::Value::from(next_epoch));
+    props.insert(
+        "fencing_token".into(),
+        serde_json::Value::from(next_fencing_token),
+    );
+}
+
 fn apply_cancelled_work_item_props(
     props: &mut serde_json::Map<String, serde_json::Value>,
     reason_ref: &Option<String>,
@@ -81,17 +95,11 @@ fn apply_cancelled_work_item_props(
     );
     props.insert("completed_at".into(), serde_json::Value::from(now_s));
     props.insert("updated_at".into(), serde_json::Value::from(now_s));
-    props.insert("lease_owner".into(), serde_json::Value::Null);
     props.insert(
         "last_lease_owner".into(),
         serde_json::Value::String(last_lease_owner),
     );
-    props.insert("lease_expires_at".into(), serde_json::Value::Null);
-    props.insert("lease_epoch".into(), serde_json::Value::from(next_epoch));
-    props.insert(
-        "fencing_token".into(),
-        serde_json::Value::from(next_fencing_token),
-    );
+    release_work_item_lease(props, next_epoch, next_fencing_token);
     props.insert(
         "cancel_reason_ref".into(),
         reason_ref
@@ -234,13 +242,7 @@ fn apply_deferred_work_item_props(
     );
     props.insert("attempt".into(), serde_json::Value::from(attempts));
     props.insert("defer_count".into(), serde_json::Value::from(defer_count));
-    props.insert("lease_owner".into(), serde_json::Value::Null);
-    props.insert("lease_expires_at".into(), serde_json::Value::Null);
-    props.insert("lease_epoch".into(), serde_json::Value::from(next_epoch));
-    props.insert(
-        "fencing_token".into(),
-        serde_json::Value::from(next_fencing_token),
-    );
+    release_work_item_lease(props, next_epoch, next_fencing_token);
     props.insert("updated_at".into(), serde_json::Value::from(now_s));
     props.insert(
         "defer_reason_ref".into(),
@@ -373,21 +375,34 @@ mod tests {
         assert!(props["lease_expires_at"].is_null());
     }
 
-    #[test]
-    fn deferral_refuses_exhausted_epoch_without_mutating_properties() {
-        let mut props = leased_props(u64::MAX, 11);
+    fn assert_deferral_refuses_exhaustion(epoch: u64, fence: u64, expected_error: &str) {
+        let mut props = leased_props(epoch, fence);
         let before = props.clone();
         let error = apply_deferred_work_item_props(&mut props, &None, 30_000, 10.0).unwrap_err();
-        assert_eq!(error, "DeferWorkItem lease epoch overflow");
+        assert_eq!(error, expected_error);
         assert_eq!(props, before);
     }
 
     #[test]
+    fn deferral_refuses_exhausted_epoch_without_mutating_properties() {
+        assert_deferral_refuses_exhaustion(u64::MAX, 11, "DeferWorkItem lease epoch overflow");
+    }
+
+    #[test]
     fn deferral_refuses_exhausted_fencing_token_without_mutating_properties() {
-        let mut props = leased_props(7, u64::MAX);
-        let before = props.clone();
-        let error = apply_deferred_work_item_props(&mut props, &None, 30_000, 10.0).unwrap_err();
-        assert_eq!(error, "DeferWorkItem fencing token overflow");
-        assert_eq!(props, before);
+        assert_deferral_refuses_exhaustion(7, u64::MAX, "DeferWorkItem fencing token overflow");
+    }
+
+    #[test]
+    fn cancellation_releases_lease_and_preserves_distinct_fences_and_owner() {
+        let mut props = leased_props(7, 11);
+        let result = apply_cancelled_work_item_props(&mut props, &None, 10.0).unwrap();
+        assert_eq!(result, (8, 12));
+        assert_eq!(props["lease_epoch"], 8);
+        assert_eq!(props["fencing_token"], 12);
+        assert_eq!(props["last_lease_owner"], "worker");
+        assert_eq!(props["status"], "cancelled");
+        assert!(props["lease_owner"].is_null());
+        assert!(props["lease_expires_at"].is_null());
     }
 }
