@@ -9,7 +9,7 @@
 5. **Complete phase 3.** Add persisted source statistics with provenance, freshness/owner-bound fragment caching and additional source kinds. Cache only when the source watermark is known and current. Retire alternate path-specific guards and source catalogs once callers use the common route.
 6. **Close semantic reads.** Finish generation fencing, restart/replay, filtered text/vector/edge retrieval and mixed traversal top-k. Run corpus reasoning and proof verification, including disjointness and skipped-event rebuild. Expose index fallback in explain output.
 7. **Close numerical surfaces.** Implement exact/golden series, attribution, propagation, barrier and motif kernels behind one public syntax and shared compute code. Add deterministic seed and budget handling before enabling a new operator on the served wire.
-8. **Publish evidence.** For each stable ID, record these in the native spec evidence: merged public SHA, exact test profile, positive and negative result, quality gate result, and client and generator version. Mark `ACCEPTED` only after exact-head gates and affected downstream client compatibility pass.
+8. **Publish evidence.** For each stable ID, record these in the native spec evidence. Record the merged public SHA, exact test profile, positive and negative result, quality gate result, and client and generator version. Mark `ACCEPTED` only after exact-head gates and affected downstream client compatibility pass.
 
 9. **Ontology source selection.** Add a read method that takes question classes and returns the class path and per-class approved mappings with premises. Reuse the reasoner for subclass entailment and the unified-data-plane mapping approval state. Add operation-bound source kinds to the foreign source registry under the shared outbound guard. (EG-FEDERATED-QUERY-R072, EG-FEDERATED-QUERY-R073)
 
@@ -143,7 +143,7 @@ Data flow: Iceberg REST commit → `commit_table` (`src/server/lake/rest/catalog
 Types: `SchemaChangeKind` gains `ReorderColumn`; the table keeps one schema version per change. Field ids stay stable across renames.
 Attach point: `commit_table`; its production caller is the listener route dispatch. Today `commit_table` only compacts, and `evolve_add_column` (`crates/eg-lake/src/lib.rs:179`) is reached from `src/server/lake/mod.rs:243` but not from a REST route.
 Failure: an unapproved destructive change or an unknown column is refused with a typed code and no new version.
-Existing code: `src/server/lake/rest/catalog.rs:270`, `:318`; `src/server/lake/catalog_ops.rs:184`; `crates/eg-lake/src/lib.rs:179`, `:241`, `:285`; `crates/eg-lake/src/iceberg.rs:315`, `:348`; `crates/eg-lake/src/iceberg_avro.rs:371`, `:408`; `crates/eg-types/src/lake_catalog.rs:216`, `:248`. Reachable today: load and time travel yes; schema evolution through REST no.
+Existing code: `src/server/lake/rest/catalog.rs:270`, `:318`; `src/server/lake/catalog_ops.rs:184`. Also `crates/eg-lake/src/lib.rs:179`, `:241`, `:285`; `crates/eg-lake/src/iceberg.rs:315`, `:348`. Also `crates/eg-lake/src/iceberg_avro.rs:371`, `:408`; `crates/eg-types/src/lake_catalog.rs:216`, `:248`. Reachable today: load and time travel yes; schema evolution through REST no.
 Reuses the table builder, the manifest writer and the compatibility classifier. New: drop, rename, reorder. New: the commit-route wiring.
 Decision: evolve through the standard commit route. Rejected: a private admin call, which external engines cannot use.
 Cross-repository: the authenticated catalog is owned by `EG-UNIFIED-DATA-PLANE-R039`; this rollup adds no new access rule.
@@ -209,7 +209,7 @@ Consumers: AU-RETRIEVAL (R006)
 Moves from agent-utilities: shortcut_risks.py:42, agent_control_contracts.py:73 (prior probe and evidence classes)
 Existing code: `crates/eg-plan/src/exec.rs:536`; `crates/eg-compute/src/assemble/conclude.rs:69` (typed abstention pattern). Reachable today: no.
 Existing-code search: no arbitration exists in the engine. Search terms: `arbitrat`, `abstain`, `margin`, `parametric`, `prior_probe`.
-Reuses: the typed abstention pattern and the ranked retrieved side. New: the candidate type, the margin rule, the verdict.
+Reuses: the typed abstention pattern and the ranked evidence side. New: the candidate type, the margin rule, the verdict.
 Decision: One margin rule in the engine over two candidates. Rejected alternative: a learned arbiter, because it needs labelled disagreement data.
 Cross-repository: `AU-RETRIEVAL-R006` runs the prior probe and applies the verdict. `EG-FEDERATED-QUERY-R081` and `R082` share the premise record.
 
