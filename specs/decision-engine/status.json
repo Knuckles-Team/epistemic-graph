@@ -1756,6 +1756,7 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "1527a97f2118",
+        "45beac8d810b",
         "e8aaa8ae5ccd"
       ],
       "verified_by": [
@@ -2949,6 +2950,7 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "334c101eb64f",
+        "45beac8d810b",
         "eff92845d271"
       ],
       "verified_by": [
