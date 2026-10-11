@@ -9,8 +9,8 @@ name: Release
 # Blocking path: {gates, gates-facade, gates-variants, gates-crates, python-suite,
 # security, lint-and-architecture, tts-piper-inference, language-clients}
 # -> {build, build-x86} -> {docker-image, publish-pypi} -> publish-image.
-# Quality and documentation jobs run independently. `pages` is a separate
-# deploy concern and carries no dependency edge into the release path.
+# Quality and documentation checks run independently. GitHub Pages deploys
+# in pages.yml so the release concurrency queue cannot delay documentation.
 #
 # The wheel build/determinism logic remains unchanged: `build` produces the
 # release artifacts, then `publish-pypi` repeats completeness checks on the
@@ -53,9 +53,8 @@ env:
   MATURIN_FEATURES: "full,ast-extended"
 
 jobs:
-  # ── Change scope. Docs/spec-only changes skip the heavy Rust and Python
-  # jobs; skipped jobs still report, so required checks never hang, and tags,
-  # manual runs and new branches always run everything.
+  # Documentation-only PRs avoid unrelated builds; main, tags and manual
+  # runs retain exhaustive validation. Unknown files/history run everything.
   changes:
     timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
     name: Change scope
@@ -63,33 +62,23 @@ jobs:
     outputs:
       code: ${{ steps.scope.outputs.code }}
     steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
       - id: scope
         env:
-          GH_TOKEN: ${{ github.token }}
           EVENT: ${{ github.event_name }}
-          REF: ${{ github.ref }}
-          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
-          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
-        run: |
-          set -euo pipefail
-          code=true
-          if [[ "$EVENT" == pull_request || "$REF" == refs/heads/* ]] \
-            && [[ -n "$BASE" && "$BASE" != 0000000000000000000000000000000000000000 ]] \
-            && files="$(gh api "repos/$GITHUB_REPOSITORY/compare/$BASE...$HEAD" --jq '.files[].filename')"; then
-            count="$(printf '%s\n' "$files" | grep -c . || true)"
-            # The compare API lists at most 300 files; anything larger runs everything.
-            if [[ "$count" -gt 0 && "$count" -lt 300 ]] \
-              && ! printf '%s\n' "$files" | grep -Evq '^(docs/|specs/|\.specify/)|\.md$'; then
-              code=false
-            fi
-          fi
-          echo "code=$code" >> "$GITHUB_OUTPUT"
-          echo "Heavy jobs run: $code"
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: python3 scripts/ci_change_scope.py --event "$EVENT" --base "$BASE" --head "$HEAD" >> "$GITHUB_OUTPUT"
 
   # ── Dependency and source-history security checks. ─────────────────────
   security:
     timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
     name: Security checks
+    needs: changes
+    if: always()
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -117,10 +106,12 @@ jobs:
           echo "Scanning ${base}..HEAD for credential-shaped content"
           python3 scripts/security/check_secret_history.py --base "$base"
 
-      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
+      - if: needs.changes.outputs.code != 'false'
+        uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
         with:
           toolchain: stable
       - name: Install pinned cargo-deny
+        if: needs.changes.outputs.code != 'false'
         run: |
           set -euo pipefail
           version="$(PYTHONPATH=scripts python -c 'from scanner_contract import load_contract; print(load_contract().cargo_deny_version)')"
@@ -129,6 +120,7 @@ jobs:
           echo "$root/bin" >> "$GITHUB_PATH"
           test "$("$root/bin/cargo-deny" --version)" = "cargo-deny $version"
       - name: Rust dependency advisory gate
+        if: needs.changes.outputs.code != 'false'
         run: bash scripts/check_cargo_advisories.sh
 
       - name: Universal served-read RLS and carrier-ownership contract
@@ -140,7 +132,7 @@ jobs:
     name: gates
     needs: changes
     if: needs.changes.outputs.code == 'true'
-    runs-on: ${{ (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted", "homelab"]') || 'ubuntu-latest' }}
+    runs-on: ${{ github.event_name == 'push' && fromJSON('["self-hosted", "homelab"]') || 'ubuntu-latest' }}
     steps:
       - &eg-gates-checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -375,7 +367,7 @@ jobs:
     name: gates (facade full)
     needs: changes
     if: needs.changes.outputs.code == 'true'
-    runs-on: ${{ (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted", "homelab"]') || 'ubuntu-latest' }}
+    runs-on: ${{ github.event_name == 'push' && fromJSON('["self-hosted", "homelab"]') || 'ubuntu-latest' }}
     steps:
       - *eg-gates-checkout
 
@@ -462,7 +454,7 @@ jobs:
     name: gates (workspace crates)
     needs: changes
     if: needs.changes.outputs.code == 'true'
-    runs-on: ${{ (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted", "homelab"]') || 'ubuntu-latest' }}
+    runs-on: ${{ github.event_name == 'push' && fromJSON('["self-hosted", "homelab"]') || 'ubuntu-latest' }}
     steps:
       - *eg-gates-checkout
 
@@ -795,12 +787,32 @@ jobs:
       # them), so local and CI share one definition. lane-guard governs local
       # worktree lanes and has nothing to check on a runner; cargo-deny runs in
       # the `security` job with its pinned install.
-      - name: pre-commit (commit stage, all files)
+      - name: pre-commit (commit stage, PR diff or full publication)
         env:
           SKIP: lane-guard,cargo-deny-advisories
-        run: pre-commit run --config .config/pre-commit.yaml --all-files --show-diff-on-failure
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [ "$EVENT" = pull_request ]; then
+            pre-commit run --config .config/pre-commit.yaml --from-ref "$BASE" --to-ref "$HEAD" --show-diff-on-failure
+          else
+            pre-commit run --config .config/pre-commit.yaml --all-files --show-diff-on-failure
+          fi
       - name: rustfmt
-        run: cargo fmt --all --check
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ "$EVENT" = pull_request ]; then
+            python3 scripts/check_rustfmt_scope.py --base "$BASE"
+          else
+            cargo fmt --all --check
+          fi
+      - name: CI change-scope regression tests
+        run: |
+          python -m pip install --disable-pip-version-check pytest==9.1.1
+          python -m pytest --noconftest -o addopts='' tests/test_ci_change_scope.py
 
   # ── Spec-status lifecycle gates (SPEC-STATUS-LIFECYCLE.md): the generated
   # specs/*/status.json schema, requirement decomposition, and (PRs only) the
@@ -1699,28 +1711,3 @@ jobs:
           gh release create engine-main dist/epistemic_graph-*.whl dist/SHA256SUMS \
             --target "$SOURCE_SHA" --prerelease --latest=false \
             --title "engine-main (${SOURCE_SHA:0:12})" --notes "$notes"
-
-  # ── Deploy concern, not a gate (folded from the former standalone
-  # advisory.yml `pages` job, itself folded from pages.yml). No
-  # `pip install -e .`, just `mkdocs build` from `docs/`. A job that calls a
-  # reusable workflow (`uses:`) accepts only
-  # name/uses/with/secrets/needs/if/permissions/strategy/concurrency — no
-  # `runs-on`/`steps`/`continue-on-error` (agent-utilities' release.yml hit
-  # this exact parser trap on its own `publish-docker` job; adding
-  # `continue-on-error` here would invalidate the WHOLE workflow file the
-  # same way). It carries no `needs:`, so it structurally cannot block
-  # `build`/`publish-pypi`/`publish-image` regardless.
-  pages:
-    name: Deploy GitHub Pages
-    # Only main deploys: the github-pages environment rejects tag refs, which
-    # failed every release run before a runner was even assigned.
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    uses: Knuckles-Team/pipelines/.github/workflows/pages_pipeline.yml@main
-    with:
-      content_source: docs
-      shared_theme_enabled: true
-      spec_dashboard_enabled: true
-    permissions:
-      contents: write
-      pages: write
-      id-token: write

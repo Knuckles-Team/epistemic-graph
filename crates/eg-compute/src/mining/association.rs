@@ -394,10 +394,12 @@ fn rules_for_itemset(
     n: usize,
     min_confidence: f64,
 ) -> Option<Vec<Rule>> {
-    if itemset.items.len() < 2 {
+    let k = itemset.items.len();
+    // Rule enumeration uses u32 masks; reject oversized direct kernel input
+    // before either shifting the endpoint or partitioning an itemset.
+    if k < 2 || k >= u32::BITS as usize {
         return Some(Vec::new());
     }
-    let k = itemset.items.len();
     let mut rules = Vec::new();
     for mask in 1u32..((1u32 << k) - 1) {
         if cancelled() {
@@ -413,7 +415,8 @@ fn rules_for_itemset(
 /// Generate association rules from the frequent itemsets. For every frequent
 /// itemset of size ≥ 2 and every non-empty PROPER subset used as the antecedent,
 /// emit the rule if its confidence ≥ `min_confidence`. Support of any subset is
-/// looked up from the (downward-closed) frequent-itemset map.
+/// looked up from the (downward-closed) frequent-itemset map. Itemsets with 32
+/// or more items are skipped because rule enumeration uses 32-bit masks.
 pub fn generate_rules(itemsets: &[FrequentItemset], min_confidence: f64) -> Vec<Rule> {
     let Some((support, n)) = support_index(itemsets) else {
         return Vec::new();
@@ -764,6 +767,49 @@ mod tests {
                 assert!(["bread", "butter", "milk"].contains(&it.as_str()));
             }
         }
+    }
+
+    // spec: EG-PLACEMENT-R003.4
+    #[test]
+    fn generate_rules_skips_itemsets_that_exceed_the_mask_width() {
+        for size in [32, 33, 64] {
+            let itemset = FrequentItemset {
+                items: (0..size).collect(),
+                count: 1,
+                support: 1.0,
+            };
+            assert!(generate_rules(&[itemset], 0.0).is_empty());
+        }
+    }
+
+    // spec: EG-PLACEMENT-R003.4
+    #[test]
+    fn generate_rules_preserves_valid_rules_beside_oversized_itemsets() {
+        let mut itemsets = vec![
+            FrequentItemset {
+                items: vec![0],
+                count: 1,
+                support: 1.0,
+            },
+            FrequentItemset {
+                items: vec![1],
+                count: 1,
+                support: 1.0,
+            },
+            FrequentItemset {
+                items: vec![0, 1],
+                count: 1,
+                support: 1.0,
+            },
+        ];
+        let expected = generate_rules(&itemsets, 0.0);
+        assert_eq!(expected.len(), 2);
+        itemsets.push(FrequentItemset {
+            items: (0..32).collect(),
+            count: 1,
+            support: 1.0,
+        });
+        assert_eq!(generate_rules(&itemsets, 0.0), expected);
     }
 
     #[test]

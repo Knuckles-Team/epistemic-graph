@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "spec_id": "connector-vocabulary-audit",
-  "owner_repo": "specs-audit-connector-vocab",
+  "owner_repo": "epistemic-graph",
   "delivery_state": "SPECIFIED",
   "requirement_ids": [
     "EG-CONN-AUDIT-R001",
@@ -1380,7 +1380,7 @@
     },
     {
       "id": "EG-CONN-AUDIT-R016.3",
-      "title": "CommerceFile",
+      "title": "Commerce namespace compatibility",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

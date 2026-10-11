@@ -117,7 +117,11 @@ mod tests {
         ] {
             assert!(!class.admits(), "{class:?} must not be admitted");
         }
-        for class in [ContentClass::Prose, ContentClass::Document, ContentClass::Comment] {
+        for class in [
+            ContentClass::Prose,
+            ContentClass::Document,
+            ContentClass::Comment,
+        ] {
             assert!(class.admits(), "{class:?} must be admitted");
         }
     }

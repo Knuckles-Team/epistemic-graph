@@ -1,0 +1,379 @@
+{
+  "schema_version": 2,
+  "spec_id": "EG-PLACEMENT",
+  "owner_repo": "epistemic-graph",
+  "delivery_state": "SPECIFIED",
+  "requirement_ids": [
+    "EG-PLACEMENT-R001",
+    "EG-PLACEMENT-R001.1",
+    "EG-PLACEMENT-R001.2",
+    "EG-PLACEMENT-R001.3",
+    "EG-PLACEMENT-R001.4",
+    "EG-PLACEMENT-R001.5",
+    "EG-PLACEMENT-R001.6",
+    "EG-PLACEMENT-R001.7",
+    "EG-PLACEMENT-R001.8",
+    "EG-PLACEMENT-R001.9",
+    "EG-PLACEMENT-R001.10",
+    "EG-PLACEMENT-R001.11",
+    "EG-PLACEMENT-R001.12",
+    "EG-PLACEMENT-R001.13",
+    "EG-PLACEMENT-R001.14",
+    "EG-PLACEMENT-R002",
+    "EG-PLACEMENT-R002.1",
+    "EG-PLACEMENT-R002.2",
+    "EG-PLACEMENT-R002.3",
+    "EG-PLACEMENT-R002.4",
+    "EG-PLACEMENT-R002.5",
+    "EG-PLACEMENT-R002.6",
+    "EG-PLACEMENT-R002.7",
+    "EG-PLACEMENT-R002.8",
+    "EG-PLACEMENT-R002.9",
+    "EG-PLACEMENT-R002.10",
+    "EG-PLACEMENT-R002.11",
+    "EG-PLACEMENT-R002.12",
+    "EG-PLACEMENT-R002.13",
+    "EG-PLACEMENT-R002.14",
+    "EG-PLACEMENT-R002.15",
+    "EG-PLACEMENT-R003",
+    "EG-PLACEMENT-R003.1",
+    "EG-PLACEMENT-R003.2",
+    "EG-PLACEMENT-R003.3",
+    "EG-PLACEMENT-R003.4",
+    "EG-PLACEMENT-R003.5",
+    "EG-PLACEMENT-R003.6"
+  ],
+  "requirements": [
+    {
+      "id": "EG-PLACEMENT-R001",
+      "title": "Deployment-placement question and assembled step graph go through the engine decision functionality (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-PLACEMENT-R001.1",
+        "EG-PLACEMENT-R001.2",
+        "EG-PLACEMENT-R001.3",
+        "EG-PLACEMENT-R001.4",
+        "EG-PLACEMENT-R001.5",
+        "EG-PLACEMENT-R001.6",
+        "EG-PLACEMENT-R001.7",
+        "EG-PLACEMENT-R001.8",
+        "EG-PLACEMENT-R001.9",
+        "EG-PLACEMENT-R001.10",
+        "EG-PLACEMENT-R001.11",
+        "EG-PLACEMENT-R001.12",
+        "EG-PLACEMENT-R001.13",
+        "EG-PLACEMENT-R001.14"
+      ]
+    },
+    {
+      "id": "EG-PLACEMENT-R001.1",
+      "title": "Prerequisite (decision-engine): standalone topology Decide question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-PLACEMENT-R001.2",
+      "title": "Add the `Placement` question kind",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-PLACEMENT-R001.3",
+      "title": "Target registry",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "92a78d0a890b"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/decision/statistical/placement.rs:45",
+        "crates/eg-types/src/decision/statistical/placement.rs:61",
+        "crates/eg-types/src/decision/statistical/placement.rs:77"
+      ]
+    },
+    {
+      "id": "EG-PLACEMENT-R001.4",
+      "title": "Typed request body with refusals",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-PLACEMENT-R001.5",
+      "title": "Add the placement vocabulary and shape",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-PLACEMENT-R001.6",
+      "title": "Pure feasibility function",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-PLACEMENT-R001.7",
+      "title": "Wire the kind into Decide",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-PLACEMENT-R001.8",
+      "title": "Capacity premise reuse, no lease",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-PLACEMENT-R001.9",
+      "title": "Why-not for every non-chosen target",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-PLACEMENT-R001.10",
+      "title": "Typed abstention",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-PLACEMENT-R001.11",
+      "title": "Served contract test through the real dispatch",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-PLACEMENT-R001.12",
+      "title": "Assembled step graph fixture",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-PLACEMENT-R001.13",
+      "title": "Assemble abstains rather than invents",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-PLACEMENT-R001.14",
+      "title": "Cross-repo (graph-os): correct R017 wording",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-PLACEMENT-R002",
+      "title": "Ingest-worker policy has one authority: the engine decides, the worker asks and obeys (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-PLACEMENT-R002.1",
+        "EG-PLACEMENT-R002.2",
+        "EG-PLACEMENT-R002.3",
+        "EG-PLACEMENT-R002.4",
+        "EG-PLACEMENT-R002.5",
+        "EG-PLACEMENT-R002.6",
+        "EG-PLACEMENT-R002.7",
+        "EG-PLACEMENT-R002.8",
+        "EG-PLACEMENT-R002.9",
+        "EG-PLACEMENT-R002.10",
+        "EG-PLACEMENT-R002.11",
+        "EG-PLACEMENT-R002.12",
+        "EG-PLACEMENT-R002.13",
+        "EG-PLACEMENT-R002.14",
+        "EG-PLACEMENT-R002.15"
+      ]
+    },
+    {
+      "id": "EG-PLACEMENT-R002.1",
+      "title": "Register carries capacity",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-PLACEMENT-R002.2",
+      "title": "Autosize and depth limit live in `SchedulerConfig`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-PLACEMENT-R002.3",
+      "title": "Pure grant function",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-PLACEMENT-R002.4",
+      "title": "Admission returns a grant",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-PLACEMENT-R002.5",
+      "title": "Routing is engine-side",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-PLACEMENT-R002.6",
+      "title": "Reword `EG-INGEST-WORKER-R001.2`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-PLACEMENT-R002.7",
+      "title": "Reword `EG-INGEST-WORKER-R001.3`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-PLACEMENT-R002.8",
+      "title": "Reword `EG-INGEST-WORKER-R001.6`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-PLACEMENT-R002.9",
+      "title": "Reword `EG-INGEST-WORKER-R001.10`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-PLACEMENT-R002.10",
+      "title": "Reword `EG-INGEST-WORKER-R001.11`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-PLACEMENT-R002.11",
+      "title": "Reword `EG-INGEST-WORKER-R001.14`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-PLACEMENT-R002.12",
+      "title": "Reword `EG-INGEST-WORKER-R001.15`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-PLACEMENT-R002.13",
+      "title": "Cross-repo (connector SDK repository): no policy constants in the worker",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-PLACEMENT-R002.14",
+      "title": "Fold the analytics pool knob into the same config",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-PLACEMENT-R002.15",
+      "title": "Parity check that no duplicate policy remains",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-PLACEMENT-R003",
+      "title": "Analytics payload bound is decided and defended (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-PLACEMENT-R003.1",
+        "EG-PLACEMENT-R003.2",
+        "EG-PLACEMENT-R003.3",
+        "EG-PLACEMENT-R003.4",
+        "EG-PLACEMENT-R003.5",
+        "EG-PLACEMENT-R003.6"
+      ]
+    },
+    {
+      "id": "EG-PLACEMENT-R003.1",
+      "title": "Name the constant",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "871e31f80156"
+      ],
+      "verified_by": [
+        "src/server/handlers/jobs/submit.rs:444"
+      ]
+    },
+    {
+      "id": "EG-PLACEMENT-R003.2",
+      "title": "Separate refusal for cardinality",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "23b021f818a8"
+      ],
+      "verified_by": [
+        "src/server/handlers/jobs/submit.rs:455"
+      ]
+    },
+    {
+      "id": "EG-PLACEMENT-R003.3",
+      "title": "Accept at the cap, refuse above",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-PLACEMENT-R003.4",
+      "title": "Defence in depth in the kernel",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "972d1c80e4bd"
+      ],
+      "verified_by": [
+        "crates/eg-compute/src/mining/association.rs:772",
+        "crates/eg-compute/src/mining/association.rs:785"
+      ]
+    },
+    {
+      "id": "EG-PLACEMENT-R003.5",
+      "title": "Plain labels are accepted and stored opaque",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-PLACEMENT-R003.6",
+      "title": "Cap is counted after hashing; verify deterministic behavior on bounded fixtures",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "bc01fdc30bb0"
+      ],
+      "verified_by": [
+        "src/server/handlers/jobs/association_hash_tests.rs:33",
+        "src/server/handlers/jobs/association_hash_tests.rs:52"
+      ]
+    }
+  ]
+}

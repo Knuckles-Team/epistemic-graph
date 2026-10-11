@@ -41,7 +41,12 @@ EVIDENCE_KINDS = frozenset(
 )
 FORBIDDEN = (
     re.compile(r"plans/", re.IGNORECASE),
-    re.compile(r"\bgitlab\b", re.IGNORECASE),
+    # The product and connector names are public vocabulary. A host or path
+    # reference is a repository dependency and must remain out of public specs.
+    re.compile(
+        r"\bgitlab(?:[-.][a-z0-9-]+)*\.[a-z0-9-]+\b|\bgitlab[/:\\]\S",
+        re.IGNORECASE,
+    ),
     re.compile(r"\bhomelab\b", re.IGNORECASE),
     re.compile(r"(?:file://|/(?:home|Users|tmp|workspace)/)", re.IGNORECASE),
 )

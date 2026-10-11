@@ -3,7 +3,9 @@
 import json
 from pathlib import Path
 
-from scripts.check_public_specs import _inventory_errors
+import pytest
+
+from scripts.check_public_specs import _inventory_errors, _reference_errors
 
 
 def _add_spec(root: Path, name: str, requirement_ids: list[str]) -> None:
@@ -52,3 +54,46 @@ def test_inventory_accepts_unique_indexed_specs(tmp_path: Path) -> None:
         if path.is_file()
     }
     assert _inventory_errors(tmp_path, paths) == []
+
+
+def test_public_connector_names_are_not_private_references(tmp_path: Path) -> None:
+    path = Path("specs/connector-competency/requirements.md")
+    (tmp_path / path).parent.mkdir(parents=True)
+    (tmp_path / path).write_text(
+        "GitLab pipelines use the gitlab connector and gitlab-mcp access contract.\n"
+        "The product is GitLab. GitLab: a public connector competency.\n",
+        encoding="utf-8",
+    )
+    assert _reference_errors(tmp_path, path) == []
+
+
+# Use synthetic hosts and accounts recognized by the tracked-privacy gate.
+# The public-spec checker must still reject these GitLab and local references.
+@pytest.mark.parametrize(
+    "reference",
+    [
+        "https://gitlab.example/team/private-spec/-/blob/main/spec.md",
+        "gitlab.example/team/private-spec",
+        "git@gitlab.example:team/private-spec.git",
+        "gitlab/team/private-spec",
+        "GitLab.EXAMPLE/team/private-spec",
+        "gitlab-private.example/team/private-spec",
+        "gitlab:team/private-spec.git",
+        "[private spec](https://gitlab.example/team/private-spec)",
+        "/workspace/checkouts/private-spec.md",
+        "/home/example-user/private-spec.md",
+        "file:///tmp/private-spec.md",
+        "plans/private-spec.md",
+        "homelab deployment notes",
+    ],
+)
+def test_private_reference_protection_is_preserved(
+    tmp_path: Path, reference: str
+) -> None:
+    path = Path("specs/connector-competency/requirements.md")
+    (tmp_path / path).parent.mkdir(parents=True)
+    (tmp_path / path).write_text(reference, encoding="utf-8")
+    assert any(
+        "private or local reference" in issue
+        for issue in _reference_errors(tmp_path, path)
+    )

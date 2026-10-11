@@ -10,8 +10,8 @@ use eg_types::contract::{BoundedVec, Digest256, ResourceId};
 use sha2::{Digest, Sha256};
 
 use super::{
-    bind, build_pack, context, head_of, import, imported, ok, persistence_id, refused, tool, Served,
-    ADMIN, TENANT,
+    bind, build_pack, context, head_of, import, imported, ok, persistence_id, refused, tool,
+    Served, ADMIN, TENANT,
 };
 
 const CONNECTOR: &str = "pack-admin";
@@ -232,7 +232,12 @@ async fn holder_refcounts_transition_across_unchanged_revised_and_withdrawn_entr
     let a = tool(CONNECTOR, "a", "Tool a.");
     let b = tool(CONNECTOR, "b", "Tool b.");
     let c = tool(CONNECTOR, "c", "Tool c.");
-    let first = imported(&served, &build_pack(CONNECTOR, &[a.clone(), b.clone(), c.clone()]), None).await;
+    let first = imported(
+        &served,
+        &build_pack(CONNECTOR, &[a.clone(), b.clone(), c.clone()]),
+        None,
+    )
+    .await;
     // Next release: `a` unchanged, `b` revised (new body, new holder), `c`
     // withdrawn (dropped from the pack, its holder becomes an orphan).
     let b_revised = tool(CONNECTOR, "b", "Tool b, revised.");
@@ -447,7 +452,12 @@ async fn an_end_to_end_connector_fixture_imports_through_to_a_served_read() {
     let connector = "pack-admin-e2e";
     bind(&served, connector, ADMIN).await;
     let fixture = tool(connector, "fixture", "An end-to-end fixture tool.");
-    imported(&served, &build_pack(connector, std::slice::from_ref(&fixture)), None).await;
+    imported(
+        &served,
+        &build_pack(connector, std::slice::from_ref(&fixture)),
+        None,
+    )
+    .await;
     let content: eg_types::agent_component::AgentComponentContentResult = ok(
         "Content",
         served

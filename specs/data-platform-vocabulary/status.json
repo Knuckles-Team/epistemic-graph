@@ -1,0 +1,460 @@
+{
+  "schema_version": 2,
+  "spec_id": "EG-DATAPLAT-VOCAB-001",
+  "owner_repo": "epistemic-graph",
+  "delivery_state": "SPECIFIED",
+  "requirement_ids": [
+    "EG-DATAPLAT-VOCAB-R001",
+    "EG-DATAPLAT-VOCAB-R001.1",
+    "EG-DATAPLAT-VOCAB-R001.2",
+    "EG-DATAPLAT-VOCAB-R001.3",
+    "EG-DATAPLAT-VOCAB-R001.4",
+    "EG-DATAPLAT-VOCAB-R002",
+    "EG-DATAPLAT-VOCAB-R002.1",
+    "EG-DATAPLAT-VOCAB-R002.2",
+    "EG-DATAPLAT-VOCAB-R002.3",
+    "EG-DATAPLAT-VOCAB-R002.4",
+    "EG-DATAPLAT-VOCAB-R003",
+    "EG-DATAPLAT-VOCAB-R003.1",
+    "EG-DATAPLAT-VOCAB-R003.2",
+    "EG-DATAPLAT-VOCAB-R003.3",
+    "EG-DATAPLAT-VOCAB-R004",
+    "EG-DATAPLAT-VOCAB-R004.1",
+    "EG-DATAPLAT-VOCAB-R004.2",
+    "EG-DATAPLAT-VOCAB-R004.3",
+    "EG-DATAPLAT-VOCAB-R004.4",
+    "EG-DATAPLAT-VOCAB-R005",
+    "EG-DATAPLAT-VOCAB-R005.1",
+    "EG-DATAPLAT-VOCAB-R005.2",
+    "EG-DATAPLAT-VOCAB-R005.3",
+    "EG-DATAPLAT-VOCAB-R005.4",
+    "EG-DATAPLAT-VOCAB-R005.5",
+    "EG-DATAPLAT-VOCAB-R006",
+    "EG-DATAPLAT-VOCAB-R006.1",
+    "EG-DATAPLAT-VOCAB-R006.2",
+    "EG-DATAPLAT-VOCAB-R006.3",
+    "EG-DATAPLAT-VOCAB-R006.4",
+    "EG-DATAPLAT-VOCAB-R006.5",
+    "EG-DATAPLAT-VOCAB-R006.6",
+    "EG-DATAPLAT-VOCAB-R006.7",
+    "EG-DATAPLAT-VOCAB-R006.8",
+    "EG-DATAPLAT-VOCAB-R007",
+    "EG-DATAPLAT-VOCAB-R007.1",
+    "EG-DATAPLAT-VOCAB-R007.2",
+    "EG-DATAPLAT-VOCAB-R007.3",
+    "EG-DATAPLAT-VOCAB-R007.4",
+    "EG-DATAPLAT-VOCAB-R008",
+    "EG-DATAPLAT-VOCAB-R008.1",
+    "EG-DATAPLAT-VOCAB-R008.2",
+    "EG-DATAPLAT-VOCAB-R008.3",
+    "EG-DATAPLAT-VOCAB-R009",
+    "EG-DATAPLAT-VOCAB-R009.1",
+    "EG-DATAPLAT-VOCAB-R009.2",
+    "EG-DATAPLAT-VOCAB-R009.3",
+    "EG-DATAPLAT-VOCAB-R009.4",
+    "EG-DATAPLAT-VOCAB-R009.5"
+  ],
+  "requirements": [
+    {
+      "id": "EG-DATAPLAT-VOCAB-R001",
+      "title": "Shared terms and mapping properties (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DATAPLAT-VOCAB-R001.1",
+        "EG-DATAPLAT-VOCAB-R001.2",
+        "EG-DATAPLAT-VOCAB-R001.3",
+        "EG-DATAPLAT-VOCAB-R001.4"
+      ]
+    },
+    {
+      "id": "EG-DATAPLAT-VOCAB-R001.1",
+      "title": "Add `dp:DataStore`, `dp:storeFamily`, `dp:inStore`, `dp:viaConnection`, `dp:asOf` to the new vocabulary file. Touches `crates/eg-core/ontology/data_platform-v1.ttl`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DATAPLAT-VOCAB-R001.2",
+      "title": "Add `dp:StoreMapping` (subclass of `vg:VirtualMapping`) with `dp:contractKind`, `dp:viaOperation`, `dp:accelerationMode`, `dp:materialisationReason`. Touches `crates/eg-core/ontology/data_platform-v1.ttl`. Depends on `EG-DATAPLAT-VOCAB-R001.1`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DATAPLAT-VOCAB-R001.3",
+      "title": "Add `document` to the `vg:sourceKind` list comment and `sh:in` of the source-connection shape. Touches `crates/eg-core/ontology/virtual_graph-v1.shapes.ttl`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DATAPLAT-VOCAB-R001.4",
+      "title": "Register `core:data-platform@1` as a core schema source next to `core:virtual-graph@1`. Touches `crates/eg-core/src/graph/schema_sources.rs`. Depends on `EG-DATAPLAT-VOCAB-R001.1`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DATAPLAT-VOCAB-R002",
+      "title": "Relational and document store terms (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DATAPLAT-VOCAB-R002.1",
+        "EG-DATAPLAT-VOCAB-R002.2",
+        "EG-DATAPLAT-VOCAB-R002.3",
+        "EG-DATAPLAT-VOCAB-R002.4"
+      ]
+    },
+    {
+      "id": "EG-DATAPLAT-VOCAB-R002.1",
+      "title": "Add `dp:Database`, `dp:Schema`, `dp:Table`, `dp:View`, `dp:Column`, `dp:ForeignKey`. Touches `crates/eg-core/ontology/data_platform-v1.ttl`. Depends on `EG-DATAPLAT-VOCAB-R001.1`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DATAPLAT-VOCAB-R002.2",
+      "title": "Add `dp:inSchema`, `dp:hasColumn`, `dp:referencesTable`, `dp:isPrimaryKey`, `dp:sqlDialect` with domain/range. Touches `crates/eg-core/ontology/data_platform-v1.ttl`. Depends on `EG-DATAPLAT-VOCAB-R002.1`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DATAPLAT-VOCAB-R002.3",
+      "title": "Add `dp:Collection`, `dp:DocumentField`, `dp:fieldPath`, `dp:fieldType`, `dp:presenceRatio`, `dp:documentCount`. Touches `crates/eg-core/ontology/data_platform-v1.ttl`. Depends on `EG-DATAPLAT-VOCAB-R001.1`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DATAPLAT-VOCAB-R002.4",
+      "title": "Add a shape: `dp:fieldType` is in the `DocumentFieldType` list (incl. `Mixed`); `dp:presenceRatio` in [0,1]. Touches `crates/eg-core/ontology/data_platform-v1.shapes.ttl`. Depends on `EG-DATAPLAT-VOCAB-R002.3`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DATAPLAT-VOCAB-R003",
+      "title": "Object and vector store terms (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DATAPLAT-VOCAB-R003.1",
+        "EG-DATAPLAT-VOCAB-R003.2",
+        "EG-DATAPLAT-VOCAB-R003.3"
+      ]
+    },
+    {
+      "id": "EG-DATAPLAT-VOCAB-R003.1",
+      "title": "Add `dp:Bucket`, `dp:StoredObject`, `dp:objectKey`, `dp:byteSize`, `dp:lastModified`; no content property. Touches `crates/eg-core/ontology/data_platform-v1.ttl`. Depends on `EG-DATAPLAT-VOCAB-R001.1`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DATAPLAT-VOCAB-R003.2",
+      "title": "Add `dp:VectorCollection`, `dp:EmbeddingSpace`, `dp:embeddingModel`, `dp:dimensions`, `dp:distanceMetric`, `dp:usesEmbeddingSpace`, `dp:vectorCount`. Touches `crates/eg-core/ontology/data_platform-v1.ttl`. Depends on `EG-DATAPLAT-VOCAB-R001.1`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DATAPLAT-VOCAB-R003.3",
+      "title": "Add a shape: `dp:dimensions` positive integer; exactly one embedding space per vector collection. Touches `crates/eg-core/ontology/data_platform-v1.shapes.ttl`. Depends on `EG-DATAPLAT-VOCAB-R003.2`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DATAPLAT-VOCAB-R004",
+      "title": "Stream, analytics and ML terms (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DATAPLAT-VOCAB-R004.1",
+        "EG-DATAPLAT-VOCAB-R004.2",
+        "EG-DATAPLAT-VOCAB-R004.3",
+        "EG-DATAPLAT-VOCAB-R004.4"
+      ]
+    },
+    {
+      "id": "EG-DATAPLAT-VOCAB-R004.1",
+      "title": "Add `dp:Topic`, `dp:Partition`, `dp:ConsumerGroup`, `dp:PartitionLag`, `dp:partitionOf`, `dp:subscribesTo`, `dp:lag`, `dp:groupState`. Touches `crates/eg-core/ontology/data_platform-v1.ttl`. Depends on `EG-DATAPLAT-VOCAB-R001.1`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DATAPLAT-VOCAB-R004.2",
+      "title": "Add a shape: `dp:lag` integer >= 0 and `dp:asOf` required on `dp:PartitionLag`. Touches `crates/eg-core/ontology/data_platform-v1.shapes.ttl`. Depends on `EG-DATAPLAT-VOCAB-R004.1`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DATAPLAT-VOCAB-R004.3",
+      "title": "Add `dp:AnalyticsSite`, `dp:BehaviorMetric`, `dp:metricName`, `dp:metricValue`, `dp:windowDays`, `dp:dimensionName`, `dp:dimensionValue`. Touches `crates/eg-core/ontology/data_platform-v1.ttl`. Depends on `EG-DATAPLAT-VOCAB-R001.1`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DATAPLAT-VOCAB-R004.4",
+      "title": "Add `dp:Dataset` as a subclass of the existing core `:Dataset`, `dp:Model` as a general trained-model class (not equivalent to the narrower LLM/embedding `:Model`), `dp:TrainingRun`, `dp:EvaluationResult`, `dp:trainedOn`, `dp:producedModel`, `dp:evaluatedOn`, `dp:baselineRun`. Touches `crates/eg-core/ontology/data_platform-v1.ttl`. Depends on `EG-DATAPLAT-VOCAB-R001.1`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DATAPLAT-VOCAB-R005",
+      "title": "Secret metadata only (openbao) (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DATAPLAT-VOCAB-R005.1",
+        "EG-DATAPLAT-VOCAB-R005.2",
+        "EG-DATAPLAT-VOCAB-R005.3",
+        "EG-DATAPLAT-VOCAB-R005.4",
+        "EG-DATAPLAT-VOCAB-R005.5"
+      ]
+    },
+    {
+      "id": "EG-DATAPLAT-VOCAB-R005.1",
+      "title": "Add `dp:SecretEngine`, `dp:SecretPath`, `dp:AccessPolicy`, `dp:RotationState`, `dp:hasRotationState`, `dp:lastRotatedAt`, `dp:currentVersion`, `dp:pathName`, `dp:PolicyPathGrant`, `dp:grantPolicy`, `dp:grantPath`, `dp:grantsCapability`, `dp:leaseExpiresAt`. Touches `crates/eg-core/ontology/data_platform-v1.ttl`. Depends on `EG-DATAPLAT-VOCAB-R001.1`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DATAPLAT-VOCAB-R005.2",
+      "title": "Add closed shapes (`sh:closed true`) for the five secret-metadata classes, including `dp:PolicyPathGrant`; allow only their applicable metadata properties, including shared store/provenance links, and reject every other property. Touches `crates/eg-core/ontology/data_platform-v1.shapes.ttl`. Depends on `EG-DATAPLAT-VOCAB-R005.1`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DATAPLAT-VOCAB-R005.3",
+      "title": "Refusal test row: a `dp:SecretPath` carrying a `value` (and one carrying `token`) triple fails validation, and the vocabulary file contains no property named value, secret, token, password, ciphertext or rules. Touches `crates/eg-core/tests/data_platform_vocab.rs`. Depends on `EG-DATAPLAT-VOCAB-R005.2`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DATAPLAT-VOCAB-R005.4",
+      "title": "Add a mapping-validator rule that refuses a `dp:StoreMapping` whose `dp:viaOperation` is `openbao_mcp_kv:kv2_get`, `kv1_get`, `openbao_mcp_logical:read` or `unwrap`. Touches `crates/eg-plan/src/virtual_graph_mapping.rs`. Depends on `EG-DATAPLAT-VOCAB-R005.3`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DATAPLAT-VOCAB-R005.5",
+      "title": "Add a shape: each `dp:PolicyPathGrant` has exactly one `dp:grantPolicy` (`dp:AccessPolicy`), exactly one `dp:grantPath` (`dp:SecretPath`), and at least one `dp:grantsCapability` string in `read list create update delete sudo deny`. Touches `crates/eg-core/ontology/data_platform-v1.shapes.ttl`. Depends on `EG-DATAPLAT-VOCAB-R005.1`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DATAPLAT-VOCAB-R006",
+      "title": "Per-connector mapping fixtures (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DATAPLAT-VOCAB-R006.1",
+        "EG-DATAPLAT-VOCAB-R006.2",
+        "EG-DATAPLAT-VOCAB-R006.3",
+        "EG-DATAPLAT-VOCAB-R006.4",
+        "EG-DATAPLAT-VOCAB-R006.5",
+        "EG-DATAPLAT-VOCAB-R006.6",
+        "EG-DATAPLAT-VOCAB-R006.7",
+        "EG-DATAPLAT-VOCAB-R006.8"
+      ]
+    },
+    {
+      "id": "EG-DATAPLAT-VOCAB-R006.1",
+      "title": "Add the `sql` `dp:StoreMapping` fixture for `sql_schema:tables`, `columns`, `foreign_keys`, `constraints` with `dp:accelerationMode` V (reason recorded where M). Touches `crates/eg-core/ontology/fixtures/data_platform/sql.ttl`. Depends on `EG-DATAPLAT-VOCAB-R001.2`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DATAPLAT-VOCAB-R006.2",
+      "title": "Add the `documentdb` `dp:StoreMapping` fixture for `documentdb_collections:list_collections`, `documentdb_analysis:aggregate` with `dp:accelerationMode` V (reason recorded where M). Touches `crates/eg-core/ontology/fixtures/data_platform/documentdb.ttl`. Depends on `EG-DATAPLAT-VOCAB-R001.2`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DATAPLAT-VOCAB-R006.3",
+      "title": "Add the `objectstore` `dp:StoreMapping` fixture for `buckets:list`, `objects:list`, `objects:head` with `dp:accelerationMode` V (reason recorded where M). Touches `crates/eg-core/ontology/fixtures/data_platform/objectstore.ttl`. Depends on `EG-DATAPLAT-VOCAB-R001.2`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DATAPLAT-VOCAB-R006.4",
+      "title": "Add the `vector` `dp:StoreMapping` fixture for `vector_collection_management:list_collections` with `dp:accelerationMode` V (reason recorded where M). Touches `crates/eg-core/ontology/fixtures/data_platform/vector.ttl`. Depends on `EG-DATAPLAT-VOCAB-R001.2`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DATAPLAT-VOCAB-R006.5",
+      "title": "Add the `kafka` `dp:StoreMapping` fixture for `kafka_groups:lags`, `kafka_partitions:list`, `kafka_topics:list` with `dp:accelerationMode` V; M for sustained lag (reason recorded where M). Touches `crates/eg-core/ontology/fixtures/data_platform/kafka.ttl`. Depends on `EG-DATAPLAT-VOCAB-R001.2`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DATAPLAT-VOCAB-R006.6",
+      "title": "Add the `openbao` `dp:StoreMapping` fixture for `openbao_mcp_sys:get_mounts`, `openbao_mcp_logical:list` with `dp:accelerationMode` V (reason recorded where M). Touches `crates/eg-core/ontology/fixtures/data_platform/openbao.ttl`. Depends on `EG-DATAPLAT-VOCAB-R001.2`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DATAPLAT-VOCAB-R006.7",
+      "title": "Add the `clarity` `dp:StoreMapping` fixture for `clarity_insights:get_data_export` with `dp:accelerationMode` V up to 3 days; M beyond (reason recorded where M). Touches `crates/eg-core/ontology/fixtures/data_platform/clarity.ttl`. Depends on `EG-DATAPLAT-VOCAB-R001.2`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DATAPLAT-VOCAB-R006.8",
+      "title": "Add the `data-science` `dp:StoreMapping` fixture for `load_dataset`, `dataset_lineage`, `rank_models`, `evaluate_model` with `dp:accelerationMode` V; M for run history (reason recorded where M). Touches `crates/eg-core/ontology/fixtures/data_platform/data-science.ttl`. Depends on `EG-DATAPLAT-VOCAB-R001.2`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DATAPLAT-VOCAB-R007",
+      "title": "Mode and discovery guards (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DATAPLAT-VOCAB-R007.1",
+        "EG-DATAPLAT-VOCAB-R007.2",
+        "EG-DATAPLAT-VOCAB-R007.3",
+        "EG-DATAPLAT-VOCAB-R007.4"
+      ]
+    },
+    {
+      "id": "EG-DATAPLAT-VOCAB-R007.1",
+      "title": "Add a shape rule: `materialised` without `dp:materialisationReason` is a violation; `virtual` needs none. Touches `crates/eg-core/ontology/data_platform-v1.shapes.ttl`. Depends on `EG-DATAPLAT-VOCAB-R001.2`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DATAPLAT-VOCAB-R007.2",
+      "title": "Add a shape rule: `contractKind = mcp-operation` requires `dp:viaOperation`. Touches `crates/eg-core/ontology/data_platform-v1.shapes.ttl`. Depends on `EG-DATAPLAT-VOCAB-R001.2`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DATAPLAT-VOCAB-R007.3",
+      "title": "Add a test that no `dp:` term or mapping fixture declares a discovery operation: relational/document entries come from `vg:MetadataContract` only. Touches `crates/eg-core/tests/data_platform_vocab.rs`. Depends on `EG-DATAPLAT-VOCAB-R006.1`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DATAPLAT-VOCAB-R007.4",
+      "title": "Add a test that every fixture mapping not marked `materialised` has no `AccelerationPolicy` and every `materialised` one cites R038. Touches `crates/eg-core/tests/data_platform_vocab.rs`. Depends on `EG-DATAPLAT-VOCAB-R006.8`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DATAPLAT-VOCAB-R008",
+      "title": "Alignment with package-local ontologies (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DATAPLAT-VOCAB-R008.1",
+        "EG-DATAPLAT-VOCAB-R008.2",
+        "EG-DATAPLAT-VOCAB-R008.3"
+      ]
+    },
+    {
+      "id": "EG-DATAPLAT-VOCAB-R008.1",
+      "title": "Add an alignment table (package term -> `dp:` term, `rdfs:subClassOf` / `owl:equivalentProperty`) for sql and documentdb. Touches `crates/eg-core/ontology/fixtures/data_platform/alignment_relational.ttl`. Depends on `EG-DATAPLAT-VOCAB-R002.2`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DATAPLAT-VOCAB-R008.2",
+      "title": "Add the alignment table for objectstore and vector. Touches `crates/eg-core/ontology/fixtures/data_platform/alignment_object_vector.ttl`. Depends on `EG-DATAPLAT-VOCAB-R003.2`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DATAPLAT-VOCAB-R008.3",
+      "title": "Add the alignment table for kafka, openbao, clarity, data-science. Touches `crates/eg-core/ontology/fixtures/data_platform/alignment_ops_ml.ttl`. Depends on `EG-DATAPLAT-VOCAB-R004.4`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DATAPLAT-VOCAB-R009",
+      "title": "Connector operations this vocabulary needs (cross-repo rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DATAPLAT-VOCAB-R009.1",
+        "EG-DATAPLAT-VOCAB-R009.2",
+        "EG-DATAPLAT-VOCAB-R009.3",
+        "EG-DATAPLAT-VOCAB-R009.4",
+        "EG-DATAPLAT-VOCAB-R009.5"
+      ]
+    },
+    {
+      "id": "EG-DATAPLAT-VOCAB-R009.1",
+      "title": "Cross-repo, owner `objectstore-mcp`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DATAPLAT-VOCAB-R009.2",
+      "title": "Cross-repo, owner `vector-mcp`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DATAPLAT-VOCAB-R009.3",
+      "title": "Cross-repo, owner `openbao-mcp`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DATAPLAT-VOCAB-R009.4",
+      "title": "Cross-repo, owner `clarity-api`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DATAPLAT-VOCAB-R009.5",
+      "title": "Cross-repo, owner `data-science-mcp`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    }
+  ]
+}

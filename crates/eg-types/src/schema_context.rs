@@ -185,8 +185,7 @@ mod tests {
         // Round-trip the request itself, proving it is a real wire
         // boundary and not just an in-process `&str` call.
         let encoded_request = serde_json::to_string(&request).unwrap();
-        let decoded_request: SchemaContextRequest =
-            serde_json::from_str(&encoded_request).unwrap();
+        let decoded_request: SchemaContextRequest = serde_json::from_str(&encoded_request).unwrap();
 
         let answer = serve_schema_context(&catalog(), &decoded_request).unwrap();
 

@@ -733,7 +733,7 @@
         "b23e8815f42c"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/statistical.rs:343"
+        "crates/eg-types/src/decision/statistical.rs:344"
       ]
     },
     {
@@ -766,7 +766,7 @@
         "b23e8815f42c"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/statistical.rs:350"
+        "crates/eg-types/src/decision/statistical.rs:351"
       ]
     },
     {

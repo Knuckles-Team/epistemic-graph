@@ -14,7 +14,7 @@ Evidence that the file-name method misfired (all read from the files):
 - `life-v1.ttl` is biology; `environment-v1.ttl` is ecology and weather; `harness-v1.ttl` models agent-harness scaffolding evolution.
 - Terms are in a sibling file the name did not suggest: Home Assistant `:Device`/`:Entity` and the fan-manager `:HealthTrend` family are in `infrastructure-v1.ttl`; Paperless `:Tag`/`:Correspondent` and Gramps `:Family` are in `personal-v1.ttl`; `:PullRequest`, `:MergeRequest`, `:PipelineRun` are in `sdlc_lifecycle-v1.ttl`.
 - Classes used but never declared: `:Repository` (referenced by `infrastructure-v1` `ContainerImage` and `sdlc_lifecycle-v1` `aliasOf`), `:Application` (range of `identity-v1` `:assignedApp`). No `Worktree` or `Branch` term exists.
-- Three different `:Incident` classes exist: `core-foundation-v1` (a case), `infrastructure-v1` (a cross-layer correlation event synthesized from anomalies), `archimate-v1` (a ServiceNow `rdfs:subClassOf :ApplicationEvent`). The ServiceNow connector must bind to the archimate crosswalk one.
+- Two Incident IRIs exist: `core-foundation-v1` and `archimate-v1` both describe `http://knuckles.team/kg#Incident` (the latter adds the ApplicationEvent crosswalk); `infrastructure-v1` owns the distinct infrastructure namespace Incident. ServiceNow uses the shared kg IRI, never the infrastructure Incident.
 
 ## Totals
 
@@ -25,7 +25,7 @@ Evidence that the file-name method misfired (all read from the files):
 | WRONG | 18 |
 | Total audited | 43 |
 
-Terms to add: 126 distinct across 16 files (one new file, `commerce-v1.ttl`). Rows: 17 rollups (16 file rollups plus Reassignments) and 156 children.
+Terms to add: 125 distinct across 16 files (one new file, `commerce-v1.ttl`). Rows: 17 rollups (16 file rollups plus Reassignments) and 156 children.
 
 ## Architecture
 
@@ -55,7 +55,7 @@ Owners: ontology files and `schema_sources.rs` registration are epistemic-graph 
 | dockerhub | software-v1.ttl | **WRONG** -> **infrastructure-v1.ttl** | infrastructure-v1: :ContainerImage; :ContainerRegistry; sdlc:builtFrom | `:lastPushedAt`, `:pullCount`, `:Repository` |
 | egeria | catalog-v1.ttl | **WRONG** -> **core-foundation-v1.ttl** | core-foundation-v1: :Dataset; :DataClassification; :classifiedAs; :Concept; :GovernedEntity | `:GlossaryTerm`, `:termAssignedTo` |
 | emerald-exchange | finance-v1.ttl | **PARTIAL** | :VersionedOrder; :orderStatus; :filledQty; :ExchangeBackend; :executedOn; :Account; :Activity (transfer) | `:orderQty` |
-| erpnext | company-v1.ttl | **WRONG** -> **commerce-v1.ttl** | none: company-v1 is the agent-company model (:Company, :WorkItem, :KeyPerformanceIndicator, :PayrollRecord); only :ErpNextIssue exists (archimate-v1) | `:CommerceFile`, `:Party`, `:PurchaseOrder`, `:PurchaseInvoice` |
+| erpnext | company-v1.ttl | **WRONG** -> **commerce-v1.ttl** | none: company-v1 is the agent-company model (:Company, :WorkItem, :KeyPerformanceIndicator, :PayrollRecord); only :ErpNextIssue exists (archimate-v1) | `:Party`, `:PurchaseOrder`, `:PurchaseInvoice` |
 | fan-manager | infrastructure-v1.ttl | **FIT** | :HealthTrend (:signal, :avg, :max); :HealthBaseline; :HealthAnomaly; :CoolingUnit; :Host | - |
 | firefly-iii | finance-v1.ttl | **PARTIAL** | :Account; :accountKind; :baseCurrency; :Activity (position-bound) | `:Budget`, `:budgetLimit`, `:LedgerTransaction`, `:chargedToBudget`, `:transactionAmount` |
 | github | software-v1.ttl | **WRONG** -> **sdlc_lifecycle-v1.ttl** | sdlc_lifecycle-v1: :PullRequest; :CodeChangeProposal; :CheckRun; :PipelineRun; :triggersPipeline; software:Commit | `:requestedReviewer`, `:closesTicket`, `:proposalState`, `:Repository` |
@@ -108,7 +108,7 @@ Terms to add, by file. Each is one child row (a 5-minute unit: one class or prop
 | `enterprise-v1.ttl` | 3 | `:factSheetType`, `:lifecyclePhase`, `:activeUserCount` |
 | `nutrition-v1.ttl` | 8 | `:Recipe`, `:usesIngredient`, `:ShoppingListItem`, `:MealPlanEntry`, `:WorkoutRoutine`, `:Exercise`, `:includesExercise`, `:WorkoutSession` |
 | `action-v1.ttl` | 1 | `:failureReason` |
-| `commerce-v1.ttl` | 7 | `:CommerceFile`, `:Party`, `:PurchaseOrder`, `:PurchaseInvoice`, `:Opportunity`, `:Contact`, `:lastActivityAt` |
+| `commerce-v1.ttl` | 6 | `:Party`, `:PurchaseOrder`, `:PurchaseInvoice`, `:Opportunity`, `:Contact`, `:lastActivityAt` |
 
 Shapes: only `finance-v1` has a `.shapes.ttl` companion today; the other files are registered with `shapes: None`. Each file rollup with a constrained term has a first child that creates the companion and registers it, so shape children have a home.
 
@@ -117,7 +117,7 @@ Shapes: only `finance-v1` has a `.shapes.ttl` companion today; the other files a
 - Ontology files: `crates/eg-core/ontology/<file>.ttl`; registration: `CoreSpec` entries in `crates/eg-core/src/graph/schema_sources.rs` (precedent `governance-shapes`, `personal`, `government`).
 - `catalog-v1.ttl` is generated; it is never hand-edited. The new `commerce` module appears in it by regeneration.
 - Connector mappings to the new terms are `vg:VirtualMapping` rows (`virtual_graph-v1.ttl`: `mapsOntologyClass`, `mapsEntity`, `hasPredicateFieldPair`); they belong to the connector lanes, not here.
-- Reassignment rows change the Coverage table and `Vocabulary:` text in `specs/connector-competency` after the in-flight change there merges.
+- Reassignment rows change the Coverage table and `Vocabulary:` text in `specs/connector-competency` after their producer terms land, with exact row-level assertions in both documents.
 - Scopes: none added; reads use the scopes the engine contract already lists.
 
 ## Decisions
@@ -142,23 +142,28 @@ Other decisions:
 - **gramps, paperless-ngx, nextcloud: DECIDED, `personal-v1.ttl`.** Its `:Family`, `:Correspondent`, `:Tag` and `:attachedFile` are documented as Gramps Web and Paperless-ngx terms.
 - **legal-peripherals: DECIDED, `core-foundation-v1.ttl`** (`:Agreement`, `:LegalEntity`, `:Regulation`). Alternative: `company-v1.ttl:CompanyLicense` (`licenseExpiration`, `renewalRequired`); rejected because a contract is not a license.
 - **stirlingpdf: DECIDED, `action-v1.ttl`** (`:ActionInvocation` with `:actsOnObject`, status and `producesEffect external`); added `:failureReason`.
-- **BLOCKED: none.** Not knowable from the repositories on this host: whether each connector's live payload carries the added fields (for example Tower `last_job_run`, Portainer replica counts); that is a connector-lane mapping check, owner: the connector package under `agent-packages/`.
+- **BLOCKED for live competency acceptance (not for vocabulary declarations):** Not established by this audit: whether each connector's live payload carries the added fields (for example Tower `last_job_run`, Portainer replica counts); that is a connector-lane mapping check, owner: the connector package under `agent-packages/`.
 
 ## Worked example
 
 Question (home-assistant, single-source): "Which sensors reported a value outside their normal range in the last 24 hours?"
 
 ```sparql
-SELECT ?entity ?observed ?p95 WHERE {
+PREFIX : <http://knuckles.team/kg/infrastructure#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+SELECT ?entity ?signal ?observed ?p95 WHERE {
+  VALUES ?cutoff { "2026-01-02T00:00:00Z"^^xsd:dateTime }
   ?entity a :Entity .
-  ?a a :HealthAnomaly ; :affectsEntity ?entity ; :observed ?observed ; :observedAt ?t .
-  ?b a :HealthBaseline ; :entity ?entity ; :p95 ?p95 .
-  FILTER(?t >= NOW() - "P1D"^^xsd:dayTimeDuration)
+  ?a a :HealthAnomaly ; :affectsEntity ?entity ; :observed ?observed ; :observedAt ?t ; :signal ?signal .
+  ?b a :HealthBaseline ; :affectsEntity ?entity ; :signal ?signal ; :p95 ?p95 .
+  FILTER(?t >= ?cutoff)
 }
 ```
+
+The caller supplies the cutoff for a frozen as-of of 2026-01-03T00:00:00Z. Entity joins use the object-valued affectsEntity edge, not the string-valued entity property, and match the signal to avoid combining unrelated baselines.
 
 Under the old assignment (`environment-v1`) no class in the query exists; under the corrected one every term is declared in `infrastructure-v1.ttl`. Answer shape: rows of entity, observed value, baseline p95, with provenance (source, record id, as-of) from the virtual mapping, or a typed abstention naming the unconnected Home Assistant source.
 
 ## Out of scope
 
-The 23 MISSING connectors; connector-side mapping code; editing `specs/connector-competency`; copying source data; the cross-source federation mechanism (existing specs).
+The 23 MISSING connectors; connector-side mapping code; applying `specs/connector-competency` edits in this specification-only PR; copying source data; the cross-source federation mechanism (existing specs).

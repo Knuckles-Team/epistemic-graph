@@ -5,6 +5,9 @@ use super::prelude_server::*;
 use super::prelude_std::*;
 use super::*;
 
+/// Maximum distinct items supported by the rule-enumeration mask width.
+const MAX_ASSOCIATION_DISTINCT_ITEMS: usize = (u32::BITS - 1) as usize;
+
 pub(super) struct SubmitBuild {
     pub(super) spec: SubmitJobSpec,
     pub(super) input_snapshot: InputSnapshotHandle,
@@ -250,6 +253,46 @@ pub(super) fn submit_placement_invalid(
             .any(|value| value.is_empty() || invalid_placement_value(value))
 }
 
+/// Reject invalid thresholds before traversing or pseudonymizing input.
+fn validate_association_thresholds(
+    req_id: u64,
+    min_support: f64,
+    min_confidence: f64,
+) -> Result<(), Response> {
+    // Reject invalid parameters before traversing or pseudonymizing the input.
+    // A governed-payload refusal is caller input, not an internal engine fault.
+    if !min_support.is_finite()
+        || !(0.0..=1.0).contains(&min_support)
+        || !min_confidence.is_finite()
+        || !(0.0..=1.0).contains(&min_confidence)
+    {
+        return Err(Response::err(
+            req_id,
+            "INVALID_ARGUMENT: association job thresholds are invalid",
+        ));
+    }
+    Ok(())
+}
+
+/// Count the opaque item references produced by Submit's hashing pass.
+fn validate_association_cardinality(
+    req_id: u64,
+    transactions: &[Vec<String>],
+) -> Result<(), Response> {
+    let distinct_items = transactions
+        .iter()
+        .flatten()
+        .collect::<std::collections::BTreeSet<_>>()
+        .len();
+    if distinct_items > MAX_ASSOCIATION_DISTINCT_ITEMS {
+        return Err(Response::err(
+            req_id,
+            "INVALID_ARGUMENT: association job exceeds the distinct-item limit",
+        ));
+    }
+    Ok(())
+}
+
 /// The `JobKind::MineAssociate` arm of [`handle_submit`]'s kind-governance
 /// match: pseudonymize transaction items, validate thresholds/cardinality,
 /// and validate the algorithm name.
@@ -261,6 +304,13 @@ pub(super) fn submit_job_mine_associate(
     min_confidence: f64,
     algorithm: String,
 ) -> Result<(JobKind, String, String, serde_json::Value), Response> {
+    validate_association_thresholds(req_id, min_support, min_confidence)?;
+    if parse_algorithm(&algorithm).is_err() {
+        return Err(Response::err(
+            req_id,
+            "INVALID_ARGUMENT: unsupported association job algorithm",
+        ));
+    }
     // Durable worker input contains opaque item references only. Source
     // labels and personal identifiers never enter jobs.redb.
     let transactions: Vec<Vec<String>> = transactions
@@ -277,25 +327,7 @@ pub(super) fn submit_job_mine_associate(
                 .collect()
         })
         .collect();
-    let distinct_items = transactions
-        .iter()
-        .flatten()
-        .collect::<std::collections::BTreeSet<_>>()
-        .len();
-    if !min_support.is_finite()
-        || !(0.0..=1.0).contains(&min_support)
-        || !min_confidence.is_finite()
-        || !(0.0..=1.0).contains(&min_confidence)
-        || distinct_items > 31
-    {
-        return Err(Response::err(
-            req_id,
-            "association job thresholds or distinct-item cardinality are invalid",
-        ));
-    }
-    if let Err(error) = parse_algorithm(&algorithm) {
-        return Err(Response::err(req_id, error));
-    }
+    validate_association_cardinality(req_id, &transactions)?;
     let params = serde_json::json!({
         "min_support": min_support,
         "min_confidence": min_confidence,
@@ -403,4 +435,54 @@ pub(super) fn ensure_program_optimization_capability(
     }
     required_capabilities.push("program.optimization".to_string());
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::MAX_ASSOCIATION_DISTINCT_ITEMS;
+
+    // spec: EG-PLACEMENT-R003.1
+    #[test]
+    fn association_distinct_item_limit_matches_rule_mask_width() {
+        assert_eq!(MAX_ASSOCIATION_DISTINCT_ITEMS, 31);
+    }
+}
+
+#[cfg(test)]
+mod association_refusal_tests {
+    use super::{validate_association_cardinality, validate_association_thresholds};
+
+    // spec: EG-PLACEMENT-R003.2
+    #[test]
+    fn cardinality_and_threshold_payloads_have_distinct_typed_refusals() {
+        for (count, support, confidence, expected) in [
+            (
+                32,
+                0.1,
+                0.5,
+                "association job exceeds the distinct-item limit",
+            ),
+            (2, -0.1, 0.5, "association job thresholds are invalid"),
+            (2, 0.1, f64::NAN, "association job thresholds are invalid"),
+            (
+                32,
+                f64::INFINITY,
+                0.5,
+                "association job thresholds are invalid",
+            ),
+        ] {
+            let transactions = vec![(0..count).map(|i| format!("item:{i}")).collect()];
+            let refusal = validate_association_thresholds(302, support, confidence)
+                .and_then(|()| validate_association_cardinality(302, &transactions))
+                .unwrap_err();
+            assert_eq!(refusal.id, 302);
+            assert_eq!(refusal.error.as_deref(), Some("INVALID_ARGUMENT"));
+            assert_eq!(refusal.error_detail.as_deref(), Some(expected));
+            assert!(refusal.result.is_none());
+        }
+        let at_limit: Vec<String> = (0..31).map(|i| format!("item:{i}")).collect();
+        let duplicates = vec![at_limit.clone(), at_limit];
+        assert!(validate_association_thresholds(302, 0.0, 1.0).is_ok());
+        assert!(validate_association_cardinality(302, &duplicates).is_ok());
+    }
 }
