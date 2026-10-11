@@ -108,3 +108,10 @@ Status key: `[ ]` queued, `[-]` in progress, `[x]` verified at cited main revisi
   - [ ] **EG-DURABLE-KERNEL-R083.2:** Version-mismatch refusal.
   - [ ] **EG-DURABLE-KERNEL-R083.3:** Budgeted eviction by importance.
   - [ ] **EG-DURABLE-KERNEL-R083.4:** Locate and wire the served KV operation.
+  - [ ] **EG-DURABLE-KERNEL-R084:** Version-checked concurrent writes with a typed conflict (rollup).
+  - [ ] **EG-DURABLE-KERNEL-R084.1:** `WriteConflict` and `MergeStrategy` types
+  - [ ] **EG-DURABLE-KERNEL-R084.2:** Strategy resolution as a replaceable default
+  - [ ] **EG-DURABLE-KERNEL-R084.3:** Attach at the mutation version expectation
+  - [ ] **EG-DURABLE-KERNEL-R084.4:** Typed conflict refusal
+  - [ ] **EG-DURABLE-KERNEL-R084.5:** Conflict record in the mutation trace
+  - [ ] **EG-DURABLE-KERNEL-R084.6:** Two-writer proof
