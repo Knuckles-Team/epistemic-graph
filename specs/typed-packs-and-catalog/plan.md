@@ -123,6 +123,18 @@ The per-tenant lock serializes pack mutations but does not replace in-write head
 
 ## Amendments
 
+### 2026-10-11: served admin regression fixtures
+
+R002, R003 and R007 retain their runtime contracts. The import fixture must use
+the deterministic connector/digest/expected-binding key before testing index
+validation. Validation refusals, including `RETIRED_ENTRY_RETURNED`, are typed
+`PackImportResult::Rejected` violations. Compare catalog state after retirement
+with state after the refused reimport, so the retirement itself is not mistaken
+for a rejected-import mutation. Reconciliation preserves every historical
+revision holder; revised and withdrawn bodies remain readable by pinned revision
+(PACK-05), and only genuinely unheld bodies are orphans. The served regression
+asserts historical and current body bytes after the sweep.
+
 ### 2026-10-11: capability annotation acceptance
 
 EG-TYPED-PACKS-R042.1 tests the production G12 validator and claim partition for both annotation fields. The parser now requires an ASCII letter at the start of an absolute IRI scheme. Foreign terms retain their exact text in the declared partition. EG-TYPED-PACKS-R042.2 keeps signed dispatch, persisted claims, and refusal atomicity open. Native tests alone do not close the parent requirement.

@@ -239,7 +239,7 @@ async fn holder_refcounts_transition_across_unchanged_revised_and_withdrawn_entr
     )
     .await;
     // Next release: `a` unchanged, `b` revised (new body, new holder), `c`
-    // withdrawn (dropped from the pack, its holder becomes an orphan).
+    // withdrawn (dropped from the pack, its historical holder stays live).
     let b_revised = tool(CONNECTOR, "b", "Tool b, revised.");
     let second = imported(
         &served,
@@ -252,8 +252,8 @@ async fn holder_refcounts_transition_across_unchanged_revised_and_withdrawn_entr
         "unchanged/revised/withdrawn dispositions all land in one commit: {:?}",
         second.counts
     );
-    // `b`'s revised body and `c`'s withdrawn body are now orphans; `a` and the
-    // revised `b` stay held.
+    // Retained revisions are still pinned: neither the old `b` body nor
+    // withdrawn `c` is an orphan. The sweep must preserve their exact bytes.
     let key = "reconcile:pack-admin-transitions";
     let report: PackBodyReconcileReport = ok(
         "ReconcileBodies",
@@ -269,30 +269,39 @@ async fn holder_refcounts_transition_across_unchanged_revised_and_withdrawn_entr
             .await,
     );
     assert_eq!(
-        report.orphaned, 2,
-        "the old `b` body and the withdrawn `c` body are reclaimed: {report:?}"
+        report.scanned, 5,
+        "all distinct revision bodies remain held"
     );
-    let content: eg_types::agent_component::AgentComponentContentResult = ok(
-        "Content",
-        served
-            .call(
-                "content:pack-admin-transitions:b",
-                crate::protocol::Method::AgentComponent {
-                    op: eg_types::agent_component::AgentComponentOp::Content {
-                        request: eg_types::agent_component::AgentComponentContentRequest {
-                            tenant_id: TENANT.to_string(),
-                            component_id: "mcp:pack-admin/tool/b".to_string(),
-                            entry_revision: None,
+    assert_eq!(report.orphaned, 0, "historical bodies are not orphans");
+    assert_eq!(
+        report.released, 0,
+        "no historical reference may be released"
+    );
+    for (name, revision, expected) in [
+        ("a", Some(1), &a.body),
+        ("b", Some(1), &b.body),
+        ("c", Some(1), &c.body),
+        ("b", None, &b_revised.body),
+    ] {
+        let content: eg_types::agent_component::AgentComponentContentResult = ok(
+            "Content",
+            served
+                .call(
+                    &format!("content:pack-admin-transitions:{name}:{revision:?}"),
+                    crate::protocol::Method::AgentComponent {
+                        op: eg_types::agent_component::AgentComponentOp::Content {
+                            request: eg_types::agent_component::AgentComponentContentRequest {
+                                tenant_id: TENANT.to_string(),
+                                component_id: format!("mcp:pack-admin/tool/{name}"),
+                                entry_revision: revision,
+                            },
                         },
                     },
-                },
-            )
-            .await,
-    );
-    assert_eq!(
-        content.body, b_revised.body,
-        "the revised body, not the orphaned one, still reads back held"
-    );
+                )
+                .await,
+        );
+        assert_eq!(&content.body, expected, "retained body {name}:{revision:?}");
+    }
 }
 
 // spec: EG-TYPED-PACKS-R007
@@ -328,14 +337,6 @@ async fn bind_unbind_and_retire_require_admin_connector_pack_and_the_head_surviv
         .map(|name| tool(connector, name, "A tool."))
         .collect();
     let first = imported(&served, &build_pack(connector, &tools), None).await;
-    let before = served
-        .state
-        .write()
-        .await
-        .ensure_agent_library()
-        .unwrap()
-        .connector_pack_status(TENANT, &ResourceId::new(connector).unwrap())
-        .unwrap();
     let retire_key = format!("retire:{connector}:b");
     let retired: PackRetireResult = ok(
         "Retire",
@@ -353,18 +354,28 @@ async fn bind_unbind_and_retire_require_admin_connector_pack_and_the_head_surviv
             .await,
     );
     assert_eq!(retired.retired.len(), 1);
+    let before = served
+        .state
+        .write()
+        .await
+        .ensure_agent_library()
+        .unwrap()
+        .connector_pack_status(TENANT, &ResourceId::new(connector).unwrap())
+        .unwrap();
     let mut returning = tools.clone();
     returning.push(tool(connector, "d", "A new tool."));
-    let error = refused(
-        "reimporting a retired entry",
-        import(
-            &served,
-            &build_pack(connector, &returning),
-            Some(head_of(&first)),
-        )
-        .await,
+    assert_eq!(
+        rejected_codes(ok(
+            "Import",
+            import(
+                &served,
+                &build_pack(connector, &returning),
+                Some(head_of(&first)),
+            )
+            .await,
+        )),
+        [PackViolationCode::RetiredEntryReturned],
     );
-    assert_eq!(error, "RETIRED_ENTRY_RETURNED");
     let after = served
         .state
         .write()
@@ -420,7 +431,7 @@ async fn a_rejected_import_mutates_nothing_in_the_catalog() {
             ConnectorPackOp::Import {
                 request: Box::new(eg_types::connector_pack::ConnectorPackImportRequest {
                     context: context(key),
-                    index,
+                    index: index.clone(),
                     expected_head: Some(head_of(&first)),
                     allow_mass_withdrawal: false,
                 }),
@@ -428,8 +439,15 @@ async fn a_rejected_import_mutates_nothing_in_the_catalog() {
         )
         .await;
     assert_eq!(
-        rejected_codes(ok("Import", rejected)),
-        [PackViolationCode::MalformedIndex]
+        refused("noncanonical import key", rejected),
+        "IDEMPOTENCY_CONFLICT",
+    );
+    assert_eq!(
+        rejected_codes(ok(
+            "Import",
+            import(&served, &(index, archive), Some(head_of(&first))).await,
+        )),
+        [PackViolationCode::MalformedIndex],
     );
     let after = served
         .state
