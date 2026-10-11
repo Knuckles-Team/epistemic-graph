@@ -148,6 +148,7 @@ pub struct ObservationRef {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "contract-schema", schemars(rename = "MeasuredFact_{T}"))]
 pub struct MeasuredFact<T> {
     pub value: T,
     #[serde(deserialize_with = "deserialize_evaluation_ref")]
