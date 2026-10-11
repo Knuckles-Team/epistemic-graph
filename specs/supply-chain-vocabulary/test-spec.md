@@ -40,3 +40,18 @@ Unapproved mapping makes a class uncovered; unconnected procurement source gives
 ## Quality and release proof
 
 `cargo test -p eg-core` for the ontology and shape tests and `uvx pipelines-hook spec-status` and `spec-decomposition`; record revision and output at landing. A fixture test is not served acceptance; served acceptance is `EG-CQ-XSRC-R007`.
+
+## Historical retirement validation
+
+| Historical requirement | Check | Evidence |
+|---|---|---|
+| `EG-CONN-AUDIT-R016` | Exact replacement mapping, unique tombstone, generated RETIRED state, unchanged active rows. | Historical lineage validation in plan.md. |
+| `EG-CONN-AUDIT-R016.1` | Exact replacement mapping, unique tombstone, generated RETIRED state, unchanged active rows. | Historical lineage validation in plan.md. |
+| `EG-CONN-AUDIT-R016.2` | Exact replacement mapping, unique tombstone, generated RETIRED state, unchanged active rows. | Historical lineage validation in plan.md. |
+| `EG-CONN-AUDIT-R016.3` | Exact replacement mapping, unique tombstone, generated RETIRED state, unchanged active rows. | Historical lineage validation in plan.md. |
+| `EG-CONN-AUDIT-R016.4` | Exact replacement mapping, unique tombstone, generated RETIRED state, unchanged active rows. | Historical lineage validation in plan.md. |
+| `EG-CONN-AUDIT-R016.5` | Exact replacement mapping, unique tombstone, generated RETIRED state, unchanged active rows. | Historical lineage validation in plan.md. |
+| `EG-CONN-AUDIT-R016.6` | Exact replacement mapping, unique tombstone, generated RETIRED state, unchanged active rows. | Historical lineage validation in plan.md. |
+| `EG-CONN-AUDIT-R016.7` | Exact replacement mapping, unique tombstone, generated RETIRED state, unchanged active rows. | Historical lineage validation in plan.md. |
+| `EG-CONN-AUDIT-R016.8` | Exact replacement mapping, unique tombstone, generated RETIRED state, unchanged active rows. | Historical lineage validation in plan.md. |
+| `EG-CONN-AUDIT-R016.9` | Exact replacement mapping, unique tombstone, generated RETIRED state, unchanged active rows. | Historical lineage validation in plan.md. |
