@@ -190,6 +190,7 @@ def test_model_profile_round_trip() -> None:
             assert not accepted.get("error"), accepted
             imported = _decode_send_result("ConnectorPack", accepted.get("result"))
             assert imported["result"] == "imported", imported
+            assert imported["receipt"]["pack_digest"] == signed_digest
             stored = await client._send(
                 "AgentComponent",
                 {
