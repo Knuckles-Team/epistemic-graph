@@ -67,19 +67,21 @@ def test_public_connector_names_are_not_private_references(tmp_path: Path) -> No
     assert _reference_errors(tmp_path, path) == []
 
 
+# Use synthetic hosts and accounts recognized by the tracked-privacy gate.
+# The public-spec checker must still reject these GitLab and local references.
 @pytest.mark.parametrize(
     "reference",
     [
-        "https://gitlab.arpa/team/private-spec/-/blob/main/spec.md",
-        "gitlab.arpa/team/private-spec",
-        "git@gitlab.arpa:team/private-spec.git",
+        "https://gitlab.example/team/private-spec/-/blob/main/spec.md",
+        "gitlab.example/team/private-spec",
+        "git@gitlab.example:team/private-spec.git",
         "gitlab/team/private-spec",
-        "GitLab.ARPA/team/private-spec",
+        "GitLab.EXAMPLE/team/private-spec",
         "gitlab-private.example/team/private-spec",
         "gitlab:team/private-spec.git",
-        "[private spec](https://gitlab.arpa/team/private-spec)",
+        "[private spec](https://gitlab.example/team/private-spec)",
         "/workspace/checkouts/private-spec.md",
-        "/home/owner/private-spec.md",
+        "/home/example-user/private-spec.md",
         "file:///tmp/private-spec.md",
         "plans/private-spec.md",
         "homelab deployment notes",
