@@ -4,7 +4,7 @@ Status: PROPOSED. Governing spec: [spec.md](spec.md).
 
 ## Problem and evidence
 
-`specs/cross-source-competency/plan.md` lists as MISSING: `:Supplier`, `:SupplyChainItem`, `:SoftwareComponent`, `:ComponentVersion`, `:Vulnerability`, `:usesComponent`, `:suppliesService`, `:CustomerContract`, `:ChangeRequest`, `:coversService`, host temperature and capacity-limit terms, and a `:Customer` class. Reading `crates/eg-core/ontology/` confirms and sharpens this:
+`specs/cross-source-competency/plan.md` lists as MISSING: `:Supplier`, `:SupplyChainItem`, `:SoftwareComponent`, `:ComponentVersion`, `:Vulnerability`, `:usesComponent`, `:suppliesService`, `:CustomerContract`, `:ChangeRequest`, `:coversService`, host temperature and capacity-limit terms, and a `:Customer` class. The design-baseline audit of `crates/eg-core/ontology/` sharpened this:
 
 - `Supplier`, `SupplyChain`, `Vulnerability`, `SoftwareComponent` and `ComponentVersion` have no class declaration in any eg-core `.ttl`. `Customer` appears only in a comment (`archimate-v1.ttl:15`, "an ERPNext :Employee or :Customer").
 - The connectors already declare several of these **in the same `kg#` namespace** (`http://knuckles.team/kg#`): `erpnext.ttl` declares `:Supplier`, `:Item`, `:PurchaseOrder`, `:Customer`, `:suppliedBy` (domain `:PurchaseOrder`, range `:Supplier`); `dockerhub_api` ontology declares `:Vulnerability` and `:hasVulnerability` (`ContainerImage` to `Vulnerability`, `dockerhub_api/ontology/*.ttl:40,76`); `container-manager-mcp` `container.ttl:83` declares `:usesImage`. eg-core must declare the same IRIs so the connector ontologies merge instead of forking.
@@ -24,6 +24,15 @@ question "how does the supply chain affect our services?"
   -> join across approved owl:sameAs only (EG-UNIFIED-DATA-PLANE-R030)
   -> rows + freshness + abstentions -> SupplyChainImpactReport (EG-CQ-XSRC-R006)
 ```
+
+## Shared-term delivery stages
+
+`EG-SUPPLY-VOCAB-R001.1` preserves two separate acceptance stages:
+
+1. `EG-SUPPLY-VOCAB-R001.1.1` adds the shared ontology file and native production-parser tests for class declarations, superclass triples, labels, property domain/range and absence of a `suppliedBy` redeclaration. This producer stage does not install the file in the engine catalog.
+2. `EG-SUPPLY-VOCAB-R001.1.2` remains open until the default `GraphSchemaSources` catalog loads and validates that file and the native reasoner proves Supplier-to-Vendor and domain/range entailment, including the negative Vendor-to-Supplier case.
+
+The parent remains incomplete until both stages pass. A parsed declaration is not evidence of live catalog installation or reasoner execution.
 
 ## Vocabulary
 

@@ -84,8 +84,10 @@
     {
       "id": "EG-SUPPLY-VOCAB-R001.1.1",
       "title": "Declare shared supplier and item terms",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "ee2a3497659c"
+      ],
       "verified_by": [
         "crates/eg-rdf/tests/supply_chain_declarations.rs:21",
         "crates/eg-rdf/tests/supply_chain_declarations.rs:53",
