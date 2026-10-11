@@ -26,7 +26,7 @@
 ## Decisions and risk controls
 
 - Favor narrow extensions to existing `eg-plan`, `eg-rdf`, `eg-query`, `eg-numeric` and server paths. No second query planner, registry, schema authority, index lifecycle or statistical kernel.
-- Keep optimizer fallback reachable for differential testing and incident mitigation, but never use it to bypass authorization or an outbound refusal.
+- Keep optimizer fallback reachable for differential testing and incident mitigation. Never bypass authorization or an outbound refusal.
 - Treat SQL without explicit ordering as an unordered relation; tests compare multisets. With explicit ordering, compare ordered rows and top-N exactly.
 - Treat source-feature claims as untrusted until probes or conformance establish them; a failed probe lowers capability.
 - A missing watermark disables foreign-result cache. A failed semantic generation activation leaves the prior valid generation or uses a correct fallback. It does not return silently stale rows.

@@ -56,13 +56,13 @@ release result. See the owning plan's audit record for revision and limits.
 
 ### 2026-10-11 — NL cache source guard (EG-FEDERATED-QUERY-R058.3.1)
 
-At base `f154c5b4a115713ab8ff3e1d9643e2295c4ebe43`, extracting the exact
-`nl.rs` test module into a standalone Rust test crate, with the original
-`nl.rs` alongside it for unchanged `include_str!` resolution, reproduces the
-old guard failure (exit 101, one failed test). The repaired exact test module
-passes all three tests (exit 0): real NL source remains uncached; injections of
-`ResultCache`, direct and generic cache-aware response calls are rejected;
-missing production/test boundaries and the uncached response path fail closed.
+Base: `f154c5b4a115713ab8ff3e1d9643e2295c4ebe43`. Extract the exact `nl.rs`
+test module into a standalone Rust test crate. Keep the original `nl.rs`
+alongside it to preserve `include_str!` resolution. The old guard fails
+(exit 101, one failed test). All three repaired tests pass (exit 0).
+The real NL source remains uncached. The guard rejects injected `ResultCache`
+references and direct or generic cache-aware response calls. Missing
+production/test boundaries and the uncached response path fail closed.
 
 The probe uses `rustc --edition=2021 --test --cfg 'feature="nl-query"' probe.rs`.
 It excludes production compilation and proves the source guard only. Native
