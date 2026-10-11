@@ -98,9 +98,7 @@ def main() -> int:
     parser.add_argument("filenames", nargs="*")
     args = parser.parse_args()
     if can_skip(args.scope, args.filenames):
-        print(
-            f"{args.scanner}: verified local docs-only change; scan unnecessary"
-        )
+        print(f"{args.scanner}: verified local docs-only change; scan unnecessary")
         return 0
     scanner = Path(__file__).with_name(SCANNERS[args.scanner])
     return subprocess.call([sys.executable, str(scanner)])
