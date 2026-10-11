@@ -143,7 +143,12 @@
     "EG-DURABLE-KERNEL-R082.8",
     "EG-DURABLE-KERNEL-R082.9",
     "EG-DURABLE-KERNEL-R082.10",
-    "EG-DURABLE-KERNEL-R082.11"
+    "EG-DURABLE-KERNEL-R082.11",
+    "EG-DURABLE-KERNEL-R083",
+    "EG-DURABLE-KERNEL-R083.1",
+    "EG-DURABLE-KERNEL-R083.2",
+    "EG-DURABLE-KERNEL-R083.3",
+    "EG-DURABLE-KERNEL-R083.4"
   ],
   "requirements": [
     {
@@ -1836,6 +1841,47 @@
     {
       "id": "EG-DURABLE-KERNEL-R082.11",
       "title": "Cross-repo: graph-os hosts any remote worker process; agent-utilities does not",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R083",
+      "title": "Shared versioned KV-cache tier (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DURABLE-KERNEL-R083.1",
+        "EG-DURABLE-KERNEL-R083.2",
+        "EG-DURABLE-KERNEL-R083.3",
+        "EG-DURABLE-KERNEL-R083.4"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R083.1",
+      "title": "`KvBlockKey` typed model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R083.2",
+      "title": "Version-mismatch refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R083.3",
+      "title": "Budgeted eviction by importance",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R083.4",
+      "title": "Locate and wire the served KV operation",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

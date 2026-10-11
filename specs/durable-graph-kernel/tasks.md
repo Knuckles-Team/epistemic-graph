@@ -103,3 +103,8 @@ Status key: `[ ]` queued, `[-]` in progress, `[x]` verified at cited main revisi
 
 - [-] **EG-DURABLE-KERNEL-R074.1:** Typed capacity record and pure registry lifecycle with native positive/refusal tests; pending merged-head validation.
 - [ ] **EG-DURABLE-KERNEL-R074.2:** Authenticated served registry integration, generated contracts and cross-owner/expiry dispatch tests.
+- [ ] **EG-DURABLE-KERNEL-R083 (rollup):** Shared versioned KV-cache tier (rollup).
+  - [ ] **EG-DURABLE-KERNEL-R083.1:** `KvBlockKey` typed model.
+  - [ ] **EG-DURABLE-KERNEL-R083.2:** Version-mismatch refusal.
+  - [ ] **EG-DURABLE-KERNEL-R083.3:** Budgeted eviction by importance.
+  - [ ] **EG-DURABLE-KERNEL-R083.4:** Locate and wire the served KV operation.

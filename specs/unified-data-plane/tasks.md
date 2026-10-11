@@ -169,3 +169,9 @@ Native storage and wire work (EG-DURABLE-KERNEL-R032/EG-DURABLE-KERNEL-R033/EG-D
 ## Completion record for each row
 
 For each row, add a subentry containing its merged commit, exact-head test run, conformance/quality reports, operational drill where relevant, cross-repository consumer and old-path deletion. Record one of `PROPOSED`, `IMPLEMENTED-UNVALIDATED`, `ACCEPTED`, `CUTOVER`, `DELETED` or `DONE` with dated evidence. Update [status.json](status.json) only from proved evidence. `ACCEPTED` requires all applicable gates in [test-spec.md](test-spec.md); `CUTOVER` and `DONE` additionally require rollout, rollback and consumer evidence. Preserve failed runs and corrections rather than rewriting history. Rows above remain unchecked until that evidence exists.
+- [ ] **EG-UNIFIED-DATA-PLANE-R039 (rollup):** Authenticated, tenant-scoped Iceberg REST catalog (rollup).
+  - [ ] **EG-UNIFIED-DATA-PLANE-R039.1:** `CatalogPrincipal` typed model.
+  - [ ] **EG-UNIFIED-DATA-PLANE-R039.2:** Catalog authorization refusal.
+  - [ ] **EG-UNIFIED-DATA-PLANE-R039.3:** Locate and wire the REST listener.
+  - [ ] **EG-UNIFIED-DATA-PLANE-R039.4:** Partition spec in emitted Iceberg metadata.
+  - [ ] **EG-UNIFIED-DATA-PLANE-R039.5:** End-to-end external read.
