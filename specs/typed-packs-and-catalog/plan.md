@@ -176,3 +176,28 @@ R093.2 extends forced Reproject with colliding member labels, durable schema
 inspection, and fresh-key repeat identity checks.
 The test markers bind these existing acceptance tests to their owning rows.
 Native execution remains unrun. The generated lifecycle records test existence, independently of execution results.
+
+## Measured model and task facts for harness configuration (R048, R066)
+
+Data flow: evaluation run (agent-utilities) → pack import of a `model_profile` entry → `AgentComponentFacts::ModelProfile` (`crates/eg-types/src/agent_component/facts.rs:169`) → `AgentLibraryStore` → `Decide(harness_config)` handler (EG-DECISION-ENGINE-R128.8) → premises.
+
+Types and fields:
+
+- `contextWindowTokens` is the existing `context_window_tokens` field (`facts.rs:171`). It is a declared fact and needs no run reference.
+- `shellProficiency` (`low`, `medium`, `high`) and `stoppingBehaviour` (`stops_early`, `balanced`, `over_verifies`) are new optional fields.
+- Each wraps its value in `MeasuredFact<T>`, which holds an `evaluation_run_ref: ObservationRef`. `ObservationRef` is defined at `facts.rs:142` and already backs `latency_observed_ref`.
+- `shellCentric` is a boolean on the task class `swarm:TaskShape` (`crates/eg-core/ontology/swarm_topology-v1.ttl:80`, the class that `swarm:DecomposableTask` extends).
+
+Attach point: the digest function at `agent_component.rs:748` hashes the new fields only when present. An absent field must keep every existing digest vector.
+
+Failure behaviour: a measured value without a run reference fails validation (R048.2, R066.1). An absent measured fact is valid. It makes the decision abstain for the part that needs it (EG-DECISION-ENGINE-R128.5 to R128.7).
+
+Reused: `ModelProfile` and `ObservationRef`, the pack import path, `agent_ontology::broader_chain` for task-class inheritance. New: `MeasuredFact<T>`, two enums, `harness-v1.shapes.ttl`, `swarm:shellCentric`.
+
+Decisions:
+
+- Measured facts live on the model profile. Rejected alternative: a separate facts table. Facts then travel with the signed pack and its digest.
+- An absent `shellCentric` stays absent. Rejected alternative: default `false`. A default `false` turns a missing fact into a `tool_set` answer without a typed abstention.
+- The shapes file is new because `harness-v1.ttl` has no shapes sibling. The `swarm:shellCentric` shape extends `swarm_topology-v1.shapes.ttl` because that file validates task shapes.
+
+Cross-repository rows: the `AU-HARNESS` row for the matched ablation runner writes `shellProficiency` and `stoppingBehaviour` with their run references. The `EG-DECISION-ENGINE` row R128 reads them.
