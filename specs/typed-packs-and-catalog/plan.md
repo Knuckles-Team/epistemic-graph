@@ -279,8 +279,11 @@ the existing signed digest vector. The normal importer copies the measured facts
 into the model profile. The served regression uses the existing signed client,
 Blob CAS upload, pack importer and component read operation.
 
-Acceptance remains pending until the warm validator regenerates the contract schemas and Python DTOs.
-The validator must run the native tests and the served regression.
+Native acceptance passed on GR1080 with regenerated contract schemas and Python DTOs.
+The run passed 105 contract tests, 18 pack tests, and the real served regression.
+Both the native method-body codec and server were rebuilt from the integrated source.
+The fixture uses the canonical MCP server URI required by the importer.
+Structured results are in `evidence/gr1080-r048-5-20261011/results.json`.
 The regression sends each unknown enum through the raw MessagePack transport.
 It expects `INVALID_ARGUMENT` with detail `invalid request encoding`, then checks
 that no pack head, receipt, server component or model component exists.

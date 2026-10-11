@@ -856,11 +856,11 @@
       "title": "Pack import round-trips the new model facts",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "11fd83bf6d33",
         "536624d2cf3b",
         "5a186173f8c0",
         "6d07195e8c7b",
-        "a7c8179fbbc2",
-        "b5c0fb6f7844"
+        "a7c8179fbbc2"
       ],
       "verified_by": [
         "crates/eg-types/src/connector_pack/digest.rs:303",
