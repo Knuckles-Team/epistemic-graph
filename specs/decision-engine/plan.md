@@ -298,6 +298,17 @@ module with the existing tracing rlib passed all 3 helper/capture tests. This
 command does not execute the native solver-entry regression. The regression
 source is bound to R072.1; generated spec state and test execution are separate.
 
+### 2026-10-11: typed decision provenance acceptance
+
+R121.1 exercises the existing typed `PremiseRef` owner through assembly and replay.
+The test varies misleading labels independently from premise classes.
+R121.2 retains graph candidate provenance, record sealing, and replay integration.
+Graph candidates currently discard typed Claim/Evidence provenance while retaining scalar features.
+This assembly test does not establish graph-source acceptance.
+Native execution remains pending through an authorized dependency route.
+The existing scoped result is excluded because its dependency cache was outside the permitted task scope.
+The full Cargo suite and hosted CI remain unrun for this change.
+
 ### 2026-10-11 amendment: bounded R073 storage acceptance
 
 Add R073.1 and R073.2 for the existing served import path's durable per-component
@@ -321,3 +332,6 @@ Logged fit and evaluation keep their conservative cohort flag: any synthetic rec
 This preserves synthetic-only evaluation and prevents mixed cohorts from publishing real-world calibration claims.
 Inline datasets remain unverified and synthetic.
 Native fixture execution remains pending; source bindings and formatting do not prove execution.
+
+The reputation reader also excludes synthetic decisions before learning option reliability or scoring forecasters.
+The query-enabled pipeline fixture checks forecaster metrics, reputation counts, and the learned reliability provider.

@@ -210,6 +210,8 @@
     "EG-DECISION-ENGINE-R119",
     "EG-DECISION-ENGINE-R120",
     "EG-DECISION-ENGINE-R121",
+    "EG-DECISION-ENGINE-R121.1",
+    "EG-DECISION-ENGINE-R121.2",
     "EG-DECISION-ENGINE-R122",
     "EG-DECISION-ENGINE-R123",
     "EG-DECISION-ENGINE-R124",
@@ -2718,11 +2720,33 @@
     {
       "id": "EG-DECISION-ENGINE-R121",
       "title": "Typed Claim and Evidence structures back evidence class",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "534f763afc81",
         "a1bb9fb9503e"
       ],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R121.1",
+        "EG-DECISION-ENGINE-R121.2"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R121.1",
+      "title": "Assembly answers use typed premise classes",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "a8e597dccba7"
+      ],
+      "verified_by": [
+        "crates/eg-compute/src/assemble/tests/evidence.rs:8"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R121.2",
+      "title": "Graph candidate provenance reaches statistical answers",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {

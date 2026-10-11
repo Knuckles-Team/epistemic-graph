@@ -314,6 +314,45 @@ pub(super) async fn mixed_origin_aggregates_exclude_synthetic(
     assert!(synthetic.synthetic_evidence);
     let support = super::super::stat_support::default_statistical_policy().min_support;
     add_independent_labels(h, synthetic, support, false).await;
+    #[cfg(feature = "query")]
+    {
+        // Forecaster scores count records, not evaluations. Generate enough
+        // distinct replay-verified forecasts to cross their own support floor.
+        for i in 0..support {
+            let mut req = request(
+                schema_pin,
+                synthetic.inputs.head.clone(),
+                synthetic.inputs.policy.clone(),
+                QuestionSafety::Ordinary,
+            );
+            let mut params = req.params.as_slice().to_vec();
+            params.iter_mut().find(|p| p.name == "query").unwrap().value =
+                TypedValue::Text(format!("web search engine{}", " ".repeat(i as usize + 1)));
+            req.params = BoundedVec::new(params).unwrap();
+            let batch = decide(h, req).await.unwrap();
+            let record = &batch.records.as_slice()[0];
+            assert!(record.synthetic_evidence);
+            assert_eq!(
+                record.inputs.feature_matrix,
+                synthetic.inputs.feature_matrix
+            );
+            assert_forecast_is_available(h, record);
+            let _: DecisionLogCommitted = decode(
+                log_op(
+                    h,
+                    "decider",
+                    DecisionLogOp::Commit {
+                        record: Box::new(record.clone()),
+                        evaluator: None,
+                    },
+                )
+                .await,
+            )
+            .unwrap();
+            add_independent_labels(h, record, 1, false).await;
+        }
+        assert_reputation_origin(h, synthetic, None, support).await;
+    }
     for question in [None, Some(synthetic.question.question_id.clone())] {
         assert!(outcome_rows(h, question).await.rows.is_empty());
     }
@@ -351,6 +390,8 @@ pub(super) async fn mixed_origin_aggregates_exclude_synthetic(
     )
     .unwrap();
     add_independent_labels(h, &real, support, true).await;
+    #[cfg(feature = "query")]
+    assert_reputation_origin(h, synthetic, Some(&real), support).await;
     for question in [None, Some(real.question.question_id.clone())] {
         let expected_rows = if question.is_none() { 2 } else { 1 };
         let aggregate = outcome_rows(h, question).await;
@@ -413,4 +454,93 @@ async fn outcome_rows(h: &Harness, question_id: Option<String>) -> OutcomeAggreg
         .await,
     )
     .unwrap()
+}
+
+/// Query the production reputation relation and the provider consumed by
+/// SOURCE RELIABILITY against the same mixed-origin, replay-verified log.
+#[cfg(feature = "query")]
+async fn assert_reputation_origin(
+    h: &Harness,
+    synthetic: &StatisticalDecisionRecord,
+    real: Option<&StatisticalDecisionRecord>,
+    support: u64,
+) {
+    use eg_plan::exec::DecisionSource;
+    use serde_json::json;
+    let metrics = super::retrieval_tests::sql(
+        h,
+        "decider",
+        "SELECT brier, log_loss, ece FROM reputation WHERE subject_kind = 'forecaster'",
+    )
+    .await;
+    assert!(
+        metrics.is_empty(),
+        "synthetic forecasts cannot publish proper scores"
+    );
+    let counts = super::retrieval_tests::sql(
+        h,
+        "decider",
+        "SELECT subject_kind, trials, successes FROM reputation ORDER BY subject_kind",
+    )
+    .await;
+    let expected = real.map_or_else(Vec::new, |_| {
+        vec![
+            vec![json!("agent"), json!(support), json!(support)],
+            vec![json!("option"), json!(support), json!(support)],
+        ]
+    });
+    assert_eq!(counts, expected);
+    let verified = verified();
+    let authority = crate::server::access::CarrierAuthority::from_verified(&verified).unwrap();
+    let views = super::super::stat_view::DecisionViews::of(h.store.clone(), &authority);
+    let record = real.unwrap_or(synthetic);
+    let StatisticalOutcome::Explored { option_id, .. } = &record.outcome else {
+        panic!("executed exploration")
+    };
+    let learned = views.learned_reliability(option_id, 0.5, 2.0).unwrap();
+    if real.is_some() {
+        let learned = learned.expect("real outcomes teach reliability");
+        assert_eq!(learned.trials, support);
+        assert!(learned.lower < learned.mean && learned.mean < learned.upper);
+    } else {
+        assert!(
+            learned.is_none(),
+            "synthetic outcomes cannot teach reliability"
+        );
+    }
+}
+
+#[cfg(feature = "query")]
+fn assert_forecast_is_available(h: &Harness, record: &StatisticalDecisionRecord) {
+    let head = super::super::stat_jobs::candidate_head(
+        &h.store,
+        TENANT,
+        &EvalCandidate::PublishedHead {
+            head: record.inputs.head.clone().unwrap(),
+        },
+    )
+    .unwrap();
+    let FeatureMatrixRef::Inline {
+        candidate_ids,
+        feature_names,
+        values,
+        ..
+    } = &record.inputs.feature_matrix
+    else {
+        panic!("inline forecast inputs")
+    };
+    let matrix = super::super::stat_support::materialize_matrix(
+        candidate_ids.as_slice(),
+        feature_names.as_slice(),
+        values.as_slice(),
+    );
+    let StatisticalOutcome::Explored { option_id, .. } = &record.outcome else {
+        panic!("executed exploration")
+    };
+    assert!(
+        eg_numeric::decision::track_record::executed_forecast(&head, &matrix, option_id)
+            .unwrap()
+            .is_some(),
+        "fixture must supply a scoreable synthetic forecast"
+    );
 }
