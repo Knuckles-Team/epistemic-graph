@@ -82,3 +82,5 @@ Rendering or applying manifests (graph-os `deploy/`), acquiring capacity, system
 ### B producer implementation boundary
 
 R002.2 is implemented by the pure `eg_types::scheduler_config` contract (R076.1). R076.2 owns its later served integration. Neither the autosize grant function nor the existing analytics pool has been switched by this producer slice.
+
+R002.3 now provides pure `worker_registry::granted_slots` with `WorkerSizingInput` for the optional request ceiling, current available memory and engine-selected write classification. It consumes the real `WorkerRecord` and `SchedulerConfig`; the typed `WorkerSlotGrant` reports zero on refusal. CPU sizing alone may round up to one; memory, request ceiling, pool, disabled resources and writer width remain hard bounds. No reservations, served registration or R075 admission are claimed.

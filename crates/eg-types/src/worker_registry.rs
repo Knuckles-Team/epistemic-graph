@@ -1,6 +1,9 @@
 //! Pure worker registry producer for EG-DURABLE-KERNEL-R074.1.
 //! This module does not serve RPCs, authenticate workers, or persist records.
 
+mod grants;
+pub use grants::{granted_slots, WorkerCapacityRefusal, WorkerSizingInput, WorkerSlotGrant};
+
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
