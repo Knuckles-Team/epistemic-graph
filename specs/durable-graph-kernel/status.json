@@ -1650,9 +1650,13 @@
     {
       "id": "EG-DURABLE-KERNEL-R082.4",
       "title": "Association-rule identity is byte-identical to the old worker's",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "63d041e21850"
+      ],
+      "verified_by": [
+        "src/server/handlers/jobs/results_association.rs:101"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R082.5",
