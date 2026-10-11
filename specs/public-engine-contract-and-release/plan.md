@@ -23,7 +23,7 @@ The request envelope and signed body are distinct: the codec canonicalizes only 
 
 1. **Catalog audit:** enumerate every Rust-dispatched method and error, compare generated descriptors to reachable server paths, and correct missing transaction conflict error mapping.
 2. **One Python shape:** replace duplicate hand-written DTO definitions with generated re-exports; preserve import compatibility through aliases only where named and tested.
-3. **Codec parity:** build Rust WASM from pinned tool versions, compare both embedded copies, run Go/JS/Python/Rust vectors, and record source and artifact hashes. Reduce size by removing unused decode paths before changing optimization flags.
+3. **Codec parity:** build Rust WASM from pinned tool versions. Compare both embedded copies. Run Go/JS/Python/Rust vectors and record source and artifact hashes. Reduce size by removing unused decode paths before changing optimization flags.
 4. **Package:** include catalogs, schemas and receipt in wheel data. Clean-install into a new virtual environment and verify loader digests and typed operations. Avoid source-tree fallbacks.
 5. **CI:** run full root Python tests with the kernel/engine build in hosted CI, static contract reachability, Go/JS tests, all release feature profiles, and differential quality scanners. Tests needing a service start one from checked-in fixtures; deployment/soak has its own documented workflow.
 6. **Release:** build the wheel twice in clean environments, compare normalized artifacts, install from the built wheel, run consumer parity and mark a precise commit/tag. Record evidence per requirement.
@@ -80,3 +80,15 @@ EG-CONTRACT-R023.1 owns the completeness regression from EG-DURABLE-KERNEL-R014.
 Add the exact cluster-harness test path to the existing binary-composition component.
 Keep all existing ownership boundaries unchanged. Run the real completeness checker
 and pin that exact component assignment in its existing regression module.
+
+### 2026-10-11: retain completed facade compiler outputs across interrupted gates
+
+EG-CONTRACT-R009 extends the same pinned compiler-cache setup to the full-facade
+Cargo test step. The server and facade share YAML anchors for installation and
+step-local cache settings. Both still run their original Cargo commands;
+the later Whisper and bounded-memory tests keep their existing configuration.
+Only main writes to the GitHub cache. Each successful cacheable compilation can
+write its output before the overall job ends, so an interrupted cold gate does
+not discard every completed compilation. This does not cache final test-binary
+linking. Hosted cold and warm runs must establish whether the gate meets the
+ten-minute target. Test scope, failure propagation, and existing timeouts stay intact.
