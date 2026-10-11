@@ -15,7 +15,7 @@ Add the coverage and guardrail queries as typed read methods beside `AgentAssemb
 
 ## Parallelism and dependencies
 
-The contract bump precedes decision handler integration. Exact solver and pack fact-admission work may proceed independently once DTO ownership is frozen. Statistical jobs consume the committed record and visibility rules; question adapters consume the stable decision method. Shared edits to `agent_component.rs`, method descriptors, access classification and generated contract files are one coordinated integration unit to avoid competing schema versions.
+The contract bump precedes decision handler integration. Exact solver and pack fact-admission work may proceed independently once DTO ownership is frozen. Statistical jobs consume the committed record and visibility rules; question adapters consume the stable decision method. Coordinate shared edits to `agent_component.rs`, method descriptors, access classification and generated contract files. This prevents competing schema versions.
 
 ## Review rules
 

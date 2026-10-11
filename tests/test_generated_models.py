@@ -146,6 +146,22 @@ def test_decision_job_decode_selects_the_exact_operation(method: str) -> None:
         if method == "DecisionFit"
         else coordination.decode_decision_eval
     )
+    payload = {
+        "schema_version": 1,
+        "job_id": "job",
+        "kind": "fit" if method == "DecisionFit" else "eval",
+        "tenant_id": "tenant",
+        "request_digest": "digest",
+        "submitted_at_ms": 0,
+        "state": {"state": "queued"},
+    }
+    for operation in ["submit", "status"]:
+        decoded = decode(OpaqueResult(method, payload), operation=operation)
+        assert isinstance(decoded, models.DecisionJobRecord)
+        assert decoded.job_id == "job"
+    payload["state"]["unexpected"] = True
+    with pytest.raises(ContractViolation):
+        decode(OpaqueResult(method, payload), operation="submit")
     assert decode(OpaqueResult(method, None), operation="status") is None
     with pytest.raises(ContractViolation):
         decode(OpaqueResult(method, None), operation="submit")
@@ -174,3 +190,11 @@ def test_decision_eval_pages_cannot_decode_as_a_different_operation() -> None:
     assert decoded.receipts == []
     with pytest.raises(ContractViolation):
         coordination.decode_decision_eval(result, operation="status")
+
+    timeline = coordination.decode_decision_eval(
+        OpaqueResult("DecisionEval", {"entries": [], "next_after": None}),
+        operation="timeline",
+    )
+    assert isinstance(timeline, models.DecisionReceiptTimelinePage)
+    with pytest.raises(ContractViolation):
+        coordination.decode_decision_eval(result, operation="timeline")
