@@ -5,6 +5,7 @@ use crate::protocol::{GraphType, Method, ResultPayload};
 use crate::server::persistence::redb_backend::RedbBackend;
 use crate::server::persistence::PersistenceBackend;
 use eg_types::contract::Nonce;
+use eg_types::mutation_batch::CommittedVersion;
 
 use super::{
     commit_lifecycle, lifecycle_batch_id, lifecycle_was_committed, LifecycleCommitRequest,
@@ -340,7 +341,31 @@ async fn delete_purges_receipts_of_a_prior_incarnation() {
         "the batch id is deterministic from action/tenant/graph/principal/key, reused across incarnations"
     );
 
-    assert!(second_create.record.committed_version > first_create.record.committed_version);
+    let (
+        CommittedVersion::Graph {
+            target: first_target,
+            ..
+        },
+        CommittedVersion::Graph {
+            source: second_source,
+            target: second_target,
+        },
+    ) = (
+        first_create.record.committed_version,
+        second_create.record.committed_version,
+    )
+    else {
+        panic!("lifecycle commits must carry graph versions");
+    };
+    assert!(
+        second_source > first_target,
+        "DeleteGraph advances the prior graph version"
+    );
+    assert_eq!(
+        second_target,
+        second_source + 1,
+        "recreation advances the graph version once"
+    );
     persistence.shutdown();
     drop(persistence);
     let persistence = open_backend(&dir);
