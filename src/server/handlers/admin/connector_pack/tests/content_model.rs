@@ -366,6 +366,7 @@ async fn assert_chain_body_holders(served: &Served, entries: &[AgentComponentEnt
     }
 }
 
+// spec: EG-DECISION-ENGINE-R073.5
 #[tokio::test]
 async fn a_changed_leaf_revises_transitive_reference_pins_once() {
     let served = Served::new();
@@ -400,6 +401,7 @@ async fn a_changed_leaf_revises_transitive_reference_pins_once() {
     assert_repeat_is_unchanged(&served, &changed, &second).await;
 }
 
+// spec: EG-DECISION-ENGINE-R073.5
 #[tokio::test]
 async fn a_shared_descendant_diamond_revises_each_component_once() {
     let served = Served::new();
