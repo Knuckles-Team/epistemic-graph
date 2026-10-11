@@ -146,7 +146,7 @@ def test_decision_job_decode_selects_the_exact_operation(method: str) -> None:
         if method == "DecisionFit"
         else coordination.decode_decision_eval
     )
-    payload = {
+    payload: dict[str, Any] = {
         "schema_version": 1,
         "job_id": "job",
         "kind": "fit" if method == "DecisionFit" else "eval",
@@ -183,7 +183,7 @@ def test_decision_eval_pages_cannot_decode_as_a_different_operation() -> None:
         )
         is None
     )
-    payload = {"receipts": [], "next_after": None}
+    payload: dict[str, Any] = {"receipts": [], "next_after": None}
     result = OpaqueResult("DecisionEval", payload)
     decoded = coordination.decode_decision_eval(result, operation="receipts")
     assert isinstance(decoded, models.DecisionReceiptPage)

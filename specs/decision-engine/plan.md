@@ -301,3 +301,9 @@ test was not run. A rustc test harness importing the exact production metrics
 module with the existing tracing rlib passed all 3 helper/capture tests. This
 command does not execute the native solver-entry regression. The regression
 source is bound to R072.1; generated spec state and test execution are separate.
+
+### 2026-10-11: type-check operation decoder fixtures (R063)
+
+Annotate the heterogeneous JSON payloads in the operation-selected decoder
+regressions explicitly. Preserve the nested unexpected-field mutation and all
+fail-closed assertions while making the fixtures valid mypy targets.
