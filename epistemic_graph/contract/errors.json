@@ -614,6 +614,12 @@
       "retryable": false
     },
     {
+      "class": "capacity",
+      "code": "GUARDRAIL_SCOPE_TOO_LARGE",
+      "http_status_hint": 413,
+      "retryable": false
+    },
+    {
       "class": "decision",
       "code": "HEAD_INVALID",
       "http_status_hint": 400,
@@ -832,6 +838,12 @@
     {
       "class": "server",
       "code": "MALFORMED_BODY",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "validation",
+      "code": "MALFORMED_GUARDRAIL_RULE",
       "http_status_hint": 400,
       "retryable": false
     },

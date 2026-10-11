@@ -14367,6 +14367,24 @@
       ],
       "type": "object"
     },
+    "GuardrailEntailmentRequest": {
+      "additionalProperties": false,
+      "description": "A read over the verified tenant's published rule heads.",
+      "properties": {
+        "task_iri": {
+          "type": "string"
+        },
+        "tenant_id": {
+          "description": "Must match the authenticated request tenant.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tenant_id",
+        "task_iri"
+      ],
+      "type": "object"
+    },
     "HeadKind": {
       "description": "Which head shape a fit produces.",
       "oneOf": [
@@ -34589,6 +34607,33 @@
               "properties": {
                 "request": {
                   "$ref": "#/$defs/CapabilityCoverageRequest"
+                }
+              },
+              "required": [
+                "request"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Advisory guardrail entailment over the verified tenant's published\nAgent Library rules (EG-DECISION-ENGINE-R127.2.2). Returns subclass\npaths and source generations; commits nothing and grants no authority.",
+          "properties": {
+            "method": {
+              "const": "GuardrailEntailment",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "request": {
+                  "$ref": "#/$defs/GuardrailEntailmentRequest"
                 }
               },
               "required": [
@@ -61652,6 +61697,33 @@
       },
       "required": [
         "method"
+      ],
+      "type": "object"
+    },
+    "GuardrailEntailment": {
+      "additionalProperties": false,
+      "description": "Advisory guardrail entailment over the verified tenant's published\nAgent Library rules (EG-DECISION-ENGINE-R127.2.2). Returns subclass\npaths and source generations; commits nothing and grants no authority.",
+      "properties": {
+        "method": {
+          "const": "GuardrailEntailment",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": false,
+          "properties": {
+            "request": {
+              "$ref": "#/$defs/GuardrailEntailmentRequest"
+            }
+          },
+          "required": [
+            "request"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "method",
+        "params"
       ],
       "type": "object"
     },
