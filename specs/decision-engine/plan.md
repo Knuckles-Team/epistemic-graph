@@ -492,3 +492,11 @@ advance, committed-head identity, and zero-loser-effects assertions, including
 a stale-head retry. Served refusal diagnostics must retain the full response.
 Concurrent `BlobBegin` admission is a separate unresolved concern; isolating
 pack Import admission does not establish a production Blob CAS fix.
+
+## Invariant gate on promoted rules (R129)
+
+Flow: R034 proposal → `check_rule_against_invariants` → active rule or `RejectedInvariant` record.
+The attach point is the promotion path after the R034 proposal; the first child row locates it.
+The change reuses `entailed_guardrails` and the weakest-premise evidence class from R002.
+Decision: the invariant check precedes the confidence threshold. A rejected alternative is a high confidence bypass, because repeated human overrides can agree and still be wrong.
+Handoff: agent-utilities applies the verdict inside a run and holds no copy of the invariants.

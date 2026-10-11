@@ -22,3 +22,4 @@ For each task record public PR URL, exact merged SHA, test command and hosted ru
 - [x] **I-7:** Add the commons Read grant to tenant role provisioning and add the isolation unit test `a_tenant_role_reads_but_never_writes_the_shared_commons`. Closes `EG-IDENTITY-R006`. Test I-10.
 - [x] **I-8:** Backfill the commons Read grant for tenant roles that exist before this change. Provisioning runs only on `CreateGraph`, so an existing deployment needs one `RbacAdmin` `AddGrant` per tenant role, or a startup reconcile. Closes the live rollout of `EG-IDENTITY-R006`.
 | I-9 | EG-IDENTITY-R007 | Scopes `identity:admin`, `loops:read` and `loops:control` are registered in the engine contract. | SPECIFIED | PENDING |
+| I-11 | EG-IDENTITY-R008 | Plan scope is bounded by a stored policy node; I-11 passes including the refusal. | SPECIFIED | PENDING |

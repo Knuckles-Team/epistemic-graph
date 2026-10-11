@@ -90,7 +90,13 @@
     "EG-FEDERATED-QUERY-R073.1",
     "EG-FEDERATED-QUERY-R074",
     "EG-FEDERATED-QUERY-R075",
-    "EG-FEDERATED-QUERY-R076"
+    "EG-FEDERATED-QUERY-R076",
+    "EG-FEDERATED-QUERY-R077",
+    "EG-FEDERATED-QUERY-R077.1",
+    "EG-FEDERATED-QUERY-R077.2",
+    "EG-FEDERATED-QUERY-R077.3",
+    "EG-FEDERATED-QUERY-R077.4",
+    "EG-FEDERATED-QUERY-R077.5"
   ],
   "requirements": [
     {
@@ -1122,6 +1128,55 @@
     {
       "id": "EG-FEDERATED-QUERY-R076",
       "title": "Canonical ontology hash for a Turtle payload",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R077",
+      "title": "Vectorized SQL text columns (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-FEDERATED-QUERY-R077.1",
+        "EG-FEDERATED-QUERY-R077.2",
+        "EG-FEDERATED-QUERY-R077.3",
+        "EG-FEDERATED-QUERY-R077.4",
+        "EG-FEDERATED-QUERY-R077.5"
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R077.1",
+      "title": "`ColumnVectorBinding` typed model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R077.2",
+      "title": "Bind and unbind surface",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R077.3",
+      "title": "Row-write re-embedding hook",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R077.4",
+      "title": "Vectorization recommendation",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R077.5",
+      "title": "End-to-end column vector search",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

@@ -156,3 +156,5 @@ The suite passed 19 tests on the published source; Ruff lint and formatting chec
 The official generator retains SPECIFIED for R011, R011.3, and R011.4.
 Only the configuration child R011.5 gains its own generated evidence.
 The parent binding records partial declaration coverage; it does not prove native runtime or exact-head acceptance.
+
+Shared KV-cache tier (R083): two consumers share one content-addressed block. A model-version mismatch refuses. An over-budget insert evicts the coldest block by recency and graph importance.
