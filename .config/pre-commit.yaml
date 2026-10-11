@@ -435,18 +435,53 @@ repos:
     stages: [pre-commit, pre-push, manual]
   - id: contract-method-reachability
     name: Every contract method reaches a dispatch arm, and its digests round-trip
+    entry: python3 -m scripts.source_gate_scope --scope staged --scanner contract-method-reachability
+    language: system
+    pass_filenames: true
+    always_run: true
+    require_serial: true
+    stages: [pre-commit]
+  - id: contract-method-reachability-push
+    name: Every contract method reaches a dispatch arm, and its digests round-trip
+    entry: python3 -m scripts.source_gate_scope --scope push --scanner contract-method-reachability
+    language: system
+    pass_filenames: true
+    always_run: true
+    require_serial: true
+    stages: [pre-push]
+  - id: contract-method-reachability-manual
+    name: Every contract method reaches a dispatch arm, and its digests round-trip
     entry: python3 scripts/check_contract_method_reachability.py
     language: system
     pass_filenames: false
     always_run: true
-    stages: [pre-commit, pre-push, manual]
+    require_serial: true
+    stages: [manual]
   - id: durable-table-registration
+    name: Every durable table is in the owner registry, manifest and census
+    entry: python3 -m scripts.source_gate_scope --scope staged --scanner durable-table-registration
+    language: system
+    pass_filenames: true
+    always_run: true
+    require_serial: true
+    stages: [pre-commit]
+  - id: durable-table-registration-push
+    name: Every durable table is in the owner registry, manifest and census
+    entry: python3 -m scripts.source_gate_scope --scope push --scanner durable-table-registration
+    language: system
+    pass_filenames: true
+    always_run: true
+    require_serial: true
+    stages: [pre-push]
+  - id: durable-table-registration-manual
     name: Every durable table is in the owner registry, manifest and census
     entry: python3 scripts/check_durable_table_registration.py
     language: system
     pass_filenames: false
     always_run: true
-    stages: [pre-commit, pre-push, manual]
+    require_serial: true
+    stages: [manual]
+
   # RETURNED TO pre-commit 2026-09-11, once its findings reached zero: all 8
   # pinned reference edges now have a production resolver, and the contract
   # declares no unpinned cross-record reference. The last four edges
