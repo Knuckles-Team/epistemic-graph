@@ -46,6 +46,74 @@ Check metric labels omit raw facts and errors omit invisible component identifie
 
 For each changed code path run focused Rust/Python/client tests, `cargo fmt --check`, workspace Clippy with applicable features, generated contract freshness, CCCC, KISS, Dupehound and jscpd differential with zero new pairs. Hosted CI runs build/package tests for affected features and the locally provisioned served journey. Optional cloud/cluster/identity-provider tests run in a separate deployment qualification and cannot block normal external PRs merely because no live environment exists. An acceptance record is complete only when every relevant A–E case and gate has a result tied to the same published commit; `SOURCE_LANDED` stays distinct from `ACCEPTED`.
 
+### EG-DECISION-ENGINE-R113.1: capacity commit type
+
+On 2026-10-11, all six tests in `capacity_commit.rs` passed with Rust 1.96.0.
+The test harness compiled the production module directly.
+It linked the real cached `eg-types` library for `CapacityDecision`.
+No dependency stub or replacement constructor was used.
+
+The tests cover all 13 capacity decisions and both commit parts.
+Accepted and replayed decisions must retain the full lease list and publish evidence.
+Each other decision must retain its reason and grant exactly one retry.
+A denied decision with either commit part must fail.
+An accepted or replayed decision without either commit part must fail.
+
+To repeat this focused check, set `DEPS` to the cached dependency directory.
+Set `EG_TYPES` to its compiled `libeg_types-*.rlib` file.
+Use the Rust version that built that library:
+
+```bash
+root="$PWD"
+work="$(mktemp -d)"
+printf 'pub use eg_types::native_control;\n#[path = "%s/crates/eg-types/src/decision/topology/capacity_commit.rs"]\nmod capacity_commit;\n' "$root" > "$work/harness.rs"
+rustc --edition=2021 --test "$work/harness.rs" \
+  --extern "eg_types=$EG_TYPES" -L "dependency=$DEPS" -o "$work/tests"
+"$work/tests" --nocapture
+```
+
+The normal workspace command is `cargo test -p eg-types capacity_commit`.
+The direct-module run verifies this leaf's constructor contract only.
+It does not verify a durable transaction or enforce retry use at runtime.
+EG-DECISION-ENGINE-R113.2 tracks the atomic transaction.
+EG-DECISION-ENGINE-R113.3 tracks retry enforcement.
+
+
+### Planned runtime checks for EG-DECISION-ENGINE-R113
+
+These tests are planned and unexecuted. Their names do not identify existing tests.
+All runtime rows below remain SPECIFIED.
+Each fixture is a bounded acceptance slice. It does not include the missing transaction implementation.
+
+On 2026-10-11, source inspection found separate write owners:
+
+- `src/server/persistence/agent_library.rs` opens `agent_library.redb` with `AgentLibraryOwner`.
+- `src/server/persistence/decision_record.rs::commit_decision_record` writes through that owner.
+- `src/server/persistence/agent_graph/write.rs` publishes the graph and its synthesis evidence separately.
+- `src/redb_store/capacity_lease.rs::commit` uses a graph-scoped `ShardWrite` and a separate commit.
+- `src/server/handlers/decide/commit.rs::commit` calls only the record commit path.
+
+No current call joins these owners into the requested transaction.
+A shared transaction and recovery design is a prerequisite for `.2.2` to `.2.4`.
+That design must preserve the existing owner boundaries and avoid a second capacity authority.
+The implementation exceeds the five-minute fixture slices. It needs further decomposition after that design decision.
+The refusal guard in `.2.1` must remain until the transaction path exists.
+The durable denial record and consumption operation for `.3.2` are also missing.
+The request fixture in `.3.3` depends on those operations.
+
+| Requirement | Intended source or test file | Planned proving test | State |
+|---|---|---|---|
+| EG-DECISION-ENGINE-R113.2.1 | `src/server/handlers/decide/commit.rs` | `tests::topology_commit_refuses_uncoordinated_owners` | SPECIFIED; not run |
+| EG-DECISION-ENGINE-R113.2.2 | `src/server/persistence/decision_record/tests.rs` | `topology_commit_publishes_capacity_and_evidence` | SPECIFIED; not run |
+| EG-DECISION-ENGINE-R113.2.3 | `src/server/persistence/decision_record/tests.rs` | `topology_capacity_denial_leaves_no_commit_parts` | SPECIFIED; not run |
+| EG-DECISION-ENGINE-R113.2.4 | `src/server/persistence/decision_record/tests.rs` | `topology_commit_recovery_preserves_atomic_outcome` | SPECIFIED; not run |
+| EG-DECISION-ENGINE-R113.3.1 | `crates/eg-types/src/decision/topology/capacity_commit.rs` | `tests::retry_allowance_consumes_once` | SPECIFIED; not run |
+| EG-DECISION-ENGINE-R113.3.2 | `src/server/persistence/decision_record/tests.rs` | `topology_denial_allowance_consumption_survives_restart` | SPECIFIED; not run |
+| EG-DECISION-ENGINE-R113.3.3 | `src/server/handlers/decide/commit.rs` | `tests::topology_denial_accepts_one_followup_request` | SPECIFIED; not run |
+
+R113.2 requires all four transaction tests. R113.3 requires all three retry tests.
+Neither rollup is runtime acceptance evidence.
+
 ### R090.1 native acceptance receipt (2026-10-11)
 
 `crates/eg-types/src/decision/statistical/scorer.rs::budget_tests` passed all six native tests with Rust 1.96.0.
