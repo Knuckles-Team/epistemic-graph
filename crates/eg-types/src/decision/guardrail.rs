@@ -68,6 +68,20 @@ pub struct GuardrailRule {
     pub source_generation: String,
 }
 
+/// Typed promotion outcome (EG-DECISION-ENGINE-R129.2).
+///
+/// This wire type does not implement the invariant gate or activate rules.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub enum RulePromotionVerdict {
+    Promotable,
+    RejectedInvariant {
+        /// The contradicted invariant's IRI, using the existing string convention.
+        invariant_iri: String,
+    },
+}
+
 /// Attribute a `GuardrailRule` component carries its governed task class in.
 pub const GUARDRAIL_APPLIES_TO_CLASS_ATTRIBUTE: &str = "applies_to_class";
 /// Attribute a `GuardrailRule` component carries its source generation in.
@@ -197,6 +211,45 @@ pub fn guardrail_entailment_query(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // spec: EG-DECISION-ENGINE-R129.2
+    #[test]
+    fn verdict_serialises_snake_case() {
+        for (verdict, wire) in [
+            (
+                RulePromotionVerdict::Promotable,
+                serde_json::json!("promotable"),
+            ),
+            (
+                RulePromotionVerdict::RejectedInvariant {
+                    invariant_iri: "eg:invariant/no-retraction".into(),
+                },
+                serde_json::json!({
+                    "rejected_invariant": { "invariant_iri": "eg:invariant/no-retraction" }
+                }),
+            ),
+        ] {
+            assert_eq!(serde_json::to_value(&verdict).unwrap(), wire);
+            let decoded: RulePromotionVerdict = serde_json::from_value(wire.clone()).unwrap();
+            assert_eq!(decoded, verdict);
+            assert_eq!(serde_json::to_value(decoded).unwrap(), wire);
+        }
+    }
+
+    // spec: EG-DECISION-ENGINE-R129.2
+    #[test]
+    fn verdict_rejects_unknown_variants_and_malformed_payloads() {
+        for wire in [
+            serde_json::json!("Promotable"),
+            serde_json::json!("approved"),
+            serde_json::json!({ "RejectedInvariant": { "invariant_iri": "eg:invariant/a" } }),
+            serde_json::json!({ "rejected_invariant": {} }),
+            serde_json::json!({ "rejected_invariant": { "invariant_iri": 7 } }),
+            serde_json::json!({ "rejected_invariant": { "invariant_iri": "eg:invariant/a", "extra": true } }),
+        ] {
+            assert!(serde_json::from_value::<RulePromotionVerdict>(wire).is_err());
+        }
+    }
 
     // spec: EG-DECISION-ENGINE-R127.2.2
     #[test]
