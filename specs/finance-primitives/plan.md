@@ -106,3 +106,27 @@ Introduce v2 asset-class values with explicit aliases from existing values, then
 ## EG-FINANCE-PRIMITIVES-R002 and EG-FINANCE-PRIMITIVES-R003 kernel reuse
 
 `crates/eg-numeric/src/evaluation/` is the shared numerical authority; `crates/eg-compute/src/finance/quant/validation.rs` and finance wire methods are callers. The UQL/series layer uses the same kernels through `eg-plan` and `eg-tsdb` without finance-specific copies. `crates/eg-compute/src/finance/market/backtest_run.rs` seals and verifies the finance record from its draft split matrix, while `eg-types` owns the versioned public record fields. If the generic `EvaluationRun` record is extended, share seal/no-look-ahead code with the decision replay path rather than diverging finance and decision validations. Generated clients derive from Rust descriptors; changing a method requires regenerated count, schema and binding checks.
+
+## Amendments
+
+### 2026-10-11: restore runtime acceptance children
+
+Affected rows: `EG-FINANCE-PRIMITIVES-R004.3`, `EG-FINANCE-PRIMITIVES-R005.2`, and `EG-FINANCE-PRIMITIVES-R011`.
+The former rollups counted only their typed children, despite their broader acceptance requirements.
+The restored children retain the original parent acceptance and every existing verified-child binding.
+The generator determines delivery states; this amendment provides no runtime evidence.
+
+## Audit record
+
+### 2026-10-11: finance runtime scope
+
+Inspection base: `7df2685439e98ebc8eaf036279f7f25d8fb9fe33`.
+`crates/eg-types/src/wire_finance.rs` defines the version gate. The inspected source contains no served caller.
+`crates/eg-compute/src/finance/lot_accounting.rs` supports FIFO, LIFO and specific-lot elections.
+Its activity representation has buy/sell quantities, without transfer or split operations.
+`crates/eg-types/src/finance_event_envelope.rs` explicitly defers transactional append and topic wiring.
+The existing mutation compiler and transaction outbox provide the intended integration authority.
+These findings establish unverified runtime acceptance; missing children alone do not prove absent implementation elsewhere.
+The intended handler module and test names are work targets, not existing evidence.
+Each implementation must inspect existing served paths before extending them.
+`gen_contract` remains the generator for contract and client outputs; generated files must not receive manual edits.
