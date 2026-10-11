@@ -64,6 +64,8 @@ pub(crate) fn seed_library(store: &AgentLibraryStore) {
         cost: None,
         latency_declared: None,
         latency_observed_ref: None,
+        shell_proficiency: None,
+        stopping_behaviour: None,
     };
     let prompt = AgentComponentFacts::SystemPrompt {
         prompt_mode: PromptMode::Static,

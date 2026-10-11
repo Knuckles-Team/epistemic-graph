@@ -527,6 +527,8 @@ pub(crate) fn seed_component_for_test(
                     cost: None,
                     latency_declared: None,
                     latency_observed_ref: None,
+                    shell_proficiency: None,
+                    stopping_behaviour: None,
                 },
                 _ => AgentComponentFacts::Opaque,
             };

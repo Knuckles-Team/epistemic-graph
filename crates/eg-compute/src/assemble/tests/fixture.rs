@@ -95,6 +95,8 @@ pub fn model(component_id: &str, spec: ModelSpec) -> CandidateFacts {
         cost: cost(spec.per_call),
         latency_declared: spec.p95.map(|p95_ms| DeclaredLatency { p50_ms: 1, p95_ms }),
         latency_observed_ref: None,
+        shell_proficiency: None,
+        stopping_behaviour: None,
     };
     model
 }

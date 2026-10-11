@@ -19,6 +19,8 @@ fn model_profile(h: &Harness, id: &str, supports_tools: bool) {
         cost: None,
         latency_declared: None,
         latency_observed_ref: None,
+        shell_proficiency: None,
+        stopping_behaviour: None,
     };
     h.commit(draft, None).unwrap();
 }
