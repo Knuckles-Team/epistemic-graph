@@ -79,8 +79,8 @@ EG-DECISION-ENGINE-R113.3 tracks retry enforcement.
 
 ### Planned runtime checks for EG-DECISION-ENGINE-R113
 
-Except for the local retry model noted below, these tests are planned and unexecuted.
-Those planned test names do not identify existing tests.
+The refusal handler fixture exists; native execution remains pending. Other transaction fixtures remain planned and unexecuted.
+Planned test names do not identify existing tests.
 The transaction and durable runtime rows remain SPECIFIED. The local retry model has direct native proof.
 Each fixture is a bounded acceptance slice. It does not include the missing transaction implementation.
 
@@ -102,7 +102,7 @@ The request fixture in `.3.3` depends on those operations.
 
 | Requirement | Intended source or test file | Planned proving test | State |
 |---|---|---|---|
-| EG-DECISION-ENGINE-R113.2.1 | `src/server/handlers/decide/commit.rs` | `tests::topology_commit_refuses_uncoordinated_owners` | SPECIFIED; not run |
+| EG-DECISION-ENGINE-R113.2.1 | `src/server/handlers/decide/commit.rs` | `tests::topology_commit_refuses_uncoordinated_owners` | Handler fixture added; native execution pending |
 | EG-DECISION-ENGINE-R113.2.2 | `src/server/persistence/decision_record/tests.rs` | `topology_commit_publishes_capacity_and_evidence` | SPECIFIED; not run |
 | EG-DECISION-ENGINE-R113.2.3 | `src/server/persistence/decision_record/tests.rs` | `topology_capacity_denial_leaves_no_commit_parts` | SPECIFIED; not run |
 | EG-DECISION-ENGINE-R113.2.4 | `src/server/persistence/decision_record/tests.rs` | `topology_commit_recovery_preserves_atomic_outcome` | SPECIFIED; not run |
@@ -193,6 +193,17 @@ Local Rust formatting and 12 Python decision-contract checks passed. Those check
 
 Native execution remains pending after dependency compilation exceeded local resources.
 The isolated fixture arithmetic check does not execute the assembly or solver.
+
+### R113.2.1 refusal boundary
+
+The handler rejects solved topology plans with positive per-cell lease demand.
+The handler preserves tenant, size, replay, and shape checks before this refusal.
+The guard runs before Agent Library initialization or mutation.
+The fixture compares both durable owner files and capacity status after refusal.
+It also checks foreign-tenant refusal and successful ordinary record publication.
+Advisory assembly remains unchanged. The shared transaction and recovery paths remain absent.
+Native command: `cargo test --lib --features decide topology_commit_refuses_uncoordinated_owners`.
+This command has not run for this change.
 
 ## Synthetic aggregate separation
 
