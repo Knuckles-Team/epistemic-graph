@@ -69,9 +69,14 @@
     {
       "id": "EG-ORCH-VOCAB-R001.1",
       "title": "Add class `:TaskStep`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "232da0d60c91"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/orchestration_vocabulary.rs:31",
+        "crates/eg-rdf/tests/orchestration_vocabulary.rs:87"
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R001.2",
@@ -225,9 +230,14 @@
     {
       "id": "EG-ORCH-VOCAB-R004.1",
       "title": "Add class `:BestPractice`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "232da0d60c91"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/orchestration_vocabulary.rs:64",
+        "crates/eg-rdf/tests/orchestration_vocabulary.rs:87"
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R004.2",
