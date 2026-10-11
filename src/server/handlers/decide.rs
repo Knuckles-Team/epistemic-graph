@@ -12,6 +12,9 @@ pub(crate) mod commit;
 pub(crate) mod coverage;
 #[cfg(all(test, feature = "decide"))]
 mod coverage_tests;
+pub(crate) mod guardrail;
+#[cfg(all(test, feature = "decide"))]
+mod guardrail_tests;
 pub(crate) mod jobs;
 pub(crate) mod log;
 #[cfg(feature = "decide")]
@@ -102,6 +105,7 @@ pub(crate) mod topology_shape;
 pub(crate) use assemble::handle_agent_assemble;
 pub(crate) use commit::handle_decision_commit;
 pub(crate) use coverage::handle_capability_coverage;
+pub(crate) use guardrail::handle_guardrail_entailment;
 pub(crate) use jobs::{handle_decision_eval, handle_decision_fit};
 pub(crate) use log::handle_decision_log;
 pub(crate) use statistical::handle_decide;

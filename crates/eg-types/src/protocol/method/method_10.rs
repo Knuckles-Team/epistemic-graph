@@ -61,6 +61,12 @@ $($variants)*
     CapabilityCoverage {
         request: Box<crate::decision::coverage::CapabilityCoverageRequest>,
     },
+    /// Advisory guardrail entailment over the verified tenant's published
+    /// Agent Library rules (EG-DECISION-ENGINE-R127.2.2). Returns subclass
+    /// paths and source generations; commits nothing and grants no authority.
+    GuardrailEntailment {
+        request: Box<crate::decision::guardrail::GuardrailEntailmentRequest>,
+    },
     /// Snapshot-checked commit of one assembly `DecisionRecord` as a
     /// `DecisionRecord` component. Re-derives the record and compares the
     /// catalog digest before writing, so a stale decision is refused rather

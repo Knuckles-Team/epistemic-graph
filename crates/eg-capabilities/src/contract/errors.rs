@@ -48,6 +48,8 @@ fn families() -> [(&'static str, Vec<&'static str>); 8] {
 }
 
 const CODE_CLASSES: &[(&str, &str)] = &[
+    ("GUARDRAIL_SCOPE_TOO_LARGE", "capacity"),
+    ("MALFORMED_GUARDRAIL_RULE", "validation"),
     ("AUTH_TENANT_MISMATCH", "auth"),
     ("AUTH_AUDIENCE_MISMATCH", "auth"),
     ("AUTH_POLICY_VERSION_MISMATCH", "auth"),
@@ -116,6 +118,8 @@ fn retryable(code: &str) -> bool {
 }
 
 const HTTP_HINTS: &[(&str, u16)] = &[
+    ("GUARDRAIL_SCOPE_TOO_LARGE", 413),
+    ("MALFORMED_GUARDRAIL_RULE", 400),
     ("AUTH_TENANT_MISMATCH", 403),
     ("AUTH_AUDIENCE_MISMATCH", 403),
     ("AUTH_POLICY_VERSION_MISMATCH", 403),

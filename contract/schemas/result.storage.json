@@ -4178,6 +4178,48 @@
       ],
       "type": "object"
     },
+    "EntailedGuardrail": {
+      "additionalProperties": false,
+      "description": "One rule entailed onto a task, with the path that proves it.",
+      "properties": {
+        "entailment_path": {
+          "description": "Empty when `task_iri` IS the rule's own class; otherwise the\n`narrower -> broader` steps from `task_iri` up to it.",
+          "items": {
+            "$ref": "#/$defs/EntailmentStep"
+          },
+          "type": "array"
+        },
+        "rule_id": {
+          "type": "string"
+        },
+        "source_generation": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "rule_id",
+        "source_generation",
+        "entailment_path"
+      ],
+      "type": "object"
+    },
+    "EntailmentStep": {
+      "additionalProperties": false,
+      "description": "One step of an entailment path: `narrower` is a native subclass of\n`broader`.",
+      "properties": {
+        "broader": {
+          "type": "string"
+        },
+        "narrower": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "narrower",
+        "broader"
+      ],
+      "type": "object"
+    },
     "EvidenceClass": {
       "description": "The weakest class of evidence the conclusion rests on.",
       "enum": [
@@ -4220,6 +4262,37 @@
         "unavailable"
       ],
       "type": "string"
+    },
+    "GuardrailEntailmentResult": {
+      "additionalProperties": false,
+      "description": "Advisory rules and the native ontology under which their paths were derived.\nEnforcement stays with the owning policy gate.",
+      "properties": {
+        "ontology_digest": {
+          "type": "string"
+        },
+        "rules": {
+          "items": {
+            "$ref": "#/$defs/EntailedGuardrail"
+          },
+          "type": "array"
+        },
+        "schema_version": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "task_iri": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "ontology_digest",
+        "task_iri",
+        "rules"
+      ],
+      "type": "object"
     },
     "Incumbent": {
       "additionalProperties": false,
@@ -8286,6 +8359,18 @@
           "encoding": "String",
           "schema": {
             "type": "string"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "GuardrailEntailment": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/GuardrailEntailmentResult"
           }
         }
       },

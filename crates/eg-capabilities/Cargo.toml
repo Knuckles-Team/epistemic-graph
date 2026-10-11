@@ -133,6 +133,9 @@ contract-schema = [
 # Use this named profile for regeneration and its exact drift test; ordinary
 # feature-selected builds retain their smaller runtime policy registry.
 canonical-ledger = [
+    # Freeze the Decide marker in canonical and all-features builds alike.
+    # This marker has no dependency or engine feature expansion.
+    "decide",
     "jobs",
     "statechart",
     "knowledge-batch",

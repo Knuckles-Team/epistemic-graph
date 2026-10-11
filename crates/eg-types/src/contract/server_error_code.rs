@@ -39,6 +39,8 @@ closed_error_codes! {
         ClusterMutationUnavailable => "CLUSTER_MUTATION_UNAVAILABLE",
         ComponentBodyUnavailable => "COMPONENT_BODY_UNAVAILABLE",
         ComponentWithdrawn => "COMPONENT_WITHDRAWN",
+        GuardrailScopeTooLarge => "GUARDRAIL_SCOPE_TOO_LARGE",
+        MalformedGuardrailRule => "MALFORMED_GUARDRAIL_RULE",
         ConnectorPackProjectionClusterUnavailable => "CONNECTOR_PACK_PROJECTION_CLUSTER_UNAVAILABLE",
         ConnectorPackProjectionFailed => "CONNECTOR_PACK_PROJECTION_FAILED",
         ConnectorPackProjectionSweepFailed => "CONNECTOR_PACK_PROJECTION_SWEEP_FAILED",

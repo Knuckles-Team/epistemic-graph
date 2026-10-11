@@ -4513,6 +4513,21 @@ class EnrichmentBudgetReservation(BaseModel):
     total_budget_units: Annotated[int, Field(ge=0)]
 
 
+class EntailedGuardrail(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    entailment_path: list[EntailmentStep]
+    rule_id: str
+    source_generation: str
+
+
+class EntailmentStep(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    broader: str
+    narrower: str
+
+
 class EntityMatchRow(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -6376,6 +6391,22 @@ class GspanMiningResult(BaseModel):
     n_host_nodes: Annotated[int, Field(ge=0)]
     patterns: list[SubgraphPatternRow]
     written_back: Annotated[int, Field(ge=0)]
+
+
+class GuardrailEntailmentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    task_iri: str
+    tenant_id: str
+
+
+class GuardrailEntailmentResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    ontology_digest: str
+    rules: list[EntailedGuardrail]
+    schema_version: Annotated[int, Field(ge=0, le=65535)]
+    task_iri: str
 
 
 class HawkesFit(BaseModel):
@@ -11444,6 +11475,13 @@ class MethodCapabilityCoverage(BaseModel):
     params: MethodCapabilityCoverageParams
 
 
+class MethodGuardrailEntailment(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["GuardrailEntailment"]
+    params: MethodGuardrailEntailmentParams
+
+
 class MethodDecisionCommit(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -12125,6 +12163,7 @@ Method = Annotated[
     | MethodMineCommunity
     | MethodAgentAssemble
     | MethodCapabilityCoverage
+    | MethodGuardrailEntailment
     | MethodDecisionCommit
     | MethodDecide
     | MethodDecisionFit
@@ -13925,6 +13964,12 @@ class MethodGraphSchemaParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     op: GraphSchemaOp
+
+
+class MethodGuardrailEntailmentParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    request: GuardrailEntailmentRequest
 
 
 class MethodHasEdgeParams(BaseModel):
@@ -25594,6 +25639,8 @@ __all__ = [
     "ElevationStatus",
     "Elimination",
     "EnrichmentBudgetReservation",
+    "EntailedGuardrail",
+    "EntailmentStep",
     "EntityMatchRow",
     "EntityResolutionMiningResult",
     "EntryInputs",
@@ -25916,6 +25963,8 @@ __all__ = [
     "GroupUpsert",
     "GrpoResult",
     "GspanMiningResult",
+    "GuardrailEntailmentRequest",
+    "GuardrailEntailmentResult",
     "HasNodesBatchResult",
     "HawkesFit",
     "HeadCalibration",
@@ -26717,6 +26766,8 @@ __all__ = [
     "MethodGraphSchemaClassesParams",
     "MethodGraphSchemaList",
     "MethodGraphSchemaParams",
+    "MethodGuardrailEntailment",
+    "MethodGuardrailEntailmentParams",
     "MethodHasEdge",
     "MethodHasEdgeParams",
     "MethodHasNode",

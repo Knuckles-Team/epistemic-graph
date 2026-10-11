@@ -575,6 +575,18 @@ mod decide_feature_freeze_tests {
         assert!(require_feature_frozen(&["contract", "decide"], "decide", true).is_ok());
     }
 
+    // spec: EG-DECISION-ENGINE-R078.1
+    #[cfg(feature = "canonical-ledger")]
+    #[test]
+    fn canonical_generation_enables_and_freezes_the_decide_marker() {
+        assert!(
+            cfg!(feature = "decide"),
+            "canonical generation must enable the existing Decide marker"
+        );
+        require_feature_frozen(&feature_profile(), "decide", true)
+            .expect("canonical and all-features receipts must freeze the same Decide marker");
+    }
+
     /// Wiring proof for R078: this build's own `feature_profile()` must satisfy the
     /// same refusal when `decide` is compiled in, not just the synthetic cases above.
     #[cfg(feature = "decide")]

@@ -329,6 +329,7 @@ SEND_BY_METHOD = {
     "GraphSchema": reasoning.send_graph_schema,
     "GraphSchemaClasses": reasoning.send_graph_schema_classes,
     "GraphSchemaList": reasoning.send_graph_schema_list,
+    "GuardrailEntailment": storage.send_guardrail_entailment,
     "HasEdge": graph.send_has_edge,
     "HasNode": graph.send_has_node,
     "HasNodesBatch": graph.send_has_nodes_batch,

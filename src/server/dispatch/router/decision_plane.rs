@@ -85,6 +85,18 @@ async fn dispatch_decision_methods(
             })
             .await
         }
+        Method::GuardrailEntailment { request } => {
+            dispatch_boxed(async {
+                handlers::decide::handle_guardrail_entailment(
+                    state,
+                    req.id,
+                    verified_context,
+                    *request,
+                )
+                .await
+            })
+            .await
+        }
         Method::DecisionCommit { request } => {
             dispatch_boxed(async {
                 handlers::decide::handle_decision_commit(state, req.id, verified_context, *request)
