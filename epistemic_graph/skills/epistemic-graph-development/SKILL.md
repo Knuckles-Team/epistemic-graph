@@ -102,11 +102,43 @@ full feature matrix or qualify a release wheel.
 
 The relative output directory in `.cargo/config.toml` separates worktree build
 artifacts. Do not redirect concurrent worktrees into one shared Cargo target.
-Consult the engineering guide's setup section for the current bootstrap and
-per-crate commands instead of copying command sequences into this skill.
+Consult the engineering guide's setup section for bootstrap and general
+per-crate commands; the scoped `eg-types` shortcut below is for local feedback.
 
 Record the tested source identity, enabled features, executed checks, and any
 unexecuted work. A missing prerequisite is an evidence gap, not a passed gate.
+
+### Fast scoped `eg-types` validation
+
+For producer-only batches, reuse the assigned warm validation worktree and its
+existing `target-isolated` across sequential batches. Integrate published
+changes with normal merges, preserve original branches and cached artifacts,
+and freeze the tested source before compiling. Keep concurrent worktrees on
+their own targets.
+
+Use the package-only override below for fast local feedback. It changes only
+`eg-types` test optimization to 0; preserve assertions, selected tests, dependency
+profiles, features, and incremental settings. Do not edit repository Cargo
+profiles or change full optimized CI. Keep three jobs and the existing test
+profile's debug level 0, incremental compilation, and 256 codegen units.
+
+Select affected filters and build once with `contract-schema`; later filters
+reuse that binary. For the harness and guardrail producer batch:
+
+```bash
+for filter in harness_config measured_fact decision::guardrail; do
+  CARGO_BUILD_JOBS=3 CARGO_PROFILE_DEV_DEBUG=0 \
+    cargo --config 'profile.test.package.eg-types.opt-level=0' \
+    test -p eg-types --lib --offline --no-default-features \
+    --features contract-schema "$filter" || exit
+done
+```
+
+Avoid a second normal-feature build when schema-enabled tests cover the same
+producer code. Keep the assigned time bound; report the exact source, selected
+filters, terminal results, and Cargo compile time separately from setup and
+cached test time. This local shortcut does not establish optimized, facade, or
+served acceptance.
 
 ## Change a wire capability
 

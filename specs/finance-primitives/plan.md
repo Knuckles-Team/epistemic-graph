@@ -196,3 +196,16 @@ They omit some required-field removals and some accepted vocabulary values.
 Record their actual passes as partial evidence only. R004.2.1.1 and R004.2.2.1
 track the missing complete matrices. Both schema groups remain open until those
 children pass native execution. Do not treat a sample as complete acceptance.
+
+## EG-FINANCE-PRIMITIVES-R018 factor research
+
+Data flow: served finance wire method → route (`src/server/handlers/finance/route_families.rs:211`) → `rank_factors` → `information_coefficient` (`crates/eg-numeric/src/evaluation/skill.rs:16`) → `FactorRecord` node with provenance edges.
+Types: `FactorRecord` in `crates/eg-compute/src/finance/factor.rs`.
+Attach point: the finance route. Production caller is the served finance method dispatch.
+Failure: thin input yields `FACTOR_INSUFFICIENT_DATA` and no node.
+Reuses the shared evaluation kernels per R002. New: ranking and the node record.
+Decision: reuse the shared kernels. Rejected: a finance copy of the kernels, which R002 forbids.
+Cross-repository: none.
+
+References
+- No paper is cited.

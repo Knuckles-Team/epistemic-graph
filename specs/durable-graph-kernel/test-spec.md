@@ -158,3 +158,10 @@ Only the configuration child R011.5 gains its own generated evidence.
 The parent binding records partial declaration coverage; it does not prove native runtime or exact-head acceptance.
 
 Shared KV-cache tier (R083): two consumers share one content-addressed block. A model-version mismatch refuses. An over-budget insert evicts the coldest block by recency and graph importance.
+
+## EG-DURABLE-KERNEL-R084 acceptance
+
+| Scenario | Requirement | Fixture |
+|---|---|---|
+| Two writers, one version | R084.6 | Both write against version N. One commits. The other gets `WRITE_CONFLICT`. |
+| Strategy merge | R084.2 | A `FieldUnion` scope merges two disjoint field edits. |

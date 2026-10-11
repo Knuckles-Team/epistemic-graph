@@ -87,7 +87,14 @@
     "EG-ORCH-VOCAB-R011.8",
     "EG-ORCH-VOCAB-R011.9",
     "EG-ORCH-VOCAB-R011.10",
-    "EG-ORCH-VOCAB-R011.11"
+    "EG-ORCH-VOCAB-R011.11",
+    "EG-ORCH-VOCAB-R012",
+    "EG-ORCH-VOCAB-R012.1",
+    "EG-ORCH-VOCAB-R012.2",
+    "EG-ORCH-VOCAB-R012.3",
+    "EG-ORCH-VOCAB-R012.4",
+    "EG-ORCH-VOCAB-R012.5",
+    "EG-ORCH-VOCAB-R012.6"
   ],
   "requirements": [
     {
@@ -781,6 +788,63 @@
     {
       "id": "EG-ORCH-VOCAB-R011.11",
       "title": "Prove the loop closes",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R012",
+      "title": "Spec-folder contents map to typed graph nodes (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-ORCH-VOCAB-R012.1",
+        "EG-ORCH-VOCAB-R012.2",
+        "EG-ORCH-VOCAB-R012.3",
+        "EG-ORCH-VOCAB-R012.4",
+        "EG-ORCH-VOCAB-R012.5",
+        "EG-ORCH-VOCAB-R012.6"
+      ]
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R012.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R012.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R012.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R012.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R012.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R012.6",
+      "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

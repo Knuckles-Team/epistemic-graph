@@ -58,7 +58,14 @@
     "EG-CQ-ORCH-R009.3",
     "EG-CQ-ORCH-R009.4",
     "EG-CQ-ORCH-R009.5",
-    "EG-CQ-ORCH-R009.6"
+    "EG-CQ-ORCH-R009.6",
+    "EG-CQ-ORCH-R010",
+    "EG-CQ-ORCH-R010.1",
+    "EG-CQ-ORCH-R010.2",
+    "EG-CQ-ORCH-R010.3",
+    "EG-CQ-ORCH-R010.4",
+    "EG-CQ-ORCH-R010.5",
+    "EG-CQ-ORCH-R010.6"
   ],
   "requirements": [
     {
@@ -506,6 +513,63 @@
     {
       "id": "EG-CQ-ORCH-R009.6",
       "title": "Probe: \"Delegate: list running containers.\"",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R010",
+      "title": "The graph serves architecture views (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-ORCH-R010.1",
+        "EG-CQ-ORCH-R010.2",
+        "EG-CQ-ORCH-R010.3",
+        "EG-CQ-ORCH-R010.4",
+        "EG-CQ-ORCH-R010.5",
+        "EG-CQ-ORCH-R010.6"
+      ]
+    },
+    {
+      "id": "EG-CQ-ORCH-R010.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R010.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R010.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R010.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R010.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R010.6",
+      "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

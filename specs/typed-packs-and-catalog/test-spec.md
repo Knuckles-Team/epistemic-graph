@@ -157,3 +157,5 @@ These are producer unit tests. R048.5 still requires signed pack import and serv
 readback evidence. The generated lifecycle records test bindings, not execution
 results. Native types/RDF test execution and contract generation are required
 before integration of the producer fields.
+
+Skill package rendering: a changed referenced node changes the digest on the next listing. A dangling term is refused and the row stays listed.

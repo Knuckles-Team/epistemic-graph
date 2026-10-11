@@ -249,7 +249,21 @@
     "EG-DECISION-ENGINE-R129.3",
     "EG-DECISION-ENGINE-R129.4",
     "EG-DECISION-ENGINE-R129.5",
-    "EG-DECISION-ENGINE-R129.6"
+    "EG-DECISION-ENGINE-R129.6",
+    "EG-DECISION-ENGINE-R130",
+    "EG-DECISION-ENGINE-R130.1",
+    "EG-DECISION-ENGINE-R130.2",
+    "EG-DECISION-ENGINE-R130.3",
+    "EG-DECISION-ENGINE-R130.4",
+    "EG-DECISION-ENGINE-R130.5",
+    "EG-DECISION-ENGINE-R130.6",
+    "EG-DECISION-ENGINE-R131",
+    "EG-DECISION-ENGINE-R131.1",
+    "EG-DECISION-ENGINE-R131.2",
+    "EG-DECISION-ENGINE-R131.3",
+    "EG-DECISION-ENGINE-R131.4",
+    "EG-DECISION-ENGINE-R131.5",
+    "EG-DECISION-ENGINE-R131.6"
   ],
   "requirements": [
     {
@@ -3217,6 +3231,120 @@
     {
       "id": "EG-DECISION-ENGINE-R129.6",
       "title": "End-to-end proof over the wire",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R130",
+      "title": "Calibrated candidate ranking with item-level tie-break (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R130.1",
+        "EG-DECISION-ENGINE-R130.2",
+        "EG-DECISION-ENGINE-R130.3",
+        "EG-DECISION-ENGINE-R130.4",
+        "EG-DECISION-ENGINE-R130.5",
+        "EG-DECISION-ENGINE-R130.6"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R130.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R130.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R130.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R130.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R130.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R130.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R131",
+      "title": "Limit guard pipeline refuses an order with a typed reason (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R131.1",
+        "EG-DECISION-ENGINE-R131.2",
+        "EG-DECISION-ENGINE-R131.3",
+        "EG-DECISION-ENGINE-R131.4",
+        "EG-DECISION-ENGINE-R131.5",
+        "EG-DECISION-ENGINE-R131.6"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R131.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R131.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R131.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R131.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R131.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R131.6",
+      "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
