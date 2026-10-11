@@ -24,12 +24,17 @@ Status: PROPOSED. Governing spec: [spec.md](spec.md). Design: [plan.md](plan.md)
   - [ ] Add `:supportsCapability`. **EG-SUPPLY-VOCAB-R003.4**
   - [ ] SHACL shapes for contract and capability link. **EG-SUPPLY-VOCAB-R003.5**
   - [ ] Record the amendment to `EG-CQ-XSRC-R008.3.1`. **EG-SUPPLY-VOCAB-R003.6**
+  - [ ] **EG-SUPPLY-VOCAB-R003.13**: Register the commercial module; run `commercial_vocabulary::commercial_module_loads`.
+  - [ ] **EG-SUPPLY-VOCAB-R003.14**: Register the commercial shapes companion; run `commercial_vocabulary::commercial_shapes_load`.
+  - [ ] **EG-SUPPLY-VOCAB-R003.15**: Preserve canonical commercial namespaces; run `commercial_vocabulary::commercial_shared_namespace`.
+  - [ ] **EG-SUPPLY-VOCAB-R003.16**: Declare the Opportunity date property; run `commercial_vocabulary::commercial_close_date_declared`.
   - [ ] Declare party links on `kg:Organization` (no `:Party` class). **EG-SUPPLY-VOCAB-R003.7**
   - [ ] Add `:PurchaseOrder`. **EG-SUPPLY-VOCAB-R003.8**
   - [ ] Add `:PurchaseInvoice`. **EG-SUPPLY-VOCAB-R003.9**
   - [ ] Add `:Opportunity`. **EG-SUPPLY-VOCAB-R003.10**
   - [ ] Reuse `:Person` for `:Contact` and declare the link. **EG-SUPPLY-VOCAB-R003.11**
   - [ ] Add `:lastActivityAt`. **EG-SUPPLY-VOCAB-R003.12**
+  - [ ] **EG-SUPPLY-VOCAB-R003.17**: Restore the Opportunity date constraint; run `commercial_vocabulary::commercial_opportunity_date_shape`.
 - [ ] Host limit terms (rollup). **EG-SUPPLY-VOCAB-R004**
   - [ ] Add `infra:HostLimit`, `:limitOf`, `:limitKind`, `:readingValue`, `:limitValue`, `:limitUnit`. **EG-SUPPLY-VOCAB-R004.1**
   - [ ] SHACL shape for `HostLimit`. **EG-SUPPLY-VOCAB-R004.2**
