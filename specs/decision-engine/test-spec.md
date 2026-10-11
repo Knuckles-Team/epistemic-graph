@@ -45,3 +45,35 @@ Check metric labels omit raw facts and errors omit invisible component identifie
 
 
 For each changed code path run focused Rust/Python/client tests, `cargo fmt --check`, workspace Clippy with applicable features, generated contract freshness, CCCC, KISS, Dupehound and jscpd differential with zero new pairs. Hosted CI runs build/package tests for affected features and the locally provisioned served journey. Optional cloud/cluster/identity-provider tests run in a separate deployment qualification and cannot block normal external PRs merely because no live environment exists. An acceptance record is complete only when every relevant A–E case and gate has a result tied to the same published commit; `SOURCE_LANDED` stays distinct from `ACCEPTED`.
+
+### EG-DECISION-ENGINE-R113.1: capacity commit type
+
+On 2026-10-11, all six tests in `capacity_commit.rs` passed with Rust 1.96.0.
+The test harness compiled the production module directly.
+It linked the real cached `eg-types` library for `CapacityDecision`.
+No dependency stub or replacement constructor was used.
+
+The tests cover all 13 capacity decisions and both commit parts.
+Accepted and replayed decisions must retain the full lease list and publish evidence.
+Each other decision must retain its reason and grant exactly one retry.
+A denied decision with either commit part must fail.
+An accepted or replayed decision without either commit part must fail.
+
+To repeat this focused check, set `DEPS` to the cached dependency directory.
+Set `EG_TYPES` to its compiled `libeg_types-*.rlib` file.
+Use the Rust version that built that library:
+
+```bash
+root="$PWD"
+work="$(mktemp -d)"
+printf 'pub use eg_types::native_control;\n#[path = "%s/crates/eg-types/src/decision/topology/capacity_commit.rs"]\nmod capacity_commit;\n' "$root" > "$work/harness.rs"
+rustc --edition=2021 --test "$work/harness.rs" \
+  --extern "eg_types=$EG_TYPES" -L "dependency=$DEPS" -o "$work/tests"
+"$work/tests" --nocapture
+```
+
+The normal workspace command is `cargo test -p eg-types capacity_commit`.
+The direct-module run verifies this leaf's constructor contract only.
+It does not verify a durable transaction or enforce retry use at runtime.
+EG-DECISION-ENGINE-R113.2 tracks the atomic transaction.
+EG-DECISION-ENGINE-R113.3 tracks retry enforcement.
