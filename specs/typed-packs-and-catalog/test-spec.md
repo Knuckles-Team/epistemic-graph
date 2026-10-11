@@ -79,8 +79,8 @@ A requirement is `ACCEPTED` only when every row's regression test passes against
 
 | Requirement | Native regression | Result |
 | --- | --- | --- |
-| EG-TYPED-PACKS-R042.1 | `import/capability_tests.rs`: both typed fields accept native terms and retain exact foreign claims with warnings. Native typos, roots, wrong kinds, invalid schemes, and malformed typed lists refuse. | Eight production-module tests passed on 2026-10-11 with Rust 1.96.0 and cached `eg_types` and `serde_json` dependencies. Restoring the old scheme check makes the invalid-scheme test fail at `provides: 1vendor:search`. |
-| EG-TYPED-PACKS-R042.2 | Signed dispatch, durable claim read, and unchanged owner state on refusal. | Not run. This remains open; the native slice does not verify the parent. |
+| EG-TYPED-PACKS-R042.1 | `src/server/handlers/admin/connector_pack/import/capability_tests.rs::both_capability_fields_refuse_relative_and_invalid_scheme_claims` and `foreign_terms_warn_and_stay_only_in_the_declared_partition`: both typed fields accept native terms and retain exact foreign claims with warnings. Native typos, roots, wrong kinds, invalid schemes, and malformed typed lists refuse. | Eight production-module tests passed on 2026-10-11 with Rust 1.96.0 and cached `eg_types` and `serde_json` dependencies. Restoring the old scheme check makes the invalid-scheme test fail at `provides: 1vendor:search`. |
+| EG-TYPED-PACKS-R042.2 | Planned: extend `src/server/handlers/admin/connector_pack/tests/admin.rs::a_rejected_import_mutates_nothing_in_the_catalog`. Add `src/server/handlers/admin/connector_pack/tests/content_model.rs::capability_annotations_remain_declared_after_import`. | Not run. This remains open; the native slice does not verify the parent. |
 
 The native harness loads the unchanged production module path with `#[path]`; it uses no behavior substitutes. To repeat from the repository root with compatible cached Rust dependencies:
 
@@ -96,3 +96,11 @@ rustc --test --edition=2021 "$work/native.rs" \
 ```
 
 The full served test suite and hosted CI were not run for this native slice.
+
+For R042.2, the existing admin test compares `connector_pack_status` before and after one malformed-index refusal.
+Extend that fixture with one malformed native term and one invalid scheme per capability field.
+For each case, snapshot the connector head, members, import records, body holders, body liveness, and outbox rows.
+Compare those bounded snapshots after refusal. This fixture does not require a full crash campaign.
+The planned positive test will import mixed native and foreign terms in both fields.
+It will compare warning receipts and persisted component classification, required capabilities, and both declared claim lists.
+These served changes are planned and unrun; they are not part of the native verification claim.
