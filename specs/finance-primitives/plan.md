@@ -188,3 +188,11 @@ The ontology still lacks PortfolioGroup, StrategySpec, StrategyRun, and Leverage
 Declare those already-promised producers as R004.2.3 through R004.2.6. Keep them
 SPECIFIED and the parent open. Existing served-entry requirements remain separate.
 The two executed schema groups do not prove those four absent groups.
+
+## 2026-10-11: keep complete shape qualification open
+
+Independent review found that the passed fixtures sample the shape constraints.
+They omit some required-field removals and some accepted vocabulary values.
+Record their actual passes as partial evidence only. R004.2.1.1 and R004.2.2.1
+track the missing complete matrices. Both schema groups remain open until those
+children pass native execution. Do not treat a sample as complete acceptance.
