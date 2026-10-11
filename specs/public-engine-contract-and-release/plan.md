@@ -103,3 +103,12 @@ without changing any self-hosted security policy. Preserve the exact package
 installation, test commands, dependency graph, event scope and timeout.
 The workflow regression pins hosted placement and unconditional provisioning;
 native end-to-end acceptance still requires the hosted job to finish.
+
+### 2026-10-11: keep cache reports on the build backend after daemon loss
+
+EG-CONTRACT-R009 scopes the shared GitHub cache backend settings to the server
+and full-facade jobs. The build, explicit statistics, and action cleanup therefore
+receive the same backend and main-only write policy. The compiler wrapper stays
+on the same two build/test steps. Statistics describe only the current daemon.
+A restart resets its counters. This does not prove the earlier daemon wrote nothing. This fixes the reporting configuration mismatch without explaining why
+the facade daemon stopped or claiming a runtime improvement.

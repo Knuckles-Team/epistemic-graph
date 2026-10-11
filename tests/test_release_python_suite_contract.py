@@ -224,8 +224,7 @@ def test_compiler_cache_is_installed_before_precisely_two_step_local_wrappers() 
             "--features full --no-fail-fast",
         ),
     }
-    cache_env = {
-        "RUSTC_WRAPPER": "sccache",
+    cache_backend = {
         "SCCACHE_GHA_ENABLED": "true",
         "SCCACHE_GHA_RW_MODE": (
             "${{ github.ref == 'refs/heads/main' && 'READ_WRITE' || 'READ_ONLY' }}"
@@ -252,13 +251,29 @@ def test_compiler_cache_is_installed_before_precisely_two_step_local_wrappers() 
         assert steps.index(setup) < steps.index(build)
         assert "if" not in setup and "if" not in build
         assert build["run"] == command
-        assert build["env"] == cache_env
-        stats = next(s for s in steps if s.get("run") == "sccache --show-stats")
+        assert build["env"] == {"RUSTC_WRAPPER": "sccache"}
+        assert job["env"] == cache_backend
+        stats = next(s for s in steps if "sccache --show-stats" in s.get("run", ""))
         assert stats["if"] == "always()"
+        assert stats["run"].splitlines() == [
+            "echo 'Cache statistics cover the current daemon only; "
+            "a restart resets its counters.'",
+            "sccache --show-stats",
+        ]
         assert steps.index(stats) > steps.index(build)
+        # Setup's post action and explicit stats may start a replacement daemon.
+        # They must inherit the same backend as the compilation step.
+        for cache_step in (setup, build, stats):
+            effective_env = {
+                **workflow["env"],
+                **job["env"],
+                **cache_step.get("env", {}),
+            }
+            assert {key: effective_env[key] for key in cache_backend} == cache_backend
     # The shared anchors keep both installations and cache policies identical.
     assert setups[0] is setups[1]
     assert wrapped[0]["env"] is wrapped[1]["env"]
+    assert jobs["python-server"]["env"] is jobs["gates-facade"]["env"]
     steps = jobs["python-server"]["steps"]
     pack = next(
         s for s in steps if s.get("name") == "Package exact-revision server binary"
@@ -267,8 +282,11 @@ def test_compiler_cache_is_installed_before_precisely_two_step_local_wrappers() 
     assert "if" not in pack
     assert workflow["env"]["CARGO_INCREMENTAL"] == "0"
     assert "RUSTC_WRAPPER" not in workflow["env"]
-    for job in jobs.values():
+    assert not cache_backend.keys() & workflow["env"].keys()
+    for job_name, job in jobs.items():
         assert "RUSTC_WRAPPER" not in job.get("env", {})
+        if job_name not in commands:
+            assert not cache_backend.keys() & job.get("env", {}).keys()
         for step in job.get("steps", []):
             if all(step is not build for build in wrapped):
                 assert "RUSTC_WRAPPER" not in step.get("env", {})
