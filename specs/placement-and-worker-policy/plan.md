@@ -1,6 +1,6 @@
 # EG-PLACEMENT - Design and implementation plan
 
-Status: PROPOSED. Governing spec: [spec.md](spec.md). Rows: [requirements.md](requirements.md).
+Governing spec: [spec.md](spec.md). Rows: [requirements.md](requirements.md).
 
 All three gaps keep ONE decision authority: the engine decides, callers (graph-os, the ingest worker, the submit path) ask and obey. Nothing here adds a planner outside `specs/decision-engine`.
 

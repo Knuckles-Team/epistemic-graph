@@ -1,6 +1,6 @@
 # EG-CQ-XSRC — Implementation tasks
 
-Status: PROPOSED. Governing spec: [spec.md](spec.md). Design: [plan.md](plan.md). Producers first; each child is one 5-minute unit.
+Governing spec: [spec.md](spec.md). Design: [plan.md](plan.md). Producers first; each child is one 5-minute unit.
 
 - [ ] Concept-to-source authority is declared in the ontology (rollup). **EG-CQ-XSRC-R001**
   - [ ] Add `vg:SourceAuthority`, `vg:authoritativeSource`, `vg:authorityFor` and `vg:authorityRank` to the virtual-graph vocabulary. **EG-CQ-XSRC-R001.1**
