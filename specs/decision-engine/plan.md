@@ -272,4 +272,5 @@ the ten candidate bits are mandatory, leaving at most sixteen feasible one-hot
 combinations per fixture. Check feasibility and both topology objective levels,
 including demand, capacity, deadline and token caps. Native execution remains
 pending; formatting and standalone fixture arithmetic are not native acceptance.
-No verification binding marker or acceptance-state change is added.
+The test binds R110.1 under the published spec standard.
+Generated delivery state records test existence, not successful native execution.

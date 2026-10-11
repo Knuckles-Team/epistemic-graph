@@ -34,10 +34,8 @@ impl Case {
                     if u64::from(width) * u64::from(self.per_agent) < u64::from(self.subtasks) {
                         continue;
                     }
-                    // Deliberately compute ceiling division without the
-                    // production table's div_ceil or demanded_width helpers.
-                    let turns =
-                        (u64::from(self.subtasks) + u64::from(width) - 1) / u64::from(width);
+                    // Count batches directly, independently of production tables.
+                    let turns = (0..self.subtasks).step_by(usize::from(width)).count() as u64;
                     let makespan = u64::from(lead_rounds) * u64::from(self.p95[0])
                         + u64::from(rounds) * turns * u64::from(self.p95[1]);
                     let lease = self.lease[0] + u64::from(width) * self.lease[1];
@@ -143,6 +141,7 @@ fn cases() -> Vec<Case> {
     cases
 }
 
+// spec: EG-DECISION-ENGINE-R110.1
 #[test]
 fn property_oracle_agrees_with_the_solver_for_instances_up_to_twenty_variables() {
     let mut solved = 0;
