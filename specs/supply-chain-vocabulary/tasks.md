@@ -1,0 +1,53 @@
+# EG-SUPPLY-VOCAB-001 — Implementation tasks
+
+Status: PROPOSED. Governing spec: [spec.md](spec.md). Design: [plan.md](plan.md). Producers first; each child is one 5-minute unit.
+
+- [ ] Physical and commercial supply chain terms (rollup). **EG-SUPPLY-VOCAB-R001**
+  - [ ] Add `:Supplier`, `:SupplyChainItem` and `:suppliesItem`. **EG-SUPPLY-VOCAB-R001.1**
+  - [ ] Add `:realizedByAsset` and `:assetHost`. **EG-SUPPLY-VOCAB-R001.2**
+  - [ ] Add `:suppliesService` with the physical chain axiom. **EG-SUPPLY-VOCAB-R001.3**
+  - [ ] SHACL shapes for supplier and item. **EG-SUPPLY-VOCAB-R001.4**
+- [ ] Software supply chain terms (rollup). **EG-SUPPLY-VOCAB-R002**
+  - [ ] Add `:SoftwareComponent`, `:ComponentVersion`, `:versionOf` and `:versionString`. **EG-SUPPLY-VOCAB-R002.1**
+  - [ ] Declare `infra:ContainerImage` a `kg:SoftwareComponent`. **EG-SUPPLY-VOCAB-R002.2**
+  - [ ] Add `:containsComponent` and `:publishedBy`. **EG-SUPPLY-VOCAB-R002.3**
+  - [ ] Add `:usesImage` and `:deployedAs`. **EG-SUPPLY-VOCAB-R002.4**
+  - [ ] Add `:usesComponent` with the runtime chain axiom. **EG-SUPPLY-VOCAB-R002.5**
+  - [ ] Add `:Vulnerability` with `:cveId`, `:severity`, `:fixedInVersion`, `:affectsComponent` and `:hasVulnerability`. **EG-SUPPLY-VOCAB-R002.6**
+  - [ ] SHACL shapes for component version, vulnerability and `usesComponent`. **EG-SUPPLY-VOCAB-R002.7**
+- [ ] Commercial and capability terms (rollup). **EG-SUPPLY-VOCAB-R003**
+  - [ ] Add `:Customer`. **EG-SUPPLY-VOCAB-R003.1**
+  - [ ] Add `:CustomerContract`, `:contractCustomer`, `:coversService`, `:contractStatus` and `:contractEnd`. **EG-SUPPLY-VOCAB-R003.2**
+  - [ ] Add `:affectsService`. **EG-SUPPLY-VOCAB-R003.3**
+  - [ ] Add `:supportsCapability`. **EG-SUPPLY-VOCAB-R003.4**
+  - [ ] SHACL shapes for contract and capability link. **EG-SUPPLY-VOCAB-R003.5**
+  - [ ] Record the amendment to `EG-CQ-XSRC-R008.3.1`. **EG-SUPPLY-VOCAB-R003.6**
+- [ ] Host limit terms (rollup). **EG-SUPPLY-VOCAB-R004**
+  - [ ] Add `infra:HostLimit`, `:limitOf`, `:limitKind`, `:readingValue`, `:limitValue`, `:limitUnit`. **EG-SUPPLY-VOCAB-R004.1**
+  - [ ] SHACL shape for `HostLimit`. **EG-SUPPLY-VOCAB-R004.2**
+  - [ ] Declared-threshold fixture for capacity limits. **EG-SUPPLY-VOCAB-R004.3**
+- [ ] Virtual mappings: procurement, commercial, change and capability sources (rollup). **EG-SUPPLY-VOCAB-R005**
+  - [ ] Mapping fixture: erpnext `Supplier` to `kg:Supplier`. **EG-SUPPLY-VOCAB-R005.1**
+  - [ ] Mapping fixture: erpnext `Item` and `Purchase Order` to `kg:SupplyChainItem` and `kg:suppliesItem`. **EG-SUPPLY-VOCAB-R005.2**
+  - [ ] Resolve erpnext manifest classes (cross-repo: agent-packages `erpnext-agent`). **EG-SUPPLY-VOCAB-R005.3**
+  - [ ] Mapping fixture: leanix `Provider` to `kg:Supplier` (rank 2) and `supports` to `kg:supportsCapability`. **EG-SUPPLY-VOCAB-R005.4**
+  - [ ] Mapping fixture: servicenow `Incident`, `Change` and CI relation to `kg:affectsService`. **EG-SUPPLY-VOCAB-R005.5**
+  - [ ] Mapping fixture: salesforce `Account` to `kg:Customer` and `Contract` to `kg:CustomerContract`. **EG-SUPPLY-VOCAB-R005.6**
+  - [ ] Add the Salesforce `Contract` class and access contract (cross-repo: agent-packages `salesforce-agent`). **EG-SUPPLY-VOCAB-R005.7**
+  - [ ] Mapping fixture: twenty `Company` to `kg:Customer` (rank 2). **EG-SUPPLY-VOCAB-R005.8**
+  - [ ] Record the `coversService` source (BLOCKED, owner: operator plus salesforce-agent). **EG-SUPPLY-VOCAB-R005.9**
+- [ ] Virtual mappings: software, runtime and host sources (rollup). **EG-SUPPLY-VOCAB-R006**
+  - [ ] Add the container-manager access contract (cross-repo: agent-packages `container-manager-mcp`). **EG-SUPPLY-VOCAB-R006.1**
+  - [ ] Add the uptime-kuma access contract (cross-repo: agent-packages `uptime-kuma-agent`). **EG-SUPPLY-VOCAB-R006.2**
+  - [ ] Mapping fixture: container-manager workload and image to `kg:deployedAs` and `kg:usesImage`. **EG-SUPPLY-VOCAB-R006.3**
+  - [ ] Mapping fixture: uptime monitor to service health. **EG-SUPPLY-VOCAB-R006.4**
+  - [ ] Mapping fixture: dockerhub image, SBOM and Scout CVEs to `containsComponent` and `Vulnerability`. **EG-SUPPLY-VOCAB-R006.5**
+  - [ ] Mapping fixture: gitlab `dependencies` and github Dependabot alerts (rank 2). **EG-SUPPLY-VOCAB-R006.6**
+  - [ ] Mapping fixture: fan-manager and systems-manager to `infra:HostLimit`. **EG-SUPPLY-VOCAB-R006.7**
+- [ ] Entity resolution blocking keys (rollup). **EG-SUPPLY-VOCAB-R007**
+  - [ ] Blocking-key fixture for supplier, service, host, image and customer. **EG-SUPPLY-VOCAB-R007.1**
+  - [ ] Test: a digest key is exact; a name-only key is a proposal. **EG-SUPPLY-VOCAB-R007.2**
+- [ ] Impact traversal and acceptance (rollup). **EG-SUPPLY-VOCAB-R008**
+  - [ ] Class-only impact query fixture. **EG-SUPPLY-VOCAB-R008.1**
+  - [ ] Recorded-response fixture: one row per source concept. **EG-SUPPLY-VOCAB-R008.2**
+  - [ ] Blocked-register test. **EG-SUPPLY-VOCAB-R008.3**
