@@ -205,9 +205,14 @@
     {
       "id": "EG-PLACEMENT-R002.2",
       "title": "Autosize and depth limit live in `SchedulerConfig`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "57050996421e"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/scheduler_config.rs:111",
+        "crates/eg-types/src/scheduler_config.rs:126"
+      ]
     },
     {
       "id": "EG-PLACEMENT-R002.3",
