@@ -456,7 +456,7 @@ Cross-repository rows:
 - The `GRAPHOS-A2A` row for admission refuses a task without a committed `HarnessConfig` answer.
 - The `SDK-CONNECTOR-CONTROL` row for tool `read_only` and `side_effects` facts feeds the tool-subset candidates.
 
-### 2026-10-11 amendment: production open and withdrawal acceptance
+### Production open and withdrawal acceptance
 
 R073.3 uses `AgentLibraryStore::open`, the production entry point in `src/server/persistence/agent_library.rs`.
 The current Agent Library registry declares 21 owner tables, including five ConnectorPack tables.
@@ -470,4 +470,3 @@ A signed Search test must exclude a withdrawn tool while retaining a published p
 Signed Content must still return the withdrawn tool's historical pinned body.
 A new dependency on that withdrawn tool must fail with `COMPONENT_WITHDRAWN`.
 The acceptance slice changes tests and documentation only.
-Native execution remains pending while another task owns the active build.
