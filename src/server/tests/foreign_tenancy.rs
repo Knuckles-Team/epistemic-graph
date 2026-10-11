@@ -143,6 +143,9 @@ async fn foreign_source_resolves_only_for_the_registering_principal() {
 /// column before attempting the registered SQL connection.
 #[tokio::test]
 async fn foreign_column_read_is_owner_scoped_and_mapping_gated() {
+    #[cfg(feature = "federation-sql")]
+    let _allow = crate::test_support::FederationAllowGuard::acquire("127.0.0.1:5432").await;
+    #[cfg(not(feature = "federation-sql"))]
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
     let state = multi_tenant_state().await;
     register_in(
@@ -150,7 +153,8 @@ async fn foreign_column_read_is_owner_scoped_and_mapping_gated() {
         940,
         OWNER_A,
         eg_types::wire::ForeignSourceSpec::Sql {
-            dsn: "postgres://db.invalid/records".into(),
+            // Registration validates the destination; subsequent mapping refusals never dial it.
+            dsn: "postgres://127.0.0.1:5432/records".into(),
             query: "SELECT id, name FROM records".into(),
             id_field: "id".into(),
             score_field: None,

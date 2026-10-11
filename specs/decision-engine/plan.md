@@ -305,9 +305,17 @@ The test varies misleading labels independently from premise classes.
 R121.2 retains graph candidate provenance, record sealing, and replay integration.
 Graph candidates currently discard typed Claim/Evidence provenance while retaining scalar features.
 This assembly test does not establish graph-source acceptance.
-The isolated Rust harness passed all nine class/label combinations and replay checks.
-It compiled the current assembly and solver modules against cached real dependencies.
+Native execution remains pending through an authorized dependency route.
+The existing scoped result is excluded because its dependency cache was outside the permitted task scope.
 The full Cargo suite and hosted CI remain unrun for this change.
+
+### 2026-10-11 amendment: bounded R073 storage acceptance
+
+Add R073.1 and R073.2 for the existing served import path's durable per-component
+outbox and competing head compare-and-set behavior. These child tests do not
+complete R073: direct multi-intent receipt digest coverage and an owner-table /
+current-format refusal audit remain separate acceptance work. Native execution
+is reported separately from the existence of these acceptance tests.
 
 ## Retrieval refusal envelope (R029)
 

@@ -402,6 +402,7 @@ mod tests {
         // spec: EG-UNIFIED-DATA-PLANE-R002.1
         #[test]
         fn a_disallowed_sql_destination_is_refused_and_never_persisted() {
+            let _allow = crate::test_support::FederationAllowGuard::blocking("");
             let a = carrier("agent-a");
             let catalog = ForeignSourceCatalog::default();
             // Same fixture `crates/eg-plan/src/federation_ssrf.rs` already proves is
@@ -424,10 +425,11 @@ mod tests {
         // spec: EG-UNIFIED-DATA-PLANE-R002.1
         #[test]
         fn an_allowed_sql_destination_still_registers() {
+            let _allow = crate::test_support::FederationAllowGuard::blocking("127.0.0.1:5432");
             let a = carrier("agent-a");
             let catalog = ForeignSourceCatalog::default();
             // Same fixture `crates/eg-plan/src/federation_ssrf.rs` already proves is
-            // admitted: loopback on the dialect's own default port.
+            // admitted: loopback with an explicit exact host:port allowlist entry.
             catalog
                 .register(
                     &a,

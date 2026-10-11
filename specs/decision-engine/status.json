@@ -110,6 +110,11 @@
     "EG-DECISION-ENGINE-R072",
     "EG-DECISION-ENGINE-R072.1",
     "EG-DECISION-ENGINE-R073",
+    "EG-DECISION-ENGINE-R073.1",
+    "EG-DECISION-ENGINE-R073.2",
+    "EG-DECISION-ENGINE-R073.3",
+    "EG-DECISION-ENGINE-R073.4",
+    "EG-DECISION-ENGINE-R073.5",
     "EG-DECISION-ENGINE-R074",
     "EG-DECISION-ENGINE-R075",
     "EG-DECISION-ENGINE-R075.1",
@@ -1566,13 +1571,63 @@
     },
     {
       "id": "EG-DECISION-ENGINE-R073",
-      "title": "Decision-owned storage tables and outbox events",
-      "delivery_state": "LANDED",
+      "title": "Decision-owned storage tables and outbox events (rollup)",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "1e9ea1ef3790",
         "a1bb9fb9503e",
         "d51d225674e1"
       ],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R073.1",
+        "EG-DECISION-ENGINE-R073.2",
+        "EG-DECISION-ENGINE-R073.3",
+        "EG-DECISION-ENGINE-R073.4",
+        "EG-DECISION-ENGINE-R073.5"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R073.1",
+      "title": "One durable outbox event per imported component",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "771c32a45353"
+      ],
+      "verified_by": [
+        "src/server/handlers/admin/connector_pack/tests/storage_acceptance.rs:26"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R073.2",
+      "title": "Competing served imports share one head compare-and-set",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "771c32a45353"
+      ],
+      "verified_by": [
+        "src/server/handlers/admin/connector_pack/tests/storage_acceptance.rs:71"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R073.3",
+      "title": "Fresh owner open and outdated-format refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R073.4",
+      "title": "Receipt covers every batch intent",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R073.5",
+      "title": "Batch pins and withdrawn-component reads",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {

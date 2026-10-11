@@ -639,6 +639,7 @@ mod outbound_verification_tests {
 
     #[test]
     fn a_disallowed_obda_destination_is_refused_before_registration() {
+        let _allow = crate::test_support::FederationAllowGuard::blocking("");
         // Same fixture `crates/eg-plan/src/federation_ssrf.rs` already proves is
         // refused: loopback on a non-default port, no allow-list entry.
         let Err(err) = SqlObdaSource::connect("postgres://u@127.0.0.1:5433/db", "people") else {
@@ -649,8 +650,9 @@ mod outbound_verification_tests {
 
     #[test]
     fn an_allowed_obda_destination_still_connects() {
+        let _allow = crate::test_support::FederationAllowGuard::blocking("127.0.0.1:5432");
         // Same fixture `crates/eg-plan/src/federation_ssrf.rs` already proves is
-        // admitted: loopback on the dialect's own default port. `connect` only
+        // admitted: loopback with an explicit exact allowlist entry. `connect` only
         // validates and stores the DSN here; it dials lazily inside `run_select`.
         SqlObdaSource::connect("postgres://u@127.0.0.1:5432/db", "people")
             .expect("an allowed OBDA destination must still connect");
