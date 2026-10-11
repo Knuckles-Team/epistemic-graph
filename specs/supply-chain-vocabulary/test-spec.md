@@ -9,6 +9,12 @@ Status: PROPOSED. Governing spec: [spec.md](spec.md).
 | T-001.2 | EG-SUPPLY-VOCAB-R001.1.2 | Catalog and reasoner | Default catalog plus supplier, item and vendor instances | Valid registered document; Vendor and domain/range entailment; no reverse Supplier inference | PENDING |
 | T-002 | FR-002 | Reasoner | Service, workload, image, version fixture | `usesComponent` inferred; versionless component and bad severity refused | PENDING |
 | T-003 | FR-003 | Shape | Contract fixtures: valid, no customer, no service; ontology scan | Faults refused; no `ChangeRequest` class; `affectsService` accepts `kg:Change` | PENDING |
+| T-003.1 | EG-SUPPLY-VOCAB-R003.7 | Native parser | `commercial-v1.ttl` and fixtures | Test asserts both `Customer` and `Supplier` entail `Organization` and no `:Party` class exists. | `crates/eg-rdf/tests/commercial_terms.rs::party_links_reuse_organization` |
+| T-003.2 | EG-SUPPLY-VOCAB-R003.8 | Native parser | `commercial-v1.ttl` and fixtures | Test lists the class; the grep finds exactly one declaration. | `crates/eg-rdf/tests/commercial_terms.rs::purchase_order_declared_once` |
+| T-003.3 | EG-SUPPLY-VOCAB-R003.9 | Native parser | `commercial-v1.ttl` and fixtures | Test lists the class and property with domain and range. | `crates/eg-rdf/tests/commercial_terms.rs::purchase_invoice_terms_listed` |
+| T-003.4 | EG-SUPPLY-VOCAB-R003.10 | Native parser | `commercial-v1.ttl` and fixtures | Test lists the class and property with domain and range. | `crates/eg-rdf/tests/commercial_terms.rs::opportunity_terms_listed` |
+| T-003.5 | EG-SUPPLY-VOCAB-R003.11 | Native parser | `commercial-v1.ttl` and fixtures | Test lists `contactOf` with domain and range; no `Contact` class exists. | `crates/eg-rdf/tests/commercial_terms.rs::contact_reuses_person` |
+| T-003.6 | EG-SUPPLY-VOCAB-R003.12 | Native parser | `commercial-v1.ttl` and fixtures | Test lists the property; a fixture with a plain string is refused. | `crates/eg-rdf/tests/commercial_terms.rs::last_activity_at_datetime` |
 | T-004 | FR-004 | Shape | `HostLimit` fixtures: valid, no limit, unknown kind | Faults refused; no stored `OverLimit` | PENDING |
 | T-005 | FR-005 | Shape | Capability link from a service, from a non-service, via `kg:supports` | Only the service form accepted | PENDING |
 | T-006 | FR-006 | Contract | D4 table and recorded responses | Every concept has an authority row or a typed abstention | PENDING |

@@ -26,6 +26,12 @@
     "EG-SUPPLY-VOCAB-R003.4",
     "EG-SUPPLY-VOCAB-R003.5",
     "EG-SUPPLY-VOCAB-R003.6",
+    "EG-SUPPLY-VOCAB-R003.7",
+    "EG-SUPPLY-VOCAB-R003.8",
+    "EG-SUPPLY-VOCAB-R003.9",
+    "EG-SUPPLY-VOCAB-R003.10",
+    "EG-SUPPLY-VOCAB-R003.11",
+    "EG-SUPPLY-VOCAB-R003.12",
     "EG-SUPPLY-VOCAB-R004",
     "EG-SUPPLY-VOCAB-R004.1",
     "EG-SUPPLY-VOCAB-R004.2",
@@ -199,7 +205,13 @@
         "EG-SUPPLY-VOCAB-R003.3",
         "EG-SUPPLY-VOCAB-R003.4",
         "EG-SUPPLY-VOCAB-R003.5",
-        "EG-SUPPLY-VOCAB-R003.6"
+        "EG-SUPPLY-VOCAB-R003.6",
+        "EG-SUPPLY-VOCAB-R003.7",
+        "EG-SUPPLY-VOCAB-R003.8",
+        "EG-SUPPLY-VOCAB-R003.9",
+        "EG-SUPPLY-VOCAB-R003.10",
+        "EG-SUPPLY-VOCAB-R003.11",
+        "EG-SUPPLY-VOCAB-R003.12"
       ]
     },
     {
@@ -240,6 +252,48 @@
     {
       "id": "EG-SUPPLY-VOCAB-R003.6",
       "title": "Record the amendment to `EG-CQ-XSRC-R008.3.1`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R003.7",
+      "title": "Declare party links on `kg:Organization` (no `:Party` class)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R003.8",
+      "title": "Add `:PurchaseOrder`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R003.9",
+      "title": "Add `:PurchaseInvoice`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R003.10",
+      "title": "Add `:Opportunity`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R003.11",
+      "title": "Reuse `:Person` for `:Contact` and declare the link",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R003.12",
+      "title": "Add `:lastActivityAt`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
