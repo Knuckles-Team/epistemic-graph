@@ -53,3 +53,13 @@ design change, and does not promote the related acceptance criteria to passed.
 ## Reproducible gates
 
 Use `cargo run -q --locked -p eg-capabilities --features contract --bin gen_contract -- --check` and focused Rust tests for OIDC, isolation identity admin, RBAC persistence and audit. Run `pre-commit run --config .config/pre-commit.yaml --all-files` and `bash scripts/ci_parity.sh` on the exact PR head. Hosted CI must generate JWTs and attestations locally, use disposable redb files, and clean up all fixtures. If a named focused test moves, record the replacement before removing it from the gate. A live external IdP is an optional deployment qualification, not the baseline PR test substrate.
+
+## Semantic owner registry validation
+
+Published source: [cf7010728682663f735516ee276f423476d3690b](https://github.com/Knuckles-Team/epistemic-graph/commit/cf7010728682663f735516ee276f423476d3690b).
+Review: [PR 445](https://github.com/Knuckles-Team/epistemic-graph/pull/445).
+
+`semantic_owner_registry_is_scoped_to_persistence_root` checks distinct-root isolation and canonical path-alias reuse.
+`dispatch_attributes_every_queue_class_to_the_one_verified_principal` retains its verified-principal and spoofed-consumer assertions.
+Native execution of both tests remains pending.
+Hosted facade execution must establish R005 acceptance; source inspection alone does not establish it.

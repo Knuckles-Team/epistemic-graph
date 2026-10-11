@@ -19,6 +19,7 @@
     "EG-DURABLE-KERNEL-R011.2",
     "EG-DURABLE-KERNEL-R011.3",
     "EG-DURABLE-KERNEL-R011.4",
+    "EG-DURABLE-KERNEL-R011.5",
     "EG-DURABLE-KERNEL-R012",
     "EG-DURABLE-KERNEL-R013",
     "EG-DURABLE-KERNEL-R014",
@@ -279,15 +280,20 @@
       "title": "Clippy and targeted tests cover the full and all-features builds",
       "delivery_state": "SPECIFIED",
       "landed_in": [
+        "1c6b4c961a40",
+        "7c046280f19e",
         "9794030f6459",
         "a676823d2b54"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "tests/test_release_feature_matrix.py:217"
+      ],
       "rollup_of": [
         "EG-DURABLE-KERNEL-R011.1",
         "EG-DURABLE-KERNEL-R011.2",
         "EG-DURABLE-KERNEL-R011.3",
-        "EG-DURABLE-KERNEL-R011.4"
+        "EG-DURABLE-KERNEL-R011.4",
+        "EG-DURABLE-KERNEL-R011.5"
       ]
     },
     {
@@ -333,6 +339,19 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R011.5",
+      "title": "Required Clippy profile declarations",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "7c046280f19e",
+        "c73eeb01d917"
+      ],
+      "verified_by": [
+        "tests/test_release_feature_matrix.py:218",
+        "tests/test_release_feature_matrix.py:224"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R012",
@@ -511,7 +530,7 @@
         "a676823d2b54"
       ],
       "verified_by": [
-        "src/server/mutation_batch/lifecycle_tests.rs:338"
+        "src/server/mutation_batch/lifecycle_tests.rs:410"
       ]
     },
     {
@@ -1288,12 +1307,14 @@
       "title": "Idempotent retry of CreateGraph and DeleteGraph succeeds",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "1c6b4c961a40",
         "1ef84395fa69",
+        "3c481565fe1c",
         "94edcf341758",
         "ceec54145720"
       ],
       "verified_by": [
-        "src/server/mutation_batch/lifecycle_tests.rs:241"
+        "src/server/mutation_batch/lifecycle_tests.rs:242"
       ]
     },
     {

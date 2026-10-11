@@ -61,6 +61,7 @@
       "title": "Semantic workers use one identity across queue classes",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "1c6b4c961a40",
         "62bec8a1ae94",
         "6c11520aebfc"
       ],
