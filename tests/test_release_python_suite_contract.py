@@ -210,48 +210,68 @@ def test_validation_profile_is_warmed_without_affecting_release_wheels() -> None
     assert "cargo build --locked --features full --bin epistemic-graph-server" in builds
 
 
-def test_server_compiler_cache_is_installed_before_step_local_wrapper() -> None:
+def test_compiler_cache_is_installed_before_precisely_two_step_local_wrappers() -> None:
     workflow = _workflow()
     jobs = workflow["jobs"]
-    steps = jobs["python-server"]["steps"]
-    setup = next(s for s in steps if s.get("name") == "Install server compiler cache")
-    build = next(
-        s
-        for s in steps
-        if s.get("name") == "Build the full-featured engine binary once"
-    )
-    pack = next(
-        s for s in steps if s.get("name") == "Package exact-revision server binary"
-    )
-    assert setup["uses"] == (
-        "mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba"
-    )
-    assert setup["with"] == {"version": "v0.16.0"}
-    assert steps.index(setup) < steps.index(build) < steps.index(pack)
-    assert "if" not in setup and "if" not in build and "if" not in pack
-    assert build["run"] == (
-        "cargo build --locked --features full --bin epistemic-graph-server"
-    )
-    assert build["env"] == {
+    commands = {
+        "python-server": (
+            "Build the full-featured engine binary once",
+            "cargo build --locked --features full --bin epistemic-graph-server",
+        ),
+        "gates-facade": (
+            "Test (facade full)",
+            "python3 scripts/cargo_test_rescue.py cargo test -p epistemic-graph "
+            "--features full --no-fail-fast",
+        ),
+    }
+    cache_env = {
         "RUSTC_WRAPPER": "sccache",
         "SCCACHE_GHA_ENABLED": "true",
         "SCCACHE_GHA_RW_MODE": (
             "${{ github.ref == 'refs/heads/main' && 'READ_WRITE' || 'READ_ONLY' }}"
         ),
     }
+    wrapped = []
+    setups = []
+    for job_name, (step_name, command) in commands.items():
+        job = jobs[job_name]
+        assert job["timeout-minutes"] == (
+            "${{ github.event_name == 'pull_request' && 10 || 60 }}"
+        )
+        steps = job["steps"]
+        setup = next(
+            s for s in steps if s.get("name") == "Install validation compiler cache"
+        )
+        build = next(s for s in steps if s.get("name") == step_name)
+        setups.append(setup)
+        wrapped.append(build)
+        assert setup["uses"] == (
+            "mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba"
+        )
+        assert setup["with"] == {"version": "v0.16.0"}
+        assert steps.index(setup) < steps.index(build)
+        assert "if" not in setup and "if" not in build
+        assert build["run"] == command
+        assert build["env"] == cache_env
+        stats = next(s for s in steps if s.get("run") == "sccache --show-stats")
+        assert stats["if"] == "always()"
+        assert steps.index(stats) > steps.index(build)
+    # The shared anchors keep both installations and cache policies identical.
+    assert setups[0] is setups[1]
+    assert wrapped[0]["env"] is wrapped[1]["env"]
+    steps = jobs["python-server"]["steps"]
+    pack = next(
+        s for s in steps if s.get("name") == "Package exact-revision server binary"
+    )
+    assert steps.index(wrapped[0]) < steps.index(pack)
+    assert "if" not in pack
     assert workflow["env"]["CARGO_INCREMENTAL"] == "0"
     assert "RUSTC_WRAPPER" not in workflow["env"]
     for job in jobs.values():
         assert "RUSTC_WRAPPER" not in job.get("env", {})
         for step in job.get("steps", []):
-            if step is not build:
+            if all(step is not build for build in wrapped):
                 assert "RUSTC_WRAPPER" not in step.get("env", {})
-    stats = next(
-        s for s in steps if s.get("name") == "Report server compiler cache reuse"
-    )
-    assert stats["if"] == "always()"
-    assert stats["run"] == "sccache --show-stats"
-    assert steps.index(stats) > steps.index(build)
 
 
 @pytest.mark.parametrize("kind", ["kernels", "server"])
