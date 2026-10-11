@@ -144,7 +144,7 @@ Types: `SchemaChangeKind` gains `ReorderColumn`; the table keeps one schema vers
 Attach point: `commit_table`; its production caller is the listener route dispatch. Today `commit_table` only compacts, and `evolve_add_column` (`crates/eg-lake/src/lib.rs:179`) is reached from `src/server/lake/mod.rs:243` but not from a REST route.
 Failure: an unapproved destructive change or an unknown column is refused with a typed code and no new version.
 Existing code: `src/server/lake/rest/catalog.rs:270`, `:318`; `src/server/lake/catalog_ops.rs:184`. Also `crates/eg-lake/src/lib.rs:179`, `:241`, `:285`; `crates/eg-lake/src/iceberg.rs:315`, `:348`. Also `crates/eg-lake/src/iceberg_avro.rs:371`, `:408`; `crates/eg-types/src/lake_catalog.rs:216`, `:248`. Reachable today: load and time travel yes; schema evolution through REST no.
-Reuses the table builder, the manifest writer and the compatibility classifier. New: drop, rename, reorder. New: the commit-route wiring.
+Reuses the table builder. Reuses the manifest writer. Reuses the compatibility classifier. New: drop, rename and reorder. New: commit-route wiring.
 Decision: evolve through the standard commit route. Rejected: a private admin call, which external engines cannot use.
 Cross-repository: the authenticated catalog is owned by `EG-UNIFIED-DATA-PLANE-R039`; this rollup adds no new access rule.
 
