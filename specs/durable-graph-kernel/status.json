@@ -1668,9 +1668,14 @@
     {
       "id": "EG-DURABLE-KERNEL-R082.6",
       "title": "Rules are ordered and thresholded exactly as before",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "157e0a8e97a3"
+      ],
+      "verified_by": [
+        "crates/eg-compute/src/mining/association/parity_tests.rs:4",
+        "crates/eg-compute/src/mining/association/parity_tests.rs:47"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R082.7",

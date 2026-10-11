@@ -1,0 +1,509 @@
+{
+  "source_repository": "Knuckles-Team/agent-utilities",
+  "source_commit": "134576bd0f5931a9b22ed3c3859a3f4350731ad6",
+  "deletion_commit": "92974bae8c3ed3a270f582300b7458d4f53571c4",
+  "source_path": "agent_utilities/knowledge_graph/analytics_worker.py",
+  "source_sha256": "1975cb7217cf691e07fe544ed3fce1f5974b5fdabd12f535feb81f93170f07ef",
+  "extraction": "Unmodified mining definitions executed via AST; unrelated transport and config imports omitted.",
+  "transactions": [
+    [
+      "eg:z",
+      "eg:a",
+      "eg:m"
+    ],
+    [
+      "eg:z",
+      "eg:a"
+    ],
+    [
+      "eg:z",
+      "eg:m"
+    ],
+    [
+      "eg:a",
+      "eg:m"
+    ],
+    [
+      "eg:z",
+      "eg:a",
+      "eg:m"
+    ],
+    [
+      "eg:z",
+      "eg:z"
+    ]
+  ],
+  "cases": [
+    {
+      "name": "ordered",
+      "min_support": 0.3,
+      "min_confidence": 0.0,
+      "rules": [
+        {
+          "antecedent": [
+            "eg:a"
+          ],
+          "consequent": [
+            "eg:m"
+          ],
+          "support": 0.5,
+          "confidence": 0.75,
+          "lift": 1.125
+        },
+        {
+          "antecedent": [
+            "eg:m"
+          ],
+          "consequent": [
+            "eg:a"
+          ],
+          "support": 0.5,
+          "confidence": 0.75,
+          "lift": 1.125
+        },
+        {
+          "antecedent": [
+            "eg:a"
+          ],
+          "consequent": [
+            "eg:z"
+          ],
+          "support": 0.5,
+          "confidence": 0.75,
+          "lift": 0.8999999999999999
+        },
+        {
+          "antecedent": [
+            "eg:m"
+          ],
+          "consequent": [
+            "eg:z"
+          ],
+          "support": 0.5,
+          "confidence": 0.75,
+          "lift": 0.8999999999999999
+        },
+        {
+          "antecedent": [
+            "eg:z",
+            "eg:a"
+          ],
+          "consequent": [
+            "eg:m"
+          ],
+          "support": 0.3333333333333333,
+          "confidence": 0.6666666666666666,
+          "lift": 1.0
+        },
+        {
+          "antecedent": [
+            "eg:z",
+            "eg:m"
+          ],
+          "consequent": [
+            "eg:a"
+          ],
+          "support": 0.3333333333333333,
+          "confidence": 0.6666666666666666,
+          "lift": 1.0
+        },
+        {
+          "antecedent": [
+            "eg:a",
+            "eg:m"
+          ],
+          "consequent": [
+            "eg:z"
+          ],
+          "support": 0.3333333333333333,
+          "confidence": 0.6666666666666666,
+          "lift": 0.7999999999999999
+        },
+        {
+          "antecedent": [
+            "eg:z"
+          ],
+          "consequent": [
+            "eg:a"
+          ],
+          "support": 0.5,
+          "confidence": 0.6,
+          "lift": 0.9
+        },
+        {
+          "antecedent": [
+            "eg:z"
+          ],
+          "consequent": [
+            "eg:m"
+          ],
+          "support": 0.5,
+          "confidence": 0.6,
+          "lift": 0.9
+        },
+        {
+          "antecedent": [
+            "eg:a"
+          ],
+          "consequent": [
+            "eg:z",
+            "eg:m"
+          ],
+          "support": 0.3333333333333333,
+          "confidence": 0.5,
+          "lift": 1.0
+        },
+        {
+          "antecedent": [
+            "eg:m"
+          ],
+          "consequent": [
+            "eg:z",
+            "eg:a"
+          ],
+          "support": 0.3333333333333333,
+          "confidence": 0.5,
+          "lift": 1.0
+        },
+        {
+          "antecedent": [
+            "eg:z"
+          ],
+          "consequent": [
+            "eg:a",
+            "eg:m"
+          ],
+          "support": 0.3333333333333333,
+          "confidence": 0.4,
+          "lift": 0.8
+        }
+      ]
+    },
+    {
+      "name": "ceil",
+      "min_support": 0.34,
+      "min_confidence": 0.0,
+      "rules": [
+        {
+          "antecedent": [
+            "eg:a"
+          ],
+          "consequent": [
+            "eg:m"
+          ],
+          "support": 0.5,
+          "confidence": 0.75,
+          "lift": 1.125
+        },
+        {
+          "antecedent": [
+            "eg:m"
+          ],
+          "consequent": [
+            "eg:a"
+          ],
+          "support": 0.5,
+          "confidence": 0.75,
+          "lift": 1.125
+        },
+        {
+          "antecedent": [
+            "eg:a"
+          ],
+          "consequent": [
+            "eg:z"
+          ],
+          "support": 0.5,
+          "confidence": 0.75,
+          "lift": 0.8999999999999999
+        },
+        {
+          "antecedent": [
+            "eg:m"
+          ],
+          "consequent": [
+            "eg:z"
+          ],
+          "support": 0.5,
+          "confidence": 0.75,
+          "lift": 0.8999999999999999
+        },
+        {
+          "antecedent": [
+            "eg:z"
+          ],
+          "consequent": [
+            "eg:a"
+          ],
+          "support": 0.5,
+          "confidence": 0.6,
+          "lift": 0.9
+        },
+        {
+          "antecedent": [
+            "eg:z"
+          ],
+          "consequent": [
+            "eg:m"
+          ],
+          "support": 0.5,
+          "confidence": 0.6,
+          "lift": 0.9
+        }
+      ]
+    },
+    {
+      "name": "minimum_one",
+      "min_support": 0.0,
+      "min_confidence": 0.0,
+      "rules": [
+        {
+          "antecedent": [
+            "eg:a"
+          ],
+          "consequent": [
+            "eg:m"
+          ],
+          "support": 0.5,
+          "confidence": 0.75,
+          "lift": 1.125
+        },
+        {
+          "antecedent": [
+            "eg:m"
+          ],
+          "consequent": [
+            "eg:a"
+          ],
+          "support": 0.5,
+          "confidence": 0.75,
+          "lift": 1.125
+        },
+        {
+          "antecedent": [
+            "eg:a"
+          ],
+          "consequent": [
+            "eg:z"
+          ],
+          "support": 0.5,
+          "confidence": 0.75,
+          "lift": 0.8999999999999999
+        },
+        {
+          "antecedent": [
+            "eg:m"
+          ],
+          "consequent": [
+            "eg:z"
+          ],
+          "support": 0.5,
+          "confidence": 0.75,
+          "lift": 0.8999999999999999
+        },
+        {
+          "antecedent": [
+            "eg:z",
+            "eg:a"
+          ],
+          "consequent": [
+            "eg:m"
+          ],
+          "support": 0.3333333333333333,
+          "confidence": 0.6666666666666666,
+          "lift": 1.0
+        },
+        {
+          "antecedent": [
+            "eg:z",
+            "eg:m"
+          ],
+          "consequent": [
+            "eg:a"
+          ],
+          "support": 0.3333333333333333,
+          "confidence": 0.6666666666666666,
+          "lift": 1.0
+        },
+        {
+          "antecedent": [
+            "eg:a",
+            "eg:m"
+          ],
+          "consequent": [
+            "eg:z"
+          ],
+          "support": 0.3333333333333333,
+          "confidence": 0.6666666666666666,
+          "lift": 0.7999999999999999
+        },
+        {
+          "antecedent": [
+            "eg:z"
+          ],
+          "consequent": [
+            "eg:a"
+          ],
+          "support": 0.5,
+          "confidence": 0.6,
+          "lift": 0.9
+        },
+        {
+          "antecedent": [
+            "eg:z"
+          ],
+          "consequent": [
+            "eg:m"
+          ],
+          "support": 0.5,
+          "confidence": 0.6,
+          "lift": 0.9
+        },
+        {
+          "antecedent": [
+            "eg:a"
+          ],
+          "consequent": [
+            "eg:z",
+            "eg:m"
+          ],
+          "support": 0.3333333333333333,
+          "confidence": 0.5,
+          "lift": 1.0
+        },
+        {
+          "antecedent": [
+            "eg:m"
+          ],
+          "consequent": [
+            "eg:z",
+            "eg:a"
+          ],
+          "support": 0.3333333333333333,
+          "confidence": 0.5,
+          "lift": 1.0
+        },
+        {
+          "antecedent": [
+            "eg:z"
+          ],
+          "consequent": [
+            "eg:a",
+            "eg:m"
+          ],
+          "support": 0.3333333333333333,
+          "confidence": 0.4,
+          "lift": 0.8
+        }
+      ]
+    },
+    {
+      "name": "confidence_at",
+      "min_support": 0.3,
+      "min_confidence": 0.75,
+      "rules": [
+        {
+          "antecedent": [
+            "eg:a"
+          ],
+          "consequent": [
+            "eg:m"
+          ],
+          "support": 0.5,
+          "confidence": 0.75,
+          "lift": 1.125
+        },
+        {
+          "antecedent": [
+            "eg:m"
+          ],
+          "consequent": [
+            "eg:a"
+          ],
+          "support": 0.5,
+          "confidence": 0.75,
+          "lift": 1.125
+        },
+        {
+          "antecedent": [
+            "eg:a"
+          ],
+          "consequent": [
+            "eg:z"
+          ],
+          "support": 0.5,
+          "confidence": 0.75,
+          "lift": 0.8999999999999999
+        },
+        {
+          "antecedent": [
+            "eg:m"
+          ],
+          "consequent": [
+            "eg:z"
+          ],
+          "support": 0.5,
+          "confidence": 0.75,
+          "lift": 0.8999999999999999
+        }
+      ]
+    },
+    {
+      "name": "confidence_tolerated",
+      "min_support": 0.3,
+      "min_confidence": 0.7500000000005,
+      "rules": [
+        {
+          "antecedent": [
+            "eg:a"
+          ],
+          "consequent": [
+            "eg:m"
+          ],
+          "support": 0.5,
+          "confidence": 0.75,
+          "lift": 1.125
+        },
+        {
+          "antecedent": [
+            "eg:m"
+          ],
+          "consequent": [
+            "eg:a"
+          ],
+          "support": 0.5,
+          "confidence": 0.75,
+          "lift": 1.125
+        },
+        {
+          "antecedent": [
+            "eg:a"
+          ],
+          "consequent": [
+            "eg:z"
+          ],
+          "support": 0.5,
+          "confidence": 0.75,
+          "lift": 0.8999999999999999
+        },
+        {
+          "antecedent": [
+            "eg:m"
+          ],
+          "consequent": [
+            "eg:z"
+          ],
+          "support": 0.5,
+          "confidence": 0.75,
+          "lift": 0.8999999999999999
+        }
+      ]
+    },
+    {
+      "name": "confidence_rejected",
+      "min_support": 0.3,
+      "min_confidence": 0.750000000002,
+      "rules": []
+    }
+  ]
+}
