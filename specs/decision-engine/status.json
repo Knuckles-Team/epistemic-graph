@@ -1742,10 +1742,12 @@
       "title": "Typed refusal for a feature-profile freeze omitting an enabled feature",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "1527a97f2118"
+        "1527a97f2118",
+        "1f2d473cf663"
       ],
       "verified_by": [
-        "crates/eg-capabilities/src/contract.rs:592"
+        "crates/eg-capabilities/src/contract.rs:578",
+        "crates/eg-capabilities/src/contract.rs:604"
       ]
     },
     {
@@ -1757,7 +1759,7 @@
         "e8aaa8ae5ccd"
       ],
       "verified_by": [
-        "crates/eg-capabilities/src/contract.rs:592"
+        "crates/eg-capabilities/src/contract.rs:604"
       ]
     },
     {
@@ -2946,6 +2948,7 @@
       "title": "A `GuardrailRule` can be published and read back per tenant",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "334c101eb64f",
         "eff92845d271"
       ],
       "verified_by": [
