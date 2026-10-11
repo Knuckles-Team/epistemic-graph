@@ -32,3 +32,7 @@ For each scenario, add a dated table row in the PR or an evidence file with exac
 R074.1: register a 16-core, 64-GiB worker supporting general/hydration, serde round-trip its record, heartbeat to extend expiry, and expire exactly at the new deadline. Refuse invalid capacity, blank identity, missing lanes, zero/overflowing TTL, duplicate live registration, unknown/expired heartbeats and backward clocks with unchanged state. Re-registration is allowed after expiry. Tests are native in worker_registry.rs.
 
 R074.2 remains pending: exercise these transitions through real authenticated dispatch and generated contracts, including cross-tenant and cross-principal refusals. Pure tests are not served acceptance.
+
+## T-KG-14 scheduler configuration producer
+
+R076.1 and EG-PLACEMENT-R002.2 bind native tests in `crates/eg-types/src/scheduler_config.rs`: real-serde default and override round trips; exact floor sum; over-subscription; u32::MAX floor overflow; zero disabling bounds; CPU >1000, memory=0 and blank-lane refusals; missing/unknown/negative/out-of-range wire fields. Run `cargo test -p eg-types scheduler_config::tests` on a warm build, or compile that exact source with real serde/serde_json dependencies for isolated producer evidence. The latter is not full-crate or server validation. R076.2 still requires the served settings/admission scenario.

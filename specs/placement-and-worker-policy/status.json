@@ -89,17 +89,25 @@
         "92a78d0a890b"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/statistical/placement.rs:45",
-        "crates/eg-types/src/decision/statistical/placement.rs:61",
-        "crates/eg-types/src/decision/statistical/placement.rs:77"
+        "crates/eg-types/src/decision/statistical/placement.rs:107",
+        "crates/eg-types/src/decision/statistical/placement.rs:123",
+        "crates/eg-types/src/decision/statistical/placement.rs:139"
       ]
     },
     {
       "id": "EG-PLACEMENT-R001.4",
       "title": "Typed request body with refusals",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "1c906420efa9"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/decision/statistical/placement.rs:180",
+        "crates/eg-types/src/decision/statistical/placement.rs:191",
+        "crates/eg-types/src/decision/statistical/placement.rs:202",
+        "crates/eg-types/src/decision/statistical/placement.rs:214",
+        "crates/eg-types/src/decision/statistical/placement.rs:227"
+      ]
     },
     {
       "id": "EG-PLACEMENT-R001.5",
@@ -209,9 +217,14 @@
     {
       "id": "EG-PLACEMENT-R002.2",
       "title": "Autosize and depth limit live in `SchedulerConfig`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "57050996421e"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/scheduler_config.rs:111",
+        "crates/eg-types/src/scheduler_config.rs:126"
+      ]
     },
     {
       "id": "EG-PLACEMENT-R002.3",

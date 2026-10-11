@@ -19,7 +19,7 @@ Status: PROPOSED. Governing spec: [spec.md](spec.md). Design: [plan.md](plan.md)
 - [ ] **T15 - R001.14:** Cross-repo (graph-os): correct R017 wording.
 - [ ] **T16 - R002:** Ingest-worker policy has one authority: the engine decides, the worker asks and obeys (rollup).
 - [ ] **T17 - R002.1:** Register carries capacity.
-- [ ] **T18 - R002.2:** Autosize and depth limit live in `SchedulerConfig`.
+- [x] **T18 - R002.2:** Autosize and depth limit live in the R076.1 `SchedulerConfig` producer; served integration remains R076.2.
 - [ ] **T19 - R002.3:** Pure grant function.
 - [ ] **T20 - R002.4:** Admission returns a grant.
 - [ ] **T21 - R002.5:** Routing is engine-side.

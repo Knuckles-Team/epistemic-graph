@@ -72,3 +72,7 @@ Requirement IDs are defined in [requirements.md](requirements.md); delivery stat
 ## Worker registry producer boundary
 
 R074.1 owns the pure typed capacity and liveness transitions in eg-types. R074.2 owns authenticated served dispatch, ownership enforcement and generated clients. R074 remains open until both children satisfy their tests; the producer alone does not serve a registry.
+
+## Scheduler config producer boundary
+
+R076 is split into R076.1 and R076.2. The first owns the pure typed policy and validation in `eg-types`; the second must expose and consume it through the real engine setting/admission paths. Model tests do not establish a served setting or complete R076. EG-PLACEMENT-R002.2 extends the producer contract with autosize defaults and queue depth.

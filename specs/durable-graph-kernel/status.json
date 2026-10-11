@@ -113,6 +113,8 @@
     "EG-DURABLE-KERNEL-R074.2",
     "EG-DURABLE-KERNEL-R075",
     "EG-DURABLE-KERNEL-R076",
+    "EG-DURABLE-KERNEL-R076.1",
+    "EG-DURABLE-KERNEL-R076.2",
     "EG-DURABLE-KERNEL-R077",
     "EG-DURABLE-KERNEL-R078",
     "EG-DURABLE-KERNEL-R079",
@@ -1510,7 +1512,33 @@
     },
     {
       "id": "EG-DURABLE-KERNEL-R076",
-      "title": "Scheduler config and lane floors",
+      "title": "Scheduler config and lane floors (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DURABLE-KERNEL-R076.1",
+        "EG-DURABLE-KERNEL-R076.2"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R076.1",
+      "title": "Authoritative scheduler config model and refusal",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "57050996421e"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/scheduler_config.rs:112",
+        "crates/eg-types/src/scheduler_config.rs:127",
+        "crates/eg-types/src/scheduler_config.rs:142",
+        "crates/eg-types/src/scheduler_config.rs:155",
+        "crates/eg-types/src/scheduler_config.rs:169"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R076.2",
+      "title": "Serve and consume validated scheduler settings",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

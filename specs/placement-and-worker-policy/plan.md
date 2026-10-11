@@ -78,3 +78,7 @@ If cell-a headroom is below demand for every feasible target: `Abstained[CAPACIT
 ## Out of scope
 
 Rendering or applying manifests (graph-os `deploy/`), acquiring capacity, systemd, runtime auto-migration between targets, and the worker runner itself (SDK).
+
+### B producer implementation boundary
+
+R002.2 is implemented by the pure `eg_types::scheduler_config` contract (R076.1). R076.2 owns its later served integration. Neither the autosize grant function nor the existing analytics pool has been switched by this producer slice.
