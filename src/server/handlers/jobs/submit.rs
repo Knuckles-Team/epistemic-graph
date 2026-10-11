@@ -253,17 +253,13 @@ pub(super) fn submit_placement_invalid(
             .any(|value| value.is_empty() || invalid_placement_value(value))
 }
 
-/// The `JobKind::MineAssociate` arm of [`handle_submit`]'s kind-governance
-/// match: pseudonymize transaction items, validate thresholds/cardinality,
-/// and validate the algorithm name.
-pub(super) fn submit_job_mine_associate(
-    authority: &CarrierAuthority,
+/// Validate the caller's thresholds and distinct-item bound before hashing.
+fn validate_association_input(
     req_id: u64,
-    transactions: Vec<Vec<String>>,
+    transactions: &[Vec<String>],
     min_support: f64,
     min_confidence: f64,
-    algorithm: String,
-) -> Result<(JobKind, String, String, serde_json::Value), Response> {
+) -> Result<(), Response> {
     // Reject invalid parameters before traversing or pseudonymizing the input.
     // A governed-payload refusal is caller input, not an internal engine fault.
     if !min_support.is_finite()
@@ -276,6 +272,32 @@ pub(super) fn submit_job_mine_associate(
             "INVALID_ARGUMENT: association job thresholds are invalid",
         ));
     }
+    let distinct_items = transactions
+        .iter()
+        .flatten()
+        .collect::<std::collections::BTreeSet<_>>()
+        .len();
+    if distinct_items > MAX_ASSOCIATION_DISTINCT_ITEMS {
+        return Err(Response::err(
+            req_id,
+            "INVALID_ARGUMENT: association job exceeds the distinct-item limit",
+        ));
+    }
+    Ok(())
+}
+
+/// The `JobKind::MineAssociate` arm of [`handle_submit`]'s kind-governance
+/// match: pseudonymize transaction items, validate thresholds/cardinality,
+/// and validate the algorithm name.
+pub(super) fn submit_job_mine_associate(
+    authority: &CarrierAuthority,
+    req_id: u64,
+    transactions: Vec<Vec<String>>,
+    min_support: f64,
+    min_confidence: f64,
+    algorithm: String,
+) -> Result<(JobKind, String, String, serde_json::Value), Response> {
+    validate_association_input(req_id, &transactions, min_support, min_confidence)?;
     if parse_algorithm(&algorithm).is_err() {
         return Err(Response::err(
             req_id,
@@ -298,17 +320,6 @@ pub(super) fn submit_job_mine_associate(
                 .collect()
         })
         .collect();
-    let distinct_items = transactions
-        .iter()
-        .flatten()
-        .collect::<std::collections::BTreeSet<_>>()
-        .len();
-    if distinct_items > MAX_ASSOCIATION_DISTINCT_ITEMS {
-        return Err(Response::err(
-            req_id,
-            "INVALID_ARGUMENT: association job distinct-item cardinality exceeds 31",
-        ));
-    }
     let params = serde_json::json!({
         "min_support": min_support,
         "min_confidence": min_confidence,
@@ -426,5 +437,42 @@ mod tests {
     #[test]
     fn association_distinct_item_limit_matches_rule_mask_width() {
         assert_eq!(MAX_ASSOCIATION_DISTINCT_ITEMS, 31);
+    }
+}
+
+#[cfg(test)]
+mod association_refusal_tests {
+    use super::validate_association_input;
+
+    // spec: EG-PLACEMENT-R003.2
+    #[test]
+    fn cardinality_and_threshold_payloads_have_distinct_typed_refusals() {
+        for (count, support, confidence, expected) in [
+            (
+                32,
+                0.1,
+                0.5,
+                "association job exceeds the distinct-item limit",
+            ),
+            (2, -0.1, 0.5, "association job thresholds are invalid"),
+            (2, 0.1, f64::NAN, "association job thresholds are invalid"),
+            (
+                32,
+                f64::INFINITY,
+                0.5,
+                "association job thresholds are invalid",
+            ),
+        ] {
+            let transactions = vec![(0..count).map(|i| format!("item:{i}")).collect()];
+            let refusal =
+                validate_association_input(302, &transactions, support, confidence).unwrap_err();
+            assert_eq!(refusal.id, 302);
+            assert_eq!(refusal.error.as_deref(), Some("INVALID_ARGUMENT"));
+            assert_eq!(refusal.error_detail.as_deref(), Some(expected));
+            assert!(refusal.result.is_none());
+        }
+        let at_limit: Vec<String> = (0..31).map(|i| format!("item:{i}")).collect();
+        let duplicates = vec![at_limit.clone(), at_limit];
+        assert!(validate_association_input(302, &duplicates, 0.0, 1.0).is_ok());
     }
 }
