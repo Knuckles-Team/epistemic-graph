@@ -3,15 +3,23 @@
 
 from __future__ import annotations
 
+import json
 import multiprocessing
 import os
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 from multiprocessing.synchronize import Event
+from pathlib import Path
+from typing import IO
 
 STOP_SIGNAL = 0
+CLUSTER_TESTS = (
+    "raft::tests::multi_node_group_join_then_leader_rebalance",
+    "raft::tests::placement_admin_wire_rpc::placement_admin_wire_rpcs_move_data_across_a_real_three_node_cluster",
+)
 
 
 def settings() -> tuple[int, int]:
@@ -61,7 +69,9 @@ def interrupt(signum: int, _frame: object) -> None:
     STOP_SIGNAL = signum
 
 
-def supervise(argv: list[str], count: int, seconds: int) -> int:
+def supervise(
+    argv: list[str], count: int, seconds: int, output: IO[str] | None = None
+) -> int:
     workers: list[multiprocessing.Process] = []
     command = None
     started = time.monotonic()
@@ -85,7 +95,11 @@ def supervise(argv: list[str], count: int, seconds: int) -> int:
             flush=True,
         )
         command = subprocess.Popen(
-            argv, start_new_session=True, env={**os.environ, "RAFT_LOAD_PIDS": pids}
+            argv,
+            start_new_session=True,
+            env={**os.environ, "RAFT_LOAD_PIDS": pids},
+            stdout=output,
+            stderr=subprocess.STDOUT if output else None,
         )
         while command.poll() is None:
             if STOP_SIGNAL:
@@ -124,14 +138,58 @@ def supervise(argv: list[str], count: int, seconds: int) -> int:
         )
 
 
+def repeat_count() -> int:
+    raw = os.environ.get("RAFT_LOAD_REPEATS", "")
+    if not raw.isascii() or not raw.isdecimal() or not 2 <= int(raw) <= 100:
+        raise ValueError("RAFT_LOAD_REPEATS must be an integer in 2..100")
+    return int(raw)
+
+
+def repeated(argv: list[str], count: int, seconds: int) -> int:
+    root = Path(os.environ.get("RAFT_LOAD_OUTPUT", "target/raft-cluster-runs"))
+    root.mkdir(parents=True, exist_ok=True)
+    run = Path(tempfile.mkdtemp(prefix="run-", dir=root))
+    print(f"Repeated cluster evidence: {run}", flush=True)
+    failed = 0
+    with (run / "results.jsonl").open("w") as results:
+        for repetition in range(1, repeat_count() + 1):
+            for index, name in enumerate(CLUSTER_TESTS):
+                log = run / f"repeat-{repetition}-test-{index}.log"
+                with log.open("w") as output:
+                    rc = supervise([*argv, name], count, seconds, output)
+                if rc == 0 and "test result: ok. 1 passed;" not in log.read_text():
+                    rc = 125
+                results.write(
+                    json.dumps(
+                        {
+                            "repetition": repetition,
+                            "test": name,
+                            "returncode": rc,
+                            "trace": log.name,
+                            "workers": count,
+                        }
+                    )
+                    + "\n"
+                )
+                results.flush()
+                failed = failed or rc
+                if STOP_SIGNAL:
+                    return 128 + STOP_SIGNAL
+    return failed
+
+
 def main() -> int:
     try:
         count, seconds = settings()
+        if "RAFT_LOAD_REPEATS" in os.environ or sys.argv[1:2] == ["--repeat"]:
+            repeat_count()
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
         return 2
     if sys.argv[1:] == ["--check-config"]:
         return 0
+    if sys.argv[1:3] == ["--repeat", "--"]:
+        return repeated(sys.argv[3:], count, seconds)
     if len(sys.argv) < 3 or sys.argv[1] != "--":
         print("usage: raft_cpu_load.py -- command [args...]", file=sys.stderr)
         return 2

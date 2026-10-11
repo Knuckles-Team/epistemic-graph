@@ -32,6 +32,12 @@ if os.environ.get("SPAWN_CHILD"):
     child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
     record.with_suffix(".child").write_text(str(child.pid))
 record.write_text(json.dumps(pids))
+if "RAFT_LOAD_REPEATS" in os.environ:
+    assert "--exact" in sys.argv
+    assert sys.argv[-1] in (
+        "raft::tests::multi_node_group_join_then_leader_rebalance",
+        "raft::tests::placement_admin_wire_rpc::placement_admin_wire_rpcs_move_data_across_a_real_three_node_cluster",
+    )
 if os.environ.get("CHECK_CPU") and Path("/proc").exists():
     def ticks(pid):
         return sum(int(v) for v in Path(f"/proc/{pid}/stat").read_text().split()[13:15])
@@ -43,7 +49,16 @@ if os.environ.get("SIGNAL_PARENT"):
 if os.environ.get("KILL_WORKER"):
     os.kill(pids[0], signal.SIGKILL)
 time.sleep(float(os.environ.get("TEST_SECONDS", ".2")))
-sys.exit(int(os.environ.get("TEST_RC", "0")))
+rc = int(os.environ.get("TEST_RC", "0"))
+if os.environ.get("FAIL_FIRST"):
+    marker = record.with_suffix(".failed")
+    if not marker.exists():
+        marker.touch()
+        rc = 37
+        print("causal failure trace: first attempt", file=sys.stderr)
+if not os.environ.get("EMPTY_SELECTION"):
+    print("test result: ok. 1 passed;" if rc == 0 else "test result: FAILED. 0 passed;")
+sys.exit(rc)
 """)
     cargo.chmod(0o755)
     env = {
@@ -201,3 +216,114 @@ def test_signal_with_fast_command_exit_is_not_success(
     env.update(SIGNAL_PARENT="1", TEST_SECONDS="0")
     assert run(env).returncode == 143
     assert_stopped(record)
+
+
+@pytest.mark.spec("EG-DURABLE-KERNEL-R014.3.1")
+def test_repeats_both_cluster_tests(harness: tuple[dict[str, str], Path]) -> None:
+    env, record = harness
+    env.update(RAFT_LOAD_REPEATS="2", RAFT_LOAD_OUTPUT=str(record.parent / "runs"))
+    assert run(env).returncode == 0
+    rows = [
+        json.loads(line)
+        for line in next((record.parent / "runs").glob("*/results.jsonl"))
+        .read_text()
+        .splitlines()
+    ]
+    assert len(rows) == 4
+    assert {row["repetition"] for row in rows} == {1, 2}
+    assert {row["test"] for row in rows} == {
+        "raft::tests::multi_node_group_join_then_leader_rebalance",
+        "raft::tests::placement_admin_wire_rpc::placement_admin_wire_rpcs_move_data_across_a_real_three_node_cluster",
+    }
+    assert all(row["workers"] == 2 and row["returncode"] == 0 for row in rows)
+    assert_stopped(record)
+
+
+@pytest.mark.spec("EG-DURABLE-KERNEL-R014.3.1")
+def test_repetition_preserves_failure_and_trace(
+    harness: tuple[dict[str, str], Path],
+) -> None:
+    env, record = harness
+    env.update(
+        RAFT_LOAD_REPEATS="2",
+        RAFT_LOAD_OUTPUT=str(record.parent / "runs"),
+        FAIL_FIRST="1",
+    )
+    assert run(env).returncode == 37
+    manifest = next((record.parent / "runs").glob("*/results.jsonl"))
+    rows = [json.loads(line) for line in manifest.read_text().splitlines()]
+    assert [row["returncode"] for row in rows] == [37, 0, 0, 0]
+    assert (
+        "causal failure trace: first attempt"
+        in (manifest.parent / rows[0]["trace"]).read_text()
+    )
+    assert len(list(manifest.parent.glob("*.log"))) == 4
+    assert_stopped(record)
+
+
+@pytest.mark.spec("EG-DURABLE-KERNEL-R014.3.1")
+def test_empty_selection_refused(harness: tuple[dict[str, str], Path]) -> None:
+    env, record = harness
+    env.update(
+        RAFT_LOAD_REPEATS="2",
+        RAFT_LOAD_OUTPUT=str(record.parent / "runs"),
+        EMPTY_SELECTION="1",
+    )
+    assert run(env).returncode == 125
+    assert_stopped(record)
+
+
+@pytest.mark.spec("EG-DURABLE-KERNEL-R014.3.1")
+@pytest.mark.parametrize("value", ["0", "1", "101", "-1", "", "1.5"])
+def test_invalid_repeat_count_refused(
+    harness: tuple[dict[str, str], Path], value: str
+) -> None:
+    env, record = harness
+    env["RAFT_LOAD_REPEATS"] = value
+    result = run(env)
+    assert result.returncode == 2
+    assert "RAFT_LOAD_REPEATS must be an integer in 2..100" in result.stderr
+    assert not record.exists()
+
+
+@pytest.mark.spec("EG-DURABLE-KERNEL-R014.3.1")
+@pytest.mark.parametrize(
+    "options, expected",
+    [
+        ({"SIGNAL_PARENT": "1"}, 143),
+        ({"RAFT_LOAD_SECONDS": "1", "TEST_SECONDS": "30"}, 124),
+    ],
+)
+def test_repeated_interruption_retains_result(
+    harness: tuple[dict[str, str], Path], options: dict[str, str], expected: int
+) -> None:
+    env, record = harness
+    env.update(
+        RAFT_LOAD_REPEATS="2",
+        RAFT_LOAD_OUTPUT=str(record.parent / "runs"),
+        SPAWN_CHILD="1",
+        **options,
+    )
+    assert run(env).returncode == expected
+    manifest = next((record.parent / "runs").glob("*/results.jsonl"))
+    rows = [json.loads(line) for line in manifest.read_text().splitlines()]
+    assert rows[0]["returncode"] == expected
+    assert (manifest.parent / rows[0]["trace"]).exists()
+    assert_stopped(record)
+    stat = Path(f"/proc/{record.with_suffix('.child').read_text()}/stat")
+    assert not stat.exists() or stat.read_text().split()[2] == "Z"
+
+
+@pytest.mark.spec("EG-DURABLE-KERNEL-R014.3.1")
+def test_direct_repeat_requires_count(harness: tuple[dict[str, str], Path]) -> None:
+    env, _ = harness
+    result = subprocess.run(
+        ["python3", str(ROOT / "scripts/raft_cpu_load.py"), "--repeat", "--", "cargo"],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert result.returncode == 2
+    assert "RAFT_LOAD_REPEATS must be an integer in 2..100" in result.stderr
+    assert "Traceback" not in result.stderr

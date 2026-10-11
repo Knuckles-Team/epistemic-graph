@@ -7,10 +7,10 @@ All fixtures run against a disposable local data directory and generated credent
 | T-KG-01 batch terminality | KG-01, KG-02 | Graph+table+KV batch commits once. Readback and retry return same terminal result | Inject failure at every commit phase. Restart yields all-or-none. Lost-ack retry does not duplicate |
 | T-KG-02 table-only path | KG-02 | Concurrent table-only writes use current atomic path and match reference corpus | Mixed unsupported member set refuses before any table or graph write |
 | T-KG-03 owner lineage | KG-03 | Load each supported golden manifest. One validation per transaction | Unknown predecessor or extra physical table returns typed upgrade/ownership error. Stale cached binding never crosses transactions |
-| T-KG-04 scrub | KG-04 | Corrupt one persisted node, scrub reports typed finding and resumes cursor after restart | Rate cap prevents writer starvation; unreadable payload is not exposed; no silent repair |
+| T-KG-04 scrub | KG-04 | Corrupt one persisted node. The scrub reports a typed finding and resumes the cursor after restart | Rate cap prevents writer starvation. The scrub hides unreadable payloads and never silently repairs them |
 | T-KG-05 outbox | KG-05 | Healthy successors deliver after a failing head is rejected/rewound with ordered receipts | Retry one head 16 times. Successors keep their own zero-attempt count. Reasoning skip without rebuild is refused |
 | T-KG-06 CDC/mirror | KG-06 | Commit 100 ordered graph/table changes, disconnect target, reconnect, replay and match digest | Crash after target apply before cursor; replay is idempotent; empty default target guard and schema drift fail visibly |
-| T-KG-07 scope | KG-07 | Owner and explicitly granted principal can access allowed data | Cross-tenant/principal SQL, UQL, TSDB, KV, UDF, foreign-source and cache probes deny. Revoked grant denies next use |
+| T-KG-07 scope | KG-07 | Owner and explicitly granted principal can access allowed data | Cross-tenant/principal probes deny SQL, UQL, TSDB and KV access. UDF, foreign-source and cache probes also deny access. Revoked grants deny the next use |
 | T-KG-07a auth modes | KG-07, KG-09 | `none`, `local` and `external` each resolve to the same internal principal/RBAC evaluator | Spoofed name in `none`, stale local session after mode switch, wrong external issuer/audience/tenant/policy version and generic elevation lease all deny |
 | T-KG-08 audit | KG-08 | Reservation precedes governed effect and links truthful outcome | Audit writer unavailable, missing class, wrong tenant, duplicate ID and crash after effect all fail or reconcile without false success |
 | T-KG-09 approval | KG-09 | Two distinct principals approve exact digest before expiry | Self-approval, generic lease, altered digest, expiry and replay all deny and audit refusal |
@@ -123,3 +123,9 @@ Cases cover count and duration refusals, command failure, SIGINT, and SIGTERM.
 The suite also covers timeout, unexpected worker exit, build failure, Cargo child cleanup, and unchanged unloaded runs.
 This is process-harness evidence, not a passing Rust cluster run.
 R014, R014.3, R014.4, and R014.5 remain open.
+
+### R014.3.1 process evidence (2026-10-11)
+
+Run `python -m pytest -q tests/test_validate_raft_cluster.py`. Controlled Cargo subprocesses check both exact test names over two loaded repetitions. They check separate traces and result records, invalid repeat refusal, empty-selection refusal, and failure retention despite later successes.
+
+Use `RAFT_LOAD_WORKERS=2 RAFT_LOAD_REPEATS=2 scripts/validate-raft-cluster.sh` on a Rust-capable host. Each execution creates a fresh directory under `target/raft-cluster-runs` with `results.jsonl` and separate trace logs. `RAFT_LOAD_OUTPUT` changes that parent directory. The harness performs no diagnostic retries. Process fixtures do not prove Rust cluster execution; R014.3.2, R014.4 and R014.5 remain open.

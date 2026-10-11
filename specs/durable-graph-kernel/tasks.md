@@ -28,6 +28,8 @@ Status key: `[ ]` queued, `[-]` in progress, `[x]` verified at cited main revisi
 - [x] **EG-DURABLE-KERNEL-R014.1:** Typed flake-budget / retry-policy model for load-test retries
 - [-] **EG-DURABLE-KERNEL-R014.2:** Bounded representative CPU load; process tests passed, pending main validation. See the exact paths and proving tests in `requirements.md`.
 - [ ] **EG-DURABLE-KERNEL-R014.3:** Repeated loaded-test harness. See the exact paths and proving tests in `requirements.md`.
+- [-] **EG-DURABLE-KERNEL-R014.3.1:** Repeated execution and retained results; process tests pass, main validation pending.
+- [ ] **EG-DURABLE-KERNEL-R014.3.2:** Rust FlakeBudget-driven diagnostic retries.
 - [ ] **EG-DURABLE-KERNEL-R014.4:** Loaded leader-rebalance acceptance. See the exact paths and proving tests in `requirements.md`.
 - [ ] **EG-DURABLE-KERNEL-R014.5:** Loaded three-node placement acceptance. See the exact paths and proving tests in `requirements.md`.
 - [x] **EG-DURABLE-KERNEL-R024:** External graph and database backends become EG federation sources

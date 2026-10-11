@@ -180,3 +180,7 @@ remain open: process-fixture tests do not prove loaded Rust cluster acceptance.
 R011.2 reproduction writes its disposable binary beneath the checkout's target directory.
 The public-spec gate and its regression test must reject machine-specific paths.
 This documentation repair adds no Rust execution evidence or runtime acceptance.
+
+### 2026-10-11: repeated loaded harness
+
+R014.3.1 adds bounded repetitions and per-invocation evidence to the existing CPU-load supervisor. R014.3.2 retains Rust FlakeBudget-driven diagnostic retries. R014.4 and R014.5 remain open until actual Rust cluster execution is recorded.
