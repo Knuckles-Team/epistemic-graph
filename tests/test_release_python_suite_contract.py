@@ -15,10 +15,16 @@ only one job definition, not a separate copy that could drift.
 
 from __future__ import annotations
 
+import os
+import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
+import tomllib
 import yaml
+
+from scripts import _kernel_build
 
 REPO = Path(__file__).resolve().parents[1]
 WORKFLOW = REPO / ".github" / "workflows" / "release.yml"
@@ -119,3 +125,134 @@ def test_crate_and_duplication_census_jobs_still_run_alongside_it() -> None:
         "test_dupehound_census" in str(step.get("run", ""))
         for step in jobs["scanner-quality"]["steps"]
     ) or any("dupehound" in name.lower() for name in scanner_step_names)
+
+
+CODEGEN_ENV = {
+    "CARGO_PROFILE_RELEASE_OPT_LEVEL": "0",
+    "CARGO_PROFILE_RELEASE_LTO": "off",
+    "CARGO_PROFILE_RELEASE_CODEGEN_UNITS": "256",
+}
+
+
+def _codegen_step() -> dict:
+    return next(
+        step
+        for step in _python_suite_job()["steps"]
+        if step.get("name") == "Use fast native codegen for Python PR validation"
+    )
+
+
+def test_pr_codegen_runs_before_cache_and_preserves_build_and_test_commands(
+    tmp_path: Path,
+) -> None:
+    steps = _python_suite_job()["steps"]
+    step = _codegen_step()
+    assert step["if"] == "github.event_name == 'pull_request'"
+    cache = next(
+        s for s in steps if s.get("uses", "").startswith("Swatinem/rust-cache@")
+    )
+    assert steps.index(step) < steps.index(cache)
+    for command in (
+        "python3 scripts/build_numeric_kernel.py",
+        "python3 scripts/build_pyengine_kernel.py",
+        "cargo build --locked --features full --bin epistemic-graph-server",
+    ):
+        build = next(s for s in steps if s.get("run") == command)
+        assert (
+            steps.index(cache)
+            < steps.index(build)
+            < steps.index(_test_step(_python_suite_job()))
+        )
+        assert "if" not in build
+    assert "if" not in _test_step(_python_suite_job())
+    output = tmp_path / "github-env"
+    subprocess.run(
+        ["bash", "-e", "-c", step["run"]],
+        env={**os.environ, "GITHUB_ENV": str(output)},
+        check=True,
+    )
+    assert (
+        dict(line.split("=", 1) for line in output.read_text().splitlines())
+        == CODEGEN_ENV
+    )
+
+
+def test_main_and_tag_pushes_keep_optimized_release_defaults() -> None:
+    workflow = _workflow()
+    assert _codegen_step()["if"] == "github.event_name == 'pull_request'"
+    assert not CODEGEN_ENV.keys() & workflow.get("env", {}).keys()
+    for name, job in workflow["jobs"].items():
+        assert not CODEGEN_ENV.keys() & job.get("env", {}).keys()
+        for step in job.get("steps", []):
+            if any(key in str(step) for key in CODEGEN_ENV):
+                assert name == "python-suite"
+                assert step == _codegen_step()
+    profile = tomllib.loads((REPO / "Cargo.toml").read_text())["profile"]["release"]
+    assert (profile["opt-level"], profile["lto"], profile["codegen-units"]) == (
+        3,
+        "thin",
+        1,
+    )
+
+
+@pytest.mark.parametrize(
+    ("module", "crate", "features"),
+    [
+        ("numeric", "eg-numeric", ("python",)),
+        ("engine", "eg-pyengine", ("python", "security")),
+    ],
+)
+@pytest.mark.parametrize("fast_codegen", [True, False])
+def test_mounted_kernel_command_propagates_codegen_without_changing_release_contract(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    module: str,
+    crate: str,
+    features: tuple[str, ...],
+    fast_codegen: bool,
+) -> None:
+    for key, value in CODEGEN_ENV.items():
+        if fast_codegen:
+            monkeypatch.setenv(key, value)
+        else:
+            monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("CARGO_TARGET_DIR", "/unrelated-worktree")
+    monkeypatch.setattr(_kernel_build, "TARGET_PACKAGE", tmp_path)
+    monkeypatch.setattr(_kernel_build, "TARGET_DIR", tmp_path / "target-isolated")
+    monkeypatch.setattr(_kernel_build.shutil, "which", lambda _: "/fake/maturin")
+    spec = _kernel_build.KernelSpec(
+        module, crate, "unused", "unused", crate, "unused", features
+    )
+
+    def run(
+        command: list[str], *, env: dict, check: bool
+    ) -> subprocess.CompletedProcess:
+        assert command[:7] == [
+            "maturin",
+            "build",
+            "--release",
+            "-m",
+            str(spec.manifest),
+            "--features",
+            ",".join(features),
+        ]
+        assert command[7:9] == ["--target-dir", str(tmp_path / "target-isolated")]
+        assert {key: env[key] for key in CODEGEN_ENV if key in env} == (
+            CODEGEN_ENV if fast_codegen else {}
+        )
+        assert "CARGO_TARGET_DIR" not in env
+        assert not check
+        (Path(command[-1]) / "kernel.whl").write_bytes(b"wheel")
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(_kernel_build.subprocess, "run", run)
+    monkeypatch.setattr(
+        _kernel_build,
+        "_load_injector",
+        lambda _: SimpleNamespace(
+            _find_kernel_extension=lambda _: (b"kernel", 0o755, f"{module}.so")
+        ),
+    )
+    destination = _kernel_build.build_kernel(spec)
+    assert destination.read_bytes() == b"kernel"
+    assert destination.stat().st_mode & 0o777 == 0o755
