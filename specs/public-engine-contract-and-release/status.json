@@ -252,8 +252,8 @@
         "c835ce794b21"
       ],
       "verified_by": [
-        "tests/test_release_python_suite_contract.py:103",
-        "tests/test_release_python_suite_contract.py:114",
+        "tests/test_release_python_suite_contract.py:111",
+        "tests/test_release_python_suite_contract.py:122",
         "tests/test_release_python_suite_contract.py:83",
         "tests/test_release_python_suite_contract.py:94"
       ]
