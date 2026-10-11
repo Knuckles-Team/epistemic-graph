@@ -1841,7 +1841,7 @@
       ],
       "verified_by": [
         "crates/eg-capabilities/src/contract.rs:578",
-        "crates/eg-capabilities/src/contract.rs:604"
+        "crates/eg-capabilities/src/contract.rs:606"
       ]
     },
     {
@@ -1854,7 +1854,7 @@
         "e8aaa8ae5ccd"
       ],
       "verified_by": [
-        "crates/eg-capabilities/src/contract.rs:604"
+        "crates/eg-capabilities/src/contract.rs:606"
       ]
     },
     {
@@ -2186,7 +2186,7 @@
         "9f5da56a6f62"
       ],
       "verified_by": [
-        "crates/eg-numeric/benches/decision_resident_scorer.rs:212"
+        "crates/eg-numeric/benches/decision_resident_scorer.rs:218"
       ]
     },
     {

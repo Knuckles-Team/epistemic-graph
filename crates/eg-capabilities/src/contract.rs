@@ -579,10 +579,12 @@ mod decide_feature_freeze_tests {
     #[cfg(feature = "canonical-ledger")]
     #[test]
     fn canonical_generation_enables_and_freezes_the_decide_marker() {
-        assert!(
-            cfg!(feature = "decide"),
-            "canonical generation must enable the existing Decide marker"
-        );
+        const {
+            assert!(
+                cfg!(feature = "decide"),
+                "canonical generation must enable the existing Decide marker"
+            );
+        }
         require_feature_frozen(&feature_profile(), "decide", true)
             .expect("canonical and all-features receipts must freeze the same Decide marker");
     }
