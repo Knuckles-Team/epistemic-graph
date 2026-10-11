@@ -1,5 +1,5 @@
 {
-  "source_commit": "301f07e5d",
+  "source_commit": "301f07e5d92336168b7b7272a718f898687bb169",
   "changes": [
     "Generate one ephemeral synthetic scorer secret per Python module, shared by its fixture server and client.",
     "Remove the machine-specific example from a privacy-test comment; regex and tests unchanged."
