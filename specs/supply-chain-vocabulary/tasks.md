@@ -3,7 +3,9 @@
 Status: PROPOSED. Governing spec: [spec.md](spec.md). Design: [plan.md](plan.md). Producers first; each child is one 5-minute unit.
 
 - [ ] Physical and commercial supply chain terms (rollup). **EG-SUPPLY-VOCAB-R001**
-  - [ ] Add `:Supplier`, `:SupplyChainItem` and `:suppliesItem`. **EG-SUPPLY-VOCAB-R001.1**
+  - [ ] Shared supplier and item vocabulary (rollup). **EG-SUPPLY-VOCAB-R001.1**
+    - [x] Declare shared supplier and item terms. **EG-SUPPLY-VOCAB-R001.1.1**
+    - [ ] Install shared terms in the core catalog and prove native entailment. **EG-SUPPLY-VOCAB-R001.1.2**
   - [ ] Add `:realizedByAsset` and `:assetHost`. **EG-SUPPLY-VOCAB-R001.2**
   - [ ] Add `:suppliesService` with the physical chain axiom. **EG-SUPPLY-VOCAB-R001.3**
   - [ ] SHACL shapes for supplier and item. **EG-SUPPLY-VOCAB-R001.4**

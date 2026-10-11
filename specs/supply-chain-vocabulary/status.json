@@ -6,6 +6,8 @@
   "requirement_ids": [
     "EG-SUPPLY-VOCAB-R001",
     "EG-SUPPLY-VOCAB-R001.1",
+    "EG-SUPPLY-VOCAB-R001.1.1",
+    "EG-SUPPLY-VOCAB-R001.1.2",
     "EG-SUPPLY-VOCAB-R001.2",
     "EG-SUPPLY-VOCAB-R001.3",
     "EG-SUPPLY-VOCAB-R001.4",
@@ -70,7 +72,31 @@
     },
     {
       "id": "EG-SUPPLY-VOCAB-R001.1",
-      "title": "Add `:Supplier`, `:SupplyChainItem` and `:suppliesItem`",
+      "title": "Shared supplier and item vocabulary (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-SUPPLY-VOCAB-R001.1.1",
+        "EG-SUPPLY-VOCAB-R001.1.2"
+      ]
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R001.1.1",
+      "title": "Declare shared supplier and item terms",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "ee2a3497659c"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/tests/supply_chain_declarations.rs:21",
+        "crates/eg-rdf/tests/supply_chain_declarations.rs:53",
+        "crates/eg-rdf/tests/supply_chain_declarations.rs:71"
+      ]
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R001.1.2",
+      "title": "Install shared terms in the core catalog and prove native entailment",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

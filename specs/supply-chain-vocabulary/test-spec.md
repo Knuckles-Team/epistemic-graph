@@ -5,6 +5,8 @@ Status: PROPOSED. Governing spec: [spec.md](spec.md).
 | Test ID | Requirement | Level | Setup and input | Expected observation | Evidence |
 |---|---|---|---|---|---|
 | T-001 | FR-001 | Reasoner | Four-edge physical chain fixture | `suppliesService` inferred for a typed Service via serviceRunsOn; bare container/pod runsOn does not infer it or a Service type; nameless supplier refused | PENDING |
+| T-001.1 | EG-SUPPLY-VOCAB-R001.1.1 | Native parser | Exact shared ontology file | Class and superclass triples, labels, suppliesItem domain/range, no suppliedBy redeclaration | `crates/eg-rdf/tests/supply_chain_declarations.rs` |
+| T-001.2 | EG-SUPPLY-VOCAB-R001.1.2 | Catalog and reasoner | Default catalog plus supplier, item and vendor instances | Valid registered document; Vendor and domain/range entailment; no reverse Supplier inference | PENDING |
 | T-002 | FR-002 | Reasoner | Service, workload, image, version fixture | `usesComponent` inferred; versionless component and bad severity refused | PENDING |
 | T-003 | FR-003 | Shape | Contract fixtures: valid, no customer, no service; ontology scan | Faults refused; no `ChangeRequest` class; `affectsService` accepts `kg:Change` | PENDING |
 | T-004 | FR-004 | Shape | `HostLimit` fixtures: valid, no limit, unknown kind | Faults refused; no stored `OverLimit` | PENDING |
