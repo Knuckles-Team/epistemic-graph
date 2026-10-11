@@ -364,7 +364,7 @@
       "type": "object"
     },
     "AgentComponentKind": {
-      "description": "What kind of part this is.\n\nClosed on purpose. Every kind is either referenced from an agent slot —\n[`crate::agent_library::AgentLibraryEntry`],\n[`crate::agent_library::AgentRuntimeContract`] or\n[`crate::agent_graph`] — or is catalog content an agent is VALIDATED or\nDECIDED against. Both belong to the same closed set for the same reason: a\npart nothing can name is a part nothing can reason about.",
+      "description": "What kind of part this is.\n\nThe closed set is `ModelProfile`, `SystemPrompt`, `Tool`, `Toolset`,\n`McpServer`, `McpPrompt`, `McpResource`, `Skill`, `Ontology`, `Schema`,\n`OutputValidator`, `Predicate`, `Shapes`, `A2aAgentCard`, `DecisionRecord`,\n`DecisionPolicy`, `DecisionHead`, `FeatureSchema`, `Rubric`, `NlTemplate`,\nand `GuardrailRule`.\n\nClosed on purpose. Every kind is either referenced from an agent slot —\n[`crate::agent_library::AgentLibraryEntry`],\n[`crate::agent_library::AgentRuntimeContract`] or\n[`crate::agent_graph`] — or is catalog content an agent is VALIDATED or\nDECIDED against. Both belong to the same closed set for the same reason: a\npart nothing can name is a part nothing can reason about.",
       "oneOf": [
         {
           "const": "model_profile",
