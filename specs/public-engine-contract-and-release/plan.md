@@ -40,7 +40,7 @@ npm test
 python3 -m pytest -q tests/test_generated_client_contract.py tests/test_contract_method_reachability.py
 ```
 
-Run Go commands from `clients/go` and npm commands from `clients/js`. If a named Python test is moved, update this plan with its replacement before removing the gate. The complete merge gate is `bash scripts/ci_parity.sh` plus the hosted release workflow. Any integration service used by tests must start from a checked-in container/fixture recipe in CI and be torn down by the job.
+Run Go commands from `clients/go` and npm commands from `clients/js`. If a named Python test is moved, update this plan with its replacement before removing the gate. The complete merge gate is `bash scripts/ci_parity.sh` plus the hosted release workflow. CI must start each integration service from a checked-in container/fixture recipe. The job must tear down each service.
 
 ## Design decisions
 
@@ -125,3 +125,16 @@ idle-shutdown hazard within a fresh job daemon's lifetime. It does not prove the
 historical EOF cause or establish a facade speedup. Statistics synthesize zero
 counters from caller configuration when no daemon is reachable; they do not
 start a replacement daemon.
+
+### 2026-10-11: provision the manifest toolchain before lint formatting
+
+EG-CONTRACT-R031 requires the lint job to install the toolchain selected by
+`rust-toolchain.toml`, with rustfmt, before pre-commit or the explicit formatting
+check can invoke it. Reuse the workflow's manifest-resolved rustup installation
+pattern rather than duplicating its channel pin or relying on the hosted image.
+The workflow regression checks unconditional provisioning and step ordering for
+both PR-scoped and full-publication formatting. This repairs runner setup only;
+full hosted quality-gate and runtime acceptance remain independently required.
+
+R031.1 owns only the runner setup regression. R031.2 preserves the outstanding complete same-tree census and independent clippy/formatting evidence.
+A setup-only test cannot qualify the broad parent requirement.
