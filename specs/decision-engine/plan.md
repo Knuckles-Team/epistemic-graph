@@ -323,3 +323,15 @@ The served refusal test inspects `Response.error` and `Response.error_detail` se
 The error code is `PARAMETER_INVALID`; the detail names `UNSUPPORTED_RETRIEVAL_PLAN` and the rejected option.
 The test also requires an absent result.
 This fixture covers registry refusal only; representative retrieval-plan selection requires the integration test described in R029.
+
+
+### 2026-10-11: R090.2 compiled wire fixture
+
+The acceptance driver reuses the authenticated Python client and bounded native server lifecycle.
+The engine fits, evaluates, publishes, and executes its Rust option-attention head through real wire requests.
+The driver compares fixed-point probability bytes across repeated requests and a durable engine restart.
+The engine receives an empty executable search path and no inherited runtime configuration.
+Linux syscall tracing rejects inference subprocesses, outgoing connections, and GPU device access.
+This fixture requires a prebuilt engine and Linux strace.
+Native execution remains unrun until that fixture runs against the compiled artifact.
+R090.3 retains all measured resource obligations.
