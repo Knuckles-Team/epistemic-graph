@@ -143,3 +143,17 @@ These partial regressions intentionally carry no acceptance binding that would m
 - `EG-TYPED-PACKS-R045.7`: `src/server/handlers/decide/stat_tests/harness_config_tests.rs::mcp_hint_read_only_premise_is_unproven`.
 - `EG-TYPED-PACKS-R045.8`: `crates/eg-capabilities/src/contract/python/surfaces/tests.rs::pack_annotations_expose_harness_tool_facts`.
 - `EG-TYPED-PACKS-R045.9`: `tests/harness_config_tool_facts_served.rs::two_tool_pack_subset_respects_budget`.
+
+## Measured model producer tests (R048.3, R048.4)
+
+`absent_shell_proficiency_keeps_digest` checks fixed v3 and v4 component digest
+vectors and decodes omitted and explicit-null fields. `measured_model_facts_change_digest`
+checks each measured value, evaluation ID and evaluation digest independently.
+`measured_model_facts_refuse_malformed_references` checks decode and publication
+refusal. `measured_model_facts_project_ontology_names` calls the existing
+`component_atoms` projector and checks all enum values and absent fields.
+
+These are producer unit tests. R048.5 still requires signed pack import and served
+readback evidence. The generated lifecycle records test bindings, not execution
+results. Native types/RDF test execution and contract generation are required
+before integration of the producer fields.
