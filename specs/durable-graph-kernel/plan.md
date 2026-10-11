@@ -194,3 +194,11 @@ The graph owner must retain caller-key replay and nonce enforcement.
 R011 test fixtures previously assumed nanosecond timestamps were unique.
 The shared temporary-path helper must add a process-local sequence; concurrent path tests must prove uniqueness.
 The native facade failure log identifies both failures; runtime acceptance remains pending.
+
+### 2026-10-11: distinguish profile declarations from runtime acceptance
+
+R011 previously lacked a test binding for its declared Clippy profiles.
+R011.5 adds configuration checks to the existing release feature-matrix suite.
+The parent binding records partial declaration coverage only.
+R011.3 and R011.4 retain their unchanged runtime and exact-head receipt obligations.
+The generator must keep the parent and those children SPECIFIED until their own evidence exists.

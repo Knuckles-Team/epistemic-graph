@@ -179,3 +179,70 @@ def test_crates_gate_cannot_disappear(release_matrix, mutation):
         step["run"] = step["run"].replace("cargo test", "cargo build")
     with pytest.raises(AssertionError, match="expected one pyo3 crates test command"):
         _assert_matrix(workflow, manifests)
+
+
+def _assert_required_clippy_declarations(workflow):
+    job = workflow["jobs"]["quality-advisory"]
+    profiles = job["strategy"]["matrix"]["profile"]
+    required = {
+        "published-full": "--no-default-features --features full,ast-extended",
+        "workspace-all-features": "--workspace --all-features",
+    }
+    for name, flags in required.items():
+        matches = [profile for profile in profiles if profile["name"] == name]
+        assert len(matches) == 1, f"required Clippy profile missing or duplicated: {name}"
+        assert shlex.split(matches[0]["flags"]) == shlex.split(flags)
+    commands = [
+        step
+        for step in job["steps"]
+        if step.get("run", "").startswith("cargo clippy ")
+    ]
+    assert len(commands) == 1, "required executable Clippy command missing or duplicated"
+    command = commands[0]
+    assert "if" not in command and not command.get("continue-on-error", False)
+    assert not job.get("continue-on-error", False)
+    assert command["run"] == (
+        "cargo clippy --locked --keep-going ${{ matrix.profile.flags }} "
+        "--all-targets -- -D warnings"
+    )
+    headers = [
+        step
+        for step in job["steps"]
+        if step.get("name") == "Install librdkafka/Cyrus-SASL build headers"
+    ]
+    assert len(headers) == 1 and "if" not in headers[0]
+    assert "libsasl2-dev" in shlex.split(headers[0]["run"], comments=True)
+    assert "libcurl4-openssl-dev" in shlex.split(headers[0]["run"], comments=True)
+
+
+# This is partial parent declaration coverage, not native execution evidence.
+@pytest.mark.spec("EG-DURABLE-KERNEL-R011")
+@pytest.mark.spec("EG-DURABLE-KERNEL-R011.5")
+def test_required_clippy_profiles_and_command_are_declared(release_matrix):
+    workflow, _ = release_matrix
+    _assert_required_clippy_declarations(workflow)
+
+
+@pytest.mark.spec("EG-DURABLE-KERNEL-R011.5")
+@pytest.mark.parametrize("mutation", ["profile", "flags", "command", "headers"])
+def test_required_clippy_declaration_drift_is_refused(release_matrix, mutation):
+    workflow, _ = release_matrix
+    job = workflow["jobs"]["quality-advisory"]
+    profiles = job["strategy"]["matrix"]["profile"]
+    if mutation == "profile":
+        profiles[:] = [p for p in profiles if p["name"] != "published-full"]
+    elif mutation == "flags":
+        profiles[0]["flags"] = "--workspace"
+    elif mutation == "command":
+        command = next(
+            s for s in job["steps"] if s.get("run", "").startswith("cargo clippy ")
+        )
+        command["run"] = "# " + command["run"]
+    else:
+        job["steps"] = [
+            s
+            for s in job["steps"]
+            if s.get("name") != "Install librdkafka/Cyrus-SASL build headers"
+        ]
+    with pytest.raises(AssertionError):
+        _assert_required_clippy_declarations(workflow)

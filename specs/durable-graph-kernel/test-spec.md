@@ -150,3 +150,10 @@ The original EG318 database-lock failure remains unreproduced.
 Changed-file `rustfmt --check`, `git diff --check`, and `python3 scripts/check_public_specs.py` passed.
 Full facade tests, full-feature clippy, and all-feature clippy remain pending.
 No delivery or acceptance state changes accompany this receipt.
+
+### R011.5 declaration coverage
+
+`test_required_clippy_profiles_and_command_are_declared` checks both required profiles, warning enforcement, and Kafka build headers.
+`test_required_clippy_declaration_drift_is_refused` rejects configuration changes that remove those obligations.
+This test binding supplies partial parent coverage only; it does not prove runtime or full acceptance.
+R011, R011.3, and R011.4 remain open.
