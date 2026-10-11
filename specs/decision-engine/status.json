@@ -1591,7 +1591,7 @@
     {
       "id": "EG-DECISION-ENGINE-R073",
       "title": "Decision-owned storage tables and outbox events (rollup)",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "1e9ea1ef3790",
         "a1bb9fb9503e",
@@ -1614,7 +1614,7 @@
         "771c32a45353"
       ],
       "verified_by": [
-        "src/server/handlers/admin/connector_pack/tests/storage_acceptance.rs:26"
+        "src/server/handlers/admin/connector_pack/tests/storage_acceptance.rs:28"
       ]
     },
     {
@@ -1625,7 +1625,7 @@
         "771c32a45353"
       ],
       "verified_by": [
-        "src/server/handlers/admin/connector_pack/tests/storage_acceptance.rs:71"
+        "src/server/handlers/admin/connector_pack/tests/storage_acceptance.rs:73"
       ]
     },
     {
@@ -1643,9 +1643,14 @@
     {
       "id": "EG-DECISION-ENGINE-R073.4",
       "title": "Receipt covers every batch intent",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "2e3642d3a265",
+        "f9cff26924d3"
+      ],
+      "verified_by": [
+        "src/server/handlers/admin/connector_pack/tests/storage_acceptance/receipt.rs:137"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R073.5",
