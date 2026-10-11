@@ -333,9 +333,14 @@
     {
       "id": "EG-PLACEMENT-R003.4",
       "title": "Defence in depth in the kernel",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "972d1c80e4bd"
+      ],
+      "verified_by": [
+        "crates/eg-compute/src/mining/association.rs:772",
+        "crates/eg-compute/src/mining/association.rs:785"
+      ]
     },
     {
       "id": "EG-PLACEMENT-R003.5",
