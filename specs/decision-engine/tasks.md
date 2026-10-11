@@ -196,4 +196,4 @@ Existing source modules and tests provide foundations, but this spec does not as
 
 - [x] **EG-DECISION-ENGINE-R073.3:** Add production fresh-open, five-table empty-catalog, reopen, and genuine-predecessor no-write proofs in `agent_library/open_tests.rs`.
 - [x] **EG-DECISION-ENGINE-R073.5:** Bind existing transitive and diamond tests. Add signed withdrawal Search, historical Content, and new-pin refusal proof in `tests/withdrawal.rs`.
-- [ ] Execute these native tests after the active build becomes available. Keep receipt acceptance R073.4 in its separate task.
+- [ ] Run native R073.3/R073.5 acceptance tests.
