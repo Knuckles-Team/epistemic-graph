@@ -277,6 +277,5 @@ These acceptance tests require the consumer prerequisites described in the plan.
 | `EG-DECISION-ENGINE-R073.5` | `src/server/handlers/admin/connector_pack/tests/content_model.rs::a_changed_leaf_revises_transitive_reference_pins_once` and `a_shared_descendant_diamond_revises_each_component_once` | Transitive and diamond references pin the committed revisions once. Repeated imports preserve revisions. |
 | `EG-DECISION-ENGINE-R073.5` | `src/server/handlers/admin/connector_pack/tests/withdrawal.rs::withdrawn_tool_leaves_search_but_keeps_historical_content` | Signed Search initially returns both tools. Withdrawal removes one; the published control remains. Signed historical Content returns exact bytes. A new pin refuses with `COMPONENT_WITHDRAWN` and creates no component. |
 
-Native execution of these tests remains pending because another task owns the active build.
 The existing lineage tests retain their independent file-digest and manifest-order assertions.
 The existing admin holder test retains its historical Content assertions.
