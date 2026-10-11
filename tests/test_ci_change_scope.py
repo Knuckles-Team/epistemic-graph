@@ -161,3 +161,26 @@ def test_workspace_gates_use_hosted_runner_with_required_headers() -> None:
         "sudo apt-get install -y --no-install-recommends "
         "libsasl2-dev libcurl4-openssl-dev\n"
     )
+
+
+def test_lint_installs_manifest_rustfmt_before_all_formatting_steps() -> None:
+    workflow = yaml.safe_load((ROOT / ".github/workflows/release.yml").read_text())
+    steps = workflow["jobs"]["lint-and-architecture"]["steps"]
+    install = next(
+        index
+        for index, step in enumerate(steps)
+        if step.get("name") == "Install manifest Rust toolchain and rustfmt"
+    )
+    setup = steps[install]
+    assert "if" not in setup
+    assert setup["run"] == (
+        "rustup toolchain install --profile minimal --component rustfmt "
+        "&& rustup show active-toolchain"
+    )
+    for index, step in enumerate(steps):
+        command = step.get("run", "")
+        if "pre-commit run" in command or "check_rustfmt_scope.py" in command:
+            assert install < index
+    rustfmt = next(step for step in steps if step.get("name") == "rustfmt")
+    assert "scripts/check_rustfmt_scope.py --base" in rustfmt["run"]
+    assert "cargo fmt --all --check" in rustfmt["run"]

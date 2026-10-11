@@ -125,3 +125,13 @@ idle-shutdown hazard within a fresh job daemon's lifetime. It does not prove the
 historical EOF cause or establish a facade speedup. Statistics synthesize zero
 counters from caller configuration when no daemon is reachable; they do not
 start a replacement daemon.
+
+### 2026-10-11: provision the manifest toolchain before lint formatting
+
+EG-CONTRACT-R031 requires the lint job to install the toolchain selected by
+`rust-toolchain.toml`, with rustfmt, before pre-commit or the explicit formatting
+check can invoke it. Reuse the workflow's manifest-resolved rustup installation
+pattern rather than duplicating its channel pin or relying on the hosted image.
+The workflow regression checks unconditional provisioning and step ordering for
+both PR-scoped and full-publication formatting. This repairs runner setup only;
+full hosted quality-gate and runtime acceptance remain independently required.
