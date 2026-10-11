@@ -60,6 +60,11 @@ pub fn plan_and_execute(
     ctx: &PlanCtx,
 ) -> Result<RowSet, String> {
     let query = planner.plan(nl, schema_hint)?;
+    // The legacy and optional public entry points enforce the same default
+    // bound as the served NL handler before planner text reaches the parser.
+    NlQueryBudget::default()
+        .check(&query)
+        .map_err(|error| error.to_string())?;
     let plan = crate::uql::parse(&query).map_err(|e| e.render(&query))?;
     execute(&plan, ctx)
 }
@@ -869,3 +874,7 @@ mod tests {
         assert!(planner().build_agent().is_ok());
     }
 }
+
+#[cfg(all(test, feature = "nl-query"))]
+#[path = "nl_regressions.rs"]
+mod regressions;
