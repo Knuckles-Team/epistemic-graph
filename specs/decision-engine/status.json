@@ -1695,9 +1695,9 @@
       "title": "Competing served imports share one head compare-and-set",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "257e9bef60eb",
-        "4ec396b2fe02",
-        "771c32a45353"
+        "771c32a45353",
+        "795a1ea18fa6",
+        "a0743ba9b542"
       ],
       "verified_by": [
         "src/server/handlers/admin/connector_pack/tests/storage_acceptance.rs:74"
@@ -1708,7 +1708,7 @@
       "title": "Fresh owner open and outdated-format refusal",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "44e16218bb0a"
+        "a93e5bd00d51"
       ],
       "verified_by": [
         "src/server/persistence/agent_library/open_tests.rs:49",
@@ -1720,8 +1720,8 @@
       "title": "Receipt covers every batch intent",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "2e3642d3a265",
-        "f9cff26924d3"
+        "bb72cb292060",
+        "d1d4e74f5520"
       ],
       "verified_by": [
         "src/server/handlers/admin/connector_pack/tests/storage_acceptance/receipt.rs:137"
@@ -1732,9 +1732,9 @@
       "title": "Batch pins and withdrawn-component reads",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "27157a8a5dcf",
-        "44e16218bb0a",
-        "515777a98b6e"
+        "4c25220f6e1b",
+        "a93e5bd00d51",
+        "aea4fe89bd19"
       ],
       "verified_by": [
         "crates/eg-capabilities/src/error_routing.rs:317",
@@ -2182,8 +2182,8 @@
       "title": "Measured resident scorer resource budget",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "2c19b73d4918",
-        "a74dd0fd7a54"
+        "29de5f09030f",
+        "9f5da56a6f62"
       ],
       "verified_by": [
         "crates/eg-numeric/benches/decision_resident_scorer.rs:212"
@@ -3120,7 +3120,7 @@
       "title": "The request carries typed params",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "b615cc6a283d"
+        "5b6086e4075d"
       ],
       "verified_by": [
         "crates/eg-types/src/decision/statistical/harness_config.rs:202",
@@ -3133,8 +3133,8 @@
       "title": "The answer type states each part and its abstention",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "43baea1a279c",
-        "f00f7d76de1d"
+        "a565bdb085f2",
+        "c0466b57ce04"
       ],
       "verified_by": [
         "crates/eg-types/src/decision/statistical/harness_config.rs:331",
@@ -3168,7 +3168,7 @@
       "title": "Action space follows shell proficiency and task class",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "f00f7d76de1d"
+        "a565bdb085f2"
       ],
       "verified_by": [
         "crates/eg-types/src/decision/statistical/harness_config.rs:409"
@@ -3257,7 +3257,7 @@
       "title": "Typed `RulePromotionVerdict`",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "e28229b1148f"
+        "dcd3f241e93c"
       ],
       "verified_by": [
         "crates/eg-types/src/decision/guardrail.rs:215",

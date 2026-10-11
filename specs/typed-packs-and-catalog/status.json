@@ -651,9 +651,9 @@
       "title": "Served capability claim and refusal proof",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "257e9bef60eb",
         "481fa6ea2c55",
-        "4ec396b2fe02",
+        "795a1ea18fa6",
+        "a0743ba9b542",
         "c764285d098c"
       ],
       "verified_by": [
@@ -817,7 +817,7 @@
       "title": "A measured fact cites the evaluation run that produced it",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "f00f7d76de1d"
+        "a565bdb085f2"
       ],
       "verified_by": [
         "crates/eg-types/src/agent_component/facts.rs:514"
@@ -828,7 +828,7 @@
       "title": "Shell proficiency is a measured model fact",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "c0bb0a87bd83"
+        "3a23459ceec7"
       ],
       "verified_by": [
         "crates/eg-rdf/src/rules/capability/tests.rs:234",
@@ -842,7 +842,7 @@
       "title": "Stopping behaviour is a measured model fact",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "c0bb0a87bd83"
+        "3a23459ceec7"
       ],
       "verified_by": [
         "crates/eg-rdf/src/rules/capability/tests.rs:235",
@@ -856,11 +856,11 @@
       "title": "Pack import round-trips the new model facts",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "11fd83bf6d33",
-        "536624d2cf3b",
-        "5a186173f8c0",
-        "6d07195e8c7b",
-        "a7c8179fbbc2"
+        "03fd1d10476f",
+        "20f92260b576",
+        "35c16b482e05",
+        "4d345c857f13",
+        "6be6da12f970"
       ],
       "verified_by": [
         "crates/eg-types/src/connector_pack/digest.rs:303",

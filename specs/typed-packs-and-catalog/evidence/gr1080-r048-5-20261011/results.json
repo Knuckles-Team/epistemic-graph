@@ -219,5 +219,49 @@
     "Live GraphOS deployment or restart.",
     "Held UQL grammar and WebUI work."
   ],
-  "raw_logs": "Retained locally; no raw or sanitized text logs published."
+  "raw_logs": "Retained locally; no raw or sanitized text logs published.",
+  "attribution_rewrite": {
+    "coordinator_completed": true,
+    "method": "Attribution-only history rewrite; measured identities above remain unchanged in this receipt.",
+    "verified_source_mapping": [
+      {
+        "measured_identity": "005454058ba4c8622c3158d78df3b774dd1cd2b6",
+        "repaired_identity": "ada00326f3ddc06377a9c88cfe7240c3e6af4b3a",
+        "unchanged_tree": "6885c4e2ca83143edd178e1290396cd29adbe69a"
+      },
+      {
+        "measured_identity": "d9bbd0ba0f69f4669cf48c0bccda540fde6814c6",
+        "repaired_identity": "80170c81cb4f7575b020891b87a143f33d5ca788",
+        "unchanged_tree": "6537a78e8205b0cbab483e31b8b872984634aa3f"
+      },
+      {
+        "measured_identity": "b8ff613e411c0c335617e7e5c47ff9d1ae83df4e",
+        "repaired_identity": "2e9d4aa4fc1846973fb46f6d64b128f1899db0d6",
+        "unchanged_tree": "cdfc3e481f35256db98e68819d808897e40261f3"
+      },
+      {
+        "measured_identity": "757e3458529ed1a3482dcdb7d917ec262ae89119",
+        "repaired_identity": "1f310687bab9bb3ce7d79bff0c2f0e9483e5b9e3",
+        "unchanged_tree": "4f321041686270b4c05fd57be1680d7ee0cae08c"
+      },
+      {
+        "measured_identity": "9876b4bd8415f1b3c800f182beeceeab0ad273a2",
+        "repaired_identity": "a56edc7ff46716cd5f47b9a66836b3a015879480",
+        "unchanged_tree": "ddf753555b01679a2d9d810212a5166173cb12f3"
+      },
+      {
+        "measured_identity": "11fd83bf6d330ccd01cd79a3fe5449380e98cba6",
+        "repaired_identity": "6be6da12f97051764c135c903efead6df986d1cf",
+        "unchanged_tree": "980069dae7b66e96eb01265a86fe3f162cc651c4"
+      },
+      {
+        "measured_identity": "4478ddd8c1f17c83a322e41d0e30562ee7915ae6",
+        "repaired_identity": "0af7c25fd54f6d71648995834c5f5e5dab05cd9a",
+        "unchanged_tree": "6a98de771db714349962e6a849712987cf0e4c48"
+      }
+    ],
+    "native_rebuild": false,
+    "test_rerun": false,
+    "followup": "Only receipt/prose and officially generated status metadata change after the repaired accepted tip. Runtime source, generated contract bytes, fixture assertions, native binaries and caches remain unchanged."
+  }
 }
