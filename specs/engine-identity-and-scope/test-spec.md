@@ -64,3 +64,12 @@ Review: [PR 445](https://github.com/Knuckles-Team/epistemic-graph/pull/445).
 Native execution of both tests remains pending.
 Hosted facade execution must establish R005 acceptance; source inspection alone does not establish it.
 | I-11 | R008 | A principal with a stored policy node allowing two tools; plans naming two tools and three tools. | The two-tool plan passes. The three-tool plan returns `ScopeExceedsPolicy` naming the third tool, and an audit record exists. |
+
+### EG-IDENTITY-R023 tests
+
+- `EG-IDENTITY-R023.1`: `crates/eg-types/src/identity/segment.rs::tests::unit_round_trips`.
+- `EG-IDENTITY-R023.2`: `crates/eg-types/src/identity/segment.rs::tests::superseded_and_foreign_units_hidden`.
+- `EG-IDENTITY-R023.3`: `tests/identity/test_segment_retrieval_served.py::test_retrieve_filters_by_principal`.
+- `EG-IDENTITY-R023.4`: `crates/eg-types/src/identity/segment.rs::tests::out_of_scope_names_id_only`.
+- `EG-IDENTITY-R023.5`: `crates/eg-types/src/identity/tests/segment_audit.rs::read_audit_counts_hidden`.
+- `EG-IDENTITY-R023.6`: `tests/identity/test_segment_retrieval_served.py::test_shared_unit_visible_only_in_scope`.
