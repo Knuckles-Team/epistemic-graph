@@ -205,3 +205,9 @@ Ontology parse test and shape tests in `crates/eg-core/tests/`; `cargo test -p e
 ## Out of scope
 
 Copying source data; the authority vocabulary (`EG-CQ-XSRC-R001`); the federated planner; entity-resolution scoring; the report type; building new connector tools (only mapping and access-contract rows in agent-packages).
+
+## Amendments
+
+### 2026-10-11 Commercial terms from the connector vocabulary audit
+
+Erpnext, salesforce and twenty need commercial terms. The connector vocabulary audit found them missing. Rows `EG-SUPPLY-VOCAB-R003.7` to `R003.12` add them, reusing `kg:Organization` and `kg:Person`. `EG-CQ-CONN-R083` points here.
