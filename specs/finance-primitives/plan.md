@@ -180,3 +180,11 @@ mkdir -p target
 "$RUSTC" --edition=2021 --test --cfg 'feature="finance"' crates/eg-types/src/finance_event_envelope.rs -L dependency="$DEPS" --extern serde="$SERDE" -o target/finance-envelope-module-tests
 target/finance-envelope-module-tests --nocapture
 ```
+
+## 2026-10-11: preserve the unfinished schema rollup
+
+The generator marks R004.2 complete from only its two existing children.
+The ontology still lacks PortfolioGroup, StrategySpec, StrategyRun, and LeverageTerms.
+Declare those already-promised producers as R004.2.3 through R004.2.6. Keep them
+SPECIFIED and the parent open. Existing served-entry requirements remain separate.
+The two executed schema groups do not prove those four absent groups.

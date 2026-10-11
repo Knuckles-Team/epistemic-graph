@@ -85,3 +85,12 @@ Existing parent acceptance remains unchanged. Each intended test below must run 
 
 These six module tests prove the typed envelope only. R011 retains transactional publication and idempotent delivery acceptance.
 R011.2 and R011.3 track that runtime acceptance without claiming these module tests prove it.
+
+## Remaining record-schema producers
+
+| ID | Positive proof | Negative proof | Proving test |
+|---|---|---|---|
+| EG-FINANCE-PRIMITIVES-R004.2.3 | A valid `PortfolioGroup` record conforms to its declared shape. Its class exists in the composed finance module. | Missing required fields, invalid links, and unknown vocabulary refuse. | `src/server/graph_schema/finance_tests.rs::shapes::portfolio_group_schema_acceptance (intended test)` |
+| EG-FINANCE-PRIMITIVES-R004.2.4 | A valid `StrategySpec` record conforms to its declared shape. Its class exists in the composed finance module. | Missing required fields, invalid links, and unknown vocabulary refuse. | `src/server/graph_schema/finance_tests.rs::shapes::strategy_spec_schema_acceptance (intended test)` |
+| EG-FINANCE-PRIMITIVES-R004.2.5 | A valid `StrategyRun` record conforms to its declared shape. Its class exists in the composed finance module. | Missing required fields, invalid links, and unknown vocabulary refuse. | `src/server/graph_schema/finance_tests.rs::shapes::strategy_run_schema_acceptance (intended test)` |
+| EG-FINANCE-PRIMITIVES-R004.2.6 | A valid `LeverageTerms` record conforms to its declared shape. Its class exists in the composed finance module. | Missing required fields, invalid links, and unknown vocabulary refuse. | `src/server/graph_schema/finance_tests.rs::shapes::leverage_terms_schema_acceptance (intended test)` |
