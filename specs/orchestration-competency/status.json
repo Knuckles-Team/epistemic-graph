@@ -1,0 +1,514 @@
+{
+  "schema_version": 2,
+  "spec_id": "EG-CQ-ORCH-001",
+  "owner_repo": "epistemic-graph",
+  "delivery_state": "SPECIFIED",
+  "requirement_ids": [
+    "EG-CQ-ORCH-R001",
+    "EG-CQ-ORCH-R001.1",
+    "EG-CQ-ORCH-R001.2",
+    "EG-CQ-ORCH-R001.3",
+    "EG-CQ-ORCH-R001.4",
+    "EG-CQ-ORCH-R001.5",
+    "EG-CQ-ORCH-R002",
+    "EG-CQ-ORCH-R002.1",
+    "EG-CQ-ORCH-R002.2",
+    "EG-CQ-ORCH-R002.3",
+    "EG-CQ-ORCH-R002.4",
+    "EG-CQ-ORCH-R002.5",
+    "EG-CQ-ORCH-R003",
+    "EG-CQ-ORCH-R003.1",
+    "EG-CQ-ORCH-R003.2",
+    "EG-CQ-ORCH-R003.3",
+    "EG-CQ-ORCH-R003.4",
+    "EG-CQ-ORCH-R003.5",
+    "EG-CQ-ORCH-R004",
+    "EG-CQ-ORCH-R004.1",
+    "EG-CQ-ORCH-R004.2",
+    "EG-CQ-ORCH-R004.3",
+    "EG-CQ-ORCH-R004.4",
+    "EG-CQ-ORCH-R004.5",
+    "EG-CQ-ORCH-R005",
+    "EG-CQ-ORCH-R005.1",
+    "EG-CQ-ORCH-R005.2",
+    "EG-CQ-ORCH-R005.3",
+    "EG-CQ-ORCH-R005.4",
+    "EG-CQ-ORCH-R005.5",
+    "EG-CQ-ORCH-R006",
+    "EG-CQ-ORCH-R006.1",
+    "EG-CQ-ORCH-R006.2",
+    "EG-CQ-ORCH-R006.3",
+    "EG-CQ-ORCH-R006.4",
+    "EG-CQ-ORCH-R006.5",
+    "EG-CQ-ORCH-R007",
+    "EG-CQ-ORCH-R007.1",
+    "EG-CQ-ORCH-R007.2",
+    "EG-CQ-ORCH-R007.3",
+    "EG-CQ-ORCH-R007.4",
+    "EG-CQ-ORCH-R007.5",
+    "EG-CQ-ORCH-R008",
+    "EG-CQ-ORCH-R008.1",
+    "EG-CQ-ORCH-R008.2",
+    "EG-CQ-ORCH-R008.3",
+    "EG-CQ-ORCH-R008.4",
+    "EG-CQ-ORCH-R008.5",
+    "EG-CQ-ORCH-R009",
+    "EG-CQ-ORCH-R009.1",
+    "EG-CQ-ORCH-R009.2",
+    "EG-CQ-ORCH-R009.3",
+    "EG-CQ-ORCH-R009.4",
+    "EG-CQ-ORCH-R009.5",
+    "EG-CQ-ORCH-R009.6"
+  ],
+  "requirements": [
+    {
+      "id": "EG-CQ-ORCH-R001",
+      "title": "Q1: \"What steps do I need to follow to complete task XYZ?\" (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-ORCH-R001.1",
+        "EG-CQ-ORCH-R001.2",
+        "EG-CQ-ORCH-R001.3",
+        "EG-CQ-ORCH-R001.4",
+        "EG-CQ-ORCH-R001.5"
+      ]
+    },
+    {
+      "id": "EG-CQ-ORCH-R001.1",
+      "title": "Q1 Ontology gap: ordered step",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R001.2",
+      "title": "Q1 SHACL shape",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R001.3",
+      "title": "Q1 Source-authority mapping",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R001.4",
+      "title": "Q1 Query fixture",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R001.5",
+      "title": "Q1 Acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R002",
+      "title": "Q2: \"How many agents and what type of agents are needed to complete the task?\" (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-ORCH-R002.1",
+        "EG-CQ-ORCH-R002.2",
+        "EG-CQ-ORCH-R002.3",
+        "EG-CQ-ORCH-R002.4",
+        "EG-CQ-ORCH-R002.5"
+      ]
+    },
+    {
+      "id": "EG-CQ-ORCH-R002.1",
+      "title": "Q2 Ontology gap: agent kind",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R002.2",
+      "title": "Q2 SHACL shape",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R002.3",
+      "title": "Q2 Source-authority mapping",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R002.4",
+      "title": "Q2 Query fixture",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R002.5",
+      "title": "Q2 Acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R003",
+      "title": "Q3: \"Can we use an agent template we already have, or an external A2A agent we have added to our Agent Library, based on their capabilities?\" (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-ORCH-R003.1",
+        "EG-CQ-ORCH-R003.2",
+        "EG-CQ-ORCH-R003.3",
+        "EG-CQ-ORCH-R003.4",
+        "EG-CQ-ORCH-R003.5"
+      ]
+    },
+    {
+      "id": "EG-CQ-ORCH-R003.1",
+      "title": "Q3 Ontology gap: agent template",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R003.2",
+      "title": "Q3 SHACL shape",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R003.3",
+      "title": "Q3 Source-authority mapping",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R003.4",
+      "title": "Q3 Query fixture",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R003.5",
+      "title": "Q3 Acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R004",
+      "title": "Q4: \"What standards, best practices, or guardrails should I follow?\" (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-ORCH-R004.1",
+        "EG-CQ-ORCH-R004.2",
+        "EG-CQ-ORCH-R004.3",
+        "EG-CQ-ORCH-R004.4",
+        "EG-CQ-ORCH-R004.5"
+      ]
+    },
+    {
+      "id": "EG-CQ-ORCH-R004.1",
+      "title": "Q4 Ontology gap: best practice and rule scope",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R004.2",
+      "title": "Q4 SHACL shape",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R004.3",
+      "title": "Q4 Source-authority mapping",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R004.4",
+      "title": "Q4 Query fixture",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R004.5",
+      "title": "Q4 Acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R005",
+      "title": "Q5: \"What skills, tools, prompts, and LLM models does each agent need to complete each subtask?\" (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-ORCH-R005.1",
+        "EG-CQ-ORCH-R005.2",
+        "EG-CQ-ORCH-R005.3",
+        "EG-CQ-ORCH-R005.4",
+        "EG-CQ-ORCH-R005.5"
+      ]
+    },
+    {
+      "id": "EG-CQ-ORCH-R005.1",
+      "title": "Q5 Ontology gap: model profile",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R005.2",
+      "title": "Q5 SHACL shape",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R005.3",
+      "title": "Q5 Source-authority mapping",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R005.4",
+      "title": "Q5 Query fixture",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R005.5",
+      "title": "Q5 Acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R006",
+      "title": "Q6: \"What workflow do the agents need to follow?\" (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-ORCH-R006.1",
+        "EG-CQ-ORCH-R006.2",
+        "EG-CQ-ORCH-R006.3",
+        "EG-CQ-ORCH-R006.4",
+        "EG-CQ-ORCH-R006.5"
+      ]
+    },
+    {
+      "id": "EG-CQ-ORCH-R006.1",
+      "title": "Q6 Ontology gap: handoff",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R006.2",
+      "title": "Q6 SHACL shape",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R006.3",
+      "title": "Q6 Source-authority mapping",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R006.4",
+      "title": "Q6 Query fixture",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R006.5",
+      "title": "Q6 Acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R007",
+      "title": "Q7: \"What does the agent graph shape (DAG) look like?\" (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-ORCH-R007.1",
+        "EG-CQ-ORCH-R007.2",
+        "EG-CQ-ORCH-R007.3",
+        "EG-CQ-ORCH-R007.4",
+        "EG-CQ-ORCH-R007.5"
+      ]
+    },
+    {
+      "id": "EG-CQ-ORCH-R007.1",
+      "title": "Q7 Ontology gap: slot edge",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R007.2",
+      "title": "Q7 SHACL shape",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R007.3",
+      "title": "Q7 Source-authority mapping",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R007.4",
+      "title": "Q7 Query fixture",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R007.5",
+      "title": "Q7 Acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R008",
+      "title": "Composed answer to \"How can I execute task XYZ?\" (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-ORCH-R008.1",
+        "EG-CQ-ORCH-R008.2",
+        "EG-CQ-ORCH-R008.3",
+        "EG-CQ-ORCH-R008.4",
+        "EG-CQ-ORCH-R008.5"
+      ]
+    },
+    {
+      "id": "EG-CQ-ORCH-R008.1",
+      "title": "Composed Envelope type",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R008.2",
+      "title": "Composed Assemble wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R008.3",
+      "title": "Composed Typed abstention per part",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R008.4",
+      "title": "Composed Query fixture",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R008.5",
+      "title": "Composed Acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R009",
+      "title": "Probe questions through the intent surface (rollup, owned by graph-os, cross-repo)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-ORCH-R009.1",
+        "EG-CQ-ORCH-R009.2",
+        "EG-CQ-ORCH-R009.3",
+        "EG-CQ-ORCH-R009.4",
+        "EG-CQ-ORCH-R009.5",
+        "EG-CQ-ORCH-R009.6"
+      ]
+    },
+    {
+      "id": "EG-CQ-ORCH-R009.1",
+      "title": "Probe: \"How many nodes does the graph hold, by label?\"",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R009.2",
+      "title": "Probe: \"How can I deploy a container with container-manager?\"",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R009.3",
+      "title": "Probe: \"Which agents are in the Agent Library?\"",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R009.4",
+      "title": "Probe: \"Why does graph-os use the intent surface?\"",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R009.5",
+      "title": "Probe: \"Find a tool that lists Docker containers.\"",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R009.6",
+      "title": "Probe: \"Delegate: list running containers.\"",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    }
+  ]
+}
