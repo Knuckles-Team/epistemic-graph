@@ -198,3 +198,23 @@ The isolated fixture arithmetic check does not execute the assembly or solver.
 
 - R121.1: `crates/eg-compute/src/assemble/tests/evidence.rs::assembly_evidence_uses_typed_premises_not_labels` exercises actual assembly and replay.
 - R121.2: planned `src/server/handlers/decide/stat_tests/classes_tests.rs::graph_claim_and_evidence_control_answer_class` covers graph-source provenance.
+
+## R118.1.2 cross-surface acceptance prerequisites
+
+The 2026-10-11 audit adds no test binding or native execution evidence.
+`src/server/handlers/decide/stat_tests/reputation_tests.rs` already contains the served decision-log fixture.
+`below_the_support_floor_a_reputation_has_no_numbers` covers sparse SQL output.
+`source_reliability_is_learned_from_the_visible_log` covers dense UQL learning and invisible-history fallback.
+Neither test proves agreement across authority policy, retrieval ranking, and UQL.
+
+Extend this fixture through the actual governed consumers after the plan's source-identity adapter and result contract exist.
+A visible sparse subject and a dense peer must share one pool and one materialization.
+All three consumers must preserve the sparse subject's typed abstention without producing a numeric reliability.
+All three consumers must use the dense subject's same materialized estimate, allowing only documented wire precision differences.
+Vary the graph prior and caller-supplied retrieval weight; neither may replace the governed estimate or suppress abstention.
+An absent subject must remain distinguishable from a visible subject below the support floor.
+Invisible outcomes and another tenant's dense history must not change either result or disclose hidden counts.
+The fixture must exercise real served adapters rather than manually assign equal scalar values.
+
+Native sparse/dense cross-surface execution remains unrun because these consumer prerequisites are absent.
+Static code inspection does not establish runtime acceptance.

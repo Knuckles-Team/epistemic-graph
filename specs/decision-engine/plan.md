@@ -323,3 +323,27 @@ The served refusal test inspects `Response.error` and `Response.error_detail` se
 The error code is `PARAMETER_INVALID`; the detail names `UNSUPPORTED_RETRIEVAL_PLAN` and the rejected option.
 The test also requires an absent result.
 This fixture covers registry refusal only; representative retrieval-plan selection requires the integration test described in R029.
+
+### 2026-10-11: R118.1.2 consumer API audit
+
+The audit inspected commit `fca4d1fefe93dd9af056f92a394fe96bf7781540`.
+This amendment records prerequisites; it adds no implementation or acceptance evidence.
+
+`crates/eg-epistemic/src/model.rs::AuthorityPolicy` stores a global `f64` reliability multiplier.
+`src/server/handlers/query/explain_wire_a.rs::epistemic_status_wire` selects the default policy without reading source reputation.
+`crates/eg-epistemic/src/ranking.rs::RetrievalCandidate` also requires a scalar reliability.
+`src/server/handlers/query/explain_wire_b.rs::rank_by_provenance_wire` copies that scalar from the caller's request.
+Neither served consumer resolves a governed source identity through the visible decision log.
+
+`src/server/handlers/decide/stat_reputation.rs::learned_reliability` discards `Reputation::InsufficientHistory` and returns `None`.
+`crates/eg-plan/src/exec/reliability.rs::reliability_of` interprets `None` as permission to retain the graph prior.
+The result therefore loses the distinction between absent evidence and a visible sparse pool's abstention.
+Dense UQL results also use `anchored_reliability` with the graph prior instead of the materialized pooled estimate.
+
+A source-identity adapter must resolve subject kind, subject identity, and caller visibility before each consumer reads reputation.
+The read contract must distinguish absent evidence, insufficient history, and an estimated reliability.
+Each consumer must propagate the optional or typed result without coercing abstention into a scalar.
+The consumers must share the materialized estimate instead of recomputing it from different priors.
+`crates/eg-types/src/protocol/support_02.rs::AuthorityPolicyWire` and `support_03.rs::RetrievalCandidateWire` currently require scalar reliability fields.
+Any public contract change must preserve compatibility and regenerate its derived artifacts.
+Whole-query refusal, a NaN sentinel, and a helper-only test do not establish cross-surface abstention.
