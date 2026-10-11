@@ -854,9 +854,18 @@
     {
       "id": "EG-TYPED-PACKS-R048.5",
       "title": "Pack import round-trips the new model facts",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "536624d2cf3b",
+        "5a186173f8c0",
+        "6d07195e8c7b",
+        "a7c8179fbbc2",
+        "b5c0fb6f7844"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/connector_pack/digest.rs:303",
+        "tests/typed_packs/test_model_harness_facts.py:36"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R049",

@@ -250,9 +250,8 @@ The existing capability projector emits `eg:fact/shellProficiency` and
 
 The producer tests cover both digest domains, value and provenance changes,
 malformed references, enum decoding and the actual projected atoms. Their test
-bindings do not establish signed pack import or served readback. The pack model
-annotations do not yet carry these fields, and the importer sets them to absent.
-R048.5 remains open. R066.1 owns the separate SHACL shapes and evaluation links.
+bindings do not establish signed pack import or served readback. R048.5 adds pack model annotations and import mapping for these fields.
+Its served acceptance remains open. R066.1 owns the separate SHACL shapes and evaluation links.
 Before integration, regenerate the contract surfaces from the Rust schema source
 and check them. Producer tests do not substitute for that check.
 
@@ -271,3 +270,22 @@ Reused: the catalog projection, the skill type overrides and the snapshot digest
 Decision: render on read from the graph. Rejected: keep static package snapshots, because they fall behind the code between releases.
 
 Cross-repository rows: the `AU-SKILLS` row that consumes the package depends on the contract name `RenderedSkillPackage`.
+
+### Signed model facts source (R048.5)
+
+The pack model DTO now carries both measured fields. Rust and Python pack digest
+writers append present values and evaluation references. Absent values retain
+the existing signed digest vector. The normal importer copies the measured facts
+into the model profile. The served regression uses the existing signed client,
+Blob CAS upload, pack importer and component read operation.
+
+Acceptance remains pending until the warm validator regenerates the contract
+schemas and Python DTOs, runs the native tests and runs the served regression.
+The regression sends each unknown enum through the raw MessagePack transport.
+It expects `INVALID_ARGUMENT` with detail `invalid request encoding`, then checks
+that no pack head, receipt, server component or model component exists.
+The decoder rejects these enums before signature or digest validation. The test
+then submits the original signature with all three camelCase aliases and requires
+successful import and canonical readback. Alias decoding must preserve the signed
+canonical body. These aliases do not establish R048.1 ontology or Python naming.
+Test bindings alone do not establish served acceptance.
