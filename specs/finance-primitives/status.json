@@ -416,7 +416,7 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R013",
       "title": "Golden accounting and risk fixtures with full provenance",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
@@ -427,11 +427,17 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R013.1",
       "title": "A golden-fixture figure is refused when its provenance is incomplete",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "168b52ef6307",
         "fcca865a0505"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-compute/src/finance/golden_fixture.rs:117",
+        "crates/eg-compute/src/finance/golden_fixture.rs:123",
+        "crates/eg-compute/src/finance/golden_fixture.rs:132",
+        "crates/eg-compute/src/finance/golden_fixture.rs:140"
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R013.2",
@@ -451,9 +457,9 @@
         "eadb412ffa03"
       ],
       "verified_by": [
-        "crates/eg-compute/src/finance/golden_fixture.rs:144",
-        "crates/eg-compute/src/finance/golden_fixture.rs:152",
-        "crates/eg-compute/src/finance/golden_fixture.rs:164"
+        "crates/eg-compute/src/finance/golden_fixture.rs:148",
+        "crates/eg-compute/src/finance/golden_fixture.rs:156",
+        "crates/eg-compute/src/finance/golden_fixture.rs:168"
       ]
     },
     {
