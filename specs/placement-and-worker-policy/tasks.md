@@ -20,7 +20,7 @@ Status: PROPOSED. Governing spec: [spec.md](spec.md). Design: [plan.md](plan.md)
 - [ ] **T16 - R002:** Ingest-worker policy has one authority: the engine decides, the worker asks and obeys (rollup).
 - [ ] **T17 - R002.1:** Register carries capacity.
 - [x] **T18 - R002.2:** Autosize and depth limit live in the R076.1 `SchedulerConfig` producer; served integration remains R076.2.
-- [ ] **T19 - R002.3:** Pure grant function.
+- [x] **T19 - R002.3:** Pure grant sizing and typed zero-capacity refusal; served admission remains R075.
 - [ ] **T20 - R002.4:** Admission returns a grant.
 - [ ] **T21 - R002.5:** Routing is engine-side.
 - [ ] **T22 - R002.6:** Reword `EG-INGEST-WORKER-R001.2`.
