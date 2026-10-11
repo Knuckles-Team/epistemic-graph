@@ -126,3 +126,30 @@ The per-tenant lock serializes pack mutations but does not replace in-write head
 ### 2026-10-11: capability annotation acceptance
 
 EG-TYPED-PACKS-R042.1 tests the production G12 validator and claim partition for both annotation fields. The parser now requires an ASCII letter at the start of an absolute IRI scheme. Foreign terms retain their exact text in the declared partition. EG-TYPED-PACKS-R042.2 keeps signed dispatch, persisted claims, and refusal atomicity open. Native tests alone do not close the parent requirement.
+
+### 2026-10-11: modality annotation verification scope
+
+EG-TYPED-PACKS-R043 previously named validation and digest replay without naming direct modality regressions.
+The requirement stays unchanged. Both fields need native validation, typed bounds, and digest replay.
+The tests below exercise existing production code. They do not replace PACK-09 served acceptance or release gates.
+R043 remains open until TP-10, TP-11, and applicable quality gates pass on the merged head.
+
+## Audit record
+
+### 2026-10-11: R043 native and client evidence
+
+Base: `ce34e41b7845fa220ec405508d392bc88a23b3f6`. No production behavior changed. R043 remains unverified.
+
+- Rust 1.96 compiled current `crates/eg-types/src/lib.rs` with `feature="test-support"` against cached real dependencies.
+- A native harness included current `src/server/handlers/admin/connector_pack/import/annotations.rs` by path. All 12 tests passed, exit 0.
+- Both independent modality-direction guard deletions made `modalities_refuse_foreign_roots_typos_and_wrong_kinds` fail, exit 101. Original source was restored.
+- `python -m pytest -q tests/test_connector_pack_client.py`: 9 passed, exit 0.
+- `python -m ruff check tests/test_connector_pack_client.py`: passed. Rustfmt 1.96 formatted the new native tests.
+- `pipelines-hook spec-decomposition --root .`: 20 specs passed. `pipelines-hook spec-standard --root .`: 19 specs passed.
+- Fixture: `contract/fixtures/connector_pack_digest_vectors.json`, schema `eg-digest-vectors/v1`.
+- Fixture SHA-256: `b2d1e0410853004a6cd3db63f660fbd99adfa87fd3d5839b008590dbc35fd8d6`.
+
+The bounded Cargo attempt used `cargo test --offline -p epistemic-graph --lib --no-default-features --features server connector_pack::import::annotations --no-run`.
+It exited 101 before compilation because the offline registry lacked `hex`.
+Served import, persisted modality facts, refusal atomicity, TP-10, TP-11, and release gates remain unverified.
+The native harness is evidence for the listed source tests only. It does not substitute for served acceptance.

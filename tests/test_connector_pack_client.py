@@ -453,3 +453,34 @@ def test_public_wheel_surface_exports_the_connector_pack_client() -> None:
     assert ExportedUnchanged is PackImportResultUnchanged
     assert epistemic_graph.ConnectorPackWriteError is ConnectorPackWriteError
     assert epistemic_graph.PackWriteErrorCode is PackWriteErrorCode
+
+
+def test_modality_annotations_replay_golden_vector_and_affect_identity() -> None:
+    """R043 digest scope; served acceptance remains open in the owning spec."""
+    from epistemic_graph.connector_pack import _annotations_digest
+
+    annotations = _annotations()
+    assert _annotations_digest(annotations).hex() == _expected_vector(
+        "annotations_digest/full"
+    )
+    for field in ("modalities_in", "modalities_out"):
+        ordered = annotations.model_copy(
+            update={field: ["eg:modality/image", "eg:modality/text"]}
+        )
+        repeated = annotations.model_copy(
+            update={
+                field: ["eg:modality/text", "eg:modality/image", "eg:modality/text"]
+            }
+        )
+        assert _annotations_digest(ordered) == _annotations_digest(repeated)
+        assert _annotations_digest(ordered) != _annotations_digest(annotations)
+        for kind in (PackEntryKind.TOOL, PackEntryKind.PROMPT, PackEntryKind.SKILL):
+            entry = _entry(kind, "sample")
+            changed = entry.model_copy(update={"annotations": ordered})
+            server = _entry(PackEntryKind.MCP_SERVER, "server")
+            assert pack_digest(
+                "connector-a", _catalog(), server, [entry]
+            ) != pack_digest("connector-a", _catalog(), server, [changed])
+    assert _annotations_digest(PackAnnotations(modalities_in=["eg:modality/text"])) != (
+        _annotations_digest(PackAnnotations(modalities_out=["eg:modality/text"]))
+    )

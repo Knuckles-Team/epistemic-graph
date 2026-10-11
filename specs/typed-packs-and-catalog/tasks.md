@@ -78,3 +78,5 @@ Mark a PACK requirement `LANDED` only with an exact merged EG commit. Mark it `A
 
 - [x] **EG-TYPED-PACKS-R042.1:** Check both capability annotation fields in native production validation and claim partition tests.
 - [ ] **EG-TYPED-PACKS-R042.2:** Run signed imports and persisted claim reads; prove rejected imports leave every owner table and body holder unchanged.
+
+- [ ] **EG-TYPED-PACKS-R043:** Run TP-10, TP-11, and applicable gates on the merged head after native modality and digest regressions.

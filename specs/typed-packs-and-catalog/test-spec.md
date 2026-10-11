@@ -104,3 +104,18 @@ Compare those bounded snapshots after refusal. This fixture does not require a f
 The planned positive test will import mixed native and foreign terms in both fields.
 It will compare warning receipts and persisted component classification, required capabilities, and both declared claim lists.
 These served changes are planned and unrun; they are not part of the native verification claim.
+
+## Modality regression scope (EG-TYPED-PACKS-R043)
+
+The following tests cover existing native validation and digest behavior. They do not establish complete PACK-09 acceptance.
+
+| Source and proving test | Required observation |
+|---|---|
+| `src/server/handlers/admin/connector_pack/import/modality_tests.rs::modalities_accept_native_terms_for_tools_prompts_and_skills` | Both fields accept native terms for all three entry kinds and round-trip without loss. |
+| `src/server/handlers/admin/connector_pack/import/modality_tests.rs::modalities_refuse_foreign_roots_typos_and_wrong_kinds` | Both fields refuse foreign, root, typo, wrong-kind, relative, and empty IRIs with the typed code. |
+| `src/server/handlers/admin/connector_pack/import/modality_tests.rs::modality_lists_enforce_wire_types_and_both_size_edges` | Zero and 64 elements pass; 65 elements, null, scalars, and non-string elements refuse. |
+| `src/server/handlers/admin/connector_pack/import/modality_tests.rs::modality_digest_replay_is_canonical_and_direction_sensitive` | Rust replays committed full/empty vectors. Reordering and duplication preserve identity; content and direction changes do not. |
+| `tests/test_connector_pack_client.py::test_modality_annotations_replay_golden_vector_and_affect_identity` | Python replays the full vector. Both fields change tool, prompt, and skill pack identity. |
+
+TP-10, TP-11, and applicable quality gates remain required on the merged exact head.
+These partial regressions intentionally carry no acceptance binding that would mark R043 VERIFIED.
