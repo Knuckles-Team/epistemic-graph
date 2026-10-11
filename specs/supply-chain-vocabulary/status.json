@@ -65,17 +65,7 @@
     "EG-SUPPLY-VOCAB-R008",
     "EG-SUPPLY-VOCAB-R008.1",
     "EG-SUPPLY-VOCAB-R008.2",
-    "EG-SUPPLY-VOCAB-R008.3",
-    "EG-CONN-AUDIT-R016",
-    "EG-CONN-AUDIT-R016.1",
-    "EG-CONN-AUDIT-R016.2",
-    "EG-CONN-AUDIT-R016.3",
-    "EG-CONN-AUDIT-R016.4",
-    "EG-CONN-AUDIT-R016.5",
-    "EG-CONN-AUDIT-R016.6",
-    "EG-CONN-AUDIT-R016.7",
-    "EG-CONN-AUDIT-R016.8",
-    "EG-CONN-AUDIT-R016.9"
+    "EG-SUPPLY-VOCAB-R008.3"
   ],
   "requirements": [
     {
@@ -589,86 +579,6 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
-    },
-    {
-      "id": "EG-CONN-AUDIT-R016",
-      "title": "RETIRED: replaced by `EG-SUPPLY-VOCAB-R003`",
-      "delivery_state": "RETIRED",
-      "landed_in": [],
-      "verified_by": [],
-      "retired_reason": "replaced by `EG-SUPPLY-VOCAB-R003`"
-    },
-    {
-      "id": "EG-CONN-AUDIT-R016.1",
-      "title": "RETIRED: replaced by `EG-SUPPLY-VOCAB-R003.13`",
-      "delivery_state": "RETIRED",
-      "landed_in": [],
-      "verified_by": [],
-      "retired_reason": "replaced by `EG-SUPPLY-VOCAB-R003.13`"
-    },
-    {
-      "id": "EG-CONN-AUDIT-R016.2",
-      "title": "RETIRED: replaced by `EG-SUPPLY-VOCAB-R003.14`",
-      "delivery_state": "RETIRED",
-      "landed_in": [],
-      "verified_by": [],
-      "retired_reason": "replaced by `EG-SUPPLY-VOCAB-R003.14`"
-    },
-    {
-      "id": "EG-CONN-AUDIT-R016.3",
-      "title": "RETIRED: replaced by `EG-SUPPLY-VOCAB-R003.15`",
-      "delivery_state": "RETIRED",
-      "landed_in": [],
-      "verified_by": [],
-      "retired_reason": "replaced by `EG-SUPPLY-VOCAB-R003.15`"
-    },
-    {
-      "id": "EG-CONN-AUDIT-R016.4",
-      "title": "RETIRED: replaced by `EG-SUPPLY-VOCAB-R003.7`",
-      "delivery_state": "RETIRED",
-      "landed_in": [],
-      "verified_by": [],
-      "retired_reason": "replaced by `EG-SUPPLY-VOCAB-R003.7`"
-    },
-    {
-      "id": "EG-CONN-AUDIT-R016.5",
-      "title": "RETIRED: replaced by `EG-SUPPLY-VOCAB-R003.8`",
-      "delivery_state": "RETIRED",
-      "landed_in": [],
-      "verified_by": [],
-      "retired_reason": "replaced by `EG-SUPPLY-VOCAB-R003.8`"
-    },
-    {
-      "id": "EG-CONN-AUDIT-R016.6",
-      "title": "RETIRED: replaced by `EG-SUPPLY-VOCAB-R003.9`",
-      "delivery_state": "RETIRED",
-      "landed_in": [],
-      "verified_by": [],
-      "retired_reason": "replaced by `EG-SUPPLY-VOCAB-R003.9`"
-    },
-    {
-      "id": "EG-CONN-AUDIT-R016.7",
-      "title": "RETIRED: replaced by `EG-SUPPLY-VOCAB-R003.10`, `EG-SUPPLY-VOCAB-R003.16`, `EG-SUPPLY-VOCAB-R003.17`",
-      "delivery_state": "RETIRED",
-      "landed_in": [],
-      "verified_by": [],
-      "retired_reason": "replaced by `EG-SUPPLY-VOCAB-R003.10`, `EG-SUPPLY-VOCAB-R003.16`, `EG-SUPPLY-VOCAB-R003.17`"
-    },
-    {
-      "id": "EG-CONN-AUDIT-R016.8",
-      "title": "RETIRED: replaced by `EG-SUPPLY-VOCAB-R003.11`",
-      "delivery_state": "RETIRED",
-      "landed_in": [],
-      "verified_by": [],
-      "retired_reason": "replaced by `EG-SUPPLY-VOCAB-R003.11`"
-    },
-    {
-      "id": "EG-CONN-AUDIT-R016.9",
-      "title": "RETIRED: replaced by `EG-SUPPLY-VOCAB-R003.12`",
-      "delivery_state": "RETIRED",
-      "landed_in": [],
-      "verified_by": [],
-      "retired_reason": "replaced by `EG-SUPPLY-VOCAB-R003.12`"
     }
   ]
 }
