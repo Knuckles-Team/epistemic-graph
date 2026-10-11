@@ -97,12 +97,20 @@ fn every_supported_decision_record_version_decodes_and_an_unknown_version_is_ref
     let committed = std::fs::read_to_string(&golden_path).expect("the golden file is committed");
     let cases: Vec<serde_json::Value> =
         serde_json::from_str(&committed).expect("the golden file decodes as JSON");
-    assert!(!cases.is_empty(), "the golden file carries at least one v1 vector");
+    assert!(
+        !cases.is_empty(),
+        "the golden file carries at least one v1 vector"
+    );
     for case in cases {
         let record: crate::decision::DecisionRecord =
             serde_json::from_value(case["record"].clone()).expect("a golden v1 record decodes");
-        assert_eq!(record.schema_version, 1, "the golden file holds base-version records");
-        record.checked().expect("a committed v1 vector stays usable");
+        assert_eq!(
+            record.schema_version, 1,
+            "the golden file holds base-version records"
+        );
+        record
+            .checked()
+            .expect("a committed v1 vector stays usable");
     }
 
     let mut topology_record = wave::record(wave::every_decision_outcome().remove(0));

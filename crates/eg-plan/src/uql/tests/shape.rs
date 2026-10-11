@@ -56,7 +56,10 @@ fn validate_shape_reports_conformance_and_violation_through_real_uql_text() {
     conforming.sort();
     assert_eq!(
         conforming,
-        vec!["<http://ex/alice>".to_string(), "<http://ex/carol>".to_string()],
+        vec![
+            "<http://ex/alice>".to_string(),
+            "<http://ex/carol>".to_string()
+        ],
         "alice and carol both carry ex:name, so they conform to the Named shape"
     );
 

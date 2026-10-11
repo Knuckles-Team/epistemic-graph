@@ -21,7 +21,7 @@ mod program;
 mod propagate;
 mod roundtrip;
 mod scrubber;
-#[cfg(all(feature = "query", feature = "owl"))]
-mod shape;
 #[cfg(feature = "query")]
 mod serve;
+#[cfg(all(feature = "query", feature = "owl"))]
+mod shape;

@@ -1169,16 +1169,15 @@ async fn graph_sourced_records_are_principal_scoped_not_tenant_scoped_on_log_rea
         tenant_id: TENANT.to_string(),
         record_id,
     };
-    let mine: Option<DecisionLogEntry> = decode(
-        log_op(&h, "decider", get(committed.record_id.clone())).await,
-    )
-    .unwrap();
-    assert!(mine.is_some(), "the committing principal sees its own record");
+    let mine: Option<DecisionLogEntry> =
+        decode(log_op(&h, "decider", get(committed.record_id.clone())).await).unwrap();
+    assert!(
+        mine.is_some(),
+        "the committing principal sees its own record"
+    );
 
-    let theirs: Option<DecisionLogEntry> = decode(
-        log_op(&h, "another-reader", get(committed.record_id.clone())).await,
-    )
-    .unwrap();
+    let theirs: Option<DecisionLogEntry> =
+        decode(log_op(&h, "another-reader", get(committed.record_id.clone())).await).unwrap();
     assert!(
         theirs.is_none(),
         "a graph-sourced record is visible to its committing principal only, \

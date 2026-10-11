@@ -183,7 +183,12 @@ pub(super) fn dispatch_request_method<'a>(
     verified_context: &'a VerifiedRequestContext,
     authority: DispatchAuthority,
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Response> + Send + 'a>> {
-    Box::pin(dispatch_request_method_inner(state, req, verified_context, authority))
+    Box::pin(dispatch_request_method_inner(
+        state,
+        req,
+        verified_context,
+        authority,
+    ))
 }
 
 async fn dispatch_request_method_inner(

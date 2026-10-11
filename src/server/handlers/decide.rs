@@ -100,8 +100,8 @@ mod topology_schema;
 pub(crate) mod topology_shape;
 
 pub(crate) use assemble::handle_agent_assemble;
-pub(crate) use coverage::handle_capability_coverage;
 pub(crate) use commit::handle_decision_commit;
+pub(crate) use coverage::handle_capability_coverage;
 pub(crate) use jobs::{handle_decision_eval, handle_decision_fit};
 pub(crate) use log::handle_decision_log;
 pub(crate) use statistical::handle_decide;
