@@ -3056,11 +3056,13 @@
       "title": "The answer type states each part and its abstention",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "43baea1a279c",
         "f00f7d76de1d"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/statistical/harness_config.rs:174",
-        "crates/eg-types/src/decision/statistical/harness_config.rs:204"
+        "crates/eg-types/src/decision/statistical/harness_config.rs:204",
+        "crates/eg-types/src/decision/statistical/harness_config.rs:234",
+        "crates/eg-types/src/decision/statistical/harness_config.rs:261"
       ]
     },
     {
@@ -3092,7 +3094,7 @@
         "f00f7d76de1d"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/statistical/harness_config.rs:231"
+        "crates/eg-types/src/decision/statistical/harness_config.rs:282"
       ]
     },
     {
