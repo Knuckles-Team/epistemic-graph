@@ -591,6 +591,15 @@ fn forbidden_mapping_key_byte(byte: u8) -> bool {
 /// Bounded owner evidence for signed refusal tests; never compiled into service builds.
 #[cfg(test)]
 impl AgentLibraryStore {
+    /// Scoped owner access for served receipt acceptance; no alternate reader.
+    pub(crate) fn connector_pack_test_read(
+        &self,
+        tenant: &str,
+    ) -> Result<eg_storage::ScopedRead<'_, eg_storage::AgentLibraryOwner>, String> {
+        let owner = self.scope_handle(tenant)?;
+        self.kernel.read_scope(&owner)
+    }
+
     pub(crate) fn connector_pack_refusal_snapshot(&self, tenant: &str) -> serde_json::Value {
         use redb::ReadableTable;
         let read = self.read().unwrap();

@@ -11,6 +11,8 @@ use super::{
     bind, build_pack, head_of, import, imported, ok, refused, tool, Served, ADMIN, TENANT,
 };
 
+mod receipt;
+
 const CONNECTOR: &str = "storage-acceptance";
 
 async fn snapshot(served: &Served) -> serde_json::Value {
