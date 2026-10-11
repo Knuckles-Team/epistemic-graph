@@ -129,3 +129,28 @@ No second production miner is introduced.
 2026-10-11: R082.6 compares all three engines against the historical Python output.
 The fixture records source identity and SHA-256.
 Boundary cases cover ceiling support, minimum count, confidence tolerance, and zero consequent support.
+
+### 2026-10-11: R011 and R014 runtime acceptance repair
+
+This amendment applies to EG-DURABLE-KERNEL-R011 and EG-DURABLE-KERNEL-R014.
+Previously, each generated parent inherited completion from its sole typed-model child.
+The parent text and source comments explicitly deferred runtime work.
+Now, R011.2 through R011.4 track the manifest, pre-merge execution, and exact-head CI receipts.
+R014.2 through R014.5 track load generation, repeated execution, and both cluster-test acceptance records.
+The existing children retain their evidence. The original runtime obligations remain mandatory.
+The repair extends existing parents because both parents already own these behaviors.
+Planned children record unverified acceptance; they do not imply that every implementation is absent.
+
+### 2026-10-11: runtime source audit
+
+Audited revision: `2a2f9498863250c71827cf56ecbcb9307940cff0`.
+`crates/eg-types/src/pre_merge_test_module.rs` explicitly defers the concrete manifest and pre-merge gate.
+`.github/workflows/release.yml` excludes `gates-variants` from pull requests.
+The same workflow declares `published-full` and `workspace-all-features` clippy profiles with Kafka dependencies.
+Configuration presence does not supply passing exact-head CI receipts.
+`src/raft/flake_budget.rs` explicitly defers the representative-load generator and repeated-run harness.
+`scripts/validate-raft-cluster.sh` selects leader rebalance but omits the named placement-admin test.
+That script records no representative-load generator or repeated-load evidence.
+`src/raft/tests.rs` contains both named cluster tests.
+`src/raft/harness/trace_capture.rs` owns existing causal trace capture.
+No runtime suite ran during this spec-only repair.
