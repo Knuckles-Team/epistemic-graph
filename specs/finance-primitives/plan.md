@@ -27,3 +27,9 @@ External connectors submit source events and revisions through the typed import 
 ## Rollout
 
 Ship read and replay contracts before imports. Add tenant-scoped migrations with a dry-run reconciliation report; preserve old revisions. Gate any projection head switch on statement/vector agreement and authorization tests. Use a schema/contract version bump for incompatible fields. If a stage fails, retain the prior read path and do not publish a new head. A rollback never rewrites activity history.
+
+## R013 fixture completion sequence
+
+R013.1 validates only the figure shape and provenance refusal gate. Preserve its executed unit proof without treating it as independent accounting/risk fixture acceptance. R013.2.1 currently exercises the broker-statement comparator with synthetic values; independent broker-statement dataset qualification remains necessary for the complete fixture family.
+
+Deliver R013.2.2 (corporate actions), R013.2.3 (DST/session boundaries), R013.2.4 (daily-reset ETF decay) and R013.2.5 (futures rolls) as separate, still-open fixture slices. Each first checks in an independently published, redistributable reference and a manifest with source URL, publication/version, content digest, as-of time, session, and applicable currency/scale/rounding assumptions. Then compare the existing Rust authority's output with independently transcribed expected values, execute its negative/provenance cases, and record exact-head evidence. Do not introduce a second accounting implementation or derive expected values from the implementation under test. Only a fully qualified fixture family can close R013/R013.2; a generic comparator does not close the missing children.

@@ -2,7 +2,7 @@
   "schema_version": 2,
   "spec_id": "EG-FINANCE-PRIMITIVES",
   "owner_repo": "epistemic-graph",
-  "delivery_state": "LANDED",
+  "delivery_state": "SPECIFIED",
   "requirement_ids": [
     "EG-FINANCE-PRIMITIVES-R001",
     "EG-FINANCE-PRIMITIVES-R002",
@@ -37,6 +37,10 @@
     "EG-FINANCE-PRIMITIVES-R013.1",
     "EG-FINANCE-PRIMITIVES-R013.2",
     "EG-FINANCE-PRIMITIVES-R013.2.1",
+    "EG-FINANCE-PRIMITIVES-R013.2.2",
+    "EG-FINANCE-PRIMITIVES-R013.2.3",
+    "EG-FINANCE-PRIMITIVES-R013.2.4",
+    "EG-FINANCE-PRIMITIVES-R013.2.5",
     "EG-FINANCE-PRIMITIVES-R014",
     "EG-FINANCE-PRIMITIVES-R015",
     "EG-FINANCE-PRIMITIVES-R016",
@@ -416,7 +420,7 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R013",
       "title": "Golden accounting and risk fixtures with full provenance",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
@@ -442,11 +446,15 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R013.2",
       "title": "Golden fixtures compare computed figures against published reference values",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-FINANCE-PRIMITIVES-R013.2.1"
+        "EG-FINANCE-PRIMITIVES-R013.2.1",
+        "EG-FINANCE-PRIMITIVES-R013.2.2",
+        "EG-FINANCE-PRIMITIVES-R013.2.3",
+        "EG-FINANCE-PRIMITIVES-R013.2.4",
+        "EG-FINANCE-PRIMITIVES-R013.2.5"
       ]
     },
     {
@@ -461,6 +469,34 @@
         "crates/eg-compute/src/finance/golden_fixture.rs:156",
         "crates/eg-compute/src/finance/golden_fixture.rs:168"
       ]
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R013.2.2",
+      "title": "Corporate-action golden fixtures against published notices",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R013.2.3",
+      "title": "DST and session-boundary golden fixtures against published exchange calendars",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R013.2.4",
+      "title": "Leveraged-ETF daily-reset decay golden fixtures against published returns",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R013.2.5",
+      "title": "Futures-roll golden fixtures against published contract and settlement records",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R014",
