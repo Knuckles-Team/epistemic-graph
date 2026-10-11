@@ -279,8 +279,8 @@ the existing signed digest vector. The normal importer copies the measured facts
 into the model profile. The served regression uses the existing signed client,
 Blob CAS upload, pack importer and component read operation.
 
-Acceptance remains pending until the warm validator regenerates the contract
-schemas and Python DTOs, runs the native tests and runs the served regression.
+Acceptance remains pending until the warm validator regenerates the contract schemas and Python DTOs.
+The validator must run the native tests and the served regression.
 The regression sends each unknown enum through the raw MessagePack transport.
 It expects `INVALID_ARGUMENT` with detail `invalid request encoding`, then checks
 that no pack head, receipt, server component or model component exists.
