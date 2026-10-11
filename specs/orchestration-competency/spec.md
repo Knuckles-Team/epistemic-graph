@@ -43,3 +43,7 @@ Owned: ontology gaps, SHACL shapes, source-authority mappings, fixtures and acce
 
 - Whether the AgentTemplate class belongs in `catalog-v1.ttl` (currently term-free) or `orchestration-v1.ttl`.
 - Whether step order reuses `swarm:` edges or adds a neutral `eg:precedes`.
+
+## Virtual-first: the engine reaches source data, it does not copy it
+
+What is ingested from a connected source is its **ontology and access contract**. The data stays in the source; the engine fetches it at query time through an ontology-driven virtual graph, selected by the ontology's source declarations. The contract kinds are A2A, MCP, API (REST), GraphQL and virtual-graph contracts over relational or document stores. A question is answered by federating over those contracts. Copying a source into the engine is an optimisation that needs its own stated reason (latency, availability, history); it is never the default and never a precondition for answering.

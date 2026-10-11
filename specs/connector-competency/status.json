@@ -267,7 +267,14 @@
     "EG-CQ-CONN-R066",
     "EG-CQ-CONN-R066.1",
     "EG-CQ-CONN-R066.2",
-    "EG-CQ-CONN-R066.3"
+    "EG-CQ-CONN-R066.3",
+    "EG-CQ-CONN-R067",
+    "EG-CQ-CONN-R067.1",
+    "EG-CQ-CONN-R067.2",
+    "EG-CQ-CONN-R067.3",
+    "EG-CQ-CONN-R067.4",
+    "EG-CQ-CONN-R067.5",
+    "EG-CQ-CONN-R067.6"
   ],
   "requirements": [
     {
@@ -2444,6 +2451,63 @@
     {
       "id": "EG-CQ-CONN-R066.3",
       "title": "wger acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R067",
+      "title": "Contract kinds rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R067.1",
+        "EG-CQ-CONN-R067.2",
+        "EG-CQ-CONN-R067.3",
+        "EG-CQ-CONN-R067.4",
+        "EG-CQ-CONN-R067.5",
+        "EG-CQ-CONN-R067.6"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R067.1",
+      "title": "MCP contract answers at query time",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R067.2",
+      "title": "A2A contract answers at query time",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R067.3",
+      "title": "API (REST) contract answers at query time",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R067.4",
+      "title": "GraphQL contract answers at query time",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R067.5",
+      "title": "virtual graph over a relational or document store contract answers at query time",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R067.6",
+      "title": "Materialisation is declared, never implicit",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

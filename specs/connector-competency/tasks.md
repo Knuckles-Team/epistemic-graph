@@ -68,3 +68,4 @@ Tasks mirror requirements.md rows; check a task only when its evidence is linked
 - [ ] **CQ-064 · EG-CQ-CONN-R064:** uptime rollup (EG-CQ-CONN-R064.1 single-source, .2 cross-source, .3 acceptance).
 - [ ] **CQ-065 · EG-CQ-CONN-R065:** vector rollup (EG-CQ-CONN-R065.1 single-source, .2 cross-source, .3 acceptance).
 - [ ] **CQ-066 · EG-CQ-CONN-R066:** wger rollup (EG-CQ-CONN-R066.1 single-source, .2 cross-source, .3 acceptance).
+- [ ] **CQ-067 · EG-CQ-CONN-R067:** contract kinds rollup (EG-CQ-CONN-R067.1 MCP, .2 A2A, .3 API, .4 GraphQL, .5 virtual graph, .6 declared materialisation).

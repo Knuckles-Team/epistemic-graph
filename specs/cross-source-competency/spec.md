@@ -49,3 +49,7 @@ Owned here: the authority vocabulary, the missing supply-chain and commercial te
 - Whether the authority is per class or per class and property facet (`R003.1` assumes facets; to be decided at `R001.1`).
 - Which relation carries service to business capability: `:supports` (`core-foundation-v1.ttl`) or an ArchiMate relationship (`R008.2.3`).
 - Which connected sources exist on the day of the live run is unknown from this repository.
+
+## Virtual-first: the engine reaches source data, it does not copy it
+
+What is ingested from a connected source is its **ontology and access contract**. The data stays in the source; the engine fetches it at query time through an ontology-driven virtual graph, selected by the ontology's source declarations. The contract kinds are A2A, MCP, API (REST), GraphQL and virtual-graph contracts over relational or document stores. A question is answered by federating over those contracts. Copying a source into the engine is an optimisation that needs its own stated reason (latency, availability, history); it is never the default and never a precondition for answering.
