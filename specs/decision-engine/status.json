@@ -1486,7 +1486,7 @@
     {
       "id": "EG-DECISION-ENGINE-R072",
       "title": "Decision observability spans and metrics",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "1e9ea1ef3790",
         "2a0d6eae0918",
@@ -1500,8 +1500,10 @@
     {
       "id": "EG-DECISION-ENGINE-R072.1",
       "title": "Solver node count and optimality gap are emitted on the Assemble/solver path",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "7e2feaaad52d"
+      ],
       "verified_by": []
     },
     {
