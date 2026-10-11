@@ -178,27 +178,30 @@ def test_write_refuses_symlinks_before_changing_files(codec, codec_repo, target)
     assert (root / codec.CLIENT_DIRS[0] / codec.MODULE).read_bytes() == WASM
 
 
-def test_write_refuses_ambiguous_hash_layout_without_side_effects(codec, codec_repo):
+@pytest.mark.parametrize(
+    ("metadata_decoy", "refusal"),
+    [
+        pytest.param(False, "unsupported ledger hash layout", id="quoted-hash-key"),
+        pytest.param(True, "refused unexpected ledger changes", id="metadata-decoy"),
+    ],
+)
+def test_write_refuses_ambiguous_hash_layout_without_side_effects(
+    codec, codec_repo, capsys, metadata_decoy, refusal
+):
     root, ledger = codec_repo
     original = ledger.read_text().replace('sha256 = "', '"sha256" = "', 1)
+    if metadata_decoy:
+        reason = next(
+            line for line in original.splitlines() if line.startswith("reason =")
+        )
+        original = original.replace(
+            reason,
+            "reason = '''\nsha256 = \"" + hashlib.sha256(WASM).hexdigest() + "\"\n'''",
+            1,
+        )
     ledger.write_text(original)
     assert codec.write(root, WASM + b"\x00\x01x") == 1
-    assert ledger.read_text() == original
-    for client in codec.CLIENT_DIRS:
-        assert (root / client / codec.MODULE).read_bytes() == WASM
-
-
-def test_write_refuses_hash_assignment_hidden_in_metadata(codec, codec_repo):
-    root, ledger = codec_repo
-    original = ledger.read_text().replace('sha256 = "', '"sha256" = "', 1)
-    reason = next(line for line in original.splitlines() if line.startswith("reason ="))
-    original = original.replace(
-        reason,
-        "reason = '''\nsha256 = \"" + hashlib.sha256(WASM).hexdigest() + "\"\n'''",
-        1,
-    )
-    ledger.write_text(original)
-    assert codec.write(root, WASM + b"\x00\x01x") == 1
+    assert refusal in capsys.readouterr().err
     assert ledger.read_text() == original
     for client in codec.CLIENT_DIRS:
         assert (root / client / codec.MODULE).read_bytes() == WASM
