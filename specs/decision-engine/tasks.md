@@ -130,7 +130,7 @@ Existing source modules and tests provide foundations, but this spec does not as
 - [ ] **EG-DECISION-ENGINE-R093.2.1:** Collect seeded results through the existing served client.
 - [ ] **EG-DECISION-ENGINE-R093.2.2:** Bind served labels to collected results and refuse invalid provenance.
 - [ ] **EG-DECISION-ENGINE-R093.2.3:** Verify training consumes real served episodes.
-- [x] **EG-DECISION-ENGINE-R102:** Schema repair proposals pass a decided mapping and shadow-branch check
+- [ ] **EG-DECISION-ENGINE-R102:** Schema repair proposals pass a decided mapping and shadow-branch check
 - [x] **EG-DECISION-ENGINE-R102.1:** Typed schema-repair activation gate (producer-first split of R102)
 - [ ] **EG-DECISION-ENGINE-R113:** EG commits capacity acquisition atomically with synthesis evidence
 - [x] **EG-DECISION-ENGINE-R113.1:** Typed atomic capacity/synthesis-evidence commit outcome (producer-first split of R113)
@@ -155,3 +155,12 @@ Existing source modules and tests provide foundations, but this spec does not as
 
 - [x] EG-DECISION-ENGINE-R074: Check component-kind closure documentation with positive and adversarial source fixtures.
 - [x] EG-DECISION-ENGINE-R123: Scan canonical solve DTO declarations and reject planted duplicates.
+
+## Remaining integration acceptance
+
+- [ ] **EG-DECISION-ENGINE-R079.2:** Embedding admission at the ingestion boundary; producer tests do not close this integration requirement.
+- [ ] **EG-DECISION-ENGINE-R079.3:** Duplicate and size admission; producer tests do not close this integration requirement.
+- [ ] **EG-DECISION-ENGINE-R079.4:** SQL column admission; producer tests do not close this integration requirement.
+- [ ] **EG-DECISION-ENGINE-R079.5:** Retrieval feedback admission; producer tests do not close this integration requirement.
+- [ ] **EG-DECISION-ENGINE-R080.2:** Served enrichment ladder qualification; producer tests do not close this integration requirement.
+- [ ] **EG-DECISION-ENGINE-R102.2:** Served shadow repair qualification; producer tests do not close this integration requirement.
