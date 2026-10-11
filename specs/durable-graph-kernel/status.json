@@ -279,6 +279,7 @@
       "title": "Clippy and targeted tests cover the full and all-features builds",
       "delivery_state": "SPECIFIED",
       "landed_in": [
+        "1c6b4c961a40",
         "9794030f6459",
         "a676823d2b54"
       ],
@@ -511,7 +512,7 @@
         "a676823d2b54"
       ],
       "verified_by": [
-        "src/server/mutation_batch/lifecycle_tests.rs:338"
+        "src/server/mutation_batch/lifecycle_tests.rs:410"
       ]
     },
     {
@@ -1288,12 +1289,14 @@
       "title": "Idempotent retry of CreateGraph and DeleteGraph succeeds",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "1c6b4c961a40",
         "1ef84395fa69",
+        "3c481565fe1c",
         "94edcf341758",
         "ceec54145720"
       ],
       "verified_by": [
-        "src/server/mutation_batch/lifecycle_tests.rs:241"
+        "src/server/mutation_batch/lifecycle_tests.rs:242"
       ]
     },
     {
