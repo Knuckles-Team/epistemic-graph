@@ -344,10 +344,7 @@ Native fixture execution remains pending; source bindings and formatting do not 
 The reputation reader also excludes synthetic decisions before learning option reliability or scoring forecasters.
 The query-enabled pipeline fixture checks forecaster metrics, reputation counts, and the learned reliability provider.
 
-### 2026-10-11: R118.1.2 consumer API audit
-
-The audit inspected commit `fca4d1fefe93dd9af056f92a394fe96bf7781540`.
-This amendment records prerequisites; it adds no implementation or acceptance evidence.
+### R118.1.2 source reliability consumers
 
 `crates/eg-epistemic/src/model.rs::AuthorityPolicy` stores a global `f64` reliability multiplier.
 `src/server/handlers/query/explain_wire_a.rs::epistemic_status_wire` selects the default policy without reading source reputation.

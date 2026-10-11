@@ -225,7 +225,6 @@ It checks absent synthetic Brier, log-loss, and ECE rows, plus exact real reputa
 
 ## R118.1.2 cross-surface acceptance prerequisites
 
-The 2026-10-11 audit adds no test binding or native execution evidence.
 `src/server/handlers/decide/stat_tests/reputation_tests.rs` already contains the served decision-log fixture.
 `below_the_support_floor_a_reputation_has_no_numbers` covers sparse SQL output.
 `source_reliability_is_learned_from_the_visible_log` covers dense UQL learning and invisible-history fallback.
@@ -240,5 +239,4 @@ An absent subject must remain distinguishable from a visible subject below the s
 Invisible outcomes and another tenant's dense history must not change either result or disclose hidden counts.
 The fixture must exercise real served adapters rather than manually assign equal scalar values.
 
-Native sparse/dense cross-surface execution remains unrun because these consumer prerequisites are absent.
-Static code inspection does not establish runtime acceptance.
+These acceptance tests require the consumer prerequisites described in the plan.
