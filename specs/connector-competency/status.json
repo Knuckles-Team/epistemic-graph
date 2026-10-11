@@ -1,0 +1,2452 @@
+{
+  "schema_version": 2,
+  "spec_id": "EG-CQ-CONN-001",
+  "owner_repo": "epistemic-graph",
+  "delivery_state": "SPECIFIED",
+  "requirement_ids": [
+    "EG-CQ-CONN-R001",
+    "EG-CQ-CONN-R001.1",
+    "EG-CQ-CONN-R001.2",
+    "EG-CQ-CONN-R001.3",
+    "EG-CQ-CONN-R002",
+    "EG-CQ-CONN-R002.1",
+    "EG-CQ-CONN-R002.2",
+    "EG-CQ-CONN-R002.3",
+    "EG-CQ-CONN-R003",
+    "EG-CQ-CONN-R003.1",
+    "EG-CQ-CONN-R003.2",
+    "EG-CQ-CONN-R003.3",
+    "EG-CQ-CONN-R004",
+    "EG-CQ-CONN-R004.1",
+    "EG-CQ-CONN-R004.2",
+    "EG-CQ-CONN-R004.3",
+    "EG-CQ-CONN-R005",
+    "EG-CQ-CONN-R005.1",
+    "EG-CQ-CONN-R005.2",
+    "EG-CQ-CONN-R005.3",
+    "EG-CQ-CONN-R006",
+    "EG-CQ-CONN-R006.1",
+    "EG-CQ-CONN-R006.2",
+    "EG-CQ-CONN-R006.3",
+    "EG-CQ-CONN-R007",
+    "EG-CQ-CONN-R007.1",
+    "EG-CQ-CONN-R007.2",
+    "EG-CQ-CONN-R007.3",
+    "EG-CQ-CONN-R008",
+    "EG-CQ-CONN-R008.1",
+    "EG-CQ-CONN-R008.2",
+    "EG-CQ-CONN-R008.3",
+    "EG-CQ-CONN-R009",
+    "EG-CQ-CONN-R009.1",
+    "EG-CQ-CONN-R009.2",
+    "EG-CQ-CONN-R009.3",
+    "EG-CQ-CONN-R010",
+    "EG-CQ-CONN-R010.1",
+    "EG-CQ-CONN-R010.2",
+    "EG-CQ-CONN-R010.3",
+    "EG-CQ-CONN-R011",
+    "EG-CQ-CONN-R011.1",
+    "EG-CQ-CONN-R011.2",
+    "EG-CQ-CONN-R011.3",
+    "EG-CQ-CONN-R012",
+    "EG-CQ-CONN-R012.1",
+    "EG-CQ-CONN-R012.2",
+    "EG-CQ-CONN-R012.3",
+    "EG-CQ-CONN-R013",
+    "EG-CQ-CONN-R013.1",
+    "EG-CQ-CONN-R013.2",
+    "EG-CQ-CONN-R013.3",
+    "EG-CQ-CONN-R014",
+    "EG-CQ-CONN-R014.1",
+    "EG-CQ-CONN-R014.2",
+    "EG-CQ-CONN-R014.3",
+    "EG-CQ-CONN-R015",
+    "EG-CQ-CONN-R015.1",
+    "EG-CQ-CONN-R015.2",
+    "EG-CQ-CONN-R015.3",
+    "EG-CQ-CONN-R016",
+    "EG-CQ-CONN-R016.1",
+    "EG-CQ-CONN-R016.2",
+    "EG-CQ-CONN-R016.3",
+    "EG-CQ-CONN-R017",
+    "EG-CQ-CONN-R017.1",
+    "EG-CQ-CONN-R017.2",
+    "EG-CQ-CONN-R017.3",
+    "EG-CQ-CONN-R018",
+    "EG-CQ-CONN-R018.1",
+    "EG-CQ-CONN-R018.2",
+    "EG-CQ-CONN-R018.3",
+    "EG-CQ-CONN-R019",
+    "EG-CQ-CONN-R019.1",
+    "EG-CQ-CONN-R019.2",
+    "EG-CQ-CONN-R019.3",
+    "EG-CQ-CONN-R020",
+    "EG-CQ-CONN-R020.1",
+    "EG-CQ-CONN-R020.2",
+    "EG-CQ-CONN-R020.3",
+    "EG-CQ-CONN-R021",
+    "EG-CQ-CONN-R021.1",
+    "EG-CQ-CONN-R021.2",
+    "EG-CQ-CONN-R021.3",
+    "EG-CQ-CONN-R022",
+    "EG-CQ-CONN-R022.1",
+    "EG-CQ-CONN-R022.2",
+    "EG-CQ-CONN-R022.3",
+    "EG-CQ-CONN-R023",
+    "EG-CQ-CONN-R023.1",
+    "EG-CQ-CONN-R023.2",
+    "EG-CQ-CONN-R023.3",
+    "EG-CQ-CONN-R024",
+    "EG-CQ-CONN-R024.1",
+    "EG-CQ-CONN-R024.2",
+    "EG-CQ-CONN-R024.3",
+    "EG-CQ-CONN-R025",
+    "EG-CQ-CONN-R025.1",
+    "EG-CQ-CONN-R025.2",
+    "EG-CQ-CONN-R025.3",
+    "EG-CQ-CONN-R026",
+    "EG-CQ-CONN-R026.1",
+    "EG-CQ-CONN-R026.2",
+    "EG-CQ-CONN-R026.3",
+    "EG-CQ-CONN-R027",
+    "EG-CQ-CONN-R027.1",
+    "EG-CQ-CONN-R027.2",
+    "EG-CQ-CONN-R027.3",
+    "EG-CQ-CONN-R028",
+    "EG-CQ-CONN-R028.1",
+    "EG-CQ-CONN-R028.2",
+    "EG-CQ-CONN-R028.3",
+    "EG-CQ-CONN-R029",
+    "EG-CQ-CONN-R029.1",
+    "EG-CQ-CONN-R029.2",
+    "EG-CQ-CONN-R029.3",
+    "EG-CQ-CONN-R030",
+    "EG-CQ-CONN-R030.1",
+    "EG-CQ-CONN-R030.2",
+    "EG-CQ-CONN-R030.3",
+    "EG-CQ-CONN-R031",
+    "EG-CQ-CONN-R031.1",
+    "EG-CQ-CONN-R031.2",
+    "EG-CQ-CONN-R031.3",
+    "EG-CQ-CONN-R032",
+    "EG-CQ-CONN-R032.1",
+    "EG-CQ-CONN-R032.2",
+    "EG-CQ-CONN-R032.3",
+    "EG-CQ-CONN-R033",
+    "EG-CQ-CONN-R033.1",
+    "EG-CQ-CONN-R033.2",
+    "EG-CQ-CONN-R033.3",
+    "EG-CQ-CONN-R034",
+    "EG-CQ-CONN-R034.1",
+    "EG-CQ-CONN-R034.2",
+    "EG-CQ-CONN-R034.3",
+    "EG-CQ-CONN-R035",
+    "EG-CQ-CONN-R035.1",
+    "EG-CQ-CONN-R035.2",
+    "EG-CQ-CONN-R035.3",
+    "EG-CQ-CONN-R036",
+    "EG-CQ-CONN-R036.1",
+    "EG-CQ-CONN-R036.2",
+    "EG-CQ-CONN-R036.3",
+    "EG-CQ-CONN-R037",
+    "EG-CQ-CONN-R037.1",
+    "EG-CQ-CONN-R037.2",
+    "EG-CQ-CONN-R037.3",
+    "EG-CQ-CONN-R038",
+    "EG-CQ-CONN-R038.1",
+    "EG-CQ-CONN-R038.2",
+    "EG-CQ-CONN-R038.3",
+    "EG-CQ-CONN-R039",
+    "EG-CQ-CONN-R039.1",
+    "EG-CQ-CONN-R039.2",
+    "EG-CQ-CONN-R039.3",
+    "EG-CQ-CONN-R040",
+    "EG-CQ-CONN-R040.1",
+    "EG-CQ-CONN-R040.2",
+    "EG-CQ-CONN-R040.3",
+    "EG-CQ-CONN-R041",
+    "EG-CQ-CONN-R041.1",
+    "EG-CQ-CONN-R041.2",
+    "EG-CQ-CONN-R041.3",
+    "EG-CQ-CONN-R042",
+    "EG-CQ-CONN-R042.1",
+    "EG-CQ-CONN-R042.2",
+    "EG-CQ-CONN-R042.3",
+    "EG-CQ-CONN-R043",
+    "EG-CQ-CONN-R043.1",
+    "EG-CQ-CONN-R043.2",
+    "EG-CQ-CONN-R043.3",
+    "EG-CQ-CONN-R044",
+    "EG-CQ-CONN-R044.1",
+    "EG-CQ-CONN-R044.2",
+    "EG-CQ-CONN-R044.3",
+    "EG-CQ-CONN-R045",
+    "EG-CQ-CONN-R045.1",
+    "EG-CQ-CONN-R045.2",
+    "EG-CQ-CONN-R045.3",
+    "EG-CQ-CONN-R046",
+    "EG-CQ-CONN-R046.1",
+    "EG-CQ-CONN-R046.2",
+    "EG-CQ-CONN-R046.3",
+    "EG-CQ-CONN-R047",
+    "EG-CQ-CONN-R047.1",
+    "EG-CQ-CONN-R047.2",
+    "EG-CQ-CONN-R047.3",
+    "EG-CQ-CONN-R048",
+    "EG-CQ-CONN-R048.1",
+    "EG-CQ-CONN-R048.2",
+    "EG-CQ-CONN-R048.3",
+    "EG-CQ-CONN-R049",
+    "EG-CQ-CONN-R049.1",
+    "EG-CQ-CONN-R049.2",
+    "EG-CQ-CONN-R049.3",
+    "EG-CQ-CONN-R050",
+    "EG-CQ-CONN-R050.1",
+    "EG-CQ-CONN-R050.2",
+    "EG-CQ-CONN-R050.3",
+    "EG-CQ-CONN-R051",
+    "EG-CQ-CONN-R051.1",
+    "EG-CQ-CONN-R051.2",
+    "EG-CQ-CONN-R051.3",
+    "EG-CQ-CONN-R052",
+    "EG-CQ-CONN-R052.1",
+    "EG-CQ-CONN-R052.2",
+    "EG-CQ-CONN-R052.3",
+    "EG-CQ-CONN-R053",
+    "EG-CQ-CONN-R053.1",
+    "EG-CQ-CONN-R053.2",
+    "EG-CQ-CONN-R053.3",
+    "EG-CQ-CONN-R054",
+    "EG-CQ-CONN-R054.1",
+    "EG-CQ-CONN-R054.2",
+    "EG-CQ-CONN-R054.3",
+    "EG-CQ-CONN-R055",
+    "EG-CQ-CONN-R055.1",
+    "EG-CQ-CONN-R055.2",
+    "EG-CQ-CONN-R055.3",
+    "EG-CQ-CONN-R056",
+    "EG-CQ-CONN-R056.1",
+    "EG-CQ-CONN-R056.2",
+    "EG-CQ-CONN-R056.3",
+    "EG-CQ-CONN-R057",
+    "EG-CQ-CONN-R057.1",
+    "EG-CQ-CONN-R057.2",
+    "EG-CQ-CONN-R057.3",
+    "EG-CQ-CONN-R058",
+    "EG-CQ-CONN-R058.1",
+    "EG-CQ-CONN-R058.2",
+    "EG-CQ-CONN-R058.3",
+    "EG-CQ-CONN-R059",
+    "EG-CQ-CONN-R059.1",
+    "EG-CQ-CONN-R059.2",
+    "EG-CQ-CONN-R059.3",
+    "EG-CQ-CONN-R060",
+    "EG-CQ-CONN-R060.1",
+    "EG-CQ-CONN-R060.2",
+    "EG-CQ-CONN-R060.3",
+    "EG-CQ-CONN-R061",
+    "EG-CQ-CONN-R061.1",
+    "EG-CQ-CONN-R061.2",
+    "EG-CQ-CONN-R061.3",
+    "EG-CQ-CONN-R062",
+    "EG-CQ-CONN-R062.1",
+    "EG-CQ-CONN-R062.2",
+    "EG-CQ-CONN-R062.3",
+    "EG-CQ-CONN-R063",
+    "EG-CQ-CONN-R063.1",
+    "EG-CQ-CONN-R063.2",
+    "EG-CQ-CONN-R063.3",
+    "EG-CQ-CONN-R064",
+    "EG-CQ-CONN-R064.1",
+    "EG-CQ-CONN-R064.2",
+    "EG-CQ-CONN-R064.3",
+    "EG-CQ-CONN-R065",
+    "EG-CQ-CONN-R065.1",
+    "EG-CQ-CONN-R065.2",
+    "EG-CQ-CONN-R065.3",
+    "EG-CQ-CONN-R066",
+    "EG-CQ-CONN-R066.1",
+    "EG-CQ-CONN-R066.2",
+    "EG-CQ-CONN-R066.3"
+  ],
+  "requirements": [
+    {
+      "id": "EG-CQ-CONN-R001",
+      "title": "ansible-tower competency rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R001.1",
+        "EG-CQ-CONN-R001.2",
+        "EG-CQ-CONN-R001.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R001.1",
+      "title": "ansible-tower single-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R001.2",
+      "title": "ansible-tower cross-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R001.3",
+      "title": "ansible-tower acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R002",
+      "title": "archimate competency rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R002.1",
+        "EG-CQ-CONN-R002.2",
+        "EG-CQ-CONN-R002.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R002.1",
+      "title": "archimate single-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R002.2",
+      "title": "archimate cross-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R002.3",
+      "title": "archimate acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R003",
+      "title": "archivebox competency rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R003.1",
+        "EG-CQ-CONN-R003.2",
+        "EG-CQ-CONN-R003.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R003.1",
+      "title": "archivebox single-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R003.2",
+      "title": "archivebox cross-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R003.3",
+      "title": "archivebox acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R004",
+      "title": "aris competency rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R004.1",
+        "EG-CQ-CONN-R004.2",
+        "EG-CQ-CONN-R004.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R004.1",
+      "title": "aris single-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R004.2",
+      "title": "aris cross-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R004.3",
+      "title": "aris acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R005",
+      "title": "arr competency rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R005.1",
+        "EG-CQ-CONN-R005.2",
+        "EG-CQ-CONN-R005.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R005.1",
+      "title": "arr single-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R005.2",
+      "title": "arr cross-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R005.3",
+      "title": "arr acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R006",
+      "title": "atlassian competency rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R006.1",
+        "EG-CQ-CONN-R006.2",
+        "EG-CQ-CONN-R006.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R006.1",
+      "title": "atlassian single-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R006.2",
+      "title": "atlassian cross-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R006.3",
+      "title": "atlassian acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R007",
+      "title": "audiobookshelf competency rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R007.1",
+        "EG-CQ-CONN-R007.2",
+        "EG-CQ-CONN-R007.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R007.1",
+      "title": "audiobookshelf single-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R007.2",
+      "title": "audiobookshelf cross-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R007.3",
+      "title": "audiobookshelf acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R008",
+      "title": "audio-transcriber competency rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R008.1",
+        "EG-CQ-CONN-R008.2",
+        "EG-CQ-CONN-R008.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R008.1",
+      "title": "audio-transcriber single-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R008.2",
+      "title": "audio-transcriber cross-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R008.3",
+      "title": "audio-transcriber acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R009",
+      "title": "caddy competency rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R009.1",
+        "EG-CQ-CONN-R009.2",
+        "EG-CQ-CONN-R009.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R009.1",
+      "title": "caddy single-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R009.2",
+      "title": "caddy cross-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R009.3",
+      "title": "caddy acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R010",
+      "title": "camunda competency rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R010.1",
+        "EG-CQ-CONN-R010.2",
+        "EG-CQ-CONN-R010.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R010.1",
+      "title": "camunda single-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R010.2",
+      "title": "camunda cross-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R010.3",
+      "title": "camunda acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R011",
+      "title": "ciso-assistant competency rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R011.1",
+        "EG-CQ-CONN-R011.2",
+        "EG-CQ-CONN-R011.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R011.1",
+      "title": "ciso-assistant single-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R011.2",
+      "title": "ciso-assistant cross-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R011.3",
+      "title": "ciso-assistant acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R012",
+      "title": "clarity competency rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R012.1",
+        "EG-CQ-CONN-R012.2",
+        "EG-CQ-CONN-R012.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R012.1",
+      "title": "clarity single-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R012.2",
+      "title": "clarity cross-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R012.3",
+      "title": "clarity acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R013",
+      "title": "container-manager competency rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R013.1",
+        "EG-CQ-CONN-R013.2",
+        "EG-CQ-CONN-R013.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R013.1",
+      "title": "container-manager single-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R013.2",
+      "title": "container-manager cross-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R013.3",
+      "title": "container-manager acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R014",
+      "title": "data-science competency rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R014.1",
+        "EG-CQ-CONN-R014.2",
+        "EG-CQ-CONN-R014.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R014.1",
+      "title": "data-science single-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R014.2",
+      "title": "data-science cross-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R014.3",
+      "title": "data-science acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R015",
+      "title": "dockerhub competency rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R015.1",
+        "EG-CQ-CONN-R015.2",
+        "EG-CQ-CONN-R015.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R015.1",
+      "title": "dockerhub single-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R015.2",
+      "title": "dockerhub cross-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R015.3",
+      "title": "dockerhub acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R016",
+      "title": "documentdb competency rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R016.1",
+        "EG-CQ-CONN-R016.2",
+        "EG-CQ-CONN-R016.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R016.1",
+      "title": "documentdb single-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R016.2",
+      "title": "documentdb cross-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R016.3",
+      "title": "documentdb acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R017",
+      "title": "egeria competency rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R017.1",
+        "EG-CQ-CONN-R017.2",
+        "EG-CQ-CONN-R017.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R017.1",
+      "title": "egeria single-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R017.2",
+      "title": "egeria cross-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R017.3",
+      "title": "egeria acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R018",
+      "title": "emerald-exchange competency rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R018.1",
+        "EG-CQ-CONN-R018.2",
+        "EG-CQ-CONN-R018.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R018.1",
+      "title": "emerald-exchange single-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R018.2",
+      "title": "emerald-exchange cross-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R018.3",
+      "title": "emerald-exchange acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R019",
+      "title": "erpnext competency rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R019.1",
+        "EG-CQ-CONN-R019.2",
+        "EG-CQ-CONN-R019.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R019.1",
+      "title": "erpnext single-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R019.2",
+      "title": "erpnext cross-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R019.3",
+      "title": "erpnext acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R020",
+      "title": "fan-manager competency rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R020.1",
+        "EG-CQ-CONN-R020.2",
+        "EG-CQ-CONN-R020.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R020.1",
+      "title": "fan-manager single-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R020.2",
+      "title": "fan-manager cross-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R020.3",
+      "title": "fan-manager acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R021",
+      "title": "firefly-iii competency rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R021.1",
+        "EG-CQ-CONN-R021.2",
+        "EG-CQ-CONN-R021.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R021.1",
+      "title": "firefly-iii single-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R021.2",
+      "title": "firefly-iii cross-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R021.3",
+      "title": "firefly-iii acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R022",
+      "title": "freshrss competency rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R022.1",
+        "EG-CQ-CONN-R022.2",
+        "EG-CQ-CONN-R022.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R022.1",
+      "title": "freshrss single-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R022.2",
+      "title": "freshrss cross-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R022.3",
+      "title": "freshrss acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R023",
+      "title": "github competency rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R023.1",
+        "EG-CQ-CONN-R023.2",
+        "EG-CQ-CONN-R023.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R023.1",
+      "title": "github single-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R023.2",
+      "title": "github cross-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R023.3",
+      "title": "github acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R024",
+      "title": "gitlab competency rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R024.1",
+        "EG-CQ-CONN-R024.2",
+        "EG-CQ-CONN-R024.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R024.1",
+      "title": "gitlab single-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R024.2",
+      "title": "gitlab cross-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R024.3",
+      "title": "gitlab acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R025",
+      "title": "gramps competency rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R025.1",
+        "EG-CQ-CONN-R025.2",
+        "EG-CQ-CONN-R025.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R025.1",
+      "title": "gramps single-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R025.2",
+      "title": "gramps cross-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R025.3",
+      "title": "gramps acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R026",
+      "title": "home-assistant competency rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R026.1",
+        "EG-CQ-CONN-R026.2",
+        "EG-CQ-CONN-R026.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R026.1",
+      "title": "home-assistant single-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R026.2",
+      "title": "home-assistant cross-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R026.3",
+      "title": "home-assistant acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R027",
+      "title": "jellyfin competency rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R027.1",
+        "EG-CQ-CONN-R027.2",
+        "EG-CQ-CONN-R027.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R027.1",
+      "title": "jellyfin single-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R027.2",
+      "title": "jellyfin cross-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R027.3",
+      "title": "jellyfin acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R028",
+      "title": "jena competency rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R028.1",
+        "EG-CQ-CONN-R028.2",
+        "EG-CQ-CONN-R028.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R028.1",
+      "title": "jena single-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R028.2",
+      "title": "jena cross-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R028.3",
+      "title": "jena acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R029",
+      "title": "kafka competency rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R029.1",
+        "EG-CQ-CONN-R029.2",
+        "EG-CQ-CONN-R029.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R029.1",
+      "title": "kafka single-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R029.2",
+      "title": "kafka cross-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R029.3",
+      "title": "kafka acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R030",
+      "title": "keycloak competency rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R030.1",
+        "EG-CQ-CONN-R030.2",
+        "EG-CQ-CONN-R030.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R030.1",
+      "title": "keycloak single-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R030.2",
+      "title": "keycloak cross-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R030.3",
+      "title": "keycloak acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R031",
+      "title": "langfuse competency rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R031.1",
+        "EG-CQ-CONN-R031.2",
+        "EG-CQ-CONN-R031.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R031.1",
+      "title": "langfuse single-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R031.2",
+      "title": "langfuse cross-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R031.3",
+      "title": "langfuse acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R032",
+      "title": "leanix competency rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R032.1",
+        "EG-CQ-CONN-R032.2",
+        "EG-CQ-CONN-R032.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R032.1",
+      "title": "leanix single-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R032.2",
+      "title": "leanix cross-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R032.3",
+      "title": "leanix acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R033",
+      "title": "legal-peripherals competency rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R033.1",
+        "EG-CQ-CONN-R033.2",
+        "EG-CQ-CONN-R033.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R033.1",
+      "title": "legal-peripherals single-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R033.2",
+      "title": "legal-peripherals cross-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R033.3",
+      "title": "legal-peripherals acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R034",
+      "title": "lgtm competency rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R034.1",
+        "EG-CQ-CONN-R034.2",
+        "EG-CQ-CONN-R034.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R034.1",
+      "title": "lgtm single-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R034.2",
+      "title": "lgtm cross-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R034.3",
+      "title": "lgtm acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R035",
+      "title": "listmonk competency rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R035.1",
+        "EG-CQ-CONN-R035.2",
+        "EG-CQ-CONN-R035.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R035.1",
+      "title": "listmonk single-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R035.2",
+      "title": "listmonk cross-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R035.3",
+      "title": "listmonk acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R036",
+      "title": "mattermost competency rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R036.1",
+        "EG-CQ-CONN-R036.2",
+        "EG-CQ-CONN-R036.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R036.1",
+      "title": "mattermost single-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R036.2",
+      "title": "mattermost cross-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R036.3",
+      "title": "mattermost acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R037",
+      "title": "mealie competency rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R037.1",
+        "EG-CQ-CONN-R037.2",
+        "EG-CQ-CONN-R037.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R037.1",
+      "title": "mealie single-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R037.2",
+      "title": "mealie cross-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R037.3",
+      "title": "mealie acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R038",
+      "title": "media-downloader competency rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R038.1",
+        "EG-CQ-CONN-R038.2",
+        "EG-CQ-CONN-R038.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R038.1",
+      "title": "media-downloader single-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R038.2",
+      "title": "media-downloader cross-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R038.3",
+      "title": "media-downloader acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R039",
+      "title": "microsoft competency rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R039.1",
+        "EG-CQ-CONN-R039.2",
+        "EG-CQ-CONN-R039.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R039.1",
+      "title": "microsoft single-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R039.2",
+      "title": "microsoft cross-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R039.3",
+      "title": "microsoft acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R040",
+      "title": "nextcloud competency rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R040.1",
+        "EG-CQ-CONN-R040.2",
+        "EG-CQ-CONN-R040.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R040.1",
+      "title": "nextcloud single-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R040.2",
+      "title": "nextcloud cross-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R040.3",
+      "title": "nextcloud acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R041",
+      "title": "objectstore competency rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R041.1",
+        "EG-CQ-CONN-R041.2",
+        "EG-CQ-CONN-R041.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R041.1",
+      "title": "objectstore single-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R041.2",
+      "title": "objectstore cross-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R041.3",
+      "title": "objectstore acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R042",
+      "title": "okta competency rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R042.1",
+        "EG-CQ-CONN-R042.2",
+        "EG-CQ-CONN-R042.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R042.1",
+      "title": "okta single-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R042.2",
+      "title": "okta cross-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R042.3",
+      "title": "okta acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R043",
+      "title": "onetrust competency rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R043.1",
+        "EG-CQ-CONN-R043.2",
+        "EG-CQ-CONN-R043.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R043.1",
+      "title": "onetrust single-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R043.2",
+      "title": "onetrust cross-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R043.3",
+      "title": "onetrust acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R044",
+      "title": "openbao competency rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R044.1",
+        "EG-CQ-CONN-R044.2",
+        "EG-CQ-CONN-R044.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R044.1",
+      "title": "openbao single-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R044.2",
+      "title": "openbao cross-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R044.3",
+      "title": "openbao acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R045",
+      "title": "owncast competency rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R045.1",
+        "EG-CQ-CONN-R045.2",
+        "EG-CQ-CONN-R045.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R045.1",
+      "title": "owncast single-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R045.2",
+      "title": "owncast cross-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R045.3",
+      "title": "owncast acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R046",
+      "title": "paperless-ngx competency rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R046.1",
+        "EG-CQ-CONN-R046.2",
+        "EG-CQ-CONN-R046.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R046.1",
+      "title": "paperless-ngx single-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R046.2",
+      "title": "paperless-ngx cross-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R046.3",
+      "title": "paperless-ngx acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R047",
+      "title": "plane competency rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R047.1",
+        "EG-CQ-CONN-R047.2",
+        "EG-CQ-CONN-R047.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R047.1",
+      "title": "plane single-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R047.2",
+      "title": "plane cross-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R047.3",
+      "title": "plane acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R048",
+      "title": "portainer competency rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R048.1",
+        "EG-CQ-CONN-R048.2",
+        "EG-CQ-CONN-R048.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R048.1",
+      "title": "portainer single-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R048.2",
+      "title": "portainer cross-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R048.3",
+      "title": "portainer acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R049",
+      "title": "postiz competency rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R049.1",
+        "EG-CQ-CONN-R049.2",
+        "EG-CQ-CONN-R049.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R049.1",
+      "title": "postiz single-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R049.2",
+      "title": "postiz cross-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R049.3",
+      "title": "postiz acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R050",
+      "title": "pulselink competency rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R050.1",
+        "EG-CQ-CONN-R050.2",
+        "EG-CQ-CONN-R050.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R050.1",
+      "title": "pulselink single-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R050.2",
+      "title": "pulselink cross-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R050.3",
+      "title": "pulselink acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R051",
+      "title": "qbittorrent competency rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R051.1",
+        "EG-CQ-CONN-R051.2",
+        "EG-CQ-CONN-R051.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R051.1",
+      "title": "qbittorrent single-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R051.2",
+      "title": "qbittorrent cross-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R051.3",
+      "title": "qbittorrent acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R052",
+      "title": "repository-manager competency rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R052.1",
+        "EG-CQ-CONN-R052.2",
+        "EG-CQ-CONN-R052.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R052.1",
+      "title": "repository-manager single-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R052.2",
+      "title": "repository-manager cross-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R052.3",
+      "title": "repository-manager acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R053",
+      "title": "rom-manager competency rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R053.1",
+        "EG-CQ-CONN-R053.2",
+        "EG-CQ-CONN-R053.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R053.1",
+      "title": "rom-manager single-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R053.2",
+      "title": "rom-manager cross-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R053.3",
+      "title": "rom-manager acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R054",
+      "title": "salesforce competency rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R054.1",
+        "EG-CQ-CONN-R054.2",
+        "EG-CQ-CONN-R054.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R054.1",
+      "title": "salesforce single-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R054.2",
+      "title": "salesforce cross-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R054.3",
+      "title": "salesforce acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R055",
+      "title": "scholarx competency rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R055.1",
+        "EG-CQ-CONN-R055.2",
+        "EG-CQ-CONN-R055.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R055.1",
+      "title": "scholarx single-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R055.2",
+      "title": "scholarx cross-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R055.3",
+      "title": "scholarx acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R056",
+      "title": "searxng competency rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R056.1",
+        "EG-CQ-CONN-R056.2",
+        "EG-CQ-CONN-R056.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R056.1",
+      "title": "searxng single-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R056.2",
+      "title": "searxng cross-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R056.3",
+      "title": "searxng acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R057",
+      "title": "servicenow competency rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R057.1",
+        "EG-CQ-CONN-R057.2",
+        "EG-CQ-CONN-R057.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R057.1",
+      "title": "servicenow single-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R057.2",
+      "title": "servicenow cross-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R057.3",
+      "title": "servicenow acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R058",
+      "title": "sql competency rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R058.1",
+        "EG-CQ-CONN-R058.2",
+        "EG-CQ-CONN-R058.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R058.1",
+      "title": "sql single-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R058.2",
+      "title": "sql cross-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R058.3",
+      "title": "sql acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R059",
+      "title": "stirlingpdf competency rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R059.1",
+        "EG-CQ-CONN-R059.2",
+        "EG-CQ-CONN-R059.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R059.1",
+      "title": "stirlingpdf single-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R059.2",
+      "title": "stirlingpdf cross-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R059.3",
+      "title": "stirlingpdf acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R060",
+      "title": "systems-manager competency rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R060.1",
+        "EG-CQ-CONN-R060.2",
+        "EG-CQ-CONN-R060.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R060.1",
+      "title": "systems-manager single-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R060.2",
+      "title": "systems-manager cross-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R060.3",
+      "title": "systems-manager acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R061",
+      "title": "technitium-dns competency rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R061.1",
+        "EG-CQ-CONN-R061.2",
+        "EG-CQ-CONN-R061.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R061.1",
+      "title": "technitium-dns single-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R061.2",
+      "title": "technitium-dns cross-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R061.3",
+      "title": "technitium-dns acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R062",
+      "title": "tunnel-manager competency rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R062.1",
+        "EG-CQ-CONN-R062.2",
+        "EG-CQ-CONN-R062.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R062.1",
+      "title": "tunnel-manager single-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R062.2",
+      "title": "tunnel-manager cross-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R062.3",
+      "title": "tunnel-manager acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R063",
+      "title": "twenty competency rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R063.1",
+        "EG-CQ-CONN-R063.2",
+        "EG-CQ-CONN-R063.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R063.1",
+      "title": "twenty single-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R063.2",
+      "title": "twenty cross-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R063.3",
+      "title": "twenty acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R064",
+      "title": "uptime competency rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R064.1",
+        "EG-CQ-CONN-R064.2",
+        "EG-CQ-CONN-R064.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R064.1",
+      "title": "uptime single-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R064.2",
+      "title": "uptime cross-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R064.3",
+      "title": "uptime acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R065",
+      "title": "vector competency rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R065.1",
+        "EG-CQ-CONN-R065.2",
+        "EG-CQ-CONN-R065.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R065.1",
+      "title": "vector single-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R065.2",
+      "title": "vector cross-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R065.3",
+      "title": "vector acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R066",
+      "title": "wger competency rollup",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R066.1",
+        "EG-CQ-CONN-R066.2",
+        "EG-CQ-CONN-R066.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R066.1",
+      "title": "wger single-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R066.2",
+      "title": "wger cross-source question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R066.3",
+      "title": "wger acceptance test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    }
+  ]
+}
