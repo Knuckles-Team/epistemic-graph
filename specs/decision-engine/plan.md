@@ -290,3 +290,10 @@ test was not run. A rustc test harness importing the exact production metrics
 module with the existing tracing rlib passed all 3 helper/capture tests. This
 command does not execute the native solver-entry regression. The regression
 source is bound to R072.1; generated spec state and test execution are separate.
+
+## Retrieval refusal envelope (R029)
+
+The served refusal test inspects `Response.error` and `Response.error_detail` separately.
+The error code is `PARAMETER_INVALID`; the detail names `UNSUPPORTED_RETRIEVAL_PLAN` and the rejected option.
+The test also requires an absent result.
+This fixture covers registry refusal only; representative retrieval-plan selection requires the integration test described in R029.
