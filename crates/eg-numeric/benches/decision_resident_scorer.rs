@@ -1,5 +1,5 @@
 //! EG-DECISION-ENGINE-R090.3: Linux native resource evidence, JSON on stdout.
-//! Run with --profile scorer-validation; see the owning test-spec for provenance.
+//! Run with --profile release; see the owning test-spec for provenance.
 #![allow(dead_code, unused_imports)]
 
 #[path = "../tests/decision/common.rs"]
@@ -214,7 +214,7 @@ fn measure(name: &str, head: &DecisionHeadBody, rows: &[Vec<i64>]) -> Value {
 fn resident_scorer_meets_declared_budget() -> i32 {
     assert!(
         !cfg!(debug_assertions),
-        "use the optimized scorer-validation profile"
+        "use the optimized release profile"
     );
     // Same 200-item, seed-0, 60-iteration fit as scorer_promotion.rs.
     let trained = fit_eval::fitted(HeadKind::OptionAttention, &common::gold_dataset(200, 0));
@@ -259,7 +259,7 @@ fn resident_scorer_meets_declared_budget() -> i32 {
     println!("{}", serde_json::to_string_pretty(&json!({
         "schema_version": 1, "requirement": "EG-DECISION-ENGINE-R090.3",
         "status": status, "clock": "CLOCK_THREAD_CPUTIME_ID", "quantile": "nearest_rank",
-        "required_profile": "scorer-validation", "build_provenance": "external_receipt_required",
+        "required_profile": "release", "build_provenance": "external_receipt_required",
         "architecture": std::env::consts::ARCH,
         "ceiling": {"parameters": RESIDENT_SCORER_CEILING.max_parameters, "resident_bytes": RESIDENT_SCORER_CEILING.max_bytes, "p99_cpu_micros": RESIDENT_SCORER_CEILING.max_p99_micros},
         "cases": cases,

@@ -38,7 +38,7 @@
       "const": "nearest_rank"
     },
     "required_profile": {
-      "const": "scorer-validation"
+      "const": "release"
     },
     "build_provenance": {
       "const": "external_receipt_required"

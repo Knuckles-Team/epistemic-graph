@@ -537,6 +537,6 @@ lists and blank names during decode and explicit validation. All twelve presence
 are covered. QuestionKind, profile resolution, handlers, persistence and served
 acceptance remain open under their separate leaves.
 
-### 2026-10-11 — R090.3 lean native measurement owner
+### Resident scorer resource measurement (R090.3)
 
-Move the benchmark code root to `crates/eg-numeric/benches/decision_resident_scorer.rs`, beside the production scorer. Reuse the promotion fit recipe and maximum legal shape; time individual production forward calls with Linux thread CPU time. Whole-runner peak RSS is a conservative upper bound only: above 8 MiB leaves scorer-specific memory inconclusive. Runner executable size is reported separately from server footprint. Native optimized measurements are pending; R090.3 remains unverified. The generated LANDED state records source publication only.
+The benchmark lives in `crates/eg-numeric/benches/decision_resident_scorer.rs`, beside the production scorer. It reuses the promotion fit recipe and maximum legal shape, timing individual production forward calls with Linux thread CPU time under the existing release profile. Whole-runner peak RSS is a conservative upper bound: above 8 MiB leaves scorer-specific memory inconclusive. Runner executable size is reported separately from server footprint. Acceptance requires an external receipt of the effective optimized build and passing measured limits; source publication alone does not verify the requirement.
