@@ -210,6 +210,50 @@ def test_validation_profile_is_warmed_without_affecting_release_wheels() -> None
     assert "cargo build --locked --features full --bin epistemic-graph-server" in builds
 
 
+def test_server_compiler_cache_is_installed_before_step_local_wrapper() -> None:
+    workflow = _workflow()
+    jobs = workflow["jobs"]
+    steps = jobs["python-server"]["steps"]
+    setup = next(s for s in steps if s.get("name") == "Install server compiler cache")
+    build = next(
+        s
+        for s in steps
+        if s.get("name") == "Build the full-featured engine binary once"
+    )
+    pack = next(
+        s for s in steps if s.get("name") == "Package exact-revision server binary"
+    )
+    assert setup["uses"] == (
+        "mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba"
+    )
+    assert setup["with"] == {"version": "v0.16.0"}
+    assert steps.index(setup) < steps.index(build) < steps.index(pack)
+    assert "if" not in setup and "if" not in build and "if" not in pack
+    assert build["run"] == (
+        "cargo build --locked --features full --bin epistemic-graph-server"
+    )
+    assert build["env"] == {
+        "RUSTC_WRAPPER": "sccache",
+        "SCCACHE_GHA_ENABLED": "true",
+        "SCCACHE_GHA_RW_MODE": (
+            "${{ github.ref == 'refs/heads/main' && 'READ_WRITE' || 'READ_ONLY' }}"
+        ),
+    }
+    assert workflow["env"]["CARGO_INCREMENTAL"] == "0"
+    assert "RUSTC_WRAPPER" not in workflow["env"]
+    for job in jobs.values():
+        assert "RUSTC_WRAPPER" not in job.get("env", {})
+        for step in job.get("steps", []):
+            if step is not build:
+                assert "RUSTC_WRAPPER" not in step.get("env", {})
+    stats = next(
+        s for s in steps if s.get("name") == "Report server compiler cache reuse"
+    )
+    assert stats["if"] == "always()"
+    assert stats["run"] == "sccache --show-stats"
+    assert steps.index(stats) > steps.index(build)
+
+
 @pytest.mark.parametrize("kind", ["kernels", "server"])
 @pytest.mark.parametrize("damage", [None, "digest", "revision", "source", "missing"])
 def test_native_artifact_roundtrip_fails_closed(
