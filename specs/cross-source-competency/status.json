@@ -1,0 +1,528 @@
+{
+  "schema_version": 2,
+  "spec_id": "EG-CQ-XSRC-001",
+  "owner_repo": "epistemic-graph",
+  "delivery_state": "SPECIFIED",
+  "requirement_ids": [
+    "EG-CQ-XSRC-R001",
+    "EG-CQ-XSRC-R001.1",
+    "EG-CQ-XSRC-R001.2",
+    "EG-CQ-XSRC-R001.3",
+    "EG-CQ-XSRC-R001.4",
+    "EG-CQ-XSRC-R002",
+    "EG-CQ-XSRC-R002.1",
+    "EG-CQ-XSRC-R002.2",
+    "EG-CQ-XSRC-R002.3",
+    "EG-CQ-XSRC-R002.4",
+    "EG-CQ-XSRC-R002.5",
+    "EG-CQ-XSRC-R002.6",
+    "EG-CQ-XSRC-R002.7",
+    "EG-CQ-XSRC-R003",
+    "EG-CQ-XSRC-R003.1",
+    "EG-CQ-XSRC-R003.2",
+    "EG-CQ-XSRC-R003.3",
+    "EG-CQ-XSRC-R003.4",
+    "EG-CQ-XSRC-R003.5",
+    "EG-CQ-XSRC-R004",
+    "EG-CQ-XSRC-R004.1",
+    "EG-CQ-XSRC-R004.2",
+    "EG-CQ-XSRC-R004.3",
+    "EG-CQ-XSRC-R004.4",
+    "EG-CQ-XSRC-R004.5",
+    "EG-CQ-XSRC-R005",
+    "EG-CQ-XSRC-R005.1",
+    "EG-CQ-XSRC-R005.2",
+    "EG-CQ-XSRC-R005.3",
+    "EG-CQ-XSRC-R005.4",
+    "EG-CQ-XSRC-R005.5",
+    "EG-CQ-XSRC-R006",
+    "EG-CQ-XSRC-R006.1",
+    "EG-CQ-XSRC-R006.2",
+    "EG-CQ-XSRC-R006.3",
+    "EG-CQ-XSRC-R006.4",
+    "EG-CQ-XSRC-R006.5",
+    "EG-CQ-XSRC-R007",
+    "EG-CQ-XSRC-R007.1",
+    "EG-CQ-XSRC-R007.2",
+    "EG-CQ-XSRC-R007.3",
+    "EG-CQ-XSRC-R007.4",
+    "EG-CQ-XSRC-R008",
+    "EG-CQ-XSRC-R008.1",
+    "EG-CQ-XSRC-R008.1.1",
+    "EG-CQ-XSRC-R008.1.2",
+    "EG-CQ-XSRC-R008.2",
+    "EG-CQ-XSRC-R008.2.1",
+    "EG-CQ-XSRC-R008.2.2",
+    "EG-CQ-XSRC-R008.2.3",
+    "EG-CQ-XSRC-R008.2.4",
+    "EG-CQ-XSRC-R008.3",
+    "EG-CQ-XSRC-R008.3.1",
+    "EG-CQ-XSRC-R008.3.2",
+    "EG-CQ-XSRC-R008.3.3",
+    "EG-CQ-XSRC-R008.3.4"
+  ],
+  "requirements": [
+    {
+      "id": "EG-CQ-XSRC-R001",
+      "title": "Concept-to-source authority is declared in the ontology (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-XSRC-R001.1",
+        "EG-CQ-XSRC-R001.2",
+        "EG-CQ-XSRC-R001.3",
+        "EG-CQ-XSRC-R001.4"
+      ]
+    },
+    {
+      "id": "EG-CQ-XSRC-R001.1",
+      "title": "Add `vg:SourceAuthority`, `vg:authoritativeSource`, `vg:authorityFor` and `vg:authorityRank` to the virtual-graph vocabulary",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-XSRC-R001.2",
+      "title": "SHACL shape: a `vg:SourceAuthority` names exactly one connected source, one class and one rank",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-XSRC-R001.3",
+      "title": "Authority applies through subclass entailment",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-XSRC-R001.4",
+      "title": "Authority records the approval of its mapping",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-XSRC-R002",
+      "title": "Supply-chain concepts and the sources that are authoritative for them (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-XSRC-R002.1",
+        "EG-CQ-XSRC-R002.2",
+        "EG-CQ-XSRC-R002.3",
+        "EG-CQ-XSRC-R002.4",
+        "EG-CQ-XSRC-R002.5",
+        "EG-CQ-XSRC-R002.6",
+        "EG-CQ-XSRC-R002.7"
+      ]
+    },
+    {
+      "id": "EG-CQ-XSRC-R002.1",
+      "title": "Add `:Supplier` as a subclass of `:Vendor`, and `:SupplyChainItem` with `:suppliedBy`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-XSRC-R002.2",
+      "title": "Add `:SoftwareComponent`, `:ComponentVersion` and `:publishedBy`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-XSRC-R002.3",
+      "title": "Add `:Vulnerability` and `:affectsComponent`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-XSRC-R002.4",
+      "title": "SHACL shape for supplier and component",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-XSRC-R002.5",
+      "title": "Source-authority mapping: suppliers and purchase items",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-XSRC-R002.6",
+      "title": "Source-authority mapping: software components and vulnerabilities",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-XSRC-R002.7",
+      "title": "Virtual mapping fixture: erpnext supplier table to `:Supplier`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-XSRC-R003",
+      "title": "Service concepts and the sources that are authoritative for them (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-XSRC-R003.1",
+        "EG-CQ-XSRC-R003.2",
+        "EG-CQ-XSRC-R003.3",
+        "EG-CQ-XSRC-R003.4",
+        "EG-CQ-XSRC-R003.5"
+      ]
+    },
+    {
+      "id": "EG-CQ-XSRC-R003.1",
+      "title": "Source-authority mapping: `:Service` health",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-XSRC-R003.2",
+      "title": "Source-authority mapping: deployed workloads and images",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-XSRC-R003.3",
+      "title": "Source-authority mapping: business capabilities",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-XSRC-R003.4",
+      "title": "Virtual mapping fixture: uptime monitor to `:Service`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-XSRC-R003.5",
+      "title": "Virtual mapping fixture: container-manager workload to `:Service` and `:ContainerImage`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-XSRC-R004",
+      "title": "Linking relation between a supply-chain entity and a service, with entity resolution across sources (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-XSRC-R004.1",
+        "EG-CQ-XSRC-R004.2",
+        "EG-CQ-XSRC-R004.3",
+        "EG-CQ-XSRC-R004.4",
+        "EG-CQ-XSRC-R004.5"
+      ]
+    },
+    {
+      "id": "EG-CQ-XSRC-R004.1",
+      "title": "Add `:usesComponent` (service to component version) and `:suppliesService`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-XSRC-R004.2",
+      "title": "SHACL shape: `:usesComponent` domain and range",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-XSRC-R004.3",
+      "title": "Resolve a vendor in erpnext, leanix and dockerhub to one `:Supplier`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-XSRC-R004.4",
+      "title": "Resolve a service in uptime, container-manager and the CMDB to one `:Service`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-XSRC-R004.5",
+      "title": "Query-time link: a join may only cross an approved `owl:sameAs`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-XSRC-R005",
+      "title": "The federated query is planned from the ontology's source declarations (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-XSRC-R005.1",
+        "EG-CQ-XSRC-R005.2",
+        "EG-CQ-XSRC-R005.3",
+        "EG-CQ-XSRC-R005.4",
+        "EG-CQ-XSRC-R005.5"
+      ]
+    },
+    {
+      "id": "EG-CQ-XSRC-R005.1",
+      "title": "`select_sources` orders candidate mappings by `vg:authorityRank`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-XSRC-R005.2",
+      "title": "Query fixture: the supply-chain impact query over classes only",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-XSRC-R005.3",
+      "title": "The plan is derived, not authored: planned sources equal the declared authorities",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-XSRC-R005.4",
+      "title": "An unconnected authoritative source yields a typed abstention, not a silent fallback",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-XSRC-R005.5",
+      "title": "`EXPLAIN` shows the authority premise for each planned source",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-XSRC-R006",
+      "title": "The unified report shape (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-XSRC-R006.1",
+        "EG-CQ-XSRC-R006.2",
+        "EG-CQ-XSRC-R006.3",
+        "EG-CQ-XSRC-R006.4",
+        "EG-CQ-XSRC-R006.5"
+      ]
+    },
+    {
+      "id": "EG-CQ-XSRC-R006.1",
+      "title": "Add the typed `SupplyChainImpactReport` model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-XSRC-R006.2",
+      "title": "Report carries freshness per source",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-XSRC-R006.3",
+      "title": "Report abstention variants",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-XSRC-R006.4",
+      "title": "Assemble the report from the federated rows",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-XSRC-R006.5",
+      "title": "Serve the report through graph-os",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-XSRC-R007",
+      "title": "End-to-end acceptance from real connected data (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-XSRC-R007.1",
+        "EG-CQ-XSRC-R007.2",
+        "EG-CQ-XSRC-R007.3",
+        "EG-CQ-XSRC-R007.4"
+      ]
+    },
+    {
+      "id": "EG-CQ-XSRC-R007.1",
+      "title": "Acceptance on recorded connector responses",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-XSRC-R007.2",
+      "title": "Acceptance against the live connected sources",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-XSRC-R007.3",
+      "title": "Acceptance with the procurement source not connected",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-XSRC-R007.4",
+      "title": "Decisive test: changing only the ontology's authority declaration changes the sources used",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-XSRC-R008",
+      "title": "Generalization: three more cross-source questions of the same shape (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-XSRC-R008.1",
+        "EG-CQ-XSRC-R008.2",
+        "EG-CQ-XSRC-R008.3"
+      ]
+    },
+    {
+      "id": "EG-CQ-XSRC-R008.1",
+      "title": "Which services are exposed by a vulnerability in an image we deploy? (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-XSRC-R008.1.1",
+        "EG-CQ-XSRC-R008.1.2"
+      ]
+    },
+    {
+      "id": "EG-CQ-XSRC-R008.1.1",
+      "title": "Query fixture and authority rows: vulnerable deployed image to exposed service",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-XSRC-R008.1.2",
+      "title": "Acceptance: exposed services listed with image, vulnerability and sources",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-XSRC-R008.2",
+      "title": "Which business capabilities depend on a host that is over its temperature or capacity limit? (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-XSRC-R008.2.1",
+        "EG-CQ-XSRC-R008.2.2",
+        "EG-CQ-XSRC-R008.2.3",
+        "EG-CQ-XSRC-R008.2.4"
+      ]
+    },
+    {
+      "id": "EG-CQ-XSRC-R008.2.1",
+      "title": "Add a host limit-breach term to the ontology",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-XSRC-R008.2.2",
+      "title": "SHACL shape: a limit-bearing host carries both reading and limit",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-XSRC-R008.2.3",
+      "title": "Authority rows and query fixture: capability to service to host over a limit",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-XSRC-R008.2.4",
+      "title": "Acceptance: capabilities at risk listed with the host, reading and limit",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-XSRC-R008.3",
+      "title": "Which open incidents or changes touch a service a customer contract depends on? (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-XSRC-R008.3.1",
+        "EG-CQ-XSRC-R008.3.2",
+        "EG-CQ-XSRC-R008.3.3",
+        "EG-CQ-XSRC-R008.3.4"
+      ]
+    },
+    {
+      "id": "EG-CQ-XSRC-R008.3.1",
+      "title": "Add `:CustomerContract`, `:ChangeRequest` and `:coversService`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-XSRC-R008.3.2",
+      "title": "SHACL shape: a contract names a customer and at least one service",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-XSRC-R008.3.3",
+      "title": "Authority rows and query fixture: open incident or change to service to contract",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-XSRC-R008.3.4",
+      "title": "Acceptance: open incidents and changes listed with the service and contract",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    }
+  ]
+}
