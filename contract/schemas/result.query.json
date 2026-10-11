@@ -570,6 +570,26 @@
             "provider": {
               "type": "string"
             },
+            "shell_proficiency": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/MeasuredFact_ShellProficiency"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "stopping_behaviour": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/MeasuredFact_StoppingBehaviour"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "supports_structured_output": {
               "type": "boolean"
             },
@@ -20028,6 +20048,40 @@
         "registry_digest",
         "registration_config_digest",
         "four_family_digest"
+      ],
+      "type": "object"
+    },
+    "MeasuredFact_ShellProficiency": {
+      "additionalProperties": false,
+      "description": "A measured value bound to the evaluation that produced it.",
+      "properties": {
+        "evaluation_run_ref": {
+          "$ref": "#/$defs/ObservationRef"
+        },
+        "value": {
+          "$ref": "#/$defs/ShellProficiency"
+        }
+      },
+      "required": [
+        "value",
+        "evaluation_run_ref"
+      ],
+      "type": "object"
+    },
+    "MeasuredFact_StoppingBehaviour": {
+      "additionalProperties": false,
+      "description": "A measured value bound to the evaluation that produced it.",
+      "properties": {
+        "evaluation_run_ref": {
+          "$ref": "#/$defs/ObservationRef"
+        },
+        "value": {
+          "$ref": "#/$defs/StoppingBehaviour"
+        }
+      },
+      "required": [
+        "value",
+        "evaluation_run_ref"
       ],
       "type": "object"
     },
@@ -48899,6 +48953,15 @@
       ],
       "type": "object"
     },
+    "ShellProficiency": {
+      "description": "Evaluation-derived ability to use a shell.",
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "type": "string"
+    },
     "ShortlistProvenance": {
       "additionalProperties": false,
       "description": "How the shortlist the decision scored was produced.",
@@ -51179,6 +51242,15 @@
           "type": "object"
         }
       ]
+    },
+    "StoppingBehaviour": {
+      "description": "Evaluation-derived tendency to stop or continue verification.",
+      "enum": [
+        "stops_early",
+        "balanced",
+        "over_verifies"
+      ],
+      "type": "string"
     },
     "StoredPolicyRecord": {
       "additionalProperties": false,

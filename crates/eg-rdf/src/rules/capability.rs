@@ -44,6 +44,8 @@ const SUPPORTS_VISION: &str = "eg:fact/supports_vision";
 const INPUT_MODALITY: &str = "eg:fact/input_modality";
 const OUTPUT_MODALITY: &str = "eg:fact/output_modality";
 const CONTEXT_WINDOW_TOKENS: &str = "eg:fact/context_window_tokens";
+const SHELL_PROFICIENCY: &str = "eg:fact/shellProficiency";
+const STOPPING_BEHAVIOUR: &str = "eg:fact/stoppingBehaviour";
 const MAX_OUTPUT_TOKENS: &str = "eg:fact/max_output_tokens";
 const P95_LATENCY_MS: &str = "eg:fact/p95_latency_ms";
 const LATENCY_MEASURED: &str = "eg:fact/latency_measured";
@@ -365,6 +367,8 @@ pub fn component_atoms(component: &ProfiledComponent<'_>) -> Vec<GroundAtom> {
             modalities,
             latency_declared,
             latency_observed_ref,
+            shell_proficiency,
+            stopping_behaviour,
             ..
         } => {
             atoms.class(MODEL_PROFILE);
@@ -376,6 +380,12 @@ pub fn component_atoms(component: &ProfiledComponent<'_>) -> Vec<GroundAtom> {
             ]);
             atoms.fact(CONTEXT_WINDOW_TOKENS, context_window_tokens.to_string());
             atoms.fact(MAX_OUTPUT_TOKENS, max_output_tokens.to_string());
+            if let Some(fact) = shell_proficiency {
+                atoms.fact(SHELL_PROFICIENCY, fact.value.as_str().to_string());
+            }
+            if let Some(fact) = stopping_behaviour {
+                atoms.fact(STOPPING_BEHAVIOUR, fact.value.as_str().to_string());
+            }
             atoms.modalities(modalities);
             atoms.latency(latency_declared.map(|latency| latency.p95_ms));
         }

@@ -209,7 +209,7 @@ fn measure(name: &str, head: &DecisionHeadBody, rows: &[Vec<i64>]) -> Value {
     })
 }
 
-// Requirement EG-DECISION-ENGINE-R090.3; native receipt pending.
+// spec: EG-DECISION-ENGINE-R090.3
 #[cfg(target_os = "linux")]
 fn resident_scorer_meets_declared_budget() -> i32 {
     assert!(!cfg!(debug_assertions), "use the optimized release profile");

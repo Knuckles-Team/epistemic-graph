@@ -141,6 +141,8 @@ class AgentComponentFactsModelProfile(BaseModel):
     modalities: ModalityFacts | None = None
     model_identity: str
     provider: str
+    shell_proficiency: MeasuredFact_ShellProficiency | None = None
+    stopping_behaviour: MeasuredFact_StoppingBehaviour | None = None
     supports_structured_output: bool
     supports_tools: bool
     supports_vision: bool
@@ -961,6 +963,20 @@ class McpCatalogSnapshotBinding(BaseModel):
     snapshot_digest: Digest256
 
 
+class MeasuredFact_ShellProficiency(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    evaluation_run_ref: ObservationRef
+    value: ShellProficiency
+
+
+class MeasuredFact_StoppingBehaviour(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    evaluation_run_ref: ObservationRef
+    value: StoppingBehaviour
+
+
 class ModalityFacts(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -1225,6 +1241,12 @@ class SchemaAuthority(str, Enum):
     PACK = "pack"
 
 
+class ShellProficiency(str, Enum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
 class SlotAssignment(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -1401,6 +1423,12 @@ StopRule = Annotated[
     | StopRuleDeadline,
     Field(discriminator="rule"),
 ]
+
+
+class StoppingBehaviour(str, Enum):
+    STOPS_EARLY = "stops_early"
+    BALANCED = "balanced"
+    OVER_VERIFIES = "over_verifies"
 
 
 class SubagentAllowance(BaseModel):
@@ -2071,6 +2099,10 @@ LibraryCandidateScope.model_rebuild()
 
 McpCatalogSnapshotBinding.model_rebuild()
 
+MeasuredFact_ShellProficiency.model_rebuild()
+
+MeasuredFact_StoppingBehaviour.model_rebuild()
+
 ModalityFacts.model_rebuild()
 
 ObjectiveLevelSpec.model_rebuild()
@@ -2378,6 +2410,8 @@ __all__ = [
     "LevelValue",
     "LibraryCandidateScope",
     "McpCatalogSnapshotBinding",
+    "MeasuredFact_ShellProficiency",
+    "MeasuredFact_StoppingBehaviour",
     "ModalityFacts",
     "Nonce",
     "ObjectiveLevelKind",
@@ -2420,6 +2454,7 @@ __all__ = [
     "Scalar",
     "SchemaAuthority",
     "Sha256Digest",
+    "ShellProficiency",
     "SlotAssignment",
     "SlotPlan",
     "SlotRole",
@@ -2444,6 +2479,7 @@ __all__ = [
     "StopRuleMaxRounds",
     "StopRuleQuorum",
     "StopRuleVerifierPass",
+    "StoppingBehaviour",
     "SubagentAllowance",
     "SubagentFallback",
     "SubagentFallbackDisabled",

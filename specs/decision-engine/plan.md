@@ -226,7 +226,10 @@ The leaf covers declared budgets only; it does not establish measured resident-s
 
 The ceiling now refuses 10,000 microseconds, which exceeds the single-digit-millisecond contract.
 
-R090.2 retains compiled execution acceptance. R090.3 retains measured resource acceptance. Both children remain specified until their checks pass.
+R090.2 has scoped compiled-runtime acceptance in the successful Python job of
+Release run 38148086774. R090.3 has the paired native receipts linked by the test
+specification; the standalone run meets its measured limits. Neither result
+claims that every served parent path or the complete Release workflow passed.
 
 ## Amendments
 
@@ -575,3 +578,18 @@ run of the identical executable subsequently met all measured limits, with
 2,850,816 bytes peak RSS independently corroborated by external time. The test
 specification links both structured receipts and exact release provenance. The
 launch-dependent difference is observed; its precise cause is not established.
+
+## Retrieved-entry trust (R132)
+
+Data flow: `Decide` wire method -> `handle_decide` (`src/server/handlers/decide/stat_decide.rs:48`) -> `decide_one` (`crates/eg-compute/src/assemble/conclude.rs:93`) -> `admit_entries` at `conclude.rs:180` -> premises -> record with refused entries.
+
+Types: `TrustTier`, `EntryTrust`, `AbstainReason::PoisonedEntry`. Attach point: premise construction at `conclude.rs:180`. Production caller: the Wiring row creates the call site. Failure behavior: a refused entry never becomes a premise; no admitted entry for a required premise abstains.
+
+Existing code: `crates/eg-types/src/decision/record/premise.rs:17`, `premise.rs:49`, `premise.rs:89`, `crates/eg-types/src/decision/ingestion_ladder.rs:46`, `crates/eg-types/src/decision/derivation.rs:310`, `crates/eg-modality/src/provenance.rs:22`. Reachable today: no for tier and poison check; `weakest` at `conclude.rs:192` is reachable but grades premise class only. Search terms used with no match: trust_tier, TrustTier, trust_level, poison, quarantine, untrusted.
+
+Decision: gate entries before they become premises, so the record never cites a refused entry. Rejected alternative: filter after the solver, because a refused entry must not shape the shortlist.
+
+Cross-repository: `AU-` memory callers may attach a tier to an entry; owner prefix `AU-MEMORY`, contract `EntryTrust`.
+
+References
+- No paper is cited.
