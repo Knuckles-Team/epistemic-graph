@@ -138,12 +138,13 @@ Decision rows R133 through R138 own run traces, plans and budgets; they do not o
 
 ### Source evidence mapping
 
-Queue authority: plans commit `e3e7260d41006035c5499b46686101c3f77e5302`, `spec-audit/writer-queue-merged/epistemic-graph.tsv`.
+Audit candidates 47 and 48 define the document and transcript requirements below.
+The audit tracker retains their complete source locations and provenance.
 Code and deduplication base: EG commit `2e44b8af87ec9681ab0f45d13b37fab38d45c7c2`.
 
-| Queue line | Source paths | Citation | Requirement mapping |
+| Candidate ID | Source descriptions | Citation | Requirement mapping |
 |---|---|---|---|
-| 47 | `prompts/conversations/old/paper_ingestion.txt`; `open-source-libraries/LeanRAG/README.md` | None in source queue | Extend R003 with R003.7 through R003.12: normalized documents, atomic publication and quarantine. |
-| 48 | `prompts/plans/om_plan.md`; `prompts/plans/temporal_update.md` | None in source queue | Extend R003 with R003.13 through R003.18: timestamped threads, messages, concept links and format refusal. |
+| 47 | Paper ingestion requirements; document-to-graph ingestion design | None supplied | Extend R003 with R003.7 through R003.12: normalized documents, atomic publication and quarantine. |
+| 48 | Observational memory design; temporal update design | None supplied | Extend R003 with R003.13 through R003.18: timestamped threads, messages, concept links and format refusal. |
 
 These inputs add no paper citation. Existing R003 research references inspire atom design only; they do not prove served acceptance.
