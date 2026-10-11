@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "spec_id": "EG-SUPPLY-VOCAB-001",
+  "spec_id": "EG-SUPPLY-VOCAB",
   "owner_repo": "epistemic-graph",
   "delivery_state": "SPECIFIED",
   "requirement_ids": [

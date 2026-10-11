@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "spec_id": "EG-IDENTITY-001",
+  "spec_id": "EG-IDENTITY",
   "owner_repo": "epistemic-graph",
   "delivery_state": "SPECIFIED",
   "requirement_ids": [

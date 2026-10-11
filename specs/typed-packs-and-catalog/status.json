@@ -307,7 +307,7 @@
         "daa948722eca"
       ],
       "verified_by": [
-        "crates/eg-types/src/agent_component.rs:1265"
+        "crates/eg-types/src/agent_component.rs:1271"
       ]
     },
     {
@@ -546,7 +546,7 @@
         "f41725ac0f6f"
       ],
       "verified_by": [
-        "crates/eg-types/src/agent_component.rs:1304"
+        "crates/eg-types/src/agent_component.rs:1310"
       ]
     },
     {

@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "spec_id": "EG-SRC-AUTH-001",
+  "spec_id": "EG-SRC-AUTH",
   "owner_repo": "epistemic-graph",
   "delivery_state": "SPECIFIED",
   "requirement_ids": [
