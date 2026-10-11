@@ -293,3 +293,10 @@ Then run `cargo test --lib --features blob storage_acceptance` for the adjacent 
 
 The existing lineage tests retain their independent file-digest and manifest-order assertions.
 The existing admin holder test retains its historical Content assertions.
+- `EG-DECISION-ENGINE-R129`: `crates/eg-types/src/decision/guardrail.rs::tests::promotion_obeys_invariants`.
+- `EG-DECISION-ENGINE-R129.1`: `src/server/handlers/decide/stat_tests/rule_promotion_tests.rs::attach_point_is_reached`.
+- `EG-DECISION-ENGINE-R129.2`: `crates/eg-types/src/decision/guardrail.rs::tests::verdict_serialises_snake_case`.
+- `EG-DECISION-ENGINE-R129.3`: `crates/eg-types/src/decision/guardrail.rs::tests::first_contradicted_invariant_is_named`.
+- `EG-DECISION-ENGINE-R129.4`: `crates/eg-types/src/decision/guardrail.rs::tests::full_consensus_does_not_override`.
+- `EG-DECISION-ENGINE-R129.5`: `src/server/handlers/decide/stat_tests/rule_promotion_tests.rs::rejected_rule_is_audited_not_active`.
+- `EG-DECISION-ENGINE-R129.6`: `tests/decide/test_rule_promotion_served.py::test_invariant_blocks_promotion`.

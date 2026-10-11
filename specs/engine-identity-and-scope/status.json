@@ -10,7 +10,14 @@
     "EG-IDENTITY-R004",
     "EG-IDENTITY-R005",
     "EG-IDENTITY-R006",
-    "EG-IDENTITY-R007"
+    "EG-IDENTITY-R007",
+    "EG-IDENTITY-R008",
+    "EG-IDENTITY-R008.1",
+    "EG-IDENTITY-R008.2",
+    "EG-IDENTITY-R008.3",
+    "EG-IDENTITY-R008.4",
+    "EG-IDENTITY-R008.5",
+    "EG-IDENTITY-R008.6"
   ],
   "requirements": [
     {
@@ -87,6 +94,63 @@
     {
       "id": "EG-IDENTITY-R007",
       "title": "Scopes `identity:admin`, `loops:read` and `loops:control` are registered in the engine contract",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-IDENTITY-R008",
+      "title": "Run scope comes from a durable policy node, never from plan text (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-IDENTITY-R008.1",
+        "EG-IDENTITY-R008.2",
+        "EG-IDENTITY-R008.3",
+        "EG-IDENTITY-R008.4",
+        "EG-IDENTITY-R008.5",
+        "EG-IDENTITY-R008.6"
+      ]
+    },
+    {
+      "id": "EG-IDENTITY-R008.1",
+      "title": "Locate and wire the attach point",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-IDENTITY-R008.2",
+      "title": "Typed `ScopeBound`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-IDENTITY-R008.3",
+      "title": "Pure subset check",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-IDENTITY-R008.4",
+      "title": "Bound is read from the stored policy node",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-IDENTITY-R008.5",
+      "title": "Typed refusal `ScopeExceedsPolicy`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-IDENTITY-R008.6",
+      "title": "End-to-end proof over the wire",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
