@@ -37,3 +37,16 @@ For any strategy: identical spec and input digests yield byte-identical proposal
 Run the repository's pinned formatter, Rust Clippy, affected crate tests, ontology/SHACL tests, Python client tests and contract generation freshness check at the exact PR head. Run CCCC, jscpd with zero new clone pairs against main, Dupehound and KISS checks for changed code. The affected-path gate must exercise finance compute, server route, generated client and graph authorization/retention paths; a compile-only check is insufficient. Use the repository's checked-in scripts/configuration as the command authority, and record the exact command/version in evidence when implemented. Hosted CI must create disposable stores and mocks itself and must not require a live finance provider or manually provisioned environment. A live-provider smoke test may be a separate nonblocking qualification.
 
 `ACCEPTED` for a row requires all its positive and refusal cases, exact published-main SHA, relevant hosted run URL, independent fixture provenance, and no unresolved severity-one finance correctness defect. A row may be `PARTIAL` when a subset passes; document the subset and missing proof. No blanket train-level acceptance closes an unproven row.
+
+## R013 decomposed fixture acceptance
+
+The R013.1 production-module unit gate admits a fully-provenanced figure and refuses each absent source, as-of time and session. It does not establish the broader fixture rows below. R013.2.1 currently has synthetic comparator tests only; independent broker-statement data is not claimed as validated.
+
+| ID | Positive proof | Negative / boundary proof |
+|---|---|---|
+| EG-FINANCE-PRIMITIVES-R013.2.2 | Published issuer/exchange split and dividend notice vectors reproduce independent share, basis and cash ticks before/after the action. | Changed expected ticks and each absent source/as-of/session fail. |
+| EG-FINANCE-PRIMITIVES-R013.2.3 | Published exchange calendar/offset vectors match session boundaries and both DST transitions; host-time-zone replay is identical. | Wrong offset/session label and each absent source/as-of/session fail. |
+| EG-FINANCE-PRIMITIVES-R013.2.4 | Published multi-session fund return/NAV vectors match fixed-point daily-reset results with explicit fees, scale and rounding. | A modified return/reference, omitted daily reset and each absent source/as-of/session fail. |
+| EG-FINANCE-PRIMITIVES-R013.2.5 | Published contract/settlement vectors match roll cash and position ticks and replay identically. | Incorrect expiry/tick size/multiplier/reference ticks and each absent source/as-of/session fail. |
+
+Every fixture must carry an independently inspectable source URL, publication/version and content digest plus as-of/session and applicable currency. Check in redistributable reference extracts so baseline tests need no provider account or live network. Expected values are independent of the implementation under test. These four rows are NOT_RUN; defining their acceptance adds no test binding or delivery claim. Record exact published-main SHA and hosted run for each before accepting the parent fixture family.

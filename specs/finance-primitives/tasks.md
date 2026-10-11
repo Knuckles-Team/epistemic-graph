@@ -42,7 +42,11 @@ Tasks are ordered by dependency. Check a task only when its code, tests and exac
   - [x] **F-10.2 · EG-FINANCE-PRIMITIVES-R012.2:** `register_ghostfolio_source`/`import_ghostfolio_fixture` attach a Ghostfolio source through the typed source registry and import a disposable fixture idempotently by `ghostfolio_activity_id`. Tests in `crates/eg-compute/src/finance/ghostfolio_import.rs`.
 - [ ] **F-11 · EG-FINANCE-PRIMITIVES-R013:** Add independent statement, corporate-action, DST/session, daily-reset and futures-roll goldens plus property tests; record provenance for each vector.
   - [x] **F-11.2.1 · EG-FINANCE-PRIMITIVES-R013.2.1:** `compare_broker_statement_figure` refuses incomplete provenance then compares `value_ticks` against a published reference. Tests in `crates/eg-compute/src/finance/golden_fixture.rs`.
-  - [ ] Remaining: corporate-action, DST/session-boundary, leveraged-ETF-decay, and futures-roll golden comparisons.
+  - [ ] **F-11.2.2 · EG-FINANCE-PRIMITIVES-R013.2.2:** Check in independently sourced split/dividend notice vectors and execute corporate-action reference comparisons and provenance refusals.
+  - [ ] **F-11.2.3 · EG-FINANCE-PRIMITIVES-R013.2.3:** Check in published exchange-calendar/DST vectors and execute session/offset, host-time-zone replay and provenance checks.
+  - [ ] **F-11.2.4 · EG-FINANCE-PRIMITIVES-R013.2.4:** Check in published multi-session fund return/NAV vectors and execute daily-reset decay comparisons with explicit fee/rounding assumptions and provenance refusals.
+  - [ ] **F-11.2.5 · EG-FINANCE-PRIMITIVES-R013.2.5:** Check in published futures contract/settlement vectors and execute roll cash/position comparisons, term/refusal and deterministic replay checks.
+  - [ ] Remaining qualification: R013.2.1 currently proves the comparator with synthetic values, not an independent broker-statement dataset. Record sourced statement acceptance before accepting the full R013 fixture family.
 - [ ] **F-12 · all IDs:** Regenerate clients; run affected Rust/Python, ontology, authorization, replay and quality gates. Review CCCC, jscpd, Dupehound and KISS results and remove duplicate authority. Update each delivery/acceptance row only with exact published-main evidence.
 - [x] **F-13 · EG-FINANCE-PRIMITIVES-R002:** Audit and consolidate shared evaluation/calibration kernels in `eg-numeric`, convert finance methods to thin aliases or migrate callers, qualify UQL and regenerate method/client counts.
 - [x] **F-14 · EG-FINANCE-PRIMITIVES-R003:** Bind PBO to the sealed CSCV split matrix with deterministic median/tie behavior, verify skilled/overfit fixtures and reject mismatched caller summaries.
@@ -96,3 +100,7 @@ Requirement IDs not covered by any task above before this line: none remain — 
 - [ ] **EG-FINANCE-PRIMITIVES-R012.2:** Ghostfolio attaches through the typed source registry with disposable-fixture coverage
 - [x] **EG-FINANCE-PRIMITIVES-R013.1:** A golden-fixture figure is refused when its provenance is incomplete
 - [ ] **EG-FINANCE-PRIMITIVES-R013.2:** Golden fixtures compare computed figures against published reference values
+
+## Figure-provenance verification scope
+
+R013.1's four bound admission/refusal tests were executed directly from the production module at commit `168b52ef630717f5d6789869c46826621bcaa01f`: all seven module tests passed, including three existing comparator regression tests. This is narrow module acceptance; published-main/hosted qualification remains a separate evidence step. R013.2.2 through R013.2.5 remain unimplemented and unverified; the generated R013/R013.2 rollups must remain open.
