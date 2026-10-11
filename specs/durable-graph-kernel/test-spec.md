@@ -132,11 +132,12 @@ Use `RAFT_LOAD_WORKERS=2 RAFT_LOAD_REPEATS=2 scripts/validate-raft-cluster.sh` o
 
 ### R049 and R011 source receipt (2026-10-11)
 
-Published source: [1c6b4c961a40c48b2ff9a3f020a191ea055d9eb4](https://github.com/Knuckles-Team/epistemic-graph/commit/1c6b4c961a40c48b2ff9a3f020a191ea055d9eb4).
+Published source: [ed105e5fe436bbbe0ee7aec047e11aefe400d1af](https://github.com/Knuckles-Team/epistemic-graph/commit/ed105e5fe436bbbe0ee7aec047e11aefe400d1af).
 Review: [PR 445](https://github.com/Knuckles-Team/epistemic-graph/pull/445).
 
 The source adds `control_maintenance_reused_label_admits_at_the_current_version` and strengthens `delete_purges_receipts_of_a_prior_incarnation`.
 The lifecycle regression checks receipt removal, restart, fresh recreation, and the new incarnation's stable replay.
+Graph replay explicitly completes its fresh control owner phase without opening replayed graph owner rows.
 Both native facade regressions remain unexecuted; this receipt does not establish R049 acceptance.
 
 Run `mkdir -p target-isolated/tmp` from the checkout.
