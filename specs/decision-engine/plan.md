@@ -478,7 +478,20 @@ R073.5 reuses the served transitive-chain and diamond-pin tests in `content_mode
 A signed Search test must exclude a withdrawn tool while retaining a published positive control.
 Signed Content must still return the withdrawn tool's historical pinned body.
 A new dependency on that withdrawn tool must fail with `COMPONENT_WITHDRAWN`.
-The acceptance slice changes tests and documentation only.
+The Publish request must pass structural validation before served admission.
+Assert the stable refusal code separately from its human-readable detail.
+`AgentComponent` must declare `COMPONENT_WITHDRAWN` in its exact operation error
+set so the served boundary preserves that owner refusal. Unrelated methods must
+continue to refuse that code; a broad error-family allowance is unnecessary.
+
+### Competing pack import acceptance (R073.2)
+
+Upload both archives before racing the two actual Import requests over one
+expected head. Preserve the one-winner, `PACK_HEAD_CONFLICT`, single revision
+advance, committed-head identity, and zero-loser-effects assertions, including
+a stale-head retry. Served refusal diagnostics must retain the full response.
+Concurrent `BlobBegin` admission is a separate unresolved concern; isolating
+pack Import admission does not establish a production Blob CAS fix.
 
 ## Invariant gate on promoted rules (R129)
 

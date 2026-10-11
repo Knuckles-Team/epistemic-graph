@@ -175,7 +175,8 @@ and outbox snapshots plus persisted native/foreign claim and warning checks.
 R093.2 extends forced Reproject with colliding member labels, durable schema
 inspection, and fresh-key repeat identity checks.
 The test markers bind these existing acceptance tests to their owning rows.
-Native execution remains unrun. The generated lifecycle records test existence, independently of execution results.
+The generated lifecycle records test existence, independently of execution results;
+the test specification links the native acceptance evidence.
 
 ## Measured model and task facts for harness configuration (R048, R066)
 
@@ -221,3 +222,11 @@ Decisions:
 - A `read_only` claim from `mcp_hint` stays unproven. Rejected alternative: trust all hints. An MCP hint is a server claim, so parallel execution of such a tool then rests on it.
 
 Cross-repository rows: the `SDK-CONNECTOR-CONTROL-R045` rows publish the facts. The `AU-HARNESS` row for parallel read-only execution consumes `read_only` and `declared_by`. The `EG-DECISION-ENGINE-R128` rows consume the size and read-only facts.
+
+### Capability warning acceptance (R042.2)
+
+The served fixture must select capability warnings by `UnresolvedCapabilityIri`
+and the candidate component URI. It must check both exact foreign claim details
+and the persisted native/declared provides/requires partition. Unrelated server
+description warnings must not affect the capability-warning count. Assertion
+failures must retain the full warning list and served refusal details.

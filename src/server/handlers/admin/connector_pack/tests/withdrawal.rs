@@ -1,7 +1,7 @@
 //! Signed current-discovery and historical-content acceptance.
 
 use super::{
-    bind, build_pack, context, head_of, imported, ok, refused, tool, Served, ADMIN, TENANT,
+    bind, build_pack, context, head_of, imported, ok, persistence_id, tool, Served, ADMIN, TENANT,
 };
 use crate::protocol::Method;
 use eg_types::agent_component::{
@@ -116,25 +116,34 @@ async fn withdrawn_tool_leaves_search_but_keeps_historical_content() {
         definition_digest: pinned.definition_digest,
     }];
     let mut publish_context = context("withdrawal-new-pin");
+    publish_context.principal = persistence_id(ADMIN);
+    publish_context.caller_principal = persistence_id(ADMIN);
     publish_context.expected_revision = Some(0);
-    let error = refused(
-        "Publish",
-        served
-            .call(
-                "withdrawal-new-pin",
-                Method::AgentComponent {
-                    op: AgentComponentOp::Publish {
-                        request: Box::new(AgentComponentPublishRequest {
-                            context: publish_context,
-                            component: draft,
-                            evaluation_receipt_digest: None,
-                        }),
-                    },
-                },
-            )
-            .await,
+    let op = AgentComponentOp::Publish {
+        request: Box::new(AgentComponentPublishRequest {
+            context: publish_context,
+            component: draft,
+            evaluation_receipt_digest: None,
+        }),
+    };
+    op.validate()
+        .expect("the new-pin request must reach admission");
+    let response = served
+        .call("withdrawal-new-pin", Method::AgentComponent { op })
+        .await;
+    assert_eq!(
+        response.error.as_deref(),
+        Some("COMPONENT_WITHDRAWN"),
+        "{response:?}"
     );
-    assert!(error.starts_with("COMPONENT_WITHDRAWN:"), "{error}");
+    assert!(
+        response
+            .error_detail
+            .as_deref()
+            .is_some_and(|detail| detail.contains("withdrawn from its connector pack")),
+        "{response:?}"
+    );
+    assert!(response.result.is_none());
     assert!(store
         .current_component(TENANT, "skill:new-withdrawn-pin")
         .unwrap()

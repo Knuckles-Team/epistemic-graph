@@ -11,6 +11,7 @@ from __future__ import annotations
 import contextlib
 import os
 import re
+import secrets
 import shutil
 import signal
 import subprocess
@@ -33,7 +34,7 @@ from pydantic import BaseModel
 
 from epistemic_graph.client import SyncEpistemicGraphClient
 
-SECRET = "resident-scorer-fixture-secret"
+SECRET = secrets.token_hex(32)
 
 
 @contextlib.contextmanager

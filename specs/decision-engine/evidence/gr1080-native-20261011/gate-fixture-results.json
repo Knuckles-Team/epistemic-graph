@@ -1,0 +1,43 @@
+{
+  "source_commit": "301f07e5d92336168b7b7272a718f898687bb169",
+  "changes": [
+    "Generate one ephemeral synthetic scorer secret per Python module, shared by its fixture server and client.",
+    "Remove the machine-specific example from a privacy-test comment; regex and tests unchanged."
+  ],
+  "static_tests": {
+    "command": [
+      "python",
+      "-m",
+      "pytest",
+      "-q",
+      "-m",
+      "no_engine",
+      "tests/test_documentation_privacy.py",
+      "tests/test_decision_resident_scorer.py"
+    ],
+    "collected": 50,
+    "passed": 49,
+    "deselected": 1,
+    "seconds": 2.25,
+    "deselected_reason": "The user explicitly excluded native resident-scorer tracing on this host.",
+    "log": "gate-fixture-tests.log"
+  },
+  "security_sanitizer": {
+    "command": [
+      "python",
+      "scripts/security_sanitizer.py"
+    ],
+    "exit_code": 0,
+    "log": "security-sanitizer-repaired.log"
+  },
+  "tracked_privacy": {
+    "command": [
+      "python",
+      "scripts/check_tracked_privacy.py"
+    ],
+    "exit_code": 0,
+    "findings": 0,
+    "log": "tracked-privacy-repaired.log"
+  },
+  "text_logs": "Preserved locally; publication pending separate approval."
+}

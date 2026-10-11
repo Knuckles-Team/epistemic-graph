@@ -1,0 +1,23 @@
+{
+  "source_commit": "29d7b11c7f66184300b55c2bf57db41e9e6c552e",
+  "counts": {
+    "passed": 20,
+    "failed": 2,
+    "unrun": 1
+  },
+  "findings": [
+    {
+      "test": "capability_annotations_remain_declared_after_import",
+      "failure": "content_model.rs:611 total warnings 3 != 2",
+      "cause_supported_by_source": "server() fixture has no description; entry_description requires description; validate_entry adds EmptyDescription for that server alongside the two foreign capability warnings",
+      "proposed_patch": "Count only UnresolvedCapabilityIri warnings attributed to candidate.uri; keep exact foreign IRI/detail and persisted field assertions. No source change applied."
+    },
+    {
+      "test": "competing_imports_have_one_head_winner_without_loser_effects",
+      "failure": "tests.rs:169 BlobBegin returned INTERNAL during concurrently uploading the two competing archives, before pack head race",
+      "cause_status": "Underlying error_detail is omitted by the existing assertion; Blob CAS admission race is suspected, not proven",
+      "proposed_patch": "Pre-upload both archives, race only the two ConnectorPack Import requests against one expected head, preserve loser-side-effect checks; expose error_detail in fixture refusal diagnostics. Keep BlobBegin concurrency failure as separate follow-up. No source change applied."
+    }
+  ],
+  "unrun_reason": "semantic_owner_registry_is_scoped_to_persistence_root is gated on ann-redb; added explicitly for merged-candidate validation"
+}

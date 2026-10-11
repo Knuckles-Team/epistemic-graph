@@ -1,0 +1,149 @@
+{
+  "compiled_source_commit": "4ec396b2fe023f8d542b35bbde7b5b2174c38b39",
+  "execution_head": "051217d73b6af79393fc1a03545b7af398f24916",
+  "base_commit": "e5190222b38d628b7d0f268ce4c46b184a170ee1",
+  "source_note": "Only plan/evidence commits after compilation started; Rust/Cargo/toolchain files unchanged.",
+  "binary": "target-isolated/debug/deps/epistemic_graph-1dea97f4f4aaa5cc",
+  "binary_sha256": "5723d01703eb10702393c55fc308709ad195b12c363ba7f0984d2e62d70fc336",
+  "command": [
+    "<binary>",
+    "--exact",
+    "<test>",
+    "--nocapture"
+  ],
+  "counts": {
+    "passed": 11,
+    "failed": 3,
+    "unrun": 0
+  },
+  "results": [
+    {
+      "test": "server::handlers::admin::connector_pack::tests::content_model::capability_annotations_remain_declared_after_import",
+      "exit_code": 101,
+      "status": "failed",
+      "seconds": 0.059,
+      "log": "diagnostic-capability_annotations_remain_declared_after_import.log"
+    },
+    {
+      "test": "server::handlers::admin::connector_pack::tests::storage_acceptance::competing_imports_have_one_head_winner_without_loser_effects",
+      "exit_code": 101,
+      "status": "failed",
+      "seconds": 0.067,
+      "log": "diagnostic-competing_imports_have_one_head_winner_without_loser_effects.log"
+    },
+    {
+      "test": "server::persistence::agent_library::open_tests::fresh_open_initializes_all_pack_tables_and_reopens_empty",
+      "exit_code": 0,
+      "status": "passed",
+      "seconds": 0.022,
+      "log": "diagnostic-fresh_open_initializes_all_pack_tables_and_reopens_empty.log"
+    },
+    {
+      "test": "server::persistence::agent_library::open_tests::production_open_refuses_each_genuine_predecessor_without_writing",
+      "exit_code": 0,
+      "status": "passed",
+      "seconds": 0.016,
+      "log": "diagnostic-production_open_refuses_each_genuine_predecessor_without_writing.log"
+    },
+    {
+      "test": "server::handlers::admin::connector_pack::tests::withdrawal::withdrawn_tool_leaves_search_but_keeps_historical_content",
+      "exit_code": 101,
+      "status": "failed",
+      "seconds": 0.089,
+      "log": "diagnostic-withdrawn_tool_leaves_search_but_keeps_historical_content.log"
+    },
+    {
+      "test": "server::handlers::admin::connector_pack::tests::storage_acceptance::receipt::committed_multi_intent_receipt_binds_all_effects_and_survives_replay",
+      "exit_code": 0,
+      "status": "passed",
+      "seconds": 0.116,
+      "log": "diagnostic-committed_multi_intent_receipt_binds_all_effects_and_survives_replay.log"
+    },
+    {
+      "test": "server::handlers::admin::connector_pack::tests::content_model::a_changed_leaf_revises_transitive_reference_pins_once",
+      "exit_code": 0,
+      "status": "passed",
+      "seconds": 0.145,
+      "log": "diagnostic-a_changed_leaf_revises_transitive_reference_pins_once.log"
+    },
+    {
+      "test": "server::handlers::admin::connector_pack::tests::content_model::a_shared_descendant_diamond_revises_each_component_once",
+      "exit_code": 0,
+      "status": "passed",
+      "seconds": 0.124,
+      "log": "diagnostic-a_shared_descendant_diamond_revises_each_component_once.log"
+    },
+    {
+      "test": "server::handlers::admin::connector_pack::tests::content_model::an_identical_head_with_stale_pins_remains_unchanged",
+      "exit_code": 0,
+      "status": "passed",
+      "seconds": 0.135,
+      "log": "diagnostic-an_identical_head_with_stale_pins_remains_unchanged.log"
+    },
+    {
+      "test": "server::handlers::admin::connector_pack::tests::content_model::a_changed_pack_repairs_already_stale_server_and_reference_pins",
+      "exit_code": 0,
+      "status": "passed",
+      "seconds": 0.167,
+      "log": "diagnostic-a_changed_pack_repairs_already_stale_server_and_reference_pins.log"
+    },
+    {
+      "test": "server::handlers::admin::connector_pack::tests::content_model::package_versions_produce_equal_pins_in_independent_stores",
+      "exit_code": 0,
+      "status": "passed",
+      "seconds": 0.098,
+      "log": "diagnostic-package_versions_produce_equal_pins_in_independent_stores.log"
+    },
+    {
+      "test": "server::handlers::admin::connector_pack::tests::content_model::a_server_contract_version_change_revises_its_pin",
+      "exit_code": 0,
+      "status": "passed",
+      "seconds": 0.082,
+      "log": "diagnostic-a_server_contract_version_change_revises_its_pin.log"
+    },
+    {
+      "test": "server::handlers::admin::connector_pack::tests::content_model::a_server_name_change_revises_its_pin",
+      "exit_code": 0,
+      "status": "passed",
+      "seconds": 0.077,
+      "log": "diagnostic-a_server_name_change_revises_its_pin.log"
+    },
+    {
+      "test": "server::handlers::admin::connector_pack::tests::content_model::a_server_instructions_change_revises_its_pin",
+      "exit_code": 0,
+      "status": "passed",
+      "seconds": 0.082,
+      "log": "diagnostic-a_server_instructions_change_revises_its_pin.log"
+    }
+  ],
+  "compile": {
+    "exit_code": 0,
+    "wall_seconds": 708.81,
+    "profile": "repository profile.test unchanged",
+    "log": "fixture-diagnostic-compile.log",
+    "features": "server,redb,blob,decide,query,security,federation-sql,obda,owl,shacl,knowledge-batch,program-optimization,kv,tsdb,nl-query,ann-redb",
+    "jobs": 4
+  },
+  "findings": [
+    {
+      "test": "capability_annotations_remain_declared_after_import",
+      "observed": "Two UnresolvedCapabilityIri warnings on the tool plus EmptyDescription on the server.",
+      "repair": "Count the two capability warnings by code and tool URI; retain exact claim details and persisted field checks."
+    },
+    {
+      "test": "competing_imports_have_one_head_winner_without_loser_effects",
+      "observed": {
+        "stage": "BlobBegin",
+        "error": "INTERNAL",
+        "error_detail": "unclassified engine refusal"
+      },
+      "repair": "Upload both archives first; race only Import requests against the same expected head. Blob concurrency cause remains unresolved."
+    },
+    {
+      "test": "withdrawn_tool_leaves_search_but_keeps_historical_content",
+      "observed": "Signed Publish returned INTERNAL, before the expected COMPONENT_WITHDRAWN assertion could pass.",
+      "status": "New failure under investigation; no expectation or production change."
+    }
+  ],
+  "text_logs": "Preserved locally; publication pending separate approval."
+}

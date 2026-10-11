@@ -192,14 +192,14 @@ Existing source modules and tests provide foundations, but this spec does not as
 - [ ] **EG-DECISION-ENGINE-R128.14:** The generated contract and clients carry the kind. `gen_contract` must be rerun so `contract/schemas/method.request.json` and the `result.*.json` schemas list `harness_config` beside `tool_subset`. The Python DTO in `crates/eg-capabilities/src/contract/python/dto.rs` and the JS and Go codecs under `clients/` must regenerate. The `gen_contract --check` step at `.github/workflows/release.yml:210` must pass. Test: `crates/eg-capabilities/tests/contract_schema.rs::question_kind_lists_harness_config`.
 - [ ] **EG-DECISION-ENGINE-R128.15:** End-to-end proof uses the served path. A served test must publish a model profile with measured facts, submit `Method::Decide` for `harness_config` over the wire, and assert the answer, premises and the unchanged tool-subset result. A second case must submit a profile without `shellProficiency` and assert the `tool_set` abstention. Test: `tests/decide/test_harness_config_served.py::test_harness_config_end_to_end`.
 
-- [ ] **EG-DECISION-ENGINE-R127.2.3:** Qualify the generated guardrail client against a compiled server and real published rule set. Generated sender, typed decoder, request/response schemas and the real-engine acceptance fixture are present; native execution remains pending. No-engine transport/validation tests are supporting checks, not the required end-to-end acceptance.
+- [x] **EG-DECISION-ENGINE-R127.2.3:** Qualify the generated guardrail client against a compiled server and real published rule set. Native dispatcher acceptance and the hosted real-engine generated-client fixture pass. The generated sender, typed decoder and request/response schemas are exercised against published rules, including subclass/exact matching and foreign-tenant refusal. Exact source and run evidence is in `evidence/gr1080-native-20261011/guardrail-results.json`.
 
-- [ ] **EG-DECISION-ENGINE-R073.4:** Qualify committed receipt binding and typed owner replay with native execution.
-  Run the named receipt fixture and adjacent served storage fixtures from `test-spec.md`.
+- [x] **EG-DECISION-ENGINE-R073.4:** Qualify committed receipt binding and typed owner replay with native execution.
+  The named receipt fixture and adjacent served storage fixtures pass; exact source and results are in `evidence/gr1080-native-20261011/final-native-results.json`.
 
 - [x] **EG-DECISION-ENGINE-R073.3:** Add production fresh-open, five-table empty-catalog, reopen, and genuine-predecessor no-write proofs in `agent_library/open_tests.rs`.
 - [x] **EG-DECISION-ENGINE-R073.5:** Bind existing transitive and diamond tests. Add signed withdrawal Search, historical Content, and new-pin refusal proof in `tests/withdrawal.rs`.
-- [ ] Run native R073.3/R073.5 acceptance tests.
+- [x] Run native R073.3/R073.5 acceptance tests. Production-open, withdrawal, transitive/diamond and related pin cases pass; exact source and results are in `evidence/gr1080-native-20261011/final-native-results.json`.
 - [ ] **EG-DECISION-ENGINE-R129:** Promoted rules cannot contradict a stored invariant (rollup). The engine must check every rule promoted from repeated human overrides against stored invariants.
 - [ ] **EG-DECISION-ENGINE-R129.1:** Locate and wire the attach point. The implementer must find where a proposal from R034 becomes an active rule and record `file:line` in `plan.md`..
 - [ ] **EG-DECISION-ENGINE-R129.2:** Typed `RulePromotionVerdict`. Add `RulePromotionVerdict { Promotable, RejectedInvariant { invariant_iri } }` to `crates/eg-types/src/decision/guardrail.rs`..

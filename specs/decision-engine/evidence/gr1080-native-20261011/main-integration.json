@@ -1,0 +1,56 @@
+{
+  "merge_commit": "cd70f65b45a7b7de395de2bf8809cdc06b53069a",
+  "parents": [
+    "322980c11f56ff932d7ee95edb549a920899f580",
+    "003134c5fb87efa5c63e867001f4557fcc8a9049"
+  ],
+  "integrated_main": "003134c5fb87efa5c63e867001f4557fcc8a9049",
+  "validated_source_commit": "70dc26d43c1e71674f1524ce90b0d0810d787b0f",
+  "equivalence": {
+    "all_other_tracked_blobs_and_modes_identical": true,
+    "excluded_documentation": [
+      "specs/**",
+      "epistemic_graph/skills/epistemic-graph-development/SKILL.md"
+    ],
+    "files_compared": 3783,
+    "validated_manifest_sha256": "63ba1228c54d3640b4f0ba082512e1014c72e2f99a9b839c5aec5ad1ed78a5cd",
+    "merged_manifest_sha256": "63ba1228c54d3640b4f0ba082512e1014c72e2f99a9b839c5aec5ad1ed78a5cd",
+    "method": "git ls-tree -rz at each commit, exclude only the listed documentation, compare every remaining mode/blob/path record byte-for-byte"
+  },
+  "validation_reuse": {
+    "native": {
+      "passed": 17,
+      "failed": 0,
+      "unrun": 0
+    },
+    "capability": {
+      "passed": 105,
+      "failed": 0,
+      "ignored": 0
+    },
+    "static": {
+      "passed": 49,
+      "deselected": 1
+    },
+    "native_rebuild_needed": false
+  },
+  "decision_requirements": {
+    "total_rows": 246,
+    "leaf_count": 196,
+    "leaf_states": {
+      "RETIRED": 1,
+      "SPECIFIED": 52,
+      "VERIFIED": 143
+    }
+  },
+  "conflict_resolution": "Keep both additive Decision sections; preserve completed acceptance tasks and every new audit requirement. Bootstrap invalid conflicted generated JSON from its existing branch-generated version, then run official spec-status --write before and after the normal merge. No generated status fields were manually edited. Conflicted copies retained locally.",
+  "checks": {
+    "spec_status": "passed; current after merge, zero rewrites",
+    "spec_standard": "passed, 19 specs",
+    "spec_decomposition": "passed, 20 specs",
+    "public_specs": "passed",
+    "contract_freshness": "passed; 73 artifacts match",
+    "diff_check": "passed"
+  },
+  "text_logs": "No text-log publication; existing approval hold remains."
+}

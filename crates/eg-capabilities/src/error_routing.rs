@@ -106,7 +106,10 @@ const DOMAIN_PREFIXES: &[(&str, &[&str])] = &[
     ),
 ];
 const EXACT_METHOD_ERRORS: &[(&str, &[&str])] = &[
-    ("AgentComponent", &["MALFORMED_GUARDRAIL_RULE"]),
+    (
+        "AgentComponent",
+        &["COMPONENT_WITHDRAWN", "MALFORMED_GUARDRAIL_RULE"],
+    ),
     (
         "GuardrailEntailment",
         &["GUARDRAIL_SCOPE_TOO_LARGE", "MALFORMED_GUARDRAIL_RULE"],
@@ -310,6 +313,15 @@ pub fn method_allows_error(method: &str, code: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::method_allows_error;
+
+    // spec: EG-DECISION-ENGINE-R073.5
+    #[test]
+    fn withdrawn_component_refusal_is_declared_for_component_admission() {
+        assert!(method_allows_error("AgentComponent", "COMPONENT_WITHDRAWN"));
+        for other in ["CreateGraph", "GetNodes", "GuardrailEntailment"] {
+            assert!(!method_allows_error(other, "COMPONENT_WITHDRAWN"));
+        }
+    }
 
     // spec: EG-CONTRACT-R014
     #[test]
