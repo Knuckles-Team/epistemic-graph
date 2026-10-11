@@ -1,4 +1,4 @@
-# EG-CQ-XSRC-001 — Test specification
+# EG-CQ-XSRC — Test specification
 
 Status: PROPOSED. Governing spec: [spec.md](spec.md).
 

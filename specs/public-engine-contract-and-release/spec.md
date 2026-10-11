@@ -1,4 +1,4 @@
-# EG-CONTRACT-001 — Public engine contract and reproducible clients
+# EG-CONTRACT — Public engine contract and reproducible clients
 
 **Owner:** epistemic-graph. **Specification state:** PROPOSED. **Build state:** PARTIAL. **Acceptance:** PENDING.
 

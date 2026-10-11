@@ -1,4 +1,4 @@
-# EG-CONTRACT-001 requirements
+# EG-CONTRACT requirements
 
 | ID | Requirement | Verification |
 |---|---|---|

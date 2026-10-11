@@ -1,4 +1,4 @@
-# EG-CONTRACT-001 — Delivery tasks and evidence
+# EG-CONTRACT — Delivery tasks and evidence
 
 **State:** PARTIAL source baseline; ACCEPTED evidence pending. A checked box means only its named task is proven, with an exact commit and test result recorded in the evidence table below.
 

@@ -1,4 +1,4 @@
-# EG-CONTRACT-001 — Architecture and implementation plan
+# EG-CONTRACT — Architecture and implementation plan
 
 **State:** PROPOSED. This plan is executable from a fresh public checkout.
 

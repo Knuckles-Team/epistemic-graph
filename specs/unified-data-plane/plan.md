@@ -1,6 +1,6 @@
 # Design and implementation plan
 
-**State:** PROPOSED. [Requirements](spec.md) · [tests](test-spec.md) · [tasks](tasks.md) · [cross-repository contracts](cross-repo.md).
+**State:** PROPOSED. [Requirements](spec.md) · [tests](test-spec.md) · [tasks](tasks.md) · [cross-repository contracts](plan.md).
 
 ## Authority and reuse
 
@@ -56,4 +56,31 @@ The dependency triggers in [tasks](tasks.md) control implementation. Begin with 
 - CCCC complexity, KISS file/symbol limits, jscpd and Dupehound duplicate gates, formatting, lint and hosted CI must be green on the exact proposed merge head. Record measured deltas and deleted/retired paths; do not add ratchets, suppressions, version-suffixed parallel implementations or a second source of truth.
 - SQL semantics and types need differential tests against the real engine; planner pushdown must not bypass tenant filters. Secrets and private app data must not appear in EXPLAIN, logs, snapshots or fixtures.
 - Preserve durable format and wire compatibility under the repository policy. New storage decisions require migration/rollback and crash recovery evidence. No benchmark claim follows merely from a structural simplification.
-- Cross-repository changes follow [cross-repo.md](cross-repo.md); no owner repo should duplicate another's runtime logic.
+- Cross-repository changes follow [cross-repo.md](plan.md); no owner repo should duplicate another's runtime logic.
+
+## Cross-repository
+
+**State:** PROPOSED. EG owns attached-source identity, federation, mapping, CDC, mirrors, native storage and this specification. Other components implement only the consumer or deployment contract below. A contribution may implement one side at a time, but it cannot claim acceptance until the named counterparty behavior and negative cases pass. The requirement IDs cited below map these contracts to [tasks](tasks.md) and [requirements.md](requirements.md).
+
+### Boundary map
+
+| Component owner | Inputs to EG | Outputs and obligations | Acceptance |
+|---|---|---|---|
+| Agent utilities | Existing graph-source schema proposal pattern and legacy fan-out/Debezium behavior are migration inputs, not new runtime authorities (EG-DURABLE-KERNEL-R024). | Remove old ingest/mirror execution only after EG source registry, cursor replay, SQL-table mirror restore and catalog parity are live. | No duplicate source or mirror registry remains reachable; differential and restore reports identify old and new behavior. |
+| Agent connector SDK | Connector identity, app API client and write-back idempotency key (EG-UNIFIED-DATA-PLANE-R012). | Carry tenant/actor/source ID and approval receipt to EG; prefer an app API when the app owns validation, triggers or other business rules. | Replayed write returns the prior outcome; missing audit reservation or approval produces no effect. |
+| Graph OS | Authenticated request envelope, `schema_context` query and last committed source position (EG-UNIFIED-DATA-PLANE-R011). | Propagate tenant, actor, source grant, freshness mode, timeout and trace ID unchanged; display typed route/freshness errors. | Wrong tenant, stale copy, missing source and missing audit all fail closed; a valid context answer names owner, joins, class and impact. |
+| Immich API connector | Version-pinned OpenAPI schema and per-user authorized API reads (EG-UNIFIED-DATA-PLANE-R032). | MCP tools, incremental asset/album/person ingest and approved Person-link proposals; do not ingest face vectors in the pilot. | Synthetic four-user fixture: second ingest no-op, one new upload appears, unnamed people stay unlinked, cross-user photo/GPS access denied. |
+| Gramps integration | Synthetic import/export tree, real-Postgres control corpus and app driver behavior (EG-UNIFIED-DATA-PLANE-R026). | Keep production data unchanged during P0–P5; P6 is separate explicit authorization with replica, independent export and fallback. | P0–P5 digests, differential and restore artifacts pass before any production decision. |
+| Finance consumer | Finance-v1 Account/Activity semantics and provenance requirements (EG-FINANCE-PRIMITIVES-R012). | Import Ghostfolio activities one way through attached Postgres; maintain stable external IDs and source timestamps. | Reimport is idempotent, amounts remain exact, and retirement is a separate decision after EG accounting parity. |
+| Database deployment | Isolated CloudNativePG groups by major version/extension and a MariaDB group, per-app database and role, EG read/replication roles (EG-UNIFIED-DATA-PLANE-R023). | Logical replication enabled where supported; PITR to object storage, scheduled scratch restore and per-app rollback. An extension-heavy app keeps a compatible isolated group. | At least three apps attached including MariaDB; restore and app rollback pass without cross-app impact. |
+| Release/catalog maintainer | New connector package metadata and version pins (EG-UNIFIED-DATA-PLANE-R032). | Validate every required package catalog/registry entry and generated manifest using the existing release gate; preserve one authoritative package identity. | Missing site or version mismatch fails CI; no hand-maintained alternate fleet inventory. |
+
+### Shared wire contract
+
+Every cross-repository call carries `{tenant_id, actor_id, source_id, trace_id, policy_context}`. Query calls add `{consistency, last_source_position, timeout}`. Governed writes add `{idempotency_key, approval_receipt, audit_reservation}`. Source IDs refer to EG's registry; no counterparty accepts or forwards a caller-provided DSN or secret value. Position tokens are opaque to consumers and scoped to the source and subscription. A token from another source or tenant is rejected. Errors distinguish `DENIED`, `SOURCE_UNAVAILABLE`, `STALE_TIMEOUT`, `SCHEMA_DRIFT`, `CAPABILITY_UNSUPPORTED` and `OUTCOME_INDETERMINATE`; clients preserve these rather than returning an empty result.
+
+The deployment layer supplies a secret reference resolver and outbound network policy. EG resolves a reference at connection time and verifies the target address. Application connectors retain API-based business operations; database attachments are read-only until a specific governed write-back policy is approved. All interfaces are versioned by capability and tested at the exact paired commits named by the implementing pull requests.
+
+### Contribution requirements
+
+An integration pull request names the requirement IDs it closes, EG source-record/capability version, counterparty commit, synthetic fixtures, positive and denied request traces, and any old-path removal. An EG-only pull request keeps the row `IMPLEMENTED-UNVALIDATED` if the counterparty is not yet exercised. A deployment-only pull request does not declare the engine adapter accepted. Cross-component status is updated in [tasks](tasks.md) after the combined test and operational evidence are available.

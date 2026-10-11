@@ -1,4 +1,4 @@
-# EG-SRC-AUTH-001 — Test specification
+# EG-SRC-AUTH — Test specification
 
 Status: PROPOSED. Governing spec: [spec.md](spec.md). No live credential is part of the PR gate; all fixtures are disposable and recorded.
 

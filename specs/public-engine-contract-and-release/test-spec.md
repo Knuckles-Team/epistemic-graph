@@ -1,4 +1,4 @@
-# EG-CONTRACT-001 — Test specification
+# EG-CONTRACT — Test specification
 
 **Acceptance state:** PENDING. Every result below must be attached to an exact public commit and artifact digest before this spec becomes ACCEPTED.
 

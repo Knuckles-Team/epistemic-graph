@@ -1,4 +1,4 @@
-# EG-CQ-CONN-001 — Connector competency questions
+# EG-CQ-CONN — Connector competency questions
 
 **Owner:** epistemic-graph (EG) · **State:** proposed
 
@@ -6,7 +6,7 @@
 
 Exit gate: the deployed engine can reach rich, related data in every live connector through that connector's declared access contract, tracked per connector. For each of the 66 live-deployed connectors this spec states the use cases the ontology must answer: one single-source question, one cross-source question linking at least one other live connector, and an acceptance test.
 
-A competency question is answered when one query over the ontology returns a correct, provenance-carrying answer from real connected data, or a typed abstention naming the unconnected source. Questions, vocabulary assignment and the coverage table are in [design.md](design.md); rows are in [requirements.md](requirements.md). Cross-source composition is not new functionality: it is delivered by `specs/federated-query-and-reasoning` and `specs/unified-data-plane`.
+A competency question is answered when one query over the ontology returns a correct, provenance-carrying answer from real connected data, or a typed abstention naming the unconnected source. Questions, vocabulary assignment and the coverage table are in [design.md](plan.md); rows are in [requirements.md](requirements.md). Cross-source composition is not new functionality: it is delivered by `specs/federated-query-and-reasoning` and `specs/unified-data-plane`.
 
 ## Requirements and acceptance
 

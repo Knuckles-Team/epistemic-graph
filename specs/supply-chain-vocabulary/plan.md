@@ -1,4 +1,4 @@
-# EG-SUPPLY-VOCAB-001 — Design and implementation plan
+# EG-SUPPLY-VOCAB — Design and implementation plan
 
 Status: PROPOSED. Governing spec: [spec.md](spec.md).
 

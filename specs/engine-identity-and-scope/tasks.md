@@ -1,4 +1,4 @@
-# EG-IDENTITY-001 — Work and evidence
+# EG-IDENTITY — Work and evidence
 
 | Task | IDs | Exit condition | State | Public evidence |
 |---|---|---|---|---|

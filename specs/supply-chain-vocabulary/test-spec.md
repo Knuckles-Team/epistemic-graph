@@ -1,4 +1,4 @@
-# EG-SUPPLY-VOCAB-001 — Test specification
+# EG-SUPPLY-VOCAB — Test specification
 
 Status: PROPOSED. Governing spec: [spec.md](spec.md).
 

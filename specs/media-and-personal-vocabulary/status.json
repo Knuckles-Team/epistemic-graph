@@ -103,19 +103,19 @@
     "EG-MEDIA-VOCAB-R020",
     "EG-MEDIA-VOCAB-R020.1",
     "EG-MEDIA-VOCAB-R020.2",
-    "EG-MEDIA-VOCAB-X-R001",
-    "EG-MEDIA-VOCAB-X-R002",
-    "EG-MEDIA-VOCAB-X-R003",
-    "EG-MEDIA-VOCAB-X-R004",
-    "EG-MEDIA-VOCAB-X-R005",
-    "EG-MEDIA-VOCAB-X-R006",
-    "EG-MEDIA-VOCAB-X-R007",
-    "EG-MEDIA-VOCAB-X-R008",
-    "EG-MEDIA-VOCAB-X-R009",
-    "EG-MEDIA-VOCAB-X-R010",
-    "EG-MEDIA-VOCAB-X-R011",
-    "EG-MEDIA-VOCAB-X-R012",
-    "EG-MEDIA-VOCAB-X-R013"
+    "EG-MEDIA-VOCAB-R021",
+    "EG-MEDIA-VOCAB-R022",
+    "EG-MEDIA-VOCAB-R023",
+    "EG-MEDIA-VOCAB-R024",
+    "EG-MEDIA-VOCAB-R025",
+    "EG-MEDIA-VOCAB-R026",
+    "EG-MEDIA-VOCAB-R027",
+    "EG-MEDIA-VOCAB-R028",
+    "EG-MEDIA-VOCAB-R029",
+    "EG-MEDIA-VOCAB-R030",
+    "EG-MEDIA-VOCAB-R031",
+    "EG-MEDIA-VOCAB-R032",
+    "EG-MEDIA-VOCAB-R033"
   ],
   "requirements": [
     {
@@ -170,7 +170,7 @@
     },
     {
       "id": "EG-MEDIA-VOCAB-R001.6",
-      "title": "Resolve the two name collisions: connector packages declare `:Episode` (TV) and `:Author` in the shared `:` namespace, while core-foundation-v1.ttl already defines `:Episode` (interaction unit) and software-v1.ttl `:Author` (git author). media-v1.ttl uses `mv:TelevisionEpisode`; cross-repo rows EG-MEDIA-VOCAB-X-R012 and EG-MEDIA-VOCAB-X-R013 move the connectors onto it",
+      "title": "Resolve the two name collisions: connector packages declare `:Episode` (TV) and `:Author` in the shared `:` namespace, while core-foundation-v1.ttl already defines `:Episode` (interaction unit) and software-v1.ttl `:Author` (git author). media-v1.ttl uses `mv:TelevisionEpisode`; cross-repo rows EG-MEDIA-VOCAB-R032 and EG-MEDIA-VOCAB-R033 move the connectors onto it",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -931,91 +931,91 @@
       "verified_by": []
     },
     {
-      "id": "EG-MEDIA-VOCAB-X-R001",
+      "id": "EG-MEDIA-VOCAB-R021",
       "title": "Cross-repo, owner arr-mcp: per-title 'last searched indexer' (Radarr/Sonarr keep no per-title search log; Prowlarr history is query-keyed, not title-keyed): add a prowlarr_action history-by-title projection",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-MEDIA-VOCAB-X-R002",
+      "id": "EG-MEDIA-VOCAB-R022",
       "title": "Cross-repo, owner audiobookshelf-mcp: user listening progress: add a library_operations or users action for media progress per user and item",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-MEDIA-VOCAB-X-R003",
+      "id": "EG-MEDIA-VOCAB-R023",
       "title": "Cross-repo, owner media-downloader: see media-downloader B1",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-MEDIA-VOCAB-X-R004",
+      "id": "EG-MEDIA-VOCAB-R024",
       "title": "Cross-repo, owner rom-manager: reference-set verification: add a romm_roms verify action returning per-ROM checksum verdict",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-MEDIA-VOCAB-X-R005",
+      "id": "EG-MEDIA-VOCAB-R025",
       "title": "Cross-repo, owner media-downloader: see media-downloader B1",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-MEDIA-VOCAB-X-R006",
+      "id": "EG-MEDIA-VOCAB-R026",
       "title": "Cross-repo, owner owncast-agent: past broadcast list with start/end and peak viewers: add an owncast_internal stream-history action or persist sessions",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-MEDIA-VOCAB-X-R007",
+      "id": "EG-MEDIA-VOCAB-R027",
       "title": "Cross-repo, owner media-downloader: download history: add a list_downloads operation returning job id, source URL, status, error, completedAt, output path",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-MEDIA-VOCAB-X-R008",
+      "id": "EG-MEDIA-VOCAB-R028",
       "title": "Cross-repo, owner audio-transcriber: transcript list/get operation by recording id and date",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-MEDIA-VOCAB-X-R009",
+      "id": "EG-MEDIA-VOCAB-R029",
       "title": "Cross-repo, owner audio-transcriber: expose avg_logprob (confidence) per segment",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-MEDIA-VOCAB-X-R010",
+      "id": "EG-MEDIA-VOCAB-R030",
       "title": "Cross-repo, owner scholarx: citing-papers operation: add sx_search action 'citations' returning papers that cite a given id",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-MEDIA-VOCAB-X-R011",
+      "id": "EG-MEDIA-VOCAB-R031",
       "title": "Cross-repo, owner searxng-mcp: pass through per-engine result counts and unresponsive_engines from the SearXNG response",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-MEDIA-VOCAB-X-R012",
+      "id": "EG-MEDIA-VOCAB-R032",
       "title": "Cross-repo, owner arr-mcp: rename connector :Episode to mv:TelevisionEpisode subclass (collision with core :Episode)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "EG-MEDIA-VOCAB-X-R013",
+      "id": "EG-MEDIA-VOCAB-R033",
       "title": "Cross-repo, owner jellyfin-mcp and audiobookshelf-mcp: stop declaring :Author in the shared namespace; use mv:contributor to :Person",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
