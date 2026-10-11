@@ -216,9 +216,15 @@ fn apply_deferred_work_item_props(
     reason_ref: &Option<String>,
     next_retry_at_ms: u64,
     now_s: f64,
-    lease_epoch: u64,
-) -> (u64, u64, u64) {
-    let next_epoch = lease_epoch.saturating_add(1);
+) -> Result<(u64, u64, u64, u64), String> {
+    // Advance both fences independently and refuse exhaustion before changing
+    // any property. Saturation could let a stale lease reuse its old fence.
+    let next_epoch = property_u64(props, "lease_epoch")
+        .checked_add(1)
+        .ok_or_else(|| "DeferWorkItem lease epoch overflow".to_string())?;
+    let next_fencing_token = property_u64(props, "fencing_token")
+        .checked_add(1)
+        .ok_or_else(|| "DeferWorkItem fencing token overflow".to_string())?;
     let attempts = property_u64(props, "attempt").saturating_sub(1);
     let defer_count = property_u64(props, "defer_count").saturating_add(1);
     props.insert("status".into(), serde_json::Value::String("ready".into()));
@@ -231,7 +237,10 @@ fn apply_deferred_work_item_props(
     props.insert("lease_owner".into(), serde_json::Value::Null);
     props.insert("lease_expires_at".into(), serde_json::Value::Null);
     props.insert("lease_epoch".into(), serde_json::Value::from(next_epoch));
-    props.insert("fencing_token".into(), serde_json::Value::from(next_epoch));
+    props.insert(
+        "fencing_token".into(),
+        serde_json::Value::from(next_fencing_token),
+    );
     props.insert("updated_at".into(), serde_json::Value::from(now_s));
     props.insert(
         "defer_reason_ref".into(),
@@ -240,7 +249,7 @@ fn apply_deferred_work_item_props(
             .map(serde_json::Value::String)
             .unwrap_or(serde_json::Value::Null),
     );
-    (next_epoch, attempts, defer_count)
+    Ok((next_epoch, next_fencing_token, attempts, defer_count))
 }
 
 pub(crate) fn apply_defer_work_item_row(
@@ -285,13 +294,8 @@ pub(crate) fn apply_defer_work_item_row(
     // lease is released back to `ready`.
     #[cfg(feature = "statechart")]
     let pre_status = property_string(&props, "status").to_string();
-    let (next_epoch, attempts, defer_count) = apply_deferred_work_item_props(
-        &mut props,
-        reason_ref,
-        next_retry_at_ms,
-        now_s,
-        lease_epoch,
-    );
+    let (next_epoch, next_fencing_token, attempts, defer_count) =
+        apply_deferred_work_item_props(&mut props, reason_ref, next_retry_at_ms, now_s)?;
     #[cfg(feature = "statechart")]
     apply_work_item_mirror(
         &mut props,
@@ -306,7 +310,7 @@ pub(crate) fn apply_defer_work_item_row(
         status: eg_types::result_contract::coordination::WorkItemDeferStatus::Deferred,
         work_item_id: Some(work_item_id.to_string()),
         lease_epoch: Some(next_epoch),
-        fencing_token: Some(next_epoch),
+        fencing_token: Some(next_fencing_token),
         next_retry_at_ms: Some(next_retry_at_ms),
         attempt: Some(attempts),
         defer_count: Some(defer_count),
@@ -338,4 +342,52 @@ fn deferral_result(
     crate::protocol::ResultPayload::of::<eg_types::result_contract::coordination::DeferWorkItem>(
         deferral,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn leased_props(epoch: u64, fence: u64) -> serde_json::Map<String, serde_json::Value> {
+        serde_json::json!({
+            "status": "leased", "lease_epoch": epoch, "fencing_token": fence,
+            "lease_owner": "worker", "lease_expires_at": 20.0,
+            "attempt": 2, "defer_count": 3
+        })
+        .as_object()
+        .unwrap()
+        .clone()
+    }
+
+    #[test]
+    fn deferral_advances_distinct_fences_without_consuming_an_attempt() {
+        let mut props = leased_props(7, 11);
+        let result = apply_deferred_work_item_props(&mut props, &None, 30_000, 10.0).unwrap();
+        assert_eq!(result, (8, 12, 1, 4));
+        assert_eq!(props["lease_epoch"], 8);
+        assert_eq!(props["fencing_token"], 12);
+        assert_eq!(props["status"], "ready");
+        assert_eq!(props["next_retry_at"], 30.0);
+        assert_eq!(props["attempt"], 1);
+        assert!(props["lease_owner"].is_null());
+        assert!(props["lease_expires_at"].is_null());
+    }
+
+    #[test]
+    fn deferral_refuses_exhausted_epoch_without_mutating_properties() {
+        let mut props = leased_props(u64::MAX, 11);
+        let before = props.clone();
+        let error = apply_deferred_work_item_props(&mut props, &None, 30_000, 10.0).unwrap_err();
+        assert_eq!(error, "DeferWorkItem lease epoch overflow");
+        assert_eq!(props, before);
+    }
+
+    #[test]
+    fn deferral_refuses_exhausted_fencing_token_without_mutating_properties() {
+        let mut props = leased_props(7, u64::MAX);
+        let before = props.clone();
+        let error = apply_deferred_work_item_props(&mut props, &None, 30_000, 10.0).unwrap_err();
+        assert_eq!(error, "DeferWorkItem fencing token overflow");
+        assert_eq!(props, before);
+    }
 }

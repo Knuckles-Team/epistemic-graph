@@ -107,3 +107,121 @@ mod resolve_core_ref_tests {
         assert!(resolve_opaque_graph_ref(&registry, &graph_ref).is_none());
     }
 }
+
+// EG-DURABLE-KERNEL-R082.2: exercise the same typed governor used by Submit.
+#[cfg(test)]
+mod mine_associate_submission_tests {
+    use super::*;
+    use crate::server::auth::VerifiedRequestContext;
+
+    fn authority() -> CarrierAuthority {
+        CarrierAuthority::from_verified(&VerifiedRequestContext::from_verified_claims(
+            crate::acl::RequestContextClaims {
+                principal: "analytics-test".into(),
+                agent_id: "analytics-test".into(),
+                tenant: "analytics-test-tenant".into(),
+                audience: "epistemic-graph".into(),
+                policy_version: "test".into(),
+                ..Default::default()
+            },
+            "analytics-test-key".into(),
+        ))
+        .unwrap()
+    }
+
+    fn govern(kind: JobKind) -> Result<(JobKind, String, String, serde_json::Value), Response> {
+        govern_job_kind(&authority(), 82, "policy:test", "", kind, &mut Vec::new())
+    }
+
+    fn mining_kind(support: f64, confidence: f64, algorithm: &str) -> JobKind {
+        JobKind::MineAssociate {
+            transactions: vec![vec!["eg:item:a".into(), "eg:item:b".into()]],
+            min_support: support,
+            min_confidence: confidence,
+            algorithm: algorithm.into(),
+        }
+    }
+
+    #[test]
+    fn mine_associate_invalid_parameters_have_typed_bounded_refusals() {
+        for invalid in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY, -0.01, 1.01] {
+            for (support, confidence) in [(invalid, 0.5), (0.1, invalid)] {
+                let response = govern(mining_kind(support, confidence, "fpgrowth")).unwrap_err();
+                assert_eq!(response.id, 82);
+                assert_eq!(response.error.as_deref(), Some("INVALID_ARGUMENT"));
+                assert_eq!(
+                    response.error_detail.as_deref(),
+                    Some("association job thresholds are invalid")
+                );
+                assert!(response.result.is_none());
+            }
+        }
+        for algorithm in ["", "unknown", "fpgrowth\nprivate-input", "private-input"] {
+            let response = govern(mining_kind(0.1, 0.5, algorithm)).unwrap_err();
+            assert_eq!(response.error.as_deref(), Some("INVALID_ARGUMENT"));
+            assert_eq!(
+                response.error_detail.as_deref(),
+                Some("unsupported association job algorithm")
+            );
+        }
+    }
+
+    #[test]
+    fn mine_associate_defaults_aliases_and_threshold_boundaries_are_accepted() {
+        let kind: JobKind = serde_json::from_value(serde_json::json!({
+            "MineAssociate": {"transactions": [["eg:item:a", "eg:item:b"]]}
+        }))
+        .unwrap();
+        let (kind, family, algorithm, params) = govern(kind).unwrap();
+        assert_eq!(family, "mining.association");
+        assert_eq!(algorithm, "fpgrowth");
+        assert_eq!(params["min_support"], 0.1);
+        assert_eq!(params["min_confidence"], 0.5);
+        assert!(matches!(kind, JobKind::MineAssociate { .. }));
+        for algorithm in ["apriori", "fpgrowth", "fp-growth", "fp_growth", "eclat"] {
+            for (support, confidence) in [(0.0, 0.0), (1.0, 1.0)] {
+                govern(mining_kind(support, confidence, algorithm)).unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn mine_associate_distinct_item_overflow_is_invalid_argument() {
+        let kind = JobKind::MineAssociate {
+            transactions: vec![(0..32).map(|i| format!("eg:item:{i}")).collect()],
+            min_support: 0.1,
+            min_confidence: 0.5,
+            algorithm: "fpgrowth".into(),
+        };
+        let response = govern(kind).unwrap_err();
+        assert_eq!(response.error.as_deref(), Some("INVALID_ARGUMENT"));
+        assert_eq!(
+            response.error_detail.as_deref(),
+            Some("association job distinct-item cardinality exceeds 31")
+        );
+    }
+
+    #[test]
+    fn mine_associate_malformed_transaction_shapes_fail_wire_decode() {
+        // Malformed shapes never reach Submit's typed governor. The native
+        // transport maps these decoding errors to INVALID_ARGUMENT (covered by
+        // frame_decode_error_answers_its_id_and_preserves_next_request).
+        for transactions in [
+            serde_json::json!(null),
+            serde_json::json!("not-a-list"),
+            serde_json::json!(["not-a-nested-list"]),
+            serde_json::json!([[7]]),
+            serde_json::json!([[null]]),
+            serde_json::json!([[true]]),
+            serde_json::json!([[{}]]),
+        ] {
+            let payload = rmp_serde::to_vec_named(&serde_json::json!({
+                "Submit": {"graph": "analytics-test", "kind": {
+                    "MineAssociate": {"transactions": transactions}
+                }}
+            }))
+            .unwrap();
+            assert!(rmp_serde::from_slice::<JobOp>(&payload).is_err());
+        }
+    }
+}
