@@ -77,3 +77,11 @@ Column vectorization (R077): a bound text column answers a nearest-neighbour que
 |---|---|---|
 | Out-of-tenant isolation | R078.6 | Two tenants hold nodes, edges and vectors. A query as tenant A returns only A rows. |
 | Unverified caller | R078.4 | A statement without a verified tenant returns `PLAN_SCOPE_UNVERIFIED` and reads nothing. |
+
+## EG-FEDERATED-QUERY-R079 and R080 acceptance
+
+| Scenario | Requirement | Fixture |
+|---|---|---|
+| Schema evolution and time travel | R079.6 | One table takes a rename and a drop. Both snapshots load by time and their manifests read back. |
+| Unapproved drop | R079.4 | A drop without approval returns `SCHEMA_CHANGE_NOT_APPROVED` and keeps the schema version. |
+| Projection stays read-only | R080.6 | A graph write shows in the projection. A projected write returns `PROJECTION_READ_ONLY`. |
