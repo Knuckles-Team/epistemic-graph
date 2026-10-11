@@ -373,21 +373,21 @@ mod tests {
         assert!(props["lease_expires_at"].is_null());
     }
 
-    #[test]
-    fn deferral_refuses_exhausted_epoch_without_mutating_properties() {
-        let mut props = leased_props(u64::MAX, 11);
+    fn assert_deferral_refuses_exhaustion(epoch: u64, fence: u64, expected_error: &str) {
+        let mut props = leased_props(epoch, fence);
         let before = props.clone();
         let error = apply_deferred_work_item_props(&mut props, &None, 30_000, 10.0).unwrap_err();
-        assert_eq!(error, "DeferWorkItem lease epoch overflow");
+        assert_eq!(error, expected_error);
         assert_eq!(props, before);
     }
 
     #[test]
+    fn deferral_refuses_exhausted_epoch_without_mutating_properties() {
+        assert_deferral_refuses_exhaustion(u64::MAX, 11, "DeferWorkItem lease epoch overflow");
+    }
+
+    #[test]
     fn deferral_refuses_exhausted_fencing_token_without_mutating_properties() {
-        let mut props = leased_props(7, u64::MAX);
-        let before = props.clone();
-        let error = apply_deferred_work_item_props(&mut props, &None, 30_000, 10.0).unwrap_err();
-        assert_eq!(error, "DeferWorkItem fencing token overflow");
-        assert_eq!(props, before);
+        assert_deferral_refuses_exhaustion(7, u64::MAX, "DeferWorkItem fencing token overflow");
     }
 }
