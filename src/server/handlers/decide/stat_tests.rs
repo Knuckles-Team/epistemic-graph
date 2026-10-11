@@ -1188,15 +1188,14 @@ async fn graph_log_record(h: &Harness) -> StatisticalDecisionRecord {
         }])),
     };
     let batch = decide(h, graph_request).await.unwrap();
-    let record = batch.records.as_slice()[0].clone();
-    record
+    batch.records.as_slice()[0].clone()
 }
 
 mod retention_tests;
 
 mod log_tests;
 use log_tests::{decision_log_round_trip, fit_from_the_engine_log, log_op};
-#[cfg(feature = "blob")]
+#[cfg(all(feature = "blob", feature = "query"))]
 use log_tests::{retention_compacts_and_verifies, retention_retires};
 
 mod classes_tests;

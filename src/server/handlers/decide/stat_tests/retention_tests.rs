@@ -67,6 +67,10 @@ async fn compact_at(
 async fn library_records_survive_every_retention_window() {
     let h = Harness::new().await;
     let record = library_record(&h).await;
+    assert!(matches!(
+        record.candidate_source,
+        eg_types::decision::CandidateSourceRecord::AgentLibrary { .. }
+    ));
     let entry = commit_record(&h, record).await;
     let before = serde_json::to_vec(&entry).unwrap();
     let policy = h.publish_policy("retain-library", &log_tests::retention_policy(0, Some(0)));
