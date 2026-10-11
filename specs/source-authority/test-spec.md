@@ -14,4 +14,4 @@ Status: PROPOSED. Governing spec: [spec.md](spec.md). No live credential is part
 | T-008 | FR-008 | Unit | Virtual row; accelerated row with reason | Live mode; accelerated mode with reason in the audit | PENDING |
 | T-009 | SC-001 | End to end | Recorded responses; swap two ranks; same query text | Different `sources_used`, equal query text, non-empty provenance | PENDING |
 
-Negative cases that must exist: unconnected rank-1 with and without fallback; authority on an unapproved mapping; a caller who cannot see the registered source; a connector self-claim; an equal-rank tie; a copy served for a virtual row.
+Negative cases that must exist: an origin-approved rank-1 declaration with a connected, approved rank-2 alternate must abstain when rank 1 is unconnected or its mapping is unapproved and `allowFallback` is false; the same fixtures may select rank 2 only when rank 1 explicitly enables fallback, with `FallbackFrom` recorded. Also test a caller who cannot see the registered source; a connector self-claim; an equal-rank tie; a copy served for a virtual row.

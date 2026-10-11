@@ -13,10 +13,11 @@ question (classes only, e.g. :Incident, :Service)
    |  graph-os intent tool -> EG method (read-only)
    v
 eg-rdf::source_selection::select_sources   (R072: hop search + subclass entailment)
-   |  per class/facet reads effective vg:SourceAuthority rows   <-- NEW
-   |     effective = row approved by origin (D3) AND its vg:VirtualMapping approved
-   |                 AND source connected for the caller (R013 catalog)
+   |  per class/facet ranks origin-approved vg:SourceAuthority declarations   <-- NEW
+   |     candidate = authority row approved by origin (D3), matching class/facet/scope
    |  order: facet > class > superclass, scope, rank        (D4)
+   |  then validate winner's mapping approval, caller connection, contract and freshness (D5)
+   |     unavailable winner abstains; another source may answer only with explicit allowFallback
    v
 SelectionVerdict per class/facet: Covered{winner, alternates} | Abstained{typed reason} | Uncovered | Disconnected
    |  each with Premise::Authority / Tiebreak / Rejected
@@ -98,13 +99,13 @@ Reasoning: the mapping (`vg:VirtualMapping`) is one class bound to one entity wi
 
 **D3. Who may assert authority: DECIDED, operator approval only; connectors propose.**
 Rules:
-1. A `vg:SourceAuthority` has effect only if (a) its schema source origin is `Operator`, `Admin`, or `Approved` (the last needs `approval_lease_id`, `schema_sources.rs` line 415) and (b) its `vg:authorityMapping` is itself approved under the same rule. The boolean `vg:approved` in the data is **not** trusted alone: `Pack` and `Ingestion` origin sources are refused if they contain `vg:approved true`, and the planner derives approval from the origin, not the flag. The flag stays as the human-readable marker and the shape-level mirror.
+1. A `vg:SourceAuthority` declaration is eligible for ranking only if its schema source origin is `Operator`, `Admin`, or `Approved` (the last needs `approval_lease_id`, `schema_sources.rs` line 415). Serving through the winning declaration additionally requires its `vg:authorityMapping` to be approved under the same origin rule. An unapproved mapping or unconnected source does not remove an approved authority declaration before ranking: D5 returns the typed refusal or permits only its explicitly declared fallback. The boolean `vg:approved` in the data is **not** trusted alone: `Pack` and `Ingestion` origin sources are refused if they contain `vg:approved true`, and the planner derives approval from the origin, not the flag. The flag stays as the human-readable marker and the shape-level mirror.
 2. A connector pack (typed pack, `pack:<connector>` source) may ship classes, a `vg:SourceConnection`, a `vg:MetadataContract` and **proposed** mappings and authority rows. A proposal is inert: it appears in the "unapproved candidates" list of an answer but never selects.
 3. Approval is the governed two-person change `governed.source-authority`: proposer needs `governance:propose`, approver `governance:approve-source-authority`, different identities, bound to the exact candidate digest; the result attaches through `AttachApproved`. This reuses the mechanism that already guards schema repair, not a new one.
 Reasoning: authority decides which system's data the platform treats as truth and who is blamed for a wrong answer; a connector claiming authority over itself is a conflict of interest and a supply-chain risk (a malicious or buggy pack could displace a trusted source). Alternative: allow pack self-claim at the lowest rank only. Rejected: rank 1 is "lowest" lexically and the default for a concept with no other claim, so self-claim still wins by default.
 
 **D4. Tie-breaking when two sources claim one concept: DECIDED, total order, no name-order fallback.**
-For a question class `C` (and facet `p` when the question reads `p`), candidate rows are effective rows whose `authorityFor` is `C` or an entailed superclass of `C` (subclass entailment of R072; the `EG-CQ-XSRC-R001.3` rule). Order:
+For a question class `C` (and facet `p` when the question reads `p`), candidate rows are origin-approved authority declarations (D3) whose scope matches the caller and question, and whose `authorityFor` is `C` or an entailed superclass of `C` (subclass entailment of R072; the `EG-CQ-XSRC-R001.3` rule). Mapping approval, caller connection, contract compatibility and freshness are checked after ranking in D5; they must not pre-filter candidates and silently promote an alternate. Pack and ingestion proposals remain excluded from ranking. Order:
 1. Facet row for `p` beats class row.
 2. Row on `C` itself beats a row on the nearest superclass beats a farther superclass (the more specific declaration overrides).
 3. A row with matching `scopeTenant` beats unscoped; a matching `scopePartition` beats unpartitioned.
@@ -114,7 +115,7 @@ Losers are kept as ordered `alternates`. Alternates never answer unless the winn
 For comparison, R072 today picks the last inserted mapping; this order replaces that.
 
 **D5. Unconnected authority: DECIDED, typed abstention by default, declared fallback only.**
-The winner is checked in order: approved (else `UnapprovedMapping`), connected for the caller (else `Unconnected`), contract kind matches the registered spec (else `ContractMismatch`), fresh enough (else `Stale`; a stale accelerated copy falls back to a live read if the contract allows, as `AccelerationPolicy::resolve_mode` already does, and abstains `Stale` otherwise). On any failure: if the failing row has `allowFallback true`, the next ordered alternate is tried and the premise records `FallbackFrom { row, reason }`; else the verdict is `Abstained { reason, source, concept }`. The engine never silently substitutes another source or another class (R072 already refuses the class substitution). Typed reasons: `Unconnected`, `UnapprovedMapping`, `Stale`, `ContractMismatch`, `Ambiguous`, plus the existing `Uncovered` and `Disconnected`. `EG-CQ-XSRC-R006.3` consumes these as its `abstentions` variants (it lists the first four of: Unconnected, Uncovered, Disconnected, UnapprovedMapping; this spec adds `Stale`, `ContractMismatch`, `Ambiguous`).
+The winner is checked in order: its mapping is approved (else `UnapprovedMapping`), connected for the caller (else `Unconnected`), contract kind matches the registered spec (else `ContractMismatch`), fresh enough (else `Stale`; a stale accelerated copy falls back to a live read if the contract allows, as `AccelerationPolicy::resolve_mode` already does, and abstains `Stale` otherwise). On any failure: if the failing row has `allowFallback true`, the next ordered alternate is tried and the premise records `FallbackFrom { row, reason }`; else the verdict is `Abstained { reason, source, concept }`. The engine never silently substitutes another source or another class (R072 already refuses the class substitution). Typed reasons: `Unconnected`, `UnapprovedMapping`, `Stale`, `ContractMismatch`, `Ambiguous`, plus the existing `Uncovered` and `Disconnected`. `EG-CQ-XSRC-R006.3` consumes these as its `abstentions` variants (it lists the first four of: Unconnected, Uncovered, Disconnected, UnapprovedMapping; this spec adds `Stale`, `ContractMismatch`, `Ambiguous`).
 No authority row at all for a class: if exactly one approved mapping covers it, serve it and mark the premise `Implicit` (keeps R072 behaviour); if more than one approved mapping covers it, `Abstained::Ambiguous` (this removes the silent overwrite).
 
 **D6. Materialisation: DECIDED, virtual default.** `vg:materialisation` absent or `virtual` means fetch at query time. `accelerated` is allowed only with a reason, a freshness bound and the source `copy` capability; execution of the copy is `EG-UNIFIED-DATA-PLANE-R038` and is not re-specified.
