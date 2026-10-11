@@ -104,6 +104,8 @@ required-features = ["server"]
 [[bin]]
 name = "epistemic-graph-rf019-observe"
 path = "src/bin/rf019_observe.rs"
+# No unit tests; integration tests still build the ordinary binary.
+test = false
 required-features = ["server", "ann-redb"]
 
 # Longer fault-injection soak for the correctness harness (CONCEPT:KG-2.212). Only
@@ -120,6 +122,8 @@ required-features = ["harness"]
 [[bin]]
 name = "migrate-shards"
 path = "src/bin/migrate_shards.rs"
+# No unit tests; integration tests still build the ordinary binary.
+test = false
 required-features = ["redb", "server"]
 
 # Restore a durable persist-dir from an EG-090 backup bundle (CONCEPT:EG-090). Verbatim
@@ -127,6 +131,8 @@ required-features = ["redb", "server"]
 [[bin]]
 name = "restore"
 path = "src/bin/restore.rs"
+# No unit tests; integration tests still build the ordinary binary.
+test = false
 required-features = ["redb", "server"]
 
 # Fixture-scale Delta/Iceberg write-format export tool (W4.8, CONCEPT:EG-317). Drives
@@ -141,6 +147,8 @@ required-features = ["redb", "server"]
 [[bin]]
 name = "lake-fixture-export"
 path = "src/bin/lake_fixture_export.rs"
+# No unit tests; integration tests still build the ordinary binary.
+test = false
 required-features = ["lake"]
 
 # SQLite-style embedded usage (CONCEPT:KG-2.216). Needs the in-process library API.
