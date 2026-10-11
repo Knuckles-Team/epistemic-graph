@@ -62,7 +62,14 @@
     "EG-SRC-AUTH-R010.3",
     "EG-SRC-AUTH-R010.4",
     "EG-SRC-AUTH-R010.5",
-    "EG-SRC-AUTH-R010.6"
+    "EG-SRC-AUTH-R010.6",
+    "EG-SRC-AUTH-R011",
+    "EG-SRC-AUTH-R011.1",
+    "EG-SRC-AUTH-R011.2",
+    "EG-SRC-AUTH-R011.3",
+    "EG-SRC-AUTH-R011.4",
+    "EG-SRC-AUTH-R011.5",
+    "EG-SRC-AUTH-R011.6"
   ],
   "requirements": [
     {
@@ -542,6 +549,63 @@
     },
     {
       "id": "EG-SRC-AUTH-R010.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SRC-AUTH-R011",
+      "title": "Untrusted taint mark on content that enters a run (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-SRC-AUTH-R011.1",
+        "EG-SRC-AUTH-R011.2",
+        "EG-SRC-AUTH-R011.3",
+        "EG-SRC-AUTH-R011.4",
+        "EG-SRC-AUTH-R011.5",
+        "EG-SRC-AUTH-R011.6"
+      ]
+    },
+    {
+      "id": "EG-SRC-AUTH-R011.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SRC-AUTH-R011.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SRC-AUTH-R011.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SRC-AUTH-R011.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SRC-AUTH-R011.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SRC-AUTH-R011.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],

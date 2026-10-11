@@ -203,7 +203,7 @@ The generated lifecycle records test existence, independently of execution resul
 
 ## Harness run-trace vocabulary and measured-fact loop
 
-This spec owns the run-trace vocabulary. `:RunTrace` is declared in `orchestration-v1.ttl:653`, and the neighbouring `:tokenCost`, `:evaluationScore`, `:ModelProfile` and `:contextWindow` rows already extend it here. A second owner for run-trace terms would split one class across two specs.
+This spec owns the run-trace vocabulary. `:RunTrace` is declared in `orchestration-v1.ttl:653`, and the neighbouring `:tokenCost`, `:evaluationScore`, `:ModelProfile` and `:contextWindow` rows already extend it here. A second owner for run-trace terms splits one class across two specs.
 
 ### Data flow
 
@@ -255,3 +255,20 @@ Reused: the `IndexRepository` batch, per-file outcomes, and the software ontolog
 Decision: classify by path and front matter in the engine. Rejected: classification in each client, because clients would drift and the graph would hold different kinds for the same file.
 
 Cross-repository rows: the `AU-INGEST` rows that send a spec folder to `IndexRepository` depend on this contract name `SpecNodeKind`.
+
+## EG-ORCH-VOCAB-R013 Run trace step record with request, argument and result digests
+
+Data flow: run write -> `Method::AddNode` (`crates/eg-types/src/protocol/method/method_00.rs:6`) -> `AddNode` arm (`src/server/handlers/graph_ops/gateway_graph.rs:62`) -> digest validation -> ordered `StepRecord` nodes -> replay read.
+Types: `StepRecord`, `StepKind`, the `ModelRequest` receipt kind, `step_digest`.
+Attach point: The `AddNode` arm at `src/server/handlers/graph_ops/gateway_graph.rs:62`, after the shape check of `EG-ORCH-VOCAB-R009`. The comparison loop stays in the harness.
+Failure: A bad digest returns `STEP_DIGEST_INVALID`. A gap in the index returns `STEP_ORDER_INVALID`.
+Consumers: AU-HARNESS (R024)
+Moves from agent-utilities: agent_utilities/observability/replay_engine.py:81 (span digest recipe)
+Existing code: `crates/eg-types/src/outcome_bundle.rs:130`; `crates/eg-types/src/outcome_bundle.rs:668`; `crates/eg-types/src/authority/replay.rs:191` (a different record). Reachable today: no.
+Existing-code search: the engine stores run trace nodes and one `RunEvent` digest. It holds no per-step digests and no replay compare. Search terms: `ModelRequest`, `request_digest`, `args_digest`, `result_digest`, `RunTrace`.
+Reuses: `ReceiptNodeKind` and the `AddNode` path. New: the step record and the digest recipe.
+Decision: The engine owns the record shape and digest recipe so any replay agrees with the store. Rejected alternative: each harness defines its own digest, because a replay never matches a record written by another version.
+Cross-repository: `AU-HARNESS-R024` writes the steps and runs the replay compare. Its replay code at `replay_engine.py:81` keeps the loop and takes the digest recipe from here.
+
+References
+- No paper is cited.

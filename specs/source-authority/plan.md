@@ -166,9 +166,25 @@ Types: `SourceRole`, `Premise::Role`, reason `RoleInsufficient`. Attach point: `
 
 Existing code: `crates/eg-rdf/src/source_selection.rs:26`, `source_selection.rs:65`, `source_selection.rs:102`, `source_selection.rs:172`. Reachable today: no; `select_sources` has no production caller. Search terms used with no match: live_truth, LiveTruth, historical, inspiration, SourceRole, trust_level.
 
-Decision: store the role on the connection and order by it before rank, so one declaration governs every class the source maps. Rejected alternative: encode the role as a low rank number, because rank is per class and cannot express trust.
+Decision: store the role on the connection and order by it before rank, so one declaration governs every mapped class. Rejected alternative: encode the role as a low rank number, because rank is per class and cannot express trust.
 
 Cross-repository: graph-os prints the role in the "sources used and why" block; owner prefix `GRAPHOS-INTENT`, contract `AuthorityAudit`.
+
+References
+- No paper is cited.
+
+## EG-SRC-AUTH-R011 Untrusted taint mark on content that enters a run
+
+Data flow: run writes content -> `Method::AddNode` (`crates/eg-types/src/protocol/method/method_00.rs:6`) -> `AddNode` arm (`src/server/handlers/graph_ops/gateway_graph.rs:62`) -> `mark_for_origin` (`crates/eg-rdf/src/source_selection.rs`) -> `vg:trustMark` stored -> content read returns the mark -> harness carries it.
+Types: `TrustMark{trusted, untrusted}`, `vg:trustMark`, `:markedBy`, `:markedAtGeneration`.
+Attach point: The `AddNode` arm at `src/server/handlers/graph_ops/gateway_graph.rs:62` and `select_sources` at `crates/eg-rdf/src/source_selection.rs:172`.
+Failure: A downgrade without approval returns `TRUST_MARK_DOWNGRADE_REFUSED`.
+Consumers: AU-SEC (R012)
+Existing code: `crates/eg-rdf/src/source_selection.rs:172` (`select_sources`); `crates/eg-rdf/src/source_selection.rs:26` (`Premise`); `crates/eg-core/src/isolation.rs:1058` (an untrusted visibility key is ignored, a separate rule). Reachable today: no.
+Existing-code search: the engine has no trust mark on content. Search terms: `taint`, `untrusted`, `trust_mark`, `TrustMark`. No existing agent-utilities code moves for this row.
+Reuses: `SourceRole` of `EG-SRC-AUTH-R010` as an input to the default rule. New: the mark, the propagation rule, the downgrade refusal.
+Decision: The mark is a stored fact with inheritance. Rejected alternative: a per-run flag in the harness, because it is lost when content is stored and read back by another run.
+Cross-repository: `AU-SEC-R012` carries the mark through context assembly and refuses to act on `untrusted` content without confirmation. `GRAPHOS-` rows own that confirmation.
 
 References
 - No paper is cited.
