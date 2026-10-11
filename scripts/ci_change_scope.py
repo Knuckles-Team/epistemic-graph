@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import re
 import subprocess
+from collections.abc import Callable
 from pathlib import PurePosixPath
 
 ROOT_DOCUMENTS = frozenset(
@@ -25,7 +26,9 @@ def documentation_path(path: str) -> bool:
     )
 
 
-def documentation_diff(raw: bytes) -> bool:
+def documentation_diff(
+    raw: bytes, path_predicate: Callable[[str], bool] = documentation_path
+) -> bool:
     """Read --raw -z --no-renames, retaining deletions and executable modes."""
     fields = raw.split(b"\0")
     if fields[-1] != b"" or len(fields) < 3 or len(fields) % 2 != 1:
@@ -43,7 +46,7 @@ def documentation_diff(raw: bytes) -> bool:
             path = fields[index + 1].decode("utf-8")
         except UnicodeDecodeError:
             return False
-        if not documentation_path(path):
+        if not path_predicate(path):
             return False
     return True
 

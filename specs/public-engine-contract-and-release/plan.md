@@ -176,3 +176,20 @@ name. A canceled build may produce no report. Report its absence without
 claiming a successful test run. This adds evidence for the next natural build.
 Profiles, timeouts, cache permissions, and test failure propagation stay intact.
 Saved build time and the sub-ten-minute goal remain unmeasured.
+
+### 2026-10-11: conservative local source-gate scope
+
+The contract-method reachability and durable-table registration scanners retain
+their full algorithms. Automatic commit/push wrappers may omit a scan only when
+complete raw Git changes and supplied filenames independently prove ordinary
+documentation-only files, with verified index/worktree or clean push state.
+The existing CI documentation predicate is reused without broadening its default;
+only the local wrapper also recognizes the exact development skill document.
+CI, direct manual hooks, all-files, deletions and uncertain state run full scans.
+This is hook plumbing under R024, not completion of the full R023 gate suite.
+
+Frozen commit-stage `--from-ref`/`--to-ref` checks use the same immutable-ref,
+clean tracked worktree and exact checked-out-tip validation as push. Presence of
+either range variable requires a valid complete pair; partial or invalid ranges
+never fall back to the staged-document optimization. Ordinary commits without
+range variables retain index/worktree agreement checks.
