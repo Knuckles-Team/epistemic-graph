@@ -273,3 +273,19 @@ including demand, capacity, deadline and token caps. Native execution remains
 pending; formatting and standalone fixture arithmetic are not native acceptance.
 The test binds R110.1 under the published spec standard.
 Generated delivery state records test existence, not successful native execution.
+
+### 2026-10-11: bounded solver completion telemetry (R072.1)
+
+Emit one `eg_compute::solve` completion event after the actual search returns its
+certificate. Report `solver_nodes`, `optimality_gap_available`, and, only when
+both endpoints exist and checked subtraction yields a nonnegative value,
+`optimality_gap`. The gap is the absolute scalarized minimization objective gap,
+exported as an approximate f64 for telemetry; certificate integers stay exact.
+Missing endpoints, invalid ordering, and arithmetic overflow omit the gap rather
+than imply optimality. No model inputs, identifiers, selections, or tenant data
+are recorded. Add helper and actual solver-path capture regressions without
+changing search behavior or certificate serialization. Native solver-path
+test was not run. A rustc test harness importing the exact production metrics
+module with the existing tracing rlib passed all 3 helper/capture tests. This
+command does not execute the native solver-entry regression. The regression
+source is bound to R072.1; generated spec state and test execution are separate.
