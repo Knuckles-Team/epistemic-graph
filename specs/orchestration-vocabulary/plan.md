@@ -190,8 +190,8 @@ Solver or certificate changes. New wire methods or scopes. A task-decomposition 
 
 EG-ORCH-VOCAB-R001.1 and EG-ORCH-VOCAB-R004.1 declare the foundational classes. Native
 parser/reasoner acceptance lives in `crates/eg-rdf/tests/orchestration_vocabulary.rs`:
-`eg-rdf` owns the OWL API and already depends on `eg-core`; placing these tests
-in eg-core inverts the dependency layering. Tests cover the shipped foundation,
+`eg-rdf` owns the OWL API and already depends on `eg-core`.
+Placing these tests in eg-core inverts the dependency layering. Tests cover the shipped foundation,
 orchestration and capability documents, including a positive step-order fixture,
 unrelated-superclass negatives and a planted disjointness contradiction.
 The remaining step properties, shapes, rule scope and consumer wiring remain open.
