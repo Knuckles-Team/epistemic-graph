@@ -566,6 +566,7 @@ async fn route_fixture(h: &Harness) -> RouteFixture {
     }
 }
 
+// spec: EG-DECISION-ENGINE-R122
 #[tokio::test]
 async fn fit_evaluate_publish_and_decide_end_to_end() {
     let h = Harness::new().await;
@@ -861,6 +862,7 @@ async fn fit_evaluate_publish_and_decide_end_to_end() {
     decision_log_round_trip(&h, record.clone()).await;
     // Library inputs remain inline and continue to train.
     fit_from_the_engine_log(&h, &schema_pin, record).await;
+    log_tests::mixed_origin_aggregates_exclude_synthetic(&h, &schema_pin, record).await;
 }
 
 // spec: EG-DECISION-ENGINE-R020

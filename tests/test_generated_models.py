@@ -134,3 +134,67 @@ def test_decode_validates_a_result_against_its_contract_model() -> None:
         reasoning.decode_sparql(OpaqueResult("Sparql", {"vars": 1}))
     with pytest.raises(ValueError):
         reasoning.decode_sparql(OpaqueResult("Cypher", payload))
+
+
+@pytest.mark.spec("EG-DECISION-ENGINE-R063")
+@pytest.mark.parametrize("method", ["DecisionFit", "DecisionEval"])
+def test_decision_job_decode_selects_the_exact_operation(method: str) -> None:
+    from epistemic_graph.generated import coordination
+
+    decode = (
+        coordination.decode_decision_fit
+        if method == "DecisionFit"
+        else coordination.decode_decision_eval
+    )
+    payload: dict[str, Any] = {
+        "schema_version": 1,
+        "job_id": "job",
+        "kind": "fit" if method == "DecisionFit" else "eval",
+        "tenant_id": "tenant",
+        "request_digest": "digest",
+        "submitted_at_ms": 0,
+        "state": {"state": "queued"},
+    }
+    for operation in ["submit", "status"]:
+        decoded = decode(OpaqueResult(method, payload), operation=operation)
+        assert isinstance(decoded, models.DecisionJobRecord)
+        assert decoded.job_id == "job"
+    payload["state"]["unexpected"] = True
+    with pytest.raises(ContractViolation):
+        decode(OpaqueResult(method, payload), operation="submit")
+    assert decode(OpaqueResult(method, None), operation="status") is None
+    with pytest.raises(ContractViolation):
+        decode(OpaqueResult(method, None), operation="submit")
+    with pytest.raises(ContractViolation):
+        decode(OpaqueResult(method, {"unexpected": True}), operation="status")
+    with pytest.raises(ValueError, match="unknown .* operation"):
+        decode(OpaqueResult(method, None), operation="unknown")
+    with pytest.raises(ValueError, match="passed to"):
+        decode(OpaqueResult("Decide", None), operation="status")
+
+
+@pytest.mark.spec("EG-DECISION-ENGINE-R063")
+def test_decision_eval_pages_cannot_decode_as_a_different_operation() -> None:
+    from epistemic_graph.generated import coordination
+
+    assert (
+        coordination.decode_decision_eval(
+            OpaqueResult("DecisionEval", None), operation="receipt"
+        )
+        is None
+    )
+    payload: dict[str, Any] = {"receipts": [], "next_after": None}
+    result = OpaqueResult("DecisionEval", payload)
+    decoded = coordination.decode_decision_eval(result, operation="receipts")
+    assert isinstance(decoded, models.DecisionReceiptPage)
+    assert decoded.receipts == []
+    with pytest.raises(ContractViolation):
+        coordination.decode_decision_eval(result, operation="status")
+
+    timeline = coordination.decode_decision_eval(
+        OpaqueResult("DecisionEval", {"entries": [], "next_after": None}),
+        operation="timeline",
+    )
+    assert isinstance(timeline, models.DecisionReceiptTimelinePage)
+    with pytest.raises(ContractViolation):
+        coordination.decode_decision_eval(result, operation="timeline")

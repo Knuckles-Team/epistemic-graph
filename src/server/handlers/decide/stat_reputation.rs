@@ -227,6 +227,10 @@ fn gather(store: &AgentLibraryStore, reader: &LogReader) -> Result<Evidence, Str
     let mut evidence = Evidence::default();
     let mut heads = Heads::new();
     for (entry, evaluations) in joined(store, reader, None, None)? {
+        // Synthetic forecasts and outcomes cannot establish real-world reliability.
+        if entry.record.synthetic_evidence {
+            continue;
+        }
         let decider = entry.record.caller_principal.as_str();
         let Some(option) = executed_option(&entry.record.outcome) else {
             continue;

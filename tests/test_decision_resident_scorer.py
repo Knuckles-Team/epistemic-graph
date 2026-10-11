@@ -9,7 +9,11 @@ open fails acceptance. R090.3 resource benchmarking remains separate.
 from __future__ import annotations
 
 import contextlib
+import os
+import re
 import shutil
+import signal
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -20,11 +24,12 @@ from conftest import (
     bootstrap_context,
     find_server_binary,
     request_context,
+    server_timeout,
     spawn_server,
-    stop_server,
     strict_server_env,
     wait_for_server,
 )
+from pydantic import BaseModel
 
 from epistemic_graph.client import SyncEpistemicGraphClient
 
@@ -58,19 +63,20 @@ def engine(tmp_path, run, *, bootstrap):
     )
     trace = tmp_path / f"{run}.trace"
     log = tmp_path / f"{run}.log"
-    # -D leaves the engine as our child; bounded stop_server terminates it,
-    # while the detached tracer follows all engine threads and subprocesses.
+    # Keep strace as a waitable parent. It exits only after all traced tasks
+    # finish and the output is flushed. EXITKILL also prevents orphaned engine
+    # children if readiness or shutdown times out and the tracer is killed.
     process = spawn_server(
         [
             tracer,
-            "-D",
+            "--kill-on-exit",
             "-f",
             "-s",
             "4096",
             "-o",
             str(trace),
             "-e",
-            "trace=execve,execveat,connect,openat",
+            "trace=execve,execveat,connect,open,openat,openat2",
             str(Path(binary).resolve()),
             "--socket-path",
             socket,
@@ -96,11 +102,30 @@ def engine(tmp_path, run, *, bootstrap):
         ) as client:
             yield client
     finally:
-        stop_server(process, name="resident engine", log_path=log)
+        stop_traced_engine(process)
     assert_no_external_runtime(trace.read_text())
 
 
+def stop_traced_engine(process):
+    """Gracefully stop the direct engine child, then reap the tracing parent."""
+    if process.poll() is not None:
+        return
+    children = Path(f"/proc/{process.pid}/task/{process.pid}/children")
+    try:
+        for child in children.read_text().split():
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(int(child), signal.SIGTERM)
+        process.wait(timeout=server_timeout())
+    except (OSError, subprocess.TimeoutExpired):
+        process.kill()  # EXITKILL terminates every remaining traced task.
+        process.wait(timeout=server_timeout())
+        raise AssertionError("native engine/tracer did not shut down cleanly") from None
+
+
 def assert_no_external_runtime(trace):
+    assert not re.search(
+        r"libpython|/python\d|/site-packages/|/dist-packages/", trace
+    ), "engine loaded an embedded Python runtime or standard library"
     lines = trace.splitlines()
     executions = [line for line in lines if "execve(" in line or "execveat(" in line]
     assert len(executions) == 1, f"only the compiled engine may execute: {executions}"
@@ -145,7 +170,7 @@ def test_wire_fixture_matches_generated_request_contracts():
         "definition_digest": DIGEST,
     }
     data = dataset({"candidate_ids": ["a", "b", "c"], "values": [1, 2, 3, 4, 5, 6]})
-    payloads = [
+    payloads: list[tuple[type[BaseModel], dict]] = [
         (
             models.MethodAgentComponentParams,
             publication("schema", "feature_schema", schema_body()),
@@ -171,6 +196,10 @@ def test_wire_fixture_matches_generated_request_contracts():
         '2 openat(AT_FDCWD, "/dev/nvidia0", O_RDWR) = 3',
         '2 openat(AT_FDCWD, "/dev/dri/renderD128", O_RDWR) = 3',
         '2 openat(AT_FDCWD, "/dev/kfd", O_RDWR) = 3',
+        '2 openat(AT_FDCWD, "/usr/lib/libpython3.12.so", O_RDONLY) = 3',
+        '2 openat(AT_FDCWD, "/usr/lib/python3.12/os.py", O_RDONLY) = 3',
+        '2 openat2(AT_FDCWD, "/usr/lib/python312.zip", {}, 24) = 3',
+        '2 open("/opt/site-packages/torch/__init__.py", O_RDONLY) = 3',
     ],
 )
 def test_runtime_trace_rejects_external_dependency_attempts(violation):
@@ -178,3 +207,38 @@ def test_runtime_trace_rejects_external_dependency_attempts(violation):
     assert_no_external_runtime(trace)
     with pytest.raises(AssertionError):
         assert_no_external_runtime(trace + violation)
+
+
+@pytest.mark.no_engine
+@pytest.mark.parametrize("timeout", [False, True])
+def test_tracer_shutdown_is_bounded_and_reaped(monkeypatch, timeout):
+    events: list[object] = []
+
+    class Process:
+        pid = 123
+        waits = 0
+
+        def poll(self):
+            return None
+
+        def wait(self, *, timeout):
+            self.waits += 1
+            events.append("wait")
+            if self.waits == 1 and fail_wait:
+                raise subprocess.TimeoutExpired("strace", timeout)
+            return 0
+
+        def kill(self):
+            events.append("kill-tracer")
+
+    fail_wait = timeout
+    monkeypatch.setattr(Path, "read_text", lambda self: "456")
+    monkeypatch.setattr(os, "kill", lambda pid, sig: events.append((pid, sig)))
+    process = Process()
+    if timeout:
+        with pytest.raises(AssertionError, match="shut down cleanly"):
+            stop_traced_engine(process)
+        assert events == [(456, signal.SIGTERM), "wait", "kill-tracer", "wait"]
+    else:
+        stop_traced_engine(process)
+        assert events == [(456, signal.SIGTERM), "wait"]

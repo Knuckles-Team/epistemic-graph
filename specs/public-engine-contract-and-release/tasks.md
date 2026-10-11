@@ -46,6 +46,7 @@ At every merge, compare the source SHA in this table to the public default branc
 - [x] **C-18 — EG-CONTRACT-R048:** Declare the work-claim and evidence DTO bounds in the Rust schema source. Emit strict booleans and unique-item validators from the generator. Merge the PR and record the merged commit.
 - [ ] **C-19 — EG-CONTRACT-R050:** Generated client ingests OTLP logs
 - [ ] **C-20 — EG-CONTRACT-R051:** Generated client ingests RunTrace
+- [ ] **C-20.1 — EG-CONTRACT-R051.1:** Client ingest carries harness fields
 
 ## 2026-10-11 lint formatter provisioning
 

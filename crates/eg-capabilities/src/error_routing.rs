@@ -94,6 +94,7 @@ const METHOD_PREFIXES: &[(&str, &[&str])] = &[
     ),
     ("Decide", &["DECISION_", "COMPONENT_", "CORRUPT_DECISION_"]),
     ("RbacElevation", &["ELEVATION_"]),
+    ("GovernedChange", &["GOVERNED_"]),
     ("Identity", &["IDENTITY_"]),
 ];
 const DOMAIN_PREFIXES: &[(&str, &[&str])] = &[
@@ -304,6 +305,18 @@ pub fn method_allows_error(method: &str, code: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::method_allows_error;
+
+    // spec: EG-CONTRACT-R014
+    #[test]
+    fn governed_actor_refusal_is_only_routed_to_governed_changes() {
+        assert!(method_allows_error(
+            "GovernedChange",
+            "GOVERNED_ACTOR_UNSTAMPED"
+        ));
+        for other in ["RbacElevation", "Identity", "QueryForeignColumns"] {
+            assert!(!method_allows_error(other, "GOVERNED_ACTOR_UNSTAMPED"));
+        }
+    }
 
     #[test]
     fn runtime_error_routing_is_method_specific_and_closed() {

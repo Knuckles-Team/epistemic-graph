@@ -74,6 +74,7 @@ const CODE_CLASSES: &[(&str, &str)] = &[
     ("BUSY", "capacity"),
     ("INTERNAL", "internal"),
     ("ELEVATION_ACTOR_UNSTAMPED", "internal"),
+    ("GOVERNED_ACTOR_UNSTAMPED", "internal"),
     ("SCHEMA_INCONSISTENT", "schema"),
 ];
 
@@ -142,6 +143,7 @@ const HTTP_HINTS: &[(&str, u16)] = &[
     ("CAPACITY_UNAVAILABLE", 503),
     ("DECISIONS", 503),
     ("ELEVATION_ACTOR_UNSTAMPED", 500),
+    ("GOVERNED_ACTOR_UNSTAMPED", 500),
     ("SCHEMA_INCONSISTENT", 409),
     ("GRAPH_NOT_FOUND", 404),
     ("TELEMETRY_WINDOW_TOO_LARGE", 413),
@@ -197,15 +199,268 @@ mod tests {
         }
     }
 
-    fn literal_refusals(line: &str) -> impl Iterator<Item = &str> {
-        line.split('"').skip(1).step_by(2).filter_map(|quoted| {
-            let (code, _) = quoted.split_once(": ")?;
-            (code.len() >= 4
-                && code
-                    .bytes()
-                    .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_'))
-            .then_some(code)
+    use quote::ToTokens;
+    use syn::visit::Visit;
+
+    #[derive(Default)]
+    struct FunctionRefusals {
+        codes: BTreeSet<String>,
+        references: BTreeSet<String>,
+        wire_boundary: bool,
+    }
+
+    /// A conservative source census, not a compiler-resolved reachability proof.
+    /// Equal names in different modules are merged: ambiguity adds coverage
+    /// rather than hiding a possible wire refusal.
+    #[derive(Default)]
+    struct RefusalCensus {
+        functions: BTreeMap<String, FunctionRefusals>,
+        current: String,
+    }
+
+    fn test_only(meta: &syn::Meta) -> bool {
+        match meta {
+            syn::Meta::Path(path) => path.is_ident("test"),
+            syn::Meta::List(list) => {
+                let items = list
+                    .parse_args_with(
+                        syn::punctuated::Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated,
+                    )
+                    .expect("cfg arguments");
+                if list.path.is_ident("all") {
+                    items.iter().any(test_only)
+                } else if list.path.is_ident("any") {
+                    !items.is_empty() && items.iter().all(test_only)
+                } else {
+                    false
+                }
+            }
+            _ => false,
+        }
+    }
+
+    fn test_attrs(attrs: &[syn::Attribute]) -> bool {
+        attrs.iter().any(|attr| {
+            attr.path().is_ident("test")
+                || (attr.path().is_ident("cfg")
+                    && attr
+                        .parse_args::<syn::Meta>()
+                        .is_ok_and(|meta| test_only(&meta)))
         })
+    }
+
+    impl RefusalCensus {
+        fn literal(&mut self, literal: &syn::LitStr) {
+            let text = literal.value();
+            if let Some((code, _)) = text.split_once(": ") {
+                if code.len() >= 4
+                    && code
+                        .bytes()
+                        .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_')
+                {
+                    self.functions
+                        .entry(self.current.clone())
+                        .or_default()
+                        .codes
+                        .insert(code.to_string());
+                }
+            }
+        }
+
+        fn tokens(&mut self, stream: proc_macro2::TokenStream) {
+            for token in stream {
+                match token {
+                    proc_macro2::TokenTree::Group(group) => self.tokens(group.stream()),
+                    proc_macro2::TokenTree::Literal(literal) => {
+                        if let Ok(literal) = syn::parse2::<syn::LitStr>(literal.into_token_stream())
+                        {
+                            self.literal(&literal);
+                        }
+                    }
+                    proc_macro2::TokenTree::Ident(ident) => {
+                        // Macro tokens are opaque to syn's expression visitor.
+                        // A Response mention conservatively roots the function.
+                        if ident == "Response" {
+                            self.functions
+                                .entry(self.current.clone())
+                                .or_default()
+                                .wire_boundary = true;
+                        }
+                        self.functions
+                            .entry(self.current.clone())
+                            .or_default()
+                            .references
+                            .insert(ident.to_string());
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        fn function(&mut self, signature: &syn::Signature, block: &syn::Block) {
+            let name = signature.ident.to_string();
+            let previous = std::mem::replace(&mut self.current, name.clone());
+            self.functions.entry(name).or_default().wire_boundary |= signature
+                .output
+                .to_token_stream()
+                .to_string()
+                .split(|c: char| !c.is_alphanumeric() && c != '_')
+                .any(|name| name == "Response");
+            self.visit_block(block);
+            self.current = previous;
+        }
+
+        fn codes(self) -> BTreeSet<String> {
+            let mut pending: Vec<_> = self
+                .functions
+                .iter()
+                .filter(|(name, function)| name.is_empty() || function.wire_boundary)
+                .map(|(name, _)| name.clone())
+                .collect();
+            let mut visited = BTreeSet::new();
+            let mut codes = BTreeSet::new();
+            while let Some(name) = pending.pop() {
+                if !visited.insert(name.clone()) {
+                    continue;
+                }
+                if let Some(function) = self.functions.get(&name) {
+                    codes.extend(function.codes.iter().cloned());
+                    pending.extend(function.references.iter().cloned());
+                }
+            }
+            codes
+        }
+    }
+
+    impl<'ast> Visit<'ast> for RefusalCensus {
+        fn visit_item_mod(&mut self, item: &'ast syn::ItemMod) {
+            if !test_attrs(&item.attrs) {
+                syn::visit::visit_item_mod(self, item);
+            }
+        }
+
+        fn visit_item_fn(&mut self, item: &'ast syn::ItemFn) {
+            if !test_attrs(&item.attrs) {
+                self.function(&item.sig, &item.block);
+            }
+        }
+
+        fn visit_impl_item_fn(&mut self, item: &'ast syn::ImplItemFn) {
+            if !test_attrs(&item.attrs) {
+                self.function(&item.sig, &item.block);
+            }
+        }
+
+        fn visit_expr_call(&mut self, call: &'ast syn::ExprCall) {
+            if let syn::Expr::Path(path) = call.func.as_ref() {
+                let names: Vec<_> = path
+                    .path
+                    .segments
+                    .iter()
+                    .map(|part| part.ident.to_string())
+                    .collect();
+                if names.windows(2).any(|pair| pair == ["Response", "err"]) {
+                    self.functions
+                        .entry(self.current.clone())
+                        .or_default()
+                        .wire_boundary = true;
+                }
+                // The typed argument determines this helper's wire code. Its
+                // second argument is diagnostic text, not another wire refusal.
+                if names.last().is_some_and(|name| name == "refusal")
+                    && call.args.first().is_some_and(|arg| matches!(arg, syn::Expr::Path(path)
+                        if path.path.segments.iter().any(|part| part.ident == "StatisticalErrorCode")))
+                { return; }
+            }
+            syn::visit::visit_expr_call(self, call);
+        }
+
+        fn visit_expr_path(&mut self, path: &'ast syn::ExprPath) {
+            if let Some(name) = path.path.segments.last() {
+                self.functions
+                    .entry(self.current.clone())
+                    .or_default()
+                    .references
+                    .insert(name.ident.to_string());
+            }
+        }
+
+        fn visit_expr_method_call(&mut self, call: &'ast syn::ExprMethodCall) {
+            self.functions
+                .entry(self.current.clone())
+                .or_default()
+                .references
+                .insert(call.method.to_string());
+            syn::visit::visit_expr_method_call(self, call);
+        }
+
+        fn visit_lit_str(&mut self, literal: &'ast syn::LitStr) {
+            self.literal(literal);
+        }
+        fn visit_macro(&mut self, item: &'ast syn::Macro) {
+            self.tokens(item.tokens.clone());
+        }
+    }
+
+    #[test]
+    fn refusal_census_keeps_reachable_production_and_excludes_test_and_detail_text() {
+        let source = r#"
+            fn direct() { Response::err(1, "PRODUCTION_REFUSAL: detail"); }
+            fn formatted() -> String { format!("FORMATTED_REFUSAL: {}", 1) }
+            fn serve() -> Response { Response::err(1, formatted()) }
+            mod ambiguous { fn formatted() -> String { "AMBIGUOUS_HELPER: detail".into() } }
+            #[cfg(feature = "security")]
+            mod secured { fn serve() -> Response { "SECURITY_REFUSAL: detail"; } }
+            #[cfg(test)]
+            mod tests { fn planted() -> Response { "UNDECLARED_CODE: backend detail"; } }
+            fn after_tests() -> Response { "AFTER_TESTS_REFUSAL: detail"; }
+            fn macro_boundary() { wrap!(Response::err(1, "MACRO_REFUSAL: detail")); }
+            fn closure_boundary() { let f = || Response::err(1, "CLOSURE_REFUSAL: detail"); }
+            fn qualified() -> crate::protocol::Response { "QUALIFIED_REFUSAL: detail"; }
+            fn dormant_helper() -> String { "UNSERVED_HELPER: detail".into() }
+            fn typed() -> Response {
+                refusal(StatisticalErrorCode::ParameterInvalid, format!("DIAGNOSTIC_DETAIL: {}", 1))
+            }
+        "#;
+        let mut census = RefusalCensus::default();
+        census.visit_file(&syn::parse_file(source).unwrap());
+        assert_eq!(
+            census.codes(),
+            BTreeSet::from([
+                "AMBIGUOUS_HELPER".to_string(),
+                "CLOSURE_REFUSAL".to_string(),
+                "MACRO_REFUSAL".to_string(),
+                "QUALIFIED_REFUSAL".to_string(),
+                "AFTER_TESTS_REFUSAL".to_string(),
+                "PRODUCTION_REFUSAL".to_string(),
+                "FORMATTED_REFUSAL".to_string(),
+                "SECURITY_REFUSAL".to_string(),
+            ])
+        );
+    }
+
+    fn assert_catalogued(census: RefusalCensus, codes: &BTreeSet<&str>) {
+        for code in census.codes() {
+            assert!(
+                codes.contains(code.as_str()),
+                "undeclared reachable refusal: {code}"
+            );
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "undeclared reachable refusal: NEW_WIRE_REFUSAL")]
+    fn refusal_census_rejects_a_new_undeclared_response_code() {
+        let mut census = RefusalCensus::default();
+        census.visit_file(
+            &syn::parse_file(
+                r#"fn serve() -> Response {
+            Response::err(1, "NEW_WIRE_REFUSAL: detail")
+        }"#,
+            )
+            .unwrap(),
+        );
+        assert_catalogued(census, &BTreeSet::new());
     }
 
     // spec: EG-CONTRACT-R014
@@ -244,22 +499,15 @@ mod tests {
         let mut files = Vec::new();
         server_sources(&root, &mut files);
         assert!(!files.is_empty(), "server source census is empty");
+        let mut census = RefusalCensus::default();
         for file in files {
             let source = std::fs::read_to_string(&file).expect("read server source");
-            for (line_number, line) in source.lines().enumerate() {
-                if line.trim_start().starts_with("//") {
-                    continue;
-                }
-                for code in literal_refusals(line) {
-                    assert!(
-                        codes.contains(code),
-                        "{}:{}: {code}",
-                        file.display(),
-                        line_number + 1
-                    );
-                }
-            }
+            census.visit_file(
+                &syn::parse_file(&source)
+                    .unwrap_or_else(|error| panic!("{}: {error}", file.display())),
+            );
         }
+        assert_catalogued(census, &codes);
     }
 
     #[test]

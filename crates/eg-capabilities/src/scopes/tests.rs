@@ -70,6 +70,19 @@ fn the_rot_check_catches_an_unregistered_scope() {
     assert_eq!(ScopeRegistry.class_of("kg:read"), Some(ScopeClass::User));
 }
 
+// spec: EG-IDENTITY-R004
+#[test]
+fn foreign_column_reads_register_their_existing_action() {
+    let entry = scope_entry("federation:read").expect("declared read action");
+    assert_eq!(entry.class, ScopeClass::User);
+    assert_eq!(entry.owner, "engine");
+    assert_eq!(
+        ScopeRegistry.class_of("federation:admin"),
+        Some(ScopeClass::Admin)
+    );
+    assert_eq!(ScopeRegistry.class_of("federation:*"), None);
+}
+
 #[test]
 fn every_approver_scope_has_exactly_its_built_in_group() {
     for entry in SCOPES {

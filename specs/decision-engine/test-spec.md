@@ -36,6 +36,12 @@ Check metric labels omit raw facts and errors omit invisible component identifie
 
 ## H. Quality and acceptance matrix
 
+### EG-DECISION-ENGINE-R116.2: generated-client runtime admission
+
+Use the published Python contract against a disposable served fixture. Exercise an engine read and a decision call without importing `epistemic_graph.engine` or constructing a bespoke facade. Prove that the existing Rust `admit_call_path` runs before dispatch. Check the full generated method inventory, operation-specific adapters and `send_by_id` so an extra sender cannot bypass that boundary.
+
+Pass an empty contract version and a bespoke call path through the real runtime boundary. Both must fail before transport dispatch or any durable side effect. Attempt an arbitrary `_send` adapter and a caller-asserted `Contract` label; neither may substitute for the owned admission-to-dispatch binding. Include a mutation fixture that removes admission from one generated sender and proves the coverage check fails. Re-run generated artifact freshness after changing the generator. Direct gate unit tests, source-text checks and mocked successful dispatch do not replace the served acceptance fixture.
+
 ### EG-DECISION-ENGINE-R118 and EG-DECISION-ENGINE-R119 focused acceptance
 
 | ID | Positive fixture | Refusal and boundary fixture |
@@ -79,8 +85,8 @@ EG-DECISION-ENGINE-R113.3 tracks retry enforcement.
 
 ### Planned runtime checks for EG-DECISION-ENGINE-R113
 
-Except for the local retry model noted below, these tests are planned and unexecuted.
-Those planned test names do not identify existing tests.
+The refusal handler fixture exists; native execution remains pending. Other transaction fixtures remain planned and unexecuted.
+Planned test names do not identify existing tests.
 The transaction and durable runtime rows remain SPECIFIED. The local retry model has direct native proof.
 Each fixture is a bounded acceptance slice. It does not include the missing transaction implementation.
 
@@ -102,7 +108,7 @@ The request fixture in `.3.3` depends on those operations.
 
 | Requirement | Intended source or test file | Planned proving test | State |
 |---|---|---|---|
-| EG-DECISION-ENGINE-R113.2.1 | `src/server/handlers/decide/commit.rs` | `tests::topology_commit_refuses_uncoordinated_owners` | SPECIFIED; not run |
+| EG-DECISION-ENGINE-R113.2.1 | `src/server/handlers/decide/commit.rs` | `tests::topology_commit_refuses_uncoordinated_owners` | Handler fixture added; native execution pending |
 | EG-DECISION-ENGINE-R113.2.2 | `src/server/persistence/decision_record/tests.rs` | `topology_commit_publishes_capacity_and_evidence` | SPECIFIED; not run |
 | EG-DECISION-ENGINE-R113.2.3 | `src/server/persistence/decision_record/tests.rs` | `topology_capacity_denial_leaves_no_commit_parts` | SPECIFIED; not run |
 | EG-DECISION-ENGINE-R113.2.4 | `src/server/persistence/decision_record/tests.rs` | `topology_commit_recovery_preserves_atomic_outcome` | SPECIFIED; not run |
@@ -194,7 +200,68 @@ Local Rust formatting and 12 Python decision-contract checks passed. Those check
 Native execution remains pending after dependency compilation exceeded local resources.
 The isolated fixture arithmetic check does not execute the assembly or solver.
 
+### R113.2.1 refusal boundary
+
+The handler rejects solved topology plans with positive per-cell lease demand.
+The handler preserves tenant, size, replay, and shape checks before this refusal.
+The guard runs before Agent Library initialization or mutation.
+The fixture compares both durable owner files and capacity status after refusal.
+It also checks foreign-tenant refusal and successful ordinary record publication.
+Advisory assembly remains unchanged. The shared transaction and recovery paths remain absent.
+Native command: `cargo test --lib --features decide topology_commit_refuses_uncoordinated_owners`.
+This command has not run for this change.
+
+## Synthetic aggregate separation
+
+| Requirement | Proving test |
+|---|---|
+| EG-DECISION-ENGINE-R122 | `src/server/handlers/decide/stat_tests.rs::fit_evaluate_publish_and_decide_end_to_end` exercises both origins through served handlers. |
+
+The fixture excludes synthetic labels above minimum support and preserves real counts in mixed-origin aggregates.
+It also checks synthetic-only logged fitting and the inline provenance guard.
+Native execution remains pending.
+
 ## Typed provenance acceptance
 
 - R121.1: `crates/eg-compute/src/assemble/tests/evidence.rs::assembly_evidence_uses_typed_premises_not_labels` exercises actual assembly and replay.
 - R121.2: planned `src/server/handlers/decide/stat_tests/classes_tests.rs::graph_claim_and_evidence_control_answer_class` covers graph-source provenance.
+
+With `query`, the same fixture creates enough synthetic forecasts to reach the score support floor.
+It checks absent synthetic Brier, log-loss, and ECE rows, plus exact real reputation and learned-reliability counts.
+
+## R118.1.2 cross-surface acceptance prerequisites
+
+`src/server/handlers/decide/stat_tests/reputation_tests.rs` already contains the served decision-log fixture.
+`below_the_support_floor_a_reputation_has_no_numbers` covers sparse SQL output.
+`source_reliability_is_learned_from_the_visible_log` covers dense UQL learning and invisible-history fallback.
+Neither test proves agreement across authority policy, retrieval ranking, and UQL.
+
+Extend this fixture through the actual governed consumers after the plan's source-identity adapter and result contract exist.
+A visible sparse subject and a dense peer must share one pool and one materialization.
+All three consumers must preserve the sparse subject's typed abstention without producing a numeric reliability.
+All three consumers must use the dense subject's same materialized estimate, allowing only documented wire precision differences.
+Vary the graph prior and caller-supplied retrieval weight; neither may replace the governed estimate or suppress abstention.
+An absent subject must remain distinguishable from a visible subject below the support floor.
+Invisible outcomes and another tenant's dense history must not change either result or disclose hidden counts.
+The fixture must exercise real served adapters rather than manually assign equal scalar values.
+
+These acceptance tests require the consumer prerequisites described in the plan.
+
+## Harness configuration evidence
+
+- `EG-DECISION-ENGINE-R128`: A served test submits one `harness_config` question and asserts the committed record names all three parts with premises..
+- `EG-DECISION-ENGINE-R128.1`: `crates/eg-types/src/decision/statistical.rs::tests::harness_config_kind_serialises_snake_case`.
+- `EG-DECISION-ENGINE-R128.2`: `crates/eg-types/src/decision/statistical/harness_config.rs::tests::body_requires_every_input`.
+- `EG-DECISION-ENGINE-R128.3`: `crates/eg-types/src/decision/statistical/harness_config.rs::tests::answer_round_trips_through_serde`.
+- `EG-DECISION-ENGINE-R128.4`: `crates/eg-types/src/decision/statistical/harness_config.rs::tests::policy_override_replaces_default`.
+- `EG-DECISION-ENGINE-R128.5`: `crates/eg-types/src/decision/statistical/harness_config.rs::tests::context_policy_none_only_when_overflow_impossible`.
+- `EG-DECISION-ENGINE-R128.6`: `crates/eg-types/src/decision/statistical/harness_config.rs::tests::plan_scaffold_rules`.
+- `EG-DECISION-ENGINE-R128.7`: `crates/eg-types/src/decision/statistical/harness_config.rs::tests::shell_only_needs_both_facts`.
+- `EG-DECISION-ENGINE-R128.8`: `src/server/handlers/decide/stat_tests/harness_config_tests.rs::unknown_profile_is_refused`.
+- `EG-DECISION-ENGINE-R128.9`: `src/server/handlers/decide/stat_tests/harness_config_tests.rs::tool_set_reuses_covering_subset`.
+- `EG-DECISION-ENGINE-R128.10`: `src/server/handlers/decide/stat_tests/harness_config_tests.rs::decide_routes_harness_config`.
+- `EG-DECISION-ENGINE-R128.11`: `src/server/handlers/decide/stat_tests/harness_config_tests.rs::premises_and_why_not_cover_each_part`.
+- `EG-DECISION-ENGINE-R128.12`: `src/server/handlers/decide/stat_tests/harness_config_tests.rs::all_parts_abstained_seals_abstention`.
+- `EG-DECISION-ENGINE-R128.13`: `src/server/handlers/decide/stat_tests/harness_config_tests.rs::harness_config_record_commits`.
+- `EG-DECISION-ENGINE-R128.14`: `crates/eg-capabilities/tests/contract_schema.rs::question_kind_lists_harness_config`.
+- `EG-DECISION-ENGINE-R128.15`: `tests/decide/test_harness_config_served.py::test_harness_config_end_to_end`.

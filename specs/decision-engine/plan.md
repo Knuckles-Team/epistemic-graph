@@ -15,7 +15,15 @@ Add the coverage and guardrail queries as typed read methods beside `AgentAssemb
 
 ## Parallelism and dependencies
 
-The contract bump precedes decision handler integration. Exact solver and pack fact-admission work may proceed independently once DTO ownership is frozen. Statistical jobs consume the committed record and visibility rules; question adapters consume the stable decision method. Shared edits to `agent_component.rs`, method descriptors, access classification and generated contract files are one coordinated integration unit to avoid competing schema versions.
+The contract bump precedes decision handler integration. Exact solver and pack fact-admission work may proceed independently once DTO ownership is frozen. Statistical jobs consume the committed record and visibility rules; question adapters consume the stable decision method. Coordinate shared edits to `agent_component.rs`, method descriptors, access classification and generated contract files. This prevents competing schema versions.
+
+### EG-DECISION-ENGINE-R116.2: runtime admission prerequisite
+
+`crates/eg-capabilities/src/contract/access_path.rs::admit_call_path` is a Rust-only gate under the `contract-schema` feature. The generated Python senders, including operation-specific adapters and `_runtime.send_by_id`, dispatch to an arbitrary `client._send`. The existing native binding in `crates/eg-numeric/src/py/method_body.rs` canonicalizes request bodies; it does not expose or invoke the admission gate. The wire `Request` and its signed envelope do not identify a consumer call path.
+
+The missing prerequisite is an owned runtime boundary. It must invoke the existing Rust gate and bind successful admission to the actual dispatch. Make the gate available to that runtime without requiring the schema generator. Reuse the published client and its native codec boundary; consumers must not import an in-process engine. Route every generated sender, typed adapter and dynamic dispatch through the admitted boundary. Change the generator and regenerate its outputs together.
+
+A Python copy of the gate, an unchecked `Contract` label, or a caller-provided contract version cannot establish that binding. A codec call alone cannot prevent an arbitrary `_send` implementation from dispatching elsewhere. Define how the owned adapter supplies the call-path classification and prevents bypass before changing the wire contract. R116.2 is pending until that binding and the served contract-only acceptance fixture exist; the R116.1 unit tests prove only the typed gate.
 
 ## Review rules
 
@@ -227,6 +235,16 @@ The original parent acceptance remains unchanged.
 `export_gold_corpus` currently calls `generate_gold_set` and exports `SOURCE_IN_PROCESS` labels.
 This correction claims no served implementation or runtime test result.
 
+### Operation-selected job decoding (R063)
+
+DecisionFit and DecisionEval result models derive from each operation's existing
+Rust marker. Their typed decoders require an explicit request operation.
+Unknown operations, wrong method identity, unexpected fields and another
+operation's result shape fail closed. Nullable status and receipt results are
+valid only for their corresponding operations. Heterogeneous JSON test payloads
+have explicit type annotations, including fixtures that inject nested unknown
+fields to exercise strict validation.
+
 ### 2026-10-11: repair the R083 option-count fixture
 
 The large-option scorer fixture estimated 120,000 tokens but required more than 128,000.
@@ -331,7 +349,105 @@ The acceptance driver reuses the authenticated Python client and bounded native 
 The engine fits, evaluates, publishes, and executes its Rust option-attention head through real wire requests.
 The driver compares fixed-point probability bytes across repeated requests and a durable engine restart.
 The engine receives an empty executable search path and no inherited runtime configuration.
-Linux syscall tracing rejects inference subprocesses, outgoing connections, and GPU device access.
+Linux syscall tracing rejects subprocesses, Python runtime loading, outgoing connections, and GPU device access.
+The fixture checks repeat and restart consistency; it does not claim independent cross-build golden-vector equivalence.
+The fixture waits for the tracing process before reading its complete output.
 This fixture requires a prebuilt engine and Linux strace.
 Native execution remains unrun until that fixture runs against the compiled artifact.
 R090.3 retains all measured resource obligations.
+
+## Unsupported topology commit boundary (R113.2.1)
+
+DecisionCommit refuses solved plans with positive capacity demand before either owner writes.
+The guard uses the declared DERIVATION_REJECTED code and preserves the existing tenant check.
+Topology inputs alone do not trigger this guard. AgentAssemble continues to return advisory plans.
+The handler fixture checks both owner files and the ordinary commit path.
+Native handler execution remains pending. R113.2 still requires the shared transaction and recovery design.
+
+## Synthetic aggregate separation (R122)
+
+The served outcome aggregate excludes synthetic-origin decisions before counting labels and pooling rates.
+The full fit, evaluate, publish, decide, and log fixture checks synthetic-only and mixed-origin aggregates.
+Logged fit and evaluation keep their conservative cohort flag: any synthetic record marks the dataset synthetic.
+This preserves synthetic-only evaluation and prevents mixed cohorts from publishing real-world calibration claims.
+Inline datasets remain unverified and synthetic.
+Native fixture execution remains pending; source bindings and formatting do not prove execution.
+
+The reputation reader also excludes synthetic decisions before learning option reliability or scoring forecasters.
+The query-enabled pipeline fixture checks forecaster metrics, reputation counts, and the learned reliability provider.
+
+### R118.1.2 source reliability consumers
+
+`crates/eg-epistemic/src/model.rs::AuthorityPolicy` stores a global `f64` reliability multiplier.
+`src/server/handlers/query/explain_wire_a.rs::epistemic_status_wire` selects the default policy without reading source reputation.
+`crates/eg-epistemic/src/ranking.rs::RetrievalCandidate` also requires a scalar reliability.
+`src/server/handlers/query/explain_wire_b.rs::rank_by_provenance_wire` copies that scalar from the caller's request.
+Neither served consumer resolves a governed source identity through the visible decision log.
+
+`src/server/handlers/decide/stat_reputation.rs::learned_reliability` discards `Reputation::InsufficientHistory` and returns `None`.
+`crates/eg-plan/src/exec/reliability.rs::reliability_of` interprets `None` as permission to retain the graph prior.
+The result therefore loses the distinction between absent evidence and a visible sparse pool's abstention.
+Dense UQL results also use `anchored_reliability` with the graph prior instead of the materialized pooled estimate.
+
+A source-identity adapter must resolve subject kind, subject identity, and caller visibility before each consumer reads reputation.
+The read contract must distinguish absent evidence, insufficient history, and an estimated reliability.
+Each consumer must propagate the optional or typed result without coercing abstention into a scalar.
+The consumers must share the materialized estimate instead of recomputing it from different priors.
+`crates/eg-types/src/protocol/support_02.rs::AuthorityPolicyWire` and `support_03.rs::RetrievalCandidateWire` currently require scalar reliability fields.
+Any public contract change must preserve compatibility and regenerate its derived artifacts.
+Whole-query refusal, a NaN sentinel, and a helper-only test do not establish cross-surface abstention.
+
+## HarnessConfig decision (R128)
+
+Data flow: `Method::Decide` (`src/server/dispatch/router/decision_plane.rs:95`) → `handle_decide` (`src/server/handlers/decide/statistical.rs:11`) → `stat_decide::handle_decide` (`stat_decide.rs:48`) → `harness_config_outcome` (new, beside the `tool_subset_outcome` match at `stat_decide.rs:134`) → `seal` (`stat_decide.rs:372`) → `handle_decision_commit` → committed record.
+
+Types, from the cross-repository brief:
+
+- Input params: `model_profile_ref`, `task_class`, `usable_context_budget_tokens`, `priority`, and an optional `expected_trajectory_tokens`.
+- Output `HarnessConfigAnswer`: `context_policy` with `soft_threshold`, `hard_threshold` and `recent_window_fraction`; `plan_scaffold`; `action_space` with `tool_subset`.
+- Each part is `Decided` or `Abstained { missing_fact, conservative_default }`.
+
+Attach point: the `ToolSubset` kind is the template.
+
+- `QuestionKind::ToolSubset` is defined at `statistical.rs:95`.
+- Its handler `stat_tool_subset.rs:33` returns `Some(outcome)` only for its own kind.
+- `stat_decide.rs:134` seals that outcome in place of the scored ladder.
+- `resolution_kind` and `evidence_class` are computed generically from the outcome (`stat_decide.rs:353-369`).
+- `HarnessConfig` repeats this shape and adds no `Method` variant.
+
+Decision rules, each a named default stated as a premise:
+
+- Context policy: pressure is `expected_trajectory_tokens` over `contextWindowTokens`. The result is `none` only when overflow is impossible for the task class. Otherwise it is `elide_then_summarize` with soft 0.6, hard 0.85 and recent 0.3.
+- Plan scaffold: `on` for `stops_early` (accuracy) and `over_verifies` (cost). `off` only for `balanced` with a measured no-gain ablation on the cited evaluation run.
+- Action space: `shell_only` only when `shellProficiency` is `high` and the task class is `shellCentric`. Otherwise `tool_set`.
+- A missing measured fact abstains for that part and names its conservative default: `elide_then_summarize`, `on`, `tool_set`.
+
+Failure and refusal: an unknown profile reference, a negative budget or a wrong param type refuses with `StatisticalErrorCode::ParameterInvalid`, as `stat_tool_subset.rs:41-80` does. A `ToolSubsetRefusal` (`tool_subset.rs:39`) abstains for the `tool_subset` field only.
+
+Reused:
+
+- The decision ladder and the `seal` path.
+- `smallest_covering_subset` (`tool_subset.rs:59`).
+- `AgentLibraryStore` reads (`candidates.rs:415`).
+- `resolve_policy` for overrides.
+- `StatisticalOutcome::Advisory` and `::Abstained` (`outcome.rs:101`, `outcome.rs:107`).
+- `ObservationRef` (`facts.rs:142`).
+
+New: the question kind, the request and answer types, the three pure rule functions, the handler, the SHACL shapes and the generated-contract entries.
+
+Decisions:
+
+- One `Advisory` outcome with `<part>:<value>` options. Rejected alternative: a new `StatisticalOutcome` variant. That variant forces a change to every exhaustive match in `stat_decide.rs:353-369` and to the sealed digest.
+- Per-part abstention rather than whole-answer abstention. A caller can then apply the decided parts and the named defaults for the rest.
+- Rule thresholds live in `HarnessDefaults` and tenant policy. Rejected alternative: constants in the rule functions. A measured crossover must replace them without a code change.
+- `expected_trajectory_tokens` is an optional caller param. The brief names no source for it. The code holds no stored trajectory estimate. A stored per-task-class estimate needs a later row.
+- The record stores the answer as scored options. The code shows no typed answer field on `StatisticalDecisionRecord`. This design adds none.
+
+Contract: `QuestionKind` derives `JsonSchema`, so `gen_contract` lists the kind in `contract/schemas/method.request.json` and the `result.*.json` schemas, as it lists `tool_subset` today. Python and JS/Go clients regenerate from those schemas.
+
+Cross-repository rows:
+
+- The `AU-CONTROL` row for the signed dispatch envelope `harness_config` calls this decision and signs the committed answer.
+- The `AU-HARNESS` row for the evaluation runner writes the measured facts that `EG-TYPED-PACKS-R048.3` and `R048.4` store.
+- The `GRAPHOS-A2A` row for admission refuses a task without a committed `HarnessConfig` answer.
+- The `SDK-CONNECTOR-CONTROL` row for tool `read_only` and `side_effects` facts feeds the tool-subset candidates.
