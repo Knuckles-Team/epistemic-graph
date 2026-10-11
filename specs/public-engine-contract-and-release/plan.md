@@ -73,3 +73,10 @@ and other refs read. Cargo still checks the current source and sccache keys
 cacheable compiler outputs by compiler inputs; final binary linking still runs.
 Cache statistics make warm reuse observable. The ten-minute target remains
 unproven until a main cache seed and a subsequent hosted run are measured.
+
+### 2026-10-11: register the bounded cluster harness tests
+
+EG-CONTRACT-R023.1 owns the completeness regression from EG-DURABLE-KERNEL-R014.2.
+Add the exact cluster-harness test path to the existing binary-composition component.
+Keep all existing ownership boundaries unchanged. Run the real completeness checker
+and pin that exact component assignment in its existing regression module.

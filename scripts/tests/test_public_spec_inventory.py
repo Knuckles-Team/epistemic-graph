@@ -97,3 +97,15 @@ def test_private_reference_protection_is_preserved(
         "private or local reference" in issue
         for issue in _reference_errors(tmp_path, path)
     )
+
+
+@pytest.mark.spec("EG-DURABLE-KERNEL-R011.2")
+def test_manifest_reproduction_has_no_private_or_local_reference() -> None:
+    root = Path(__file__).resolve().parents[2]
+    path = Path("specs/durable-graph-kernel/test-spec.md")
+    content = (root / path).read_text(encoding="utf-8")
+    assert "mkdir -p target && rustc --edition 2021 --test" in content
+    assert (
+        "-o target/required-manifest-tests && target/required-manifest-tests" in content
+    )
+    assert _reference_errors(root, path) == []

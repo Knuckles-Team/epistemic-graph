@@ -3978,6 +3978,7 @@ components:
       - "tests/test_cypher_read_retry.py"
       - "tests/test_jscpd_per_commit_gate.py"
       - "tests/test_raft_cluster_ci_gate.py"
+      - "tests/test_validate_raft_cluster.py"
       - "tests/test_release_python_suite_contract.py"
       - "tests/test_ci_change_scope.py"
       - "tests/test_pages_workflow_contract.py"
