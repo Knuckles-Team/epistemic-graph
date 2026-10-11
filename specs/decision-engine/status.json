@@ -3047,9 +3047,15 @@
     {
       "id": "EG-DECISION-ENGINE-R128.2",
       "title": "The request carries typed params",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "b615cc6a283d"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/decision/statistical/harness_config.rs:202",
+        "crates/eg-types/src/decision/statistical/harness_config.rs:229",
+        "crates/eg-types/src/decision/statistical/harness_config.rs:248"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R128.3",
@@ -3060,9 +3066,9 @@
         "f00f7d76de1d"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/statistical/harness_config.rs:204",
-        "crates/eg-types/src/decision/statistical/harness_config.rs:234",
-        "crates/eg-types/src/decision/statistical/harness_config.rs:261"
+        "crates/eg-types/src/decision/statistical/harness_config.rs:331",
+        "crates/eg-types/src/decision/statistical/harness_config.rs:361",
+        "crates/eg-types/src/decision/statistical/harness_config.rs:388"
       ]
     },
     {
@@ -3094,7 +3100,7 @@
         "f00f7d76de1d"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/statistical/harness_config.rs:282"
+        "crates/eg-types/src/decision/statistical/harness_config.rs:409"
       ]
     },
     {
