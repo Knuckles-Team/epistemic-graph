@@ -67,3 +67,5 @@ The benchmark report must name host CPU/RAM/storage, kernel, compiler, container
 ## Program gates
 
 At the exact proposed merge head run scoped Rust/Python tests, per-dialect container conformance, `pre-commit run --config .config/pre-commit.yaml --all-files`, `bash scripts/ci_parity.sh`, `python3 scripts/check_status_page.py` and the hosted CI matrix. Capture the CCCC, KISS, jscpd and Dupehound reports from their real configured gates. Record route traces, replay positions, before/after dependency and LOC/symbol counts, old-path deletion, and a restore drill. If a gate cannot run, keep the item `IMPLEMENTED-UNVALIDATED` with the limitation. A green documentation check cannot turn an unimplemented row into `ACCEPTED`.
+
+Authenticated Iceberg catalog (R039): a valid token lists and loads its own tables. Missing and cross-tenant tokens are refused on every route. A partitioned fixture prunes one manifest by a partition predicate, and a pinned external reader loads one table.
