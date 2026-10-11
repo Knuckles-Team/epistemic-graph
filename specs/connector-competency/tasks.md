@@ -85,3 +85,25 @@ Tasks mirror requirements.md rows; check a task only when its evidence is linked
 - [ ] **CQ-081 · EG-CQ-CONN-R081:** nutrition-v1.ttl additions rollup (8 children).
 - [ ] **CQ-082 · EG-CQ-CONN-R082:** action-v1.ttl additions rollup (1 children).
 - [ ] **CQ-083 · EG-CQ-CONN-R083:** erpnext, salesforce and twenty use the `EG-SUPPLY-VOCAB` commercial vocabulary (single row).
+
+## Restore noncommercial mapping proof
+
+Implement each acceptance task after its listed producer dependencies land.
+Keep the existing end-to-end competency assertions when adding the mapping assertions.
+A documentation edit alone must not complete these tasks.
+
+- [ ] `EG-CQ-CONN-R011.3`: Implement `connector_audit_reassignment::ciso_assistant` after its producer dependencies in `requirements.md`. Prove exact cells, registered IRIs, and refusal fixtures.
+- [ ] `EG-CQ-CONN-R015.3`: Implement `connector_audit_reassignment::dockerhub` after its producer dependencies in `requirements.md`. Prove exact cells, registered IRIs, and refusal fixtures.
+- [ ] `EG-CQ-CONN-R017.3`: Implement `connector_audit_reassignment::egeria` after its producer dependencies in `requirements.md`. Prove exact cells, registered IRIs, and refusal fixtures.
+- [ ] `EG-CQ-CONN-R023.3`: Implement `connector_audit_reassignment::github` after its producer dependencies in `requirements.md`. Prove exact cells, registered IRIs, and refusal fixtures.
+- [ ] `EG-CQ-CONN-R024.3`: Implement `connector_audit_reassignment::gitlab` after its producer dependencies in `requirements.md`. Prove exact cells, registered IRIs, and refusal fixtures.
+- [ ] `EG-CQ-CONN-R025.3`: Implement `connector_audit_reassignment::gramps` after its producer dependencies in `requirements.md`. Prove exact cells, registered IRIs, and refusal fixtures.
+- [ ] `EG-CQ-CONN-R026.3`: Implement `connector_audit_reassignment::home_assistant` after its producer dependencies in `requirements.md`. Prove exact cells, registered IRIs, and refusal fixtures.
+- [ ] `EG-CQ-CONN-R031.3`: Implement `connector_audit_reassignment::langfuse` after its producer dependencies in `requirements.md`. Prove exact cells, registered IRIs, and refusal fixtures.
+- [ ] `EG-CQ-CONN-R033.3`: Implement `connector_audit_reassignment::legal_peripherals` after its producer dependencies in `requirements.md`. Prove exact cells, registered IRIs, and refusal fixtures.
+- [ ] `EG-CQ-CONN-R040.3`: Implement `connector_audit_reassignment::nextcloud` after its producer dependencies in `requirements.md`. Prove exact cells, registered IRIs, and refusal fixtures.
+- [ ] `EG-CQ-CONN-R043.3`: Implement `connector_audit_reassignment::onetrust` after its producer dependencies in `requirements.md`. Prove exact cells, registered IRIs, and refusal fixtures.
+- [ ] `EG-CQ-CONN-R046.3`: Implement `connector_audit_reassignment::paperless_ngx` after its producer dependencies in `requirements.md`. Prove exact cells, registered IRIs, and refusal fixtures.
+- [ ] `EG-CQ-CONN-R052.3`: Implement `connector_audit_reassignment::repository_manager` after its producer dependencies in `requirements.md`. Prove exact cells, registered IRIs, and refusal fixtures.
+- [ ] `EG-CQ-CONN-R057.3`: Implement `connector_audit_reassignment::servicenow` after its producer dependencies in `requirements.md`. Prove exact cells, registered IRIs, and refusal fixtures.
+- [ ] `EG-CQ-CONN-R059.3`: Implement `connector_audit_reassignment::stirlingpdf` after its producer dependencies in `requirements.md`. Prove exact cells, registered IRIs, and refusal fixtures.
