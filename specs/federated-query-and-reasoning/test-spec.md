@@ -68,3 +68,5 @@ It excludes production compilation and proves the source guard only. Native
 facade execution was not repeated in this repair; the separate native failure
 and resource limits remain outside this evidence. Rust formatting, diff
 whitespace, and public-spec checks pass. No production API or grammar changes.
+
+Column vectorization (R077): a bound text column answers a nearest-neighbour query and EXPLAIN names the binding. An unbound column and a non-text column are refused. One row write queues exactly one re-embed.

@@ -66,3 +66,9 @@ Check boxes describe work remaining for this combined contract. They do not cert
   source modules, confirm all five tests pass, and bind the independent literal
   far-tail regression to the existing requirement. Full-crate and hosted gates
   remain separate from this pure-module proof.
+- [ ] **EG-FEDERATED-QUERY-R077 (rollup):** Vectorized SQL text columns (rollup).
+  - [ ] **EG-FEDERATED-QUERY-R077.1:** `ColumnVectorBinding` typed model.
+  - [ ] **EG-FEDERATED-QUERY-R077.2:** Bind and unbind surface.
+  - [ ] **EG-FEDERATED-QUERY-R077.3:** Row-write re-embedding hook.
+  - [ ] **EG-FEDERATED-QUERY-R077.4:** Vectorization recommendation.
+  - [ ] **EG-FEDERATED-QUERY-R077.5:** End-to-end column vector search.
