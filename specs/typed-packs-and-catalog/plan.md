@@ -201,3 +201,23 @@ Decisions:
 - The shapes file is new because `harness-v1.ttl` has no shapes sibling. The `swarm:shellCentric` shape extends `swarm_topology-v1.shapes.ttl` because that file validates task shapes.
 
 Cross-repository rows: the `AU-HARNESS` row for the matched ablation runner writes `shellProficiency` and `stoppingBehaviour` with their run references. The `EG-DECISION-ENGINE` row R128 reads them.
+
+## Tool-contract facts on pack annotations (R045)
+
+Data flow: connector SDK pack (`SDK-CONNECTOR-CONTROL-R045.1` to `.11`) → `PackAnnotations` (`crates/eg-types/src/connector_pack/annotations.rs:46`) → `check_annotations` (`src/server/handlers/admin/connector_pack/import/annotations.rs:34`) → `tool_facts` (`src/server/handlers/admin/connector_pack/import/facts.rs:21`) → `AgentComponentFacts::Tool` (`crates/eg-types/src/agent_component/facts.rs:198`) → `request_body` (`src/server/handlers/decide/stat_tool_subset.rs:99`) → `smallest_covering_subset` (`crates/eg-types/src/decision/statistical/tool_subset.rs:58`) → `HarnessConfig` action space (`EG-DECISION-ENGINE-R128.9`).
+
+Types and fields: `side_effects` (`none`, `workspace_write`, `external_write`, `network`), `declared_by` (`connector`, `mcp_hint`, `certified`) and `schema_tokens` (positive integer) are new optional fields beside `read_only_hint` (`annotations.rs:58`). Safe defaults when absent: `read_only` false, `side_effects` external_write, `declared_by` connector, `schema_tokens` absent.
+
+Attach points: the digest at `digest.rs:135` hashes the new fields only when present, so old vectors hold. The facts copy at `facts.rs:41` adds the three fields. The cost read at `stat_tool_subset.rs:91` switches from "0 when undeclared" to "no value", and the candidate loop abstains on it.
+
+Failure behaviour: admission refuses an unknown value or a zero size with a typed refusal naming the field. A tool without a size makes the `tool_subset` part abstain. An `mcp_hint` read-only claim is stored unproven and maps to a write effect, so no premise treats it as certified.
+
+Reused: `PackAnnotations`, `tool_facts`, `ToolCoverageCandidate.token_cost` (`tool_subset.rs:20`), `smallest_covering_subset`, `gen_contract --check`. New: three fields, one default method, one admission check, one abstention path.
+
+Decisions:
+
+- The size is `schema_tokens` on the annotation. Rejected alternative: estimate from the schema digest in the engine. The engine then guesses a size that the connector can state.
+- A missing size abstains. Rejected alternative: default 0, as `token_cost` does today. A free tool always wins the greedy density order and silently overruns the budget.
+- A `read_only` claim from `mcp_hint` stays unproven. Rejected alternative: trust all hints. An MCP hint is a server claim, so parallel execution of such a tool then rests on it.
+
+Cross-repository rows: the `SDK-CONNECTOR-CONTROL-R045` rows publish the facts. The `AU-HARNESS` row for parallel read-only execution consumes `read_only` and `declared_by`. The `EG-DECISION-ENGINE-R128` rows consume the size and read-only facts.

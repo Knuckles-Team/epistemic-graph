@@ -51,6 +51,15 @@
     "EG-TYPED-PACKS-R043",
     "EG-TYPED-PACKS-R044",
     "EG-TYPED-PACKS-R045",
+    "EG-TYPED-PACKS-R045.1",
+    "EG-TYPED-PACKS-R045.2",
+    "EG-TYPED-PACKS-R045.3",
+    "EG-TYPED-PACKS-R045.4",
+    "EG-TYPED-PACKS-R045.5",
+    "EG-TYPED-PACKS-R045.6",
+    "EG-TYPED-PACKS-R045.7",
+    "EG-TYPED-PACKS-R045.8",
+    "EG-TYPED-PACKS-R045.9",
     "EG-TYPED-PACKS-R046",
     "EG-TYPED-PACKS-R047",
     "EG-TYPED-PACKS-R048",
@@ -667,10 +676,84 @@
     {
       "id": "EG-TYPED-PACKS-R045",
       "title": "MCP ToolAnnotations hints captured as pack facts",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "db863f1e2afd"
       ],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-TYPED-PACKS-R045.1",
+        "EG-TYPED-PACKS-R045.2",
+        "EG-TYPED-PACKS-R045.3",
+        "EG-TYPED-PACKS-R045.4",
+        "EG-TYPED-PACKS-R045.5",
+        "EG-TYPED-PACKS-R045.6",
+        "EG-TYPED-PACKS-R045.7",
+        "EG-TYPED-PACKS-R045.8",
+        "EG-TYPED-PACKS-R045.9"
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R045.1",
+      "title": "Annotation type carries side effects, declarer and schema size",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R045.2",
+      "title": "Absent facts take safe defaults, never zero",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R045.3",
+      "title": "The annotation digest covers the new fields without moving old vectors",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R045.4",
+      "title": "Admission refuses an unknown side-effect or declarer value",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R045.5",
+      "title": "Admission records an unproven read-only claim",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R045.6",
+      "title": "The tool-subset path abstains for a tool with no size",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R045.7",
+      "title": "No decision premise treats an unproven read-only claim as certified",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R045.8",
+      "title": "The generated contract and Python client carry the new fields",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R045.9",
+      "title": "End-to-end proof: a two-tool pack yields a budget-respecting subset",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {
