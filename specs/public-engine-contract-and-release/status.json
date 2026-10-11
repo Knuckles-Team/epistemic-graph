@@ -249,10 +249,10 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "26a77bc6a6c4",
+        "29021f36eeee",
         "5c5b8c630a52",
         "8baee8a94894",
-        "8f2ada3bca74",
-        "c835ce794b21"
+        "8f2ada3bca74"
       ],
       "verified_by": [
         "tests/test_release_python_suite_contract.py:111",
