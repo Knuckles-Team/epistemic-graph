@@ -1,11 +1,28 @@
-//! Producer types and pure action-space selection for R128.3 and R128.7.
+//! Producer types and pure action-space selection for R128.2, R128.3 and R128.7.
 //! Profile resolution, question dispatch and persistence are separate leaves.
 
 use serde::{Deserialize, Serialize};
 
 use crate::agent_component::{MeasuredFact, ShellProficiency};
+use crate::capacity_lease::LeasePriority;
 use crate::contract::BoundedVec;
 use crate::decision::numeric::UnitRationalWire;
+
+/// Typed inputs whose field names match `DecideRequest.params` entries.
+/// References use the opaque strings carried by `TypedValue::Iri`; token counts
+/// use the same nonnegative `u32` range as `ToolSubsetRequestBody`.
+/// Priority reuses the canonical capacity priority vocabulary.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct HarnessConfigRequestBody {
+    pub model_profile_ref: String,
+    pub task_class: String,
+    pub usable_context_budget_tokens: u32,
+    pub priority: LeasePriority,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_trajectory_tokens: Option<u32>,
+}
 
 /// Each part carries its own decision or conservative fallback.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -171,6 +188,116 @@ pub fn decide_action_space(
 mod tests {
     use super::*;
     use crate::agent_component::ObservationRef;
+
+    fn request_wire() -> serde_json::Value {
+        serde_json::json!({
+            "model_profile_ref": "urn:model:profile",
+            "task_class": "urn:task:coding",
+            "usable_context_budget_tokens": 8192,
+            "priority": "interactive",
+            "expected_trajectory_tokens": 4096
+        })
+    }
+
+    // spec: EG-DECISION-ENGINE-R128.2
+    #[test]
+    fn body_requires_every_input() {
+        let wire = request_wire();
+        let body: HarnessConfigRequestBody = serde_json::from_value(wire.clone()).unwrap();
+        assert_eq!(serde_json::to_value(body).unwrap(), wire);
+        for field in [
+            "model_profile_ref",
+            "task_class",
+            "usable_context_budget_tokens",
+            "priority",
+        ] {
+            let mut missing = wire.clone();
+            missing.as_object_mut().unwrap().remove(field);
+            assert!(
+                serde_json::from_value::<HarnessConfigRequestBody>(missing).is_err(),
+                "{field}"
+            );
+            let mut null = wire.clone();
+            null[field] = serde_json::Value::Null;
+            assert!(
+                serde_json::from_value::<HarnessConfigRequestBody>(null).is_err(),
+                "{field}"
+            );
+        }
+    }
+
+    // spec: EG-DECISION-ENGINE-R128.2
+    #[test]
+    fn body_allows_optional_trajectory_omission() {
+        let mut wire = request_wire();
+        wire.as_object_mut()
+            .unwrap()
+            .remove("expected_trajectory_tokens");
+        let body: HarnessConfigRequestBody = serde_json::from_value(wire.clone()).unwrap();
+        assert_eq!(body.expected_trajectory_tokens, None);
+        assert_eq!(serde_json::to_value(body).unwrap(), wire);
+        wire["expected_trajectory_tokens"] = serde_json::Value::Null;
+        assert_eq!(
+            serde_json::from_value::<HarnessConfigRequestBody>(wire)
+                .unwrap()
+                .expected_trajectory_tokens,
+            None
+        );
+    }
+
+    // spec: EG-DECISION-ENGINE-R128.2
+    #[test]
+    fn body_checks_token_boundaries_and_priority_vocabulary() {
+        for field in ["usable_context_budget_tokens", "expected_trajectory_tokens"] {
+            for valid in [0, u32::MAX] {
+                let mut wire = request_wire();
+                wire[field] = valid.into();
+                let body: HarnessConfigRequestBody = serde_json::from_value(wire.clone()).unwrap();
+                assert_eq!(serde_json::to_value(body).unwrap(), wire);
+            }
+            for invalid in [
+                serde_json::json!(-1),
+                serde_json::json!(4294967296_u64),
+                serde_json::json!(1.5),
+                serde_json::json!("1"),
+                serde_json::json!(true),
+            ] {
+                let mut wire = request_wire();
+                wire[field] = invalid;
+                assert!(
+                    serde_json::from_value::<HarnessConfigRequestBody>(wire).is_err(),
+                    "{field}"
+                );
+            }
+        }
+        for priority in [
+            "interactive",
+            "orchestration",
+            "hydration",
+            "background_ingestion",
+        ] {
+            let mut wire = request_wire();
+            wire["priority"] = priority.into();
+            let body: HarnessConfigRequestBody = serde_json::from_value(wire.clone()).unwrap();
+            assert_eq!(serde_json::to_value(body).unwrap(), wire);
+        }
+        for field in ["model_profile_ref", "task_class", "priority"] {
+            let mut wire = request_wire();
+            wire[field] = serde_json::json!(1);
+            assert!(
+                serde_json::from_value::<HarnessConfigRequestBody>(wire).is_err(),
+                "{field}"
+            );
+        }
+        for invalid in ["", "urgent", "Interactive"] {
+            let mut wire = request_wire();
+            wire["priority"] = invalid.into();
+            assert!(serde_json::from_value::<HarnessConfigRequestBody>(wire).is_err());
+        }
+        let mut wire = request_wire();
+        wire["unexpected"] = true.into();
+        assert!(serde_json::from_value::<HarnessConfigRequestBody>(wire).is_err());
+    }
 
     fn decided<T>(value: T) -> HarnessPart<T> {
         HarnessPart::Decided { value }
