@@ -233,6 +233,7 @@ pub mod durability_class;
 // EG-DURABLE-KERNEL-R037 — the workload classification (point/structure/sql)
 // every wire listener routes an operation by. Pure, no dep.
 pub mod workload_class;
+pub mod worker_registry;
 // EG-DURABLE-KERNEL-R041 — the SQL plan cache key (statement digest + schema
 // version) and its lookup decision. Pure, no dep beyond `contract::Digest256`.
 pub mod plan_cache_key;
