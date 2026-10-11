@@ -1,5 +1,27 @@
 # Delivery plan
 
+## 2026-10-11: reconcile the composed finance corpus census
+
+R004.2.1 and R004.2.2 added 95 triples to the existing finance module:
+45 for Account/Position and 50 for Activity/Lot. Update the existing composed
+corpus regression to include those declarations. Preserve every other census
+assertion. The four new class links raise the named subclass count by four.
+The asset-class comment migration replaces one triple without a net increase.
+The shipped ontology and its admission policy do not change in this repair.
+
+The native facade run on 43423bcd reported 13,751 composed triples. An independent
+RDFLib parse of all 36 registered documents confirms that total. It also confirms
+13,565 semantic axioms, 462 named subclass links, and unchanged header/import/property counts.
+This cross-parser check is supporting evidence; the changed native census test
+still requires execution. It does not establish the remaining served finance work.
+
+The existing native finance tests passed at that same immutable head. Bind the
+unchanged catalog placement, valid-record, and malformed-record tests to R004.2.1
+and R004.2.2. They exercise Account, Position, Activity, and Lot declarations and
+their SHACL records. The failure fixtures cover missing links and invalid vocabulary.
+Evidence: [facade job 114434983311](https://github.com/Knuckles-Team/epistemic-graph/actions/runs/38127544759/job/114434983311).
+These individual passes do not make the failed overall facade job successful.
+
 ## Sequence
 
 1. **Contract foundation (EG-FINANCE-PRIMITIVES-R004, EG-FINANCE-PRIMITIVES-R006).** Add typed versioned records, ontology and SHACL shapes, temporal revision resolution and session/calendar semantics. Review migration of existing asset-class values. Generate clients and prove old `FinanceMarket` decoding.
@@ -158,3 +180,19 @@ mkdir -p target
 "$RUSTC" --edition=2021 --test --cfg 'feature="finance"' crates/eg-types/src/finance_event_envelope.rs -L dependency="$DEPS" --extern serde="$SERDE" -o target/finance-envelope-module-tests
 target/finance-envelope-module-tests --nocapture
 ```
+
+## 2026-10-11: preserve the unfinished schema rollup
+
+The generator marks R004.2 complete from only its two existing children.
+The ontology still lacks PortfolioGroup, StrategySpec, StrategyRun, and LeverageTerms.
+Declare those already-promised producers as R004.2.3 through R004.2.6. Keep them
+SPECIFIED and the parent open. Existing served-entry requirements remain separate.
+The two executed schema groups do not prove those four absent groups.
+
+## 2026-10-11: keep complete shape qualification open
+
+Independent review found that the passed fixtures sample the shape constraints.
+They omit some required-field removals and some accepted vocabulary values.
+Record their actual passes as partial evidence only. R004.2.1.1 and R004.2.2.1
+track the missing complete matrices. Both schema groups remain open until those
+children pass native execution. Do not treat a sample as complete acceptance.
