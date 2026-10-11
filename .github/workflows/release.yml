@@ -157,6 +157,7 @@ jobs:
       - &eg-gates-python
         uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
         with:
+          version: '0.11.7'
           python-version: '3.12'
           activate-environment: true
 
@@ -165,9 +166,10 @@ jobs:
       # generated Python surface is exercised in hosted CI as well. ruff is the
       # version .config/pre-commit.yaml pins: the strict-model generator test
       # runs `ruff check` + `ruff format --check` over the generated package.
+      # Target the same interpreter with uv-managed and setup-python installs.
       - &eg-gates-pydeps
         name: Install locked capability-test Python dependencies
-        run: uv pip install msgpack==1.2.1 pydantic==2.13.5 pydantic-core==2.46.5 annotated-types==0.8.0 typing-extensions==4.16.0 typing-inspection==0.4.4 ruff==0.15.12
+        run: uv pip install --python "$(command -v python)" msgpack==1.2.1 pydantic==2.13.5 pydantic-core==2.46.5 annotated-types==0.8.0 typing-extensions==4.16.0 typing-inspection==0.4.4 ruff==0.15.12
 
       # Product tests and protocol contracts run on every push and pull request.
       - &eg-gates-toolchain
@@ -423,6 +425,11 @@ jobs:
         with:
           python-version-file: '.python-version'
 
+      - &eg-gates-uv
+        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+        with:
+          version: '0.11.7'
+
       - *eg-gates-pydeps
 
       - *eg-gates-toolchain
@@ -616,6 +623,8 @@ jobs:
         with:
           python-version-file: '.python-version'
 
+      - *eg-gates-uv
+
       - *eg-gates-pydeps
 
       - name: Install pytest, its plugins, PyYAML, and maturin (metadata only — see below)
@@ -767,6 +776,8 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
+          # spec-status reconstructs generated status from commit trailers.
+          fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
