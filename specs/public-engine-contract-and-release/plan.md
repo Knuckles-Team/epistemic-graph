@@ -48,3 +48,15 @@ Run Go commands from `clients/go` and npm commands from `clients/js`. If a named
 - The contract receipt binds all language projections to one revision; a package containing current JSON but stale WASM is invalid.
 - Hosted CI may split bounded fast checks from long soak. A missing external environment cannot convert a required public gate into a permanent skip.
 - Quality scans are differential over changed production code with explicit tracked configuration, and manual scanners remain observable release evidence.
+
+## Amendments
+
+### 2026-10-11: reconcile the native suite contract census
+
+EG-CONTRACT-R009 and EG-CONTRACT-R015 retain one current method authority: the
+domain registry, generated method catalog, capability ledger and both packaged
+receipts must agree, including CapabilityCoverage. Receipt regression checks
+derive their census from the declared catalog instead of pinning historical
+totals. The scanner wiring regression recognizes the blocking conditional
+pre-commit step for PR-diff and full-publication checks without changing the
+intentional pipelines@main workflow policy or pinned scanner binaries.

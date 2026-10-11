@@ -11,6 +11,7 @@ remains schematized and digest identities remain reproducible.
 from __future__ import annotations
 
 import json
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -140,15 +141,40 @@ def test_the_agent_component_request_grows_a_content_branch() -> None:
 
 
 def test_the_receipt_counts_match_the_wave() -> None:
-    for copy in ("contract/receipt.json", "epistemic_graph/contract/receipt.json"):
-        receipt = _json(copy)
-        assert receipt["method_count"] == 464, copy
-        assert receipt["internal_only_methods"] == 20, copy
-        assert receipt["python_client_methods"] == 444, copy
-        classification = receipt["result_classification"]
-        assert classification["schematized"] == 451, copy
-        assert classification["unclassified"] == 0, copy
-        assert sum(classification.values()) == 464, copy
+    methods = _methods()
+    classification = Counter(
+        {"schematized": 0, "declared_dynamic": 0, "mixed": 0, "unclassified": 0}
+    )
+    for method in methods.values():
+        result = method["result_schema"]
+        if result["kind"] != "declared":
+            classification["unclassified"] += 1
+            continue
+        bodies = result["bodies"].values()
+        dynamic = sum(body["dynamic"] is not None for body in bodies)
+        kind = (
+            "schematized"
+            if dynamic == 0
+            else "declared_dynamic"
+            if dynamic == len(result["bodies"])
+            else "mixed"
+        )
+        classification[kind] += 1
+    assert classification["unclassified"] == 0
+    for prefix in ("contract", "epistemic_graph/contract"):
+        receipt = _json(f"{prefix}/receipt.json")
+        catalog = _json(f"{prefix}/methods.json")
+        assert catalog["methods"] == list(methods.values()), prefix
+        assert receipt["method_count"] == catalog["method_count"] == len(methods), (
+            prefix
+        )
+        assert receipt["internal_only_methods"] == sum(
+            method["stability"] == "internal" for method in methods.values()
+        ), prefix
+        assert receipt["python_client_methods"] == sum(
+            "python" in method["consumer_profiles"] for method in methods.values()
+        ), prefix
+        assert receipt["result_classification"] == classification, prefix
 
 
 def test_the_receipt_declares_every_new_format_identity() -> None:
