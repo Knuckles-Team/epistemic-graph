@@ -12,6 +12,8 @@
     "EG-FINANCE-PRIMITIVES-R004.2",
     "EG-FINANCE-PRIMITIVES-R004.2.1",
     "EG-FINANCE-PRIMITIVES-R004.2.2",
+    "EG-FINANCE-PRIMITIVES-R004.2.1.1",
+    "EG-FINANCE-PRIMITIVES-R004.2.2.1",
     "EG-FINANCE-PRIMITIVES-R004.2.3",
     "EG-FINANCE-PRIMITIVES-R004.2.4",
     "EG-FINANCE-PRIMITIVES-R004.2.5",
@@ -156,7 +158,7 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R004.2.1",
       "title": "Account and Position OWL classes and SHACL shapes",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "1d12fc4e1fff",
         "994ffe8ffa60",
@@ -167,12 +169,15 @@
         "src/server/graph_schema/finance_tests.rs:230",
         "src/server/graph_schema/finance_tests.rs:260",
         "src/server/graph_schema/finance_tests.rs:45"
+      ],
+      "rollup_of": [
+        "EG-FINANCE-PRIMITIVES-R004.2.1.1"
       ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R004.2.2",
       "title": "Activity and Lot OWL classes and SHACL shapes",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "1d12fc4e1fff",
         "994ffe8ffa60",
@@ -183,7 +188,24 @@
         "src/server/graph_schema/finance_tests.rs:230",
         "src/server/graph_schema/finance_tests.rs:260",
         "src/server/graph_schema/finance_tests.rs:45"
+      ],
+      "rollup_of": [
+        "EG-FINANCE-PRIMITIVES-R004.2.2.1"
       ]
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R004.2.1.1",
+      "title": "Account/Position complete shape acceptance",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R004.2.2.1",
+      "title": "Activity/Lot complete shape acceptance",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R004.2.3",
