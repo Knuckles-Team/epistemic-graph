@@ -3977,6 +3977,7 @@ components:
       - "tests/test_release_publication_recovery.py"
       - "tests/test_capability_coverage_client.py"
       - "tests/test_guardrail_entailment_client.py"
+      - "tests/test_guardrail_entailment_served.py"
       - "tests/test_cypher_read_retry.py"
       - "tests/test_jscpd_per_commit_gate.py"
       - "tests/test_raft_cluster_ci_gate.py"
