@@ -317,15 +317,19 @@
         "871e31f80156"
       ],
       "verified_by": [
-        "src/server/handlers/jobs/submit.rs:425"
+        "src/server/handlers/jobs/submit.rs:436"
       ]
     },
     {
       "id": "EG-PLACEMENT-R003.2",
       "title": "Separate refusal for cardinality",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "23b021f818a8"
+      ],
+      "verified_by": [
+        "src/server/handlers/jobs/submit.rs:447"
+      ]
     },
     {
       "id": "EG-PLACEMENT-R003.3",
