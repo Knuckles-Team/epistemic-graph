@@ -17,3 +17,5 @@ Duplicate or unknown candidate targets, zero replicas, loosening policy caps, mi
 ## Quality and release proof
 
 Focused `cargo test` on the named files per row; `spec-status` and `spec-decomposition` gates; cargo is run by the implementing lane, not by this design.
+
+R002.2 producer evidence: `scheduler_config::tests` uses real serde to prove defaults 360 and 3 GiB, override round trips, bounds and over-subscribed floor refusal. The FR-003 served integration scenario remains PENDING.

@@ -75,3 +75,9 @@ The engine already runs the same loop in-process (`ensure_job_workers`), so the 
 The mining submission boundary returns `INVALID_ARGUMENT` for non-finite or out-of-range thresholds, unsupported algorithms, and distinct-item overflow. Parameter checks run before input pseudonymization, and refusal details do not echo the supplied algorithm. Malformed transaction shapes are rejected during typed wire decoding. Default support (0.1), confidence (0.5), and algorithm (`fpgrowth`) remain unchanged.
 
 Out of scope: new analytics families, a schedule for mining jobs, and any change to the task-queue rows. Not determinable from the deleted source: the engine kernel's own item cap (R082.3).
+
+## Scheduler policy contract (R076.1)
+
+`eg_types::scheduler_config::SchedulerConfig` is the sole producer of scheduler policy data: explicit total workers and queue depth, deterministic lane-floor map, CPU per-mille default 360, and memory-per-worker default 3,221,225,472 bytes. `validate()` rejects blank lane IDs, CPU fractions above 1000, zero memory divisors and floor sums exceeding the pool. Checked subtraction prevents floor-sum overflow. Zero pool, CPU fraction or queue depth is an explicit disabled resource; the later grant path must never override it with a floor of one. Serde rejects unknown fields and requires the two explicit limits. Deserialization alone is not policy admission: consumers must call validation before applying data.
+
+R076.2 remains responsible for scope, persistence, served reads/updates, lane membership and real admission/queue enforcement. Worker registration supplies capacity, not an alternative policy authority. The independent R074 worker-lane enum is converted to its canonical wire ID at this future integration boundary.

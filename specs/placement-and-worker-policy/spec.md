@@ -33,3 +33,5 @@ Owned: `QuestionKind::Placement`, placement vocabulary, `stat_placement.rs`, pro
 ## Open questions
 
 - BLOCKED (graph-os, typed packs): the production deployment template and fleet-tool components do not exist in any Agent Library yet (plan.md D4).
+
+R002.2 supplies the pure R076.1 scheduler config contract. FR-003 remains pending until the served R076.2 setting and admission/queue consumers are wired and tested.

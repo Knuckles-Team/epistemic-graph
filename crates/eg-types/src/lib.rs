@@ -40,6 +40,8 @@ pub mod asr_wire;
 // wire contract + pure fencing/admission algorithm (cross-host capacity
 // authority for the AU fair scheduler). Unconditional, like `acl`/`jobs`.
 pub mod capacity_lease;
+// EG-DURABLE-KERNEL-R076.1 — authoritative scheduler policy data and validation.
+pub mod scheduler_config;
 // RF-RULING-004 — canonical serializable authority/replay evidence for the future
 // eg-transaction admission boundary. This module grants no executable capability.
 pub mod authority;

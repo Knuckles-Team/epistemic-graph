@@ -68,3 +68,7 @@ The method-codec artifact EG-CONTRACT-R006 belongs to the [public engine contrac
 Reuse `crates/eg-types` MutationBatch, `crates/eg-transaction` admission, `crates/eg-storage` owner manifest, existing redb and Raft stores, `src/server` auth/wires and `eg-tsdb`/`eg-stream`. No parallel persistent log store, cache product, alternate write authority, or unguarded fast path. Apply the repository's configured CCCC changed-function gate (no new function over cyclomatic 10 or cognitive 15), Dupehound structural clone gate, jscpd differential gate, KISS changed-Rust gate, Rust architecture lint, formatting, clippy and relevant tests. The CI gate must be runnable on an ephemeral cloud runner with declared fixture provisioning; live private services are an optional deployment proof, never the sole code acceptance route.
 
 Requirement IDs are defined in [requirements.md](requirements.md); delivery state per ID is in `status.json`.
+
+## Scheduler config producer boundary
+
+R076 is split into R076.1 and R076.2. The first owns the pure typed policy and validation in `eg-types`; the second must expose and consume it through the real engine setting/admission paths. Model tests do not establish a served setting or complete R076. EG-PLACEMENT-R002.2 extends the producer contract with autosize defaults and queue depth.

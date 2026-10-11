@@ -26,3 +26,7 @@ Use focused package tests for `eg-types`, `eg-transaction`, `eg-storage`, `eg-st
 ## Evidence record
 
 For each scenario, add a dated table row in the PR or an evidence file with exact main commit, command, CI URL, test count, result, fixture digest and known limitation. A passed local branch test means `BUILT`; merged-head tests and reviewed negative cases are required for `ACCEPTED`. Do not infer acceptance from the presence of these documents.
+
+## T-KG-14 scheduler configuration producer
+
+R076.1 and EG-PLACEMENT-R002.2 bind native tests in `crates/eg-types/src/scheduler_config.rs`: real-serde default and override round trips; exact floor sum; over-subscription; u32::MAX floor overflow; zero disabling bounds; CPU >1000, memory=0 and blank-lane refusals; missing/unknown/negative/out-of-range wire fields. Run `cargo test -p eg-types scheduler_config::tests` on a warm build, or compile that exact source with real serde/serde_json dependencies for isolated producer evidence. The latter is not full-crate or server validation. R076.2 still requires the served settings/admission scenario.
