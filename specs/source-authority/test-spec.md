@@ -24,3 +24,12 @@ Negative cases that must exist: an origin-approved rank-1 declaration with a con
 - `EG-SRC-AUTH-R010.4`: `crates/eg-rdf/src/source_selection.rs::tests::inspiration_only_abstains_role_insufficient`.
 - `EG-SRC-AUTH-R010.5`: `crates/eg-rdf/src/source_selection.rs::tests::role_premise_names_both_sources`.
 - `EG-SRC-AUTH-R010.6`: `tests/federated/test_source_role_served.py::test_live_truth_wins_conflict`.
+
+### EG-SRC-AUTH-R011 tests
+
+- `EG-SRC-AUTH-R011.1`: `crates/eg-rdf/src/source_selection.rs::tests::trust_mark_round_trips`.
+- `EG-SRC-AUTH-R011.2`: `crates/eg-rdf/src/source_selection.rs::tests::derived_content_inherits_untrusted`.
+- `EG-SRC-AUTH-R011.3`: `src/server/handlers/graph_ops/gateway_graph.rs::tests::add_node_stamps_trust_mark`.
+- `EG-SRC-AUTH-R011.4`: `crates/eg-rdf/src/source_selection.rs::tests::downgrade_without_approval_refused`.
+- `EG-SRC-AUTH-R011.5`: `crates/eg-rdf/src/source_selection.rs::tests::mark_carries_rule_and_generation`.
+- `EG-SRC-AUTH-R011.6`: `tests/federated/test_trust_mark_served.py::test_tool_result_is_untrusted_and_sticky`.
