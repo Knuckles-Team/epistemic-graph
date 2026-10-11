@@ -1,0 +1,173 @@
+{
+  "schema_version": 2,
+  "spec_id": "EG-INGEST-WORKER",
+  "owner_repo": "epistemic-graph",
+  "delivery_state": "SPECIFIED",
+  "requirement_ids": [
+    "EG-INGEST-WORKER-R001",
+    "EG-INGEST-WORKER-R001.1",
+    "EG-INGEST-WORKER-R001.2",
+    "EG-INGEST-WORKER-R001.3",
+    "EG-INGEST-WORKER-R001.4",
+    "EG-INGEST-WORKER-R001.5",
+    "EG-INGEST-WORKER-R001.6",
+    "EG-INGEST-WORKER-R001.7",
+    "EG-INGEST-WORKER-R001.8",
+    "EG-INGEST-WORKER-R001.9",
+    "EG-INGEST-WORKER-R001.10",
+    "EG-INGEST-WORKER-R001.11",
+    "EG-INGEST-WORKER-R001.12",
+    "EG-INGEST-WORKER-R001.13",
+    "EG-INGEST-WORKER-R001.14",
+    "EG-INGEST-WORKER-R001.15",
+    "EG-INGEST-WORKER-R001.16",
+    "EG-INGEST-WORKER-R001.17"
+  ],
+  "requirements": [
+    {
+      "id": "EG-INGEST-WORKER-R001",
+      "title": "Ingest worker capability is served by the engine queue and run by the SDK runner (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-INGEST-WORKER-R001.1",
+        "EG-INGEST-WORKER-R001.2",
+        "EG-INGEST-WORKER-R001.3",
+        "EG-INGEST-WORKER-R001.4",
+        "EG-INGEST-WORKER-R001.5",
+        "EG-INGEST-WORKER-R001.6",
+        "EG-INGEST-WORKER-R001.7",
+        "EG-INGEST-WORKER-R001.8",
+        "EG-INGEST-WORKER-R001.9",
+        "EG-INGEST-WORKER-R001.10",
+        "EG-INGEST-WORKER-R001.11",
+        "EG-INGEST-WORKER-R001.12",
+        "EG-INGEST-WORKER-R001.13",
+        "EG-INGEST-WORKER-R001.14",
+        "EG-INGEST-WORKER-R001.15",
+        "EG-INGEST-WORKER-R001.16",
+        "EG-INGEST-WORKER-R001.17"
+      ]
+    },
+    {
+      "id": "EG-INGEST-WORKER-R001.1",
+      "title": "Typed ingest job envelope with refusal tests",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R001.2",
+      "title": "Typed job kinds and lane derivation",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R001.3",
+      "title": "Partition key function",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R001.4",
+      "title": "Enqueue maps onto the served task queue with deterministic ids",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R001.5",
+      "title": "Prerequisite: durable task queue (this repository, EG-DURABLE-KERNEL-R071, R072, R073)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R001.6",
+      "title": "Prerequisite: worker registry, reserved admission and scheduler floors (this repository, EG-DURABLE-KERNEL-R074, R075, R076)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R001.7",
+      "title": "Typed retry policy with validation",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R001.8",
+      "title": "Retry delay function with jitter",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R001.9",
+      "title": "Failure routing: retry then dead letter",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R001.10",
+      "title": "Hydration-reserved lane served as a distinct queue",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R001.11",
+      "title": "Backpressure read and producer refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R001.12",
+      "title": "Lease renewal for long jobs",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R001.13",
+      "title": "Ingest queue metrics",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R001.14",
+      "title": "Cross-repo (connector SDK repository): ingest worker runner",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R001.15",
+      "title": "Cross-repo (connector SDK repository): CLI entry point and autosize",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R001.16",
+      "title": "Cross-repo (graph-os): host and supervise the worker",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R001.17",
+      "title": "Parity test against the deleted module",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    }
+  ]
+}
