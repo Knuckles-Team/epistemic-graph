@@ -104,7 +104,7 @@ Scopes: only those the engine contract already lists (tenant-visible Agent Libra
 
 How `graph.assemble()` consumes it: (1) the request names a task IRI; if the task has `:hasStep` steps, each step becomes one typed task with its required capabilities, so the 0-1 program (R014) covers per-step capability; (2) candidates are the visible library entries, instantiated templates and A2A cards, as today; (3) topology comes from `TopologyFacts`/slots, whose `swarm:requiresAgentKind` restricts which kind may fill a slot (R007.4); (4) the committed `AgentGraphDraft` is projected back as `:stepAssignedAgent` and `swarm:feeds`. The solver gains no term list; kinds and edges arrive as data.
 
-External A2A agent to library member: a card is published as an `AgentComponent` of kind `a2a_agent_card` into the Agent Library store (R126.2.1 already does this). The projection types it `:A2AAgentCard` and links `:memberOfLibrary`. It also links `:registeredIn` its registry and `:providesCapability` per declared capability. Assembly may use it as a claim. Coverage lists it with claim evidence class. When policy `a2a_requires_observation` is on it is not selectable until an observation exists. The A2A contract fetches task execution at run time. The engine copies nothing of the card body beyond its declaration.
+External A2A agent to library member: a card is published as an `AgentComponent` of kind `a2a_agent_card` into the Agent Library store (R126.2.1 does this). The projection types it `:A2AAgentCard` and links `:memberOfLibrary`. It also links `:registeredIn` its registry and `:providesCapability` per declared capability. Assembly may use it as a claim. Coverage lists it with claim evidence class. When policy `a2a_requires_observation` is on it is not selectable until an observation exists. The A2A contract fetches task execution at run time. The engine copies nothing of the card body beyond its declaration.
 
 ### Decisions
 
@@ -191,7 +191,7 @@ Solver or certificate changes. New wire methods or scopes. A task-decomposition 
 EG-ORCH-VOCAB-R001.1 and EG-ORCH-VOCAB-R004.1 declare the foundational classes. Native
 parser/reasoner acceptance lives in `crates/eg-rdf/tests/orchestration_vocabulary.rs`:
 `eg-rdf` owns the OWL API and already depends on `eg-core`; placing these tests
-in eg-core inverts the dependency layering. Test the shipped foundation,
+in eg-core inverts the dependency layering. Tests cover the shipped foundation,
 orchestration and capability documents, including a positive step-order fixture,
 unrelated-superclass negatives and a planted disjointness contradiction.
 The remaining step properties, shapes, rule scope and consumer wiring remain open.
