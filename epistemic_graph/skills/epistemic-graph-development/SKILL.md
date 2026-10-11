@@ -33,7 +33,7 @@ Specs are already designed. The work is implementation, delivered in very small,
 - Before any new spec text, extend the owning spec: a child row (`R012.4`), a new rollup at the end of that spec, or a dated entry in the `plan.md` section "Amendments". Create a new spec only for a capability that no spec owns, and record the search in "Why a new spec".
 - Audits, reviews, gap analyses and carry-overs never get a spec directory. Their findings land in the spec that owns the row; a finding against another repository lands in that repository's spec.
 - Before any new function, module, planner, selector or store, search for the existing one and reuse it. A second implementation of an owned capability is a defect, not a delivery.
-- The rules are the ecosystem [spec standard](https://github.com/Knuckles-Team/pipelines/blob/main/reference/spec-standard.md); the `spec-standard` gate enforces the names, file set, title and index.
+- The rules are in `specs/README.md`. The `spec-standard` gate enforces the names, file set, title and index.
 
 **Time and size**
 - One agent delivers one PR in 5 minutes or less. No agent or sub-agent runs longer than 5 minutes; an orchestrator dispatches the next slice to a fresh agent.
@@ -58,7 +58,7 @@ Specs are already designed. The work is implementation, delivered in very small,
 - Never hand-edit `status.json`; it is generated (`spec-status`). Never write placeholder SHAs. If the work is only part of a requirement, decompose it into `<ID>.<n>` children first and deliver whole children.
 - Write the marker with the literal ID, never a variable. Put `Spec:` and `Co-Authored-By:` on consecutive lines in the last paragraph of the commit message, or `Spec:` is not read as a trailer.
 - Generated status depends on the commit: run `pipelines-hook spec-status --write` again after committing and commit the result.
-- The full rules are in `plans/refactor/reconciliation-20261006/SPEC-STATUS-LIFECYCLE.md`.
+- The generator applies the rules. Run `pipelines-hook spec-status` to see each row's state.
 
 **Delivered means the row's acceptance is met**
 - Never delete or stub out behaviour whose replacement is not wired. Never make a caller "fail closed" in place of repointing it. Never substitute a scope, weaken an assertion or add an allowlist entry to pass a gate.
@@ -67,8 +67,7 @@ Specs are already designed. The work is implementation, delivered in very small,
 - Valid outcomes are DELIVERED (with a bound test), SPLIT, BLOCKED and GAP (a "landed" row that is not really delivered). A half-delivery is not an outcome.
 
 **Where progress shows**
-- `https://knuckles-team.github.io/<repo>/spec-delivery/` is rebuilt from `specs/*/status.json` on each push to main. SPECIFIED is written, LANDED is on main, VERIFIED is on main with a bound test, RETIRED is withdrawn.
-- Orchestrating a session (resuming, running waves, landing trains): `plans/refactor/reconciliation-20261006/SPEC-DELIVERY-PLAYBOOK.md` and the prompt templates in `lane-prompts/` beside it.
+- The repository's spec-delivery page is rebuilt from `specs/*/status.json` on each push to main. SPECIFIED is written, LANDED is on main, VERIFIED is on main with a bound test.
 
 **Before every push**
 - Work in a real `git worktree add` from `origin/main`. Never edit a shared checkout, never `git stash`, never `git add -A`, never force-push.
@@ -77,7 +76,7 @@ Specs are already designed. The work is implementation, delivered in very small,
 
 **Landing**
 - Every PR lands within minutes of going green; no PR sits idle. Mechanical conflicts (generated files, Markdown, `status.json`) are resolved automatically by the merge-train tool. Real conflicts are additive in most cases and are resolved, not deferred.
-- Many open PRs land together as a merge train (one integration branch, one CI run), built with `plans/tools/l9/eg-bulk-merge.sh`.
+- Many open PRs land together as a merge train: one integration branch and one CI run.
 - Full CI on main catches what the fast subset missed; regressions are fixed forward immediately.
 - Landing in this repo: delivery agents open the PR and do not run per-PR build-host builds or merge. The orchestrator lands EG in batches about every 20 minutes, validated by one warm integration build (`cargo check --workspace --all-features` plus contract regeneration) on the least-loaded build host.
 
