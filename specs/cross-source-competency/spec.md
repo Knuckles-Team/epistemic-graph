@@ -1,4 +1,4 @@
-# EG-CQ-XSRC-001 — Cross-source competency: supply chain to services
+# EG-CQ-XSRC — Cross-source competency: supply chain to services
 
 Status: PROPOSED. Owner: epistemic-graph. Cross-repo IDs: graph-os (served intent tool, connected-source list), agent-packages connectors (operation contracts for erpnext, uptime, container-manager).
 Public provenance: program exit gate for the Graph OS refactor.

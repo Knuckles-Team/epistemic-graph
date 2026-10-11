@@ -1,4 +1,4 @@
-# EG-ORCH-VOCAB-001 — Orchestration vocabulary
+# EG-ORCH-VOCAB — Orchestration vocabulary
 
 Status: PROPOSED. Owner: epistemic-graph. Cross-repo IDs: none required (consumer is graph-os intent tools via `EG-CQ-ORCH-R009`).
 Public provenance: closes the MISSING-term lists in `specs/orchestration-competency` (`EG-CQ-ORCH-001`); spec-only change.

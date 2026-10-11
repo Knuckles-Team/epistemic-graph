@@ -1,4 +1,4 @@
-# EG-CQ-XSRC-001 — Implementation tasks
+# EG-CQ-XSRC — Implementation tasks
 
 Status: PROPOSED. Governing spec: [spec.md](spec.md). Design: [plan.md](plan.md). Producers first; each child is one 5-minute unit.
 

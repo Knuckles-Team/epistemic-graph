@@ -1,6 +1,6 @@
 # EG-CONN-AUDIT — Implementation tasks
 
-Status: PROPOSED. Governing spec: [spec.md](spec.md). Design: [design.md](design.md).
+Status: PROPOSED. Governing spec: [spec.md](spec.md). Design: [design.md](plan.md).
 
 - [ ] **AUD-001 · EG-CONN-AUDIT-R001:** infrastructure-v1.ttl additions rollup (26 children).
 - [ ] **AUD-002 · EG-CONN-AUDIT-R002:** sdlc_lifecycle-v1.ttl additions rollup (23 children).

@@ -1,4 +1,4 @@
-# EG-SRC-AUTH-001 plan (design)
+# EG-SRC-AUTH plan (design)
 
 ## Problem and evidence
 

@@ -1,4 +1,4 @@
-# EG-DATAPLAT-VOCAB-001 — Test specification
+# EG-DATAPLAT-VOCAB — Test specification
 
 Status: PROPOSED. Governing spec: [spec.md](spec.md).
 

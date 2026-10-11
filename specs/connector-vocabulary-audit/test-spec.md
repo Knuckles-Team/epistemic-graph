@@ -1,4 +1,4 @@
-# EG-CONN-AUDIT-001 — Test specification
+# EG-CONN-AUDIT — Test specification
 
 Status: PROPOSED. Governing spec: [spec.md](spec.md).
 

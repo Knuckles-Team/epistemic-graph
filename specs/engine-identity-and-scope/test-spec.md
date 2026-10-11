@@ -1,4 +1,4 @@
-# EG-IDENTITY-001 — Test specification
+# EG-IDENTITY — Test specification
 
 | Test | Requirement | Setup | Pass and refusal observations |
 |---|---|---|---|

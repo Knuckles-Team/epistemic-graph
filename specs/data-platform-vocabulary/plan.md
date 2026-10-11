@@ -1,4 +1,4 @@
-# EG-DATAPLAT-VOCAB-001 — Data-platform vocabulary: design and implementation plan
+# EG-DATAPLAT-VOCAB — Data-platform vocabulary: design and implementation plan
 
 Status: PROPOSED. Governing spec: [spec.md](spec.md).
 

@@ -1,4 +1,4 @@
-# EG-IDENTITY-001 requirements
+# EG-IDENTITY requirements
 
 | ID | Requirement | Verification |
 |---|---|---|
