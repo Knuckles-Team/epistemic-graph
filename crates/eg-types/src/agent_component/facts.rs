@@ -170,7 +170,7 @@ where
     Ok(reference)
 }
 
-/// Evaluation-derived ability to use a shell; profile attachment is separate.
+/// Evaluation-derived ability to use a shell.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
@@ -178,6 +178,36 @@ pub enum ShellProficiency {
     Low,
     Medium,
     High,
+}
+
+impl ShellProficiency {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Low => "low",
+            Self::Medium => "medium",
+            Self::High => "high",
+        }
+    }
+}
+
+/// Evaluation-derived tendency to stop or continue verification.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub enum StoppingBehaviour {
+    StopsEarly,
+    Balanced,
+    OverVerifies,
+}
+
+impl StoppingBehaviour {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::StopsEarly => "stops_early",
+            Self::Balanced => "balanced",
+            Self::OverVerifies => "over_verifies",
+        }
+    }
 }
 
 /// Where a toolset's tools come from.
@@ -222,6 +252,10 @@ pub enum AgentComponentFacts {
         /// and a selection that cannot tell them apart cannot say which it used.
         #[serde(default)]
         latency_observed_ref: Option<ObservationRef>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        shell_proficiency: Option<MeasuredFact<ShellProficiency>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        stopping_behaviour: Option<MeasuredFact<StoppingBehaviour>>,
     },
     SystemPrompt {
         prompt_mode: PromptMode,
@@ -297,11 +331,19 @@ impl AgentComponentFacts {
                 cost,
                 latency_declared,
                 latency_observed_ref,
+                shell_proficiency,
+                stopping_behaviour,
                 ..
             } => {
                 validate_model_identity(provider, model_identity)?;
                 validate_window(*context_window_tokens, *max_output_tokens)?;
                 validate_observation(latency_observed_ref.as_ref())?;
+                if let Some(fact) = shell_proficiency {
+                    fact.validate()?;
+                }
+                if let Some(fact) = stopping_behaviour {
+                    fact.validate()?;
+                }
                 validate_selection_facts(modalities, cost.as_ref(), latency_declared.as_ref())
             }
             Self::SystemPrompt {

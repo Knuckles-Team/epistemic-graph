@@ -25,6 +25,8 @@ fn model(window: u32, vision: bool, output: &[&str]) -> AgentComponentFacts {
             p95_ms: 900,
         }),
         latency_observed_ref: None,
+        shell_proficiency: None,
+        stopping_behaviour: None,
     }
 }
 
@@ -227,4 +229,56 @@ fn a_non_default_policy_changes_the_classification() {
         &RuleSet::new(),
     );
     assert!(loose.has_class("model:s", "eg:profile/long-context"));
+}
+
+// spec: EG-TYPED-PACKS-R048.3
+// spec: EG-TYPED-PACKS-R048.4
+#[test]
+fn measured_model_facts_project_ontology_names() {
+    let baseline = model(128_000, false, &[]);
+    let atoms = component_atoms(&ProfiledComponent {
+        component_id: "model:measured",
+        facts: &baseline,
+    });
+    assert!(!atoms
+        .iter()
+        .any(|(name, _, _)| name == "eg:fact/shellProficiency"
+            || name == "eg:fact/stoppingBehaviour"));
+    for (shell, stopping) in [
+        ("low", "stops_early"),
+        ("medium", "balanced"),
+        ("high", "over_verifies"),
+    ] {
+        let mut wire = serde_json::to_value(&baseline).unwrap();
+        for (field, value) in [
+            ("shell_proficiency", shell),
+            ("stopping_behaviour", stopping),
+        ] {
+            wire[field] = serde_json::json!({"value": value, "evaluation_run_ref": {"evaluation_id": "eval:42", "digest": "opaque"}});
+        }
+        let facts: AgentComponentFacts = serde_json::from_value(wire).unwrap();
+        let projected = component_atoms(&ProfiledComponent {
+            component_id: "model:measured",
+            facts: &facts,
+        });
+        let added: Vec<_> = projected
+            .into_iter()
+            .filter(|atom| !atoms.contains(atom))
+            .collect();
+        assert_eq!(
+            added,
+            vec![
+                (
+                    "eg:fact/shellProficiency".into(),
+                    vec!["model:measured".into(), shell.into()],
+                    1.0
+                ),
+                (
+                    "eg:fact/stoppingBehaviour".into(),
+                    vec!["model:measured".into(), stopping.into()],
+                    1.0
+                ),
+            ]
+        );
+    }
 }
