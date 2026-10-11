@@ -239,3 +239,19 @@ Each query groups by `:runModel` and `:runTaskClass`. Success rate and cost per 
 ### Cross-repository rows
 
 Depends on the `EG-DECISION-ENGINE` row for `HarnessConfig` (the committed decision that `:appliedHarnessConfig` links) and the `EG-TYPED-PACKS` rows for the measured model facts and `shellCentric`. Unblocks the `AU-HARNESS` row that writes the run trace and the `AU-HARNESS` evaluation runner row that writes the measured facts.
+
+## Spec-folder contents as typed nodes (R012)
+
+Data flow: `IndexRepository` wire method (`crates/eg-types/src/protocol/method/method_03.rs:317`) → source ingest handler (`src/server/dispatch/router/source_ingest.rs:24`) → `classify_spec_file` (new, `crates/eg-core/src/spec_folder.rs`) → typed node write → Cypher query shows task, goal, document, memory and policy nodes.
+
+Types: `SpecNodeKind`, `SpecFolderRefusal::UnknownKind`, and the property `:classifiedByRule`. The ontology file `crates/eg-core/ontology/sdd-v1.ttl` already declares `:Specification`, `:Requirement` and `:ImplementationPlan` (`sdd-v1.ttl:201-216`); only four classes are new.
+
+Attach point: the non-code branch of the `IndexRepository` handler, called by the dispatch router. Today that branch stores plain documents. A file that matches no rule keeps that behavior and returns the typed refusal.
+
+Failure behavior: an unclassifiable file never aborts the batch. The batch outcome lists the refusal per file, as the typed per-file outcomes in `crates/eg-types/src/ingestion_wire.rs:36` already do.
+
+Reused: the `IndexRepository` batch, per-file outcomes, and the software ontology. New: one module, four classes and one property.
+
+Decision: classify by path and front matter in the engine. Rejected: classification in each client, because clients would drift and the graph would hold different kinds for the same file.
+
+Cross-repository rows: the `AU-INGEST` rows that send a spec folder to `IndexRepository` depend on this contract name `SpecNodeKind`.

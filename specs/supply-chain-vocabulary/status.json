@@ -65,7 +65,14 @@
     "EG-SUPPLY-VOCAB-R008",
     "EG-SUPPLY-VOCAB-R008.1",
     "EG-SUPPLY-VOCAB-R008.2",
-    "EG-SUPPLY-VOCAB-R008.3"
+    "EG-SUPPLY-VOCAB-R008.3",
+    "EG-SUPPLY-VOCAB-R009",
+    "EG-SUPPLY-VOCAB-R009.1",
+    "EG-SUPPLY-VOCAB-R009.2",
+    "EG-SUPPLY-VOCAB-R009.3",
+    "EG-SUPPLY-VOCAB-R009.4",
+    "EG-SUPPLY-VOCAB-R009.5",
+    "EG-SUPPLY-VOCAB-R009.6"
   ],
   "requirements": [
     {
@@ -576,6 +583,63 @@
     {
       "id": "EG-SUPPLY-VOCAB-R008.3",
       "title": "Blocked-register test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R009",
+      "title": "Ecosystem packages carry transitive dependency and risk (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-SUPPLY-VOCAB-R009.1",
+        "EG-SUPPLY-VOCAB-R009.2",
+        "EG-SUPPLY-VOCAB-R009.3",
+        "EG-SUPPLY-VOCAB-R009.4",
+        "EG-SUPPLY-VOCAB-R009.5",
+        "EG-SUPPLY-VOCAB-R009.6"
+      ]
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R009.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R009.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R009.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R009.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R009.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R009.6",
+      "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
