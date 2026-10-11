@@ -480,7 +480,9 @@ Signed Content must still return the withdrawn tool's historical pinned body.
 A new dependency on that withdrawn tool must fail with `COMPONENT_WITHDRAWN`.
 The Publish request must pass structural validation before served admission.
 Assert the stable refusal code separately from its human-readable detail.
-The acceptance slice changes tests and documentation only.
+`AgentComponent` must declare `COMPONENT_WITHDRAWN` in its exact operation error
+set so the served boundary preserves that owner refusal. Unrelated methods must
+continue to refuse that code; a broad error-family allowance is unnecessary.
 
 ### Competing pack import acceptance (R073.2)
 

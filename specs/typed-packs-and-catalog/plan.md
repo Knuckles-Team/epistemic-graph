@@ -175,7 +175,8 @@ and outbox snapshots plus persisted native/foreign claim and warning checks.
 R093.2 extends forced Reproject with colliding member labels, durable schema
 inspection, and fresh-key repeat identity checks.
 The test markers bind these existing acceptance tests to their owning rows.
-Native execution remains unrun. The generated lifecycle records test existence, independently of execution results.
+The generated lifecycle records test existence, independently of execution results;
+the test specification links the native acceptance evidence.
 
 ## Measured model and task facts for harness configuration (R048, R066)
 
