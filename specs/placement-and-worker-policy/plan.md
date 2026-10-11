@@ -84,3 +84,15 @@ Rendering or applying manifests (graph-os `deploy/`), acquiring capacity, system
 R002.2 is implemented by the pure `eg_types::scheduler_config` contract (R076.1). R076.2 owns its later served integration. Neither the autosize grant function nor the existing analytics pool has been switched by this producer slice.
 
 R002.3 now provides pure `worker_registry::granted_slots` with `WorkerSizingInput` for the optional request ceiling, current available memory and engine-selected write classification. It consumes the real `WorkerRecord` and `SchedulerConfig`; the typed `WorkerSlotGrant` reports zero on refusal. CPU sizing alone may round up to one; memory, request ceiling, pool, disabled resources and writer width remain hard bounds. No reservations, served registration or R075 admission are claimed.
+
+## Capability-declared heavy compute routing (R004)
+
+Data flow: job submit wire method -> ready queue -> `claim_next` (`crates/eg-jobs/src/store.rs:736`) -> capability anchor filter (`store.rs:773`) -> claim on the capable host.
+
+Types: `HostCapability`, `RoutingFact`. Attach point: `store.rs:773`. Production caller: `crates/eg-quantum-jobs/src/job.rs:275`, which passes no capabilities today; the Wiring row passes them. Failure behavior: `no_capable_host` leaves the job queued.
+
+Reused: the capability anchor selection in `select_ready_for_worker`. New: capability declaration from graph topology facts.
+
+Decision: hosts declare capabilities and the graph stores them. Rejected alternative: a fixed host list in configuration, because it drifts from the real topology.
+
+Cross-repository: `GRAPHOS-` rows that submit jobs only pass the job class.
