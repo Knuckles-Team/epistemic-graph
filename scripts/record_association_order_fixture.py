@@ -38,7 +38,7 @@ keep = {
     "_rules_to_result",
     "_association_rules",
 }
-nodes = [
+nodes: list[ast.stmt] = [
     n
     for n in tree.body
     if isinstance(n, (ast.FunctionDef, ast.ClassDef)) and n.name in keep
@@ -112,4 +112,4 @@ fixture = dict(
 (root / "tests/fixtures/association_mining_order.json").write_text(
     json.dumps(fixture, indent=2) + "\n"
 )
-print([(c["name"], len(c["rules"])) for c in cases])
+print("Recorded six historical threshold cases.")
