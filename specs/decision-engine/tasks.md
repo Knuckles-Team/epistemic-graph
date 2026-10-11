@@ -152,3 +152,6 @@ Existing source modules and tests provide foundations, but this spec does not as
 
 - [ ] EG-DECISION-ENGINE-R090.2: Verify compiled in-process scoring without external runtimes.
 - [ ] EG-DECISION-ENGINE-R090.3: Measure parameter count, memory, binary footprint, and p99 CPU latency.
+
+- [x] EG-DECISION-ENGINE-R074: Check component-kind closure documentation with positive and adversarial source fixtures.
+- [x] EG-DECISION-ENGINE-R123: Scan canonical solve DTO declarations and reject planted duplicates.
