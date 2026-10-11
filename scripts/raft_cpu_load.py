@@ -74,8 +74,9 @@ def supervise(argv: list[str], count: int, seconds: int) -> int:
             worker = multiprocessing.Process(target=cpu_worker, args=(seconds, ready))
             worker.start()
             workers.append(worker)
-            if not ready.wait(timeout=min(seconds, 5)):
-                return 125
+            remaining = seconds - (time.monotonic() - started)
+            if not ready.wait(timeout=max(0, min(remaining, 5))):
+                return 124 if time.monotonic() - started >= seconds else 125
             if STOP_SIGNAL:
                 return 128 + STOP_SIGNAL
         pids = ",".join(str(worker.pid) for worker in workers)
@@ -98,6 +99,8 @@ def supervise(argv: list[str], count: int, seconds: int) -> int:
                 print("CPU load worker exited; cluster command aborted", flush=True)
                 return 125
             time.sleep(0.02)
+        if STOP_SIGNAL:
+            return 128 + STOP_SIGNAL
         rc = command.returncode
         if rc == 0 and not all(worker.is_alive() for worker in workers):
             rc = 125

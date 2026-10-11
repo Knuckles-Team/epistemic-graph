@@ -38,6 +38,8 @@ if os.environ.get("CHECK_CPU") and Path("/proc").exists():
     before = [ticks(pid) for pid in pids]
     time.sleep(.2)
     assert all(ticks(pid) > old for pid, old in zip(pids, before))
+if os.environ.get("SIGNAL_PARENT"):
+    os.kill(os.getppid(), signal.SIGTERM)
 if os.environ.get("KILL_WORKER"):
     os.kill(pids[0], signal.SIGKILL)
 time.sleep(float(os.environ.get("TEST_SECONDS", ".2")))
@@ -189,4 +191,13 @@ def test_command_descendants_stop_on_failure(
     while stat.exists() and stat.read_text().split()[2] != "Z":
         assert time.monotonic() < deadline, "Cargo descendant still running"
         time.sleep(0.01)
+    assert_stopped(record)
+
+
+def test_signal_with_fast_command_exit_is_not_success(
+    harness: tuple[dict[str, str], Path],
+) -> None:
+    env, record = harness
+    env.update(SIGNAL_PARENT="1", TEST_SECONDS="0")
+    assert run(env).returncode == 143
     assert_stopped(record)

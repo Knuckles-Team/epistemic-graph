@@ -116,7 +116,7 @@ R011.4 must record the exact-head runtime and clippy receipts.
 ### R014.2 process evidence (2026-10-11)
 
 Run `python -m pytest -q tests/test_validate_raft_cluster.py`.
-Twenty tests exercise the real shell entry point and CPU worker processes.
+Twenty-one tests exercise the real shell entry point and CPU worker processes.
 A controlled Cargo fixture checks that compilation precedes load and workers remain alive.
 Linux fixtures also check increasing worker CPU time during the command.
 Cases cover count and duration refusals, command failure, SIGINT, and SIGTERM.
