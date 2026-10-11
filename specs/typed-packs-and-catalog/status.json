@@ -324,7 +324,7 @@
         "daa948722eca"
       ],
       "verified_by": [
-        "crates/eg-types/src/agent_component.rs:1271"
+        "crates/eg-types/src/agent_component.rs:1272"
       ]
     },
     {
@@ -563,7 +563,7 @@
         "f41725ac0f6f"
       ],
       "verified_by": [
-        "crates/eg-types/src/agent_component.rs:1310"
+        "crates/eg-types/src/agent_component.rs:1311"
       ]
     },
     {
@@ -808,9 +808,13 @@
     {
       "id": "EG-TYPED-PACKS-R048.2",
       "title": "A measured fact cites the evaluation run that produced it",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "f00f7d76de1d"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/agent_component/facts.rs:471"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R048.3",
