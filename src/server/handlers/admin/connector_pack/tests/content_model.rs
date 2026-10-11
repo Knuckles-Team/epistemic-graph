@@ -610,7 +610,12 @@ async fn capability_annotations_remain_declared_after_import() {
     }))
     .unwrap();
     let receipt = imported(&served, &build_pack(CONNECTOR, &[candidate.clone()]), None).await;
-    assert_eq!(receipt.warnings.len(), 2);
+    assert_eq!(
+        receipt.warnings.len(),
+        2,
+        "warnings: {:?}",
+        receipt.warnings
+    );
     for foreign in ["https://example.org/cap/search", "urn:vendor:execute"] {
         let warning = receipt
             .warnings

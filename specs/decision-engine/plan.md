@@ -479,3 +479,19 @@ A signed Search test must exclude a withdrawn tool while retaining a published p
 Signed Content must still return the withdrawn tool's historical pinned body.
 A new dependency on that withdrawn tool must fail with `COMPONENT_WITHDRAWN`.
 The acceptance slice changes tests and documentation only.
+
+### 2026-10-11: GR1080 native acceptance and fixture diagnostics (R073.2)
+
+The focused native run at `29d7b11c7f66184300b55c2bf57db41e9e6c552e`
+executed 22 tests: 20 passed and two failed; one additional semantic-registry
+target was absent because its module requires `ann-redb`. The initial reduced
+feature compile failed with 31 diagnostics; the recorded expanded feature
+selection compiled successfully without source or optimization changes.
+Receipts, exact test names, compiler diagnostics, and commands are preserved
+under `evidence/gr1080-native-20261011/`.
+
+R073.1 passed. R073.2 failed during concurrent archive uploads at `BlobBegin`,
+before the pack head compare-and-set. Capture the full refusal detail before
+repairing the fixture. Race the two actual Import requests over one expected
+head, preserving the one-winner, PACK_HEAD_CONFLICT, and zero-loser-effects
+assertions. This diagnostic run does not establish a production Blob CAS fix.

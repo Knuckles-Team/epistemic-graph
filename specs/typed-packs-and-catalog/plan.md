@@ -221,3 +221,13 @@ Decisions:
 - A `read_only` claim from `mcp_hint` stays unproven. Rejected alternative: trust all hints. An MCP hint is a server claim, so parallel execution of such a tool then rests on it.
 
 Cross-repository rows: the `SDK-CONNECTOR-CONTROL-R045` rows publish the facts. The `AU-HARNESS` row for parallel read-only execution consumes `read_only` and `declared_by`. The `EG-DECISION-ENGINE-R128` rows consume the size and read-only facts.
+
+### 2026-10-11: GR1080 served fixture diagnostics (R042.2)
+
+The native run at `29d7b11c7f66184300b55c2bf57db41e9e6c552e` passed
+rejection atomicity and forced reprojection but failed the capability warning
+fixture (three total warnings rather than two). Preserve the full warning list
+and served refusal details before repairing the fixture. R042.2 remains open
+until the persisted native/declared claim assertions execute successfully.
+The shared native receipt is in
+`specs/decision-engine/evidence/gr1080-native-20261011/`.
