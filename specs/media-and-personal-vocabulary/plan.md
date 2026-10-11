@@ -328,3 +328,20 @@ Vocabulary and shapes land with `cargo test -p eg-core` ontology load and SHACL 
 ## Risks, alternatives, and decisions
 
 Connector ontologies already exist and may drift from the core vocabulary: mitigated by the .1 mapping tests and the collision test. Several questions are BLOCKED on connector operations; EG ships abstentions first so the questions fail honestly.
+
+## Amendments
+
+### 2026-10-11: preserve permanent cross-repository requirement IDs
+
+PR #413 (`f06b6452`) normalized the thirteen cross-repository IDs from
+`EG-MEDIA-VOCAB-X-R001` through `EG-MEDIA-VOCAB-X-R013` to
+`EG-MEDIA-VOCAB-R021` through `EG-MEDIA-VOCAB-R033`. The shared spec standard
+requires a moved requirement to leave its permanent old ID as a RETIRED row
+naming its replacement. Restore those thirteen tombstones here, in the same
+owning spec, with the one-to-one mapping `X-Rnnn` to `R(nnn + 20)`.
+
+The original acceptance and verification text from `b52f912f` is retained in
+the tombstones and unchanged in the active replacements. Existing active
+status and evidence remain unchanged; generated historical rows are RETIRED.
+This is a lineage correction, not completion of the connector operations,
+collision repairs, or thirteen requirements. External-owner blockers remain.
