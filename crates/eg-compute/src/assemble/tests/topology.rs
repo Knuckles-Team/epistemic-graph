@@ -284,3 +284,6 @@ fn the_brute_force_oracle_agrees_with_every_plan() {
         );
     }
 }
+
+#[path = "topology_oracle.rs"]
+mod property_oracle;
