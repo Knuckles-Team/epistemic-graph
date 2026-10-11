@@ -104,3 +104,15 @@ zero and positive-infinity boundaries. The production path calls the shared
 The literal test binding records this pure-module leaf only. The standalone
 harness does not establish the full eg-compute crate, server, client, cross-host
 or hosted release gates. No broader acceptance is claimed.
+
+## Amendments
+
+### 2026-10-11 — EG-FEDERATED-QUERY-R058.3.1 source-guard repair
+
+Scope the no-cache guard to production NL handlers, excluding the adjacent
+transaction handler and the test module's own forbidden-reference fixtures.
+Missing source boundaries fail closed. Negative controls inject `ResultCache`,
+a direct `served_response` call, and a generic `served_response` call into
+the production NL section. Preserve the uncached response-path assertion.
+Standalone exact-source Rust tests establish this structural guard only; they
+do not establish full facade compilation or end-to-end NL query behavior.
