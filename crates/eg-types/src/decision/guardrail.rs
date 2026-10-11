@@ -19,6 +19,41 @@ use serde::{Deserialize, Serialize};
 
 use crate::agent_ontology::broader_chain;
 
+/// The wire result version for the advisory guardrail-entailment read.
+pub const GUARDRAIL_ENTAILMENT_RESULT_SCHEMA_VERSION: u16 = 1;
+
+/// A read over the verified tenant's published rule heads.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct GuardrailEntailmentRequest {
+    /// Must match the authenticated request tenant.
+    pub tenant_id: String,
+    pub task_iri: String,
+}
+
+impl GuardrailEntailmentRequest {
+    /// Validate before the server opens any owner snapshot.
+    pub fn validate(&self) -> Result<(), String> {
+        if !is_iri(&self.task_iri) {
+            return Err("INVALID_ARGUMENT: guardrail entailment requires a qualified task IRI without whitespace".into());
+        }
+        Ok(())
+    }
+}
+
+/// Advisory rules and the native ontology under which their paths were derived.
+/// Enforcement stays with the owning policy gate.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct GuardrailEntailmentResult {
+    pub schema_version: u16,
+    pub ontology_digest: String,
+    pub task_iri: String,
+    pub rules: Vec<EntailedGuardrail>,
+}
+
 /// One governance rule, standard or SHACL shape pack, and the task class it
 /// governs.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -162,6 +197,26 @@ pub fn guardrail_entailment_query(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // spec: EG-DECISION-ENGINE-R127.2.2
+    #[test]
+    fn served_request_requires_a_qualified_task_iri() {
+        for task in ["", " ", "research", "eg:task research", ":task", "eg:"] {
+            let request = GuardrailEntailmentRequest {
+                tenant_id: "tenant-a".into(),
+                task_iri: task.into(),
+            };
+            assert!(request
+                .validate()
+                .unwrap_err()
+                .starts_with("INVALID_ARGUMENT:"));
+        }
+        let request = GuardrailEntailmentRequest {
+            tenant_id: "tenant-a".into(),
+            task_iri: "eg:task/research".into(),
+        };
+        assert!(request.validate().is_ok());
+    }
 
     #[test]
     fn an_empty_task_iri_is_refused_rather_than_silently_answering_empty() {

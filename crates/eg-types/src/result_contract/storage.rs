@@ -18,6 +18,7 @@ use crate::connector_pack::{
     PackImportReceipt, PackImportResult, PackRetireResult,
 };
 use crate::decision::coverage::CapabilityCoverageResult;
+use crate::decision::guardrail::GuardrailEntailmentResult;
 use crate::decision::{AssemblyResult, DecisionCommitResult};
 use crate::series_expr::DerivedSeriesReceipt;
 #[cfg(feature = "query")]
@@ -95,6 +96,7 @@ method_results! {
     AgentComponentContent(AgentComponent / "content") => Raw<AgentComponentContentResult>;
     AgentAssemble(AgentAssemble) => Raw<AssemblyResult>;
     CapabilityCoverage(CapabilityCoverage) => Raw<CapabilityCoverageResult>;
+    GuardrailEntailment(GuardrailEntailment) => Raw<GuardrailEntailmentResult>;
     DecisionCommit(DecisionCommit) => Raw<DecisionCommitResult>;
     ConnectorPackStatus(ConnectorPack / "status") => Raw<ConnectorPackStatusBody>;
     ConnectorPackImport(ConnectorPack / "import") => Raw<PackImportResult>;

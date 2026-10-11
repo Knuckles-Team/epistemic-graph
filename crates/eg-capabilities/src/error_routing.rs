@@ -106,6 +106,10 @@ const DOMAIN_PREFIXES: &[(&str, &[&str])] = &[
     ),
 ];
 const EXACT_METHOD_ERRORS: &[(&str, &[&str])] = &[
+    (
+        "GuardrailEntailment",
+        &["GUARDRAIL_SCOPE_TOO_LARGE", "MALFORMED_GUARDRAIL_RULE"],
+    ),
     // `ChangeEnvelope::validate` refuses carried engine-internal/native operations.
     ("ApplyChangeEnvelope", &["CARRIER_INNER_METHOD_REFUSED"]),
     (

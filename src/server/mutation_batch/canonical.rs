@@ -617,6 +617,7 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         //    `WriteBack`, so they take the same surface-keyed default.
         | Method::AgentAssemble { .. }
         | Method::CapabilityCoverage { .. }
+        | Method::GuardrailEntailment { .. }
         | Method::Decide { .. }
         | Method::DecisionCommit { .. }
         | Method::Solve { .. }

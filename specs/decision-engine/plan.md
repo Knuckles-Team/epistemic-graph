@@ -13,6 +13,10 @@
 
 Add the coverage and guardrail queries as typed read methods beside `AgentAssemble`. Reuse the capability closure that assembly already derives. Reuse the A2A agent-card ingestion and the governance shapes in the core ontology corpus. Add no second catalog and no ranking. Generate the Python client methods from the same method registry. Gate: D2. (EG-DECISION-ENGINE-R126, EG-DECISION-ENGINE-R127)
 
+### Guardrail entailment read
+
+`GuardrailEntailment` accepts a tenant and task IRI, verifies the tenant boundary, and reads published rule heads through `AgentLibraryStore::published_guardrail_rules`. The existing pure query returns advisory entailment paths and source generations, wrapped with the native ontology digest in a versioned result. The dispatcher uses the existing `agent:assemble-read` read policy and tenant snapshot classification. No decision record, enforcement policy, or persistent credential is created. Generated client artifacts follow the published Rust source.
+
 ## Parallelism and dependencies
 
 The contract bump precedes decision handler integration. Exact solver and pack fact-admission work may proceed independently once DTO ownership is frozen. Statistical jobs consume the committed record and visibility rules; question adapters consume the stable decision method. Coordinate shared edits to `agent_component.rs`, method descriptors, access classification and generated contract files. This prevents competing schema versions.
