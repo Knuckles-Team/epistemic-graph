@@ -259,3 +259,7 @@ mod tests {
 #[cfg(test)]
 #[path = "capability_tests.rs"]
 mod capability_tests;
+
+#[cfg(test)]
+#[path = "modality_tests.rs"]
+mod modality_tests;
