@@ -142,6 +142,7 @@ mod mine_associate_submission_tests {
         }
     }
 
+    // spec: EG-DURABLE-KERNEL-R082.2
     #[test]
     fn mine_associate_invalid_parameters_have_typed_bounded_refusals() {
         for invalid in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY, -0.01, 1.01] {
@@ -166,12 +167,27 @@ mod mine_associate_submission_tests {
         }
     }
 
+    // spec: EG-DURABLE-KERNEL-R082.2
     #[test]
     fn mine_associate_defaults_aliases_and_threshold_boundaries_are_accepted() {
-        let kind: JobKind = serde_json::from_value(serde_json::json!({
-            "MineAssociate": {"transactions": [["eg:item:a", "eg:item:b"]]}
+        let payload = rmp_serde::to_vec_named(&serde_json::json!({
+            "id": 82, "graph": "analytics-test", "auth_token": "", "agent_id": null,
+            "method": "AnalyticsJob", "params": {"op": {"Submit": {
+                "graph": "analytics-test", "kind": {
+                    "MineAssociate": {"transactions": [["eg:item:a", "eg:item:b"]]}
+                }
+            }}}
         }))
         .unwrap();
+        let request = crate::server::transport::decode_request_payload(&payload, 128)
+            .expect("the same envelope must accept valid transactions with defaults");
+        let crate::protocol::Method::AnalyticsJob {
+            op: JobOp::Submit(spec),
+        } = request.method
+        else {
+            panic!("expected a decoded Submit operation");
+        };
+        let kind = spec.kind;
         let (kind, family, algorithm, params) = govern(kind).unwrap();
         assert_eq!(family, "mining.association");
         assert_eq!(algorithm, "fpgrowth");
@@ -226,27 +242,46 @@ mod mine_associate_submission_tests {
         }
     }
 
+    // spec: EG-DURABLE-KERNEL-R082.2
     #[test]
-    fn mine_associate_malformed_transaction_shapes_fail_wire_decode() {
-        // Malformed shapes never reach Submit's typed governor. The native
-        // transport maps these decoding errors to INVALID_ARGUMENT (covered by
-        // frame_decode_error_answers_its_id_and_preserves_next_request).
+    fn mine_associate_malformed_transaction_shapes_have_typed_wire_refusals() {
+        // Use the actual native transport decoder: malformed shapes must retain
+        // their correlation id and return a bounded typed refusal before Submit.
         for transactions in [
             serde_json::json!(null),
             serde_json::json!("not-a-list"),
+            serde_json::json!({}),
+            serde_json::json!(7),
+            serde_json::json!(true),
             serde_json::json!(["not-a-nested-list"]),
+            serde_json::json!([null]),
+            serde_json::json!([7]),
+            serde_json::json!([true]),
+            serde_json::json!([{}]),
             serde_json::json!([[7]]),
             serde_json::json!([[null]]),
             serde_json::json!([[true]]),
             serde_json::json!([[{}]]),
+            serde_json::json!([[[]]]),
         ] {
             let payload = rmp_serde::to_vec_named(&serde_json::json!({
-                "Submit": {"graph": "analytics-test", "kind": {
-                    "MineAssociate": {"transactions": transactions}
-                }}
+                "id": 82, "graph": "analytics-test", "auth_token": "", "agent_id": null,
+                "method": "AnalyticsJob", "params": {"op": {"Submit": {
+                    "graph": "analytics-test", "kind": {
+                        "MineAssociate": {"transactions": transactions}
+                    }
+                }}}
             }))
             .unwrap();
-            assert!(rmp_serde::from_slice::<JobOp>(&payload).is_err());
+            let response = crate::server::transport::decode_request_payload(&payload, 128)
+                .expect_err("malformed transactions must be refused before submission");
+            assert_eq!(response.id, 82);
+            assert_eq!(response.error.as_deref(), Some("INVALID_ARGUMENT"));
+            assert_eq!(
+                response.error_detail.as_deref(),
+                Some("invalid request encoding")
+            );
+            assert!(response.result.is_none());
         }
     }
 }
