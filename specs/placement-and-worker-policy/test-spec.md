@@ -17,3 +17,5 @@ Duplicate or unknown candidate targets, zero replicas, loosening policy caps, mi
 ## Quality and release proof
 
 Focused `cargo test` on the named files per row; `spec-status` and `spec-decomposition` gates; cargo is run by the implementing lane, not by this design.
+
+R002.1 producer evidence: worker_registry::tests::capacity_round_trips_and_heartbeat_extends_expiry preserves cores, memory_bytes and lanes_supported through registration, serialization and expiry. Served policy scenario T-004 remains pending under R074.2 and R075.

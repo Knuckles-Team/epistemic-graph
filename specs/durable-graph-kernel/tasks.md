@@ -88,3 +88,6 @@ Status key: `[ ]` queued, `[-]` in progress, `[x]` verified at cited main revisi
 - [ ] **EG-DURABLE-KERNEL-R082.9:** Colocated pool lease and poll interval are configurable
 - [ ] **EG-DURABLE-KERNEL-R082.10:** Remote workers remain supported through the existing coordinator operations
 - [ ] **EG-DURABLE-KERNEL-R082.11:** Cross-repo: graph-os hosts any remote worker process; agent-utilities does not
+
+- [-] **EG-DURABLE-KERNEL-R074.1:** Typed capacity record and pure registry lifecycle with native positive/refusal tests; pending merged-head validation.
+- [ ] **EG-DURABLE-KERNEL-R074.2:** Authenticated served registry integration, generated contracts and cross-owner/expiry dispatch tests.

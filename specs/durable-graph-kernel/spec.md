@@ -68,3 +68,7 @@ The method-codec artifact EG-CONTRACT-R006 belongs to the [public engine contrac
 Reuse `crates/eg-types` MutationBatch, `crates/eg-transaction` admission, `crates/eg-storage` owner manifest, existing redb and Raft stores, `src/server` auth/wires and `eg-tsdb`/`eg-stream`. No parallel persistent log store, cache product, alternate write authority, or unguarded fast path. Apply the repository's configured CCCC changed-function gate (no new function over cyclomatic 10 or cognitive 15), Dupehound structural clone gate, jscpd differential gate, KISS changed-Rust gate, Rust architecture lint, formatting, clippy and relevant tests. The CI gate must be runnable on an ephemeral cloud runner with declared fixture provisioning; live private services are an optional deployment proof, never the sole code acceptance route.
 
 Requirement IDs are defined in [requirements.md](requirements.md); delivery state per ID is in `status.json`.
+
+## Worker registry producer boundary
+
+R074.1 owns the pure typed capacity and liveness transitions in eg-types. R074.2 owns authenticated served dispatch, ownership enforcement and generated clients. R074 remains open until both children satisfy their tests; the producer alone does not serve a registry.

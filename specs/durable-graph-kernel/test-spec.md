@@ -26,3 +26,9 @@ Use focused package tests for `eg-types`, `eg-transaction`, `eg-storage`, `eg-st
 ## Evidence record
 
 For each scenario, add a dated table row in the PR or an evidence file with exact main commit, command, CI URL, test count, result, fixture digest and known limitation. A passed local branch test means `BUILT`; merged-head tests and reviewed negative cases are required for `ACCEPTED`. Do not infer acceptance from the presence of these documents.
+
+## Worker registry cases
+
+R074.1: register a 16-core, 64-GiB worker supporting general/hydration, serde round-trip its record, heartbeat to extend expiry, and expire exactly at the new deadline. Refuse invalid capacity, blank identity, missing lanes, zero/overflowing TTL, duplicate live registration, unknown/expired heartbeats and backward clocks with unchanged state. Re-registration is allowed after expiry. Tests are native in worker_registry.rs.
+
+R074.2 remains pending: exercise these transitions through real authenticated dispatch and generated contracts, including cross-tenant and cross-principal refusals. Pure tests are not served acceptance.
