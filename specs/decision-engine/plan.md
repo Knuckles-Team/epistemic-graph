@@ -323,3 +323,11 @@ The served refusal test inspects `Response.error` and `Response.error_detail` se
 The error code is `PARAMETER_INVALID`; the detail names `UNSUPPORTED_RETRIEVAL_PLAN` and the rejected option.
 The test also requires an absent result.
 This fixture covers registry refusal only; representative retrieval-plan selection requires the integration test described in R029.
+
+## Unsupported topology commit boundary (R113.2.1)
+
+DecisionCommit refuses solved plans with positive capacity demand before either owner writes.
+The guard uses the declared DERIVATION_REJECTED code and preserves the existing tenant check.
+Topology inputs alone do not trigger this guard. AgentAssemble continues to return advisory plans.
+The handler fixture checks both owner files and the ordinary commit path.
+Native handler execution remains pending. R113.2 still requires the shared transaction and recovery design.

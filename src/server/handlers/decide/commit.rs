@@ -65,6 +65,20 @@ async fn commit(
         .map_err(|error| format!("decision replay task failed: {error}"))?
         .map_err(|error| error.to_string())?;
     super::shape::check_decision_shape(&record)?;
+    // EG-DECISION-ENGINE-R113.2.1: the library and capacity ledger have
+    // separate owners. Do not publish a capacity-backed decision until a
+    // shared transaction can also publish its leases and graph evidence.
+    // Inputs alone are advisory; abstentions and zero-demand plans acquire
+    // no capacity and must not be refused by this boundary guard.
+    if record
+        .topology_plan()
+        .is_some_and(|plan| plan.lease.per_cell.iter().any(|cell| cell.amount > 0))
+    {
+        return Err(format!(
+            "{}: topology capacity acquisition requires shared transaction authority",
+            DecisionErrorCode::DerivationRejected.as_str()
+        ));
+    }
     let store = state.write().await.ensure_agent_library()?;
     let context = crate::server::handlers::admin::bind_agent_library_context(
         &store,
@@ -95,3 +109,6 @@ pub(crate) async fn handle_decision_commit(
 ) -> Response {
     Response::err(req_id, "DecisionCommit requires the `decide` feature")
 }
+
+#[cfg(all(test, feature = "decide", feature = "redb"))]
+mod tests;

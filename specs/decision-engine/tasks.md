@@ -135,7 +135,7 @@ Existing source modules and tests provide foundations, but this spec does not as
 - [ ] **EG-DECISION-ENGINE-R113:** EG commits capacity acquisition atomically with synthesis evidence
 - [x] **EG-DECISION-ENGINE-R113.1:** Typed atomic capacity/synthesis-evidence commit outcome (producer-first split of R113)
 - [ ] **EG-DECISION-ENGINE-R113.2:** Atomic commit transaction (planned; not run)
-- [ ] **EG-DECISION-ENGINE-R113.2.1:** Refuse an unsupported transaction boundary (planned; not run)
+- [ ] **EG-DECISION-ENGINE-R113.2.1:** Refuse an unsupported transaction boundary (handler fixture added; native execution pending)
 - [ ] **EG-DECISION-ENGINE-R113.2.2:** Accepted transaction fixture (planned; not run)
 - [ ] **EG-DECISION-ENGINE-R113.2.3:** Denied transaction fixture (planned; not run)
 - [ ] **EG-DECISION-ENGINE-R113.2.4:** Transaction recovery fixture (planned; not run)
