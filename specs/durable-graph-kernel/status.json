@@ -1523,8 +1523,10 @@
     {
       "id": "EG-DURABLE-KERNEL-R080.1",
       "title": "Supersession refuses a missing successor endpoint without closing the prior fact",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "35cab6a7f65f"
+      ],
       "verified_by": [
         "crates/eg-core/tests/edge_supersession.rs:21"
       ]
