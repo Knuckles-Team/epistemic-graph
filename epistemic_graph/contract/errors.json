@@ -602,6 +602,12 @@
       "retryable": false
     },
     {
+      "class": "internal",
+      "code": "GOVERNED_ACTOR_UNSTAMPED",
+      "http_status_hint": 500,
+      "retryable": false
+    },
+    {
       "class": "server",
       "code": "GRAPH_NOT_FOUND",
       "http_status_hint": 404,

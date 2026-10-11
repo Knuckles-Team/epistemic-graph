@@ -17,7 +17,7 @@
 
 Each method record has a stable `id`, `domain`, `request_schema`, `result_schema`, `policy`, `replay_class`, `stability`, `consumer_profiles`, `is_wire_callable` and `error_set`. Each error record has `code`, `class`, `retryable`, `http_status_hint`. The generator fails if a referenced schema or error is absent, a method ID is duplicated, an allowed wire method has no dispatcher, or a stable code changes meaning without a deliberate compatibility change. The receipt hashes every generated file and identifies the source revision.
 
-The request envelope and signed body are distinct: the codec canonicalizes only the specified body fields; the client attaches identity and transport metadata after encoding. Signatures cover the bytes actually sent. A decoder checks schema before use and maps an error code to its generated typed class while retaining an unknown-code compatibility variant for forward compatibility. Unknown fields in strict request/result models fail closed; the unknown-code variant is for a newer server error, not permissive request validation.
+The request envelope and signed body are distinct. The codec canonicalizes only the specified body fields. The client attaches identity and transport metadata after encoding. Signatures cover the bytes actually sent. A decoder checks schema before use and maps each error code to its generated typed class. An unknown-code variant supports newer server errors. Unknown fields in strict request/result models still fail closed.
 
 ## Work sequence
 
@@ -53,7 +53,7 @@ Run Go commands from `clients/go` and npm commands from `clients/js`. If a named
 
 ### 2026-10-11: reconcile the native suite contract census
 
-EG-CONTRACT-R009 and EG-CONTRACT-R015 retain one current method authority: the
+EG-CONTRACT-R009 and EG-CONTRACT-R015 retain one current method authority. The
 domain registry, generated method catalog, capability ledger and both packaged
 receipts must agree, including CapabilityCoverage. Receipt regression checks
 derive their census from the declared catalog instead of pinning historical
@@ -103,6 +103,27 @@ without changing any self-hosted security policy. Preserve the exact package
 installation, test commands, dependency graph, event scope and timeout.
 The workflow regression pins hosted placement and unconditional provisioning;
 native end-to-end acceptance still requires the hosted job to finish.
+
+### Capability refusal and decoding contracts
+
+EG-CONTRACT-R014 publishes the existing governed-actor refusal and routes it only
+to GovernedChange, preserving the fail-closed replicated actor boundary.
+EG-IDENTITY-R004 classifies federation:read as an engine user scope. Registry
+membership grants no scopes and preserves owner checks and the handler's kg:read
+requirement. EG-DECISION-ENGINE-R063 defines operation-selected typed decision-fit
+and decision-eval decoding, including nullable status/receipt results and strict
+rejection of wrong operation shapes. The native generator owns all contract
+artifacts. Refusal, scope-census, wrapper and byte-for-byte freshness guards
+validate their consistency.
+
+Diagnostic and unserved-helper prefixes are not additional wire codes.
+The census follows a conservative function/method-reference graph from
+Response-returning functions
+and Response::err boundaries, includes macro literals, and excludes typed
+StatisticalErrorCode diagnostic arguments. Inline cfg(test) modules are excluded
+structurally. Regressions retain production before and after test modules,
+feature-gated production, called helpers and formatted refusal strings, while
+excluding an uncalled helper and typed diagnostic text.
 
 ### 2026-10-11: keep cache reports on the build backend after daemon loss
 

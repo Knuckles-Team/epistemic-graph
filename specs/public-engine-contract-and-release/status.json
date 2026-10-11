@@ -333,11 +333,14 @@
       "title": "Generated error catalog with stable auth-mismatch codes",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "15acf1a959e5",
         "19d0663aaf5c",
+        "394f82a01e83",
         "b8aac182d679"
       ],
       "verified_by": [
-        "crates/eg-capabilities/src/contract/errors.rs:211"
+        "crates/eg-capabilities/src/contract/errors.rs:466",
+        "crates/eg-capabilities/src/error_routing.rs:309"
       ]
     },
     {

@@ -15,7 +15,7 @@ Add the coverage and guardrail queries as typed read methods beside `AgentAssemb
 
 ## Parallelism and dependencies
 
-The contract bump precedes decision handler integration. Exact solver and pack fact-admission work may proceed independently once DTO ownership is frozen. Statistical jobs consume the committed record and visibility rules; question adapters consume the stable decision method. Shared edits to `agent_component.rs`, method descriptors, access classification and generated contract files are one coordinated integration unit to avoid competing schema versions.
+The contract bump precedes decision handler integration. Exact solver and pack fact-admission work may proceed independently once DTO ownership is frozen. Statistical jobs consume the committed record and visibility rules; question adapters consume the stable decision method. Coordinate shared edits to `agent_component.rs`, method descriptors, access classification and generated contract files. This prevents competing schema versions.
 
 ## Review rules
 
@@ -226,6 +226,16 @@ R093.2 now records that remainder with three planned children.
 The original parent acceptance remains unchanged.
 `export_gold_corpus` currently calls `generate_gold_set` and exports `SOURCE_IN_PROCESS` labels.
 This correction claims no served implementation or runtime test result.
+
+### Operation-selected job decoding (R063)
+
+DecisionFit and DecisionEval result models derive from each operation's existing
+Rust marker. Their typed decoders require an explicit request operation.
+Unknown operations, wrong method identity, unexpected fields and another
+operation's result shape fail closed. Nullable status and receipt results are
+valid only for their corresponding operations. Heterogeneous JSON test payloads
+have explicit type annotations, including fixtures that inject nested unknown
+fields to exercise strict validation.
 
 ### 2026-10-11: repair the R083 option-count fixture
 

@@ -2396,6 +2396,21 @@ async def send_decision_fit(
     return OpaqueResult("DecisionFit", payload)
 
 
+def decode_decision_fit(
+    result: OpaqueResult,
+    *,
+    operation: str,
+) -> _models.DecisionFitResult:
+    """Validate the result against the request operation's exact contract."""
+    annotations = {
+        "status": models().DecisionFitStatusResult,
+        "submit": models().DecisionFitSubmitResult,
+    }
+    if operation not in annotations:
+        raise ValueError(f"unknown DecisionFit operation: {operation}")
+    return decode_result("DecisionFit", annotations[operation], result)
+
+
 async def send_decision_eval(
     client: Any,
     params: dict[str, Any] | None = None,
@@ -2434,6 +2449,24 @@ async def send_decision_eval(
         idempotency_key=idempotency_key,
     )
     return OpaqueResult("DecisionEval", payload)
+
+
+def decode_decision_eval(
+    result: OpaqueResult,
+    *,
+    operation: str,
+) -> _models.DecisionEvalResult:
+    """Validate the result against the request operation's exact contract."""
+    annotations = {
+        "receipt": models().DecisionEvalReceiptResult,
+        "receipts": models().DecisionEvalReceiptsResult,
+        "status": models().DecisionEvalStatusResult,
+        "submit": models().DecisionEvalSubmitResult,
+        "timeline": models().DecisionEvalTimelineResult,
+    }
+    if operation not in annotations:
+        raise ValueError(f"unknown DecisionEval operation: {operation}")
+    return decode_result("DecisionEval", annotations[operation], result)
 
 
 async def send_decision_log(

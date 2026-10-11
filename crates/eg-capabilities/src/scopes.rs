@@ -111,6 +111,7 @@ pub const SCOPES: &[ScopeEntry] = &[
     entry("edge:write", User, "engine"),
     entry("explain:read", User, "engine"),
     entry("federation:admin", Admin, "engine"),
+    entry("federation:read", User, "engine"),
     entry("finance:alerts", Domain, "finance"),
     entry("finance:approve-live-order", Approver, "finance"),
     entry("finance:backfill", Domain, "finance"),
