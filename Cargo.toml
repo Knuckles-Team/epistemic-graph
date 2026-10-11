@@ -2089,3 +2089,10 @@ opt-level = 1
 debug = "line-tables-only"
 incremental = true
 codegen-units = 256
+
+# R090.3 native measurement profile; do not override dependencies to opt-level 0.
+[profile.scorer-validation]
+inherits = "release"
+opt-level = 3
+debug = 0
+debug-assertions = false
