@@ -27,4 +27,6 @@ Owned: the ontology terms, shapes, projection call sites and query tests in `req
 
 ## Open questions
 
-- BLOCKED (owner: epistemic-graph, after `EG-DECISION-ENGINE-R106` lands the template projection): whether `AgentGraphEdge` can mark a loop-back edge; today it carries only `from`, `to`, `condition`. R006.5 adds the marker as a projection rule if absent.
+- BLOCKED (owner: epistemic-graph; `EG-DECISION-ENGINE-R106` is already VERIFIED): whether `AgentGraphEdge` can mark a loop-back edge; today it carries only `from`, `to`, `condition`. R006.5 adds the marker as a projection rule if absent.
+
+Dependency note: the R127 guardrail storage and entailment algorithm are VERIFIED, but the served query (`EG-DECISION-ENGINE-R127.2.2`) and generated client (`R127.2.3`) remain SPECIFIED. Integration acceptance waits for those consumers.

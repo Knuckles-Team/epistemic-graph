@@ -77,3 +77,4 @@ bootstrap skill, together with the [SDD full lifecycle](https://github.com/Knuck
 - [`EG-CONTRACT-001`](public-engine-contract-and-release/spec.md) — public engine contract and release proof.
 - [`EG-REPO-INGEST`](repository-index-and-ingestion/spec.md) — repository indexing and governed ingestion.
 - [`EG-TYPED-PACKS`](typed-packs-and-catalog/spec.md) — typed packs, catalog, and admission contract.
+- [`EG-ORCH-VOCAB-001`](orchestration-vocabulary/spec.md) — orchestration vocabulary, typed agent roles and slot-kind constraints; PROPOSED.

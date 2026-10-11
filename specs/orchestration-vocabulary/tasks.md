@@ -47,6 +47,7 @@ Producer first: terms, then shapes, then projection call sites, then query tests
 - [ ] EG-ORCH-VOCAB-R007.1 Expand a task's steps into assembly tasks
 - [ ] EG-ORCH-VOCAB-R007.2 Project the assembled graph back
 - [ ] EG-ORCH-VOCAB-R007.3 Add the composed read
+- [ ] EG-ORCH-VOCAB-R007.4 Enforce slot agent-kind constraints before assembly selection
 - [ ] EG-ORCH-VOCAB-R008 Catalog registration and ontology gates (rollup)
 - [ ] EG-ORCH-VOCAB-R008.1 Register `orchestration-v1.shapes.ttl` with the shape loader
 - [ ] EG-ORCH-VOCAB-R008.2 Regenerate ontology artifacts

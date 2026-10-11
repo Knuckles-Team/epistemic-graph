@@ -57,7 +57,7 @@ SHACL (new file `crates/eg-core/ontology/orchestration-v1.shapes.ttl`, same styl
 
 - `:TaskStepShape` (target `:TaskStep`): `sh:sparql` selecting `$this` where `$this :precedes+ $this`; exactly one owner: `sh:path [sh:inversePath :hasStep]` `sh:minCount 1; sh:maxCount 1`.
 - `:LibraryMemberShape`: every subject of `:memberOfLibrary` has `:providesCapability` (`sh:minCount 1`), so coverage cannot find a member that covers nothing.
-- `:RuleScopeShape`: a `:DevelopmentStandard` carrying `:appliesToTaskClass` has exactly one, an IRI.
+- `:RuleScopeShape`: target every `:BestPractice` emitted by the guardrail-rule projection, including nodes missing the scope property; require exactly one `:appliesToTaskClass`, an IRI. This target detects the missing-class negative case.
 - `:StepBindingShape`: `:stepAssignedAgent` value is `sh:or (sh:class :Agent, sh:class :A2AAgentCard)`; an `:Agent` assignee has `:usesModel` and `:hasPrompt` exactly once.
 - In `swarm_topology-v1.shapes.ttl`: `swarm:SlotShape` gains `swarm:requiresAgentKind` (`sh:maxCount 1; sh:class :AgentKind`); new `swarm:FeedsAcyclicShape` (target `swarm:TopologyTemplate`): `SELECT $this WHERE { $this swarm:hasSlot ?s . ?s swarm:feeds+ ?s }` plus a check that both ends of every `swarm:feeds` are `swarm:hasSlot` of `$this`.
 
@@ -79,7 +79,7 @@ Loops: `CritiqueLoop`, `Debate` and `Council` are cyclic by design. Forward flow
 
 Scopes: only those the engine contract already lists (tenant-visible Agent Library reads; no new scope). Visibility filtering is unchanged: a record unprojected or invisible is excluded from reads (`EG-TYPED-PACKS-R009`).
 
-How `graph.assemble()` consumes it: (1) the request names a task IRI; if the task has `:hasStep` steps, each step becomes one typed task with its required capabilities, so the 0-1 program (R014) covers per-step capability; (2) candidates are the visible library entries, instantiated templates and A2A cards, as today; (3) topology comes from `TopologyFacts`/slots, whose `swarm:requiresAgentKind` restricts which kind may fill a slot; (4) the committed `AgentGraphDraft` is projected back as `:stepAssignedAgent` and `swarm:feeds`. The solver gains no term list; kinds and edges arrive as data.
+How `graph.assemble()` consumes it: (1) the request names a task IRI; if the task has `:hasStep` steps, each step becomes one typed task with its required capabilities, so the 0-1 program (R014) covers per-step capability; (2) candidates are the visible library entries, instantiated templates and A2A cards, as today; (3) topology comes from `TopologyFacts`/slots, whose `swarm:requiresAgentKind` restricts which kind may fill a slot (R007.4); (4) the committed `AgentGraphDraft` is projected back as `:stepAssignedAgent` and `swarm:feeds`. The solver gains no term list; kinds and edges arrive as data.
 
 External A2A agent to library member: a card is published as an `AgentComponent` of kind `a2a_agent_card` into the Agent Library store (already the case, R126.2.1). The projection types it `:A2AAgentCard`, links `:memberOfLibrary`, `:registeredIn` its registry, and `:providesCapability` per declared capability. It is usable by assembly as a claim: coverage lists it with claim evidence class, and when policy `a2a_requires_observation` is on it is not selectable until an observation exists. Task execution is fetched at run time through the A2A contract; the card body is not copied beyond its declaration.
 
@@ -121,16 +121,29 @@ External A2A agent to library member: a card is published as an `AgentComponent`
 Task: "deploy a container with container-manager" (competency probe R009.2, previously a 1-step plan). Fixture IRIs are illustrative; the fixture file is `crates/eg-core/tests/fixtures/orchestration_vocabulary/deploy_container.ttl`.
 
 ```
+@prefix : <http://knuckles.team/kg#> .
+@prefix swarm: <http://knuckles.team/kg/swarm#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
 :DeployContainerTask a swarm:SequentialDependency ; :hasStep :s1, :s2, :s3, :s4 .
-:s1 "resolve target context"  :precedes :s2 ; :requiresCapability :ContainerOrchestrationCapability .
-:s2 "verify image"            :precedes :s3 ; :needsSkill :skillImageVerify .
-:s3 "run container"           :precedes :s4 ; :needsSkill :skillContainerLifecycle ; :stepAssignedAgent :agentContainerOps .
-:s4 "verify health"           :stepAssignedAgent :agentVerifier .
+:s1 a :TaskStep ; rdfs:label "resolve target context" ; :handsOffTo :s2 ; :precedes :s2 ; :requiresCapability :ContainerOrchestrationCapability .
+:s2 a :TaskStep ; rdfs:label "verify image" ; :precedes :s3 ; :needsSkill :skillImageVerify .
+:s3 a :TaskStep ; rdfs:label "run container" ; :precedes :s4 ; :needsSkill :skillContainerLifecycle ; :stepAssignedAgent :agentContainerOps .
+:s4 a :TaskStep ; rdfs:label "verify health" ; :stepAssignedAgent :agentVerifier .
 :tmplPipeline a swarm:TopologyTemplate ; swarm:class swarm:Pipeline ; swarm:hasSlot :slotA, :slotB .
 :slotA swarm:role swarm:Child ; swarm:requiresAgentKind :agentKindExecutor ; swarm:minWidth 1 ; swarm:maxWidth 1 ; swarm:feeds :slotB .
 :slotB swarm:role swarm:Verifier ; swarm:requiresAgentKind :agentKindVerifier ; swarm:minWidth 1 ; swarm:maxWidth 1 .
 :agentContainerOps a :AgentTemplate ; :memberOfLibrary :libMain ; :hasAgentKind :agentKindExecutor ; :providesCapability :ContainerOrchestrationCapability ;
                    :hasSkill :skillContainerLifecycle ; :usesModel :profileLocal ; :hasPrompt :promptOps .
+:agentVerifier a :Agent ; :hasAgentKind :agentKindVerifier ; :hasSkill :skillHealthVerify ; :usesModel :profileLocal ; :hasPrompt :promptVerify .
+:libMain a :AgentLibrary .
+:promptOps a :Prompt .
+:promptVerify a :Prompt .
+:skillContainerLifecycle a :Skill .
+:skillImageVerify a :Skill .
+:skillHealthVerify a :Skill .
+:slotA a swarm:Slot .
+:slotB a swarm:Slot .
 :profileLocal a :ModelProfile ; :contextWindow 32768 .
 :ruleNoLatest a :BestPractice ; :appliesToTaskClass swarm:SequentialDependency .   # from a guardrail_rule component
 :cardRemoteOps a :A2AAgentCard ; :memberOfLibrary :libMain ; :providesCapability :ContainerOrchestrationCapability .  # claim
@@ -143,7 +156,7 @@ Questions and answers:
 - Q3: R126 `capability_coverage_query` for the task returns, for `ContainerOrchestrationCapability`, candidates `:agentContainerOps` (template, library evidence) and `:cardRemoteOps` (a2a, claim).
 - Q4: R127 returns `:ruleNoLatest` with path `DeployContainerTask -> SequentialDependency` and its source generation.
 - Q5: `SELECT ?s ?agent ?skill ?model ?prompt WHERE { ?s :stepAssignedAgent ?agent . ?agent :hasSkill ?skill ; :usesModel ?model ; :hasPrompt ?prompt }` returns the s3 row with `:profileLocal` (context 32768).
-- Q6: `SELECT ?s ?t WHERE { ?s :handsOffTo ?t }` plus the harness hooks; Q7: `SELECT ?a ?b WHERE { :tmplPipeline swarm:hasSlot ?a, ?b . ?a swarm:feeds ?b }` returns slotA->slotB, and `FeedsAcyclicShape` conforms.
+- Q6: `SELECT ?s ?t WHERE { ?s :handsOffTo ?t }` returns s1->s2; Q7: `SELECT ?a ?b WHERE { :tmplPipeline swarm:hasSlot ?a, ?b . ?a swarm:feeds ?b }` returns slotA->slotB, and `FeedsAcyclicShape` conforms.
 - Q8: `graph.assemble()` expands the four steps into four typed tasks (R007.1), selects the pipeline topology with slot kinds as constraints, binds `:agentContainerOps` (observed, preferred over the claim-only card), commits, and the projection writes `:stepAssignedAgent` and `swarm:feeds` (R007.2) so Q5 and Q7 read the assembled graph. If no library member covers a capability the answer is a typed abstention naming it (R010).
 
 ## Out of scope

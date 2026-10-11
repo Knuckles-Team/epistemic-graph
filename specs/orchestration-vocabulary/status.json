@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
-  "spec_id": "REPLACE_WITH_STABLE_ID",
-  "owner_repo": "REPLACE_WITH_REPOSITORY",
+  "spec_id": "EG-ORCH-VOCAB-001",
+  "owner_repo": "epistemic-graph",
   "delivery_state": "SPECIFIED",
   "requirement_ids": [
     "EG-ORCH-VOCAB-R001",
@@ -47,6 +47,7 @@
     "EG-ORCH-VOCAB-R007.1",
     "EG-ORCH-VOCAB-R007.2",
     "EG-ORCH-VOCAB-R007.3",
+    "EG-ORCH-VOCAB-R007.4",
     "EG-ORCH-VOCAB-R008",
     "EG-ORCH-VOCAB-R008.1",
     "EG-ORCH-VOCAB-R008.2"
@@ -379,7 +380,8 @@
       "rollup_of": [
         "EG-ORCH-VOCAB-R007.1",
         "EG-ORCH-VOCAB-R007.2",
-        "EG-ORCH-VOCAB-R007.3"
+        "EG-ORCH-VOCAB-R007.3",
+        "EG-ORCH-VOCAB-R007.4"
       ]
     },
     {
@@ -399,6 +401,13 @@
     {
       "id": "EG-ORCH-VOCAB-R007.3",
       "title": "Add the composed read",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R007.4",
+      "title": "Enforce slot agent-kind constraints before assembly selection",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
