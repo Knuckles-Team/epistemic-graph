@@ -137,8 +137,53 @@ The latency boundary accepts 9,999 microseconds and refuses 10,000 microseconds.
 ### Remaining R090 acceptance
 
 EG-DECISION-ENGINE-R090.2 requires `tests/test_decision_resident_scorer.py::test_compiled_engine_scores_without_external_runtime`.
-EG-DECISION-ENGINE-R090.3 requires `benches/decision_resident_scorer.rs::resident_scorer_meets_declared_budget`.
-Both checks remain planned and unrun. Budget declarations do not establish either result.
+EG-DECISION-ENGINE-R090.3 requires `crates/eg-numeric/benches/decision_resident_scorer.rs::resident_scorer_meets_declared_budget`.
+R090.2 passed in the [Python suite job](https://github.com/Knuckles-Team/epistemic-graph/actions/runs/38148086774/job/114499779006)
+of hosted Release run 38148086774 at `e5190222b38d628b7d0f268ce4c46b184a170ee1`.
+That job passed all 3,702 tests, including the resident runtime tracing case.
+The Python job succeeded; the parent Release run failed overall. This is the
+scoped compiled-runtime acceptance, not a claim that the parent workflow or all
+served decision paths passed. R090.3 has paired native measurements below:
+the Cargo launch is inconclusive; the standalone run meets the measured limits.
+Budget declarations alone do not establish either result.
+
+### R090.3 native release measurement (2026-10-11)
+
+The [structured receipt](../../crates/eg-numeric/benches/decision_resident_scorer.receipt.json)
+binds measured source `41cce5dd08d7f27aeacf23b6f01d177dfcbf7c59` to the executable
+SHA-256, file length, compiler identity, release flags and native benchmark JSON.
+The run used Rust 1.96.0 on `x86_64-unknown-linux-gnu`, optimization 3, thin LTO,
+one codegen unit, no debug assertions, and at most three build jobs. The initial
+build took 503 seconds within its 900-second bound; total command time was
+504.766 seconds. There was no package-profile override or facade build.
+
+| Case | Parameters | p99 thread CPU (microseconds) |
+| --- | ---: | ---: |
+| Fitted promotion recipe | 234 | 11.183 |
+| Maximum legal head dimensions, 256-row fixture | 1360 | 1412.071 |
+
+Both cases meet the 700,000-parameter and 9,999-microsecond ceilings over 1,000
+calls after 100 warmups. The 637,136-byte runner produced a whole-runner peak RSS
+of 124,788,736 bytes, above the 8,388,608-byte ceiling. Its scorer-specific resident
+memory remains unknown. The native result is **inconclusive**, with exit code 2;
+Neither serialized model size nor runner file length resolves this above-ceiling
+RSS result. It remains preserved in the first receipt.
+
+### R090.3 standalone corroboration (2026-10-11)
+
+The [standalone receipt](../../crates/eg-numeric/benches/decision_resident_scorer.standalone.receipt.json)
+records the exact same executable, with no rebuild, fixture changes, reduced
+samples or baseline subtraction. A separate shell ran it under `/usr/bin/time -v`.
+Its SHA-256 remains `b648cd00dc5dae3d5648b269f5245db0175c3c5ae3d9f51611e4dea501c260a5`.
+
+The native peak RSS was 2,850,816 bytes; external time reported exactly 2,784 KiB.
+Both are below 8 MiB. The fitted and 256-row fixture p99 CPU measurements were
+7.713 and 1205.546 microseconds; parameters remained 234 and 1360. The run exited
+0 in 0.99 seconds after the same 100 warmups and 1,000 samples per case.
+The standalone native fixture therefore meets all measured resource limits with
+verified release provenance. This does not establish served parent acceptance.
+The difference between launch methods is observed; startup or inherited
+high-water effects remain hypotheses, not an established causal attribution.
 
 ### R093.2 planned served acceptance
 
@@ -318,6 +363,44 @@ The existing admin holder test retains its historical Content assertions.
 - `EG-DECISION-ENGINE-R131.4`: `crates/eg-compute/src/assemble/tests/limit_refusal.rs::breach_abstains_with_rule_id`.
 - `EG-DECISION-ENGINE-R131.5`: `crates/eg-compute/src/assemble/tests/limit_refusal.rs::breach_observation_links_signal`.
 - `EG-DECISION-ENGINE-R131.6`: `tests/decide/test_limit_guard_served.py::test_oversize_order_refused_and_recorded`.
+
+### R090.3 reproducible build-then-standalone protocol
+
+Build in the preserved native workspace, then measure the exact emitted
+executable in a separate shell. Do not rebuild between the provenance capture
+and standalone run:
+
+```bash
+CARGO_BUILD_JOBS=3 cargo bench --locked -p eg-numeric --features decision \
+  --bench decision_resident_scorer --profile release --no-run
+```
+
+Use the executable path emitted by Cargo; do not guess a filename or select a
+stale binary by glob. Record its SHA-256 and file length, the source commit,
+Rust version, target, host CPU/OS, command and effective profile. In a separate
+shell, run `/usr/bin/time -v <exact-emitted-executable> --bench`, retain the native
+JSON and structured external RSS/exit/timing values, and confirm the hash again.
+All measured scorer code must use optimization 3. No opt0 substitute, fixture
+reduction, baseline subtraction or rebuild is permitted for this comparison.
+Debug assertions are refused; the external provenance receipt also verifies
+optimization. Both historical launch receipts above remain preserved.
+
+The harness emits schema-version 1 JSON (schema: `crates/eg-numeric/benches/decision_resident_scorer.schema.json`): `cases` contains fixture shape, actual trainable scalar count (linear weights plus seven attention tensors), calibration scalar count, warmup/sample counts, nearest-rank p99 nanoseconds and microseconds, and parameter/latency acceptance. Both fixtures execute 100 warmups and 1,000 individually clocked production `forward::read` calls. Fit/construction, validation, and result destruction are outside each timing window. The fitted case reuses the 200-label, seed-0, 60-iteration promotion recipe and asserts nonzero trained self weights; the second case covers maximum legal head dimensions (width 16, features 32, shortlist 64) at 256 rows. LegalSet permits varying row counts, so this does not cover every legal workload.
+
+`memory.bytes` is Linux whole-runner lifetime peak RSS, including fitting and allocator overhead. At or below 8,388,608 bytes it proves a conservative upper bound; above that it is inconclusive for scorer-specific residency and leaves R090.3 unverified. No baseline subtraction or serialized-payload proxy is used. `runner_binary_bytes` measures the executable actually running; `server_binary_bytes` and scorer-specific bytes are null. Exact parameter/latency limits, one-unit excesses, RSS inconclusiveness, nearest-rank indexing, invalid-head refusal and out-of-distribution refusal are checked before measurement. Exit 0 means the measured upper bounds pass but build provenance still needs review; exit 1 means parameter/CPU failure; exit 2 means inconclusive memory or unsupported OS. The recorded standalone run meets these measured limits; its receipt provides the required release provenance. This does not establish served parent acceptance.
+
+### R090.3 production dependency comparison after main integration
+
+Current main `40fefdd6cb66c3c432e73da5966a1aea6f9a9c4e` was merged normally.
+Against measured source `41cce5dd08d7f27aeacf23b6f01d177dfcbf7c59`, all 214
+files compared across numeric production and test fixtures, shared decision
+and contract types, shared test support, both crate manifests, root manifest,
+lockfile, toolchain and Cargo configuration are byte-identical. The benchmark
+changes only its literal spec-binding comment. The shared types crate also has
+new agent-component model facts outside those unchanged roots; its whole crate
+is therefore not byte-identical. This is a scoped scorer/fixture input comparison,
+not a claim that a newly linked final-HEAD executable would have the same hash.
+No unrelated rebuild was substituted for the exact measured-source receipts.
 
 ### EG-DECISION-ENGINE-R132 tests
 
