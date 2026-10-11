@@ -16,12 +16,21 @@ pub enum HarnessPart<T> {
         value: T,
     },
     Abstained {
+        #[serde(deserialize_with = "deserialize_missing_facts")]
         missing_fact: BoundedVec<String, 64>,
         conservative_default: T,
     },
 }
 
 impl<T> HarnessPart<T> {
+    /// An abstention must name at least one missing fact.
+    pub fn validate(&self) -> Result<(), String> {
+        match self {
+            Self::Decided { .. } => Ok(()),
+            Self::Abstained { missing_fact, .. } => validate_missing_facts(missing_fact),
+        }
+    }
+
     fn selected(&self) -> &T {
         match self {
             Self::Decided { value } => value,
@@ -31,6 +40,22 @@ impl<T> HarnessPart<T> {
             } => conservative_default,
         }
     }
+}
+
+fn validate_missing_facts(facts: &BoundedVec<String, 64>) -> Result<(), String> {
+    if facts.is_empty() || facts.iter().any(|fact| fact.trim().is_empty()) {
+        return Err("harness abstention must name each missing fact".into());
+    }
+    Ok(())
+}
+
+fn deserialize_missing_facts<'de, D>(deserializer: D) -> Result<BoundedVec<String, 64>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let facts = BoundedVec::deserialize(deserializer)?;
+    validate_missing_facts(&facts).map_err(serde::de::Error::custom)?;
+    Ok(facts)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -77,6 +102,10 @@ pub struct HarnessConfigAnswer {
 
 impl HarnessConfigAnswer {
     pub fn validate(&self) -> Result<(), String> {
+        self.context_policy.validate()?;
+        self.plan_scaffold.validate()?;
+        self.action_space.validate()?;
+        self.tool_subset.validate()?;
         for part in [
             &self.soft_threshold,
             &self.hard_threshold,
@@ -89,6 +118,7 @@ impl HarnessConfigAnswer {
 }
 
 fn validate_q32_part(part: &HarnessPart<UnitRationalWire>) -> Result<(), String> {
+    part.validate()?;
     if part.selected().denominator() != 1 << 32 {
         return Err("harness fraction must use Q32 denominator 2^32".into());
     }
@@ -226,6 +256,27 @@ mod tests {
         wire["tool_subset"]["value"] = serde_json::json!(vec!["tool"; 257]);
         assert!(serde_json::from_value::<HarnessConfigAnswer>(wire).is_err());
         assert!(serde_json::from_value::<HarnessPart<ActionSpace>>(serde_json::json!({"status":"abstained","missing_fact":vec!["fact";65],"conservative_default":"tool_set"})).is_err());
+    }
+
+    // spec: EG-DECISION-ENGINE-R128.3
+    #[test]
+    fn abstention_requires_named_missing_facts() {
+        for facts in [vec![], vec![""], vec![" \t"], vec!["shellCentric", ""]] {
+            let part = HarnessPart::Abstained {
+                missing_fact: BoundedVec::new(facts.into_iter().map(str::to_string).collect())
+                    .unwrap(),
+                conservative_default: ActionSpace::ToolSet,
+            };
+            assert!(part.validate().is_err());
+            let wire = serde_json::to_value(&part).unwrap();
+            assert!(serde_json::from_value::<HarnessPart<ActionSpace>>(wire.clone()).is_err());
+            let mut value = answer();
+            value.action_space = part;
+            assert!(value.validate().is_err());
+            let mut wire_answer = serde_json::to_value(answer()).unwrap();
+            wire_answer["action_space"] = wire;
+            assert!(serde_json::from_value::<HarnessConfigAnswer>(wire_answer).is_err());
+        }
     }
 
     // spec: EG-DECISION-ENGINE-R128.7
