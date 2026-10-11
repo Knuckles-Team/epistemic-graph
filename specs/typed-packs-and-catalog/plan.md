@@ -72,7 +72,7 @@ flowchart LR
   VIS --> READ[Typed catalog and component reads]
 ```
 
-The body store can commit before the Agent Library transaction because an orphan has no holder and is reclaimed after the grace window. Agent Library rows and outbox intents commit together. Projection is intentionally asynchronous. `visible_record_id` is the read gate until the graph schema has committed. The projection worker reads the current head, not an obsolete event payload; its graph attach uses the pack record as a monotone source revision. The subsequent owner transaction marks visibility and acknowledges the event. If interrupted between commits, redelivery is idempotent.
+The body store can commit before the Agent Library transaction. An orphan has no holder; reclamation follows the grace window. Agent Library rows and outbox intents commit together. Projection is intentionally asynchronous. `visible_record_id` is the read gate until the graph schema has committed. The projection worker reads the current head, not an obsolete event payload; its graph attach uses the pack record as a monotone source revision. The subsequent owner transaction marks visibility and acknowledges the event. If interrupted between commits, redelivery is idempotent.
 
 ### Pack encoding
 
@@ -236,7 +236,25 @@ failures must retain the full warning list and served refusal details.
 `MeasuredFact<T>` and `ShellProficiency` live in the existing facts module.
 The required evaluation reference reuses measured-latency validation at decode
 and through `validate`; digest text retains the existing opaque reference rules.
-Profile attachment, digest integration, import and persistence remain separate leaves.
+Profile attachment and digest integration are implemented by R048.3 and R048.4.
+Signed pack import and readback remain the separate R048.5 leaf.
+
+### Measured profile fields (R048.3, R048.4)
+
+`ModelProfile` carries optional measured shell proficiency and stopping behaviour.
+Both use the existing evaluation reference validator during decode and draft
+validation. Each present field adds its name, value, evaluation ID and evaluation
+digest to the canonical component digest. An absent field adds no bytes.
+The existing capability projector emits `eg:fact/shellProficiency` and
+`eg:fact/stoppingBehaviour` only when the corresponding value is present.
+
+The producer tests cover both digest domains, value and provenance changes,
+malformed references, enum decoding and the actual projected atoms. Their test
+bindings do not establish signed pack import or served readback. The pack model
+annotations do not yet carry these fields, and the importer sets them to absent.
+R048.5 remains open. R066.1 owns the separate SHACL shapes and evaluation links.
+Before integration, regenerate the contract surfaces from the Rust schema source
+and check them. Producer tests do not substitute for that check.
 
 ## Skill packages rendered on demand (R100)
 

@@ -107,3 +107,18 @@ Attach point: `crates/eg-lake/src/catalog.rs`, which documents a deny-all stub t
 Reuses the verified request envelope, tenant model and existing Iceberg metadata writer.
 Decision: reuse the engine envelope. Rejected: a separate OAuth token store, which adds a second authority.
 Lakekeeper-style external catalog interchange is not written here; the engine remains the catalog authority.
+
+## Per-modality promotion gate (R040)
+
+Data flow: served row write -> re-embed worker (`EG-FEDERATED-QUERY-R077.3`) -> `evaluate_promotion` -> `EmbeddingVersionStore::tag_batch` (`crates/eg-ann/src/version.rs:129`) -> verdict node.
+
+Types: `ModalityCheck`, `PromotionVerdict`, `PromotionBlocked`. Attach point: before `tag_batch`. Production caller: the Wiring row creates the call site in the re-embed worker. Failure behavior: a block keeps the prior version active and tags nothing.
+
+Existing code: `crates/eg-ann/src/version.rs:32`, `version.rs:54`, `version.rs:129`, `crates/eg-ann/src/recall.rs:28`, `crates/eg-query/src/tables/embedding_binding.rs:526`, `crates/eg-modality/src/lib.rs`. Reachable today: no; `EmbeddingVersionStore` has no production caller. Search terms used: embedder_digest, model_digest, promot, projector, modality, recall_at, retrieval_check.
+
+Decision: gate on each modality separately, so an average cannot hide one regression. Rejected alternative: gate on mean recall, because it passes a candidate that breaks a single modality.
+
+Cross-repository: none.
+
+References
+- arXiv:2606.09331 — Li et al., "Conan-embedding-v3: Fusing Modality-Specific Models for Omni-Modal Embedding" (2026)
