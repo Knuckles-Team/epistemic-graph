@@ -160,7 +160,7 @@ build took 503 seconds within its 900-second bound; total command time was
 | Case | Parameters | p99 thread CPU (microseconds) |
 | --- | ---: | ---: |
 | Fitted promotion recipe | 234 | 11.183 |
-| Maximum legal shape | 1360 | 1412.071 |
+| Maximum legal head dimensions, 256-row fixture | 1360 | 1412.071 |
 
 Both cases meet the 700,000-parameter and 9,999-microsecond ceilings over 1,000
 calls after 100 warmups. The 637,136-byte runner produced a whole-runner peak RSS
@@ -177,7 +177,7 @@ samples or baseline subtraction. A separate shell ran it under `/usr/bin/time -v
 Its SHA-256 remains `b648cd00dc5dae3d5648b269f5245db0175c3c5ae3d9f51611e4dea501c260a5`.
 
 The native peak RSS was 2,850,816 bytes; external time reported exactly 2,784 KiB.
-Both are below 8 MiB. The fitted and maximum-shape p99 CPU measurements were
+Both are below 8 MiB. The fitted and 256-row fixture p99 CPU measurements were
 7.713 and 1205.546 microseconds; parameters remained 234 and 1360. The run exited
 0 in 0.99 seconds after the same 100 warmups and 1,000 samples per case.
 The standalone native fixture therefore meets all measured resource limits with
@@ -385,7 +385,7 @@ reduction, baseline subtraction or rebuild is permitted for this comparison.
 Debug assertions are refused; the external provenance receipt also verifies
 optimization. Both historical launch receipts above remain preserved.
 
-The harness emits schema-version 1 JSON (schema: `crates/eg-numeric/benches/decision_resident_scorer.schema.json`): `cases` contains fixture shape, actual trainable scalar count (linear weights plus seven attention tensors), calibration scalar count, warmup/sample counts, nearest-rank p99 nanoseconds and microseconds, and parameter/latency acceptance. Both fixtures execute 100 warmups and 1,000 individually clocked production `forward::read` calls. Fit/construction, validation, and result destruction are outside each timing window. The fitted case reuses the 200-label, seed-0, 60-iteration promotion recipe and asserts nonzero trained self weights; the shape case covers width 16, features 32, shortlist 64, and 256 rows.
+The harness emits schema-version 1 JSON (schema: `crates/eg-numeric/benches/decision_resident_scorer.schema.json`): `cases` contains fixture shape, actual trainable scalar count (linear weights plus seven attention tensors), calibration scalar count, warmup/sample counts, nearest-rank p99 nanoseconds and microseconds, and parameter/latency acceptance. Both fixtures execute 100 warmups and 1,000 individually clocked production `forward::read` calls. Fit/construction, validation, and result destruction are outside each timing window. The fitted case reuses the 200-label, seed-0, 60-iteration promotion recipe and asserts nonzero trained self weights; the second case covers maximum legal head dimensions (width 16, features 32, shortlist 64) at 256 rows. LegalSet permits varying row counts, so this does not cover every legal workload.
 
 `memory.bytes` is Linux whole-runner lifetime peak RSS, including fitting and allocator overhead. At or below 8,388,608 bytes it proves a conservative upper bound; above that it is inconclusive for scorer-specific residency and leaves R090.3 unverified. No baseline subtraction or serialized-payload proxy is used. `runner_binary_bytes` measures the executable actually running; `server_binary_bytes` and scorer-specific bytes are null. Exact parameter/latency limits, one-unit excesses, RSS inconclusiveness, nearest-rank indexing, invalid-head refusal and out-of-distribution refusal are checked before measurement. Exit 0 means the measured upper bounds pass but build provenance still needs review; exit 1 means parameter/CPU failure; exit 2 means inconclusive memory or unsupported OS. The recorded standalone run meets these measured limits; its receipt provides the required release provenance. This does not establish served parent acceptance.
 
