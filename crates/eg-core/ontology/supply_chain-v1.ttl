@@ -1,0 +1,25 @@
+@prefix : <http://knuckles.team/kg#> .
+@prefix bfo: <http://purl.obolibrary.org/obo/BFO_> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+<http://knuckles.team/kg/supply_chain> a owl:Ontology ;
+    rdfs:label "Supply Chain" ;
+    rdfs:comment "Shared supplier and procurement-item vocabulary. Connector records reuse these IRIs; source mappings supply the relationships." ;
+    owl:imports <http://knuckles.team/kg/core>, <http://knuckles.team/kg/trm> .
+
+:Supplier a owl:Class ;
+    rdfs:label "Supplier" ;
+    rdfs:comment "An organization supplying procured items; reuses the ERPNext Supplier IRI and specializes the existing technology vendor." ;
+    rdfs:subClassOf :Vendor .
+
+:SupplyChainItem a owl:Class ;
+    rdfs:label "Supply Chain Item" ;
+    rdfs:comment "A procurable item definition, distinct from any deployed physical asset that realizes it." ;
+    rdfs:subClassOf bfo:0000031 .
+
+:suppliesItem a owl:ObjectProperty ;
+    rdfs:label "supplies item" ;
+    rdfs:comment "Links a supplier to an item it supplies. Procurement mappings derive this relation from purchase orders without changing the existing suppliedBy property." ;
+    rdfs:domain :Supplier ;
+    rdfs:range :SupplyChainItem .
