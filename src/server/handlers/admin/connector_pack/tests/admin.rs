@@ -437,7 +437,7 @@ async fn refusal_snapshot(served: &Served, connector: &str) -> serde_json::Value
     serde_json::json!({"owner": store.connector_pack_refusal_snapshot(TENANT), "bodies": bodies})
 }
 
-// spec: EG-TYPED-PACKS-R003
+// spec: EG-TYPED-PACKS-R003, EG-TYPED-PACKS-R042.2
 #[tokio::test]
 async fn a_rejected_import_mutates_nothing_in_the_catalog() {
     let served = Served::new();

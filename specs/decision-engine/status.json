@@ -1786,7 +1786,7 @@
     {
       "id": "EG-DECISION-ENGINE-R084",
       "title": "Conformal calibration as primary rung over temperature scaling",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "1e9ea1ef3790",
         "4952a2edced4"
@@ -1799,11 +1799,14 @@
     {
       "id": "EG-DECISION-ENGINE-R084.1",
       "title": "ECE/coverage measurement across option sets of varying size",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "481fa6ea2c55",
         "7765cab2e500"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-numeric/tests/decision/calibration_coverage.rs:37"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R085",

@@ -597,7 +597,7 @@
     {
       "id": "EG-TYPED-PACKS-R042",
       "title": "Typed capability annotations: provides and requires_capabilities",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "a1bb9fb9503e"
       ],
@@ -625,11 +625,15 @@
     {
       "id": "EG-TYPED-PACKS-R042.2",
       "title": "Served capability claim and refusal proof",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "481fa6ea2c55",
         "c764285d098c"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/handlers/admin/connector_pack/tests/admin.rs:440",
+        "src/server/handlers/admin/connector_pack/tests/content_model.rs:594"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R043",
@@ -1164,7 +1168,7 @@
     {
       "id": "EG-TYPED-PACKS-R093",
       "title": "Turtle parser blank-node identities do not collide",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "90f5578ae2f4",
         "f17f47ab300f"
@@ -1189,11 +1193,14 @@
     {
       "id": "EG-TYPED-PACKS-R093.2",
       "title": "Reproject-path blank-node isolation",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "481fa6ea2c55",
         "c764285d098c"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/handlers/admin/connector_pack/tests/outbox.rs:181"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R094",
