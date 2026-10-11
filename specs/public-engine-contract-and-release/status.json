@@ -248,6 +248,7 @@
       "title": "Release workflow runs the full root Python test suite",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "26a77bc6a6c4",
         "8baee8a94894",
         "c835ce794b21"
       ],
@@ -339,6 +340,7 @@
       "title": "Wheel ships the method, error and scope contract with callability flags",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "26a77bc6a6c4",
         "37a29ee3fe0e",
         "5738b6093ea7"
       ],
