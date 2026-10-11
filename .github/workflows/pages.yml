@@ -1,0 +1,33 @@
+name: Pages
+
+# Every main push refreshes documentation and the spec-delivery dashboard.
+# Keep this outside Release: its workflow-level concurrency queues all jobs,
+# including otherwise independent reusable-workflow calls, behind engine CI.
+on:
+  push:
+    branches: [main]
+
+# Serialize only Pages deployments; finish the active deploy and retain the
+# latest pending main revision without waiting for a release/build runner.
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  pages:
+    name: Deploy GitHub Pages
+    # Only main deploys: the github-pages environment rejects tag refs, which
+    # failed every release run before a runner was even assigned.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    uses: Knuckles-Team/pipelines/.github/workflows/pages_pipeline.yml@main
+    with:
+      content_source: docs
+      shared_theme_enabled: true
+      spec_dashboard_enabled: true
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
