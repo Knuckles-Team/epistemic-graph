@@ -324,7 +324,7 @@
         "daa948722eca"
       ],
       "verified_by": [
-        "crates/eg-types/src/agent_component.rs:1272"
+        "crates/eg-types/src/agent_component.rs:1298"
       ]
     },
     {
@@ -563,7 +563,7 @@
         "f41725ac0f6f"
       ],
       "verified_by": [
-        "crates/eg-types/src/agent_component.rs:1311"
+        "crates/eg-types/src/agent_component.rs:1337"
       ]
     },
     {
@@ -672,7 +672,7 @@
         "7be444b032de"
       ],
       "verified_by": [
-        "src/server/handlers/admin/connector_pack/import/facts.rs:207"
+        "src/server/handlers/admin/connector_pack/import/facts.rs:209"
       ]
     },
     {
@@ -813,22 +813,36 @@
         "f00f7d76de1d"
       ],
       "verified_by": [
-        "crates/eg-types/src/agent_component/facts.rs:471"
+        "crates/eg-types/src/agent_component/facts.rs:513"
       ]
     },
     {
       "id": "EG-TYPED-PACKS-R048.3",
       "title": "Shell proficiency is a measured model fact",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "c0bb0a87bd83"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/src/rules/capability/tests.rs:234",
+        "crates/eg-types/src/agent_component.rs:1459",
+        "crates/eg-types/src/agent_component.rs:1510",
+        "crates/eg-types/src/agent_component.rs:1549"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R048.4",
       "title": "Stopping behaviour is a measured model fact",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "c0bb0a87bd83"
+      ],
+      "verified_by": [
+        "crates/eg-rdf/src/rules/capability/tests.rs:235",
+        "crates/eg-types/src/agent_component.rs:1460",
+        "crates/eg-types/src/agent_component.rs:1511",
+        "crates/eg-types/src/agent_component.rs:1550"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R048.5",
@@ -995,7 +1009,7 @@
         "7be444b032de"
       ],
       "verified_by": [
-        "src/server/handlers/admin/connector_pack/import/facts.rs:208"
+        "src/server/handlers/admin/connector_pack/import/facts.rs:210"
       ]
     },
     {
