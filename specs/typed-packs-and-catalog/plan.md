@@ -222,12 +222,10 @@ Decisions:
 
 Cross-repository rows: the `SDK-CONNECTOR-CONTROL-R045` rows publish the facts. The `AU-HARNESS` row for parallel read-only execution consumes `read_only` and `declared_by`. The `EG-DECISION-ENGINE-R128` rows consume the size and read-only facts.
 
-### 2026-10-11: GR1080 served fixture diagnostics (R042.2)
+### Capability warning acceptance (R042.2)
 
-The native run at `29d7b11c7f66184300b55c2bf57db41e9e6c552e` passed
-rejection atomicity and forced reprojection but failed the capability warning
-fixture (three total warnings rather than two). Preserve the full warning list
-and served refusal details before repairing the fixture. R042.2 remains open
-until the persisted native/declared claim assertions execute successfully.
-The shared native receipt is in
-`specs/decision-engine/evidence/gr1080-native-20261011/`.
+The served fixture must select capability warnings by `UnresolvedCapabilityIri`
+and the candidate component URI. It must check both exact foreign claim details
+and the persisted native/declared provides/requires partition. Unrelated server
+description warnings must not affect the capability-warning count. Assertion
+failures must retain the full warning list and served refusal details.
