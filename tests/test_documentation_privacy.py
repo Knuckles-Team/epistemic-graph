@@ -35,8 +35,7 @@ MACHINE_HOME = re.compile(
 ENVIRONMENT_DNS = re.compile(r"(?i)\b(?:[A-Za-z0-9-]+\.)+(?:arpa|local)\b")
 # EH-366: agent-utilities' equivalent regex
 # (ENVIRONMENT_DERIVED_HOST_ALIAS, tests/gates/test_public_example_privacy.py)
-# is `(?:rw?|gr)\d{3,}` -- it catches `gr`-prefixed aliases (e.g. `gr1080`,
-# a real homelab host referenced by this lane's own tooling) that this
+# is `(?:rw?|gr)\d{3,}` -- it catches `gr`-prefixed machine aliases that this
 # pattern's `host` alternative did not. Union both vocabularies rather than
 # swap one for the other, so neither repo's alias convention regresses.
 # D-EG-PRIVACY-R001-FALSEPOS: mirrors check_tracked_privacy._MACHINE_HOST_ID_RE
