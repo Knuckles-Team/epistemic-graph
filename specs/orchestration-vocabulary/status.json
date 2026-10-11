@@ -69,8 +69,11 @@
     {
       "id": "EG-ORCH-VOCAB-R001.1",
       "title": "Add class `:TaskStep`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "232da0d60c91",
+        "fcf70c5bf0a8"
+      ],
       "verified_by": []
     },
     {
@@ -225,8 +228,11 @@
     {
       "id": "EG-ORCH-VOCAB-R004.1",
       "title": "Add class `:BestPractice`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "232da0d60c91",
+        "fcf70c5bf0a8"
+      ],
       "verified_by": []
     },
     {

@@ -185,3 +185,18 @@ Questions and answers:
 ### Out of scope
 
 Solver or certificate changes. New wire methods or scopes. A task-decomposition engine (steps come from sources or authoring). Conditional hand-off modelling beyond `AgentGraphEdge.condition`. Generated-client work (`gen_contract` needs the build host). Graph-os tool code.
+
+## Foundational class implementation and validation
+
+EG-ORCH-VOCAB-R001.1 and EG-ORCH-VOCAB-R004.1 declare the foundational classes. Native
+parser/reasoner acceptance lives in `crates/eg-rdf/tests/orchestration_vocabulary.rs`:
+`eg-rdf` owns the OWL API and already depends on `eg-core`; placing these tests
+in eg-core would invert the dependency layering. Test the shipped foundation,
+orchestration and capability documents, including a positive step-order fixture,
+unrelated-superclass negatives and a planted disjointness contradiction.
+The remaining step properties, shapes, rule scope and consumer wiring remain open.
+Parsed-source corpus counts are refreshed; parser-only checks do not establish
+native reasoner consistency. Native acceptance remains unverified: compilation
+of `eg-types` was terminated by SIGKILL before these tests executed. Full-corpus
+native validation is also outstanding. Test binding markers remain absent until
+the native acceptance tests execute successfully.
