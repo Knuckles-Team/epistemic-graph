@@ -124,12 +124,6 @@ Six transactions use reverse-lexical labels and duplicate items.
 The existing association module owns execution; its child test module owns parity checks.
 No second production miner is introduced.
 
-## Audit record
-
-2026-10-11: R082.6 compares all three engines against the historical Python output.
-The fixture records source identity and SHA-256.
-Boundary cases cover ceiling support, minimum count, confidence tolerance, and zero consequent support.
-
 ### 2026-10-11: R011 and R014 runtime acceptance repair
 
 This amendment applies to EG-DURABLE-KERNEL-R011 and EG-DURABLE-KERNEL-R014.
@@ -140,6 +134,12 @@ R014.2 through R014.5 track load generation, repeated execution, and both cluste
 The existing children retain their evidence. The original runtime obligations remain mandatory.
 The repair extends existing parents because both parents already own these behaviors.
 Planned children record unverified acceptance; they do not imply that every implementation is absent.
+
+## Audit record
+
+2026-10-11: R082.6 compares all three engines against the historical Python output.
+The fixture records source identity and SHA-256.
+Boundary cases cover ceiling support, minimum count, confidence tolerance, and zero consequent support.
 
 ### 2026-10-11: runtime source audit
 
