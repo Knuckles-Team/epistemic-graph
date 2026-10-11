@@ -26622,6 +26622,7 @@
         "BUSY",
         "CANCELLED",
         "CAPACITY_DENIED",
+        "COMPONENT_WITHDRAWN",
         "CONFLICT",
         "CORRUPT_MUTATION_LEDGER",
         "ENGINE_DEADLINE_EXCEEDED",
