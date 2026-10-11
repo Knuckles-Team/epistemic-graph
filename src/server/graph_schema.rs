@@ -362,12 +362,13 @@ fn compose_pack_documents(
             ));
         }
         let scope = eg_types::contract::Digest256::sha256(document.uri.as_bytes()).to_hex();
-        let triples = eg_rdf::mapping::parse_turtle(&document.body).map_err(|error| {
-            format!(
-                "ATTACH_PACK_SCHEMA_INVALID: {kind} member '{}': {error}",
-                document.uri
-            )
-        })?;
+        let triples =
+            eg_rdf::mapping::parse_turtle_for_composition(&document.body).map_err(|error| {
+                format!(
+                    "ATTACH_PACK_SCHEMA_INVALID: {kind} member '{}': {error}",
+                    document.uri
+                )
+            })?;
         for triple in triples {
             let triple = compose::scope_blank_nodes(triple, &scope).map_err(|error| {
                 format!(

@@ -138,7 +138,7 @@ fn compose_documents<'a>(
         if !seen_documents.insert(document_digest) {
             continue;
         }
-        let parsed = eg_rdf::mapping::parse_turtle(document).map_err(|error| {
+        let parsed = eg_rdf::mapping::parse_turtle_for_composition(document).map_err(|error| {
             format!(
                 "{}: source '{source_id}': {error}",
                 if shapes {
@@ -348,7 +348,7 @@ fn core_declarations(
         let Some(document) = source.ontology_ttl.as_deref() else {
             continue;
         };
-        for triple in eg_rdf::mapping::parse_turtle(document)
+        for triple in eg_rdf::mapping::parse_turtle_for_composition(document)
             .map_err(|error| format!("ONTOLOGY_INVALID: source '{source_id}': {error}"))?
         {
             if is_named_declaration(&triple) {
@@ -374,7 +374,7 @@ fn validate_dynamic_source_ownership(
     let Some(document) = source.ontology_ttl.as_deref() else {
         return Ok(());
     };
-    let triples = eg_rdf::mapping::parse_turtle(document)
+    let triples = eg_rdf::mapping::parse_turtle_for_composition(document)
         .map_err(|error| format!("ONTOLOGY_INVALID: source '{source_id}': {error}"))?;
     validate_dynamic_declarations(source_id, core, triples)
 }

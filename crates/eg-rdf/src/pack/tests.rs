@@ -134,7 +134,7 @@ fn union_keeps_document_order_prefixes_and_blank_node_references() {
     assert_eq!(union.triples[0].predicate.as_str(), "urn:first:edge");
     assert_eq!(union.triples[1].predicate.as_str(), "urn:second:edge");
     assert_eq!(
-        crate::mapping::parse_turtle(&union.ntriples).unwrap(),
+        crate::mapping::parse_ntriples(&union.ntriples).unwrap(),
         union.triples
     );
     assert!(scoped_union(&[]).unwrap().triples.is_empty());
