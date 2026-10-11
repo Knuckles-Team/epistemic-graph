@@ -1,0 +1,441 @@
+{
+  "schema_version": 2,
+  "spec_id": "EG-ORCH-VOCAB-001",
+  "owner_repo": "epistemic-graph",
+  "delivery_state": "SPECIFIED",
+  "requirement_ids": [
+    "EG-ORCH-VOCAB-R001",
+    "EG-ORCH-VOCAB-R001.1",
+    "EG-ORCH-VOCAB-R001.2",
+    "EG-ORCH-VOCAB-R001.3",
+    "EG-ORCH-VOCAB-R001.4",
+    "EG-ORCH-VOCAB-R002",
+    "EG-ORCH-VOCAB-R002.1",
+    "EG-ORCH-VOCAB-R002.2",
+    "EG-ORCH-VOCAB-R002.3",
+    "EG-ORCH-VOCAB-R002.4",
+    "EG-ORCH-VOCAB-R002.5",
+    "EG-ORCH-VOCAB-R003",
+    "EG-ORCH-VOCAB-R003.1",
+    "EG-ORCH-VOCAB-R003.2",
+    "EG-ORCH-VOCAB-R003.3",
+    "EG-ORCH-VOCAB-R003.4",
+    "EG-ORCH-VOCAB-R003.5",
+    "EG-ORCH-VOCAB-R003.6",
+    "EG-ORCH-VOCAB-R003.7",
+    "EG-ORCH-VOCAB-R004",
+    "EG-ORCH-VOCAB-R004.1",
+    "EG-ORCH-VOCAB-R004.2",
+    "EG-ORCH-VOCAB-R004.3",
+    "EG-ORCH-VOCAB-R004.4",
+    "EG-ORCH-VOCAB-R004.5",
+    "EG-ORCH-VOCAB-R005",
+    "EG-ORCH-VOCAB-R005.1",
+    "EG-ORCH-VOCAB-R005.2",
+    "EG-ORCH-VOCAB-R005.3",
+    "EG-ORCH-VOCAB-R005.4",
+    "EG-ORCH-VOCAB-R005.5",
+    "EG-ORCH-VOCAB-R005.6",
+    "EG-ORCH-VOCAB-R006",
+    "EG-ORCH-VOCAB-R006.1",
+    "EG-ORCH-VOCAB-R006.2",
+    "EG-ORCH-VOCAB-R006.3",
+    "EG-ORCH-VOCAB-R006.4",
+    "EG-ORCH-VOCAB-R006.5",
+    "EG-ORCH-VOCAB-R006.6",
+    "EG-ORCH-VOCAB-R007",
+    "EG-ORCH-VOCAB-R007.1",
+    "EG-ORCH-VOCAB-R007.2",
+    "EG-ORCH-VOCAB-R007.3",
+    "EG-ORCH-VOCAB-R007.4",
+    "EG-ORCH-VOCAB-R008",
+    "EG-ORCH-VOCAB-R008.1",
+    "EG-ORCH-VOCAB-R008.2"
+  ],
+  "requirements": [
+    {
+      "id": "EG-ORCH-VOCAB-R001",
+      "title": "Task steps (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-ORCH-VOCAB-R001.1",
+        "EG-ORCH-VOCAB-R001.2",
+        "EG-ORCH-VOCAB-R001.3",
+        "EG-ORCH-VOCAB-R001.4"
+      ]
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R001.1",
+      "title": "Add class `:TaskStep`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R001.2",
+      "title": "Add property `:hasStep`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R001.3",
+      "title": "Add step-order acyclicity shape",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R001.4",
+      "title": "Add Q1 fixture and query test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R002",
+      "title": "Agent kinds and staffing (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-ORCH-VOCAB-R002.1",
+        "EG-ORCH-VOCAB-R002.2",
+        "EG-ORCH-VOCAB-R002.3",
+        "EG-ORCH-VOCAB-R002.4",
+        "EG-ORCH-VOCAB-R002.5"
+      ]
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R002.1",
+      "title": "Add class `:AgentKind` and seed members",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R002.2",
+      "title": "Add property `:hasAgentKind`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R002.3",
+      "title": "Add property `swarm:requiresAgentKind` and the import",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R002.4",
+      "title": "Add slot-kind shape",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R002.5",
+      "title": "Add Q2 query test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R003",
+      "title": "Agent Library, templates and A2A members (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-ORCH-VOCAB-R003.1",
+        "EG-ORCH-VOCAB-R003.2",
+        "EG-ORCH-VOCAB-R003.3",
+        "EG-ORCH-VOCAB-R003.4",
+        "EG-ORCH-VOCAB-R003.5",
+        "EG-ORCH-VOCAB-R003.6",
+        "EG-ORCH-VOCAB-R003.7"
+      ]
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R003.1",
+      "title": "Add class `:AgentTemplate`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R003.2",
+      "title": "Add class `:AgentLibrary`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R003.3",
+      "title": "Add property `:memberOfLibrary`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R003.4",
+      "title": "Add property `:instanceOfTemplate`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R003.5",
+      "title": "Add library-member shape",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R003.6",
+      "title": "Wire the Agent Library projection to emit membership",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R003.7",
+      "title": "Add Q3 query test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R004",
+      "title": "Best practices and guardrail scope (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-ORCH-VOCAB-R004.1",
+        "EG-ORCH-VOCAB-R004.2",
+        "EG-ORCH-VOCAB-R004.3",
+        "EG-ORCH-VOCAB-R004.4",
+        "EG-ORCH-VOCAB-R004.5"
+      ]
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R004.1",
+      "title": "Add class `:BestPractice`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R004.2",
+      "title": "Add property `:appliesToTaskClass`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R004.3",
+      "title": "Add rule-scope shape",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R004.4",
+      "title": "Project `GuardrailRule` components",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R004.5",
+      "title": "Add Q4 query test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R005",
+      "title": "Per-subtask bindings (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-ORCH-VOCAB-R005.1",
+        "EG-ORCH-VOCAB-R005.2",
+        "EG-ORCH-VOCAB-R005.3",
+        "EG-ORCH-VOCAB-R005.4",
+        "EG-ORCH-VOCAB-R005.5",
+        "EG-ORCH-VOCAB-R005.6"
+      ]
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R005.1",
+      "title": "Add class `:ModelProfile`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R005.2",
+      "title": "Add property `:needsSkill`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R005.3",
+      "title": "Add property `:stepAssignedAgent`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R005.4",
+      "title": "Add binding shape",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R005.5",
+      "title": "Project `model_profile` components",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R005.6",
+      "title": "Add Q5 query test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R006",
+      "title": "Hand-off and agent-graph DAG (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-ORCH-VOCAB-R006.1",
+        "EG-ORCH-VOCAB-R006.2",
+        "EG-ORCH-VOCAB-R006.3",
+        "EG-ORCH-VOCAB-R006.4",
+        "EG-ORCH-VOCAB-R006.5",
+        "EG-ORCH-VOCAB-R006.6"
+      ]
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R006.1",
+      "title": "Add property `:handsOffTo`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R006.2",
+      "title": "Add property `swarm:feeds`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R006.3",
+      "title": "Add property `swarm:loopsBackTo`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R006.4",
+      "title": "Add DAG acyclicity shape",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R006.5",
+      "title": "Project template topology facts to `swarm:feeds`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R006.6",
+      "title": "Add Q6 and Q7 query tests",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R007",
+      "title": "Assembly consumption (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-ORCH-VOCAB-R007.1",
+        "EG-ORCH-VOCAB-R007.2",
+        "EG-ORCH-VOCAB-R007.3",
+        "EG-ORCH-VOCAB-R007.4"
+      ]
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R007.1",
+      "title": "Expand a task's steps into assembly tasks",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R007.2",
+      "title": "Project the assembled graph back",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R007.3",
+      "title": "Add the composed read",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R007.4",
+      "title": "Enforce slot agent-kind constraints before assembly selection",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R008",
+      "title": "Catalog registration and ontology gates (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-ORCH-VOCAB-R008.1",
+        "EG-ORCH-VOCAB-R008.2"
+      ]
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R008.1",
+      "title": "Register `orchestration-v1.shapes.ttl` with the shape loader",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R008.2",
+      "title": "Regenerate ontology artifacts",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    }
+  ]
+}

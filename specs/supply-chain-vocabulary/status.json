@@ -1,0 +1,459 @@
+{
+  "schema_version": 2,
+  "spec_id": "EG-SUPPLY-VOCAB-001",
+  "owner_repo": "epistemic-graph",
+  "delivery_state": "SPECIFIED",
+  "requirement_ids": [
+    "EG-SUPPLY-VOCAB-R001",
+    "EG-SUPPLY-VOCAB-R001.1",
+    "EG-SUPPLY-VOCAB-R001.2",
+    "EG-SUPPLY-VOCAB-R001.3",
+    "EG-SUPPLY-VOCAB-R001.4",
+    "EG-SUPPLY-VOCAB-R002",
+    "EG-SUPPLY-VOCAB-R002.1",
+    "EG-SUPPLY-VOCAB-R002.2",
+    "EG-SUPPLY-VOCAB-R002.3",
+    "EG-SUPPLY-VOCAB-R002.4",
+    "EG-SUPPLY-VOCAB-R002.5",
+    "EG-SUPPLY-VOCAB-R002.6",
+    "EG-SUPPLY-VOCAB-R002.7",
+    "EG-SUPPLY-VOCAB-R003",
+    "EG-SUPPLY-VOCAB-R003.1",
+    "EG-SUPPLY-VOCAB-R003.2",
+    "EG-SUPPLY-VOCAB-R003.3",
+    "EG-SUPPLY-VOCAB-R003.4",
+    "EG-SUPPLY-VOCAB-R003.5",
+    "EG-SUPPLY-VOCAB-R003.6",
+    "EG-SUPPLY-VOCAB-R004",
+    "EG-SUPPLY-VOCAB-R004.1",
+    "EG-SUPPLY-VOCAB-R004.2",
+    "EG-SUPPLY-VOCAB-R004.3",
+    "EG-SUPPLY-VOCAB-R005",
+    "EG-SUPPLY-VOCAB-R005.1",
+    "EG-SUPPLY-VOCAB-R005.2",
+    "EG-SUPPLY-VOCAB-R005.3",
+    "EG-SUPPLY-VOCAB-R005.4",
+    "EG-SUPPLY-VOCAB-R005.5",
+    "EG-SUPPLY-VOCAB-R005.6",
+    "EG-SUPPLY-VOCAB-R005.7",
+    "EG-SUPPLY-VOCAB-R005.8",
+    "EG-SUPPLY-VOCAB-R005.9",
+    "EG-SUPPLY-VOCAB-R006",
+    "EG-SUPPLY-VOCAB-R006.1",
+    "EG-SUPPLY-VOCAB-R006.2",
+    "EG-SUPPLY-VOCAB-R006.3",
+    "EG-SUPPLY-VOCAB-R006.4",
+    "EG-SUPPLY-VOCAB-R006.5",
+    "EG-SUPPLY-VOCAB-R006.6",
+    "EG-SUPPLY-VOCAB-R006.7",
+    "EG-SUPPLY-VOCAB-R007",
+    "EG-SUPPLY-VOCAB-R007.1",
+    "EG-SUPPLY-VOCAB-R007.2",
+    "EG-SUPPLY-VOCAB-R008",
+    "EG-SUPPLY-VOCAB-R008.1",
+    "EG-SUPPLY-VOCAB-R008.2",
+    "EG-SUPPLY-VOCAB-R008.3"
+  ],
+  "requirements": [
+    {
+      "id": "EG-SUPPLY-VOCAB-R001",
+      "title": "Physical and commercial supply chain terms (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-SUPPLY-VOCAB-R001.1",
+        "EG-SUPPLY-VOCAB-R001.2",
+        "EG-SUPPLY-VOCAB-R001.3",
+        "EG-SUPPLY-VOCAB-R001.4"
+      ]
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R001.1",
+      "title": "Add `:Supplier`, `:SupplyChainItem` and `:suppliesItem`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R001.2",
+      "title": "Add `:realizedByAsset` and `:assetHost`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R001.3",
+      "title": "Add `:suppliesService` with the physical chain axiom",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R001.4",
+      "title": "SHACL shapes for supplier and item",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R002",
+      "title": "Software supply chain terms (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-SUPPLY-VOCAB-R002.1",
+        "EG-SUPPLY-VOCAB-R002.2",
+        "EG-SUPPLY-VOCAB-R002.3",
+        "EG-SUPPLY-VOCAB-R002.4",
+        "EG-SUPPLY-VOCAB-R002.5",
+        "EG-SUPPLY-VOCAB-R002.6",
+        "EG-SUPPLY-VOCAB-R002.7"
+      ]
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R002.1",
+      "title": "Add `:SoftwareComponent`, `:ComponentVersion`, `:versionOf` and `:versionString`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R002.2",
+      "title": "Declare `infra:ContainerImage` a `kg:SoftwareComponent`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R002.3",
+      "title": "Add `:containsComponent` and `:publishedBy`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R002.4",
+      "title": "Add `:usesImage` and `:deployedAs`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R002.5",
+      "title": "Add `:usesComponent` with the runtime chain axiom",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R002.6",
+      "title": "Add `:Vulnerability` with `:cveId`, `:severity`, `:fixedInVersion`, `:affectsComponent` and `:hasVulnerability`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R002.7",
+      "title": "SHACL shapes for component version, vulnerability and `usesComponent`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R003",
+      "title": "Commercial and capability terms (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-SUPPLY-VOCAB-R003.1",
+        "EG-SUPPLY-VOCAB-R003.2",
+        "EG-SUPPLY-VOCAB-R003.3",
+        "EG-SUPPLY-VOCAB-R003.4",
+        "EG-SUPPLY-VOCAB-R003.5",
+        "EG-SUPPLY-VOCAB-R003.6"
+      ]
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R003.1",
+      "title": "Add `:Customer`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R003.2",
+      "title": "Add `:CustomerContract`, `:contractCustomer`, `:coversService`, `:contractStatus` and `:contractEnd`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R003.3",
+      "title": "Add `:affectsService`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R003.4",
+      "title": "Add `:supportsCapability`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R003.5",
+      "title": "SHACL shapes for contract and capability link",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R003.6",
+      "title": "Record the amendment to `EG-CQ-XSRC-R008.3.1`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R004",
+      "title": "Host limit terms (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-SUPPLY-VOCAB-R004.1",
+        "EG-SUPPLY-VOCAB-R004.2",
+        "EG-SUPPLY-VOCAB-R004.3"
+      ]
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R004.1",
+      "title": "Add `infra:HostLimit`, `:limitOf`, `:limitKind`, `:readingValue`, `:limitValue`, `:limitUnit`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R004.2",
+      "title": "SHACL shape for `HostLimit`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R004.3",
+      "title": "Declared-threshold fixture for capacity limits",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R005",
+      "title": "Virtual mappings: procurement, commercial, change and capability sources (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-SUPPLY-VOCAB-R005.1",
+        "EG-SUPPLY-VOCAB-R005.2",
+        "EG-SUPPLY-VOCAB-R005.3",
+        "EG-SUPPLY-VOCAB-R005.4",
+        "EG-SUPPLY-VOCAB-R005.5",
+        "EG-SUPPLY-VOCAB-R005.6",
+        "EG-SUPPLY-VOCAB-R005.7",
+        "EG-SUPPLY-VOCAB-R005.8",
+        "EG-SUPPLY-VOCAB-R005.9"
+      ]
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R005.1",
+      "title": "Mapping fixture: erpnext `Supplier` to `kg:Supplier`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R005.2",
+      "title": "Mapping fixture: erpnext `Item` and `Purchase Order` to `kg:SupplyChainItem` and `kg:suppliesItem`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R005.3",
+      "title": "Resolve erpnext manifest classes (cross-repo: agent-packages `erpnext-agent`)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R005.4",
+      "title": "Mapping fixture: leanix `Provider` to `kg:Supplier` (rank 2) and `supports` to `kg:supportsCapability`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R005.5",
+      "title": "Mapping fixture: servicenow `Incident`, `Change` and CI relation to `kg:affectsService`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R005.6",
+      "title": "Mapping fixture: salesforce `Account` to `kg:Customer` and `Contract` to `kg:CustomerContract`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R005.7",
+      "title": "Add the Salesforce `Contract` class and access contract (cross-repo: agent-packages `salesforce-agent`)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R005.8",
+      "title": "Mapping fixture: twenty `Company` to `kg:Customer` (rank 2)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R005.9",
+      "title": "Record the `coversService` source (BLOCKED, owner: operator plus salesforce-agent)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R006",
+      "title": "Virtual mappings: software, runtime and host sources (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-SUPPLY-VOCAB-R006.1",
+        "EG-SUPPLY-VOCAB-R006.2",
+        "EG-SUPPLY-VOCAB-R006.3",
+        "EG-SUPPLY-VOCAB-R006.4",
+        "EG-SUPPLY-VOCAB-R006.5",
+        "EG-SUPPLY-VOCAB-R006.6",
+        "EG-SUPPLY-VOCAB-R006.7"
+      ]
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R006.1",
+      "title": "Add the container-manager access contract (cross-repo: agent-packages `container-manager-mcp`)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R006.2",
+      "title": "Add the uptime-kuma access contract (cross-repo: agent-packages `uptime-kuma-agent`)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R006.3",
+      "title": "Mapping fixture: container-manager workload and image to `kg:deployedAs` and `kg:usesImage`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R006.4",
+      "title": "Mapping fixture: uptime monitor to service health",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R006.5",
+      "title": "Mapping fixture: dockerhub image, SBOM and Scout CVEs to `containsComponent` and `Vulnerability`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R006.6",
+      "title": "Mapping fixture: gitlab `dependencies` and github Dependabot alerts (rank 2)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R006.7",
+      "title": "Mapping fixture: fan-manager and systems-manager to `infra:HostLimit`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R007",
+      "title": "Entity resolution blocking keys (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-SUPPLY-VOCAB-R007.1",
+        "EG-SUPPLY-VOCAB-R007.2"
+      ]
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R007.1",
+      "title": "Blocking-key fixture for supplier, service, host, image and customer",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R007.2",
+      "title": "Test: a digest key is exact; a name-only key is a proposal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R008",
+      "title": "Impact traversal and acceptance (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-SUPPLY-VOCAB-R008.1",
+        "EG-SUPPLY-VOCAB-R008.2",
+        "EG-SUPPLY-VOCAB-R008.3"
+      ]
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R008.1",
+      "title": "Class-only impact query fixture",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R008.2",
+      "title": "Recorded-response fixture: one row per source concept",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SUPPLY-VOCAB-R008.3",
+      "title": "Blocked-register test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    }
+  ]
+}

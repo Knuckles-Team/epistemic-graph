@@ -79,3 +79,9 @@ bootstrap skill, together with the [SDD full lifecycle](https://github.com/Knuck
 - [`EG-CONTRACT-001`](public-engine-contract-and-release/spec.md) — public engine contract and release proof.
 - [`EG-REPO-INGEST`](repository-index-and-ingestion/spec.md) — repository indexing and governed ingestion.
 - [`EG-TYPED-PACKS`](typed-packs-and-catalog/spec.md) — typed packs, catalog, and admission contract.
+- [`EG-SRC-AUTH-001`](source-authority/spec.md) — source authority: which connected source answers a concept; PROPOSED.
+- [`EG-DATAPLAT-VOCAB-001`](data-platform-vocabulary/spec.md) — data-platform store vocabulary (sql, documentdb, objectstore, vector, kafka, openbao, clarity, data-science); PROPOSED.
+- [`EG-ORCH-VOCAB-001`](orchestration-vocabulary/spec.md) — orchestration vocabulary, typed agent roles and slot-kind constraints; PROPOSED.
+- [`EG-PLACEMENT`](placement-and-worker-policy/spec.md) — placement decisions, engine-owned worker policy and association-mining bounds; PROPOSED.
+- [`EG-MEDIA-VOCAB`](media-and-personal-vocabulary/spec.md) — media and personal-content vocabulary and per-connector virtual-graph mappings.
+- [`EG-SUPPLY-VOCAB-001`](supply-chain-vocabulary/spec.md) — supply-chain, commercial and host-limit vocabulary for the cross-source competency; PROPOSED.

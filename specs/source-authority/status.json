@@ -1,0 +1,487 @@
+{
+  "schema_version": 2,
+  "spec_id": "EG-SRC-AUTH-001",
+  "owner_repo": "epistemic-graph",
+  "delivery_state": "SPECIFIED",
+  "requirement_ids": [
+    "EG-SRC-AUTH-R001",
+    "EG-SRC-AUTH-R001.1",
+    "EG-SRC-AUTH-R001.2",
+    "EG-SRC-AUTH-R001.3",
+    "EG-SRC-AUTH-R001.4",
+    "EG-SRC-AUTH-R001.5",
+    "EG-SRC-AUTH-R001.6",
+    "EG-SRC-AUTH-R002",
+    "EG-SRC-AUTH-R002.1",
+    "EG-SRC-AUTH-R002.2",
+    "EG-SRC-AUTH-R002.3",
+    "EG-SRC-AUTH-R002.4",
+    "EG-SRC-AUTH-R002.5",
+    "EG-SRC-AUTH-R002.6",
+    "EG-SRC-AUTH-R003",
+    "EG-SRC-AUTH-R003.1",
+    "EG-SRC-AUTH-R003.2",
+    "EG-SRC-AUTH-R003.3",
+    "EG-SRC-AUTH-R003.4",
+    "EG-SRC-AUTH-R003.5",
+    "EG-SRC-AUTH-R004",
+    "EG-SRC-AUTH-R004.1",
+    "EG-SRC-AUTH-R004.2",
+    "EG-SRC-AUTH-R004.3",
+    "EG-SRC-AUTH-R004.4",
+    "EG-SRC-AUTH-R004.5",
+    "EG-SRC-AUTH-R004.6",
+    "EG-SRC-AUTH-R004.7",
+    "EG-SRC-AUTH-R005",
+    "EG-SRC-AUTH-R005.1",
+    "EG-SRC-AUTH-R005.2",
+    "EG-SRC-AUTH-R005.3",
+    "EG-SRC-AUTH-R005.4",
+    "EG-SRC-AUTH-R006",
+    "EG-SRC-AUTH-R006.1",
+    "EG-SRC-AUTH-R006.2",
+    "EG-SRC-AUTH-R006.3",
+    "EG-SRC-AUTH-R006.4",
+    "EG-SRC-AUTH-R006.5",
+    "EG-SRC-AUTH-R007",
+    "EG-SRC-AUTH-R007.1",
+    "EG-SRC-AUTH-R007.2",
+    "EG-SRC-AUTH-R007.3",
+    "EG-SRC-AUTH-R007.4",
+    "EG-SRC-AUTH-R007.5",
+    "EG-SRC-AUTH-R008",
+    "EG-SRC-AUTH-R008.1",
+    "EG-SRC-AUTH-R008.2",
+    "EG-SRC-AUTH-R009",
+    "EG-SRC-AUTH-R009.1",
+    "EG-SRC-AUTH-R009.2",
+    "EG-SRC-AUTH-R009.3"
+  ],
+  "requirements": [
+    {
+      "id": "EG-SRC-AUTH-R001",
+      "title": "Authority vocabulary (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-SRC-AUTH-R001.1",
+        "EG-SRC-AUTH-R001.2",
+        "EG-SRC-AUTH-R001.3",
+        "EG-SRC-AUTH-R001.4",
+        "EG-SRC-AUTH-R001.5",
+        "EG-SRC-AUTH-R001.6"
+      ]
+    },
+    {
+      "id": "EG-SRC-AUTH-R001.1",
+      "title": "Add class `vg:SourceAuthority` with `vg:authoritativeSource`, `vg:authorityFor`, `vg:authorityRank`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SRC-AUTH-R001.2",
+      "title": "Add `vg:authorityFacet` and `vg:authorityMapping`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SRC-AUTH-R001.3",
+      "title": "Add `vg:scopeTenant`, `vg:scopePartition`, `vg:freshnessMaxAgeSeconds`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SRC-AUTH-R001.4",
+      "title": "Add `vg:authorityContract` and `vg:allowFallback`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SRC-AUTH-R001.5",
+      "title": "Add `vg:materialisation` and `vg:materialisationReason`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SRC-AUTH-R001.6",
+      "title": "Add `vg:foreignSourceName` on `vg:SourceConnection`; widen the domain of `vg:approved` to `vg:SourceAuthority`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SRC-AUTH-R002",
+      "title": "Authority shapes (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-SRC-AUTH-R002.1",
+        "EG-SRC-AUTH-R002.2",
+        "EG-SRC-AUTH-R002.3",
+        "EG-SRC-AUTH-R002.4",
+        "EG-SRC-AUTH-R002.5",
+        "EG-SRC-AUTH-R002.6"
+      ]
+    },
+    {
+      "id": "EG-SRC-AUTH-R002.1",
+      "title": "Shape: required cardinalities and node kinds",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SRC-AUTH-R002.2",
+      "title": "Shape: mapping belongs to the named source and maps the named class",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SRC-AUTH-R002.3",
+      "title": "Shape: a facet must be projected by the mapping",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SRC-AUTH-R002.4",
+      "title": "Shape: contract kind agrees with the connection's source kind",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SRC-AUTH-R002.5",
+      "title": "Shape: accelerated materialisation needs reason, freshness bound and connection capability `copy`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SRC-AUTH-R002.6",
+      "title": "Shape: equal-rank claims by different sources on one (class, facet, scope) are refused inside one graph",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SRC-AUTH-R003",
+      "title": "Who may assert authority (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-SRC-AUTH-R003.1",
+        "EG-SRC-AUTH-R003.2",
+        "EG-SRC-AUTH-R003.3",
+        "EG-SRC-AUTH-R003.4",
+        "EG-SRC-AUTH-R003.5"
+      ]
+    },
+    {
+      "id": "EG-SRC-AUTH-R003.1",
+      "title": "Declare kind `governed.source-authority` with approver scope `governance:approve-source-authority` in `GOVERNED_KINDS`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SRC-AUTH-R003.2",
+      "title": "Attach refuses `vg:approved true` inside a `Pack` or `Ingestion` origin schema source",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SRC-AUTH-R003.3",
+      "title": "`AttachApproved` accepts an authority candidate; the approval lease binds its digest",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SRC-AUTH-R003.4",
+      "title": "Planner derives effectiveness from origin, not from the flag",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SRC-AUTH-R003.5",
+      "title": "Proposed rows are listed, never selected",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SRC-AUTH-R004",
+      "title": "Selection reads authority (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-SRC-AUTH-R004.1",
+        "EG-SRC-AUTH-R004.2",
+        "EG-SRC-AUTH-R004.3",
+        "EG-SRC-AUTH-R004.4",
+        "EG-SRC-AUTH-R004.5",
+        "EG-SRC-AUTH-R004.6",
+        "EG-SRC-AUTH-R004.7"
+      ]
+    },
+    {
+      "id": "EG-SRC-AUTH-R004.1",
+      "title": "Add `AuthorityRow` and `with_authority` to `CoverageFixture`; replace the silent `insert` overwrite by a list per class",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SRC-AUTH-R004.2",
+      "title": "`Premise::Authority` with row, source, class, facet, rank, scope, origin, generation",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SRC-AUTH-R004.3",
+      "title": "`Covered` gains `alternates`; order candidates by rank",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SRC-AUTH-R004.4",
+      "title": "Superclass authority is inherited; a subclass row overrides it",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SRC-AUTH-R004.5",
+      "title": "Live read: parse authority rows from the composed graph schema sources",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SRC-AUTH-R004.6",
+      "title": "Build the `ConnectedSources` view from the owner-scoped foreign catalog",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SRC-AUTH-R004.7",
+      "title": "Facet-aware selection: a question reading property `p` uses the facet row for `p` before the class row",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SRC-AUTH-R005",
+      "title": "Tie-breaking (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-SRC-AUTH-R005.1",
+        "EG-SRC-AUTH-R005.2",
+        "EG-SRC-AUTH-R005.3",
+        "EG-SRC-AUTH-R005.4"
+      ]
+    },
+    {
+      "id": "EG-SRC-AUTH-R005.1",
+      "title": "Order: facet over class over nearest superclass",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SRC-AUTH-R005.2",
+      "title": "Scope specificity: matching tenant and partition beat unscoped",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SRC-AUTH-R005.3",
+      "title": "Equal everything, different sources: `Abstained::Ambiguous` listing both rows; never choose by name",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SRC-AUTH-R005.4",
+      "title": "`Premise::Tiebreak { winner, loser, rule }` records the deciding step",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SRC-AUTH-R006",
+      "title": "Typed abstention (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-SRC-AUTH-R006.1",
+        "EG-SRC-AUTH-R006.2",
+        "EG-SRC-AUTH-R006.3",
+        "EG-SRC-AUTH-R006.4",
+        "EG-SRC-AUTH-R006.5"
+      ]
+    },
+    {
+      "id": "EG-SRC-AUTH-R006.1",
+      "title": "Add `CoverageResult::Abstained { class, facet, reason, source, premises }` and the reason enum `Unconnected | UnapprovedMapping | Stale | ContractMismatch | Ambiguous`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SRC-AUTH-R006.2",
+      "title": "Unconnected rank-1 authority abstains naming source and concept",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SRC-AUTH-R006.3",
+      "title": "`allowFallback` tries the next ordered alternate and records `FallbackFrom`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SRC-AUTH-R006.4",
+      "title": "Freshness: a stale copy falls back to live; stale and no live route abstains `Stale`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SRC-AUTH-R006.5",
+      "title": "No authority row: one approved mapping serves with `Premise::Implicit`; several abstain `Ambiguous`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SRC-AUTH-R007",
+      "title": "Audit trail (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-SRC-AUTH-R007.1",
+        "EG-SRC-AUTH-R007.2",
+        "EG-SRC-AUTH-R007.3",
+        "EG-SRC-AUTH-R007.4",
+        "EG-SRC-AUTH-R007.5"
+      ]
+    },
+    {
+      "id": "EG-SRC-AUTH-R007.1",
+      "title": "Add `AuthorityAudit` and `AuditEntry` types",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SRC-AUTH-R007.2",
+      "title": "Build the audit from verdicts and premises only",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SRC-AUTH-R007.3",
+      "title": "Audit lists `not_used` rows with reason (including `Proposed`)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SRC-AUTH-R007.4",
+      "title": "Wire the audit into the cross-source report's `sources_used`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SRC-AUTH-R007.5",
+      "title": "Print the block in the served intent tool",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SRC-AUTH-R008",
+      "title": "Materialisation policy (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-SRC-AUTH-R008.1",
+        "EG-SRC-AUTH-R008.2"
+      ]
+    },
+    {
+      "id": "EG-SRC-AUTH-R008.1",
+      "title": "Selection reports `mode: live` for a `virtual` row and refuses a copy route for it",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SRC-AUTH-R008.2",
+      "title": "An `accelerated` row resolves through `AccelerationPolicy` and carries its reason into the audit",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SRC-AUTH-R009",
+      "title": "Consumers and acceptance (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-SRC-AUTH-R009.1",
+        "EG-SRC-AUTH-R009.2",
+        "EG-SRC-AUTH-R009.3"
+      ]
+    },
+    {
+      "id": "EG-SRC-AUTH-R009.1",
+      "title": "Fixture: ServiceNow rank 1 and PagerDuty rank 2 for `:Incident`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SRC-AUTH-R009.2",
+      "title": "Decisive test: swapping two ranks changes `sources_used` with equal query text",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SRC-AUTH-R009.3",
+      "title": "Re-point `EG-CQ-XSRC-R001.1` and `R001.2` to this spec and mark them delivered by `R001.*` and `R002.*`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    }
+  ]
+}
