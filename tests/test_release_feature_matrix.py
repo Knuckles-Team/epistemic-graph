@@ -190,14 +190,14 @@ def _assert_required_clippy_declarations(workflow):
     }
     for name, flags in required.items():
         matches = [profile for profile in profiles if profile["name"] == name]
-        assert len(matches) == 1, f"required Clippy profile missing or duplicated: {name}"
+        assert len(matches) == 1, f"required Clippy profile must occur once: {name}"
         assert shlex.split(matches[0]["flags"]) == shlex.split(flags)
     commands = [
         step
         for step in job["steps"]
         if step.get("run", "").startswith("cargo clippy ")
     ]
-    assert len(commands) == 1, "required executable Clippy command missing or duplicated"
+    assert len(commands) == 1, "expected one executable Clippy command"
     command = commands[0]
     assert "if" not in command and not command.get("continue-on-error", False)
     assert not job.get("continue-on-error", False)
