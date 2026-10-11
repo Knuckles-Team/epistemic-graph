@@ -8,6 +8,7 @@
 mod bound;
 mod branch;
 mod incumbent;
+mod metrics;
 mod propagate;
 mod record;
 mod state;
@@ -28,7 +29,16 @@ use super::model::Model;
 pub fn solve(model: &Model, config: &SolverConfig) -> Certificate {
     let mut search = Search::new(model, config);
     search.run();
-    search.finish()
+    let certificate = search.finish();
+    metrics::emit(
+        certificate.nodes_expanded,
+        certificate
+            .incumbent
+            .as_ref()
+            .map(|value| value.objective.scalar.get()),
+        certificate.lower_bound.map(|value| value.get()),
+    );
+    certificate
 }
 
 /// A node waiting to be expanded: undo to `trail_len`, then apply `fix`.

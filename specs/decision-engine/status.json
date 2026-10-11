@@ -1486,7 +1486,7 @@
     {
       "id": "EG-DECISION-ENGINE-R072",
       "title": "Decision observability spans and metrics",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "1e9ea1ef3790",
         "2a0d6eae0918",
@@ -1500,9 +1500,13 @@
     {
       "id": "EG-DECISION-ENGINE-R072.1",
       "title": "Solver node count and optimality gap are emitted on the Assemble/solver path",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "7e2feaaad52d"
+      ],
+      "verified_by": [
+        "crates/eg-compute/tests/solve/instrumentation.rs:8"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R073",
@@ -2284,7 +2288,7 @@
     {
       "id": "EG-DECISION-ENGINE-R110",
       "title": "Topology optimization model rows with a brute-force oracle",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "534f763afc81",
         "c0edc96d1e10"
@@ -2297,9 +2301,14 @@
     {
       "id": "EG-DECISION-ENGINE-R110.1",
       "title": "Topology brute-force oracle property test covers n<=20 variables",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "1bd4d6b1cdea",
+        "1e1a100670b5"
+      ],
+      "verified_by": [
+        "crates/eg-compute/src/assemble/tests/topology_oracle.rs:144"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R111",
