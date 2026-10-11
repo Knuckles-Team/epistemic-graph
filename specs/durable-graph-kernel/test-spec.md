@@ -129,3 +129,23 @@ R014, R014.3, R014.4, and R014.5 remain open.
 Run `python -m pytest -q tests/test_validate_raft_cluster.py`. Controlled Cargo subprocesses check both exact test names over two loaded repetitions. They check separate traces and result records, invalid repeat refusal, empty-selection refusal, and failure retention despite later successes.
 
 Use `RAFT_LOAD_WORKERS=2 RAFT_LOAD_REPEATS=2 scripts/validate-raft-cluster.sh` on a Rust-capable host. Each execution creates a fresh directory under `target/raft-cluster-runs` with `results.jsonl` and separate trace logs. `RAFT_LOAD_OUTPUT` changes that parent directory. The harness performs no diagnostic retries. Process fixtures do not prove Rust cluster execution; R014.3.2, R014.4 and R014.5 remain open.
+
+### R049 and R011 source receipt (2026-10-11)
+
+Published source: [1c6b4c961a40c48b2ff9a3f020a191ea055d9eb4](https://github.com/Knuckles-Team/epistemic-graph/commit/1c6b4c961a40c48b2ff9a3f020a191ea055d9eb4).
+Review: [PR 445](https://github.com/Knuckles-Team/epistemic-graph/pull/445).
+
+The source adds `control_maintenance_reused_label_admits_at_the_current_version` and strengthens `delete_purges_receipts_of_a_prior_incarnation`.
+The lifecycle regression checks receipt removal, restart, fresh recreation, and the new incarnation's stable replay.
+Both native facade regressions remain unexecuted; this receipt does not establish R049 acceptance.
+
+Run `mkdir -p target-isolated/tmp` from the checkout.
+Run `TMPDIR="$PWD/target-isolated/tmp" rustc --edition 2021 --test src/test_support.rs -o target-isolated/fixture-path-tests`.
+Run `target-isolated/fixture-path-tests`.
+Rust 1.96 executed `concurrent_temporary_paths_are_unique`: one passed, zero failed; eight threads produced 2,048 distinct paths.
+The first attempt exhausted temporary storage before execution; the worktree-local retry passed.
+The original EG318 database-lock failure remains unreproduced.
+
+Changed-file `rustfmt --check`, `git diff --check`, and `python3 scripts/check_public_specs.py` passed.
+Full facade tests, full-feature clippy, and all-feature clippy remain pending.
+No delivery or acceptance state changes accompany this receipt.
