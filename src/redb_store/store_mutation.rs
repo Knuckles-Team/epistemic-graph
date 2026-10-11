@@ -692,6 +692,16 @@ fn finish_replayed_batch(
     result_msgpack: Option<&[u8]>,
     committed_at_ms: u64,
 ) -> Result<MutationBatchCommit, String> {
+    // A replay writes no graph owner rows, but its version-bound control
+    // bookkeeping is a fresh maintenance admission. Close that empty owner
+    // phase explicitly before the kernel seals it; never open replayed graph
+    // owner rows or relax the kernel's completion requirement.
+    if matches!(group.begun(0)?, Begin::Apply { .. }) {
+        group
+            .control()
+            .owner_rows(shard.control(), &batches[0])?
+            .finish_owner()?;
+    }
     let committed = shard.commit_batch(
         group,
         batches,
