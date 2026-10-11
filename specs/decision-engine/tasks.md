@@ -172,3 +172,5 @@ Existing source modules and tests provide foundations, but this spec does not as
 - [x] **EG-DECISION-ENGINE-R066.2:** Add exact graph-input window acceptance through the real retention implementation.
 - [x] **EG-DECISION-ENGINE-R066.3:** Assert repeated evaluate-only calls leave both committed-record stores empty.
 - [ ] **EG-DECISION-ENGINE-R066.4:** Define and implement graph-summary expiry without breaking digest and replay contracts.
+
+- [x] **EG-DECISION-ENGINE-R122:** Exclude synthetic decisions from outcome aggregates and extend the served pipeline fixture. Native execution remains pending.
