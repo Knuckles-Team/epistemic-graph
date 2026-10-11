@@ -186,3 +186,188 @@ def test_lint_installs_manifest_rustfmt_before_all_formatting_steps() -> None:
     rustfmt = next(step for step in steps if step.get("name") == "rustfmt")
     assert "scripts/check_rustfmt_scope.py --base" in rustfmt["run"]
     assert "cargo fmt --all --check" in rustfmt["run"]
+
+
+@pytest.fixture
+def local_gate_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    from scripts import source_gate_scope as gate
+
+    monkeypatch.chdir(tmp_path)
+    for key in (
+        "CI",
+        "GITHUB_ACTIONS",
+        "GITHUB_EVENT_NAME",
+        "PRE_COMMIT_FROM_REF",
+        "PRE_COMMIT_TO_REF",
+    ):
+        monkeypatch.delenv(key, raising=False)
+
+    def git(*args: str) -> str:
+        return (
+            subprocess.check_output(["git", *args], stderr=subprocess.DEVNULL)
+            .decode()
+            .strip()
+        )
+
+    git("init", "-q")
+    git("config", "user.email", "fixture@example.invalid")
+    git("config", "user.name", "Fixture")
+    for name in (gate.SKILL, "docs/guide.md", "src/lib.rs"):
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("original\n")
+    git("add", ".")
+    git("commit", "-qm", "fixture")
+    return gate, git
+
+
+def test_local_scope_reuses_parser_without_broadening_ci(local_gate_repo) -> None:
+    gate, git = local_gate_repo
+    Path(gate.SKILL).write_text("updated\n")
+    git("add", gate.SKILL)
+    assert gate.can_skip("staged", [gate.SKILL])
+    assert not scope.documentation_diff(raw(gate.SKILL))
+    assert scope.documentation_diff(raw(gate.SKILL), gate.local_document)
+    assert not gate.can_skip("staged", [gate.SKILL, "src/lib.rs"])
+    assert not gate.can_skip("staged", [])
+    assert not gate.can_skip("all-files", [gate.SKILL])
+    assert not gate.can_skip("manual", [gate.SKILL])
+    assert not gate.can_skip("staged", git("ls-files").splitlines())
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        "delete-rust",
+        "rename-rust",
+        "delete-doc",
+        "executable",
+        "symlink",
+        "mixed",
+        "dirty",
+        "config",
+        "helper",
+    ],
+)
+def test_local_scope_fails_closed_on_real_git_changes(local_gate_repo, change) -> None:
+    gate, git = local_gate_repo
+    Path(gate.SKILL).write_text("updated\n")
+    git("add", gate.SKILL)
+    if change in {"delete-rust", "rename-rust"}:
+        git("rm", "src/lib.rs")
+        if change == "rename-rust":
+            Path("docs/moved.md").write_text("original\n")
+            git("add", "docs/moved.md")
+    elif change == "delete-doc":
+        git("rm", "docs/guide.md")
+    elif change == "executable":
+        git("update-index", "--chmod=+x", gate.SKILL)
+    elif change == "symlink":
+        Path(gate.SKILL).unlink()
+        Path(gate.SKILL).symlink_to("elsewhere")
+        git("add", gate.SKILL)
+    elif change == "dirty":
+        Path(gate.SKILL).write_text("unstaged\n")
+    else:
+        name = {
+            "mixed": "src/lib.rs",
+            "config": "Cargo.toml",
+            "helper": "scripts/rust_lexer.py",
+        }[change]
+        Path(name).parent.mkdir(parents=True, exist_ok=True)
+        Path(name).write_text("changed\n")
+        git("add", name)
+    assert not gate.can_skip("staged", [gate.SKILL])
+
+
+def test_local_push_requires_exact_clean_tip_and_available_history(
+    local_gate_repo, monkeypatch
+) -> None:
+    gate, git = local_gate_repo
+    base = git("rev-parse", "HEAD")
+    Path("docs/guide.md").write_text("updated\n")
+    git("add", "docs/guide.md")
+    git("commit", "-qm", "docs")
+    head = git("rev-parse", "HEAD")
+    monkeypatch.setenv("PRE_COMMIT_FROM_REF", base)
+    monkeypatch.setenv("PRE_COMMIT_TO_REF", head)
+    assert gate.can_skip("push", ["docs/guide.md"])
+    monkeypatch.setenv("CI", "false")
+    assert not gate.can_skip("push", ["docs/guide.md"])
+    monkeypatch.delenv("CI")
+    for invalid in ("", "0" * 40, base):
+        monkeypatch.setenv("PRE_COMMIT_TO_REF", invalid)
+        assert not gate.can_skip("push", ["docs/guide.md"])
+    monkeypatch.setenv("PRE_COMMIT_TO_REF", head)
+    monkeypatch.setenv("PRE_COMMIT_FROM_REF", "f" * 40)
+    assert not gate.can_skip("push", ["docs/guide.md"])
+    monkeypatch.setenv("PRE_COMMIT_FROM_REF", head)
+    assert not gate.can_skip("push", ["docs/guide.md"])
+    monkeypatch.setenv("PRE_COMMIT_FROM_REF", base)
+    Path("src/lib.rs").write_text("dirty\n")
+    assert not gate.can_skip("push", ["docs/guide.md"])
+    git("add", "src/lib.rs")
+    assert not gate.can_skip("push", ["docs/guide.md"])
+
+
+def test_local_scope_absent_repository_runs_full(tmp_path, monkeypatch) -> None:
+    from scripts import source_gate_scope as gate
+
+    monkeypatch.chdir(tmp_path)
+    assert not gate.can_skip("staged", [gate.SKILL])
+
+
+@pytest.mark.parametrize(
+    "name", ["contract-method-reachability", "durable-table-registration"]
+)
+def test_original_scanner_failures_propagate(name, monkeypatch) -> None:
+    from scripts import source_gate_scope as gate
+
+    monkeypatch.setattr("sys.argv", ["gate", "--scope", "manual", "--scanner", name])
+    called = []
+
+    def run(command):
+        called.append(command)
+        return 17
+
+    monkeypatch.setattr(gate.subprocess, "call", run)
+    assert gate.main() == 17
+    assert Path(called[0][1]).name == gate.SCANNERS[name]
+
+
+def test_source_hook_modes_keep_manual_and_full_coverage() -> None:
+    config = yaml.safe_load((ROOT / ".config/pre-commit.yaml").read_text())
+    hooks = {hook["id"]: hook for repo in config["repos"] for hook in repo["hooks"]}
+    for name in ("contract-method-reachability", "durable-table-registration"):
+        for suffix, stage, mode in (
+            ("", "pre-commit", "staged"),
+            ("-push", "pre-push", "push"),
+        ):
+            hook = hooks[name + suffix]
+            assert f"--scope {mode}" in hook["entry"]
+            assert hook["stages"] == [stage]
+            assert (
+                hook["always_run"] and hook["pass_filenames"] and hook["require_serial"]
+            )
+        manual = hooks[name + "-manual"]
+        assert "source_gate_scope" not in manual["entry"]
+        assert manual["stages"] == ["manual"]
+        assert manual["always_run"] and not manual["pass_filenames"]
+
+
+@pytest.mark.parametrize("flag", ["--assume-unchanged", "--skip-worktree"])
+def test_hidden_index_state_forces_full_scan(local_gate_repo, flag) -> None:
+    gate, git = local_gate_repo
+    Path(gate.SKILL).write_text("updated\n")
+    git("add", gate.SKILL)
+    git("update-index", flag, "src/lib.rs")
+    assert not gate.can_skip("staged", [gate.SKILL])
+
+
+def test_ignored_executable_mode_forces_full_scan(local_gate_repo) -> None:
+    gate, git = local_gate_repo
+    Path(gate.SKILL).write_text("updated\n")
+    git("add", gate.SKILL)
+    git("config", "core.filemode", "false")
+    Path(gate.SKILL).chmod(0o755)
+    assert not gate.can_skip("staged", [gate.SKILL])
