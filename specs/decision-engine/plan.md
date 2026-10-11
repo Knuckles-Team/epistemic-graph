@@ -17,6 +17,14 @@ Add the coverage and guardrail queries as typed read methods beside `AgentAssemb
 
 The contract bump precedes decision handler integration. Exact solver and pack fact-admission work may proceed independently once DTO ownership is frozen. Statistical jobs consume the committed record and visibility rules; question adapters consume the stable decision method. Coordinate shared edits to `agent_component.rs`, method descriptors, access classification and generated contract files. This prevents competing schema versions.
 
+### EG-DECISION-ENGINE-R116.2: runtime admission prerequisite
+
+`crates/eg-capabilities/src/contract/access_path.rs::admit_call_path` is a Rust-only gate under the `contract-schema` feature. The generated Python senders, including operation-specific adapters and `_runtime.send_by_id`, dispatch to an arbitrary `client._send`. The existing native binding in `crates/eg-numeric/src/py/method_body.rs` canonicalizes request bodies; it does not expose or invoke the admission gate. The wire `Request` and its signed envelope do not identify a consumer call path.
+
+The missing prerequisite is an owned runtime boundary. It must invoke the existing Rust gate and bind successful admission to the actual dispatch. Make the gate available to that runtime without requiring the schema generator. Reuse the published client and its native codec boundary; consumers must not import an in-process engine. Route every generated sender, typed adapter and dynamic dispatch through the admitted boundary. Change the generator and regenerate its outputs together.
+
+A Python copy of the gate, an unchecked `Contract` label, or a caller-provided contract version cannot establish that binding. A codec call alone cannot prevent an arbitrary `_send` implementation from dispatching elsewhere. Define how the owned adapter supplies the call-path classification and prevents bypass before changing the wire contract. R116.2 is pending until that binding and the served contract-only acceptance fixture exist; the R116.1 unit tests prove only the typed gate.
+
 ## Review rules
 
 Review each changed module for reuse of existing transactions, outbox, Blob CAS, generated DTOs and visibility filters. Require a negative proof for every new authority boundary, persistence mutation and candidate source. Check CCCC, Dupehound, KISS and zero-new-pair jscpd before landing; resolve findings in the owning module rather than adding a duplicate helper. Hosted baseline checks build disposable local fixtures. Record live-deployment evidence separately.
