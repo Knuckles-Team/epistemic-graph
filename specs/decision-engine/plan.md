@@ -331,3 +331,15 @@ The guard uses the declared DERIVATION_REJECTED code and preserves the existing 
 Topology inputs alone do not trigger this guard. AgentAssemble continues to return advisory plans.
 The handler fixture checks both owner files and the ordinary commit path.
 Native handler execution remains pending. R113.2 still requires the shared transaction and recovery design.
+
+## Synthetic aggregate separation (R122)
+
+The served outcome aggregate excludes synthetic-origin decisions before counting labels and pooling rates.
+The full fit, evaluate, publish, decide, and log fixture checks synthetic-only and mixed-origin aggregates.
+Logged fit and evaluation keep their conservative cohort flag: any synthetic record marks the dataset synthetic.
+This preserves synthetic-only evaluation and prevents mixed cohorts from publishing real-world calibration claims.
+Inline datasets remain unverified and synthetic.
+Native fixture execution remains pending; source bindings and formatting do not prove execution.
+
+The reputation reader also excludes synthetic decisions before learning option reliability or scoring forecasters.
+The query-enabled pipeline fixture checks forecaster metrics, reputation counts, and the learned reliability provider.
