@@ -9,8 +9,8 @@ name: Release
 # Blocking path: {gates, gates-facade, gates-variants, gates-crates, python-suite,
 # security, lint-and-architecture, tts-piper-inference, language-clients}
 # -> {build, build-x86} -> {docker-image, publish-pypi} -> publish-image.
-# Quality and documentation jobs run independently. `pages` is a separate
-# deploy concern and carries no dependency edge into the release path.
+# Quality and documentation checks run independently. GitHub Pages deploys
+# in pages.yml so the release concurrency queue cannot delay documentation.
 #
 # The wheel build/determinism logic remains unchanged: `build` produces the
 # release artifacts, then `publish-pypi` repeats completeness checks on the
@@ -1699,28 +1699,3 @@ jobs:
           gh release create engine-main dist/epistemic_graph-*.whl dist/SHA256SUMS \
             --target "$SOURCE_SHA" --prerelease --latest=false \
             --title "engine-main (${SOURCE_SHA:0:12})" --notes "$notes"
-
-  # ── Deploy concern, not a gate (folded from the former standalone
-  # advisory.yml `pages` job, itself folded from pages.yml). No
-  # `pip install -e .`, just `mkdocs build` from `docs/`. A job that calls a
-  # reusable workflow (`uses:`) accepts only
-  # name/uses/with/secrets/needs/if/permissions/strategy/concurrency — no
-  # `runs-on`/`steps`/`continue-on-error` (agent-utilities' release.yml hit
-  # this exact parser trap on its own `publish-docker` job; adding
-  # `continue-on-error` here would invalidate the WHOLE workflow file the
-  # same way). It carries no `needs:`, so it structurally cannot block
-  # `build`/`publish-pypi`/`publish-image` regardless.
-  pages:
-    name: Deploy GitHub Pages
-    # Only main deploys: the github-pages environment rejects tag refs, which
-    # failed every release run before a runner was even assigned.
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    uses: Knuckles-Team/pipelines/.github/workflows/pages_pipeline.yml@main
-    with:
-      content_source: docs
-      shared_theme_enabled: true
-      spec_dashboard_enabled: true
-    permissions:
-      contents: write
-      pages: write
-      id-token: write
