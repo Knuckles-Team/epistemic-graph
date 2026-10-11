@@ -21,3 +21,12 @@ Focused `cargo test` on the named files per row; `spec-status` and `spec-decompo
 R002.1 producer evidence: worker_registry::tests::capacity_round_trips_and_heartbeat_extends_expiry preserves cores, memory_bytes and lanes_supported through registration, serialization and expiry. Served policy scenario T-004 remains pending under R074.2 and R075.
 
 R002.2 producer evidence: `scheduler_config::tests` uses real serde to prove defaults 360 and 3 GiB, override round trips, bounds and over-subscribed floor refusal. The FR-003 served integration scenario remains PENDING.
+
+### EG-PLACEMENT-R004 tests
+
+- `EG-PLACEMENT-R004.1`: `crates/eg-types/src/decision/statistical/placement.rs::tests::capability_types_round_trip`.
+- `EG-PLACEMENT-R004.2`: `crates/eg-types/src/decision/statistical/placement.rs::tests::route_orders_by_headroom`.
+- `EG-PLACEMENT-R004.3`: `tests/jobs/test_capability_claim_served.py::test_claim_uses_declared_capability`.
+- `EG-PLACEMENT-R004.4`: `crates/eg-jobs/src/store.rs::tests::no_capable_host_refuses`.
+- `EG-PLACEMENT-R004.5`: `crates/eg-jobs/src/store.rs::tests::routing_premises_name_generation`.
+- `EG-PLACEMENT-R004.6`: `tests/jobs/test_capability_claim_served.py::test_backtest_job_lands_on_declared_host`.
