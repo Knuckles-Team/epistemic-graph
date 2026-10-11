@@ -42,3 +42,10 @@ Governing spec: [spec.md](spec.md). Design: [plan.md](plan.md).
 - [ ] **T38 - R003.6:** Cap is counted after hashing; verify deterministic behavior on bounded fixtures.
 
 Order: R003 (independent, smallest), R002.1-R002.5 with the durable-kernel rows, then R002 rewordings; R001.1 (decision-engine R111.1) before R001.2-R001.11; R001.12-R001.14 last.
+- [ ] **EG-PLACEMENT-R004:** Heavy compute routes to the host that declares the capability.
+- [ ] **EG-PLACEMENT-R004.1:** Model. Add `HostCapability{host_iri, capability, headroom}` and `RoutingFact{job_class, required_capability}` in `crates/eg-types/src/decision/statistical/placement.rs`. The capability set is closed and declared by the host.
+- [ ] **EG-PLACEMENT-R004.2:** Behavior. Add `route_heavy_job(job_class, hosts)` returning hosts that declare the required capability, ordered by headroom. Ordering is a named replaceable default `most_headroom_first`.
+- [ ] **EG-PLACEMENT-R004.3:** Wiring. The behavior attaches at `crates/eg-jobs/src/store.rs:773` inside `claim_next` (`store.rs:736`), where worker capabilities already filter the ready queue. The production caller `crates/eg-quantum-jobs/src/job.rs:275` passes an empty capability list, so this row passes the declared capabilities from the topology facts.
+- [ ] **EG-PLACEMENT-R004.4:** Refusal. When no host declares the capability, the engine must refuse with `no_capable_host` naming the capability. It must not fall back to any host.
+- [ ] **EG-PLACEMENT-R004.5:** Evidence. Each routing decision must record `required_capability` and the candidate host list. It must also record the topology fact generation.
+- [ ] **EG-PLACEMENT-R004.6:** Hot-path proof. The entry point is the served job submit and worker claim wire methods. The test `tests/jobs/test_capability_claim_served.py::test_backtest_job_lands_on_declared_host` submits a heavy job. It passes through the wired `claim_next` and observes the claim on the host that declares the capability.

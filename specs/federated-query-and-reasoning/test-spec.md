@@ -70,3 +70,10 @@ and resource limits remain outside this evidence. Rust formatting, diff
 whitespace, and public-spec checks pass. No production API or grammar changes.
 
 Column vectorization (R077): a bound text column answers a nearest-neighbour query and EXPLAIN names the binding. An unbound column and a non-text column are refused. One row write queues exactly one re-embed.
+
+## EG-FEDERATED-QUERY-R078 acceptance
+
+| Scenario | Requirement | Fixture |
+|---|---|---|
+| Out-of-tenant isolation | R078.6 | Two tenants hold nodes, edges and vectors. A query as tenant A returns only A rows. |
+| Unverified caller | R078.4 | A statement without a verified tenant returns `PLAN_SCOPE_UNVERIFIED` and reads nothing. |
