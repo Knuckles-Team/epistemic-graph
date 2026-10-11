@@ -54,3 +54,22 @@ The [`unified-data-plane`](../unified-data-plane/spec.md) spec owns attached-sou
 2. Native hot-store ADR: redb versus alternatives with persistence/latency/restore comparisons.
 3. Durability-class wire contract: how class, measured loss window and failure state are exposed for each protocol.
 4. Mirror/replication compatibility contract: schema evolution, ordering, cursor, restore and security behavior.
+
+## Analytics worker carry-over
+
+The agent-utilities analytics worker (removed in AU-SEMANTIC-R011.10) was a remote client of the engine's existing `eg-jobs` plane, not a separate queue. It opened one engine connection per slot with a service identity holding scopes `kg:write` and `analytics:worker`, claimed jobs with `worker_claim`, checkpointed at progress 0.1 and 0.9, stage-published a typed result and called `worker_publish`. It had no schedule: it polled. Schedules for analytics belong to `JobIntent` in `crates/eg-jobs`, which this spec does not change.
+
+The engine already runs the same loop in-process (`ensure_job_workers`), so the owning process for mining is the engine. A second process only adds a network hop and a second copy of the kernel. If a remote worker is ever needed, graph-os hosts it (it deploys engine-adjacent services) and uses the generated client; agent-utilities does not. The generic task queue in `EG-DURABLE-KERNEL-R071` to `R077` serves other work and is not used by this path.
+
+| Old entry point | New entry point | Status |
+|---|---|---|
+| console script `graph-os-analytics-worker` | colocated pool, `EG_ANALYTICS_WORKERS` | exists (R082.1) |
+| payload decode and bounds | submit-time validation | exists, verify (R082.2, R082.3) |
+| rule identity, result shape | `results_association.rs` | exists, verify (R082.4, R082.5, R082.6) |
+| status polling, cancel, deadline, cpu budget | executor stop checks | exists, verify (R082.7) |
+| `_slot` retry and reconnect | durable `RetryPolicy` backoff | exists, verify (R082.8) |
+| slots, lease, poll environment settings | validated pool settings | to build (R082.9) |
+| remote claim by capability | `JobsClient` worker operations | exists, verify (R082.10) |
+| multi-endpoint reconnect cursor, signal handling, Python Eclat kernel | none | intentionally dropped: in-process execution needs none |
+
+Out of scope: new analytics families, a schedule for mining jobs, and any change to the task-queue rows. Not determinable from the deleted source: the engine kernel's own item cap (R082.3).
