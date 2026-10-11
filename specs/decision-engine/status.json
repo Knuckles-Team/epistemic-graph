@@ -98,10 +98,6 @@
     "EG-DECISION-ENGINE-R064",
     "EG-DECISION-ENGINE-R065",
     "EG-DECISION-ENGINE-R066",
-    "EG-DECISION-ENGINE-R066.1",
-    "EG-DECISION-ENGINE-R066.2",
-    "EG-DECISION-ENGINE-R066.3",
-    "EG-DECISION-ENGINE-R066.4",
     "EG-DECISION-ENGINE-R067",
     "EG-DECISION-ENGINE-R068",
     "EG-DECISION-ENGINE-R069",
@@ -569,7 +565,7 @@
         "52f333ca756e"
       ],
       "verified_by": [
-        "src/server/handlers/decide/stat_tests.rs:866"
+        "src/server/handlers/decide/stat_tests.rs:870"
       ]
     },
     {
@@ -699,6 +695,7 @@
       "landed_in": [
         "52f333ca756e",
         "5951a4a6272e",
+        "9f300857d769",
         "b2d01ed93bd8"
       ],
       "verified_by": [
@@ -823,7 +820,7 @@
         "fa780d3e101a"
       ],
       "verified_by": [
-        "src/server/handlers/decide/stat_tests/consumer_tests.rs:408"
+        "src/server/handlers/decide/stat_tests/consumer_tests.rs:421"
       ]
     },
     {
@@ -849,7 +846,7 @@
         "fa780d3e101a"
       ],
       "verified_by": [
-        "src/server/handlers/decide/stat_tests/consumer_tests.rs:212"
+        "src/server/handlers/decide/stat_tests/consumer_tests.rs:225"
       ]
     },
     {
@@ -902,7 +899,7 @@
         "a742d4439964"
       ],
       "verified_by": [
-        "src/server/handlers/decide/stat_tests/consumer_tests.rs:275"
+        "src/server/handlers/decide/stat_tests/consumer_tests.rs:288"
       ]
     },
     {
@@ -1288,7 +1285,7 @@
         "fa780d3e101a"
       ],
       "verified_by": [
-        "src/server/handlers/decide/stat_tests.rs:977"
+        "src/server/handlers/decide/stat_tests.rs:981"
       ]
     },
     {
@@ -1302,7 +1299,7 @@
         "fa780d3e101a"
       ],
       "verified_by": [
-        "src/server/handlers/decide/stat_tests.rs:1109"
+        "src/server/handlers/decide/stat_tests.rs:1113"
       ]
     },
     {
@@ -1395,7 +1392,7 @@
         "8d4f409785b2"
       ],
       "verified_by": [
-        "src/server/handlers/decide/stat_tests/consumer_tests.rs:581"
+        "src/server/handlers/decide/stat_tests/consumer_tests.rs:594"
       ]
     },
     {
@@ -1414,61 +1411,12 @@
     {
       "id": "EG-DECISION-ENGINE-R066",
       "title": "Retention split between library and graph-sourced records",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "1e9ea1ef3790",
         "2a0d6eae0918",
         "d51d225674e1"
       ],
-      "verified_by": [],
-      "rollup_of": [
-        "EG-DECISION-ENGINE-R066.1",
-        "EG-DECISION-ENGINE-R066.2",
-        "EG-DECISION-ENGINE-R066.3",
-        "EG-DECISION-ENGINE-R066.4"
-      ]
-    },
-    {
-      "id": "EG-DECISION-ENGINE-R066.1",
-      "title": "Preserve library inputs",
-      "delivery_state": "VERIFIED",
-      "landed_in": [
-        "4e60c54e9e49",
-        "c6d7108187aa"
-      ],
-      "verified_by": [
-        "src/server/handlers/decide/stat_tests/retention_tests.rs:64"
-      ]
-    },
-    {
-      "id": "EG-DECISION-ENGINE-R066.2",
-      "title": "Expire graph inputs",
-      "delivery_state": "VERIFIED",
-      "landed_in": [
-        "4e60c54e9e49",
-        "c6d7108187aa"
-      ],
-      "verified_by": [
-        "src/server/handlers/decide/stat_tests/retention_tests.rs:93"
-      ]
-    },
-    {
-      "id": "EG-DECISION-ENGINE-R066.3",
-      "title": "Evaluate without persistence",
-      "delivery_state": "VERIFIED",
-      "landed_in": [
-        "4e60c54e9e49",
-        "c6d7108187aa"
-      ],
-      "verified_by": [
-        "src/server/handlers/decide/stat_tests/retention_tests.rs:129"
-      ]
-    },
-    {
-      "id": "EG-DECISION-ENGINE-R066.4",
-      "title": "Expire graph records",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
       "verified_by": []
     },
     {
@@ -1539,7 +1487,7 @@
     {
       "id": "EG-DECISION-ENGINE-R072",
       "title": "Decision observability spans and metrics",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "1e9ea1ef3790",
         "2a0d6eae0918",
@@ -1553,9 +1501,13 @@
     {
       "id": "EG-DECISION-ENGINE-R072.1",
       "title": "Solver node count and optimality gap are emitted on the Assemble/solver path",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "7e2feaaad52d"
+      ],
+      "verified_by": [
+        "crates/eg-compute/tests/solve/instrumentation.rs:8"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R073",
@@ -1835,7 +1787,7 @@
     {
       "id": "EG-DECISION-ENGINE-R084",
       "title": "Conformal calibration as primary rung over temperature scaling",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "1e9ea1ef3790",
         "4952a2edced4"
@@ -1848,11 +1800,14 @@
     {
       "id": "EG-DECISION-ENGINE-R084.1",
       "title": "ECE/coverage measurement across option sets of varying size",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "481fa6ea2c55",
         "7765cab2e500"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-numeric/tests/decision/calibration_coverage.rs:37"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R085",
@@ -2337,7 +2292,7 @@
     {
       "id": "EG-DECISION-ENGINE-R110",
       "title": "Topology optimization model rows with a brute-force oracle",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "534f763afc81",
         "c0edc96d1e10"
@@ -2350,9 +2305,14 @@
     {
       "id": "EG-DECISION-ENGINE-R110.1",
       "title": "Topology brute-force oracle property test covers n<=20 variables",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "1bd4d6b1cdea",
+        "1e1a100670b5"
+      ],
+      "verified_by": [
+        "crates/eg-compute/src/assemble/tests/topology_oracle.rs:144"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R111",

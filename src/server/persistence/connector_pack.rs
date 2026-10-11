@@ -588,51 +588,6 @@ fn forbidden_mapping_key_byte(byte: u8) -> bool {
     byte.is_ascii_control() || byte.is_ascii_whitespace() || matches!(byte, b'/' | b'#')
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn empty_catalog_has_an_explicit_empty_status() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = AgentLibraryStore::open(dir.path().to_str().unwrap()).unwrap();
-        let connector = ResourceId::new("test-connector").unwrap();
-        let status = store.connector_pack_status("tenant-a", &connector).unwrap();
-        assert!(status.head.is_none());
-        assert!(status.last_receipt.is_none());
-        assert_eq!(status.members, PackMemberCounts::default());
-        assert_eq!(status.projection, PackProjectionState::None);
-    }
-
-    #[test]
-    fn mapping_reference_keys_are_bounded_and_nonblank() {
-        assert!(valid_mapping_key("orders-v1"));
-        assert_eq!(
-            ["", "orders v1", "orders/v1", "orders#v1"].map(valid_mapping_key),
-            [false; 4]
-        );
-    }
-
-    #[test]
-    fn relationship_reference_is_an_exact_manifest_resource_path() {
-        let connector = ResourceId::new("demo").unwrap();
-        assert_eq!(
-            relationship_selector(
-                &connector,
-                "manifest:demo#resources/Document/relations/contains"
-            )
-            .unwrap(),
-            "Document/contains"
-        );
-        assert!(relationship_selector(&connector, "manifest:demo#relations/contains").is_err());
-        assert!(relationship_selector(
-            &connector,
-            "manifest:other#resources/Document/relations/contains"
-        )
-        .is_err());
-    }
-}
-
 /// Bounded owner evidence for signed refusal tests; never compiled into service builds.
 #[cfg(test)]
 impl AgentLibraryStore {
@@ -683,5 +638,50 @@ impl AgentLibraryStore {
             .collect();
         tables.insert("outbox".into(), serde_json::json!(outbox));
         serde_json::Value::Object(tables)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn empty_catalog_has_an_explicit_empty_status() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = AgentLibraryStore::open(dir.path().to_str().unwrap()).unwrap();
+        let connector = ResourceId::new("test-connector").unwrap();
+        let status = store.connector_pack_status("tenant-a", &connector).unwrap();
+        assert!(status.head.is_none());
+        assert!(status.last_receipt.is_none());
+        assert_eq!(status.members, PackMemberCounts::default());
+        assert_eq!(status.projection, PackProjectionState::None);
+    }
+
+    #[test]
+    fn mapping_reference_keys_are_bounded_and_nonblank() {
+        assert!(valid_mapping_key("orders-v1"));
+        assert_eq!(
+            ["", "orders v1", "orders/v1", "orders#v1"].map(valid_mapping_key),
+            [false; 4]
+        );
+    }
+
+    #[test]
+    fn relationship_reference_is_an_exact_manifest_resource_path() {
+        let connector = ResourceId::new("demo").unwrap();
+        assert_eq!(
+            relationship_selector(
+                &connector,
+                "manifest:demo#resources/Document/relations/contains"
+            )
+            .unwrap(),
+            "Document/contains"
+        );
+        assert!(relationship_selector(&connector, "manifest:demo#relations/contains").is_err());
+        assert!(relationship_selector(
+            &connector,
+            "manifest:other#resources/Document/relations/contains"
+        )
+        .is_err());
     }
 }

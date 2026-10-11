@@ -184,3 +184,12 @@ Run `cargo test --lib --features decide,query,blob retention_tests` for the new 
 The existing graph-log fixture also checks CAS restoration, forged blobs, and retirement.
 Run `cargo test --lib --features decide,query,blob graph_sourced_records_are_principal_scoped_not_tenant_scoped_on_log_read` for that fixture.
 Local Rust formatting and 12 Python decision-contract checks passed. Those checks do not execute retention behavior.
+
+## Bounded topology oracle
+
+| Requirement | Proving test |
+|---|---|
+| EG-DECISION-ENGINE-R110.1 | `crates/eg-compute/src/assemble/tests/topology_oracle.rs::property_oracle_agrees_with_the_solver_for_instances_up_to_twenty_variables` checks 66 fixtures and twenty actual variables. |
+
+Native execution remains pending after dependency compilation exceeded local resources.
+The isolated fixture arithmetic check does not execute the assembly or solver.
