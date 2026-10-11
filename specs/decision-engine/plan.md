@@ -247,3 +247,13 @@ The duplicate-declaration scan covers Rust files under `src` and `crates`.
 The scan permits one declaration for each explicitly listed unrelated domain homonym.
 `AgentComponentKind` documents every enum variant in its slot-or-catalog closure rule.
 The consistency check compares enum variants and agent-slot references with that rule.
+
+### 2026-10-11: variable-option calibration acceptance fixture
+
+R084.1 gains a native integration fixture fitting one mixed-size resident scorer
+and measuring served ECE and empirical coverage separately at 2, 3, 5, and 8 options.
+The same fitted calibration is reused without size-specific temperature tuning.
+This is deterministic synthetic test evidence, not a production-data claim.
+Native execution remains pending after the local eg-types compile was SIGKILLed;
+formatting and fixture checks do not satisfy native acceptance.
+No spec binding marker is added before that native run.
