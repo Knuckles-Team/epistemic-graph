@@ -211,3 +211,5 @@ The native harness compiled the production scorer module with real cached `eg-ty
 All six budget tests passed under Rust 1.96.0.
 Tests cover the exact ceiling, each independent limit, zero declarations, and maximum-integer refusals.
 The leaf covers declared budgets only; it does not establish measured resident-scorer latency or parent R090 acceptance.
+
+The ceiling now refuses 10,000 microseconds, which exceeds the single-digit-millisecond contract.

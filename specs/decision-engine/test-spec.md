@@ -56,3 +56,5 @@ The harness imports the unchanged production module with real cached `eg-types` 
 The reproducible Cargo command is `cargo test -p eg-types decision::statistical::scorer::budget_tests`.
 The equivalent direct native harness ran; the full Cargo crate build and hosted CI were not run locally.
 This receipt covers typed declarations only, not measured latency or the parent R090 benchmark obligation.
+
+The latency boundary accepts 9,999 microseconds and refuses 10,000 microseconds.

@@ -71,7 +71,7 @@ pub struct ResidentScorerBudget {
 pub const RESIDENT_SCORER_CEILING: ResidentScorerBudget = ResidentScorerBudget {
     max_parameters: 700_000,
     max_bytes: 8 * 1024 * 1024,
-    max_p99_micros: 10_000,
+    max_p99_micros: 9_999,
 };
 
 impl ResidentScorerBudget {
@@ -156,7 +156,7 @@ mod budget_tests {
     // spec: EG-DECISION-ENGINE-R090.1
     #[test]
     fn a_budget_at_the_ceiling_is_declared() {
-        let budget = ResidentScorerBudget::declare(700_000, 8 * 1024 * 1024, 10_000)
+        let budget = ResidentScorerBudget::declare(700_000, 8 * 1024 * 1024, 9_999)
             .expect("the ceiling itself is a legal declaration");
         assert_eq!(budget, RESIDENT_SCORER_CEILING);
     }
@@ -172,9 +172,9 @@ mod budget_tests {
     // spec: EG-DECISION-ENGINE-R090.1
     #[test]
     fn a_budget_over_the_latency_ceiling_is_refused() {
-        let err = ResidentScorerBudget::declare(1, 1024, 10_001)
+        let err = ResidentScorerBudget::declare(1, 1024, 10_000)
             .expect_err("over the single-digit-millisecond ceiling");
-        assert!(err.contains("10001"));
+        assert!(err.contains("10000"));
     }
 
     // spec: EG-DECISION-ENGINE-R090.1
