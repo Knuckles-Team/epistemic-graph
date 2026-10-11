@@ -11,7 +11,7 @@ Status: PROPOSED. Governing spec: [spec.md](spec.md).
 
 ## Negative and boundary cases
 
-Missing leg (jellyfin unconnected): typed abstention. Raw email in Subscriber: SHACL violation. Hash case mismatch: normalised to lower case. Tenant denial follows the engine contract.
+Missing leg (jellyfin unconnected): typed abstention. Raw email in Subscriber: SHACL violation. Hash case mismatch: normalised to lower case. Distinct queries returning the same URL keep distinct SearchResult identities; two posts linking the same article remain separate; repeated same-source records remain idempotent. Same numeric provider IDs for Film and TelevisionSeries do not merge. Ontology collision fixtures keep Team unchanged, socialScheduledAt distinct from scheduledFor, and downloadRequestState distinct from TRM requestState; invalid timestamp/state values fail the domain-specific SHACL shapes. Tenant denial follows the engine contract.
 
 ## Quality and release proof
 

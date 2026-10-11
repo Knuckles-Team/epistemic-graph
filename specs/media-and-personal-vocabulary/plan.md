@@ -7,7 +7,7 @@ Status: PROPOSED. Governing spec: [spec.md](spec.md).
 `specs/connector-competency` marked the vocabulary for the whole media and personal-content domain MISSING because its method judged `crates/eg-core/ontology/` by file name. This spec re-checked by opening the files.
 
 - Listing: 41 files; none named for media, books, feeds, search, social posting, mailing or chat. Opened candidates: `personal-v1.ttl` (CalendarEvent, PersonalTask, VoiceMessage ⊑ `:CreativeWork`, Transcript ⊑ `:Document`, `transcribedFrom`, `transcriptionConfidence`), `core-foundation-v1.ttl` (`:CreativeWork`, `:Document`, `:Event`, `:Episode` = a discrete interaction unit, `:Person`), `documentation-v1.ttl` (documentation pages and revisions only), `orchestration-v1.ttl` (`:Session`, `:AgentMessage`, `:BusMessage` = agent traffic, not human chat), `software-v1.ttl` (`:Author` = git author, `:File` = source file), `native_source_connector-v1.ttl` (generated `:SourceDocument`), `virtual_graph-v1.ttl` (SourceConnection, MetadataContract, VirtualMapping), `company-v1.ttl` (names the qbittorrent specialist agent only). `grep -ciE "movie|album|torrent|podcast|subscriber|campaign"` finds only agent-roster labels in company-v1.ttl.
-- Result: the gap is confirmed. Only `:CreativeWork`, `:Document`, `:Transcript`, `:VoiceMessage`, `:Event`, `:Session`, `:Person`, `:Organization`, `:Tag` are reusable.
+- Result: the gap is confirmed. Reusable terms include `:Team` as well as `:CreativeWork`, `:Document`, `:Transcript`, `:VoiceMessage`, `:Event`, `:Session`, `:Person`, `:Organization`, `:Tag` are reusable.
 - New evidence: every connector package already ships a packaged vocabulary (`<pkg>/ontology/*.ttl`: arr.ttl, media.ttl, audiobookshelf.ttl, qbittorrent.ttl, rom.ttl, owncast.ttl, audio.ttl, feed.ttl, scholarx.ttl, searxng.ttl, pulselink.ttl, social.ttl, listmonk.ttl, mattermost.ttl), a `mappings/source.yaml`, and `connectors/mcp_source_presets.json`. Those declare connector-local classes in the shared `:` namespace, two of which collide with core (`:Episode` in arr.ttl vs core-foundation `:Episode`; `:Author` in jellyfin/audiobookshelf media.ttl vs software-v1 `:Author`). What is missing in EG is the shared layer they all subclass, and the cross-source identity keys.
 
 ## Architecture
@@ -43,15 +43,15 @@ Two new files, namespace `http://knuckles.team/kg#`, prefixes `mv:` (media) and 
 | LibraryItem | class | `itemOf` -> MediaWork, `inLibrary` -> MediaLibrary, `addedAt` | one work in one library |
 | MediaFile, RomFile | class | RomFile ⊑ MediaFile; `container`, `sizeBytes`, `contentSha256`, `md5`, `sha1`, `crc32` | |
 | PlaybackSession | class | ⊑ `:Session`; `playedBy` -> `:Person`, `itemOf`, `lastPlayedAt`, `playCount`, `playbackPositionSeconds` | live and historical |
-| DownloadRequest | class | `requestsWork` -> MediaWork; `requestState` closed set; `requestedBy` -> `:Person` | wanted/requested |
+| DownloadRequest | class | `requestsWork` -> MediaWork; `downloadRequestState` closed set; `requestedBy` -> `:Person` | wanted/requested |
 | DownloadTransfer | class | `transferOf` -> DownloadRequest or MediaWork; `infoHash`, `transferState`, `shareRatio`, `lastActivityAt`, `addedAt` | torrent or job |
 | GrabEvent, MediaIndexer | class | `grabbedFromIndexer` -> MediaIndexer | |
 | BroadcastStream | class | ⊑ `:Event`; `lastConnectAt`, `streamOnline`; ViewerSample (`sampledAt`, `viewerCount`) | Owncast |
 | TranscriptSegment | class | partOf the existing `:Transcript` (reused); `segmentStart`, `segmentEnd`, `noSpeechProb`, `transcriptOf` | no redefinition of Transcript |
-| tmdbId, tvdbId, imdbId, musicBrainzId, isbn, infoHash, contentSha256 | datatype props | `owl:InverseFunctionalProperty` | cross-source join keys |
+| tmdbId, tvdbId, imdbId, musicBrainzId, isbn, infoHash, contentSha256 | datatype props | class-scoped correlation keys, not globally inverse-functional | scope provider IDs by work class; distinct source records retain their own identity |
 | contributor | object prop | MediaWork -> `:Person` (role as annotation) | replaces connector `:Author` |
 
-SHACL (media-v1.shapes.ttl, aggregate-free like virtual_graph-v1.shapes.ttl): connector-sourced Film/Series carry one of the three ids; `infoHash` is 40 or 64 lower-case hex; `requestState` in (requested, wanted, grabbed, importing, imported, failed); a LibraryItem has exactly one `itemOf` and one `inLibrary`.
+SHACL (media-v1.shapes.ttl, aggregate-free like virtual_graph-v1.shapes.ttl): connector-sourced Film/Series carry one of the three ids; `infoHash` is 40 or 64 lower-case hex; `downloadRequestState` in (requested, wanted, grabbed, importing, imported, failed); a LibraryItem has exactly one `itemOf` and one `inLibrary`.
 
 ### content-v1.ttl
 
@@ -61,10 +61,12 @@ SHACL (media-v1.shapes.ttl, aggregate-free like virtual_graph-v1.shapes.ttl): co
 | Article | class | ⊑ `:Document`; `publishedAt`, `isRead`, `canonicalUrl` | |
 | ResearchPaper | class | ⊑ `:Document`, seeAlso bibo:AcademicArticle; `doi`, `arxivId`, `citationCount` | ScholarX |
 | SearchQuery, SearchResult, SearchEngine | class | result -> query; `resultUrl`, `rank`, `servedByEngine` | SearXNG, PulseLink |
-| SocialPost, PublishingChannel, EngagementMetric | class | post -> channel; `postState`, `scheduledFor`, `publishedAt` | Postiz |
+| SocialPost, PublishingChannel, EngagementMetric | class | post -> channel; `postState`, `socialScheduledAt`, `publishedAt` | Postiz |
 | EmailCampaign, MailingList, Subscriber | class | campaign -> lists; `sentCount`, `viewCount`, `clickCount`, `subscriptionStatus`, `subscriberKey` | Listmonk |
-| MessageChannel, ChatMessage, Team | class | message -> channel; `memberCount`, `lastPostAt`, `postedAt`, `postedBy` -> `:Person` | Mattermost, Owncast chat |
-| canonicalUrl | datatype prop | inverse-functional | URL join key |
+| MessageChannel, ChatMessage; existing kg:Team | class (Team reused without redeclaration) | message -> channel; `memberCount`, `lastPostAt`, `postedAt`, `postedBy` -> `:Person` | Mattermost, Owncast chat |
+| canonicalUrl | datatype prop | class-scoped document correlation key | Article identity uses the normalized document URL; SearchResult identity is scoped to its query and native result key; posts retain source-native identity |
+
+Shared-namespace collision decisions: reuse `kg:Team`; use `kg:socialScheduledAt` for a social-post timestamp because `kg:scheduledFor` already links CalendarEvent to Person; use `kg:downloadRequestState` because `kg:requestState` already has TRMRequest domain. No global URL or provider-ID inverse-functional axioms are introduced. A URL join does not create `owl:sameAs` between a document and the search results or posts that reference it.
 
 SHACL: Article/SearchResult carry exactly one normalised `canonicalUrl`; Subscriber has `subscriberKey` (keyed hash) and no raw-address property.
 
@@ -237,7 +239,7 @@ SHACL: Article/SearchResult carry exactly one normalised `canonicalUrl`; Subscri
 
 | Connector operation / tool | Class / property | Contract kind |
 |---|---|---|
-| postiz_posts/postiz_list_posts | cv:SocialPost; cv:postState, cv:scheduledFor, cv:publishedAt -> cv:PublishingChannel | mcp |
+| postiz_posts/postiz_list_posts | cv:SocialPost; cv:postState, cv:socialScheduledAt, cv:publishedAt -> cv:PublishingChannel | mcp |
 | postiz_integrations/postiz_list_integrations | cv:PublishingChannel; cv:platform | mcp |
 | postiz_analytics/postiz_get_analytics, postiz_get_post_analytics | cv:EngagementMetric (impressions, likes) | mcp |
 | postiz_notifications/postiz_list_notifications | notification feed | mcp |
@@ -264,7 +266,7 @@ SHACL: Article/SearchResult carry exactly one normalised `canonicalUrl`; Subscri
 |---|---|---|
 | mattermost_mcp_channels (get channel, channel stats, members) | cv:MessageChannel; cv:memberCount, cv:lastPostAt | mcp |
 | mattermost_mcp_posts (get posts for channel) | cv:ChatMessage ⊑ :Message-like; cv:postedAt, cv:postedBy -> :Person | mcp |
-| mattermost_mcp_teams / users | cv:Team (:Organization), :Person | mcp |
+| mattermost_mcp_teams / users | existing kg:Team (reuse), :Person | mcp |
 | mattermost_mcp_files / reactions / webhooks / admin groups | out of scope | - |
 
 - Single-source question: CONFIRMED: channels, channel stats and posts-for-channel are generated from the Mattermost API (mattermost_mcp/mcp/mcp_posts.py, mcp_channels). DECIDED: inactivity := lastPostAt older than 90 days, member count from channel stats.
@@ -302,7 +304,7 @@ Legs: arr (Radarr `get_wanted_missing` plus Seerr `get_request` for requested; `
 
 ```sparql
 SELECT ?film ?tmdb ?hash WHERE {
-  ?req a :DownloadRequest ; :requestsWork ?film ; :requestState ?s . FILTER(?s IN ("requested","wanted","grabbed","importing"))
+  ?req a :DownloadRequest ; :requestsWork ?film ; :downloadRequestState ?s . FILTER(?s IN ("requested","wanted","grabbed","importing"))
   ?film a :Film ; :tmdbId ?tmdb .
   ?xfer a :DownloadTransfer ; :transferOf ?req ; :infoHash ?hash ; :transferState ?st . FILTER(?st IN ("uploading","stalledUP","pausedUP","queuedUP","forcedUP"))
   OPTIONAL { ?li a :LibraryItem ; :itemOf ?lf . ?lf :tmdbId ?tmdb . } FILTER(!BOUND(?li))
