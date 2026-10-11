@@ -15,7 +15,7 @@ Add the coverage and guardrail queries as typed read methods beside `AgentAssemb
 
 ### Guardrail entailment read
 
-`GuardrailEntailment` accepts a tenant and task IRI, verifies the tenant boundary, and reads published rule heads through `AgentLibraryStore::published_guardrail_rules`. The existing pure query returns advisory entailment paths and source generations, wrapped with the native ontology digest in a versioned result. The dispatcher uses the existing `agent:assemble-read` read policy and tenant snapshot classification. No decision record, enforcement policy, or persistent credential is created. Generated client artifacts follow the published Rust source.
+`GuardrailEntailment` accepts a tenant and task IRI, verifies the tenant boundary, and reads published rule heads through `AgentLibraryStore::published_guardrail_rules`. The existing pure query returns advisory entailment paths and source generations. It wraps them with the native ontology digest in a versioned result. The dispatcher uses the existing `agent:assemble-read` read policy and tenant snapshot classification. No decision record, enforcement policy, or persistent credential is created. Generated client artifacts follow the published Rust source.
 
 ## Parallelism and dependencies
 
@@ -60,7 +60,7 @@ Policy order is monotone: a request may reduce risk, spending and latency budget
 
 ### 3. Exact solve and certificate
 
-Create binary selection variables for candidate components and, where required, template/slot choices. Constraints include: each required capability is covered by an eligible selected component; required dependencies imply selection; incompatible options cannot coexist; each required slot has exactly one assignment; cardinality and integer budget bounds hold; model and tool modality/schema constraints hold. The objective is a sequence of integer levels: first hard feasibility, then policy-defined utility, resource use and stable tie-break. Preprocess dominated or impossible options, seed an incumbent greedily, then branch and bound with an admissible lower bound until optimality or node budget. A budget-exhausted answer may return an incumbent and proven gap only if policy permits that gap; otherwise abstain. No fixed maximum number of feasible assemblies substitutes for work budgeting.
+Create binary selection variables for candidate components and, where required, template/slot choices. Constraints include the following. Each required capability is covered by an eligible selected component. Required dependencies imply selection. Incompatible options cannot coexist. Each required slot has exactly one assignment. Cardinality and integer budget bounds hold. Model and tool modality/schema constraints hold. The objective is a sequence of integer levels: first hard feasibility, then policy-defined utility, resource use and stable tie-break. Preprocess dominated or impossible options and seed an incumbent greedily. Then branch and bound with an admissible lower bound until optimality or node budget. A budget-exhausted answer may return an incumbent and proven gap only if policy permits that gap; otherwise abstain. No fixed maximum number of feasible assemblies substitutes for work budgeting.
 
 The independent certificate verifier checks input digest, sorted variable mapping, all constraints against the proposed assignment, objective recomputation, lower-bound validity, gap and solver version. It must not trust a claimed feasible assignment or bound. Why-not for a visible excluded option fixes that option on, re-solves under a separate bounded budget, and reports the resulting violation, worse objective, gap or budget exhaustion. A failed post-solve template/graph validator adds a no-good cut and re-solves within the original budget.
 
@@ -68,17 +68,17 @@ The independent certificate verifier checks input digest, sorted variable mappin
 
 Feature extraction is over the RLS-filtered candidate set. Candidate-local BM25 and visible-only vector scoring avoid corpus statistics and overfetch effects from invisible rows. The feature schema is versioned, records missingness and provenance, and includes only policy-approved facts: similarity, entailed coverage, evidence quality, belief/confidence, cost and latency. The resident option-marker scorer can encode state once and score each structured option in process; it must retain deterministic fixed-point output and CPU portability. Statistical heads are bounded, fitted components, not generative models; text generation and LLM weights stay outside EG.
 
-Gold-labelled data and executed-option-only bandit data are different datasets. The latter requires exact action propensities, support diagnostics, inverse propensity or doubly robust estimators, effective sample size and censoring. Self-reported run outcomes cannot promote a head. Independent evaluations with sufficient trace fidelity and approved principal are joined to records; hierarchical pooling requires minimum support and coarse output to avoid individual-run inference. Conformal and selective-risk calibration use held-out or walk-forward folds, account for drift and explicitly abstain when their stated bound lacks support. `DecisionEval` receipts pin head, dataset window, policy, feature schema, metrics and thresholds. A policy change or head digest change invalidates the receipt for promotion.
+Gold-labelled data and executed-option-only bandit data are different datasets. The latter requires exact action propensities and support diagnostics. It also requires inverse propensity or doubly robust estimators, effective sample size and censoring. Self-reported run outcomes cannot promote a head. Independent evaluations with sufficient trace fidelity and approved principal are joined to records. Hierarchical pooling requires minimum support and coarse output to avoid individual-run inference. Conformal and selective-risk calibration use held-out or walk-forward folds. They account for drift and explicitly abstain when their stated bound lacks support. `DecisionEval` receipts pin head, dataset window, policy, feature schema, metrics and thresholds. A policy change or head digest change invalidates the receipt for promotion.
 
 ### 5. Connector pack interaction
 
-The existing pack types in `crates/eg-types/src/connector_pack/`, handlers in `src/server/handlers/admin/connector_pack/`, persistence in `src/server/persistence/connector_pack/` and Python `epistemic_graph/connector_pack.py` form one owner. The decision engine consumes published, tenant-visible component revisions and their annotations. It does not parse raw packs or trust client-provided digests. A pack entry's `provides`, `requires_capabilities`, modality, schema digest, cost, latency, model profile and `contract_pin` are publisher claims. Native capability IRIs can enter ontology derivation with that claim premise; unknown foreign IRIs are claim-only exact terms; malformed native IRIs are refused at import. Re-import does not alter a component revision when its own entry content is byte-identical, and `Withdrawn` members become ineligible immediately. A pack cannot insert decision-owned component kinds. The pack head and projection readiness marker must match before a projected ontology/shape fact is used as current.
+The existing pack types in `crates/eg-types/src/connector_pack/`, handlers in `src/server/handlers/admin/connector_pack/`, persistence in `src/server/persistence/connector_pack/` and Python `epistemic_graph/connector_pack.py` form one owner. The decision engine consumes published, tenant-visible component revisions and their annotations. It does not parse raw packs or trust client-provided digests. A pack entry's `provides`, `requires_capabilities`, modality and schema digest are publisher claims. So are its cost, latency, model profile and `contract_pin`. Native capability IRIs can enter ontology derivation with that claim premise. Unknown foreign IRIs are claim-only exact terms. Malformed native IRIs are refused at import. Re-import does not alter a component revision when its own entry content is byte-identical. `Withdrawn` members become ineligible immediately. A pack cannot insert decision-owned component kinds. The pack head and projection readiness marker must match before a projected ontology/shape fact is used as current.
 
 Decide's contract at this boundary is narrow: it sees only validated component revisions and preserves publisher-claim class in every derivation, score and record. It rejects reserved decision-owned kinds and stale projection facts. Pack import atomicity, body storage and parser refusals are specified and tested by the pack owner independently.
 
 ### 6. Question-specific extensions
 
-Typed question adapters translate retrieval, lane, enrichment, entity-resolution, schema-mapping, routing, risk, topology and recommendation requests into the same legal-set/evidence pipeline. `DecideText` is a dedicated UQL-like front end with quoted candidate blocks and typed parameters; malformed syntax returns a structured span/error and never falls through to ordinary query parsing. Topology adds bounded integer shape variables (width, rounds, role, capacity) and a composed-schema digest, then outputs a proposed `AgentGraph`; capacity acquisition and execution remain separate atomic operations. Entity resolution emits a proposed link and confidence/abstention, never an automatic identity merge. Finance recommendations are informational snapshots with strategy version, evidence and horizon; they cannot place trades. Graph-sourced record views must apply the same RLS as their candidate source.
+Typed question adapters translate these requests into the same legal-set/evidence pipeline. The requests are retrieval, lane, enrichment, entity-resolution, schema-mapping, routing, risk, topology and recommendation. `DecideText` is a dedicated UQL-like front end with quoted candidate blocks and typed parameters. Malformed syntax returns a structured span/error. It never falls through to ordinary query parsing. Topology adds bounded integer shape variables (width, rounds, role, capacity) and a composed-schema digest. It then outputs a proposed `AgentGraph`. Capacity acquisition and execution remain separate atomic operations. Entity resolution emits a proposed link and confidence/abstention. It never emits an automatic identity merge. Finance recommendations are informational snapshots with strategy version, evidence and horizon. They cannot place trades. Graph-sourced record views must apply the same RLS as their candidate source.
 
 ### 7. Operational and quality rules
 
@@ -115,7 +115,7 @@ This register inventories all 118 decision-owned obligations. `Historical label`
 | EG-DECISION-ENGINE-R018 | — | CLOSED | NOT_RUN | Invariant: unknown facts are never treated as zero in the solver objective |
 | EG-DECISION-ENGINE-R019 | — | CLOSED | NOT_RUN | Invariant: commits are snapshot-checked (re-derive, verify certificate, catalog compare-and-set) |
 | EG-DECISION-ENGINE-R020 | T2 | LANDED | NOT_RUN | Invariant: exploration needs an explicit budget and an unpredictable HMAC-keyed seed; forbidden for security/policy/write-back/irreversible questions |
-| EG-DECISION-ENGINE-R021 | T2 | LANDED | NOT_RUN | Versioned feature schema over caller-visible candidates (vector similarity, candidate-local BM25, entailed coverage, provenance quality, belief confidence, cost/latency, freshness, outcome stats) |
+| EG-DECISION-ENGINE-R021 | T2 | LANDED | NOT_RUN | Versioned feature schema over caller-visible candidates. Features: vector similarity, candidate-local BM25, entailed coverage, provenance quality, belief confidence, cost/latency, freshness, outcome stats. |
 | EG-DECISION-ENGINE-R022 | T2 | LANDED | NOT_RUN | Full-label vs bandit-label regime separation (gold-labelled questions vs executed-option-only outcomes) |
 | EG-DECISION-ENGINE-R023 | T2 | LANDED | NOT_RUN | Hierarchical Beta-Binomial pooling of outcome statistics (kind → capability class → option) with n_min gating |
 | EG-DECISION-ENGINE-R024 | T2 | LANDED | NOT_RUN | Multi-class calibration (temperature/vector/Dirichlet scaling; isotonic for binary Noul only) — general calibration utilities |
@@ -578,3 +578,117 @@ Cross-repository: `AU-` memory callers may attach a tier to an entry; owner pref
 
 References
 - No paper is cited.
+
+## Run trace and runtime quota (R133)
+
+Consumers: AU-CONTROL-R040 (run trace), AU-CONTROL-R041 (runtime quota).
+
+Data flow: `Decide` wire method -> `handle_decide` (`src/server/handlers/decide/stat_decide.rs:48`) -> `runtime_quota_outcome` at `stat_decide.rs:134` -> `decide_runtime_quota` (`crates/eg-types/src/decision/run_governance.rs`, new) -> sealed `Advisory` with one option per value. Trace: harness run end -> `RunTraceRecord` -> evidence participant (`crates/eg-types/src/outcome_bundle.rs:56`) -> `RunTrace` node linked by `project` (`crates/eg-durable/src/project.rs:68`).
+
+Types: `RunTraceRecord`, `RuntimeQuota`, `QuotaDefaults`, `QuestionKind::RuntimeQuota`. Attach point: the dispatch match at `stat_decide.rs:134`. Production caller: the Wiring row creates the match arm. Failure behavior: an over-ceiling request refuses; a missing fact abstains to the defaults.
+
+Existing code: `crates/eg-types/src/outcome_bundle.rs:56`, `crates/eg-durable/src/project.rs:68`, `crates/eg-core/ontology/orchestration-v1.ttl:250`, `crates/eg-types/src/decision/topology.rs:75`. Reachable today: no for the quota decision and for an agent-run trace write; the `RunTrace` class exists in the ontology only. Search terms used with no match: `quota`, `wall_time`, `process_limit`, `memory_limit`, `RuntimeQuota`. Moves from agent-utilities: none named.
+
+Decision: the engine fixes the numbers and the harness enforces them, so a tenant policy changes limits without a harness release. Rejected alternative: constants in the harness, because they cannot differ per tenant or task class.
+
+Cross-repository: `AU-CONTROL-R041` receives `RuntimeQuota` and enforces it; `AU-CONTROL-R040` emits the run events that become the trace.
+
+References
+- No paper is cited.
+
+## Task planning and selection (R134)
+
+Consumers: AU-CONTROL-R042 (tool selection), AU-CONTROL-R043 (decomposition and routing). The skill-library plan has no named consumer yet.
+
+Data flow: `Decide` wire method -> `handle_decide` (`src/server/handlers/decide/stat_decide.rs:48`) -> `task_plan_outcome` / `tool_relevance_outcome` at `stat_decide.rs:134` -> `plan_over_skills`, `decompose_task`, `rank_tools_by_relevance` (`crates/eg-types/src/decision/task_plan.rs`, new) -> `smallest_covering_subset` (`tool_subset.rs:58`) -> sealed answer.
+
+Types: `Subtask`, `AggregationOp`, `SkillStep`, `TaskPlan`. Attach point: the dispatch match at `stat_decide.rs:134`. Production caller: the Wiring row creates the arms. Failure behavior: an uncovered subtask or empty catalog abstains; a cycle refuses.
+
+Moves from agent-utilities: `agent_utilities/capabilities/fleet_tool_search.py:54`, `agent_utilities/graph/planning/__init__.py:165`, `agent_utilities/decide/consumers/task_planner.py:211`.
+
+Existing code: `crates/eg-types/src/decision/statistical/tool_subset.rs:58`, `crates/eg-types/src/decision/topology.rs:110`, `crates/eg-compute/src/assemble/topology.rs:54`, `crates/eg-compute/src/assemble/conclude.rs:99`, `src/server/handlers/decide/stat_tool_subset.rs:33`. Reachable today: yes for the covering subset (`tool_subset_outcome` is matched at `stat_decide.rs:134`) and for topology `pose`; no for relevance search, decomposition with an independence flag and the skill plan. Search terms used with no match: `skill_plan`, `SkillPlan`, `plan_skills`, `decompose`, `aggregation`. The existing `EG-DECISION-ENGINE-R045` owns the covering subset and is reused, not extended, because it selects by coverage and has no relevance score.
+
+Decision: one `TaskPlan` question kind returns subtasks, skills and operator together, so the harness applies one record. Rejected alternative: separate kinds per step, because the harness must stitch plans and loses the shared premises.
+
+Cross-repository: `AU-CONTROL-R042` and `AU-CONTROL-R043` receive the tool list and the plan and apply them.
+
+References
+- arXiv:2605.15132 — Rose et al., "APWA: A Distributed Architecture for Parallelizable Agentic Workflows" (2026)
+- arXiv:2606.18051 — Gao, "Compositional Skill Routing for LLM Agents: Decompose, Retrieve, and Compose" (2026)
+
+## Compiled program store (R135)
+
+Consumers: AU-HARNESS-R023.
+
+Data flow: harness run end -> `compile_program` (`crates/eg-types/src/decision/program_store.rs`, new) -> commit through `handle_decision_commit` -> `AgentLibraryStore`; later `Decide` wire method -> `handle_decide` (`src/server/handlers/decide/stat_decide.rs:48`) -> `program_lookup_outcome` at `stat_decide.rs:134` -> `lookup_program` -> stored program.
+
+Types: `CompiledProgram`, `ProgramStep`, `MAX_PROGRAM_STEPS`. Attach point: the dispatch match at `stat_decide.rs:134`. Production caller: the Wiring row creates the arm. Failure behavior: an unsuccessful run or an overlong trace refuses; a missing program abstains.
+
+Moves from agent-utilities: `agent_utilities/observability/replay_engine.py:48`.
+
+Existing code: `src/server/handlers/decide/candidates.rs:415`, `src/server/handlers/decide/stat_tool_subset.rs:33`. Reachable today: no. `crates/eg-tsdb/src/derive/mod.rs:152` defines a `Program` for derived series, which is a different type. Search terms used with no match: `task_signature`, `TaskSignature`, `compiled_program`, `store_program`, `lookup_program`, `MAX_PROGRAM_STEPS`.
+
+Decision: the engine owns the program store, so every harness replica shares one program per signature. Rejected alternative: a harness-local cache, because replicas compile and store duplicates.
+
+Cross-repository: `AU-HARNESS-R023` replays the returned program; it does not store or choose one.
+
+References
+- arXiv:2606.17929 — Li, "PreAct: Computer-Using Agents that Get Faster on Repeated Tasks" (2026)
+
+## Evolution round verdict and stage model allocation (R136)
+
+Consumers: AU-HARNESS-R025 (round verdict), AU-SEMANTIC-R029 (stage allocation).
+
+Data flow: `Decide` wire method -> `handle_decide` (`src/server/handlers/decide/stat_decide.rs:48`) -> `round_verdict_outcome` / `stage_allocation_outcome` at `stat_decide.rs:134` -> `decide_round_verdict` / `allocate_stage_models` (`crates/eg-types/src/decision/evolution_round.rs`, new) -> sealed answer.
+
+Types: `PredictionDeclaration`, `RoundVerdict`, `EvolutionDefaults`, `StageAllocation`, `RunBudget`. Attach point: the dispatch match at `stat_decide.rs:134`. Production caller: the Wiring row creates the arms. Failure behavior: an empty prediction abstains; an unaffordable budget refuses.
+
+Moves from agent-utilities: `agent_utilities/decide/consumers/routing.py:58` (allocation). The verdict has no code to move.
+
+Existing code: `src/server/handlers/decide/stat_tool_subset.rs:33`, `src/server/handlers/decide/candidates.rs:415`. Reachable today: no. `EG-DECISION-ENGINE-R035` owns routing among models, but it chooses one option per request and has no budget across stages, so this rollup is separate. Search terms used with no match: `falsified`, `flip_fraction`, `PredictionVerdict`, `stage_budget`, `ModelAllocation`, `model_per_stage`.
+
+Decision: the engine returns a verdict and an allocation as records, so the harness keeps or reverts a change by reading one field. Rejected alternative: the harness compares outcomes itself, because each harness applies a different threshold.
+
+Cross-repository: `AU-HARNESS-R025` keeps or reverts on the verdict; `AU-SEMANTIC-R029` applies the allocation and the limit.
+
+References
+- arXiv:2604.25850 — Lin et al., "Agentic Harness Engineering: Observability-Driven Automatic Evolution of Coding-Agent Harnesses" (2026)
+- arXiv:2604.07725 — Maheswaran et al., "Squeeze Evolve: Unified Multi-Model Orchestration for Verifier-Free Evolution" (2026)
+
+## Context budget and parallel-map limits (R137)
+
+Consumers: AU-CONTEXT-R004 (context budget and plan), AU-HARNESS-R026 (parallel-map limits).
+
+Data flow: `Decide` wire method -> `handle_decide` (`src/server/handlers/decide/stat_decide.rs:48`) -> `context_budget_outcome` at `stat_decide.rs:134` -> `decide_over_window` (`crates/eg-types/src/decision/context_budget.rs`, new) -> sealed answer carrying policy, budget, limits and plan.
+
+Types: `ParallelMapLimits`, `WindowBudget`, `OverWindowPlan`; `ContextPolicy` is reused. Attach point: the dispatch match at `stat_decide.rs:134`. Production caller: the Wiring row creates the arm. Failure behavior: an exhausted budget or an item count over the limit refuses; a missing window abstains to the default.
+
+Moves from agent-utilities: `agent_utilities/rlm/config.py:60`, `agent_utilities/knowledge_graph/retrieval/context_knapsack.py:422`.
+
+Existing code: `crates/eg-types/src/decision/statistical/harness_config.rs:81`, `crates/eg-compute/src/assemble/eliminate.rs:97`, `crates/eg-compute/src/assemble/eliminate.rs:138`, `src/server/handlers/decide/candidates.rs:415`. Reachable today: yes for the window elimination in `eliminate.rs:97`, which discards a candidate whose window is too small; no for the over-window plan and the limits. `EG-DECISION-ENGINE-R128` owns the context policy and thresholds and is reused; this rollup adds the recursive plan and the limits that `EG-DECISION-ENGINE-R128` does not cover. Search terms used with no match: `over_window`, `window_fraction`, `max_items`, `OverWindow`.
+
+Decision: the engine returns the plan and the limits together, so the harness never exceeds a budget it did not receive. Rejected alternative: limits set in harness configuration, because they cannot follow the task class.
+
+Cross-repository: `AU-CONTEXT-R004` assembles context from the plan; `AU-HARNESS-R026` enforces the limits in fan-out.
+
+References
+- arXiv:2512.24601 — Zhang et al., "Recursive Language Models" (2026)
+
+## Red-team records and probe verdict (R138)
+
+Consumers: AU-QUAL-R009.
+
+Data flow: `Decide` wire method -> `handle_decide` (`src/server/handlers/decide/stat_decide.rs:48`) -> `probe_verdict_outcome` at `stat_decide.rs:134` -> `select_scorers`, `decide_probe_verdict` (`crates/eg-types/src/decision/red_team.rs`, new) -> sealed answer.
+
+Types: `RedTeamAttack`, `RedTeamTransform`, `RedTeamScorer`, `ProbeVerdict`. Attach point: the dispatch match at `stat_decide.rs:134`. Production caller: the Wiring row creates the arm. Failure behavior: a category with no scorer abstains; a missing score is inconclusive.
+
+Moves from agent-utilities: `agent_utilities/harness/reliability_scorers.py:1`.
+
+Existing code: `src/server/handlers/decide/candidates.rs:415`, `src/server/handlers/decide/stat_tool_subset.rs:33`. Reachable today: no. Search terms used with no match: `red_team`, `redteam`, `RedTeam`, `jailbreak`, `prompt_injection`, `attack`, `score_probe`.
+
+Decision: the engine decides the verdict from stored records, so every harness reads one result for one probe. Rejected alternative: scoring in the harness, because the records and thresholds differ per harness.
+
+Cross-repository: `AU-QUAL-R009` runs the probe, submits the scorer results and reports the verdict.
+
+References
+- arXiv:2605.04019 — Dheekonda et al., "Redefining AI Red Teaming in the Agentic Era: From Weeks to Hours" (2026)

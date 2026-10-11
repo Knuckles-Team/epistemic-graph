@@ -327,3 +327,60 @@ The existing admin holder test retains its historical Content assertions.
 - `EG-DECISION-ENGINE-R132.4`: `crates/eg-compute/src/assemble/tests/entry_trust_refusal.rs::poisoned_only_premise_abstains`.
 - `EG-DECISION-ENGINE-R132.5`: `crates/eg-compute/src/assemble/tests/entry_trust_refusal.rs::refused_entries_are_recorded`.
 - `EG-DECISION-ENGINE-R132.6`: `tests/decide/test_entry_trust_served.py::test_unverified_entry_cannot_override_verified`.
+
+### EG-DECISION-ENGINE-R133 tests
+
+- `EG-DECISION-ENGINE-R133.1`: `crates/eg-types/src/decision/run_governance.rs::tests::quota_round_trips`.
+- `EG-DECISION-ENGINE-R133.2`: `crates/eg-types/src/decision/run_governance.rs::tests::request_only_tightens_quota`.
+- `EG-DECISION-ENGINE-R133.3`: `src/server/handlers/decide/stat_tests/runtime_quota_tests.rs::decide_routes_runtime_quota`.
+- `EG-DECISION-ENGINE-R133.4`: `src/server/handlers/decide/stat_tests/runtime_quota_tests.rs::missing_task_class_abstains_to_default`.
+- `EG-DECISION-ENGINE-R133.5`: `crates/eg-durable/src/project.rs::tests::run_trace_is_linked_to_unit`.
+- `EG-DECISION-ENGINE-R133.6`: `tests/decide/test_runtime_quota_served.py::test_quota_and_trace_end_to_end`.
+
+### EG-DECISION-ENGINE-R134 tests
+
+- `EG-DECISION-ENGINE-R134.1`: `crates/eg-types/src/decision/task_plan.rs::tests::task_plan_round_trips`.
+- `EG-DECISION-ENGINE-R134.2`: `crates/eg-types/src/decision/task_plan.rs::tests::relevant_tools_fit_budget`.
+- `EG-DECISION-ENGINE-R134.3`: `crates/eg-types/src/decision/task_plan.rs::tests::independent_subtasks_set_flag_and_operator`.
+- `EG-DECISION-ENGINE-R134.4`: `crates/eg-types/src/decision/task_plan.rs::tests::plan_respects_dependencies`.
+- `EG-DECISION-ENGINE-R134.5`: `src/server/handlers/decide/stat_tests/task_plan_tests.rs::decide_routes_task_plan`.
+- `EG-DECISION-ENGINE-R134.6`: `src/server/handlers/decide/stat_tests/task_plan_tests.rs::uncovered_subtask_abstains`.
+- `EG-DECISION-ENGINE-R134.7`: `src/server/handlers/decide/stat_tests/task_plan_tests.rs::premises_name_skill_and_flag`.
+- `EG-DECISION-ENGINE-R134.8`: `tests/decide/test_task_plan_served.py::test_plan_end_to_end`.
+
+### EG-DECISION-ENGINE-R135 tests
+
+- `EG-DECISION-ENGINE-R135.1`: `crates/eg-types/src/decision/program_store.rs::tests::program_round_trips`.
+- `EG-DECISION-ENGINE-R135.2`: `crates/eg-types/src/decision/program_store.rs::tests::literals_become_parameters`.
+- `EG-DECISION-ENGINE-R135.3`: `src/server/handlers/decide/stat_tests/program_store_tests.rs::decide_routes_program_lookup`.
+- `EG-DECISION-ENGINE-R135.4`: `src/server/handlers/decide/stat_tests/program_store_tests.rs::overlong_trace_is_refused`.
+- `EG-DECISION-ENGINE-R135.5`: `src/server/handlers/decide/stat_tests/program_store_tests.rs::program_links_source_trace`.
+- `EG-DECISION-ENGINE-R135.6`: `tests/decide/test_program_store_served.py::test_compile_then_lookup`.
+
+### EG-DECISION-ENGINE-R136 tests
+
+- `EG-DECISION-ENGINE-R136.1`: `crates/eg-types/src/decision/evolution_round.rs::tests::round_types_round_trip`.
+- `EG-DECISION-ENGINE-R136.2`: `crates/eg-types/src/decision/evolution_round.rs::tests::verdict_follows_flip_fraction`.
+- `EG-DECISION-ENGINE-R136.3`: `crates/eg-types/src/decision/evolution_round.rs::tests::stronger_models_go_to_high_impact_stages`.
+- `EG-DECISION-ENGINE-R136.4`: `src/server/handlers/decide/stat_tests/evolution_round_tests.rs::decide_routes_round_kinds`.
+- `EG-DECISION-ENGINE-R136.5`: `src/server/handlers/decide/stat_tests/evolution_round_tests.rs::empty_prediction_abstains`.
+- `EG-DECISION-ENGINE-R136.6`: `src/server/handlers/decide/stat_tests/evolution_round_tests.rs::premises_name_counts_and_budget`.
+- `EG-DECISION-ENGINE-R136.7`: `tests/decide/test_evolution_round_served.py::test_verdict_and_allocation`.
+
+### EG-DECISION-ENGINE-R137 tests
+
+- `EG-DECISION-ENGINE-R137.1`: `crates/eg-types/src/decision/context_budget.rs::tests::context_budget_round_trips`.
+- `EG-DECISION-ENGINE-R137.2`: `crates/eg-types/src/decision/context_budget.rs::tests::over_window_prompt_is_split_within_limits`.
+- `EG-DECISION-ENGINE-R137.3`: `src/server/handlers/decide/stat_tests/context_budget_tests.rs::decide_routes_context_budget`.
+- `EG-DECISION-ENGINE-R137.4`: `src/server/handlers/decide/stat_tests/context_budget_tests.rs::too_many_items_is_refused`.
+- `EG-DECISION-ENGINE-R137.5`: `src/server/handlers/decide/stat_tests/context_budget_tests.rs::premises_name_window_and_limits`.
+- `EG-DECISION-ENGINE-R137.6`: `tests/decide/test_context_budget_served.py::test_over_window_plan_end_to_end`.
+
+### EG-DECISION-ENGINE-R138 tests
+
+- `EG-DECISION-ENGINE-R138.1`: `crates/eg-types/src/decision/red_team.rs::tests::red_team_records_round_trip`.
+- `EG-DECISION-ENGINE-R138.2`: `crates/eg-types/src/decision/red_team.rs::tests::one_passing_scorer_compromises`.
+- `EG-DECISION-ENGINE-R138.3`: `src/server/handlers/decide/stat_tests/red_team_tests.rs::decide_routes_probe_verdict`.
+- `EG-DECISION-ENGINE-R138.4`: `src/server/handlers/decide/stat_tests/red_team_tests.rs::missing_scorer_abstains`.
+- `EG-DECISION-ENGINE-R138.5`: `src/server/handlers/decide/stat_tests/red_team_tests.rs::premises_name_scorers_and_scores`.
+- `EG-DECISION-ENGINE-R138.6`: `tests/decide/test_red_team_served.py::test_probe_verdict_end_to_end`.
