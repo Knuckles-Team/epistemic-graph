@@ -508,6 +508,7 @@ and pure `decide_action_space`. Fractions reuse checked `UnitRationalWire` with
 a required Q32 denominator; tool subsets and missing-fact lists use `BoundedVec`.
 The selector accepts optional measured proficiency and optional resolved task
 boolean, refuses invalid evaluation references, and names every missing input
-in a conservative `tool_set` abstention. All twelve presence/value combinations
+in a conservative `tool_set` abstention. Abstentions reject empty missing-fact
+lists and blank names during decode and explicit validation. All twelve presence/value combinations
 are covered. QuestionKind, profile resolution, handlers, persistence and served
 acceptance remain open under their separate leaves.
