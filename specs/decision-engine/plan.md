@@ -260,3 +260,19 @@ No spec binding marker is added before that native run.
 ## Ingestion and schema completion boundaries
 
 R079.1 proves the content taxonomy only. R079.2 through R079.5 retain the parent ingestion, duplicate/size, SQL, and retrieval-feedback obligations. R080.1 proves the typed provenance rule only; R080.2 requires the real six-rung integration fixture. R102.1 proves the typed activation sequence only; R102.2 requires a real shadow ingestion and approval-gated activation. These requirements use the existing source-ingestion, enrichment, and approved-schema owners. They introduce no second write authority. Their planned fixtures are not execution evidence.
+
+### 2026-10-11: bounded solver completion telemetry (R072.1)
+
+Emit one `eg_compute::solve` completion event after the actual search returns its
+certificate. Report `solver_nodes`, `optimality_gap_available`, and, only when
+both endpoints exist and checked subtraction yields a nonnegative value,
+`optimality_gap`. The gap is the absolute scalarized minimization objective gap,
+exported as an approximate f64 for telemetry; certificate integers stay exact.
+Missing endpoints, invalid ordering, and arithmetic overflow omit the gap rather
+than imply optimality. No model inputs, identifiers, selections, or tenant data
+are recorded. Add helper and actual solver-path capture regressions without
+changing search behavior or certificate serialization. Native solver-path
+test was not run. A rustc test harness importing the exact production metrics
+module with the existing tracing rlib passed all 3 helper/capture tests. This
+command does not execute the native solver-entry regression. The regression
+source is bound to R072.1; generated spec state and test execution are separate.

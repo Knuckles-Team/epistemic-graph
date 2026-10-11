@@ -13,6 +13,8 @@ mod determinism;
 mod exhaustive;
 #[path = "solve/generators.rs"]
 mod generators;
+#[path = "solve/instrumentation.rs"]
+mod instrumentation;
 #[path = "solve/model_validation.rs"]
 mod model_validation;
 #[path = "solve/planted.rs"]
