@@ -825,3 +825,6 @@ mod tests {
         assert_eq!(result, Err(MiningCancelled));
     }
 }
+
+#[cfg(test)]
+mod parity_tests;

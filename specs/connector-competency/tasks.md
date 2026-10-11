@@ -86,7 +86,6 @@ Tasks mirror requirements.md rows; check a task only when its evidence is linked
 - [ ] **CQ-082 · EG-CQ-CONN-R082:** action-v1.ttl additions rollup (1 children).
 - [ ] **CQ-083 · EG-CQ-CONN-R083:** erpnext, salesforce and twenty use the `EG-SUPPLY-VOCAB` commercial vocabulary (single row).
 
-
 ## Restore noncommercial mapping proof
 
 Implement each acceptance task after its listed producer dependencies land.

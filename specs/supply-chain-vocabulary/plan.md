@@ -211,3 +211,21 @@ Copying source data; the authority vocabulary (`EG-CQ-XSRC-R001`); the federated
 ### 2026-10-11 Commercial terms from the connector vocabulary audit
 
 Erpnext, salesforce and twenty need commercial terms. The connector vocabulary audit found them missing. Rows `EG-SUPPLY-VOCAB-R003.7` to `R003.12` add them, reusing `kg:Organization` and `kg:Person`. `EG-CQ-CONN-R083` points here.
+
+### 2026-10-11 Restore commercial registry and negative acceptance
+
+Old statement: the commercial consolidation omitted registry, catalog, namespace and Opportunity date acceptance.
+New statement: EG-SUPPLY-VOCAB-R003.13 through R003.17 restore those obligations within the existing commercial owner.
+Evidence: PR #413 removed former EG-CONN-AUDIT-R016.1, R016.2, R016.3 and R016.7 acceptance.
+R003.13, R003.14 and R003.15 respectively retain the first three obligations in commercial-v1.
+R003.16 supplies closeDate; R003.17 retains the former Opportunity shape's valid and invalid fixtures.
+No parallel commerce-v1 module is authorized. Existing R003.7 through R003.12 keep their identities and current semantic decisions.
+The original Party/Contact representation differs from PR #418; this amendment does not resolve that separate semantic review.
+All five new rows remain SPECIFIED. Named tests are planned, not executed evidence.
+
+Implementation follows tasks.md producer order. Registration precedes declarations; closeDate and the shapes companion precede Opportunity validation.
+Tests check exact RDF types, canonical IRIs, domains and ranges. Existing shared property domains must not narrow.
+Missing illustrative properties require bounded producer rows with named tests before fixtures consume them.
+Contact joins use approved opaque identity links, never raw email matching.
+Connector payload availability remains unverified and cannot be inferred from ontology declarations.
+Live competency tests must abstain when required source fields or approved mappings are absent.

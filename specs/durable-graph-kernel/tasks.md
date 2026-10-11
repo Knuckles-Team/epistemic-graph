@@ -84,7 +84,7 @@ Status key: `[ ]` queued, `[-]` in progress, `[x]` verified at cited main revisi
 - [ ] **EG-DURABLE-KERNEL-R082.3:** Distinct-item cap and opaque-reference rule are decided and enforced at submit
 - [ ] **EG-DURABLE-KERNEL-R082.4:** Association-rule identity is byte-identical to the old worker's
 - [ ] **EG-DURABLE-KERNEL-R082.5:** The staged result has the 11-column knowledge-batch shape
-- [ ] **EG-DURABLE-KERNEL-R082.6:** Rules are ordered and thresholded exactly as before
+- [x] **EG-DURABLE-KERNEL-R082.6:** Rules are ordered and thresholded exactly as before
 - [ ] **EG-DURABLE-KERNEL-R082.7:** A running mining job observes cancellation, deadline and CPU budget
 - [ ] **EG-DURABLE-KERNEL-R082.8:** Failure codes and retry follow the durable retry policy
 - [ ] **EG-DURABLE-KERNEL-R082.9:** Colocated pool lease and poll interval are configurable

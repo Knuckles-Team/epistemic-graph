@@ -442,6 +442,12 @@ ID map (old to new):
 | `EG-CONN-AUDIT-R017` and `.1` to `.18` | Amendment above |
 | `EG-CONN-AUDIT` (spec ID) | `EG-CQ-CONN` |
 
+### 2026-10-11 Restore commercial reassignment refusal tests
+
+Old statement: R083 checked the commercial Coverage names without exact-cell and missing-producer refusal tests.
+New statement: R083 includes those checks and EG-SUPPLY-VOCAB-R003.13 through R003.17 registry and shape prerequisites.
+Evidence: former EG-CONN-AUDIT-R017.4, R017.15 and R017.18 required these checks for erpnext, salesforce and twenty.
+This amendment does not deliver ontology terms or verify connector answers. Source payload support remains unverified.
 
 ### 2026-10-11 Restore noncommercial mapping acceptance
 

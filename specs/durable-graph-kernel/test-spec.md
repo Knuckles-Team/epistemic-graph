@@ -57,3 +57,13 @@ functions. This proves schema admission and decoding, not socket serving,
 authentication, persistence or the executor lifecycle. The broader R082 rollup
 and its other children remain open. Normal warm-tree reproduction is
 `cargo test --lib --features jobs mine_associate_submission_tests`.
+
+## R082.6 historical association parity
+
+| Requirement | Proving tests | Evidence |
+|---|---|---|
+| EG-DURABLE-KERNEL-R082.6 | `deleted_au_six_transaction_order_and_thresholds`; `minimum_count_and_zero_consequent_lift_boundaries` | Six historical transaction cases cover all three engines, stable ordering, thresholds, metrics, and zero lift. |
+
+Run `cargo test -p eg-compute mining::association`.
+Isolated compilation includes the complete production association and math modules with real serde_json.
+This proves native kernel behavior, not server transport or durable execution.

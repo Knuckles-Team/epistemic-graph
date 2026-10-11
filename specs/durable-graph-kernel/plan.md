@@ -109,3 +109,23 @@ Out of scope: new analytics families, a schedule for mining jobs, and any change
 `eg_types::scheduler_config::SchedulerConfig` is the sole producer of scheduler policy data: explicit total workers and queue depth, deterministic lane-floor map, CPU per-mille default 360, and memory-per-worker default 3,221,225,472 bytes. `validate()` rejects blank lane IDs, CPU fractions above 1000, zero memory divisors and floor sums exceeding the pool. Checked subtraction prevents floor-sum overflow. Zero pool, CPU fraction or queue depth is an explicit disabled resource; the later grant path must never override it with a floor of one. Serde rejects unknown fields and requires the two explicit limits. Deserialization alone is not policy admission: consumers must call validation before applying data.
 
 R076.2 remains responsible for scope, persistence, served reads/updates, lane membership and real admission/queue enforcement. Worker registration supplies capacity, not an alternative policy authority. R074 worker registration and these floor keys share canonical engine lane IDs; served integration must validate membership against the same registry.
+
+## Amendments
+
+### 2026-10-11: R082.6 historical ordering
+
+EG-DURABLE-KERNEL-R082.6 previously left ascending tie keys ambiguous.
+The historical miner sorts first-seen integer IDs, not label strings.
+The engine must preserve this order.
+AU commit `134576bd0f5931a9b22ed3c3859a3f4350731ad6` provides the original implementation.
+Commit `92974bae8c3ed3a270f582300b7458d4f53571c4` deletes that implementation.
+The fixture records unchanged historical mining definitions, executed without unrelated transport imports.
+Six transactions use reverse-lexical labels and duplicate items.
+The existing association module owns execution; its child test module owns parity checks.
+No second production miner is introduced.
+
+## Audit record
+
+2026-10-11: R082.6 compares all three engines against the historical Python output.
+The fixture records source identity and SHA-256.
+Boundary cases cover ceiling support, minimum count, confidence tolerance, and zero consequent support.
