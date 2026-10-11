@@ -1155,7 +1155,7 @@
     },
     {
       "id": "EG-FEDERATED-QUERY-R077.2",
-      "title": "Enable and disable surface",
+      "title": "Bind and unbind surface",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
