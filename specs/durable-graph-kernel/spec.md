@@ -76,3 +76,10 @@ R074.1 owns the pure typed capacity and liveness transitions in eg-types. R074.2
 ## Scheduler config producer boundary
 
 R076 is split into R076.1 and R076.2. The first owns the pure typed policy and validation in `eg-types`. The second must expose and consume it through the real engine setting/admission paths. Model tests do not establish a served setting or complete R076. EG-PLACEMENT-R002.2 extends the producer contract with autosize defaults and queue depth.
+
+## Required runtime manifest boundary
+
+R011.2 owns the concrete crate, feature, and module-filter declarations in `eg-types`.
+The declaration refuses an empty discovered selection.
+R011.3 owns pre-merge execution; R011.4 owns exact-head CI acceptance receipts.
+Manifest unit tests do not establish runtime acceptance for R011.

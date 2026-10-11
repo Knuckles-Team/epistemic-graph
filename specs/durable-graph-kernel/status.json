@@ -296,19 +296,25 @@
         "9794030f6459"
       ],
       "verified_by": [
-        "crates/eg-types/src/pre_merge_test_module.rs:101",
-        "crates/eg-types/src/pre_merge_test_module.rs:118",
-        "crates/eg-types/src/pre_merge_test_module.rs:127",
-        "crates/eg-types/src/pre_merge_test_module.rs:138",
-        "crates/eg-types/src/pre_merge_test_module.rs:152"
+        "crates/eg-types/src/pre_merge_test_module.rs:164",
+        "crates/eg-types/src/pre_merge_test_module.rs:181",
+        "crates/eg-types/src/pre_merge_test_module.rs:190",
+        "crates/eg-types/src/pre_merge_test_module.rs:202",
+        "crates/eg-types/src/pre_merge_test_module.rs:217"
       ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R011.2",
       "title": "Concrete required-module manifest",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "a430c82b18b2"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/pre_merge_test_module.rs:232",
+        "crates/eg-types/src/pre_merge_test_module.rs:279",
+        "crates/eg-types/src/pre_merge_test_module.rs:295"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R011.3",
