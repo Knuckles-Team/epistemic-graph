@@ -150,10 +150,11 @@ All six existing tests passed; zero tests failed, skipped or remained filtered.
 The harness compiled the unchanged production file, including its existing test module.
 This evidence covers module acceptance only; it does not establish crate-wide or hosted runtime acceptance.
 
-Compiler arguments:
+Reproduction command uses `RUSTC`, `DEPS` and `SERDE` for the compiler, cached dependency directory and cached serde library.
+The cached serde library is `libserde-896ab768b6bd5b93.rlib`.
 
-```text
---edition=2021 --test --cfg 'feature="finance"' crates/eg-types/src/finance_event_envelope.rs -L dependency=/workspace/scratch/e4ef2ca48ba5/eg-finance-golden/target/finance-golden/debug/deps --extern serde=/workspace/scratch/e4ef2ca48ba5/eg-finance-golden/target/finance-golden/debug/deps/libserde-896ab768b6bd5b93.rlib -o /tmp/finance-alert-envelope-tests
+```sh
+mkdir -p target
+"$RUSTC" --edition=2021 --test --cfg 'feature="finance"' crates/eg-types/src/finance_event_envelope.rs -L dependency="$DEPS" --extern serde="$SERDE" -o target/finance-envelope-module-tests
+target/finance-envelope-module-tests --nocapture
 ```
-
-Test command: `/tmp/finance-alert-envelope-tests --nocapture`.
