@@ -1,6 +1,6 @@
 # EG-INGEST-WORKER - Design and implementation plan
 
-Status: PROPOSED. Governing spec: [spec.md](spec.md).
+Governing spec: [spec.md](spec.md).
 
 ## Functional description (what the deleted worker did)
 

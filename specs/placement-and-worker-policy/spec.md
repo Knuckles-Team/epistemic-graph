@@ -1,6 +1,6 @@
 # EG-PLACEMENT — Placement, worker policy and analytics bound
 
-Status: PROPOSED. Owner: epistemic-graph. Cross-repo IDs: GRAPHOS-DEPLOY-R017 (graph-os), EG-DECISION-ENGINE-R036, R046, R111, EG-DURABLE-KERNEL-R074 to R077, R082.3, EG-INGEST-WORKER-R001.
+Owner: epistemic-graph. Cross-repo IDs: GRAPHOS-DEPLOY-R017 (graph-os), EG-DECISION-ENGINE-R036, R046, R111, EG-DURABLE-KERNEL-R074 to R077, R082.3, EG-INGEST-WORKER-R001.
 Public provenance: closes three engine-side design gaps so each keeps one decision authority.
 
 ## Purpose and user stories

@@ -216,7 +216,6 @@ The ceiling now refuses 10,000 microseconds, which exceeds the single-digit-mill
 
 R090.2 retains compiled execution acceptance. R090.3 retains measured resource acceptance. Both children remain specified until their checks pass.
 
-
 ## Amendments
 
 ### 2026-10-11: retain R093 served acceptance

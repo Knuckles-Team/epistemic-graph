@@ -1,6 +1,6 @@
 # EG-REPO-INGEST implementation plan
 
-Status: PROPOSED. Governing outcome: [spec.md](spec.md). Normative data and failure contract: [architecture.md](plan.md).
+Governing outcome: [spec.md](spec.md). Normative data and failure contract: [architecture.md](plan.md).
 
 ## Existing implementation to extend
 
@@ -30,7 +30,7 @@ The deterministic contract/unit tier must run from a clean checkout with local t
 
 ## Architecture
 
-Status: PROPOSED. This document defines the engine-owned boundary and data model for [spec.md](spec.md).
+This document defines the engine-owned boundary and data model for [spec.md](spec.md).
 
 ### Authority and flow
 

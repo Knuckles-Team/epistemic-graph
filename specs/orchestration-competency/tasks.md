@@ -1,6 +1,6 @@
 # EG-CQ-ORCH — Implementation tasks
 
-Status: PROPOSED. Governing spec: [spec.md](spec.md). Design: [design.md](plan.md).
+Governing spec: [spec.md](spec.md). Design: [design.md](plan.md).
 
 Producer first: ontology gaps, shapes and authority mappings before fixtures and acceptance tests. R009 children are owned by graph-os.
 

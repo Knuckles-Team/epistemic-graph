@@ -43,7 +43,6 @@ Check metric labels omit raw facts and errors omit invisible component identifie
 | EG-DECISION-ENGINE-R118 | Two source pools with independently labeled successes/failures, one sparse pool and two tenant scopes yield reproducible posterior, Brier/log/decomposition/calibration scores; the governed value agrees in decision policy, retrieval rank and UQL. | Self-reported labels, invisible outcomes and missing pool history cannot improve another tenant's score; a caller-supplied weight cannot override the materialization; sparse history abstains. |
 | EG-DECISION-ENGINE-R119 | A fixed bitemporal series produces exact purged/embargoed walk-forward folds, proportional shared-cap allocations, real trial-count DSR, split PBO, incumbent DM, option contributions and byte-identical sealed replay after checkpoint resume. | Future-known rows, overlap, changed source/head/policy digest, over-cap allocation, policy-dependent environment, bad supersedes digest and malformed `REPLAY WALK FORWARD` refuse without a sealed run or head promotion. |
 
-
 For each changed code path run focused Rust/Python/client tests, `cargo fmt --check`, workspace Clippy with applicable features, generated contract freshness, CCCC, KISS, Dupehound and jscpd differential with zero new pairs. Hosted CI runs build/package tests for affected features and the locally provisioned served journey. Optional cloud/cluster/identity-provider tests run in a separate deployment qualification and cannot block normal external PRs merely because no live environment exists. An acceptance record is complete only when every relevant A–E case and gate has a result tied to the same published commit; `SOURCE_LANDED` stays distinct from `ACCEPTED`.
 
 ### EG-DECISION-ENGINE-R113.1: capacity commit type
@@ -77,7 +76,6 @@ The direct-module run verifies this leaf's constructor contract only.
 It does not verify a durable transaction or enforce retry use at runtime.
 EG-DECISION-ENGINE-R113.2 tracks the atomic transaction.
 EG-DECISION-ENGINE-R113.3 tracks retry enforcement.
-
 
 ### Planned runtime checks for EG-DECISION-ENGINE-R113
 
@@ -133,7 +131,6 @@ The latency boundary accepts 9,999 microseconds and refuses 10,000 microseconds.
 EG-DECISION-ENGINE-R090.2 requires `tests/decision_resident_scorer.rs::compiled_engine_scores_without_external_runtime`.
 EG-DECISION-ENGINE-R090.3 requires `benches/decision_resident_scorer.rs::resident_scorer_meets_declared_budget`.
 Both checks remain planned and unrun. Budget declarations do not establish either result.
-
 
 ### R093.2 planned served acceptance
 

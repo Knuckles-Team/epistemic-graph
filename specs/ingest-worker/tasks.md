@@ -1,6 +1,6 @@
 # EG-INGEST-WORKER implementation tasks
 
-Status: PROPOSED. Governing spec: [spec.md](spec.md). Design: [plan.md](plan.md).
+Governing spec: [spec.md](spec.md). Design: [plan.md](plan.md).
 
 - [ ] **T1 - R001:** Ingest worker capability is served by the engine queue and run by the SDK runner (rollup).
 - [ ] **T2 - R001.1:** Typed ingest job envelope with refusal tests.
