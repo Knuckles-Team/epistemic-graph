@@ -1,0 +1,21 @@
+# EG-CQ-XSRC-001 — Test specification
+
+Status: PROPOSED. Governing spec: [spec.md](spec.md).
+
+| Test ID | Requirement | Level | Setup and input | Expected observation | Evidence |
+|---|---|---|---|---|---|
+| T-001 | FR-001 | Shape | Authority fixtures: valid, no source, no class, no rank, equal-rank tie, unapproved mapping | Valid accepted; each fault refused; unapproved mapping reports uncovered | PENDING |
+| T-002 | FR-002 | Contract | Load `supply_chain-v1.ttl`, seed authority rows | Terms present; `select_sources` names the declared source per concept | PENDING |
+| T-003 | FR-003 | Integration | Three vendor records and three service records across sources | One node after approval, separate before; join empty before approval | PENDING |
+| T-004 | FR-004 | Integration | Class-only SPARQL fixture | Planned sources equal authority-derived set; no connector name in query | PENDING |
+| T-005 | FR-005 | Unit | Recorded rows, each abstention kind | Report shape, freshness and abstentions as specified | PENDING |
+| T-006 | FR-006 | End to end | Recorded responses; then live; then procurement absent; then authority swap | Non-empty provenance-carrying answer; typed abstention; sources differ with equal query text | PENDING |
+| T-007 | FR-007 | End to end | Three generalization fixtures | Each non-empty with provenance, and abstention when its source is absent | PENDING |
+
+## Negative and boundary cases
+
+Equal-rank authority; authority on an unapproved mapping; unconnected rank-1 source with and without `vg:allowFallback`; unapproved `owl:sameAs`; a report item with no source; a copy with no watermark; a connector name in the query text.
+
+## Quality and release proof
+
+Focused `cargo test` for `eg-rdf`, `eg-types` and `eg-core` ontology tests; `pipelines-hook spec-status` and `spec-decomposition`. Live acceptance runs through graph-os and records revision, connected sources and output. A source test alone is not served acceptance.

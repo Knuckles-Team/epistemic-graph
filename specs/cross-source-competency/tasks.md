@@ -1,0 +1,60 @@
+# EG-CQ-XSRC-001 — Implementation tasks
+
+Status: PROPOSED. Governing spec: [spec.md](spec.md). Design: [plan.md](plan.md). Producers first; each child is one 5-minute unit.
+
+- [ ] Concept-to-source authority is declared in the ontology (rollup). **EG-CQ-XSRC-R001**
+  - [ ] Add `vg:SourceAuthority`, `vg:authoritativeSource`, `vg:authorityFor` and `vg:authorityRank` to the virtual-graph vocabulary. **EG-CQ-XSRC-R001.1**
+  - [ ] SHACL shape: a `vg:SourceAuthority` names exactly one connected source, one class and one rank. **EG-CQ-XSRC-R001.2**
+  - [ ] Authority applies through subclass entailment. **EG-CQ-XSRC-R001.3**
+  - [ ] Authority records the approval of its mapping. **EG-CQ-XSRC-R001.4**
+- [ ] Supply-chain concepts and the sources that are authoritative for them (rollup). **EG-CQ-XSRC-R002**
+  - [ ] Add `:Supplier` as a subclass of `:Vendor`, and `:SupplyChainItem` with `:suppliedBy`. **EG-CQ-XSRC-R002.1**
+  - [ ] Add `:SoftwareComponent`, `:ComponentVersion` and `:publishedBy`. **EG-CQ-XSRC-R002.2**
+  - [ ] Add `:Vulnerability` and `:affectsComponent`. **EG-CQ-XSRC-R002.3**
+  - [ ] SHACL shape for supplier and component. **EG-CQ-XSRC-R002.4**
+  - [ ] Source-authority mapping: suppliers and purchase items. **EG-CQ-XSRC-R002.5**
+  - [ ] Source-authority mapping: software components and vulnerabilities. **EG-CQ-XSRC-R002.6**
+  - [ ] Virtual mapping fixture: erpnext supplier table to `:Supplier`. **EG-CQ-XSRC-R002.7**
+- [ ] Service concepts and the sources that are authoritative for them (rollup). **EG-CQ-XSRC-R003**
+  - [ ] Source-authority mapping: `:Service` health. **EG-CQ-XSRC-R003.1**
+  - [ ] Source-authority mapping: deployed workloads and images. **EG-CQ-XSRC-R003.2**
+  - [ ] Source-authority mapping: business capabilities. **EG-CQ-XSRC-R003.3**
+  - [ ] Virtual mapping fixture: uptime monitor to `:Service`. **EG-CQ-XSRC-R003.4**
+  - [ ] Virtual mapping fixture: container-manager workload to `:Service` and `:ContainerImage`. **EG-CQ-XSRC-R003.5**
+- [ ] Linking relation between a supply-chain entity and a service, with entity resolution across sources (rollup). **EG-CQ-XSRC-R004**
+  - [ ] Add `:usesComponent` (service to component version) and `:suppliesService`. **EG-CQ-XSRC-R004.1**
+  - [ ] SHACL shape: `:usesComponent` domain and range. **EG-CQ-XSRC-R004.2**
+  - [ ] Resolve a vendor in erpnext, leanix and dockerhub to one `:Supplier`. **EG-CQ-XSRC-R004.3**
+  - [ ] Resolve a service in uptime, container-manager and the CMDB to one `:Service`. **EG-CQ-XSRC-R004.4**
+  - [ ] Query-time link: a join may only cross an approved `owl:sameAs`. **EG-CQ-XSRC-R004.5**
+- [ ] The federated query is planned from the ontology's source declarations (rollup). **EG-CQ-XSRC-R005**
+  - [ ] `select_sources` orders candidate mappings by `vg:authorityRank`. **EG-CQ-XSRC-R005.1**
+  - [ ] Query fixture: the supply-chain impact query over classes only. **EG-CQ-XSRC-R005.2**
+  - [ ] The plan is derived, not authored: planned sources equal the declared authorities. **EG-CQ-XSRC-R005.3**
+  - [ ] An unconnected authoritative source yields a typed abstention, not a silent fallback. **EG-CQ-XSRC-R005.4**
+  - [ ] `EXPLAIN` shows the authority premise for each planned source. **EG-CQ-XSRC-R005.5**
+- [ ] The unified report shape (rollup). **EG-CQ-XSRC-R006**
+  - [ ] Add the typed `SupplyChainImpactReport` model. **EG-CQ-XSRC-R006.1**
+  - [ ] Report carries freshness per source. **EG-CQ-XSRC-R006.2**
+  - [ ] Report abstention variants. **EG-CQ-XSRC-R006.3**
+  - [ ] Assemble the report from the federated rows. **EG-CQ-XSRC-R006.4**
+  - [ ] Serve the report through graph-os. **EG-CQ-XSRC-R006.5**
+- [ ] End-to-end acceptance from real connected data (rollup). **EG-CQ-XSRC-R007**
+  - [ ] Acceptance on recorded connector responses. **EG-CQ-XSRC-R007.1**
+  - [ ] Acceptance against the live connected sources. **EG-CQ-XSRC-R007.2**
+  - [ ] Acceptance with the procurement source not connected. **EG-CQ-XSRC-R007.3**
+  - [ ] Decisive test: changing only the ontology's authority declaration changes the sources used. **EG-CQ-XSRC-R007.4**
+- [ ] Generalization: three more cross-source questions of the same shape (rollup). **EG-CQ-XSRC-R008**
+  - [ ] Which services are exposed by a vulnerability in an image we deploy? (rollup) **EG-CQ-XSRC-R008.1**
+    - [ ] Query fixture and authority rows: vulnerable deployed image to exposed service. **EG-CQ-XSRC-R008.1.1**
+    - [ ] Acceptance: exposed services listed with image, vulnerability and sources. **EG-CQ-XSRC-R008.1.2**
+  - [ ] Which business capabilities depend on a host that is over its temperature or capacity limit? (rollup) **EG-CQ-XSRC-R008.2**
+    - [ ] Add a host limit-breach term to the ontology. **EG-CQ-XSRC-R008.2.1**
+    - [ ] SHACL shape: a limit-bearing host carries both reading and limit. **EG-CQ-XSRC-R008.2.2**
+    - [ ] Authority rows and query fixture: capability to service to host over a limit. **EG-CQ-XSRC-R008.2.3**
+    - [ ] Acceptance: capabilities at risk listed with the host, reading and limit. **EG-CQ-XSRC-R008.2.4**
+  - [ ] Which open incidents or changes touch a service a customer contract depends on? (rollup) **EG-CQ-XSRC-R008.3**
+    - [ ] Add `:CustomerContract`, `:ChangeRequest` and `:coversService`. **EG-CQ-XSRC-R008.3.1**
+    - [ ] SHACL shape: a contract names a customer and at least one service. **EG-CQ-XSRC-R008.3.2**
+    - [ ] Authority rows and query fixture: open incident or change to service to contract. **EG-CQ-XSRC-R008.3.3**
+    - [ ] Acceptance: open incidents and changes listed with the service and contract. **EG-CQ-XSRC-R008.3.4**

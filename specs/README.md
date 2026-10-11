@@ -70,6 +70,7 @@ bootstrap skill, together with the [SDD full lifecycle](https://github.com/Knuck
 - [`EG-DECISION-ENGINE`](decision-engine/spec.md) — governed decision and calibration engine contract.
 - [`EG-DURABLE-KERNEL`](durable-graph-kernel/spec.md) — durable graph state and recovery contract.
 - [`EG-IDENTITY-001`](engine-identity-and-scope/spec.md) — issuer, identity, scope, and audit contract.
+- [`EG-CQ-XSRC-001`](cross-source-competency/spec.md) — cross-source competency: supply chain to services, sources chosen by the ontology; PROPOSED.
 - [`EG-FEDERATED-QUERY`](federated-query-and-reasoning/spec.md) — federated query and reasoning contract.
 - [`EG-FINANCE-PRIMITIVES`](finance-primitives/spec.md) — native financial data and calculation primitives.
 - [`EG-CONTRACT-001`](public-engine-contract-and-release/spec.md) — public engine contract and release proof.
