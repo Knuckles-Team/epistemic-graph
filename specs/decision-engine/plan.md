@@ -563,3 +563,18 @@ Reused: `GuardrailRule` storage and `guardrail_entailment_query` (`guardrail.rs:
 Decision: refuse at the decision chokepoint, so no caller can skip the check. Rejected alternative: check inside each caller, because one missed caller bypasses the limit.
 
 Cross-repository: `AU-` rows may surface the refusal; the owning policy gate keeps enforcement.
+
+## Retrieved-entry trust (R132)
+
+Data flow: `Decide` wire method -> `handle_decide` (`src/server/handlers/decide/stat_decide.rs:48`) -> `decide_one` (`crates/eg-compute/src/assemble/conclude.rs:93`) -> `admit_entries` at `conclude.rs:180` -> premises -> record with refused entries.
+
+Types: `TrustTier`, `EntryTrust`, `AbstainReason::PoisonedEntry`. Attach point: premise construction at `conclude.rs:180`. Production caller: the Wiring row creates the call site. Failure behavior: a refused entry never becomes a premise; no admitted entry for a required premise abstains.
+
+Existing code: `crates/eg-types/src/decision/record/premise.rs:17`, `premise.rs:49`, `premise.rs:89`, `crates/eg-types/src/decision/ingestion_ladder.rs:46`, `crates/eg-types/src/decision/derivation.rs:310`, `crates/eg-modality/src/provenance.rs:22`. Reachable today: no for tier and poison check; `weakest` at `conclude.rs:192` is reachable but grades premise class only. Search terms used with no match: trust_tier, TrustTier, trust_level, poison, quarantine, untrusted.
+
+Decision: gate entries before they become premises, so the record never cites a refused entry. Rejected alternative: filter after the solver, because a refused entry must not shape the shortlist.
+
+Cross-repository: `AU-` memory callers may attach a tier to an entry; owner prefix `AU-MEMORY`, contract `EntryTrust`.
+
+References
+- No paper is cited.
