@@ -212,7 +212,7 @@
     "resolved_prior_failed_attempts": 1
   },
   "excluded": [
-    "Go/JS WASM codec acceptance; Python served regression uses the freshly rebuilt native codec.",
+    "Go/JS WASM acceptance was outside this initial native run; subsequent checks are recorded in client-parity.json.",
     "Full facade unit suite and exhaustive feature matrix.",
     "Resident-scorer tracing.",
     "Hosted CI reruns.",
@@ -263,5 +263,10 @@
     "native_rebuild": false,
     "test_rerun": false,
     "followup": "Only receipt/prose and officially generated status metadata change after the repaired accepted tip. Runtime source, generated contract bytes, fixture assertions, native binaries and caches remain unchanged."
+  },
+  "language_client_followup": {
+    "record": "client-parity.json",
+    "status": "PASS",
+    "note": "Subsequent Go/JavaScript parity; original native measurements and source identities are retained."
   }
 }

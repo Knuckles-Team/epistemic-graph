@@ -251,7 +251,7 @@ The existing capability projector emits `eg:fact/shellProficiency` and
 The producer tests cover both digest domains, value and provenance changes,
 malformed references, enum decoding and the actual projected atoms. Their test
 bindings do not establish signed pack import or served readback. R048.5 adds pack model annotations and import mapping for these fields.
-Its native served acceptance passed. Go and JavaScript codec parity requires the separate client checks.
+Its native served acceptance passed. Separate Go and JavaScript codec parity checks also passed.
 R066.1 owns the separate SHACL shapes and evaluation links.
 Before integration, regenerate the contract surfaces from the Rust schema source
 and check them. Producer tests do not substitute for that check.
@@ -285,6 +285,7 @@ The run passed 105 contract tests, 18 pack tests, and the real served regression
 Both the native method-body codec and server were rebuilt from the integrated source.
 The fixture uses the canonical MCP server URI required by the importer.
 Structured results are in `evidence/gr1080-r048-5-20261011/results.json`.
+Subsequent Go and JavaScript codec parity is recorded in `evidence/gr1080-r048-5-20261011/client-parity.json`.
 The regression sends each unknown enum through the raw MessagePack transport.
 It expects `INVALID_ARGUMENT` with detail `invalid request encoding`, then checks
 that no pack head, receipt, server component or model component exists.
