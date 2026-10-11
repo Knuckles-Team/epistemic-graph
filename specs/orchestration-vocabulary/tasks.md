@@ -51,3 +51,40 @@ Producer first: terms, then shapes, then projection call sites, then query tests
 - [ ] EG-ORCH-VOCAB-R008 Catalog registration and ontology gates (rollup)
 - [ ] EG-ORCH-VOCAB-R008.1 Register `orchestration-v1.shapes.ttl` with the shape loader
 - [ ] EG-ORCH-VOCAB-R008.2 Regenerate ontology artifacts
+- [ ] EG-ORCH-VOCAB-R009 Harness run-trace vocabulary (rollup)
+- [ ] EG-ORCH-VOCAB-R009.1 Add property `:terminationReason`
+- [ ] EG-ORCH-VOCAB-R009.2 Add property `:peakContextTokens`
+- [ ] EG-ORCH-VOCAB-R009.3 Add property `:contextBudgetTokens`
+- [ ] EG-ORCH-VOCAB-R009.4 Add property `:elisionCount`
+- [ ] EG-ORCH-VOCAB-R009.5 Add property `:summarizationCount`
+- [ ] EG-ORCH-VOCAB-R009.6 Add property `:turnCount`
+- [ ] EG-ORCH-VOCAB-R009.7 Add property `:toolCallCount`
+- [ ] EG-ORCH-VOCAB-R009.8 Add property `:costUsd`
+- [ ] EG-ORCH-VOCAB-R009.9 Add property `:appliedHarnessConfig`
+- [ ] EG-ORCH-VOCAB-R009.10 Add property `:runModel`
+- [ ] EG-ORCH-VOCAB-R009.11 Add property `:runTaskClass`
+- [ ] EG-ORCH-VOCAB-R009.12 Add counter shape
+- [ ] EG-ORCH-VOCAB-R009.13 Add context-budget shape
+- [ ] EG-ORCH-VOCAB-R009.14 Add completed-trace shape
+- [ ] EG-ORCH-VOCAB-R009.15 Refuse a shape-invalid RunTrace write
+- [ ] EG-ORCH-VOCAB-R009.16 Fixture trace for each termination reason
+- [ ] EG-ORCH-VOCAB-R009.17 Prove the ingestion hot path
+- [ ] EG-ORCH-VOCAB-R010 Run-trace metric queries (rollup)
+- [ ] EG-ORCH-VOCAB-R010.1 Query success rate
+- [ ] EG-ORCH-VOCAB-R010.2 Query cost per solved task
+- [ ] EG-ORCH-VOCAB-R010.3 Query overflow rate
+- [ ] EG-ORCH-VOCAB-R010.4 Query peak-to-budget ratio
+- [ ] EG-ORCH-VOCAB-R010.5 Query mechanism counts
+- [ ] EG-ORCH-VOCAB-R010.6 Query competency question
+- [ ] EG-ORCH-VOCAB-R011 Measured model facts from evaluation (rollup)
+- [ ] EG-ORCH-VOCAB-R011.1 Add class `:EvaluationRun`
+- [ ] EG-ORCH-VOCAB-R011.2 Add class `:MeasuredModelFact`
+- [ ] EG-ORCH-VOCAB-R011.3 Add properties `:factOfModel` and `:measuredProperty`
+- [ ] EG-ORCH-VOCAB-R011.4 Add property `:evidencedByRun`
+- [ ] EG-ORCH-VOCAB-R011.5 Add property `:measuredSupersedes`
+- [ ] EG-ORCH-VOCAB-R011.6 Add measured-fact shape
+- [ ] EG-ORCH-VOCAB-R011.7 Build the measured-fact envelope
+- [ ] EG-ORCH-VOCAB-R011.8 Refuse a measured fact without evidence
+- [ ] EG-ORCH-VOCAB-R011.9 Replace a fact by a newer measurement
+- [ ] EG-ORCH-VOCAB-R011.10 Apply the envelope through the governed path
+- [ ] EG-ORCH-VOCAB-R011.11 Prove the loop closes

@@ -50,7 +50,44 @@
     "EG-ORCH-VOCAB-R007.4",
     "EG-ORCH-VOCAB-R008",
     "EG-ORCH-VOCAB-R008.1",
-    "EG-ORCH-VOCAB-R008.2"
+    "EG-ORCH-VOCAB-R008.2",
+    "EG-ORCH-VOCAB-R009",
+    "EG-ORCH-VOCAB-R009.1",
+    "EG-ORCH-VOCAB-R009.2",
+    "EG-ORCH-VOCAB-R009.3",
+    "EG-ORCH-VOCAB-R009.4",
+    "EG-ORCH-VOCAB-R009.5",
+    "EG-ORCH-VOCAB-R009.6",
+    "EG-ORCH-VOCAB-R009.7",
+    "EG-ORCH-VOCAB-R009.8",
+    "EG-ORCH-VOCAB-R009.9",
+    "EG-ORCH-VOCAB-R009.10",
+    "EG-ORCH-VOCAB-R009.11",
+    "EG-ORCH-VOCAB-R009.12",
+    "EG-ORCH-VOCAB-R009.13",
+    "EG-ORCH-VOCAB-R009.14",
+    "EG-ORCH-VOCAB-R009.15",
+    "EG-ORCH-VOCAB-R009.16",
+    "EG-ORCH-VOCAB-R009.17",
+    "EG-ORCH-VOCAB-R010",
+    "EG-ORCH-VOCAB-R010.1",
+    "EG-ORCH-VOCAB-R010.2",
+    "EG-ORCH-VOCAB-R010.3",
+    "EG-ORCH-VOCAB-R010.4",
+    "EG-ORCH-VOCAB-R010.5",
+    "EG-ORCH-VOCAB-R010.6",
+    "EG-ORCH-VOCAB-R011",
+    "EG-ORCH-VOCAB-R011.1",
+    "EG-ORCH-VOCAB-R011.2",
+    "EG-ORCH-VOCAB-R011.3",
+    "EG-ORCH-VOCAB-R011.4",
+    "EG-ORCH-VOCAB-R011.5",
+    "EG-ORCH-VOCAB-R011.6",
+    "EG-ORCH-VOCAB-R011.7",
+    "EG-ORCH-VOCAB-R011.8",
+    "EG-ORCH-VOCAB-R011.9",
+    "EG-ORCH-VOCAB-R011.10",
+    "EG-ORCH-VOCAB-R011.11"
   ],
   "requirements": [
     {
@@ -445,6 +482,305 @@
     {
       "id": "EG-ORCH-VOCAB-R008.2",
       "title": "Regenerate ontology artifacts",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R009",
+      "title": "Harness run-trace vocabulary (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-ORCH-VOCAB-R009.1",
+        "EG-ORCH-VOCAB-R009.2",
+        "EG-ORCH-VOCAB-R009.3",
+        "EG-ORCH-VOCAB-R009.4",
+        "EG-ORCH-VOCAB-R009.5",
+        "EG-ORCH-VOCAB-R009.6",
+        "EG-ORCH-VOCAB-R009.7",
+        "EG-ORCH-VOCAB-R009.8",
+        "EG-ORCH-VOCAB-R009.9",
+        "EG-ORCH-VOCAB-R009.10",
+        "EG-ORCH-VOCAB-R009.11",
+        "EG-ORCH-VOCAB-R009.12",
+        "EG-ORCH-VOCAB-R009.13",
+        "EG-ORCH-VOCAB-R009.14",
+        "EG-ORCH-VOCAB-R009.15",
+        "EG-ORCH-VOCAB-R009.16",
+        "EG-ORCH-VOCAB-R009.17"
+      ]
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R009.1",
+      "title": "Add property `:terminationReason`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R009.2",
+      "title": "Add property `:peakContextTokens`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R009.3",
+      "title": "Add property `:contextBudgetTokens`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R009.4",
+      "title": "Add property `:elisionCount`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R009.5",
+      "title": "Add property `:summarizationCount`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R009.6",
+      "title": "Add property `:turnCount`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R009.7",
+      "title": "Add property `:toolCallCount`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R009.8",
+      "title": "Add property `:costUsd`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R009.9",
+      "title": "Add property `:appliedHarnessConfig`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R009.10",
+      "title": "Add property `:runModel`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R009.11",
+      "title": "Add property `:runTaskClass`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R009.12",
+      "title": "Add counter shape",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R009.13",
+      "title": "Add context-budget shape",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R009.14",
+      "title": "Add completed-trace shape",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R009.15",
+      "title": "Refuse a shape-invalid RunTrace write",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R009.16",
+      "title": "Fixture trace for each termination reason",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R009.17",
+      "title": "Prove the ingestion hot path",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R010",
+      "title": "Run-trace metric queries (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-ORCH-VOCAB-R010.1",
+        "EG-ORCH-VOCAB-R010.2",
+        "EG-ORCH-VOCAB-R010.3",
+        "EG-ORCH-VOCAB-R010.4",
+        "EG-ORCH-VOCAB-R010.5",
+        "EG-ORCH-VOCAB-R010.6"
+      ]
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R010.1",
+      "title": "Query success rate",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R010.2",
+      "title": "Query cost per solved task",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R010.3",
+      "title": "Query overflow rate",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R010.4",
+      "title": "Query peak-to-budget ratio",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R010.5",
+      "title": "Query mechanism counts",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R010.6",
+      "title": "Query competency question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R011",
+      "title": "Measured model facts from evaluation (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-ORCH-VOCAB-R011.1",
+        "EG-ORCH-VOCAB-R011.2",
+        "EG-ORCH-VOCAB-R011.3",
+        "EG-ORCH-VOCAB-R011.4",
+        "EG-ORCH-VOCAB-R011.5",
+        "EG-ORCH-VOCAB-R011.6",
+        "EG-ORCH-VOCAB-R011.7",
+        "EG-ORCH-VOCAB-R011.8",
+        "EG-ORCH-VOCAB-R011.9",
+        "EG-ORCH-VOCAB-R011.10",
+        "EG-ORCH-VOCAB-R011.11"
+      ]
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R011.1",
+      "title": "Add class `:EvaluationRun`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R011.2",
+      "title": "Add class `:MeasuredModelFact`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R011.3",
+      "title": "Add properties `:factOfModel` and `:measuredProperty`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R011.4",
+      "title": "Add property `:evidencedByRun`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R011.5",
+      "title": "Add property `:measuredSupersedes`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R011.6",
+      "title": "Add measured-fact shape",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R011.7",
+      "title": "Build the measured-fact envelope",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R011.8",
+      "title": "Refuse a measured fact without evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R011.9",
+      "title": "Replace a fact by a newer measurement",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R011.10",
+      "title": "Apply the envelope through the governed path",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R011.11",
+      "title": "Prove the loop closes",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

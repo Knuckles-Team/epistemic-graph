@@ -1,8 +1,8 @@
 # EG-ORCH-VOCAB — Implementation plan
 
-The architecture and vocabulary decisions are specified in [design.md](plan.md).
-Reuse the existing orchestration competency, decision-engine and typed-pack
-contracts rather than introducing a second planner or an execution runtime in EG.
+The architecture and vocabulary decisions are specified in [design.md](plan.md). EG reuses the existing orchestration competency,
+decision-engine and typed-pack contracts. EG introduces no second planner
+and no execution runtime.
 
 ## Implementation sequence
 
@@ -104,11 +104,11 @@ Scopes: only those the engine contract already lists (tenant-visible Agent Libra
 
 How `graph.assemble()` consumes it: (1) the request names a task IRI; if the task has `:hasStep` steps, each step becomes one typed task with its required capabilities, so the 0-1 program (R014) covers per-step capability; (2) candidates are the visible library entries, instantiated templates and A2A cards, as today; (3) topology comes from `TopologyFacts`/slots, whose `swarm:requiresAgentKind` restricts which kind may fill a slot (R007.4); (4) the committed `AgentGraphDraft` is projected back as `:stepAssignedAgent` and `swarm:feeds`. The solver gains no term list; kinds and edges arrive as data.
 
-External A2A agent to library member: a card is published as an `AgentComponent` of kind `a2a_agent_card` into the Agent Library store (already the case, R126.2.1). The projection types it `:A2AAgentCard`, links `:memberOfLibrary`, `:registeredIn` its registry, and `:providesCapability` per declared capability. It is usable by assembly as a claim: coverage lists it with claim evidence class, and when policy `a2a_requires_observation` is on it is not selectable until an observation exists. Task execution is fetched at run time through the A2A contract; the card body is not copied beyond its declaration.
+External A2A agent to library member: a card is published as an `AgentComponent` of kind `a2a_agent_card` into the Agent Library store (R126.2.1 already does this). The projection types it `:A2AAgentCard` and links `:memberOfLibrary`. It also links `:registeredIn` its registry and `:providesCapability` per declared capability. It is usable by assembly as a claim: coverage lists it with claim evidence class, and when policy `a2a_requires_observation` is on it is not selectable until an observation exists. The A2A contract fetches task execution at run time. The engine copies nothing of the card body beyond its declaration.
 
 ### Decisions
 
-1. AgentTemplate placement: DECIDED `orchestration-v1.ttl`. Reason: it is an agent (subclass of `:Agent`, which lives there with `:hasSkill`/`:usesModel`), and `catalog-v1.ttl` is a generated import-only aggregate (read: header plus `owl:imports`, no term), so a term there would be overwritten on regeneration. Alternative: swarm vocabulary, rejected because a template is not a topology fact (`swarm:TopologyTemplate` already is that).
+1. AgentTemplate placement: DECIDED `orchestration-v1.ttl`. Reason: it is an agent, a subclass of `:Agent`, which lives there with `:hasSkill` and `:usesModel`. Also, `catalog-v1.ttl` is a generated import-only aggregate (read: header plus `owl:imports`, no term), so regeneration overwrites a term placed there. Alternative: swarm vocabulary, rejected because a template is not a topology fact (`swarm:TopologyTemplate` already is that).
 2. Step order: DECIDED reuse core `:precedes` for task steps and add `swarm:feeds` for slots; no `eg:precedes`. Reason: `:precedes` exists (`core-foundation-v1.ttl:549`, domain/range `bfo:0000001`, inverse `:succeeds`). The swarm vocabulary has no ordering edge between slots (its properties: `admits`, `class`, `hasSlot`, `role`, `hasStopRule`, `lease`, `nodeId`, `nodeKind`, `minWidth`, `maxWidth`, `maxRounds`, `k`, `n`, `resourceClass`, `amount`; `swarm:feeds` is absent), and steps and slots are different layers (what to do versus who does it), so the swarm edge cannot carry step order. Alternative: use swarm edges for steps, rejected because a step has no slot until assembly.
 3. `swarm:` name verification: CONFIRMED, see table below.
 4. A2A cards as library members: DECIDED as described under Wiring (projection types the card, claim-strength capabilities, observation policy). Alternative, a separate external-agent registry, rejected as a second authority (`EG-TYPED-PACKS-R072`).
@@ -200,3 +200,42 @@ Compilation of `eg-types` terminated by SIGKILL before these tests executed.
 Full-corpus native validation also remains unrun.
 Test markers bind the existing acceptance tests to their owning rows.
 The generated lifecycle records test existence, independently of execution results.
+
+## Harness run-trace vocabulary and measured-fact loop
+
+This spec owns the run-trace vocabulary. `:RunTrace` is declared in `orchestration-v1.ttl:653`, and the neighbouring `:tokenCost`, `:evaluationScore`, `:ModelProfile` and `:contextWindow` rows already extend it here. A second owner for run-trace terms would split one class across two specs.
+
+### Data flow
+
+Ingestion: agent-utilities run end → generated client RunTrace method (`EG-CONTRACT-R051.1`) → `Method::AddNode` (`crates/eg-types/src/protocol/method/method_00.rs:6`) → `AddNode` arm (`src/server/handlers/graph_ops/gateway_graph.rs:62`) → shape check (R009.15) → graph store → Cypher read (`crates/eg-query/src/cypher/exec.rs:4574` already reads `RunTrace` nodes by id).
+
+Measured fact: evaluation run → `measured_fact_envelope` (R011.7) → `ApplyChangeEnvelopes` → `dispatch_change_envelopes` (`src/server/dispatch/change_envelope.rs:36`) → `ChangeEnvelope::validate` (`crates/eg-types/src/change_envelope.rs:248`, evidence refusal R011.8) → `:MeasuredModelFact` node → `Decide` for `HarnessConfig`.
+
+### Types and fields
+
+On `:RunTrace`: `terminationReason`, `peakContextTokens`, `contextBudgetTokens`, `elisionCount`, `summarizationCount`, `turnCount`, `toolCallCount`, `costUsd`, `runModel`, `runTaskClass`, and `appliedHarnessConfig` (a link to the committed `:Decision`). On the new `:MeasuredModelFact`: `factOfModel`, `measuredProperty`, the value, `evidencedByRun`, `measuredSupersedes`. The names match the cross-repository brief exactly.
+
+### Attach point and failure behaviour
+
+No dedicated run-trace wire method exists. `git grep -n "IngestRunTrace"` finds nothing, and `RunTrace` appears in the server only as a node label (`src/server/persistence/provenance_anchor.rs:55`). A client therefore writes a `RunTrace` node through `AddNode`. The only new server code is the shape check in R009.15. The code read for this plan did not show SHACL validation on `AddNode`, so R009.15 states the check as new work.
+
+A shape violation returns a typed refusal that names the shape and stores nothing. A measured fact without an evaluation-run evidence record returns `MeasuredFactWithoutEvidence`. A missing measured value never produces a guess; the `Decide` abstention belongs to the `EG-TYPED-PACKS` rows for the measured model facts.
+
+### Reuse and new work
+
+Reused: `:RunTrace`, `:tokenCost`, `:evaluationScore`, `:ModelProfile`, `:contextWindow`, the shapes companion, `AddNode`, `ApplyChangeEnvelopes`, `EvidenceRecord` (`change_envelope.rs:158`) and the Cypher executor. New: eleven properties, one class pair (`:EvaluationRun`, `:MeasuredModelFact`), four shapes, the `AddNode` shape check, the envelope builder, and six queries.
+
+### Queries
+
+Each query groups by `:runModel` and `:runTaskClass`. Success rate and cost per solved task use a solved trace: `final_answer` with `:evaluationScore` of 1.0. Overflow rate counts `context_overflow`. The competency question asks which harness configuration has the lowest cost per solved task for model M on task class C. Query `harness_best_config` (R010.6) answers it. It returns trace ids as the evidence. It abstains below 20 traces per configuration. That default is a named starting value that a measurement may replace.
+
+### Decisions
+
+- Reuse `ApplyChangeEnvelopes` for the governed write. Rejected: `GraphSchemaOp::AttachApproved` (`crates/eg-types/src/graph_schema.rs:79`), because it attaches schema sources, not facts.
+- Keep `:costUsd` beside `:tokenCost`. Rejected: reusing `:tokenCost`, because tokens and dollars differ in unit.
+- Supersede by edge, not by deletion. Rejected: overwrite, because it loses the evidence of the earlier measurement.
+- Write traces through `AddNode`. Rejected: a new `IngestRunTrace` wire method, because the brief forbids a second store and the contract spec bans new wire methods here.
+
+### Cross-repository rows
+
+Depends on the `EG-DECISION-ENGINE` row for `HarnessConfig` (the committed decision that `:appliedHarnessConfig` links) and the `EG-TYPED-PACKS` rows for the measured model facts and `shellCentric`. Unblocks the `AU-HARNESS` row that writes the run trace and the `AU-HARNESS` evaluation runner row that writes the measured facts.
