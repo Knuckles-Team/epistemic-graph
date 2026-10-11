@@ -133,3 +133,12 @@ These partial regressions intentionally carry no acceptance binding that would m
 - `EG-TYPED-PACKS-R066.1`: `crates/eg-core/tests/harness_shapes.rs::model_fact_shapes_reject_missing_run`.
 - `EG-TYPED-PACKS-R066.2`: `crates/eg-core/tests/swarm_topology_shapes.rs::shell_centric_must_be_boolean`.
 - `EG-TYPED-PACKS-R066.3`: `crates/eg-core/tests/swarm_topology_shapes.rs::shell_centric_inherits_or_is_absent`.
+- `EG-TYPED-PACKS-R045.1`: `crates/eg-types/src/connector_pack/annotations.rs::tests::new_fields_roundtrip`.
+- `EG-TYPED-PACKS-R045.2`: `crates/eg-types/src/connector_pack/annotations.rs::tests::absent_facts_take_safe_defaults`.
+- `EG-TYPED-PACKS-R045.3`: `crates/eg-types/src/connector_pack/digest.rs::tests::absent_new_fields_keep_golden_vectors`.
+- `EG-TYPED-PACKS-R045.4`: `src/server/handlers/admin/connector_pack/import/annotations.rs::tests::unknown_side_effect_is_refused`.
+- `EG-TYPED-PACKS-R045.5`: `src/server/handlers/admin/connector_pack/import/facts.rs::tests::mcp_hint_read_only_is_unproven`.
+- `EG-TYPED-PACKS-R045.6`: `src/server/handlers/decide/stat_tests/tool_subset_tests.rs::missing_schema_tokens_abstains`.
+- `EG-TYPED-PACKS-R045.7`: `src/server/handlers/decide/stat_tests/harness_config_tests.rs::mcp_hint_read_only_premise_is_unproven`.
+- `EG-TYPED-PACKS-R045.8`: `crates/eg-capabilities/src/contract/python/surfaces/tests.rs::pack_annotations_expose_harness_tool_facts`.
+- `EG-TYPED-PACKS-R045.9`: `tests/harness_config_tool_facts_served.rs::two_tool_pack_subset_respects_budget`.
