@@ -357,9 +357,13 @@
     {
       "id": "EG-PLACEMENT-R003.3",
       "title": "Accept at the cap, refuse above",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "05b1cbdf1641"
+      ],
+      "verified_by": [
+        "src/server/handlers/jobs/graph_tests.rs:188"
+      ]
     },
     {
       "id": "EG-PLACEMENT-R003.4",
