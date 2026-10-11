@@ -16,6 +16,20 @@ use super::{
 
 const CONNECTOR: &str = "pack-admin";
 
+async fn catalog_status(
+    served: &Served,
+    connector: &str,
+) -> eg_types::connector_pack::ConnectorPackStatus {
+    served
+        .state
+        .write()
+        .await
+        .ensure_agent_library()
+        .unwrap()
+        .connector_pack_status(TENANT, &ResourceId::new(connector).unwrap())
+        .unwrap()
+}
+
 fn rejected_codes(result: PackImportResult) -> Vec<PackViolationCode> {
     match result {
         PackImportResult::Rejected { violations, .. } => {
@@ -354,14 +368,7 @@ async fn bind_unbind_and_retire_require_admin_connector_pack_and_the_head_surviv
             .await,
     );
     assert_eq!(retired.retired.len(), 1);
-    let before = served
-        .state
-        .write()
-        .await
-        .ensure_agent_library()
-        .unwrap()
-        .connector_pack_status(TENANT, &ResourceId::new(connector).unwrap())
-        .unwrap();
+    let before = catalog_status(&served, connector).await;
     let mut returning = tools.clone();
     returning.push(tool(connector, "d", "A new tool."));
     assert_eq!(
@@ -376,14 +383,7 @@ async fn bind_unbind_and_retire_require_admin_connector_pack_and_the_head_surviv
         )),
         [PackViolationCode::RetiredEntryReturned],
     );
-    let after = served
-        .state
-        .write()
-        .await
-        .ensure_agent_library()
-        .unwrap()
-        .connector_pack_status(TENANT, &ResourceId::new(connector).unwrap())
-        .unwrap();
+    let after = catalog_status(&served, connector).await;
     assert_eq!(
         before, after,
         "the rejected reimport must not mutate the head"
@@ -402,14 +402,7 @@ async fn a_rejected_import_mutates_nothing_in_the_catalog() {
         None,
     )
     .await;
-    let before = served
-        .state
-        .write()
-        .await
-        .ensure_agent_library()
-        .unwrap()
-        .connector_pack_status(TENANT, &ResourceId::new(connector).unwrap())
-        .unwrap();
+    let before = catalog_status(&served, connector).await;
     // A second release whose entry list is out of its required sort order
     // (validate_header requires ascending, unique URIs) -- malformed, so a
     // rejection that must leave the catalog untouched.
@@ -449,14 +442,7 @@ async fn a_rejected_import_mutates_nothing_in_the_catalog() {
         )),
         [PackViolationCode::MalformedIndex],
     );
-    let after = served
-        .state
-        .write()
-        .await
-        .ensure_agent_library()
-        .unwrap()
-        .connector_pack_status(TENANT, &ResourceId::new(connector).unwrap())
-        .unwrap();
+    let after = catalog_status(&served, connector).await;
     assert_eq!(
         before, after,
         "a rejected import must commit zero catalog mutation"

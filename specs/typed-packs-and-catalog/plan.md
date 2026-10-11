@@ -134,6 +134,8 @@ for a rejected-import mutation. Reconciliation preserves every historical
 revision holder. Revised and withdrawn bodies remain readable by pinned revision
 (PACK-05). Only unheld bodies are orphans. The served regression
 asserts historical and current body bytes after the sweep.
+Catalog snapshot assertions share one helper.
+This removes repeated setup without changing typed refusals or before/after equality checks.
 
 ### 2026-10-11: capability annotation acceptance
 
