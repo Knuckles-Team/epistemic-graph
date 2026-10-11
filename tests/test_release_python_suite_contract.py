@@ -93,7 +93,15 @@ def test_python_suite_job_runs_the_full_root_tests_directory() -> None:
 
 @pytest.mark.spec("EG-CONTRACT-R009")
 def test_python_suite_job_builds_the_real_artifacts_before_testing() -> None:
-    job = _python_suite_job()
+    job: dict = {
+        "steps": sum(
+            (
+                _workflow()["jobs"][name]["steps"]
+                for name in ("python-kernels", "python-server", "python-suite")
+            ),
+            [],
+        )
+    }
     step_names = [str(step.get("name", "")) for step in job["steps"]]
     assert any("numeric kernel" in name for name in step_names)
     assert any("pyengine extension" in name for name in step_names)
@@ -134,65 +142,139 @@ CODEGEN_ENV = {
 }
 
 
-def _codegen_step() -> dict:
-    return next(
-        step
-        for step in _python_suite_job()["steps"]
-        if step.get("name") == "Use fast native codegen for Python PR validation"
-    )
-
-
-def test_pr_codegen_runs_before_cache_and_preserves_build_and_test_commands(
-    tmp_path: Path,
-) -> None:
-    steps = _python_suite_job()["steps"]
-    step = _codegen_step()
-    assert step["if"] == "github.event_name == 'pull_request'"
-    cache = next(
-        s for s in steps if s.get("uses", "").startswith("Swatinem/rust-cache@")
-    )
-    assert steps.index(step) < steps.index(cache)
-    for command in (
-        "python3 scripts/build_numeric_kernel.py",
-        "python3 scripts/build_pyengine_kernel.py",
-        "cargo build --locked --features full --bin epistemic-graph-server",
-    ):
-        build = next(s for s in steps if s.get("run") == command)
-        assert (
-            steps.index(cache)
-            < steps.index(build)
-            < steps.index(_test_step(_python_suite_job()))
+def test_parallel_preparation_is_exact_revision_and_same_run() -> None:
+    jobs = _workflow()["jobs"]
+    assert jobs["python-suite"]["needs"] == [
+        "changes",
+        "python-kernels",
+        "python-server",
+    ]
+    for name in ("python-kernels", "python-server"):
+        job = jobs[name]
+        assert job["needs"] == "changes"
+        assert job["if"] == "needs.changes.outputs.code == 'true'"
+        assert job["steps"][0]["with"]["ref"] == "${{ github.sha }}"
+        upload = next(
+            s
+            for s in job["steps"]
+            if s.get("uses", "").startswith("actions/upload-artifact@")
         )
-        assert "if" not in build
-    assert "if" not in _test_step(_python_suite_job())
-    output = tmp_path / "github-env"
-    subprocess.run(
-        ["bash", "-e", "-c", step["run"]],
-        env={**os.environ, "GITHUB_ENV": str(output)},
-        check=True,
-    )
+        assert upload["with"]["if-no-files-found"] == "error"
+        assert upload["with"]["name"] == name + "-${{ github.sha }}"
+    consumer = jobs["python-suite"]
+    assert consumer["if"] == "always() && needs.changes.outputs.code == 'true'"
     assert (
-        dict(line.split("=", 1) for line in output.read_text().splitlines())
-        == CODEGEN_ENV
+        consumer["steps"][0]["run"]
+        == 'test "$KERNELS_RESULT" = success && test "$SERVER_RESULT" = success'
     )
+    assert consumer["steps"][1]["with"]["ref"] == "${{ github.sha }}"
+    downloads = [
+        s
+        for s in consumer["steps"]
+        if s.get("uses", "").startswith("actions/download-artifact@")
+    ]
+    assert len(downloads) == 2
+    assert {s["with"]["name"] for s in downloads} == {
+        "python-kernels-${{ github.sha }}",
+        "python-server-${{ github.sha }}",
+    }
+    assert all(set(s["with"]) == {"name", "path"} for s in downloads)
+    runs = "\n".join(s.get("run", "") for s in consumer["steps"])
+    assert "cargo build" not in runs
+    assert "unpack kernels" in runs and "unpack server" in runs
+    assert "assert e.__engine__ == 'eg-pyengine'" in runs
+    assert "maturin pep517 write-dist-info" in runs
+    assert "if" not in _test_step(consumer)
 
 
-def test_main_and_tag_pushes_keep_optimized_release_defaults() -> None:
+def test_validation_profile_is_warmed_without_affecting_release_wheels() -> None:
     workflow = _workflow()
-    assert _codegen_step()["if"] == "github.event_name == 'pull_request'"
     assert not CODEGEN_ENV.keys() & workflow.get("env", {}).keys()
     for name, job in workflow["jobs"].items():
-        assert not CODEGEN_ENV.keys() & job.get("env", {}).keys()
+        if name == "python-kernels":
+            assert job["env"] == CODEGEN_ENV
+        else:
+            assert not CODEGEN_ENV.keys() & job.get("env", {}).keys()
         for step in job.get("steps", []):
-            if any(key in str(step) for key in CODEGEN_ENV):
-                assert name == "python-suite"
-                assert step == _codegen_step()
-    profile = tomllib.loads((REPO / "Cargo.toml").read_text())["profile"]["release"]
-    assert (profile["opt-level"], profile["lto"], profile["codegen-units"]) == (
-        3,
-        "thin",
-        1,
+            assert not any(key in str(step) for key in CODEGEN_ENV)
+    profile = tomllib.loads((REPO / "Cargo.toml").read_text())["profile"]
+    assert (
+        profile["release"]["opt-level"],
+        profile["release"]["lto"],
+        profile["release"]["codegen-units"],
+    ) == (3, "thin", 1)
+    assert profile["dev"]["opt-level"] == 1
+    builds = [
+        s["run"] for s in workflow["jobs"]["python-server"]["steps"] if "run" in s
+    ]
+    assert "cargo build --locked --features full --bin epistemic-graph-server" in builds
+
+
+@pytest.mark.parametrize("kind", ["kernels", "server"])
+@pytest.mark.parametrize("damage", [None, "digest", "revision", "source", "missing"])
+def test_native_artifact_roundtrip_fails_closed(
+    tmp_path: Path, kind: str, damage: str | None
+) -> None:
+    script = REPO / "scripts/python_suite_artifact.sh"
+    root = tmp_path / "checkout"
+    root.mkdir()
+    subprocess.run(["git", "init", "-q", str(root)], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(root),
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.com",
+            "commit",
+            "--allow-empty",
+            "-qm",
+            "fixture",
+        ],
+        check=True,
     )
+    sha = subprocess.check_output(
+        ["git", "-C", str(root), "rev-parse", "HEAD"], text=True
+    ).strip()
+    env = {**os.environ, "RUNNER_TEMP": str(tmp_path / "artifacts"), "GITHUB_SHA": sha}
+    paths = (
+        ["epistemic_graph/numeric.test.so", "epistemic_graph/engine.test.so"]
+        if kind == "kernels"
+        else ["target-isolated/debug/epistemic-graph-server"]
+    )
+    for name in paths:
+        path = root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"native fixture")
+        path.chmod(0o755)
+    subprocess.run(["bash", str(script), "pack", kind], cwd=root, env=env, check=True)
+    bundle = Path(env["RUNNER_TEMP"]) / f"python-{kind}"
+    for name in paths:
+        (root / name).unlink()
+    if damage == "digest":
+        (bundle / "payload.tar").write_bytes(b"corrupt")
+    elif damage == "revision":
+        env["GITHUB_SHA"] = "0" * 40
+    elif damage == "source":
+        (bundle / "source.sha").write_text("0" * 40 + "\n")
+        with (bundle / "SHA256SUMS").open("w") as manifest:
+            subprocess.run(
+                ["sha256sum", "source.sha", "payload.tar"],
+                cwd=bundle,
+                stdout=manifest,
+                check=True,
+            )
+    elif damage == "missing":
+        (bundle / "payload.tar").unlink()
+    result = subprocess.run(
+        ["bash", str(script), "unpack", kind], cwd=root, env=env, check=False
+    )
+    assert (result.returncode == 0) == (damage is None)
+    if damage is None:
+        assert all((root / name).read_bytes() == b"native fixture" for name in paths)
+        assert all(os.access(root / name, os.X_OK) for name in paths)
 
 
 @pytest.mark.parametrize(
