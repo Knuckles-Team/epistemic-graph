@@ -114,11 +114,13 @@ mod tests {
         }
     }
 
+    // spec: EG-FINANCE-PRIMITIVES-R013.1
     #[test]
     fn a_fully_provenanced_figure_is_admitted() {
         assert!(check_figure_provenance(&figure()).is_ok());
     }
 
+    // spec: EG-FINANCE-PRIMITIVES-R013.1
     #[test]
     fn a_figure_missing_its_source_is_refused() {
         let mut bad = figure();
@@ -127,6 +129,7 @@ mod tests {
         assert!(refusal.reason.contains("source"));
     }
 
+    // spec: EG-FINANCE-PRIMITIVES-R013.1
     #[test]
     fn a_figure_missing_its_as_of_time_is_refused() {
         let mut bad = figure();
@@ -134,6 +137,7 @@ mod tests {
         assert!(check_figure_provenance(&bad).is_err());
     }
 
+    // spec: EG-FINANCE-PRIMITIVES-R013.1
     #[test]
     fn a_figure_missing_its_session_is_refused() {
         let mut bad = figure();
