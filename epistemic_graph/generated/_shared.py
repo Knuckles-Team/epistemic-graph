@@ -141,8 +141,8 @@ class AgentComponentFactsModelProfile(BaseModel):
     modalities: ModalityFacts | None = None
     model_identity: str
     provider: str
-    shell_proficiency: MeasuredFact | None = None
-    stopping_behaviour: MeasuredFact2 | None = None
+    shell_proficiency: MeasuredFact_ShellProficiency | None = None
+    stopping_behaviour: MeasuredFact_StoppingBehaviour | None = None
     supports_structured_output: bool
     supports_tools: bool
     supports_vision: bool
@@ -963,14 +963,14 @@ class McpCatalogSnapshotBinding(BaseModel):
     snapshot_digest: Digest256
 
 
-class MeasuredFact(BaseModel):
+class MeasuredFact_ShellProficiency(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     evaluation_run_ref: ObservationRef
     value: ShellProficiency
 
 
-class MeasuredFact2(BaseModel):
+class MeasuredFact_StoppingBehaviour(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     evaluation_run_ref: ObservationRef
@@ -2099,9 +2099,9 @@ LibraryCandidateScope.model_rebuild()
 
 McpCatalogSnapshotBinding.model_rebuild()
 
-MeasuredFact.model_rebuild()
+MeasuredFact_ShellProficiency.model_rebuild()
 
-MeasuredFact2.model_rebuild()
+MeasuredFact_StoppingBehaviour.model_rebuild()
 
 ModalityFacts.model_rebuild()
 
@@ -2410,8 +2410,8 @@ __all__ = [
     "LevelValue",
     "LibraryCandidateScope",
     "McpCatalogSnapshotBinding",
-    "MeasuredFact",
-    "MeasuredFact2",
+    "MeasuredFact_ShellProficiency",
+    "MeasuredFact_StoppingBehaviour",
     "ModalityFacts",
     "Nonce",
     "ObjectiveLevelKind",

@@ -487,7 +487,7 @@
             "shell_proficiency": {
               "anyOf": [
                 {
-                  "$ref": "#/$defs/MeasuredFact"
+                  "$ref": "#/$defs/MeasuredFact_ShellProficiency"
                 },
                 {
                   "type": "null"
@@ -497,7 +497,7 @@
             "stopping_behaviour": {
               "anyOf": [
                 {
-                  "$ref": "#/$defs/MeasuredFact2"
+                  "$ref": "#/$defs/MeasuredFact_StoppingBehaviour"
                 },
                 {
                   "type": "null"
@@ -4545,7 +4545,7 @@
       ],
       "type": "object"
     },
-    "MeasuredFact": {
+    "MeasuredFact_ShellProficiency": {
       "additionalProperties": false,
       "description": "A measured value bound to the evaluation that produced it.",
       "properties": {
@@ -4562,7 +4562,7 @@
       ],
       "type": "object"
     },
-    "MeasuredFact2": {
+    "MeasuredFact_StoppingBehaviour": {
       "additionalProperties": false,
       "description": "A measured value bound to the evaluation that produced it.",
       "properties": {
