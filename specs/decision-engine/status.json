@@ -3123,9 +3123,9 @@
         "5b6086e4075d"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/statistical/harness_config.rs:202",
-        "crates/eg-types/src/decision/statistical/harness_config.rs:229",
-        "crates/eg-types/src/decision/statistical/harness_config.rs:248"
+        "crates/eg-types/src/decision/statistical/harness_config.rs:382",
+        "crates/eg-types/src/decision/statistical/harness_config.rs:409",
+        "crates/eg-types/src/decision/statistical/harness_config.rs:428"
       ]
     },
     {
@@ -3137,9 +3137,9 @@
         "c0466b57ce04"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/statistical/harness_config.rs:331",
-        "crates/eg-types/src/decision/statistical/harness_config.rs:361",
-        "crates/eg-types/src/decision/statistical/harness_config.rs:388"
+        "crates/eg-types/src/decision/statistical/harness_config.rs:511",
+        "crates/eg-types/src/decision/statistical/harness_config.rs:541",
+        "crates/eg-types/src/decision/statistical/harness_config.rs:568"
       ]
     },
     {
@@ -3159,9 +3159,15 @@
     {
       "id": "EG-DECISION-ENGINE-R128.6",
       "title": "Plan scaffold follows stopping behaviour",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4cd26ef35745"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/decision/statistical/harness_config.rs:277",
+        "crates/eg-types/src/decision/statistical/harness_config.rs:320",
+        "crates/eg-types/src/decision/statistical/harness_config.rs:349"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R128.7",
@@ -3171,7 +3177,7 @@
         "a565bdb085f2"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/statistical/harness_config.rs:409"
+        "crates/eg-types/src/decision/statistical/harness_config.rs:589"
       ]
     },
     {
