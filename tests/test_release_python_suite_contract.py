@@ -225,6 +225,7 @@ def test_compiler_cache_is_installed_before_precisely_two_step_local_wrappers() 
         ),
     }
     cache_backend = {
+        "SCCACHE_IDLE_TIMEOUT": "7200",
         "SCCACHE_GHA_ENABLED": "true",
         "SCCACHE_GHA_RW_MODE": (
             "${{ github.ref == 'refs/heads/main' && 'READ_WRITE' || 'READ_ONLY' }}"
@@ -237,6 +238,7 @@ def test_compiler_cache_is_installed_before_precisely_two_step_local_wrappers() 
         assert job["timeout-minutes"] == (
             "${{ github.event_name == 'pull_request' && 10 || 60 }}"
         )
+        assert int(cache_backend["SCCACHE_IDLE_TIMEOUT"]) > 60 * 60
         steps = job["steps"]
         setup = next(
             s for s in steps if s.get("name") == "Install validation compiler cache"
@@ -261,8 +263,8 @@ def test_compiler_cache_is_installed_before_precisely_two_step_local_wrappers() 
             "sccache --show-stats",
         ]
         assert steps.index(stats) > steps.index(build)
-        # Setup's post action and explicit stats may start a replacement daemon.
-        # They must inherit the same backend as the compilation step.
+        # With no reachable daemon, stats synthesize zeroes from caller config.
+        # Both reporting paths must inherit the compilation backend settings.
         for cache_step in (setup, build, stats):
             effective_env = {
                 **workflow["env"],
