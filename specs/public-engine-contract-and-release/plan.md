@@ -160,7 +160,7 @@ full hosted quality-gate and runtime acceptance remain independently required.
 R031.1 owns only the runner setup regression. R031.2 preserves the outstanding complete same-tree census and independent clippy/formatting evidence.
 A setup-only test cannot qualify the broad parent requirement.
 
-### 2026-10-11: measure facade compilation and omit empty helper harnesses
+### Facade build timing and empty helper harnesses
 
 EG-CONTRACT-R009 disables the default unit-test harness only for four single-file
 helper binaries with no tests. These helpers observe RF-019, migrate shards,
