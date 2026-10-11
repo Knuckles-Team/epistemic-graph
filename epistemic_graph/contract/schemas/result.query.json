@@ -40485,6 +40485,26 @@
         "provider": {
           "type": "string"
         },
+        "shell_proficiency": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MeasuredFact_ShellProficiency"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "stopping_behaviour": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MeasuredFact_StoppingBehaviour"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "supports_structured_output": {
           "default": null,
           "type": [
