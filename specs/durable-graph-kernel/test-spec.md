@@ -142,7 +142,7 @@ Both native facade regressions remain unexecuted; this receipt does not establis
 Run `mkdir -p target-isolated/tmp` from the checkout.
 Run `TMPDIR="$PWD/target-isolated/tmp" rustc --edition 2021 --test src/test_support.rs -o target-isolated/fixture-path-tests`.
 Run `target-isolated/fixture-path-tests`.
-Rust 1.96 executed `concurrent_temporary_paths_are_unique`: one passed, zero failed; eight threads produced 2,048 distinct paths.
+Rust 1.96 ran `concurrent_temporary_paths_are_unique`: one passed, zero failed; eight threads produced 2,048 distinct paths.
 The first attempt exhausted temporary storage before execution; the worktree-local retry passed.
 The original EG318 database-lock failure remains unreproduced.
 
