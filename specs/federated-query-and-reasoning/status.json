@@ -103,7 +103,21 @@
     "EG-FEDERATED-QUERY-R078.3",
     "EG-FEDERATED-QUERY-R078.4",
     "EG-FEDERATED-QUERY-R078.5",
-    "EG-FEDERATED-QUERY-R078.6"
+    "EG-FEDERATED-QUERY-R078.6",
+    "EG-FEDERATED-QUERY-R079",
+    "EG-FEDERATED-QUERY-R079.1",
+    "EG-FEDERATED-QUERY-R079.2",
+    "EG-FEDERATED-QUERY-R079.3",
+    "EG-FEDERATED-QUERY-R079.4",
+    "EG-FEDERATED-QUERY-R079.5",
+    "EG-FEDERATED-QUERY-R079.6",
+    "EG-FEDERATED-QUERY-R080",
+    "EG-FEDERATED-QUERY-R080.1",
+    "EG-FEDERATED-QUERY-R080.2",
+    "EG-FEDERATED-QUERY-R080.3",
+    "EG-FEDERATED-QUERY-R080.4",
+    "EG-FEDERATED-QUERY-R080.5",
+    "EG-FEDERATED-QUERY-R080.6"
   ],
   "requirements": [
     {
@@ -1240,6 +1254,120 @@
     },
     {
       "id": "EG-FEDERATED-QUERY-R078.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R079",
+      "title": "Table-format catalog serves schema evolution and snapshot time travel (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-FEDERATED-QUERY-R079.1",
+        "EG-FEDERATED-QUERY-R079.2",
+        "EG-FEDERATED-QUERY-R079.3",
+        "EG-FEDERATED-QUERY-R079.4",
+        "EG-FEDERATED-QUERY-R079.5",
+        "EG-FEDERATED-QUERY-R079.6"
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R079.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R079.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R079.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R079.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R079.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R079.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R080",
+      "title": "The graph is the only write boundary; table outputs are read-only projections (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-FEDERATED-QUERY-R080.1",
+        "EG-FEDERATED-QUERY-R080.2",
+        "EG-FEDERATED-QUERY-R080.3",
+        "EG-FEDERATED-QUERY-R080.4",
+        "EG-FEDERATED-QUERY-R080.5",
+        "EG-FEDERATED-QUERY-R080.6"
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R080.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R080.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R080.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R080.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R080.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R080.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],

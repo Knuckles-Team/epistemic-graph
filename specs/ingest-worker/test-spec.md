@@ -22,3 +22,10 @@ Run cargo test for the touched crates in CI, the SDK unit tests, and the spec-st
 | ID | Requirement | Type | Fixture | Expected | Status |
 |---|---|---|---|---|---|
 | T-R002 | R002.6 | Integration | One passing and one failing document | Admitted and Draft states | PENDING |
+
+## EG-INGEST-WORKER-R003 acceptance
+
+| ID | Requirement | Type | Fixture | Expected | Status |
+|---|---|---|---|---|---|
+| T-R003 | R003.6 | Integration | One document and one query | Context from atoms with provenance keys | PENDING |
+| T-R003-N | R003.4 | Unit | An atom without provenance | `ATOM_PROVENANCE_MISSING`, none stored | PENDING |

@@ -4,7 +4,7 @@
 
 1. **Freeze the baseline.** Record exact public default-branch SHA, method registry, current feature profiles, source kinds, index generations and existing tests. Classify each stable obligation as source present, absent, or incompatible; retain separate acceptance status. Do not translate a historical `BUILT` label into current acceptance.
 2. **Close the read contract.** Make UQL grammar, lowering, printer, method registry, generated Python sender, proof and error codes agree. Add `LET`/`JOIN`, named score channels and `EXPLAIN`/`PROFILE` only where they can execute; otherwise return `UQL_UNSUPPORTED` with a stable span. Preserve the shared read snapshot and typed parameter path.
-3. **Qualify federation phase 1.** Run full-fetch versus optimized oracles for SQL, HTTP, OBDA and registered foreign sources. Repair any unsound pushdown or missing residual, validate read-only rendering and single outbound guard, and attach budget/trace to the served plan.
+3. **Qualify federation phase 1.** Run full-fetch versus optimized oracles for SQL, HTTP, OBDA and registered foreign sources. Repair any unsound pushdown or missing residual. Validate read-only rendering and single outbound guard. Attach budget/trace to the served plan.
 4. **Complete phase 2.** Add column-carrying rows, direct OBDA solutions, per-source concurrency, SPARQL `SERVICE` bind joins, Iceberg manifest pruning and RemoteEngine pushdown. Keep each capability off until its conformance oracle passes. The attached-source owner supplies registry identity and approved mappings.
 5. **Complete phase 3.** Add persisted source statistics with provenance, freshness/owner-bound fragment caching and additional source kinds. Cache only when the source watermark is known and current. Retire alternate path-specific guards and source catalogs once callers use the common route.
 6. **Close semantic reads.** Finish generation fencing, restart/replay, filtered text/vector/edge retrieval and mixed traversal top-k. Run corpus reasoning and proof verification, including disjointness and skipped-event rebuild. Expose index fallback in explain output.
@@ -133,6 +133,34 @@ Failure: an unverified caller gets `PLAN_SCOPE_UNVERIFIED` and no read runs.
 Reuses the scope check pattern in `src/server/semantic_index.rs:145`. New: the plan-level predicate.
 Decision: scope inside the plan. Rejected: filtering result rows after retrieval, which leaks through counts, timing and ranking.
 Cross-repository: `AU-SEMANTIC` rows pass the verified tenant through the request context; owner prefix `AU-SEMANTIC`, contract `VerifiedRequestContext`.
+
+References
+- No paper is cited.
+
+## EG-FEDERATED-QUERY-R079 lake catalog schema evolution and time travel
+
+Data flow: Iceberg REST commit → `commit_table` (`src/server/lake/rest/catalog.rs:318`) → `LakeManager::evolve_column` → `LakeTable::evolve_column` (`crates/eg-lake/src/lib.rs`) → new schema version in metadata → `load_table_as_of` (`src/server/lake/catalog_ops.rs:184`) resolves a snapshot by time.
+Types: `SchemaChangeKind` gains `ReorderColumn`; the table keeps one schema version per change. Field ids stay stable across renames.
+Attach point: `commit_table`; its production caller is the listener route dispatch. Today `commit_table` only compacts, and `evolve_add_column` (`crates/eg-lake/src/lib.rs:179`) is reached from `src/server/lake/mod.rs:243` but not from a REST route.
+Failure: an unapproved destructive change or an unknown column is refused with a typed code and no new version.
+Existing code: `src/server/lake/rest/catalog.rs:270`, `:318`; `src/server/lake/catalog_ops.rs:184`; `crates/eg-lake/src/lib.rs:179`, `:241`, `:285`; `crates/eg-lake/src/iceberg.rs:315`, `:348`; `crates/eg-lake/src/iceberg_avro.rs:371`, `:408`; `crates/eg-types/src/lake_catalog.rs:216`, `:248`. Reachable today: load and time travel yes; schema evolution through REST no.
+Reuses the table builder, the manifest writer and the compatibility classifier. New: drop, rename and reorder, and the commit-route wiring.
+Decision: evolve through the standard commit route. Rejected: a private admin call, which external engines cannot use.
+Cross-repository: the authenticated catalog is owned by `EG-UNIFIED-DATA-PLANE-R039`; this rollup adds no new access rule.
+
+References
+- No paper is cited.
+
+## EG-FEDERATED-QUERY-R080 read-only table projections
+
+Data flow: graph write → graph version → projection materialization (`crates/eg-core/src/projection_catalog.rs:75`) → lake table → Iceberg REST read; a projected write → `refuse_projection_write` → `PROJECTION_READ_ONLY`.
+Types: `ProjectionAccess{ReadOnly, Authoritative}` on every `TableEntry` (`crates/eg-lake/src/catalog.rs:27`).
+Attach point: the listener dispatch in `src/server/lake/rest/mod.rs`, before `commit_table` and `drop_table`. No production caller refuses a projection write today.
+Failure: a projected write returns `PROJECTION_READ_ONLY` and the graph is unchanged.
+Existing code: `crates/eg-lake/src/catalog.rs:27`; `crates/eg-core/src/projection_catalog.rs:75`; `crates/eg-plan/src/federation.rs:933`; `src/server/lake/rest/catalog.rs:318`, `:349`. Reachable today: SQL write refusal yes; projection write refusal no.
+Reuses the shared read-only SQL check pattern. New: the typed access value and the route refusal.
+Decision: one refusal at the listener. Rejected: per-route checks, which a new route may skip.
+Cross-repository: none.
 
 References
 - No paper is cited.
