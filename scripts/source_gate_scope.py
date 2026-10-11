@@ -62,6 +62,18 @@ def ordinary_documents(filenames: list[str]) -> bool:
     return bool(filenames)
 
 
+def matching_documents(raw: bytes, filenames: list[str]) -> bool:
+    if not documentation_diff(raw, local_document):
+        return False
+    fields = raw.split(b"\0")
+    if any(fields[i].split()[-1] == b"D" for i in range(0, len(fields) - 1, 2)):
+        return False
+    paths = {fields[i].decode() for i in range(1, len(fields) - 1, 2)}
+    supplied = set(filenames)
+    tracked = set(git("ls-files", "-z").decode().rstrip("\0").split("\0"))
+    return paths == supplied and supplied != tracked
+
+
 def can_skip(scope: str, filenames: list[str]) -> bool:
     if any(key in os.environ for key in ("CI", "GITHUB_ACTIONS", "GITHUB_EVENT_NAME")):
         return False
@@ -72,15 +84,7 @@ def can_skip(scope: str, filenames: list[str]) -> bool:
         if any(item and not item.startswith(b"H ") for item in flags):
             return False
         raw = verified_diff(scope)
-        if not documentation_diff(raw, local_document):
-            return False
-        fields = raw.split(b"\0")
-        if any(fields[i].split()[-1] == b"D" for i in range(0, len(fields) - 1, 2)):
-            return False
-        paths = {fields[i].decode() for i in range(1, len(fields) - 1, 2)}
-        supplied = set(filenames)
-        tracked = set(git("ls-files", "-z").decode().rstrip("\0").split("\0"))
-        return paths == supplied and supplied != tracked
+        return matching_documents(raw, filenames)
     except (OSError, subprocess.CalledProcessError, ValueError, UnicodeError):
         return False
 
