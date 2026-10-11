@@ -500,3 +500,14 @@ The attach point is the promotion path after the R034 proposal; the first child 
 The change reuses `entailed_guardrails` and the weakest-premise evidence class from R002.
 Decision: the invariant check precedes the confidence threshold. A rejected alternative is a high confidence bypass, because repeated human overrides can agree and still be wrong.
 Handoff: agent-utilities applies the verdict inside a run and holds no copy of the invariants.
+
+### Current harness producer boundary (R128.3, R128.7)
+
+`harness_config` owns `HarnessConfigAnswer`, per-part `HarnessPart` decisions,
+and pure `decide_action_space`. Fractions reuse checked `UnitRationalWire` with
+a required Q32 denominator; tool subsets and missing-fact lists use `BoundedVec`.
+The selector accepts optional measured proficiency and optional resolved task
+boolean, refuses invalid evaluation references, and names every missing input
+in a conservative `tool_set` abstention. All twelve presence/value combinations
+are covered. QuestionKind, profile resolution, handlers, persistence and served
+acceptance remain open under their separate leaves.

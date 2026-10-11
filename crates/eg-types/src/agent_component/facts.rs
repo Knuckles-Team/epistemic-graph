@@ -144,6 +144,42 @@ pub struct ObservationRef {
     pub digest: String,
 }
 
+/// A measured value bound to the evaluation that produced it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct MeasuredFact<T> {
+    pub value: T,
+    #[serde(deserialize_with = "deserialize_evaluation_ref")]
+    pub evaluation_run_ref: ObservationRef,
+}
+
+impl<T> MeasuredFact<T> {
+    /// Apply the same reference rules as measured latency.
+    pub fn validate(&self) -> Result<(), String> {
+        validate_observation(Some(&self.evaluation_run_ref))
+    }
+}
+
+fn deserialize_evaluation_ref<'de, D>(deserializer: D) -> Result<ObservationRef, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let reference = ObservationRef::deserialize(deserializer)?;
+    validate_observation(Some(&reference)).map_err(serde::de::Error::custom)?;
+    Ok(reference)
+}
+
+/// Evaluation-derived ability to use a shell; profile attachment is separate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub enum ShellProficiency {
+    Low,
+    Medium,
+    High,
+}
+
 /// Where a toolset's tools come from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -425,5 +461,61 @@ fn validate_schema_digest(field: &str, value: Option<&str>) -> Result<(), String
         None => Ok(()),
         Some(value) if super::is_digest(value) => Ok(()),
         Some(_) => Err(format!("agent component {field} must be sha256:<64 hex>")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // spec: EG-TYPED-PACKS-R048.2
+    #[test]
+    fn measured_fact_requires_run_ref() {
+        type Fact = MeasuredFact<ShellProficiency>;
+        for value in [
+            ShellProficiency::Low,
+            ShellProficiency::Medium,
+            ShellProficiency::High,
+        ] {
+            let fact = Fact {
+                value,
+                evaluation_run_ref: ObservationRef {
+                    evaluation_id: "eval:42".into(),
+                    digest: "existing-opaque-digest".into(),
+                },
+            };
+            assert!(fact.validate().is_ok());
+            assert_eq!(
+                serde_json::from_value::<Fact>(serde_json::to_value(&fact).unwrap()).unwrap(),
+                fact
+            );
+        }
+        for reference in [
+            serde_json::Value::Null,
+            serde_json::json!({}),
+            serde_json::json!({"evaluation_id":"eval:42"}),
+        ] {
+            assert!(serde_json::from_value::<Fact>(
+                serde_json::json!({"value":"high", "evaluation_run_ref":reference})
+            )
+            .is_err());
+        }
+        assert!(serde_json::from_value::<Fact>(serde_json::json!({"value":"high"})).is_err());
+        for field in ["evaluation_id", "digest"] {
+            for bad in [
+                "".to_string(),
+                " padded".into(),
+                "bad\nref".into(),
+                "x".repeat(super::super::MAX_TEXT_BYTES + 1),
+            ] {
+                let mut reference =
+                    serde_json::json!({"evaluation_id":"eval:42", "digest":"opaque"});
+                reference[field] = bad.into();
+                assert!(serde_json::from_value::<Fact>(
+                    serde_json::json!({"value":"high", "evaluation_run_ref":reference})
+                )
+                .is_err());
+            }
+        }
     }
 }

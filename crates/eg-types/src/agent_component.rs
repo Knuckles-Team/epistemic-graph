@@ -59,8 +59,9 @@ pub use content::{
     COMPONENT_MEDIA_TYPE_ATTRIBUTE, DEFAULT_COMPONENT_MEDIA_TYPE, MAX_COMPONENT_BODY_BYTES,
 };
 pub use facts::{
-    AgentComponentFacts, CostFacts, DeclaredCost, DeclaredLatency, FactQuality, ModalityFacts,
-    ObservationRef, PriceSource, PromptMode, ToolEffect, ToolsetTransport,
+    AgentComponentFacts, CostFacts, DeclaredCost, DeclaredLatency, FactQuality, MeasuredFact,
+    ModalityFacts, ObservationRef, PriceSource, PromptMode, ShellProficiency, ToolEffect,
+    ToolsetTransport,
 };
 pub use search::{
     decode_search_cursor, encode_search_cursor, AgentComponentSearchPage,
