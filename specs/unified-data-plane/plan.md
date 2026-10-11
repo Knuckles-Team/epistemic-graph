@@ -99,3 +99,11 @@ The deployment layer supplies a secret reference resolver and outbound network p
 ### Contribution requirements
 
 An integration pull request names the requirement IDs it closes, EG source-record/capability version, counterparty commit, synthetic fixtures, positive and denied request traces, and any old-path removal. An EG-only pull request keeps the row `IMPLEMENTED-UNVALIDATED` if the counterparty is not yet exercised. A deployment-only pull request does not declare the engine adapter accepted. Cross-component status is updated in [tasks](tasks.md) after the combined test and operational evidence are available.
+
+## Recovered requirement: authenticated Iceberg catalog
+
+Data flow: external engine token → `authorize_catalog_call` → tenant-scoped table list and load.
+Attach point: `crates/eg-lake/src/catalog.rs`, which documents a deny-all stub today. The first routing step is R039.3, locate and wire the listener.
+Reuses the verified request envelope, tenant model and existing Iceberg metadata writer.
+Decision: reuse the engine envelope. Rejected: a separate OAuth token store, which adds a second authority.
+Lakekeeper-style external catalog interchange is not written here; the engine remains the catalog authority.

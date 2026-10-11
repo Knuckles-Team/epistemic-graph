@@ -143,7 +143,13 @@
     "EG-UNIFIED-DATA-PLANE-R037",
     "EG-UNIFIED-DATA-PLANE-R038",
     "EG-UNIFIED-DATA-PLANE-R038.1",
-    "EG-UNIFIED-DATA-PLANE-R038.2"
+    "EG-UNIFIED-DATA-PLANE-R038.2",
+    "EG-UNIFIED-DATA-PLANE-R039",
+    "EG-UNIFIED-DATA-PLANE-R039.1",
+    "EG-UNIFIED-DATA-PLANE-R039.2",
+    "EG-UNIFIED-DATA-PLANE-R039.3",
+    "EG-UNIFIED-DATA-PLANE-R039.4",
+    "EG-UNIFIED-DATA-PLANE-R039.5"
   ],
   "requirements": [
     {
@@ -1877,6 +1883,55 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R038.2",
       "title": "Real per-source-kind discovery writing the contract, the copy pipeline, and EXPLAIN's per-fragment live/copy reporting",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R039",
+      "title": "Authenticated, tenant-scoped Iceberg REST catalog (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-UNIFIED-DATA-PLANE-R039.1",
+        "EG-UNIFIED-DATA-PLANE-R039.2",
+        "EG-UNIFIED-DATA-PLANE-R039.3",
+        "EG-UNIFIED-DATA-PLANE-R039.4",
+        "EG-UNIFIED-DATA-PLANE-R039.5"
+      ]
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R039.1",
+      "title": "`CatalogPrincipal` typed model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R039.2",
+      "title": "Catalog authorization refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R039.3",
+      "title": "Locate and wire the REST listener",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R039.4",
+      "title": "Partition spec in emitted Iceberg metadata",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R039.5",
+      "title": "End-to-end external read",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

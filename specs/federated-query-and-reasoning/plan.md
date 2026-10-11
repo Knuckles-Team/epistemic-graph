@@ -116,3 +116,10 @@ a direct `served_response` call, and a generic `served_response` call into
 the production NL section. Preserve the uncached response-path assertion.
 Standalone exact-source Rust tests establish this structural guard only; they
 do not establish full facade compilation or end-to-end NL query behavior.
+
+## Recovered requirement: vectorized SQL columns
+
+Data flow: SQL row write → `ColumnVectorBinding` check → queued embed → ANN index → nearest-neighbour query.
+Attach point: `crates/eg-query/src/sql/ann.rs` and `ann_pushdown.rs`, which already own the ANN path.
+Reuses the existing ANN index and embedding call. Source data stays in the SQL table.
+Decision: opt-in binding per column. Rejected: embedding every text column, which spends embedder budget on unused columns.
