@@ -5,6 +5,9 @@ use super::prelude_server::*;
 use super::prelude_std::*;
 use super::*;
 
+/// Maximum distinct items supported by the rule-enumeration mask width.
+const MAX_ASSOCIATION_DISTINCT_ITEMS: usize = (u32::BITS - 1) as usize;
+
 pub(super) struct SubmitBuild {
     pub(super) spec: SubmitJobSpec,
     pub(super) input_snapshot: InputSnapshotHandle,
@@ -300,7 +303,7 @@ pub(super) fn submit_job_mine_associate(
         .flatten()
         .collect::<std::collections::BTreeSet<_>>()
         .len();
-    if distinct_items > 31 {
+    if distinct_items > MAX_ASSOCIATION_DISTINCT_ITEMS {
         return Err(Response::err(
             req_id,
             "INVALID_ARGUMENT: association job distinct-item cardinality exceeds 31",
@@ -413,4 +416,15 @@ pub(super) fn ensure_program_optimization_capability(
     }
     required_capabilities.push("program.optimization".to_string());
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::MAX_ASSOCIATION_DISTINCT_ITEMS;
+
+    // spec: EG-PLACEMENT-R003.1
+    #[test]
+    fn association_distinct_item_limit_matches_rule_mask_width() {
+        assert_eq!(MAX_ASSOCIATION_DISTINCT_ITEMS, 31);
+    }
 }
