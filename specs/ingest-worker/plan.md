@@ -64,7 +64,8 @@ Attach point: the job body after induction. The production caller is the runner 
 Failure: a failing score keeps the draft and populates nothing.
 Reuses the queue and ack path of R001.4. New: the proposal and its scores.
 Decision: admit only after scoring. Rejected: admitting at once and repairing later, which pollutes instances.
-Cross-repository: the connector SDK runner (owner prefix `SDK-INGEST`, contract `run_ingest_worker`) hosts the body.
+Cross-repository dependency: `SDK-SOURCE-INGEST-R010` specifies the planned `run_ingest_worker` producer.
+That SDK row remains `SPECIFIED`; it does not establish a live worker runtime.
 
 References
 - arXiv:2511.11017 — Peshevski et al., "AI Agent-Driven Framework for Automated Product Knowledge Graph Construction in E-Commerce" (2025)
@@ -78,8 +79,72 @@ Failure: an atom without provenance is refused and not stored.
 Existing code: `crates/eg-document/src/contract.rs:141` (chunk validation). Reachable today: no. Search terms with no hit: knowledge atom, memory atom, provenance_key, assemble_context, ContextPack.
 Reuses document chunks. New: the atom type, decomposition and selection.
 Decision: select atoms per query. Rejected: sending whole documents as context, which spends budget on irrelevant text.
-Cross-repository: the connector SDK runner (owner prefix `SDK-INGEST`, contract `run_ingest_worker`) hosts the body.
+Cross-repository dependency: `SDK-SOURCE-INGEST-R010` specifies the planned `run_ingest_worker` producer.
+That SDK row remains `SPECIFIED`; it does not establish a live worker runtime.
 
 References
 - arXiv:2606.12400 — Diao et al., "Doc-to-Atom: Learning to Compile and Compose Memory Atoms" (2026)
 - arXiv:2606.19847 — Yao et al., "AtomMem" (2026)
+
+## Document and transcript producers within R003
+
+Planned data flow: SDK worker -> served `SourceIngest` -> authorize -> resolve trusted mappings -> validate -> reconcile/admit/map -> one envelope.
+The authorized committed-replay shortcut precedes mapping resolution and preserves its recorded outcome.
+The production route calls `prepare` at `src/server/dispatch/graph_pipeline/native_routes.rs:408`.
+It commits the envelope at `src/server/dispatch/graph_pipeline/native_routes.rs:428`, then calls `finish` at line 429.
+
+Existing code: `SourceIngestionRequest` at `crates/eg-types/src/source_ingestion.rs:265` validates the batch envelope.
+`prepare` at `src/server/handlers/source_ingestion.rs:155` authorizes requests and prepares the existing atomic projection.
+`resolve_mappings` at `src/server/handlers/source_ingestion.rs:385` resolves trusted mappings, rather than accepting caller-defined ontology authority.
+`DocumentData` at `crates/eg-document/src/document.rs:225` already holds content addresses, layout and chunk lineage.
+`NativeDocumentRuntime::decode_text` at `crates/eg-document/src/runtime.rs:79` decodes native text.
+Its existing production caller is `DecodedIngest::into_document` at `src/server/handlers/modality/ingest.rs:151`.
+The source pipeline must reuse document validation without invoking a second modality commit.
+Reachable today: yes for generic source ingestion and native document decoding; no for the new normalization and transcript validators.
+
+New code must add typed terminal outcomes, transcript records and two validators after trusted mapping resolution.
+Both validators must consume the same resolved mapping snapshot before reconciliation and source admission.
+Validators must not resolve mappings independently.
+Searches for `TranscriptThread`, `TranscriptMessage`, `validate_transcript` and normalization quarantine found no equivalent source-ingestion validator.
+The graph must remain authoritative for accepted records, provenance, mapping revisions and source checkpoints.
+`prepare` must return a prepared accepted or quarantine outcome for the existing one-envelope commit route.
+Normalization failure must not return the ordinary error path, which skips commit.
+A quarantine envelope must store only restricted evidence; it must not change the source marker, checkpoint or accepted projections.
+`finish` at `src/server/handlers/source_ingestion.rs:1683` must return quarantine only after its envelope commits.
+The accepted variant must retain `SourceIngestionReceipt`; the quarantine variant must carry an optional prior accepted checkpoint.
+First-batch quarantine must preserve `None`; it must not fabricate acceptance of the submitted checkpoint.
+`prepared_replay` at `src/server/handlers/source_ingestion.rs:1791` must restore the stored outcome after verifying authority.
+Quarantine replay must preserve its original receipt without resetting a checkpoint advanced by later accepted ingestion.
+A failed quarantine commit must return refusal, never a durable quarantine claim.
+Raw content must retain its existing content-addressed admission boundary.
+The format registry must come from the single resolved connector mapping revision.
+The engine must bind tenant and policy identities from verified server authority, never from source payloads.
+Transcript thread identity must include tenant, connector, stream and session ID; message identity must add message ID.
+The source-scoped convention at `src/server/handlers/source_ingestion.rs:2187` must encode those record keys without ambiguity.
+Read authorization must deny same-tenant unauthorized access to transcript text, provenance, quarantine receipts and raw-content references.
+Raw-content retrieval must enforce the stored policy; knowledge of a reference must grant no access.
+Transcript mappings must reuse existing message and concept vocabulary where applicable; they must not redefine media transcript segments.
+
+Decision: validate the complete source batch before committing its graph projection.
+Rejected alternative: commit individual messages or atoms during normalization, which exposes partial knowledge after failure.
+The named defaults `complete_document`, `content_identity`, `source_sequence` and `source_identity` must be replaceable through versioned policy.
+
+Cross-repository dependency: `SDK-SOURCE-INGEST-R010` specifies `run_ingest_worker`; its delivery state remains `SPECIFIED`.
+This planned worker must capture sources, perform source effects, parse external formats and submit normalized records.
+`GRAPHOS-` owns the hosted entry and worker supervision; `AU-` emits harness events only in this ingestion boundary.
+EG must validate, store and select knowledge; no connector credential or source-effect loop moves into EG.
+R001 already owns queues and retries; R003.1 through R003.6 already own atom decomposition and selection.
+Decision rows R133 through R138 own run traces, plans and budgets; they do not own source transcript ingestion.
+
+### Source evidence mapping
+
+Audit candidates 47 and 48 define the document and transcript requirements below.
+The audit tracker retains their complete source locations and provenance.
+Code and deduplication base: EG commit `2e44b8af87ec9681ab0f45d13b37fab38d45c7c2`.
+
+| Candidate ID | Source descriptions | Citation | Requirement mapping |
+|---|---|---|---|
+| 47 | Paper ingestion requirements; document-to-graph ingestion design | None supplied | Extend R003 with R003.7 through R003.12: normalized documents, atomic publication and quarantine. |
+| 48 | Observational memory design; temporal update design | None supplied | Extend R003 with R003.13 through R003.18: timestamped threads, messages, concept links and format refusal. |
+
+These inputs add no paper citation. Existing R003 research references inspire atom design only; they do not prove served acceptance.
