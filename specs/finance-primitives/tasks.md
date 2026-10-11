@@ -140,3 +140,10 @@ These children remain unverified. Intended paths and test names define future ac
 
 - [ ] **EG-FINANCE-PRIMITIVES-R004.2.1.1:** Complete the `Account/Position` omission, invalid-link and vocabulary matrix. Existing sampled tests are partial evidence. Intended test: `src/server/graph_schema/finance_tests.rs::shapes::account_position_complete_schema_matrix (intended test)`. Target: five-minute code slice; native execution may need more time.
 - [ ] **EG-FINANCE-PRIMITIVES-R004.2.2.1:** Complete the `Activity/Lot` omission, invalid-link and vocabulary matrix. Existing sampled tests are partial evidence. Intended test: `src/server/graph_schema/finance_tests.rs::shapes::activity_lot_complete_schema_matrix (intended test)`. Target: five-minute code slice; native execution may need more time.
+  - [ ] **EG-FINANCE-PRIMITIVES-R018:** Factor research records each factor as a typed node (rollup).
+  - [ ] **EG-FINANCE-PRIMITIVES-R018.1:** `FactorRecord` typed model
+  - [ ] **EG-FINANCE-PRIMITIVES-R018.2:** Ranking over the shared kernels
+  - [ ] **EG-FINANCE-PRIMITIVES-R018.3:** Attach at the finance method route
+  - [ ] **EG-FINANCE-PRIMITIVES-R018.4:** Typed abstention on thin input
+  - [ ] **EG-FINANCE-PRIMITIVES-R018.5:** Factor provenance edges
+  - [ ] **EG-FINANCE-PRIMITIVES-R018.6:** Served factor ranking proof
