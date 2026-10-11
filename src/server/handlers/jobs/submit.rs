@@ -253,10 +253,9 @@ pub(super) fn submit_placement_invalid(
             .any(|value| value.is_empty() || invalid_placement_value(value))
 }
 
-/// Validate the caller's thresholds and distinct-item bound before hashing.
-fn validate_association_input(
+/// Reject invalid thresholds before traversing or pseudonymizing input.
+fn validate_association_thresholds(
     req_id: u64,
-    transactions: &[Vec<String>],
     min_support: f64,
     min_confidence: f64,
 ) -> Result<(), Response> {
@@ -272,6 +271,14 @@ fn validate_association_input(
             "INVALID_ARGUMENT: association job thresholds are invalid",
         ));
     }
+    Ok(())
+}
+
+/// Count the opaque item references produced by Submit's hashing pass.
+fn validate_association_cardinality(
+    req_id: u64,
+    transactions: &[Vec<String>],
+) -> Result<(), Response> {
     let distinct_items = transactions
         .iter()
         .flatten()
@@ -297,7 +304,7 @@ pub(super) fn submit_job_mine_associate(
     min_confidence: f64,
     algorithm: String,
 ) -> Result<(JobKind, String, String, serde_json::Value), Response> {
-    validate_association_input(req_id, &transactions, min_support, min_confidence)?;
+    validate_association_thresholds(req_id, min_support, min_confidence)?;
     if parse_algorithm(&algorithm).is_err() {
         return Err(Response::err(
             req_id,
@@ -320,6 +327,7 @@ pub(super) fn submit_job_mine_associate(
                 .collect()
         })
         .collect();
+    validate_association_cardinality(req_id, &transactions)?;
     let params = serde_json::json!({
         "min_support": min_support,
         "min_confidence": min_confidence,
@@ -442,7 +450,7 @@ mod tests {
 
 #[cfg(test)]
 mod association_refusal_tests {
-    use super::validate_association_input;
+    use super::{validate_association_cardinality, validate_association_thresholds};
 
     // spec: EG-PLACEMENT-R003.2
     #[test]
@@ -464,8 +472,9 @@ mod association_refusal_tests {
             ),
         ] {
             let transactions = vec![(0..count).map(|i| format!("item:{i}")).collect()];
-            let refusal =
-                validate_association_input(302, &transactions, support, confidence).unwrap_err();
+            let refusal = validate_association_thresholds(302, support, confidence)
+                .and_then(|()| validate_association_cardinality(302, &transactions))
+                .unwrap_err();
             assert_eq!(refusal.id, 302);
             assert_eq!(refusal.error.as_deref(), Some("INVALID_ARGUMENT"));
             assert_eq!(refusal.error_detail.as_deref(), Some(expected));
@@ -473,6 +482,7 @@ mod association_refusal_tests {
         }
         let at_limit: Vec<String> = (0..31).map(|i| format!("item:{i}")).collect();
         let duplicates = vec![at_limit.clone(), at_limit];
-        assert!(validate_association_input(302, &duplicates, 0.0, 1.0).is_ok());
+        assert!(validate_association_thresholds(302, 0.0, 1.0).is_ok());
+        assert!(validate_association_cardinality(302, &duplicates).is_ok());
     }
 }
