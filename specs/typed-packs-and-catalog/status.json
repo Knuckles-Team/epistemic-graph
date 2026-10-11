@@ -644,6 +644,7 @@
       "title": "Served capability claim and refusal proof",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "257e9bef60eb",
         "481fa6ea2c55",
         "4ec396b2fe02",
         "c764285d098c"
