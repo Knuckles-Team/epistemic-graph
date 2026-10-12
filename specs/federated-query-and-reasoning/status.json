@@ -125,6 +125,27 @@
     "EG-FEDERATED-QUERY-R081.4",
     "EG-FEDERATED-QUERY-R081.5",
     "EG-FEDERATED-QUERY-R081.6",
+    "EG-FEDERATED-QUERY-R081.7",
+    "EG-FEDERATED-QUERY-R081.7.1",
+    "EG-FEDERATED-QUERY-R081.7.2",
+    "EG-FEDERATED-QUERY-R081.7.3",
+    "EG-FEDERATED-QUERY-R081.7.4",
+    "EG-FEDERATED-QUERY-R081.7.5",
+    "EG-FEDERATED-QUERY-R081.7.6",
+    "EG-FEDERATED-QUERY-R081.8",
+    "EG-FEDERATED-QUERY-R081.8.1",
+    "EG-FEDERATED-QUERY-R081.8.2",
+    "EG-FEDERATED-QUERY-R081.8.3",
+    "EG-FEDERATED-QUERY-R081.8.4",
+    "EG-FEDERATED-QUERY-R081.8.5",
+    "EG-FEDERATED-QUERY-R081.8.6",
+    "EG-FEDERATED-QUERY-R081.9",
+    "EG-FEDERATED-QUERY-R081.9.1",
+    "EG-FEDERATED-QUERY-R081.9.2",
+    "EG-FEDERATED-QUERY-R081.9.3",
+    "EG-FEDERATED-QUERY-R081.9.4",
+    "EG-FEDERATED-QUERY-R081.9.5",
+    "EG-FEDERATED-QUERY-R081.9.6",
     "EG-FEDERATED-QUERY-R082",
     "EG-FEDERATED-QUERY-R082.1",
     "EG-FEDERATED-QUERY-R082.2",
@@ -1406,7 +1427,10 @@
         "EG-FEDERATED-QUERY-R081.3",
         "EG-FEDERATED-QUERY-R081.4",
         "EG-FEDERATED-QUERY-R081.5",
-        "EG-FEDERATED-QUERY-R081.6"
+        "EG-FEDERATED-QUERY-R081.6",
+        "EG-FEDERATED-QUERY-R081.7",
+        "EG-FEDERATED-QUERY-R081.8",
+        "EG-FEDERATED-QUERY-R081.9"
       ]
     },
     {
@@ -1446,6 +1470,177 @@
     },
     {
       "id": "EG-FEDERATED-QUERY-R081.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R081.7",
+      "title": "Adaptive dual-score chunk selection (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-FEDERATED-QUERY-R081.7.1",
+        "EG-FEDERATED-QUERY-R081.7.2",
+        "EG-FEDERATED-QUERY-R081.7.3",
+        "EG-FEDERATED-QUERY-R081.7.4",
+        "EG-FEDERATED-QUERY-R081.7.5",
+        "EG-FEDERATED-QUERY-R081.7.6"
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R081.7.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R081.7.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R081.7.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R081.7.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R081.7.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R081.7.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R081.8",
+      "title": "Bounded retrieval feedback and critique (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-FEDERATED-QUERY-R081.8.1",
+        "EG-FEDERATED-QUERY-R081.8.2",
+        "EG-FEDERATED-QUERY-R081.8.3",
+        "EG-FEDERATED-QUERY-R081.8.4",
+        "EG-FEDERATED-QUERY-R081.8.5",
+        "EG-FEDERATED-QUERY-R081.8.6"
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R081.8.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R081.8.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R081.8.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R081.8.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R081.8.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R081.8.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R081.9",
+      "title": "Bounded community-to-entity retrieval (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-FEDERATED-QUERY-R081.9.1",
+        "EG-FEDERATED-QUERY-R081.9.2",
+        "EG-FEDERATED-QUERY-R081.9.3",
+        "EG-FEDERATED-QUERY-R081.9.4",
+        "EG-FEDERATED-QUERY-R081.9.5",
+        "EG-FEDERATED-QUERY-R081.9.6"
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R081.9.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R081.9.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R081.9.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R081.9.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R081.9.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R081.9.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
