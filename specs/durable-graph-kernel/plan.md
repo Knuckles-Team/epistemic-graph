@@ -281,10 +281,17 @@ Bind the cursor to the authorized graph snapshot, filters and current authority.
 Recheck authorization on every page. Policy changes invalidate the cursor.
 Return no hidden counts, identifiers, content digests or existence information.
 
-Sync actions form a closed set: submit, resolve and acknowledge_materialization.
+Sync actions form a closed set: observe_file, submit, resolve and acknowledge_materialization.
+Observe_file retains a host edit and its base revision without changing the accepted head.
+It returns file_ahead for a matching base, or conflict for a stale base.
+Both outcomes require durable content retention and current write authority.
 Submit carries expected revision, expected content digest and candidate bytes with their digest.
 Creation requires explicit absence; an absent expected revision never means unconditional overwrite.
 Resolve also names the retained conflict and the current accepted revision.
+Results are applied, observation_retained, conflict_retained, materialization_acknowledged or refused.
+Every result includes the accepted revision, content digest, explicit sync state and receipt identity.
+Retained outcomes also include authorized references for both contents and their provenance.
+Refusals reuse registered engine error codes; register missing typed errors before exposing this contract.
 The signed request binds the action, body and existing idempotency identity.
 Replay with the same identity and body returns the same receipt.
 The same identity with another body refuses. Never repeat an accepted mutation.
@@ -305,8 +312,9 @@ Sync states are in_sync, graph_ahead, file_ahead, conflict and unavailable.
 EG derives each state from accepted revisions and persisted, authorized host evidence.
 No host evidence means unavailable, never in_sync.
 A prior materialized revision with a newer accepted head means graph_ahead.
-A retained host edit based on the current head means file_ahead before submission completes.
+An observe_file receipt based on the current head means file_ahead until submission completes.
 A stale retained edit means conflict and takes precedence until explicit resolution.
+A retention-only change must not advance the accepted document revision.
 A successful materialization acknowledgment for the current revision and digest means in_sync.
 A stale acknowledgment cannot clear graph_ahead or conflict.
 

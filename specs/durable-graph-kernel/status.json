@@ -155,7 +155,16 @@
     "EG-DURABLE-KERNEL-R084.3",
     "EG-DURABLE-KERNEL-R084.4",
     "EG-DURABLE-KERNEL-R084.5",
-    "EG-DURABLE-KERNEL-R084.6"
+    "EG-DURABLE-KERNEL-R084.6",
+    "EG-DURABLE-KERNEL-R085",
+    "EG-DURABLE-KERNEL-R085.1",
+    "EG-DURABLE-KERNEL-R085.2",
+    "EG-DURABLE-KERNEL-R085.3",
+    "EG-DURABLE-KERNEL-R085.4",
+    "EG-DURABLE-KERNEL-R085.5",
+    "EG-DURABLE-KERNEL-R085.6",
+    "EG-DURABLE-KERNEL-R085.7",
+    "EG-DURABLE-KERNEL-R085.8"
   ],
   "requirements": [
     {
@@ -1946,6 +1955,79 @@
     {
       "id": "EG-DURABLE-KERNEL-R084.6",
       "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R085",
+      "title": "Versioned memory synchronization (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DURABLE-KERNEL-R085.1",
+        "EG-DURABLE-KERNEL-R085.2",
+        "EG-DURABLE-KERNEL-R085.3",
+        "EG-DURABLE-KERNEL-R085.4",
+        "EG-DURABLE-KERNEL-R085.5",
+        "EG-DURABLE-KERNEL-R085.6",
+        "EG-DURABLE-KERNEL-R085.7",
+        "EG-DURABLE-KERNEL-R085.8"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R085.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R085.2",
+      "title": "Versioned reads and listing",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R085.3",
+      "title": "Sync decisions and compare-and-set",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R085.4",
+      "title": "Production wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R085.5",
+      "title": "Authority and refusals",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R085.6",
+      "title": "Provenance and synchronization evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R085.7",
+      "title": "Retention",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R085.8",
+      "title": "Real served acceptance",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
