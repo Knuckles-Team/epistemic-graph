@@ -203,9 +203,5 @@ fn governed_refusals_preserve_their_declared_wire_codes() {
             response.refusal_text().as_deref(),
             Some(refusal.to_string().as_str())
         );
-        let encoded = serde_json::to_vec(&response).unwrap();
-        let decoded: Response = serde_json::from_slice(&encoded).unwrap();
-        assert_eq!(decoded.error, response.error);
-        assert_eq!(decoded.error_detail, response.error_detail);
     }
 }

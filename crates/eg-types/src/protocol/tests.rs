@@ -426,10 +426,15 @@ fn declared_response_error_separates_code_and_detail() {
         response.error_detail.as_deref(),
         Some("request context tenant does not match graph tenant")
     );
-    let encoded = serde_json::to_vec(&response).unwrap();
-    let decoded: Response = serde_json::from_slice(&encoded).unwrap();
-    assert_eq!(decoded.error, response.error);
-    assert_eq!(decoded.error_detail, response.error_detail);
+    let server_errors = crate::contract::ServerErrorCode::ALL
+        .iter()
+        .map(|code| Response::err(3, format!("{}: declared server refusal", code.as_str())));
+    for response in std::iter::once(response).chain(server_errors) {
+        let encoded = serde_json::to_vec(&response).unwrap();
+        let decoded: Response = serde_json::from_slice(&encoded).unwrap();
+        assert_eq!(decoded.error, response.error);
+        assert_eq!(decoded.error_detail, response.error_detail);
+    }
     for text in [
         "NOT_A_DECLARED_CODE: raw refusal",
         "GOVERNED_NOT_REGISTERED: private approval detail",
