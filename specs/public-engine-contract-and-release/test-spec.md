@@ -56,3 +56,16 @@ Mutation proof must observe the committed result and the owner's refusal, replay
 A direct native operation must use its own entry point; forcing it through the planner changes the architecture.
 Record revision, feature profile, entry point, command, exit result, artifact digest, and observed effect for each execution claim.
 Keep unexecuted cases explicit. Preserve EG-C-07/08, EG-T-10, and each linked parent's complete acceptance.
+
+<!-- spec-definition-patch:owner-batch-20261012-public-engine-contract-and-release -->
+## Planned residual acceptance — 2026-10-12
+
+The linked requirement rows define full inputs, outputs, and refusal cases.
+No test below has run; these are acceptance targets only.
+
+| Requirement | Source SHA-256 | Planned served case | Scope |
+|---|---|---|---|
+| `EG-CONTRACT-R001.1` | `c0d92285a141dcaac6817bcac25ffa438517afeba50be716211751f3a37a31c2` | `lifecycle_generated_types_survive_run_and_restart` | Run lifecycle_generated_types_survive_run_and_restart through the generated client and real AU run_agent. Transition through tool request/result to RunOutcome. Persist, restart, and resume with the same typed values. Unknown nested fields, wrong scalar types, stale schema revisions, and malformed persisted values SHALL refuse before the next step. AU separately refuses illegal phase transitions. Read persisted/resumed values independently and compare every field. A generated-model unit round trip alone does not pass. Planned only. No test, served readback, receipt, implementation, or closure is claimed. |
+| `EG-CONTRACT-R001.2` | `98b7ad1186ec2a385b334ffa0ad1b28888157ed6b51c6ed4172eeb7b7ef6768e` | `blueprint_canonical_disk_roundtrip_has_no_difference` | Run blueprint_canonical_disk_roundtrip_has_no_difference with served R094 export and governed SDK disk write/read. Import and re-export after restart. Include nested defaults, nulls, ordered arrays, Unicode, and schema-boundary numeric values. Compare exact canonical bytes and schema-typed values. Lost fields, unknowns, coerced numbers, changed array order, and changed final newline SHALL fail. Capture source-effect receipt. A serializer-only test does not pass. Planned only. No test, served readback, receipt, implementation, or closure is claimed. |
+
+Both definitions remain SPECIFIED. No test receipt or closure is claimed.

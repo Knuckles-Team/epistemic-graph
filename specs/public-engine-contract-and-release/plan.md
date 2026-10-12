@@ -336,3 +336,16 @@ EG-C-07/08, EG-T-10, EG-CONTRACT-R033, and EG-CONTRACT-R037 retain their
 exact-artifact and feature-profile acceptance.
 Source wiring alone does not qualify native release artifacts or promote
 the architecture requirement's generated status.
+
+<!-- spec-definition-patch:owner-batch-20261012-public-engine-contract-and-release -->
+## Reviewed implementation plan — 2026-10-12
+
+Normative contracts, source hashes, owner references, holds, and acceptance remain in `requirements.md`.
+Each task preserves its existing parent and owner boundary.
+
+| Requirement | Implementation work | Open dependency | Source SHA-256 |
+|---|---|---|---|
+| `EG-CONTRACT-R001.1` | Extend the EG generated-model manifest. Connect its exports to AU `HarnessRequest` and `run_agent`. | AU-HARNESS-R007.40 remains unmerged. AU owns lifecycle transitions, persistence, and consumer integration. | `c0d92285a141dcaac6817bcac25ffa438517afeba50be716211751f3a37a31c2` |
+| `EG-CONTRACT-R001.2` | Use R094 export/import with governed SDK and GraphOS disk effects. Pin the number encoder. | AU-CONTROL-R025.40 remains unmerged. EG SHALL NOT add a filesystem writer. | `98b7ad1186ec2a385b334ffa0ad1b28888157ed6b51c6ed4172eeb7b7ef6768e` |
+
+Both requirements remain SPECIFIED until separately reviewed implementation and served evidence exist.

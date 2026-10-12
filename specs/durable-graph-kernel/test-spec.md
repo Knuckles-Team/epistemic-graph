@@ -260,3 +260,36 @@ Record source SHA, binary digest, enabled features, exact command, graph/node sc
 request correlation, commit acknowledgment, residency observations and terminal result.
 Preserve all existing owner receipts. New results must identify the exact source exercised.
 This specification batch makes no runtime execution or implementation-complete claim.
+
+<!-- spec-definition-patch:owner-batch-20261012-durable-graph-kernel -->
+## Durable-kernel owner acceptance targets — 2026-10-12
+
+Planned cases only. None have run. EG producer acceptance stops at its authenticated durable memory contract. Cross-owner cases remain blocked where called out.
+
+- **`EG-DURABLE-KERNEL-R028.1` / AU:21:** Write a checkpoint and both referenced memory revisions through R085. Restart and read back the same revision and digests. Refuse wrong tenant/graph, stale head or stale WorkItem fence. Also refuse a crash/race between snapshot write and WorkItem pointer update. Refuse digest mismatch, changed-body replay identity or unavailable storage without advancing the head. AU must resume the same run and fence. GraphOS must continue from the exact existing host-issued stream cursor without duplicate or skipped output. Those cases remain blocked on the atomic snapshot/pointer transaction or crash-recovery contract. Short-/long-term kind and retention decisions, AU resume-binding and host cursor/replay semantics also remain open. Preserve `EG-DURABLE-KERNEL-R028`, `EG-IDENTITY-R006`, `GRAPHOS-A2A-R001`, `GRAPHOS-A2A-R001.1`, `GRAPHOS-OPS-R001`. Source hash `d89bb9c69e2fdef6a5c3fd428ede3f91868539056c2b949700867d8d8087d1e7`.
+- **`EG-DURABLE-KERNEL-R085.9` / AU:48:** Store all required search-state fields and evict context. Restart or use an independent client. Read back byte-identical exact UTF-8 JSON content at its bound revision. Validate the envelope field types and the equality of state revision and snapshot revision. Refuse missing/malformed fields, oversize content, wrong authority, stale graph, digest mismatch, and unavailable storage without changing the head. Stale expected revision preserves the accepted head and retains the candidate conflict. AU continuation must restore all four fields using the exact returned document ID/revision before compacted context is used. That last case is blocked on AU’s per-entry schema/source identity and continuation receipt decision. Preserve AU R013.13/R020.1 and EG R085.1/.4/.7. Source hash `8c76fa1637e0cc2082a1cce16b9d637f12b310ae96d1fe9a50ec9c64f8e23944`.
+- **`EG-DURABLE-KERNEL-R085.10` / AU:49:** Write/read an authorized note across restart with source revision, digest, and provenance intact. Ensure cross-tenant/revoked reads are redacted. Stale writes must retain conflict without replacing the accepted head. Capacity exhaustion must refuse before effects. AU must separately test the decided capture trigger, relevance/staleness rule, and conflict presentation without using unresolved content. That acceptance is blocked on AU defining those semantics. Preserve AU R022.3 and EG R085.2/.5/.7. Source hash `2362fd76bf40223aeb813866392670b65eae13d02a725b1af9a2e6711542dd12`.
+- **`EG-DURABLE-KERNEL-R084.7` / EG:28:** Existing one-graph two-client acceptance continues to prove one commit and one typed stale-writer conflict. No cross-backend positive case is valid until owners define the writable target set, ordering key and coordinator. They must also define atomic/eventual semantics and the partial failure/retry/receipt contract. Once defined, cover two tenants, multiple targets, concurrent writes, failure/replay, and assert R039 remains sole durability authority. This child remains explicitly held. Do not use R084.6 as cross-backend evidence. Preserve all R084.1-.6 clauses. Source hash `96c3079859b0e63ec3e1174e25e7a4ab107b23ef6863ae9b54ff0e921a88e4b0`.
+<!-- /spec-definition-patch -->
+
+<!-- spec-definition-patch:final-mappings-20261012 -->
+## Final mapped planned acceptance — 2026-10-12
+
+No cases listed here have run. They describe required future acceptance, not evidence.
+
+- **`EG-DURABLE-KERNEL-R038.100` / EG:60. Source `b36ed0f40742d2f455b4eae67f2fb64edfb7a6ea87b93cbb8ac0046970728458`:** Start a fresh embedded profile without an external service and read/write an explicitly ephemeral namespace. Confirm no persistent namespace is silently downgraded. Start served mode against its configured endpoint and confirm its declared sync/async class and acknowledgment boundary. Refuse an unknown profile and an ephemeral-to-durable class mismatch. Read back profile and namespace declarations. Producer/consumer: EG owns profile and storage selection. Transport mode is separate from namespace DurabilityClass. Preserve R038 durability classes, sync default, redb authority and authorization/HMAC isolation. Parent `EG-DURABLE-KERNEL-R038` remains intact.
+<!-- /spec-definition-patch -->
+
+
+<!-- spec-definition-patch:owner-dispatch-20261012-tests -->
+## Planned served acceptance — graph change feed
+
+No test in this section has run. It is a future contract.
+
+- `EG-DURABLE-KERNEL-R043.100`: Use two authenticated served GraphView clients to take a consistent snapshot. Commit concurrent `ApplyChangeEnvelope` mutations and consume ordered events without refresh. Reconnect from the opaque cursor and independently read back committed state. Exercise stable dedup ids, tombstones, expired cursor recovery, stale graph incarnation and revoked permissions without denied counts/edges. Measure EG commit-to-visible p95 only through first authorized feed read. GraphOS/WebUI acceptance must separately set and confirm a versioned browser commit-to-visible p95. It must also set explicit numeric readable-layout limits for visible node/edge budget, interaction and label bounds. EG feed latency is not end-to-end evidence.
+- Exercise tombstones, expired cursor recovery, graph-incarnation mismatch and authorization revocation. Denied edges/counts remain invisible. Measure p95 commit acknowledgement to first authorized read ≤1000 ms using the recorded latency-profile revision. WebUI R030.8 separately proves concurrent layout remains readable.
+<!-- /spec-definition-patch -->
+
+## Planned served acceptance — benchmark measurement
+
+- `EG-DURABLE-KERNEL-R042.100`: read back benchmark input and measured-result bindings for at least two releases. Independently recompute input-token TPS and currency-rounded per-query cost, proving startup is excluded. Refuse missing full input-token count/tokenizer/price, zero or invalid inference time, invalid currency exponent and different workload/profile settings. This does not assert that any performance comparison passes.

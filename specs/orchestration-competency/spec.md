@@ -47,3 +47,19 @@ Owned: ontology gaps, SHACL shapes, source-authority mappings, fixtures and acce
 ## Virtual-first: the engine reaches source data, it does not copy it
 
 What is ingested from a connected source is its **ontology and access contract**. The data stays in the source. The engine fetches it at query time through an ontology-driven virtual graph, selected by the ontology's source declarations. The contract kinds are A2A, MCP, API (REST), GraphQL and virtual-graph contracts over relational or document stores. A question is answered by federating over those contracts. Copying a source into the engine is an optimisation that needs its own stated reason (latency, availability, history). It is never the default and never a precondition for answering.
+
+<!-- spec-definition-patch:owner-batch-20261012-orchestration-competency -->
+## Reviewed owner residuals — 2026-10-12
+
+### `EG-CQ-ORCH-R010.7` — GRAPHOS:20
+
+Original objective: Before planning, query graph architecture and wiring. Report design differences. Each feature names its hot-path attach point. Refuse plans with unwired features.
+
+EG-owned residual: No cited contract requires architecture/wiring comparison before planning. No cited contract requires a hot-path attach point for every feature. No cited contract refuses unwired features. Capability gap reports and architecture views are inputs, not admission gates.
+
+Producer/consumer boundary: EG served impact view and capability query feed AU study-gap proposals. AU proposals feed EG planning admission. The preplanning comparison and unwired-feature refusal edge are absent.
+
+Preserve existing coverage: `EG-CQ-ORCH-R010.1`, `EG-CQ-ORCH-R010.2`, `EG-CQ-ORCH-R010.3`, `EG-CQ-ORCH-R010.4`, `EG-CQ-ORCH-R010.5`, `EG-CQ-ORCH-R010.6`, `AU-HARNESS-R019.5`, `AU-HARNESS-R019.6`, `AU-HARNESS-R019.7`.
+
+Owner source hash: `bbc3f62e74bc899e49191e1d9bf324afe5e6dc2553df9e8d8651aae1311a8418`. This definition adds no AU/GraphOS/SDK implementation or acceptance claim.
+<!-- /spec-definition-patch -->

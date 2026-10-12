@@ -756,3 +756,544 @@ The real EG path is public `Method::Decide` through `src/server/handlers/decide/
 
 Dependency order: typed request/plan/refusal/evidence round trip; deterministic threshold and budget behavior; real Decide wiring; served stale-input and budget refusals; then independent AU served consumer and receipt. Keep R080.1, R136.3, R137, R138 and existing producer obligations intact.
 <!-- /spec-definition-patch -->
+
+<!-- spec-definition-patch:owner-batch-20261012-decision-engine -->
+## Reviewed residual closure plan — owner batch 2026-10-12
+
+### `EG-DECISION-ENGINE-R135.7` — AU:18
+
+- Existing rollup: `EG-DECISION-ENGINE-R135`. Preserve `.2`, `.3`, `.5` and adjacent `AU-HARNESS-R022.2`.
+- EG contract: accept the closed `PrePlanTestReceiptV1` fields named in requirements. Bind one receipt to planning and verification. Score `tests_ran` and `artifacts_exist` separately. Promote only after zero exit and readable artifacts.
+- Production attach point: existing `compile_program` / `AgentLibraryStore` / `handle_decide` `ProgramLookup`. Retain `CompiledProgram` and current store, with no second reuse model.
+- Pending owner contract. exact AU pre-plan test producer and verifier receipt ID/schema. `AU-HARNESS-R022.2` is not enough evidence for those fields.
+- Planned positive/negative served acceptance. valid receipt is read back from plan, verifier and promoted pattern. Missing, late, stale, changed-revision/command, failed test or unreadable artifact evidence blocks promotion.
+### `EG-DECISION-ENGINE-R106.1` — AU:19
+
+- Existing rollup: `EG-DECISION-ENGINE-R106`. Preserve topology shape and `EG-ORCH-VOCAB-R006.3` loop-back semantics.
+- EG contract: `CouncilCoordinationV1` accepts a complete, non-duplicated set of revision-bound `CouncilPositionV1` records and a pinned quorum/conflict policy. Output retains all participants, accepted/rejected positions, outcome, abstention reason and digests.
+- Production attach point: typed `Method::Decide` / `handle_decide` result sealing. Validate the referenced council shape through `AgentGraphDraft.topology` and `topology_shape.rs`.
+- Pending owner contract. AU persona-position producer ID/schema; `AU-CONTROL-R010` is topology input only.
+- Planned served acceptance. coherent quorum, policy-resolved conflict, explicit abstention, missing/duplicate/stale/unauthorized position and topology mismatch cases. Independently read the sealed decision and all position refs.
+### `EG-DECISION-ENGINE-R137.13` — AU:25
+
+- Existing rollup: `EG-DECISION-ENGINE-R137`. Preserve `.1-.3` and keep package selection `.7-.12` separate.
+- EG contract: `ContextBudgetSignalsV1` binds tool-output bytes/digest and graph-node count/snapshot to a run and observation time. `ContextBudgetPolicyV1` versions thresholds and ladder mapping. The result binds both observations and returns mode, rung and reason codes.
+- Production attach point: add the `QuestionKind::ContextBudget` branch in `Method::Decide`, beside `tool_subset_outcome` in `stat_decide.rs::handle_decide`; AU `run_full_rlm` consumes the sealed `DecisionBatch` before execution.
+- Pending owner contract. exact AU producer for both observations and its decision consumer binding; `AU-HARNESS-R026.3/.4` does not define these fields.
+- Planned served acceptance. vary each signal independently and together around boundaries. Missing, stale, altered-digest, invalid and cross-tenant signals refuse before execution.
+### `EG-DECISION-ENGINE-R134.9` — AU:34
+
+- Existing EG rollup: `EG-DECISION-ENGINE-R134`. Append-only residual ID: `EG-DECISION-ENGINE-R134.9`.
+- Original objective. Select multiple relevant skills from a tree for each task. Tune selection from run outcomes, so exploration can use more than one skill.
+- Missing EG obligation. An explicit skill tree and outcome-tuned EG exploration over that tree are absent. AU-HARNESS-R022.3 says retrieval ranks locally, while AU-CONTEXT-R001 assigns ranking/feedback to EG. Resolve this authority conflict.
+- Producer/consumer route. EG plan_over_skills -> AgentLibraryStore -> served TaskPlan; AU experience feedback lacks a named EG selection-policy update consumer.
+- Proposed definition. Define TaskPlanSkillNodeV1. Bind task_plan_id/revision/digest, skill_id and nullable parent_skill_id. Bind context_match_policy_revision and evidence refs. Bind prior_outcome_refs with source revisions/digests. Record score, rank and ranking_policy_revision. EG emits relevant skills in a deterministic tree. A versioned score/rank policy binds the comparator and tie rule. Missing or unpinned policy refuses. Outcome feedback changes later breadth only through R140.102 and its pinned policy/outcome set.
+- Planned acceptance and owner hold. Case R134.9-ranked-plan. Served Decide(TaskPlan) returns multiple skill nodes. Each has stable parent links, cited context matches, pinned outcome refs, score/rank and plan digest. Equal scores use the declared tie-break. Refuse missing/stale context or outcome evidence and malformed/cyclic parent links. AU application of this rank is not asserted. Attach the proposed result at plan_over_skills -> AgentLibraryStore -> served TaskPlan. AU-HARNESS-R022.3 local ranking and AU-CONTEXT-R001 feedback authority remain existing adjacent obligations. The AU consumer that applies EG rank and the feedback-to-R140.102 receipt contract are not yet specified. Keep SPECIFIED pending those owner definitions and served evidence. No implementation, served test, or receipt is claimed by this SPECIFIED definition.
+- Preserve covered clauses: `EG-DECISION-ENGINE-R134.4`, `EG-DECISION-ENGINE-R134.5`, `AU-HARNESS-R022.3`, `AU-CONTEXT-R001`.
+- Source review. `ced4d0bb75fa260e4291aea5f71c28b407a95fc3e06047666e1278b043a3cdbd`. Evidence: epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:283. Epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:284. Agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:112. Agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/agent-context-and-finance/requirements.md:5.
+- Cross-owner behavior and receipts remain with the named owner. No runtime evidence is claimed.
+
+### `EG-DECISION-ENGINE-R137.14` — AU:37
+
+- Existing EG rollup: `EG-DECISION-ENGINE-R137`. Append-only residual ID: `EG-DECISION-ENGINE-R137.14`.
+- Original objective. Compress long run context into updatable memory only when held-out answer quality stays within declared tolerance. Otherwise retain the full context.
+- Missing EG obligation. The judge checks retained values, methods and validation steps. It does not compare held-out answers with full-context answers under a declared tolerance.
+- Producer/consumer route. AU ContextManager.before_model_request -> run_agent replaces context only after its summary gate. No held-out paired-answer verdict is a named prerequisite.
+- Proposed definition. Define PairedContextEvaluationV1. Bind the held_out_query_set id/revision/digest, raw_context revision/digest and candidate_context revision/digest. Bind evaluator/model revision and each query's raw/candidate answer digests. Record the quality metric, aggregation rule, tolerance and policy revision. Require a complete per-query verdict set. Replace raw context only when all queries are present and the aggregate satisfies the declared tolerance. Any failed or incomplete evaluation retains the raw revision.
+- Planned acceptance and owner hold. Case R137.14-paired-context. a complete held-out set within the declared tolerance permits the replacement verdict. A beyond-tolerance result, missing query or stale context/evaluator digest refuses. Undefined metric, aggregation or tolerance also refuses. An incomplete verdict set leaves the active raw-context revision unchanged. AU ContextManager.before_model_request -> run_agent is the existing replacement point. The AU held-out evaluator and receipt schema are absent. The consumer that atomically applies EG acceptance is also undefined. R013.5/.10/.12/.13 remain adjacent coverage, not evidence of this gate. No implementation, served test or receipt is claimed by this SPECIFIED definition.
+- Preserve covered clauses: `AU-HARNESS-R013.5`, `AU-HARNESS-R013.10`, `AU-HARNESS-R013.12`, `AU-HARNESS-R013.13`.
+- Source review. `7e1405981aa8b697a73eb7e8c3c3170be8edefc674c23beef740884450fc1add`. Evidence: agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:28. Agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:33. Agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:35. Agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:36.
+- Cross-owner behavior and receipts remain with the named owner. No runtime evidence is claimed.
+
+### `EG-DECISION-ENGINE-R134.10` — AU:39
+
+- Existing EG rollup: `EG-DECISION-ENGINE-R134`. Append-only residual ID: `EG-DECISION-ENGINE-R134.10`.
+- Original objective. A main run delegates subtasks to sub-runs. Each child returns only contract-bounded summaries. The main run conserves context budget and records delegation decisions as trajectories.
+- Missing EG obligation. There is no summary-only sub-run return schema, parent-remaining-context bound or explicit rejection of raw/oversized returns. Generic spans do not bind delegation decision, child run and accepted summary as one trajectory.
+- Producer/consumer route. AU _fork_fanout -> FanoutResult and parallel workspace synthesis; EG decides plans. The bounded child-summary producer/parent consumer boundary is absent.
+- Proposed definition. Define ChildSummaryV1. Bind plan/decision id and digest, parent run id and child run id. Record the expected child-id set and summary artifact kind/schema/version/digest. Bind the exact tokenizer revision, summary token count and source/result evidence refs. A parent budget record binds remaining context tokens at dispatch and the maximum aggregate child-summary tokens. Child output exposed to the parent contains only the declared summary artifact, never raw transcript. The accepted fan-out receipt accounts for every child as one summary or named failure gap.
+- Planned acceptance and owner hold. Case R134.10-bounded-child-summary. Link each valid summary-only child to decision, child and summary digests. Its checked token total must fit the parent's remaining budget. Refuse raw or oversized output and missing, duplicate or unknown children. Refuse tokenizer/budget revision mismatch or totals above the bound before parent synthesis. AU _fork_fanout -> FanoutResult and parallel workspace synthesis are the observed attachment points. EG owns TaskPlan authority. AU summary producer, parent budget field and consumer validation/readback receipt are missing. AU-CONTROL-R043.2/.5, AU-HARNESS-R020.4 and AU-HARNESS-R024.1 remain adjacent. No implementation, served test, or receipt is claimed by this SPECIFIED definition.
+- Preserve covered clauses: `AU-CONTROL-R043.2`, `AU-CONTROL-R043.5`, `AU-HARNESS-R020.4`, `AU-HARNESS-R024.1`.
+- Source review. `742906721351687d032991b4e9c0255baf7a6c480e21ac7a616975d40e38ce84`. Evidence: agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/agent-control-plane/requirements.md:100. Agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/agent-control-plane/requirements.md:103. Agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:95. Agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:126.
+- Cross-owner behavior and receipts remain with the named owner. No runtime evidence is claimed.
+
+### `EG-DECISION-ENGINE-R137.15` — AU:40
+
+- Existing EG rollup: `EG-DECISION-ENGINE-R137`. Append-only residual ID: `EG-DECISION-ENGINE-R137.15`.
+- Original objective. A recursive runtime lets a model call sub-models through typed signatures and tools. The run trace records interpretable trajectories.
+- Missing EG obligation. A primitive handle and span digests omit recursive sub-model input/output signatures, tool bindings and boundary validation. The trace also lacks signature/model/tool linkage.
+- Producer/consumer route. AU run_full_rlm -> RLMEnvironment.run_parallel_sub_calls executes EG limits. Span instrumentation records calls. No recursive-call signature producer/validator is named.
+- Proposed definition. Define RecursiveCallV1 request/result records. Bind parent run/span, call id and signature id/revision/digest. Record typed input schema/digest, admitted tool id/revision set and selected model id/revision. Bind typed output schema/digest and terminal status. Validate input and tool membership before dispatch and output against the same signature before recording success. Bind all revisions/digests in the recursive trace.
+- Planned acceptance and owner hold. Case R137.15-signature-boundary. an admitted typed call records matching signature/model/tool/input/output digests. Refuse unknown or changed signatures and unadmitted tools. Refuse malformed input/output, missing parent span or revision mismatch before accepting a result. AU run_full_rlm -> RLMEnvironment.run_parallel_sub_calls is the observed execution point. EG resource limits and span instrumentation are adjacent only. No AU recursive signature producer/validator receipt or exact EG-to-AU call contract is named. No implementation, served test, or receipt is claimed by this SPECIFIED definition.
+- Preserve covered clauses: `AU-HARNESS-R026.1`, `AU-HARNESS-R026.4`, `AU-HARNESS-R024.1`, `AU-HARNESS-R024.3`, `EG-ORCH-VOCAB-R005`.
+- Source review. `4edb15328650ebf084f0ab1d073b092e5b684aafad9b7b1ca7f412859390b923`. Evidence: agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:142. Agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:145. Agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:126. Agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:128.
+- Cross-owner behavior and receipts remain with the named owner. No runtime evidence is claimed.
+
+### `EG-DECISION-ENGINE-R134.11` — AU:45
+
+- Existing EG rollup: `EG-DECISION-ENGINE-R134`. Append-only residual ID: `EG-DECISION-ENGINE-R134.11`.
+- Original objective. Long tasks decompose into sub-horizons under a declared per-step budget with checkpointed credit. A plan whose step count exceeds the configured horizon is split before execution, not attempted whole.
+- Missing EG obligation. Depth/item bounds do not define an execution horizon or per-step budget. They do not split excess steps before execution or checkpoint credit across sub-horizons.
+- Producer/consumer route. EG decompose_task/TaskPlan -> AU bounded map primitives. The horizon partition and durable credit receipt are not a named producer/consumer interface.
+- Proposed definition. Define HorizonPartitionV1 for one committed TaskPlan revision. Bind ordered step ids and dependency edges. Set positive max_steps_per_horizon, per-step budget policy id/revision/unit and a credit ceiling. Partition only at dependency-safe boundaries before launch. Each completed horizon returns a durable credit checkpoint with plan/horizon ids, consumed/reserved/remaining amounts, budget revision and digest. Require a versioned accounting rule for debits.
+- Planned acceptance and owner hold. Case R134.11-horizon-credit. a plan within the limit remains one horizon. A longer valid plan is split at dependency-safe boundaries and its checkpoint balances reconcile exactly. Refuse an unsplittable dependency component or absent/invalid budget rule. Refuse an over-credit horizon, missing checkpoint or stale plan revision before next launch. EG decompose_task/TaskPlan feeds AU bounded map primitives, but no named partition/credit receipt interface exists. AU durable checkpoint/debit semantics and the consumer that blocks launch on a missing receipt remain unspecified. Do not substitute Finance forecast horizons or solver budgets. No implementation, served test, or receipt is claimed by this SPECIFIED definition.
+- Preserve covered clauses: `AU-HARNESS-R026.1`, `AU-HARNESS-R026.2`, `EG-DECISION-ENGINE-R134.3`, `EG-DECISION-ENGINE-R134.4`.
+- Source review. `c1bfd61241a0fd02ada2816f173a3b9568da5b48e490e76058fd740b356886da`. Evidence: agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:142. Agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:143. Epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:282. Epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:283.
+- Cross-owner behavior and receipts remain with the named owner. No runtime evidence is claimed.
+
+### `EG-DECISION-ENGINE-R059.1` — AU:57
+
+- Existing EG rollup: `EG-DECISION-ENGINE-R059`. Append-only residual ID: `EG-DECISION-ENGINE-R059.1`.
+- Original objective. Merge skill candidates from multiple models into one tree. Aggregate independent evaluations into a robust estimate of effectiveness and transferability across backbones.
+- Missing EG obligation. No merged skill tree binds candidates across model backbones to independent per-skill evaluations. It also lacks a robustness/transferability estimate across those backbones.
+- Producer/consumer route. AU experience/skill candidates -> EG admission-linked outcome aggregate. The shared tree and backbone-bound per-skill evaluation join remain unnamed.
+- Proposed definition. Define BackboneSkillEvaluationV1 rows. Key each by candidate id and canonical skill identity. Bind source model/backbone id/revision and task-distribution id/revision. Bind evaluation dataset id/revision/digest, metric id/revision, sample count and result digest. An aggregate may be emitted only with complete independent rows for every declared backbone and a versioned transferability policy. Publish the full per-backbone evidence with the aggregate, not a bare score.
+- Planned acceptance and owner hold. Case R059.1-backbone-evidence. complete independent evaluations for the same canonical skill identity produce a result that lists every backbone and policy revision. Refuse missing/duplicate backbone rows, candidate identity mismatch, reused non-independent evidence, incomplete dataset coverage or absent metric/transferability aggregation policy. AU supplies experience/skill candidates; EG R059 is the existing independent-outcome admission path. No shared canonical skill merge key, robust aggregation/threshold decision, or AU multi-backbone evaluation producer is specified. These decisions are explicit holds. No implementation, served test, or receipt is claimed by this SPECIFIED definition.
+- Preserve covered clauses: `AU-HARNESS-R022.1`, `AU-HARNESS-R022.2`, `EG-DECISION-ENGINE-R059`.
+- Source review. `0c7c2eed61e3cfe6fe6c863c75fb66092f3a8bea97e3942b635c7b69f715d3a9`. Evidence: agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:110. Agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:111. Epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:90.
+- Cross-owner behavior and receipts remain with the named owner. No runtime evidence is claimed.
+
+### `EG-DECISION-ENGINE-R134.12` — AU:85
+
+- Existing EG rollup: `EG-DECISION-ENGINE-R134`. Append-only residual ID: `EG-DECISION-ENGINE-R134.12`.
+- Original objective. Hard tasks run in two stages: parallel reasoning over multiple trajectories, then a summarization step aggregating them. Width and depth are chosen by the decision ladder and re-measured against a single-trajectory baseline.
+- Missing EG obligation. Hard-task alternative trajectories and deliberative summary aggregation. Explicit width/depth decision ladder and remeasurement against a single-trajectory baseline.
+- Producer/consumer route. R134 plan explicitly connects Decide TaskPlan to AU-CONTROL-R042/R043; R137 plan connects ContextBudget to AU-CONTEXT-R004/AU-HARNESS-R026. AU-HARNESS-R018 has run_agent paired arms. These dependencies lack the alternative-trajectory/summarization/baseline binding.
+- Proposed definition. Define TrajectoryDecisionV1. Bind one task/plan digest and policy revision. Record chosen width/depth and ordered trajectory ids. Bind the identical input snapshot digest per arm, single-trajectory baseline id, per-arm outcome/evaluation refs and paired comparison receipt. The decision names the selection and evaluation policies. It does not prescribe an unsupported scoring formula. A pass requires complete paired arms over the same task/input and an explicit R018 comparison verdict.
+- Planned acceptance and owner hold. Case R134.12-paired-trajectories. selected width/depth and all trajectory/baseline ids bind to the same plan and input snapshot. Each arm has an outcome and the paired R018 verdict is readable. Refuse missing/mismatched arm, baseline, policy revision or result, and refuse any claim of improvement without the declared paired verdict. Existing points are Decide(TaskPlan), AU-CONTROL-R042/R043, AU-HARNESS-R020.4, and paired arms in AU-HARNESS-R018.1/.2/.5. AU trajectory generation, summary aggregation and EG selection-policy consumer receipt are absent. No implementation, served test, or receipt is claimed by this SPECIFIED definition.
+- Preserve covered clauses: `AU-HARNESS-R020.4`, `EG-DECISION-ENGINE-R134.1`, `EG-DECISION-ENGINE-R134.3`, `AU-CONTROL-R007`, `EG-DECISION-ENGINE-R137.1`, `EG-DECISION-ENGINE-R137.3`, `AU-HARNESS-R018.1`, `AU-HARNESS-R018.2`, `AU-HARNESS-R018.5`.
+- Source review. `a28929a50cbfcb691664403ce456fbf9dc38d6bd64b34424932e4fa22f9cbda1`. Evidence: agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/agent-control-plane/requirements.md:12. Agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:71. Agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:72. Agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:75.
+- Cross-owner behavior and receipts remain with the named owner. No runtime evidence is claimed.
+
+### `EG-DECISION-ENGINE-R134.13` — AU:91
+
+- Existing EG rollup: `EG-DECISION-ENGINE-R134`. Append-only residual ID: `EG-DECISION-ENGINE-R134.13`.
+- Original objective. Parallel analyst roles produce structured, cited findings for one decision role. That role abstains when findings conflict or lack citations.
+- Missing EG obligation. Distinct analyst roles provide cited findings to one decision role. Required abstention on unresolved conflict or missing citations.
+- Producer/consumer route. EG R134.5 plans TaskPlan through served Decide; AU R020.5 create worker slots through _dispatch_parallel_batch. The selected aggregation consumer lacks a cited-finding/conflict abstention contract.
+- Proposed definition. Define AnalystFindingV1. Bind task/plan digest, expected analyst id/role and finding id. Record claim text/digest, cited evidence ids/revisions/digests and source spans. Define SynthesisResultV1. Include the complete expected analyst-id set and all finding ids. Record each analyst outcome, cited evidence, conflicts and final decision-role id. Return a supported conclusion or typed abstention reason. Never drop a failed or absent analyst from accounting.
+- Planned acceptance and owner hold. Case R134.13-cited-synthesis. cited compatible findings produce a result that accounts for every expected analyst. Refuse missing/duplicate analysts and unsupported findings. Refuse unresolved conflict, invalid citation, plan mismatch or absent decision role. Abstain without recommendation. EG R134.5 served Decide(TaskPlan) is the planning point; AU R020.5 _dispatch_parallel_batch create worker slots. The exact AU finding producer/collector and aggregation consumer contract is missing. Existing fan-out clauses do not prove it. No implementation, served test, or receipt is claimed by this SPECIFIED definition.
+- Preserve covered clauses: `EG-DECISION-ENGINE-R134.3`, `AU-HARNESS-R020.1`, `AU-HARNESS-R020.4`, `AU-HARNESS-R020.2`, `EG-DECISION-ENGINE-R134.6`.
+- Source review. `f5ddb0ac9b0329ac031c01c56c49ee03c922a991dbf2d0e29c111515424d3455`. Evidence: agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:92. Agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:93. Agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:95. Epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:282.
+- Cross-owner behavior and receipts remain with the named owner. No runtime evidence is claimed.
+
+### `EG-DECISION-ENGINE-R029.1` — AU:93
+
+- Existing EG rollup: `EG-DECISION-ENGINE-R029`. Append-only residual ID: `EG-DECISION-ENGINE-R029.1`.
+- Original objective. Search grounding is a replaceable provider selected through the committed routing decision, independent of the reasoning model. An unavailable provider is refused, not silently substituted.
+- Missing EG obligation. Replaceable search-grounding provider independently selected from reasoning model and bound to a committed route. Unavailable committed provider must refuse rather than substitute.
+- Producer/consumer route. Preserve GRAPHOS-OPS-R021.2.1 retrieval.search and its tenant-scoped retriever. EG must produce the committed provider binding and the SDK/GraphOS consumer must execute that exact provider. That edge is missing.
+- Proposed definition. Define RetrievalProviderBindingV1 in the committed retrieval plan. Bind provider id/revision/config digest, query/request digest and tenant scope. Identify reasoning model id/revision separately. The binding has an explicit no-substitution policy. Execution evidence records the exact provider, binding digest, request/result digests and provider revision.
+- Planned acceptance and owner hold. Case R029.1-exact-provider. independently vary provider and reasoning-model ids while verifying the committed provider is executed. If the bound provider is unavailable, stale, unauthorized or mismatched, refuse before retrieval and record zero calls to alternate providers. Preserve GRAPHOS-OPS-R021.2.1 retrieval.search and its tenant-scoped retriever. EG must commit the provider binding. The SDK/GraphOS consumer contract that executes and receipts that exact binding is not defined. No implementation, served test, or receipt is claimed by this SPECIFIED definition.
+- Preserve covered clauses: `EG-DECISION-ENGINE-R029`, `GRAPHOS-OPS-R021.2.1`.
+- Source review. `c9552392eb813763a83fc96fb48ad1bd18fd805ef608736f1dae5d48ab12c984`. Evidence: epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:41. Graph-os:069eebc785afb9fb26bbbcc907cf5a2a4bcab5c5:specs/hosted-api-operations/requirements.md:42.
+- Cross-owner behavior and receipts remain with the named owner. No runtime evidence is claimed.
+
+### `EG-DECISION-ENGINE-R134.14` — AU:105
+
+- Existing EG rollup: `EG-DECISION-ENGINE-R134`. Append-only residual ID: `EG-DECISION-ENGINE-R134.14`.
+- Original objective. A search-based planner explores solution branches using experience memory. It fuses branch results and records each outcome for later retrieval.
+- Missing EG obligation. Search planner explores candidate solution branches using experience memory, fuses branch solutions and records every branch outcome for later retrieval.
+- Producer/consumer route. Use the same missing branch-experience producer and committed planning consumer identified for AU:84. Existing attachment points are R134.5 Decide, R020.5 worker execution and R022.4 run outcome distillation.
+- Proposed definition. Define BranchOutcomeV1. Bind branch id, parent task/plan digest and branch input digest. Record experience snapshot revision and ordered fusion position. Include terminal outcome or named failure gap and immutable result digest. The fusion receipt lists every planned branch in deterministic order. It binds the versioned fusion-policy id/revision, all outcome refs and fused result digest. A later branch retrieval records the exact outcome refs and revisions it consumed.
+- Planned acceptance and owner hold. Case R134.14-branch-readback. a complete branch set produces an ordered fusion receipt and independent readback for every outcome. A later branch cites the exact pinned prior outcome. Refuse missing/duplicate branch, changed parent/input/snapshot, omitted failure gap, absent fusion policy, or stale readback. Existing points are Decide R134.5, AU R020.5 worker execution and AU R022.4 outcome distillation. The AU branch-experience producer, committed-plan consumer and durable per-outcome receipt schema remain missing. Do not substitute R140.102 breadth adaptation. No implementation, served test, or receipt is claimed by this SPECIFIED definition.
+- Preserve covered clauses: `EG-DECISION-ENGINE-R134.3`, `AU-HARNESS-R022.3`, `AU-HARNESS-R020.4`, `AU-HARNESS-R022.1`, `AU-HARNESS-R022.6`.
+- Source review. `4fd31dd504f158f43bcf77d81a39c2419303a538b32553a77a39f6b5a575e9d2`. Evidence: agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:95. Agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:110. Agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:112. Agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:115.
+- Cross-owner behavior and receipts remain with the named owner. No runtime evidence is claimed.
+
+### `EG-DECISION-ENGINE-R020.1` — AU:110
+
+- Existing EG rollup: `EG-DECISION-ENGINE-R020`. Append-only residual ID: `EG-DECISION-ENGINE-R020.1`.
+- Original objective. Each agent keeps past trajectories in an exploitation pool and generated candidates in an exploration pool. Use exploration only when no trajectory matches the context.
+- Missing EG obligation. Separate per-agent exploitation trajectory pool and generated exploration pool. Explore only when context has no matching past trajectory.
+- Producer/consumer route. EG owns candidate selection and orchestration evidence; AU R022 supplies run experience. No per-agent two-pool producer or context-miss-only selection contract exists.
+- Proposed definition. Define CandidatePoolV1 with tenant/agent id, task/context feature digest, policy revision, candidate ids and per-candidate source revisions. The selection receipt partitions candidates into exploitation (matched prior trajectories) and exploration (eligible only when no match exists). It records context-match policy revision, evidence refs and deterministic tie-break. Cross-agent history is never eligible.
+- Planned acceptance and owner hold. Case R020.1-agent-isolated-pools. a same-agent matching trajectory selects from the exploitation pool and excludes exploration. A declared no-match case may select from exploration. Refuse missing match policy/evidence and cross-tenant or cross-agent history. Bind result to the candidate snapshot. EG owns candidate selection and AU-HARNESS-R022.1/.3 provide adjacent experience inputs. No AU per-agent pool producer or context-match evidence contract exists. Exact match dimensions/threshold must be supplied by that owner policy before implementation. No implementation, served test, or receipt is claimed by this SPECIFIED definition.
+- Preserve covered clauses: `AU-HARNESS-R022.1`, `EG-DECISION-ENGINE-R020`, `AU-HARNESS-R022.3`.
+- Source review. `dafa8396b5a7c2a168253c7be219718c78186266610e5a91e7dc318d35fc552b`. Evidence: agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:110. Agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:112. Epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:31.
+- Cross-owner behavior and receipts remain with the named owner. No runtime evidence is claimed.
+
+### `EG-DECISION-ENGINE-R133.7` — EG:13
+
+- Existing EG rollup: `EG-DECISION-ENGINE-R133.1`. Append-only residual ID: `EG-DECISION-ENGINE-R133.7`.
+- Original objective. Store each recursive-reasoning trajectory as typed graph nodes. Include code runs, sub-calls and intermediates for verifier and improvement critique.
+- Missing EG obligation. Define recursive code/subcall/intermediate node/edge identity and verifier/improvement read-and-critique contracts.
+- Producer/consumer route. Terminal CommitWorkItemResult adapts traces after fenced CAS; AddNode validates traces. Graph queries read them. Recursive hierarchy production and critique consumption are absent.
+- Proposed definition. Define RecursiveTraceNodeV1. Bind run id/revision, step id/revision and parent node id. Record ordered child ids and input/output/evidence refs/digests. Include source revision and trace snapshot id. Define TraceCritiqueQueryV1 with root node, authorized projection, snapshot revision, filters and opaque cursor. The response includes the complete selected ancestry and source refs. Parent/child links must be complete and acyclic within the selected snapshot.
+- Planned acceptance and owner hold. Case R133.7-trace-critique. ingest and independently read back a nested trace, then critique it at the same authorized snapshot with complete ancestry. Refuse incomplete ancestry, cycle, stale cursor/snapshot, missing digest or unauthorized projection without returning protected fields. Terminal CommitWorkItemResult adapts traces, AddNode validates records and graph queries read them. The recursive node producer and named authorized critique-query operation/consumer are absent. Existing fencing/projection rules remain binding. No implementation, served test, or receipt is claimed by this SPECIFIED definition.
+- Preserve covered clauses: `EG-DECISION-ENGINE-R133.1`, `EG-ORCH-VOCAB-R013.1`, `EG-DECISION-ENGINE-R133.5`, `EG-ORCH-VOCAB-R013.5`, `EG-ORCH-VOCAB-R009.15`, `EG-ORCH-VOCAB-R013.6`.
+- Source review. `9e0be988c182da3c7f440c14d2fc8e56f60426e543e3f53ba39f250f235e6c8d`. Evidence: epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:273. Epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/orchestration-vocabulary/requirements.md:97. Epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:277. Epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/orchestration-vocabulary/requirements.md:101.
+- Cross-owner behavior and receipts remain with the named owner. No runtime evidence is claimed.
+
+### `EG-DECISION-ENGINE-R100.1` — EG:16
+
+- Existing EG rollup: `EG-DECISION-ENGINE-R100`. Append-only residual ID: `EG-DECISION-ENGINE-R100.1`.
+- Original objective. A promoted adapter adjusts embeddings from feedback signals. Signals include agent errors and human corrections, closing a feedback loop into vector space. Unpromoted adjustments never alter served results.
+- Missing EG obligation. Define attributed agent-error/human-correction ingestion and lineage from examples to fitted adapters before existing promotion.
+- Producer/consumer route. R100 persists examples, R101 applies promoted post-RLS/pre-ANN query adapters, R040 gates publish. Signal production and example-to-fit linkage are absent.
+- Proposed definition. Define FeedbackEventV1. Bind stable event id and decision id/revision/digest. Record option/action id, actor id and outcome/evidence refs/digests. Include event time and source revision. A versioned mapping policy converts only a complete joined event into a fit example. Deduplication is by event id plus source revision. Bind example-set digest to R100 fitting, resulting adapter id/revision to R101, and publish admission to R040.
+- Planned acceptance and owner hold. Case R100.1-feedback-join. an authorized complete event is read back as exactly one fit example bound to the expected R100 dataset digest. Replaying the same event is idempotent. Refuse duplicate identities with changed content or missing decision/option/outcome joins. Refuse invalid mapping policy, stale source revision or evidence mismatch before fitting. R100 persists examples, R101 applies a promoted adapter post-RLS/pre-ANN and R040 gates publish. The AU signal producer and outcome-to-label mapping policy are not specified. Do not treat an independent outcome record as the producer contract. No implementation, served test, or receipt is claimed by this SPECIFIED definition.
+- Preserve covered clauses: `EG-DECISION-ENGINE-R100`, `EG-DECISION-ENGINE-R101`, `EG-DECISION-ENGINE-R040`.
+- Source review. `eca485ffdff9cea5394130b53e12a0edc235e342ab01accc36ad9d06f496daa8`. Evidence: epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:168. Epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:169. Epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:59.
+- Cross-owner behavior and receipts remain with the named owner. No runtime evidence is claimed.
+
+### `EG-DECISION-ENGINE-R088.2` — EG:17
+
+- Existing EG rollup: `EG-DECISION-ENGINE-R088`. Append-only residual ID: `EG-DECISION-ENGINE-R088.2`.
+- Original objective. Evaluation replays real-world events chronologically over a simulated period. The agent forecasts outcomes and adapts as information arrives. No future event is visible before its turn.
+- Missing EG obligation. Define event cursor/period, forecasts, adaptation and no-future-event visibility at the simulator/harness boundary.
+- Producer/consumer route. DecisionEval owns AS OF and fold replay. A real-world event simulator feeding an AU adaptive harness is undefined. Policy-dependent environments must respect R119 off-policy routing.
+- Proposed definition. Define ReplayEventV1. Bind event id, strictly ordered sequence number and event time. Record state snapshot id/revision/digest, observed action id, outcome/evidence refs and source revision. Replay uses an AS OF snapshot and opaque deterministic cursor. The sealed ReplayReceipt binds ordered event digests, cursor, policy id/revision and result digest. Identical duplicate delivery is idempotent. A conflicting duplicate or sequence gap refuses. When the environment is policy-dependent, route to R119 off-policy evaluation.
+- Planned acceptance and owner hold. Case R088.2-ordered-replay. replay a fixed event sequence and resume from its receipt/cursor to the same event order and sealed digest. Refuse gaps, out-of-order events, conflicting duplicate ids, changed snapshots or policy-dependent on-policy claims without R119 routing. DecisionEval provides AS OF and fold replay. The real-world event simulator and AU adaptive-harness producer/consumer are undefined. This row specifies EG replay envelope and refusal only, not an external event source. No implementation, served test, or receipt is claimed by this SPECIFIED definition.
+- Preserve covered clauses: `EG-DECISION-ENGINE-R088`, `EG-DECISION-ENGINE-R119`, `EG-DECISION-ENGINE-R088.1`.
+- Source review. `d01db99df0c6c22b37f82cd815e129956fa151e7da2b670b73348ca5058e629e`. Evidence: epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:146. Epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:208. Epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:147.
+- Cross-owner behavior and receipts remain with the named owner. No runtime evidence is claimed.
+
+### `EG-DECISION-ENGINE-R137.16` — EG:26
+
+- Existing EG rollup: `EG-DECISION-ENGINE-R137.1`. Append-only residual ID: `EG-DECISION-ENGINE-R137.16`.
+- Original objective. Adapt retrieval payload size per request to task complexity, remaining token budget and model cost. Never exceed the remaining budget.
+- Missing EG obligation. The historical statement that only window/chunking budgets exist is stale: R137.7-.12 now cover exact-token package sizing and monetary/model-price bounds. The remaining gap is an explicit task-complexity input and selection policy. Bind the caller ceiling to current remaining tokens, including consumed and reserved tokens. R128 task-class pressure does not itself prove that joint payload-sizing linkage.
+- Producer/consumer route. Planned served Decide(ContextBudget) -> existing solver -> independent certificate verifier -> sealed ContextPackageSelection -> AU-CONTEXT-R004 context-compile consumer. R137.11/.12 explicitly name the consumer. Current dispatch absence is stated in R137.9.
+- Proposed definition. Extend ContextBudgetSignalsV1 with task-complexity feature set/digest and complexity-policy id/revision. At a pinned snapshot, derive remaining tokens as the total ceiling minus committed and reserved consumption. Use the same tokenizer revision. Return both operands and the checked result. Bind complexity and remaining budget to sealed ContextPackageSelection and R137.7-.12 solver certificate. Keep R128.5 task-class pressure separate.
+- Planned acceptance and owner hold. Case R137.16-complexity-and-remaining-budget. vary complexity while holding model cost and remaining tokens fixed, then vary remaining tokens while holding complexity fixed. Verify the declared policy and certified package bind both decisions. Refuse missing/invalid policy, tokenizer or snapshot mismatch, negative/overflowing remainder, or package cost above remaining tokens. Planned Decide(ContextBudget) -> existing solver -> independent certificate verifier -> sealed ContextPackageSelection -> AU-CONTEXT-R004. R137.11/.12 name the consumer. The dispatch and receipt binding remain pending as recorded in R137.9. No implementation, served test, or receipt is claimed by this SPECIFIED definition.
+- Preserve covered clauses: `EG-DECISION-ENGINE-R137.7`, `EG-DECISION-ENGINE-R137.8`, `EG-DECISION-ENGINE-R137.10`, `EG-DECISION-ENGINE-R137.9`, `EG-DECISION-ENGINE-R137.11`, `EG-DECISION-ENGINE-R137.12`.
+- Source review. `ccbc35ba3595763696c824434868079aeb401ce8b601041e913b323a2d2fb575`. Evidence: epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:310. Epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:311. Epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:313. Epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:312.
+- Cross-owner behavior and receipts remain with the named owner. No runtime evidence is claimed.
+
+### `EG-DECISION-ENGINE-R029.2` — EG:30
+
+- Existing EG rollup: `EG-DECISION-ENGINE-R029`. Append-only residual ID: `EG-DECISION-ENGINE-R029.2`.
+- Original objective. An agent loads task-relevant context from available sources within a stated budget. It does not load the full persistent memory. Omitted sources are reported.
+- Missing EG obligation. The complete candidate universe is not necessarily the complete available-source universe. No exhaustive, explicit omitted-source report with relevance/budget reasons is required. Displaced authority-conflict sources cover only one omission cause.
+- Producer/consumer route. Served Decide(ContextBudget) -> certified package -> AU-CONTEXT-R004 context compile. Ontology source selection R072 and source-authority conflict handling supply distinct inputs.
+- Proposed definition. Define AvailableContextSourceV1 with authorized source id/revision/digest, relevance evidence, authority class, token/cost estimate and enumeration snapshot. ContextSourceSelectionV1 returns complete selected and omitted partitions with reason enum IRRELEVANT, OVER_BUDGET, AUTHORITY_DISPLACED, or UNAUTHORIZED, plus deterministic policy revision and source snapshot digest. Every enumerated source appears exactly once. Protected source identifiers are omitted from unauthorized caller-visible details.
+- Planned acceptance and owner hold. Case R029.2-complete-source-partition. the same served compile journey includes relevant selected sources and omitted examples for irrelevance, over-budget and authority displacement. Every authorized source is accounted for once. Refuse incomplete enumeration, duplicate source, unknown reason, stale budget/authority snapshot or unauthorized disclosure. Served Decide(ContextBudget) -> certified package -> AU-CONTEXT-R004 context compile; R072 ontology selection and EG-SRC-AUTH-R010.6 provide distinct source inputs. The AU consumer receipt for the exhaustive partition is not named. Preserve the parent retrieval/authorization obligations. No implementation, served test, or receipt is claimed by this SPECIFIED definition.
+- Preserve covered clauses: `EG-DECISION-ENGINE-R029`, `EG-DECISION-ENGINE-R137.7`, `EG-DECISION-ENGINE-R137.8`, `EG-DECISION-ENGINE-R137.11`, `EG-DECISION-ENGINE-R137.12`, `EG-FEDERATED-QUERY-R072`, `EG-SRC-AUTH-R010.6`.
+- Source review. `05fcbe47e588141000ec329927406270abd30b590d2624f22e9239079f829d38`. Evidence: epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:41. Epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:310. Epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:311. Epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:314.
+- Cross-owner behavior and receipts remain with the named owner. No runtime evidence is claimed.
+
+### `EG-DECISION-ENGINE-R134.15` — EG:36
+
+- Existing EG rollup: `EG-DECISION-ENGINE-R134.4`. Append-only residual ID: `EG-DECISION-ENGINE-R134.15`.
+- Original objective. Task scheduling computes critical paths over plan graphs using topological order and longest path, and reports the critical chain. Cyclic plans are rejected.
+- Missing EG obligation. No duration/weight-based longest-path calculation or critical-chain output is required. A DAG and dependency order alone do not define critical-path scheduling.
+- Producer/consumer route. Served Decide(TaskPlan) -> plan_over_skills -> typed TaskPlan -> execution consumer. Critical-chain fields and computation remain to be defined.
+- Proposed definition. For each TaskPlan DAG step, require positive duration_ms and nonnegative integer priority_weight. Bind source evidence, weight-policy id/revision and input digest. Compute checked integer path totals from duration_ms multiplied by priority_weight using the declared weight scale. Return ordered critical_chain_step_ids, total_weighted_duration_ms, policy revision, plan revision and input digest. Ties choose the lexicographically smallest step-id sequence.
+- Planned acceptance and owner hold. Case R134.15-weighted-critical-chain. a branched DAG returns the independently calculated longest weighted path and total, source-duration/weight provenance, and deterministic tie result. Refuse cycles and missing/invalid duration or weight. Refuse absent scale policy, stale source evidence or checked multiplication/sum overflow before emitting TaskPlan. Attach the proposed fields to served Decide(TaskPlan) -> plan_over_skills -> typed TaskPlan. The execution consumer schema for critical-chain fields is not defined. The decision producer and consumer remain SPECIFIED pending that schema. No implementation, served test, or receipt is claimed by this SPECIFIED definition.
+- Preserve covered clauses: `EG-DECISION-ENGINE-R134.1`, `EG-DECISION-ENGINE-R134.4`, `EG-DECISION-ENGINE-R134.5`, `EG-DECISION-ENGINE-R134.6`, `EG-DECISION-ENGINE-R134.8`, `EG-ORCH-VOCAB-R006`.
+- Source review. `6e1f0c3ab1626a00c8392e8a304b4c4a28a86d0aee8fff1933317bbdb4893966`. Evidence: epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:280. Epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:283. Epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:284. Epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:285.
+- Cross-owner behavior and receipts remain with the named owner. No runtime evidence is claimed.
+
+### `EG-DECISION-ENGINE-R135.8` — EG:52
+
+- Existing EG rollup: `EG-DECISION-ENGINE-R135`. Append-only residual ID: `EG-DECISION-ENGINE-R135.8`.
+- Original objective. Workflows written in natural language or stored in the knowledge graph compile on demand to typed graph flows. Compiled steps and agent configurations are saved for fast routing on reuse, and a compile failure names the missing step.
+- Missing EG obligation. Successful-trace compilation is not on-demand compilation from natural-language or graph-stored workflow definitions. Persisted ProgramStep lacks a reusable agent-configuration contract. Compile failure reports run failure/size instead of the missing workflow step.
+- Producer/consumer route. Served Decide(TaskPlan) and ProgramLookup -> AgentLibraryStore/handle_decision_commit -> harness; SourceIngest is the workflow ingestion authority. A definition-to-program compiler between those surfaces remains unspecified.
+- Proposed definition. Define WorkflowCompileRequestV1. Bind source kind (NL or graph), exact source revision/digest and workflow identifier. Record compiler id/revision and referenced step/agent-config ids. The deduplicated CompiledWorkflowV1 binds the canonical typed step graph digest and each agent configuration id/revision/digest. Define `semantic_reuse_key_v1` as `{canonical_typed_step_graph_digest, compiler_id, compiler_revision, sorted_agent_config_refs}`, with config refs `{id, revision, digest}` sorted lexicographically by id. Exclude source kind, source revision/digest and source-to-step mapping from the key. Retain them in WorkflowCompileReceiptV1, bound to source provenance, key and program id. Reuse requires equality of every key component. Text similarity alone is insufficient. A missing referenced step returns MISSING_WORKFLOW_STEP with its exact id/source location and publishes no partial program.
+- Planned acceptance and owner hold. Case R135.8-workflow-compile. NL/graph inputs with the same canonical graph digest, compiler id/revision and sorted config refs reuse one program/key. Keep a distinct source-bound receipt for each. A new source revision reuses the program and adds provenance. A changed graph, compiler or config ref changes the key. Refuse missing steps with exact location, stale revisions or partial publication. Proposed attach points are served Decide(TaskPlan), ProgramLookup and AgentLibraryStore/handle_decision_commit. SourceIngest remains the workflow ingestion authority. The compiler interface and stored configuration/receipt schema remain unspecified. No implementation, served test or receipt is claimed by this SPECIFIED definition.
+- Preserve covered clauses: `EG-DECISION-ENGINE-R134.1`, `EG-DECISION-ENGINE-R134.4`, `EG-DECISION-ENGINE-R134.5`, `EG-DECISION-ENGINE-R134.6`, `EG-DECISION-ENGINE-R135.1`, `EG-DECISION-ENGINE-R135.2`, `EG-DECISION-ENGINE-R135.3`, `EG-DECISION-ENGINE-R135.4`, `EG-DECISION-ENGINE-R135.5`, `EG-DECISION-ENGINE-R135.6`, `EG-ORCH-VOCAB-R006`, `EG-REPO-INGEST-R002`.
+- Source review. `1ee5f2b5bd5bc45c9b9ff8ccaab8de944ed41eceab17a8c1e88cc86d4725e2dc`. Evidence: epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:280. Epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:283. Epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:284. Epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:285.
+- Cross-owner behavior and receipts remain with the named owner. No runtime evidence is claimed.
+<!-- /spec-definition-patch -->
+
+<!-- spec-definition-patch:reviewed-mapped-subsets-20261012 -->
+## Mapped definition implementation plan — 2026-10-12
+
+### `EG-DECISION-ENGINE-R042.100` / AU:28
+
+- Extend existing parent `R042` without removing its existing behavior.
+- Specify: Model `ToolPathHistory` with tenant, connector, capability and stable path id/version. Bind the observation window, sample/success/failure counts, as-of time and source invocation ids. Behavior ranks only already-admitted equivalent paths by observed success rate. Skip a path only when the versioned decision policy declares a minimum sample and failure threshold and both are met. Missing, stale or undersampled history is `unknown` and cannot suppress a path. Wiring adds the evidence to the existing R042 Decide advisory and consumes current attempt outcomes from SDK `ordered_equivalent_fallback`. It must not replace the SDK declared fallback order or execute writes. Evidence binds policy, candidate paths and observation window.
+- Producer/consumer boundary. EG R042 remains evaluate-only connector tool-choice advisory; SDK owns ordered transport fallback and current attempt outcomes.
+- Source record SHA-256: `9dac8e5f41f6948885215836733ce3116b8246ca5c9c4725a12a62bdb11cb400`.
+- Keep status SPECIFIED until the EG served producer and each separately owned consumer are implemented, served-tested and independently read back.
+
+### `EG-DECISION-ENGINE-R042.101` / AU:86
+
+- Extend existing parent `R042` without removing its existing behavior.
+- Specify: Define `ToolNecessityMeasurement`. Bind model id/revision, tool/capability id and task-cohort digest. Record paired enabled/disabled trial identities, outcome metric, sample counts, policy threshold, measurement time and digest. A measurement is `necessary`, `not_necessary` or `unknown` only under the declared minimum-sample and outcome-delta policy. No data, stale model revision or insufficient pairs yields `unknown`. Compare each AU tool-call decision to the current model/tool measurement. Emit a mismatch trace event with run, step, decision and model revision. Bind measurement digest and mismatch kind (`unnecessary_call` or `omitted_necessary_tool`). The EG R042 decision remains authoritative; AU consumes at the existing per-tool span path.
+- Producer/consumer boundary. R134.2 relevance is only a candidate prefilter. AU-HARNESS-R018.5 generic profile metrics do not measure tool necessity. AU run_agent per-tool spans are the consumer boundary.
+- Source record SHA-256: `38315c5f9a088c33c4b81b88b813ed851f97f454d788c9fb07185c88c752f979`.
+- Keep status SPECIFIED until the EG served producer and each separately owned consumer are implemented, served-tested and independently read back.
+
+### `EG-DECISION-ENGINE-R129.100` / AU:38
+
+- Extend existing parent `R129` without removing its existing behavior.
+- Specify: Bind a correction to tenant, run, original output id/digest and correction author/time. A proposal carries rule id, proposed version, scope, source output, predecessor version and lifecycle state. It remains inactive until explicit approval and the existing R129 invariant gate both pass. Invariant compliance is necessary but never substitutes for approval. apply supersedes the declared prior version atomically. Revocation names the active version and prevents future use while retaining audit history. AU future invocations consume only the approved current version and return its id/version in the run trace.
+- Producer/consumer boundary. Extend R129 promotion authority and AU future-invocation application; R034 contradiction-retraction remains separate.
+- Source record SHA-256: `1d54abebd7cbc92bd3d6c397f334b42d602b4c3b9f77e0091f1c683774701d72`.
+- Keep status SPECIFIED until the EG served producer and each separately owned consumer are implemented, served-tested and independently read back.
+
+### `EG-DECISION-ENGINE-R134.100` / AU:30
+
+- Extend existing parent `R134` without removing its existing behavior.
+- Specify: Define generated `AggregateFanout/v1` request. Bind the selected `AggregationOp`, TaskPlan digest and AU `FanoutResult` identity. Include expected subtask ids and GraphOS durable instance-receipt ids/digests. Define the result with operation/version, ordered input receipts, one typed aggregate artifact/schema version, result digest and graph revision. EG applies the already-selected operator to the complete receipt set. It adds no fan-out width, concurrency policy or second aggregation authority. A served independent readback resolves the returned artifact by tenant/id/revision and compares the digest before success.
+- Producer/consumer boundary. AU owns FanoutResult production; GraphOS `agents.run` owns durable instance receipts and capacity/refusal. EG owns selected operator and public application/readback contract only. Preserve existing R134.1/.3 and GRAPHOS-FLEET-R024.5-.9.
+- Source record SHA-256: `8f2ff3030a71d67b20cd19301f0ed8cef75e975403595cec4060abf9fa8952c1`.
+- Keep status SPECIFIED until the EG served producer and each separately owned consumer are implemented, served-tested and independently read back.
+
+### `EG-DECISION-ENGINE-R134.101` / AU:94
+
+- Extend existing parent `R134` without removing its existing behavior.
+- Specify: Extend the existing task plan with one designated `coordinator_id` and a typed final-artifact declaration (schema id/version and artifact kind). The coordinator receives the complete FanoutResult and produces exactly one artifact. Bind each expected subtask id to its result or named failure gap. No result may disappear in synthesis. The artifact and delivery receipt bind plan digest, coordinator, child receipt ids, schema version, artifact digest and final readback identity. Reuse R134 aggregation and AU fan-out. Do not add a second orchestrator.
+- Producer/consumer boundary. EG-selected TaskPlan/AggregationOp -> AU `_fork_fanout` FanoutResult -> named coordinator -> one final artifact. Retains AU-CONTROL-R043.2/.4 named gaps.
+- Source record SHA-256: `19331af6d24dacefccebddcae637919b39cb111b800e3bd239a68b42b8ad10c7`.
+- Keep status SPECIFIED until the EG served producer and each separately owned consumer are implemented, served-tested and independently read back.
+
+### `EG-DECISION-ENGINE-R137.100` / AU:59
+
+- Extend existing parent `R137` without removing its existing behavior.
+- Specify: Define an EG disclosure decision/event bound to instruction-set id, immutable version/digest, relevance trigger, decision id and scope. Initial rules are a distinct phase delivered before the first agent action. Runtime refinements are disclosed only when their declared relevance trigger occurs. Each event records phase, trigger, instruction version/digest, run and sequence, plus applied/refused outcome. EG owns relevance selection; AU run loop applies the exact selected version and records the event. No duplicate local context selector is introduced.
+- Producer/consumer boundary. Existing EG context/decision authority -> AU run loop. General context selection, reminder and trace counters do not cover disclosure. AU sole writer owns runtime application.
+- Source record SHA-256: `0b55041f0517baa9de449e3d712356a0e252cd194365e09ae559e9067cc8eb1f`.
+- Keep status SPECIFIED until the EG served producer and each separately owned consumer are implemented, served-tested and independently read back.
+
+### `EG-DECISION-ENGINE-R134.102` / AU:24
+
+- Extend existing parent `R134` without removing its existing behavior.
+- Specify: Define an EG delegation-admission verdict. Bind task class, quality metric, declared threshold and observation-window start/end. Record sample count, outcome-set digest and policy revision. Admit delegation only when the measured quality over the complete stable window meets the declared threshold. Insufficient samples, gaps, mixed revisions or stale evidence return typed not-ready/refusal. AU executes delegation only against the committed verdict. Do not substitute retrieval saturation, generic test coverage or a free-floating data-plane window.
+- Producer/consumer boundary. EG owns authoritative TaskPlan/delegation admission; AU executes the admitted plan. Existing retrieval quality-saturation logic is adjacent only.
+- Source record SHA-256: `7cbecf865c6185e23ec202d541c5f8d33388338af413ac06209709c619fbe200`.
+- Keep status SPECIFIED until the EG served producer and each separately owned consumer are implemented, served-tested and independently read back.
+
+### `EG-DECISION-ENGINE-R136.100` / AU:32
+
+- Extend existing parent `R136` without removing its existing behavior.
+- Specify: Define a correction proposal bound to failed-run trace digest, proposed fix revision, exact regression-test identity and test environment. Require a before receipt showing the test fails at the declared pre-fix revision. Require an after receipt showing it passes at the declared post-fix revision. Both receipts bind test digest, source revision and run identity. Mismatch, missing receipt or reversed outcome refuses. Reuse existing correction/admission authority and preserve propose-only flow.
+- Producer/consumer boundary. AU CorrectionProposal/study_admit supplies trace and benchmark; EG decides admission. Generic benchmark lift does not replace paired proof.
+- Source record SHA-256: `1d12449ecff9c30c5999933324f1f705fd826539eba6182f3e6d2773c263fec3`.
+- Keep status SPECIFIED until the EG served producer and each separately owned consumer are implemented, served-tested and independently read back.
+
+### `EG-DECISION-ENGINE-R031.100` / AU:41
+
+- Extend existing parent `R031` without removing its existing behavior.
+- Specify: Define an EG per-paper admission request/decision. Bind paper locator/content digest, summary digest and platform-goal/graph-snapshot revisions. Record relevance dimensions/scores, declared threshold and selected claim ids. Select a paper for ingestion only when it meets the relevance rule against platform goals and current graph content. The verdict names the scored evidence and selected claims. Excluded papers produce no graph write. This definition covers scoring/admission only, not scheduled retrieve.
+- Producer/consumer boundary. GraphOS owns six-hour durable scheduler; SDK owns paper retrieve/provider receipts; EG owns relevance scoring/admission and selected-claim contract.
+- Source record SHA-256: `8c69b66d62c833b4da482e38a51efa624c3e3fc924d6fd6d3e2ef114378a8527`.
+- Keep status SPECIFIED until the EG served producer and each separately owned consumer are implemented, served-tested and independently read back.
+
+### `EG-DECISION-ENGINE-R036.100` / AU:46
+
+- Extend existing parent `R036` without removing its existing behavior.
+- Specify: Extend graph.assemble primitives to a closed typed union covering prompt, tool, memory and control-flow components. Each primitive exposes identity/version, input/output schema digest, capability/effect declaration and substitution compatibility contract. A candidate harness graph is accepted only when every edge type-checks and replacement preserves declared capabilities/effects. Recorded run traces can create improvement proposals for each primitive kind, but proposals never mutate active composition.
+- Producer/consumer boundary. EG graph.assemble is composition authority; AU HarnessPort executes selected composition. Existing prompt-only optimization proposal path remains and typed HarnessPort is preserved.
+- Source record SHA-256: `04556089bf2790a52c59ede225b6212ccd90c0f7ca1dfad07b869ac9de6a19a1`.
+- Keep status SPECIFIED until the EG served producer and each separately owned consumer are implemented, served-tested and independently read back.
+
+### `EG-DECISION-ENGINE-R136.101` / AU:47
+
+- Extend existing parent `R136` without removing its existing behavior.
+- Specify: Bind each report revision to a stable rubric digest and criterion ids. Record prior satisfaction states, new evidence/outcome ids and independent grader revision. For every previously satisfied criterion, the new revision must preserve satisfaction. A regression blocks promotion and records the failing criterion. Self-reflection text is not a measured outcome. Use AU ContinuousEvaluationEngine reports as inputs and preserve EG R136 round verdict authority.
+- Producer/consumer boundary. AU ContinuousEvaluationEngine produces per-criterion evidence/report revisions; EG evaluates the bound round verdict. Aggregate divergence and self-reflection are not criterion-level nonregression.
+- Source record SHA-256: `9f72c0e6cb8d476050ffde54043ba0e37a063bfda05eb3e27020312cd9eeb69b`.
+- Keep status SPECIFIED until the EG served producer and each separately owned consumer are implemented, served-tested and independently read back.
+
+### `EG-DECISION-ENGINE-R121.100` / AU:54
+
+- Extend existing parent `R121` without removing its existing behavior.
+- Specify: Define a `StepVerification`. Bind run/step id, input/output digests and evidence ids. Record verifier/policy revision, uncertainty interval and proof/trace digest. Each reasoning step receives a typed verdict (`verified`, `failed`, `uncertain`). Only `verified` steps may feed dependent conclusions. A failed or uncertain step and all derived dependents are withheld/refused with the dependency chain named. Reuse typed Claim/Evidence provenance. A Claim class alone does not imply step verification.
+- Producer/consumer boundary. EG owns proof/evidence/verdict; AU run execution gates continuation on the returned verdict. Existing Claim/Evidence and ordered trace digest semantics remain intact.
+- Source record SHA-256: `78c1b58ee2c97f19ad4834981d1b75adeb89c82881710aed055a0cc6f5c36760`.
+- Keep status SPECIFIED until the EG served producer and each separately owned consumer are implemented, served-tested and independently read back.
+
+### `EG-DECISION-ENGINE-R138.100` / AU:55
+
+- Extend existing parent `R138` without removing its existing behavior.
+- Specify: Define a changeset-bound adversarial verifier request over generated artifact digest, declared tests, threat/attack policy revision and verifier revision. Its receipt enumerates attempted break cases and edge-case ids with fixed/retested state. Require a complete verifier receipt for generated-code admission. Fix each surfaced edge case against a new artifact digest, then recheck it. Unresolved, missing, stale or mismatched cases block acceptance. Keep materialization under existing governed write authority.
+- Producer/consumer boundary. AU generates/proposes code and verifier evidence; EG admission consumes it. Existing governed write path retains materialization authority. ProbeVerdict R138.1-.6 is a separate red-team probe capability.
+- Source record SHA-256: `3d07d9e40d19b8d4502fcbf3fc2e682f67bcdeaa0730d5d698f7af32767bb785`.
+- Keep status SPECIFIED until the EG served producer and each separately owned consumer are implemented, served-tested and independently read back.
+
+### `EG-DECISION-ENGINE-R136.102` / AU:56
+
+- Extend existing parent `R136` without removing its existing behavior.
+- Specify: Require proposal evidence to bind a declared outcome and immutable rubric id/version/digest. Bind the exact graded artifact id/digest and grader revision. Include one grade record per criterion with score/verdict and evidence reference. Every required criterion must be graded. Missing, ungraded, mismatched or stale artifacts return a typed refusal before any proposal is admitted. Aggregate score cannot hide a missing criterion.
+- Producer/consumer boundary. AU study_admit/ContinuousEvaluationEngine supplies the report; EG decision verdict controls admission. Preserve R019/R021 evidence and per-criterion R136.101 behavior.
+- Source record SHA-256: `712793000145f8e6b1c3ac1de647e91256312eb601def299653a9671de2757ba`.
+- Keep status SPECIFIED until the EG served producer and each separately owned consumer are implemented, served-tested and independently read back.
+
+### `EG-DECISION-ENGINE-R138.101` / AU:83
+
+- Extend existing parent `R138` without removing its existing behavior.
+- Specify: Define a review request bound to base/head revisions and changed-file digest. The semantic review evaluates injection, authentication bypass, data exposure, cryptographic flaws and business-logic flaws. Each finding carries class, affected path/range, exploit/impact evidence, severity, confidence and trace to reviewed artifact. A versioned impact policy filters low-impact false positives with a retained disposition. No high-impact or unreviewed class may be silently dropped. This is distinct from R138 probe scorer selection.
+- Producer/consumer boundary. EG owns review verdict/schema. Named GraphOS authenticated changeset-review producer/consumer must be served and linked separately. Existing R138.3 probe endpoint is not that consumer.
+- Source record SHA-256: `0c5f2631be262ba69472eb94841b7acfbcfd6d0cb379382c528ccd0efb4d22e7`.
+- Keep status SPECIFIED until the EG served producer and each separately owned consumer are implemented, served-tested and independently read back.
+
+### `EG-DECISION-ENGINE-R036.101` / AU:107
+
+- Extend existing parent `R036` without removing its existing behavior.
+- Specify: Extend graph.assemble with verified coding-agent facts: identity, capability, path-discovery receipt and revision. Include ordered skill transformation ids/versions and input/output schema digests. EG chooses only from supplied verified facts and emits a deterministic composition plan binding agent, skills and artifact contract. It never scans PATH or renders a UI. AU owns executable discovery; WebUI owns sandboxed frame rendering.
+- Producer/consumer boundary. EG composition authority -> AU PATH discovery and skill execution -> WebUI isolated generated-artifact frame. Existing DESIGN guidance does not provide these producer/consumer receipts.
+- Source record SHA-256: `d179fc0eb33039df3a87efe8a59ce2a635f0e39f360c58f925011448d0401cdc`.
+- Keep status SPECIFIED until the EG served producer and each separately owned consumer are implemented, served-tested and independently read back.
+
+### `EG-DECISION-ENGINE-R014.100` / AU:108
+
+- Extend existing parent `R014` without removing its existing behavior.
+- Specify: Extend the bounded composition objective with candidate source-size facts: exact artifact bytes and line count. Bind measured per-run cost, adequacy verdict and legal/policy constraints to candidate/revision. First exclude candidates failing required behavior, tests, policy or legal constraints. Among adequate candidates apply the declared size/cost objective and emit each measured fact and tie-break. Unknown size/cost or adequacy evidence cannot be treated as zero. This child does not settle the shortcut-comment policy, which remains held for coordinator resolution.
+- Producer/consumer boundary. Reuse R014 exact bounded solver/graph.assemble authority. AU records execution cost. Code-size measurement and candidate adequacy feed EG. Preserve legal/policy constraints and hold comment-style conflict.
+- Source record SHA-256: `2dfb2ab7469f19faf03d91782fa276ed2c613dec2e1d1fce2c629e5b8974b476`.
+- Keep status SPECIFIED until the EG served producer and each separately owned consumer are implemented, served-tested and independently read back.
+<!-- /spec-definition-patch -->
+
+<!-- spec-definition-patch:final-mappings-20261012 -->
+## Final mapping implementation plan — 2026-10-12
+
+### `EG-DECISION-ENGINE-R140` — Trajectory refinement and ranking family
+
+- Add the root row and link every child in generated status.
+- Preserve existing parent contracts and owner boundaries. Groups complexity-gated K-trajectory deliberation, provenance-preserving experience reinsertion, outcome-driven branch breadth and verifier-free pairwise ranking. Preserve calibrated-ranking requirements in R130 and AU generation/execution ownership.
+
+### `EG-DECISION-ENGINE-R141` — Memory-change evaluation and rewrite admission
+
+- Add the root row and link every child in generated status.
+- Preserve existing parent contracts and owner boundaries. Requires fidelity and memory-quality evidence before apply a memory change. Failed candidates preserve the prior active memory. R060 fitted-head promotion remains a separate model gate.
+
+### `EG-DECISION-ENGINE-R142` — Atomic-before-workflow local-model certification
+
+- Add the root row and link every child in generated status.
+- Preserve existing parent contracts and owner boundaries. Defines the EG attestation producer, AU local-model evaluation consumer and GraphOS validation gate. Existing GraphOS R034 identity bindings and host policy remain authoritative.
+
+### `EG-DECISION-ENGINE-R139.100` / AU:58
+
+- Preserve parent `EG-DECISION-ENGINE-R139` and its existing clauses.
+- Define. Extend comparative `StudySource` admission with a `graph_ref` containing tenant, graph, node, revision and content digest. Resolve the exact revision through the authorized graph read/query path. Compare papers and codebases from graph refs alongside existing filesystem sources without copying source bodies. Record ordered source kind, locator/reference, exact revision, digest and comparison membership in the comparative result. Missing, stale, invisible or digest-mismatched graph references refuse before comparison. Preserve filesystem intake and AU study/feature ownership.
+- Producer/consumer: EG owns authorized graph resolution and returns pinned source evidence. AU owns StudySource intake, comparison execution and proposal generation. Preserve AU-HARNESS-R019.2/.3/.5/.6 and do not treat capability lookup as graph-source intake.
+- Source record SHA-256: `f13717cacb9e87ff76591467e17b5f9d76d44577f62d71b57d57c42bc89d37ba`.
+- Keep status SPECIFIED until each named producer and consumer is separately implemented, served-tested and independently read back.
+
+### `EG-DECISION-ENGINE-R019.100` / GRAPHOS:17
+
+- Preserve parent `EG-DECISION-ENGINE-R019` and its existing clauses.
+- Define. Bind each decision record to its id/revision. Record the simulation, inspection and process-knowledge stream ids/revisions/digests used. Expose an authorized reviewer-readable provenance read. Before any recommendation commit, require an approval receipt bound to decision revision and recommendation digest. Include reviewer principal, approval time and approval-record revision. Missing, stale or mismatched approval refuses before commit. Retain existing R019 re-derivation/CAS and R047 reference semantics. Do not duplicate governed-effect audit rows.
+- Producer/consumer: EG produces decision/provenance and approval-binding inputs. GraphOS owns shared invoke/A2A approval admission. SDK owns governed source effects and receipts. R047 remains the related producer reference.
+- Source record SHA-256: `0e4858352b73b18661ed21ef503cc4c4f36e72045c3ffeff8d2094d9f8f8e50a`.
+- Keep status SPECIFIED until each named producer and consumer is separately implemented, served-tested and independently read back.
+
+### `EG-DECISION-ENGINE-R029.100` / PIPE:22
+
+- Preserve parent `EG-DECISION-ENGINE-R029` and its existing clauses.
+- Define. Define a versioned typed command-config document per retrieval command. Bind command id/schema version, typed parameters and referenced inference-mode id/version/digest. EG Decide binds the selected retrieval plan and inference-mode digest. AU loads the immutable command file and validates its schema. Require its mode digest to match the EG decision before applying it. AU run evidence binds command/config digest, mode digest, input digest, selected-plan revision and result digest. Missing, malformed, stale or mismatched configuration refuses before execution. File loading remains AU-owned.
+- Producer/consumer: EG owns the typed plan/mode decision and digest; AU owns command-file loading and execution. Do not conflate plan selection with file loading or add a pipeline runtime orchestrator.
+- Source record SHA-256: `0d3964cba3359a3b454f2fd7b61f2b893b3aec0d58613062b859c2201344980c`.
+- Keep status SPECIFIED until each named producer and consumer is separately implemented, served-tested and independently read back.
+
+### `EG-DECISION-ENGINE-R140.100` / AU:44
+
+- Preserve parent `EG-DECISION-ENGINE-R140` and its existing clauses.
+- Define. For each task, emit a versioned complexity decision. Bind task digest, scored features, score and threshold/policy revision. Return branch (`simple` or `complex`) and permitted K. Below the policy threshold, choose the single-trajectory path and make no deliberation call. At or above the threshold, return only permitted K and decision digest in the plan. AU alone generates K alternatives and executes deliberation. Bind its receipt to that digest. Missing/stale score or policy, invalid K, or a complex decision with K below two refuses before AU execution. The threshold and K limits are explicit versioned policy inputs, not silently selected constants.
+- Producer/consumer: EG owns score/policy/branch decision; AU owns trajectory generation and deliberation execution. AU-CONTROL-R043 independent-subtask fan-out remains distinct.
+- Source record SHA-256: `74416937af9a4934ae1f5d1a02e30336deb1535189a07f53fb81fb352f81779f`.
+- Keep status SPECIFIED until each named producer and consumer is separately implemented, served-tested and independently read back.
+
+
+- **Operational wiring / exact hold:** Wire the complexity score/policy input and decision into the existing R134.5 TaskPlan/Decide route. Assert EG returns a plan only. Record AU’s exact decision-digest/K consumer contract as a prerequisite, not inferred from R043.
+### `EG-DECISION-ENGINE-R140.101` / AU:51
+
+- Preserve parent `EG-DECISION-ENGINE-R140` and its existing clauses.
+- Define. Represent each source trajectory with run/candidate ids, source revision and trace digest. The experience projection records redaction-policy revision and removed reasoning-token spans. It retains task/result/evidence spans and records a deterministic shuffle seed and ordered projected ids. Deliberation output is a new candidate whose parent list names every consumed experience id and digest. Append it as one extra refinement trajectory without replacing source records. Missing provenance, invalid redaction policy or an output not linked to the consumed inputs refuses reinsertion.
+- Producer/consumer: AU record_outcome/SkillGraphPipeline owns experience production and deliberation; EG owns the refinement decision/result binding. Preserve AU-HARNESS-R022 experience identities and source trace provenance.
+- Source record SHA-256: `be286cbd079c08493be1dcc0512aa562b6e2f2fec8d3566437837d91b5f36ba0`.
+- Keep status SPECIFIED until each named producer and consumer is separately implemented, served-tested and independently read back.
+
+### `EG-DECISION-ENGINE-R140.102` / AU:84
+
+- Preserve parent `EG-DECISION-ENGINE-R140` and its existing clauses.
+- Define. Before each branch, retrieve authorized prior attempts for the same search id. Bind their branch ids and outcome revisions/digests into the request. EG emits a versioned breadth decision with retrieved outcome ids, prior breadth, selected breadth and policy revision. AU executes only that breadth and links returned outcomes to the decision. A later branch must support breadth changes in later branches from earlier outcomes under the declared policy. Missing, stale or cross-tenant experience is not treated as a zero outcome and cannot drive adaptation.
+- Producer/consumer: EG TaskPlan/Decide owns committed breadth decisions; AU owns branch execution and attempt outcomes. Preserve AU-HARNESS-R020 worker slots and R022 outcome storage. This child covers long-horizon candidate branches only.
+- Source record SHA-256: `b56fbf074624786b4a8c2b499f985ecc2d14d1e8349d08781cf28aba07c3abef`.
+- Keep status SPECIFIED until each named producer and consumer is separately implemented, served-tested and independently read back.
+
+
+- **Operational wiring / exact hold:** Wire branch-start through the existing TaskPlan/Decide handler. Specify AU R020.5/R022.4 decision-id/outcome fields. Test sequential adaptation. Worker slots and generic run outcomes are not this receipt.
+### `EG-DECISION-ENGINE-R140.103` / AU:87
+
+- Preserve parent `EG-DECISION-ENGINE-R140` and its existing clauses.
+- Define. When no verifier is available, bind an ordered candidate set and candidate digests to pairwise comparison records. Each pair record carries both ids, judge/model revision, verdict and evidence digest. Do not aggregate into a global ranking until an owner-approved versioned policy defines cycle, incomplete-pair and tie behavior. The source does not select Bradley–Terry. Until owner approval, refuse global ranking, retained partition and revision requests. The policy must define complete-pair behavior, cycle/tie resolution and bounded keep-count/revision limits. AU receipts are also required. No positive ranking behavior is specified by this source record. An available verifier routes through its existing verifier contract instead of this fallback.
+- Producer/consumer: EG owns pairwise evidence aggregation, ranking and retention decision; AU owns comparison execution and revisions. Preserve calibrated-ranking constraints in R130 and AU generation ownership.
+- Source record SHA-256: `6f67238075c0bf262188d97a1813b18bfb0c71e13c6689a583c788d956287612`.
+- Keep status SPECIFIED until each named producer and consumer is separately implemented, served-tested and independently read back.
+
+### `EG-DECISION-ENGINE-R140.104` — Wiring row
+
+- Production call sites: src/server/dispatch/router/decision_plane.rs:107 -> src/server/handlers/decide/stat_decide.rs:48.
+- Bind every R140 decision digest and policy/source revision into the existing TaskPlan result. Do not move AU model or trajectory execution into EG.
+- Owner hold. AU's exact decision-digest/K, projection, breadth and pairwise execution receipt fields remain pending; R140.103 policy selection remains pending.
+- Planned proving test. tests/decide/test_trajectory_refinement_served.py::test_real_decide_route_emits_pinned_refinement_decisions.
+
+### `EG-DECISION-ENGINE-R140.105` — Hot-path proof row
+
+- Planned proving integration test. tests/decide/test_trajectory_refinement_served.py::test_taskplan_decisions_reach_au_and_receipts_read_back.
+- It enters Method::Decide, observes the TaskPlan binding through AU generation/refinement and independently reads back every receipt. Refusal is required for a missing/mismatched digest.
+- Explicit AU holds: consumer contracts for R140.100/.101/.102 and pairwise aggregation/receipt for R140.103. No successful proof is claimed until these are reviewed and served.
+
+### `EG-DECISION-ENGINE-R141.100` / EG:23
+
+- Preserve parent `EG-DECISION-ENGINE-R141` and its existing clauses.
+- Define. A rewrite proposal binds tenant and memory id plus active-source and candidate revisions/digests. Record fidelity metric/policy revision, metric-spec digest and measured fidelity. Include signal/token counts, signal-per-token value and degradation-history window. Admit only when the declared fidelity threshold passes and the policy’s signal-efficiency/degradation checks pass. On any failed gate, discard the candidate and retain the original active revision unchanged. Do not infer rewrite admission from R059 aggregate outcome fidelity or R128 elide/summarize selection.
+- Producer/consumer: EG owns the rewrite evaluation decision; AU may generate candidate rewrites. The source does not identify the fidelity formula or normalization. Require an immutable reviewed metric specification before an Admit verdict. The authoritative active-memory store/write/CAS path is also not identified and remains a prerequisite to an apply claim. Retain the original as the rollback source.
+- Source record SHA-256: `ac1b5df0212beaade03e78502a494148692e1a0007c3fa68ee37a2bb6dbe8cce`.
+- Keep status SPECIFIED until each named producer and consumer is separately implemented, served-tested and independently read back.
+
+
+- **Operational wiring / exact hold:** Add the `MemoryRewriteSubmit` arm under the current DecisionEval job and bind its immutable verdict to the candidate. Map every active-memory write entrypoint and receipt/CAS transaction before claiming universal admission.
+### `EG-DECISION-ENGINE-R141.101` / AU:125
+
+- Preserve parent `EG-DECISION-ENGINE-R141` and its existing clauses.
+- Define. Before memory mutation, bind baseline/candidate snapshot digests to a versioned reference dataset. Include query ids, expected evidence ids and reference answers. Report recall@k and answer accuracy with numerator, positive denominator, metric specification revision and dataset digest. The referenced metric specifications must define exact scoring, query aggregation and rounding. The source does not supply those formulas, so missing/unreviewed semantics refuse before positive admission. Compare both only under a reviewed policy. Admission requires both thresholds to pass on the same dataset and snapshot pair. Missing dataset rows, metric inputs, denominator or policy revision refuse before apply. This gate covers add/edit/delete/rewrite/consolidation changes; R060 fitted-head promotion remains a separate model-promotion gate.
+- Producer/consumer: AU executes the repeatable benchmark and returns its receipt; EG validates the receipt against the candidate and baseline. Universal apply refusal remains pending the authoritative mutation/write path. Reuse existing evaluation/apply mechanisms without substituting R060.
+- Source record SHA-256: `27a6a74820b2b646163d8f7bd58b94167b9f0a3e423b8bf5210fe6e758deb440`.
+- Keep status SPECIFIED until each named producer and consumer is separately implemented, served-tested and independently read back.
+
+### `EG-DECISION-ENGINE-R141.102` — Wiring row
+
+- Production call sites: src/server/dispatch/router/decision_plane.rs:119 -> src/server/handlers/decide/jobs.rs:30.
+- Bind R141.100/.101 evidence into DecisionEval receipts before any active-memory mutation.
+- Explicit owner hold. no authoritative memory store, full write-entrypoint list, or atomic receipt/CAS check is identified. Do not claim the current evaluation handler universally gates writes.
+- Planned proving test. tests/decide/test_memory_change_admission_served.py::test_real_decision_eval_binds_memory_candidate_and_metrics.
+
+### `EG-DECISION-ENGINE-R141.103` — Hot-path proof row
+
+- Planned proving integration test. tests/decide/test_memory_change_admission_served.py::test_memory_mutation_requires_current_decision_eval_receipt.
+- Enter DecisionEval, cross the authoritative write/CAS gate, and independently read back the active revision. Failed or stale receipts must preserve the baseline.
+- Explicit owner holds: reviewed fidelity/benchmark formulas and the mutation/CAS map are prerequisites. No positive apply is claimed.
+
+### `EG-DECISION-ENGINE-R142.100` / GRAPHOS:8
+
+- Preserve parent `EG-DECISION-ENGINE-R142` and its existing clauses.
+- Define. For each skill revision, bind its atomic/workflow classification and local model id/revision. Record evaluation-set digest, criteria/policy revision and result/attestation digest. EG emits the certification attestation only after AU executes the declared local-model evaluation. GraphOS validates the attestation before normal (non-certification) `orchestrate` or `agents.run`. A separately authorized evaluation run may produce a new attestation. Atomic skills are evaluated first. A workflow skill is certifiable only when every referenced atomic dependency has a valid current attestation. Missing, stale, failed or mismatched dependencies refuse certification/invocation before effects. EG attests evaluation outcome; AU executes; GraphOS owns invocation gate and host policy.
+- Producer/consumer: Extend existing GRAPHOS-FLEET-R034.7-.12 identity bindings. Do not add host scoring authority or infer certification from host prerequisites alone.
+- Source record SHA-256: `5df3f5a45d486aeba5765a31b6c6283637adf2bd8ce63a87938eddd28b90f082`.
+- Keep status SPECIFIED until each named producer and consumer is separately implemented, served-tested and independently read back.
+<!-- /spec-definition-patch -->
+
+
+<!-- spec-definition-patch:owner-dispatch-20261012-plan -->
+
+- **Operational wiring / exact hold:** Bind AU’s local-model evaluation receipt to EG DecisionEval, then bind the resulting attestation to GraphOS R034.7-.12. Keep AU producer and GraphOS consumer evidence pending. Do not claim that the existing identity checks consume an EG attestation.
+### `EG-DECISION-ENGINE-R142.101` — Wiring row
+
+- Production call sites: src/server/dispatch/router/decision_plane.rs:119 -> src/server/handlers/decide/jobs.rs:30.
+- The EG attestation must bind the AU evaluation receipt and exact skill/model/dataset/criteria revisions; GraphOS consumption is at GRAPHOS-FLEET-R034.7-.12.
+- Explicit owner holds: AU has not defined its per-criterion evaluation receipt. GraphOS has not defined its attestation-consumer operation. R034 identity checks do not close this dependency.
+- Planned proving test. tests/decide/test_local_skill_certification_served.py::test_decision_eval_attestation_binds_au_receipt.
+
+### `EG-DECISION-ENGINE-R142.102` — Hot-path proof row
+
+- Planned proving integration test. tests/decide/test_local_skill_certification_served.py::test_current_attestation_is_checked_before_graphos_workflow_run.
+- Enter the real evaluation/normal-invocation path. Refuse missing or stale attestations before effects. Accept only the exact current attestation.
+- Explicit owner holds: AU must serve the receipt; GraphOS must serve the R034 invocation check. No end-to-end evidence is claimed.
+
+## Cross-owner retrieval evaluation plan — 2026-10-12
+
+- **`EG-DECISION-ENGINE-R100.100` / WEBUI:6:** Extend the existing served `DecisionEval` job with `RetrievalRankingV1` input/result identity and `RetrievalContextSearchV1` bounded exact-span reads. Bind corpus, binary labels, query set, k, algorithms/settings, evaluator, result digests and numerator/denominator. Compare only identical inputs. Refuse missing labels or incompatible revisions. Preserve R100 hard-negative learning from independently evaluated outcomes. Consumer: WebUI R001.1 side-by-side comparison. Source SHA-256 `3dc3c464a10a5178a413463f2b43baeb015732f5b8df508f6dbab9c37cc1165d`.
+- Use `Method::UnifiedQuery` as retrieval producer, `Method::DecisionEval` as sealed metric receipt path and the authenticated query/read handler for n-gram spans. Do not add a second ranking or truth source.
+- Keep SPECIFIED until fixed-corpus served positive/negative cases and independent receipt/context readback pass.
+<!-- /spec-definition-patch -->
+
+## Grounded-answer and pre-surface safety plans — 2026-10-12
+
+- **`EG-DECISION-ENGINE-R100.101` / EG:18:** Bind the complete expected-topic set. Bind each claim's predicted unsupported probability to a pinned label-blind scorer artifact. Keep predictions separate from annotator labels. Define topic coverage with a policy threshold over supporting citation votes. Return expected/covered ids. Aggregate summed topic counts per scope. Define weighted Brier as `sum(vote_count_i * (p_i-q_i)^2) / sum(vote_count_i)` over the complete required claim set, where `q_i=unsupported_votes_i/vote_count_i`. Seal the positive denominator and rounding policy. Refuse missing topics/predictions/labels, duplicate annotators and stale digests. Source SHA-256 `d978b4b4201059c2e7bcc7a78def0d5845cf7db1e361f2f50ee57f8bcc5733ae`.
+- **`EG-DECISION-ENGINE-R001.100` / GRAPHOS:19:** Extend `Method::Decide` with `RecommendationSafetyV1` and per-bound typed evidence/result. Refuse missing, stale, non-finite, incompatible or over-limit facts with the exact violated bound. GraphOS's pre-surface invocation/validation receipt remains a separate pending prerequisite. Preserve partial AU-HARNESS-R021.4/.6/.7. Source SHA-256 `cd33b64c1d759f3c7dd0a83112b77955d25a49c69d20288fe4c917716c711ff6`.

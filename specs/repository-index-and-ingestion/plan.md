@@ -126,3 +126,23 @@ all existing implementation. Historical landing trailers remain historical
 implementation evidence; a generated LANDED state without `verified_by` does
 not establish acceptance. Full acceptance still requires the consumer/retirement
 and served boundary evidence specified in requirements.md and test-spec.md.
+
+<!-- spec-definition-patch:owner-batch-20261012-repository-index-and-ingestion -->
+## Reviewed implementation plan — 2026-10-12
+
+Normative contracts, source hashes, owner references, holds, and acceptance remain in `requirements.md`.
+Each work item below extends its named parent and preserves existing obligations.
+
+| Requirement | Plan | Open dependency |
+|---|---|---|
+| `EG-REPO-INGEST-R002.1` | Compile a pinned skill directory into a typed plan through SourceIngest and AU. Use the existing graph orchestration path. | Versioned grammar and capability/type lookup remain owner prerequisites. AU-CONTROL-R037.30 remains unmerged. |
+| `EG-REPO-INGEST-R006.1` | Measure distinct completed papers over 24 hours. Admit maintenance only with authorization and bounded goal allocation. | Stage roster, freshness policy, allocation policy, and GraphOS operation remain owner prerequisites. |
+| `EG-REPO-INGEST-R006.2` | Queue re-embedding outside query routing. Gate promotion through unified data-plane R040.2/.3 before tag_batch. | Importance producer and compatible embedding-space policy remain owner prerequisites. |
+| `EG-REPO-INGEST-R006.3` | Serve typed code maps through the current-revision unified query surface. | Source-inventory producer and code-entity IDs remain owner prerequisites. |
+| `EG-REPO-INGEST-R006.4` | Apply revision-scoped deltas under host-granted working-memory limits. | Semantic support matrix and host resource-grant binding remain owner prerequisites. |
+| `EG-REPO-INGEST-R002.100` | Require independently authorized readback before ingestion success. | AU success-transition consumer ID remains unassigned. |
+| `EG-REPO-INGEST-R002.101` | Gate graph-loaded workflow completion on durable hydration readback. | AU execution-success consumer ID remains unassigned. |
+
+Acceptance cases and exact refusal conditions remain in the linked requirements rows.
+All seven definitions remain SPECIFIED with empty `landed_in` and `verified_by` fields.
+Implementation and served acceptance await separate owner review.

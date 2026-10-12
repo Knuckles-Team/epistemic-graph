@@ -78,3 +78,17 @@ Authenticated Iceberg catalog (R039): a valid token lists and loads its own tabl
 - `EG-UNIFIED-DATA-PLANE-R040.4`: `crates/eg-ann/src/version.rs::tests::blocked_promotion_tags_nothing`.
 - `EG-UNIFIED-DATA-PLANE-R040.5`: `crates/eg-types/src/embedding_promotion.rs::tests::verdict_is_stored_with_modality_entries`.
 - `EG-UNIFIED-DATA-PLANE-R040.6`: `tests/embedding/test_promotion_gate_served.py::test_regressed_modality_blocks_promotion`.
+
+<!-- spec-definition-patch:owner-batch-20261012-unified-data-plane -->
+## Planned owner acceptance — 2026-10-12
+
+These bullets define future acceptance targets. They are not test evidence or receipts. Exercise each row's actual producer/consumer boundary and retain existing covered behavior.
+
+- **`EG-UNIFIED-DATA-PLANE-R026.4`**: EG:64; source SHA-256 `c55bc629b1bfefc9d0346b75b8bb95e5a231b891e7e34297df17b960d6c9773c`.
+  - Read a mapped table through a served external client using an approved, pinned mapping. Bind schema/graph revisions and row digest.
+  - Attempt INSERT, UPDATE, DELETE, and DDL through read-only and mutation-granted principals. Refuse each attempt and preserve graph revision.
+  - Submit an authorized graph `MutationBatch`. Confirm the projection read reflects its committed revision.
+  - Refuse stale/unapproved mappings and unauthorized graph mutations.
+  - Hold application-level SQL/schema conformance until the R026 owner provides the approved target mapping and captured statement corpus.
+  - Preserve EG-DURABLE-KERNEL-R035, EG-DURABLE-KERNEL-R043, EG-FEDERATED-QUERY-R080, EG-UNIFIED-DATA-PLANE-R026, and EG-FEDERATED-QUERY-R080.1 through R080.6.
+<!-- /spec-definition-patch -->
