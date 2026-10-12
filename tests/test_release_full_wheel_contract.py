@@ -569,3 +569,14 @@ def test_sdist_inventory_has_no_native_asset_suffix_filter(tmp_path, asset):
     directory.mkdir()
     (directory / asset).write_bytes(b"build input")
     assert f"src/{asset}" in required_sources(tmp_path)
+
+
+def test_sdist_requires_engine_composition_helper(tmp_path):
+    required = required_sources(REPO)
+    assert "scripts/inject_pyengine.py" in required
+    with pytest.raises(ValueError, match="inject_pyengine.py"):
+        validate(
+            _source_archive(tmp_path),
+            {"scripts/inject_pyengine.py"},
+            "2.27.1",
+        )

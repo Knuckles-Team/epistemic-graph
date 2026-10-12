@@ -1,9 +1,8 @@
 """PEP 517 composition backend for the complete epistemic-graph artifact.
 
-Maturin builds the server wheel and the ``eg-numeric`` PyO3 module from separate
-Cargo targets.  The public package has one wheel, so every PEP 517 build must fold
-the latter into the former; doing that only in release CI left workspace/editable
-installs without the required ``epistemic_graph.numeric`` module.
+Maturin builds the server wheel and the numeric and engine PyO3 modules from
+separate Cargo targets. Every PEP 517 and editable build folds both modules
+into the public package using the same injectors as the release pipeline.
 """
 
 from __future__ import annotations
@@ -31,11 +30,13 @@ os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
 
 import maturin
 
-from scripts.inject_numeric_kernel import inject
+from scripts.inject_numeric_kernel import inject as inject_numeric
+from scripts.inject_pyengine import inject as inject_engine
 
 ROOT = Path(__file__).resolve().parent
 NUMERIC_MANIFEST = ROOT / "crates" / "eg-numeric" / "Cargo.toml"
-_CACHE_SCHEMA = 2
+ENGINE_MANIFEST = ROOT / "crates" / "eg-pyengine" / "Cargo.toml"
+_CACHE_SCHEMA = 3
 _CACHE_ENV = "EPISTEMIC_GRAPH_NATIVE_ARTIFACT_CACHE"
 _BUILD_ENV = (
     "AR",
@@ -73,6 +74,7 @@ _NATIVE_FILES = {
     "build_backend.py",
     "pyproject.toml",
     "scripts/inject_numeric_kernel.py",
+    "scripts/inject_pyengine.py",
     "scripts/normalize_wheel_build_paths.py",
 }
 
@@ -399,14 +401,37 @@ def _validate_editable_source(archive: zipfile.ZipFile, names: list[str]) -> Non
         raise RuntimeError("cached editable wheel points at another source checkout")
 
 
-def _validate_native_payloads(archive: zipfile.ZipFile, names: list[str]) -> None:
-    """Require exactly one executable numeric module and server payload."""
+def _native_module_members(names: list[str], module: str) -> list[str]:
+    return [
+        name
+        for name in names
+        if Path(name).parent.as_posix() == "epistemic_graph"
+        and name.startswith(f"epistemic_graph/{module}.")
+        and name.endswith((".so", ".pyd"))
+    ]
 
-    numeric = [name for name in names if name.startswith("epistemic_graph/numeric.")]
-    servers = [name for name in names if name.endswith("/epistemic-graph-server")]
-    if len(numeric) != 1 or len(servers) != 1:
-        raise RuntimeError("cached editable wheel is missing native payloads")
-    for name in (*numeric, *servers):
+
+def _validate_native_payloads(archive: zipfile.ZipFile, names: list[str]) -> None:
+    """Require both native modules and the platform's server executable."""
+
+    groups = [
+        _native_module_members(names, "numeric"),
+        _native_module_members(names, "engine"),
+        [
+            name
+            for name in names
+            if name.endswith(("/epistemic-graph-server", "/epistemic-graph-server.exe"))
+        ],
+    ]
+    if any(len(group) != 1 for group in groups):
+        raise RuntimeError(
+            "cached editable wheel is missing or ambiguous native payloads"
+        )
+    for group in groups:
+        name = group[0]
+        # Windows executables carry no POSIX executable mode.
+        if name.endswith((".exe", ".pyd")):
+            continue
         mode = archive.getinfo(name).external_attr >> 16
         if not mode & 0o111:
             raise RuntimeError(
@@ -564,8 +589,8 @@ def _build_editable_cached(
         return filename
 
 
-def _build_numeric(directory: Path) -> Path:
-    """Build the host-native numeric component for a PEP 517 wheel build."""
+def _build_component(directory: Path, manifest: Path, features: str) -> Path:
+    """Build one native component with the release pipeline's feature set."""
 
     executable = shutil.which("maturin")
     if executable is None:
@@ -576,11 +601,11 @@ def _build_numeric(directory: Path) -> Path:
             "build",
             "--release",
             "--manifest-path",
-            str(NUMERIC_MANIFEST),
+            str(manifest),
             "--interpreter",
             sys.executable,
             "--features",
-            "python",
+            features,
             "--out",
             str(directory),
         ],
@@ -589,7 +614,9 @@ def _build_numeric(directory: Path) -> Path:
     )
     wheels = sorted(directory.glob("*.whl"))
     if len(wheels) != 1:
-        raise RuntimeError("numeric component build did not produce exactly one wheel")
+        raise RuntimeError(
+            f"{manifest.parent.name} component build did not produce exactly one wheel"
+        )
     return wheels[0]
 
 
@@ -599,11 +626,10 @@ def _compose(
     config_settings: Mapping[str, Any] | None,
     metadata_directory: str | None,
 ) -> str:
-    """Build the server wheel, then atomically fold in its native numeric module.
+    """Build the server wheel and fold in both required native modules.
 
-    The lock spans both Maturin invocations and injection.  Releasing it after the
-    server build would recreate the race while the numeric build is using the same
-    Cargo target and the server wheel is still being composed.
+    The lock spans all Maturin invocations and both injections, which share the
+    Cargo target and must finish before another wheel can use its staging area.
     """
 
     with _maturin_staging_lock():
@@ -611,10 +637,14 @@ def _compose(
         wheel = Path(wheel_directory) / filename
         if not wheel.is_file():
             raise RuntimeError("maturin did not produce the declared server wheel")
-        with tempfile.TemporaryDirectory(
-            prefix="epistemic-graph-numeric-"
-        ) as temporary:
-            inject(wheel, _build_numeric(Path(temporary)))
+        for manifest, features, inject in (
+            (NUMERIC_MANIFEST, "python", inject_numeric),
+            (ENGINE_MANIFEST, "python,security", inject_engine),
+        ):
+            with tempfile.TemporaryDirectory(
+                prefix=f"epistemic-graph-{manifest.parent.name}-"
+            ) as temporary:
+                inject(wheel, _build_component(Path(temporary), manifest, features))
         return filename
 
 
@@ -623,7 +653,7 @@ def build_wheel(
     config_settings: Mapping[str, Any] | None = None,
     metadata_directory: str | None = None,
 ) -> str:
-    """Build the installable wheel with its required native numeric module."""
+    """Build the installable wheel with its numeric and engine modules."""
 
     return _compose(
         maturin.build_wheel, wheel_directory, config_settings, metadata_directory
