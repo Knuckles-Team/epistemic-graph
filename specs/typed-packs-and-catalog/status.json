@@ -1075,8 +1075,10 @@
     {
       "id": "EG-TYPED-PACKS-R066.2",
       "title": "The task class carries a shell-centric fact",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "fa0de58b4e2e"
+      ],
       "verified_by": [
         "crates/eg-shacl/tests/swarm_topology_shapes.rs:17",
         "crates/eg-shacl/tests/swarm_topology_shapes.rs:30",

@@ -162,7 +162,7 @@ Skill package rendering: a changed referenced node changes the digest on the nex
 
 ## R071.1 and R097.2 crosswalk acceptance
 
-All cases below are required future evidence. Definition publication leaves every new row SPECIFIED.
+All cases below are required future evidence.
 
 | Scenario | Requirements | Required evidence |
 |---|---|---|
