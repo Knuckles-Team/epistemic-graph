@@ -138,7 +138,7 @@ Each work item below extends its named parent and preserves existing obligations
 | `EG-REPO-INGEST-R002.1` | Compile a pinned skill directory into a typed plan through SourceIngest and AU. Use the existing graph orchestration path. | Versioned grammar and capability/type lookup remain owner prerequisites. AU-CONTROL-R037.30 remains unmerged. |
 | `EG-REPO-INGEST-R006.1` | Measure distinct completed papers over 24 hours. Admit maintenance only with authorization and bounded goal allocation. | Stage roster, freshness policy, allocation policy, and GraphOS operation remain owner prerequisites. |
 | `EG-REPO-INGEST-R006.2` | Queue re-embedding outside query routing. Gate promotion through unified data-plane R040.2/.3 before tag_batch. | Importance producer and compatible embedding-space policy remain owner prerequisites. |
-| `EG-REPO-INGEST-R006.3` | Serve typed code maps through the current-revision unified query surface. | Source-inventory producer and code-entity IDs remain owner prerequisites. |
+| `EG-REPO-INGEST-R006.3` | Serve typed code maps through current-revision UnifiedQuery. Refuse changed and unchanged-symbol queries against a stale generation. | Source-inventory producer and code-entity IDs remain owner prerequisites. |
 | `EG-REPO-INGEST-R006.4` | Apply revision-scoped deltas under host-granted working-memory limits. | Semantic support matrix and host resource-grant binding remain owner prerequisites. |
 | `EG-REPO-INGEST-R002.100` | Require independently authorized readback before ingestion success. | AU success-transition consumer ID remains unassigned. |
 | `EG-REPO-INGEST-R002.101` | Gate graph-loaded workflow completion on durable hydration readback. | AU execution-success consumer ID remains unassigned. |

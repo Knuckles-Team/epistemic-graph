@@ -83,4 +83,6 @@ No implementation or served evidence is claimed here.
 | `EG-REPO-INGEST-R002.100` | `EG-REPO-INGEST-R002` | `AU:118` | `e8ad0c2417b7fa6ce53c46899f1adf8e925977becd0bd1813db6b62d3786af11` |
 | `EG-REPO-INGEST-R002.101` | `EG-REPO-INGEST-R002` | `PIPE:10` | `e0c431512565acb1a8ae00e09b63ec6fb7c8f9e81ef9c786a0fd7b26b2239455` |
 
+R006.3 binds each code-map page and cursor to one map generation and current source revision. After source changes, queries for changed and unchanged symbols refuse against the old generation. Reindex acceptance checks current spans and stable logical identity.
+
 <!-- /spec-definition-patch -->
