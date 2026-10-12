@@ -2,7 +2,7 @@
 
 ## Outcome
 
-Epistemic Graph (EG) evaluates typed decisions from caller-visible facts, records how each conclusion was reached, and can independently verify a committed result. Connector pack annotations enter that decision pipeline as **claims**, not proof of a capability. Consumers can assemble an agent graph, ask a statistical question, and inspect a certificate and evidence without relying on a private documentation service.
+Epistemic Graph (EG) evaluates typed decisions from caller-visible facts. It records how each conclusion was reached and can independently verify a committed result. Connector pack annotations enter that decision pipeline as **claims**, not proof of a capability. Consumers can assemble an agent graph, ask a statistical question, and inspect a certificate and evidence. They do not rely on a private documentation service.
 
 This specification owns EG's decision contracts, solver, evidence record and jobs. It defines the decision-facing semantics of published pack facts. Agent execution, connector discovery and ingestion orchestration are consumers. Their adapters may call these methods but cannot become a second authority for decision records or policy.
 
@@ -53,3 +53,11 @@ Requirement IDs are defined in [requirements.md](requirements.md); delivery stat
 ## Certified context packages (R137.7–R137.12)
 
 The engine owns certified multi-resolution context-package selection under the tightest applicable window, reserved-output, caller-token, monetary and latency constraints. It preserves exact tokenizer weights, net-value optimization, fewer-token ties and cited source/range/revision identity. AU-CONTEXT-R004 consumes the typed selection without reranking. Full-prompt fit and the existing recursive decomposition and parallel-map obligations remain separate and unchanged. These additive definitions do not claim a served package handler or runtime verification.
+
+<!-- spec-definition-patch:comparative-analysis-r139 -->
+## Comparative analysis plan (EG-DECISION-ENGINE-R139)
+
+EG produces a read-only, revision-pinned `ComparativeAnalysisPlan` through public `Method::Decide`. It reuses caller-supplied query-vector and completed `UnifiedQuery` results for zero-model vector discovery. It selects normalized-importance `>= 0.50` candidates for one or two AU synthesis calls. It selects only `>= 0.80` candidates for budgeted deep extraction. The versioned thresholds, candidate order/universe, query and space revisions, and each stage and total call ceiling are bound into the plan. The existing 64-candidate decision limit applies.
+
+EG returns a typed refusal before exposing a plan for stale or malformed inputs or impossible budgets. EG never generates text or invokes a model. AU consumes the plan and calls its configured service only afterward at `agent_utilities/knowledge_graph/retrieval/context_compiler_serving.py::compiled_chat_completion`; AU owns a separate invocation receipt bound to the plan digest. `AU-HARNESS-R024.3` trace digests are not a comparative-analysis consumer contract. This EG-only slice does not add an AU requirement or runtime receipt; the served AU consumer remains a dependency hold. R080.1 and R136.3 are adjacent mechanisms only. These definitions remain SPECIFIED until both EG and AU served receipts exist.
+<!-- /spec-definition-patch -->
