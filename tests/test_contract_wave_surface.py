@@ -140,6 +140,7 @@ def test_the_agent_component_request_grows_a_content_branch() -> None:
     assert '"content"' in encoded, "the component op union has no content branch"
 
 
+@pytest.mark.spec("EG-CONTRACT-R038")
 def test_the_receipt_counts_match_the_wave() -> None:
     methods = _methods()
     classification = Counter(
@@ -177,6 +178,7 @@ def test_the_receipt_counts_match_the_wave() -> None:
         assert receipt["result_classification"] == classification, prefix
 
 
+@pytest.mark.spec("EG-CONTRACT-R038")
 def test_the_receipt_declares_every_new_format_identity() -> None:
     identities = _json("contract/receipt.json")["format_identities"]
     expected = {

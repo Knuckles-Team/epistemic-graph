@@ -189,12 +189,14 @@
     {
       "id": "EG-CONTRACT-R006",
       "title": "Deterministic, size-budgeted WASM codec artifact",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "2b681e1a159c",
         "6cd6c7ea0c87"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_build_method_codec_wasm.py:70"
+      ]
     },
     {
       "id": "EG-CONTRACT-R007",
@@ -281,7 +283,7 @@
       ],
       "verified_by": [
         "tests/test_check_complexity_staged.py:416",
-        "tests/test_check_complexity_staged.py:430"
+        "tests/test_check_complexity_staged.py:431"
       ]
     },
     {
@@ -504,11 +506,13 @@
     {
       "id": "EG-CONTRACT-R027",
       "title": "Exhaustive dispatch matches pass the complexity gate via extraction",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "b43f33569dd4"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_check_complexity_staged.py:417"
+      ]
     },
     {
       "id": "EG-CONTRACT-R028",
@@ -522,20 +526,25 @@
     {
       "id": "EG-CONTRACT-R029",
       "title": "Build runner keeps TMPDIR short enough for Unix socket paths",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "2a0d6eae0918"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_push_gate_evidence.py:256"
+      ]
     },
     {
       "id": "EG-CONTRACT-R030",
       "title": "Unconstrained build step is not CPU-affinity restricted",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "a1bb9fb9503e"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_bounded_test_runner_contract.py:105",
+        "tests/test_bounded_test_runner_contract.py:61"
+      ]
     },
     {
       "id": "EG-CONTRACT-R031",
@@ -631,29 +640,36 @@
     {
       "id": "EG-CONTRACT-R037",
       "title": "Clippy is warning-free across every release profile",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "04a134298236"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_release_feature_matrix.py:219"
+      ]
     },
     {
       "id": "EG-CONTRACT-R038",
       "title": "Contract receipt freshness is checked before merge",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "2688cddd2f7f"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_contract_wave_surface.py:143",
+        "tests/test_contract_wave_surface.py:181"
+      ]
     },
     {
       "id": "EG-CONTRACT-R039",
       "title": "Duplication gate runs against the full combined diff, not per-change",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "57a12eb06632"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_jscpd_per_commit_gate.py:41"
+      ]
     },
     {
       "id": "EG-CONTRACT-R040",
@@ -667,11 +683,14 @@
     {
       "id": "EG-CONTRACT-R041",
       "title": "Privacy gate detects host paths across the tracked tree",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "2a0d6eae0918"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_documentation_privacy.py:100",
+        "tests/test_documentation_privacy.py:87"
+      ]
     },
     {
       "id": "EG-CONTRACT-R042",
@@ -719,20 +738,24 @@
     {
       "id": "EG-CONTRACT-R046",
       "title": "Slim-server build compiles with broker feature disabled",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "5bf5b719de7e"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_release_feature_matrix.py:252"
+      ]
     },
     {
       "id": "EG-CONTRACT-R047",
       "title": "Main publishes a rolling engine wheel for consumer CI",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "9084e9343bf4"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_release_feature_matrix.py:269"
+      ]
     },
     {
       "id": "EG-CONTRACT-R048",

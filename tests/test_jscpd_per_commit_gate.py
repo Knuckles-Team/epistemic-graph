@@ -38,6 +38,7 @@ def test_precommit_config_declares_the_jscpd_differential_hook() -> None:
 
 
 @pytest.mark.spec("EG-DURABLE-KERNEL-R010")
+@pytest.mark.spec("EG-CONTRACT-R039")
 def test_ci_runs_jscpd_enforce_on_every_push_and_pull_request() -> None:
     workflow = yaml.safe_load((ROOT / ".github/workflows/release.yml").read_text())
     triggers = workflow[True]  # YAML 1.1 parses the bare `on:` key as boolean True
