@@ -219,3 +219,119 @@ Cross-repository: `AU-DECISIONS` callers read the conflict code; owner prefix `A
 
 References
 - No paper is cited.
+
+
+## R085: authoritative versioned memory synchronization
+
+This is a proposed producer contract. No R085 runtime method exists yet.
+Every child remains SPECIFIED until its own acceptance evidence exists.
+The owning scope is durable graph state, atomic mutation and conflict retention.
+R084.3, R084.4 and R084.6 supply concurrency prerequisites only.
+They do not define memory snapshots, file listings or synchronization.
+
+### Existing production boundaries
+
+The reviewed base is `3477a5da33d4593b0248558d0501c40685f6c9f7`.
+`crates/eg-types/src/protocol.rs::Request` binds graph and verified request context.
+`src/server/access.rs::check_graph_access` owns graph authority checks.
+`src/server/handlers/graph_ops/gateway.rs::try_handle_gateway` routes durable mutations.
+Its `commit_gateway` is an existing commit entry point.
+`src/server/mutation_batch/compile.rs::authoritative_graph_version` reads the durable version.
+`CompileBatch::expected_graph_version` carries the existing optimistic concurrency condition.
+`compile_methods_with_outbox` compiles mutation and outbox changes together.
+`src/server/mutation_batch/commit/` owns durable commit and projection publication.
+`src/server/handlers/graph_ops/memory.rs` serves existing memory maintenance and summary operations.
+Its mutation arms explicitly require gateway routing. They do not implement this contract.
+
+Reuse `crates/eg-types/src/contract/crypto.rs::Digest256` for content digests.
+Reuse `MutationScopeIdentity` and `MutationBatch` in `crates/eg-types/src/mutation_batch/`.
+Reuse named holders in `src/server/blob/store/holders.rs`.
+R050 and R051 retain their garbage-collection and holder guarantees.
+Do not add another persistent write envelope or an agent-owned memory store.
+
+### Proposed public contract
+
+The proposed wire methods are `ReadMemorySnapshot`, `ListMemorySnapshots` and `SyncMemorySnapshot`.
+These names reserve design intent, not existing runtime availability.
+Add typed definitions under a new `crates/eg-types/src/memory_sync.rs` module.
+Declare graph-domain capabilities through `crates/eg-capabilities/src/domains/graph.rs`.
+Generate request schemas, result schemas and public clients from that authority.
+A missing method or incompatible contract returns unavailable to consumers.
+
+A document key combines the verified tenant, graph incarnation and logical document ID.
+The graph comes from `Request.graph`; request bodies cannot replace its authority.
+Graph recreation invalidates old revisions, cursors, conflicts and acknowledgments.
+Kinds are observations, reflections, profile and active_context.
+A logical relative Markdown path is a presentation label, never an engine filesystem path.
+Reject absolute paths, traversal and duplicate logical paths within one graph.
+
+Each immutable snapshot carries document ID, kind, logical path, revision and parent revision.
+It also carries canonical UTF-8 content, its Digest256, provenance and retention metadata.
+Content uses exact UTF-8 bytes without implicit normalization. EG recomputes the digest.
+Reuse checked counters and existing blob references for stored content.
+Refuse oversized bodies before allocation or effects. Maximum content is 1 MiB per document.
+Logical IDs and paths are bounded to 256 and 1024 UTF-8 bytes respectively.
+Use checked revision increments; overflow refuses without wrapping.
+
+Read accepts a document ID and optional exact revision.
+Its result includes accepted snapshot, explicit sync state and authorized unresolved conflict references.
+List accepts optional kind, a limit from 1 through 100 and an opaque cursor.
+List returns metadata only, in stable document-ID order, plus the next cursor.
+Bind the cursor to the authorized graph snapshot, filters and current authority.
+Recheck authorization on every page. Policy changes invalidate the cursor.
+Return no hidden counts, identifiers, content digests or existence information.
+
+Sync actions form a closed set: submit, resolve and acknowledge_materialization.
+Submit carries expected revision, expected content digest and candidate bytes with their digest.
+Creation requires explicit absence; an absent expected revision never means unconditional overwrite.
+Resolve also names the retained conflict and the current accepted revision.
+The signed request binds the action, body and existing idempotency identity.
+Replay with the same identity and body returns the same receipt.
+The same identity with another body refuses. Never repeat an accepted mutation.
+
+A matching base commits the new snapshot and head atomically.
+A stale authorized submission yields conflict_retained only after durable retention succeeds.
+Retain the candidate and the accepted snapshot with both digests and a conflict identifier.
+The accepted head remains unchanged. This is an authorized retained-conflict outcome, not an authorization refusal.
+Generic R084.4 compare-and-set refusal still changes no state.
+Any retry needed to record a conflict must recheck authority and the current head.
+Capacity or persistence failure returns a typed refusal without claiming retained content.
+Resolution requires current write authority and an exact current-head comparison.
+Old conflict contents remain retained until the explicit retention policy permits release.
+
+### Sync state, provenance and retention
+
+Sync states are in_sync, graph_ahead, file_ahead, conflict and unavailable.
+EG derives each state from accepted revisions and persisted, authorized host evidence.
+No host evidence means unavailable, never in_sync.
+A prior materialized revision with a newer accepted head means graph_ahead.
+A retained host edit based on the current head means file_ahead before submission completes.
+A stale retained edit means conflict and takes precedence until explicit resolution.
+A successful materialization acknowledgment for the current revision and digest means in_sync.
+A stale acknowledgment cannot clear graph_ahead or conflict.
+
+GraphOS writes hosted files, then acknowledges their revision and digest through SyncMemorySnapshot.
+Only a verified materializer authority can acknowledge. A browser assertion is insufficient.
+The acknowledgment binds document, graph incarnation, revision, digest and materialization attempt.
+EG stores this evidence but does not access GraphOS filesystem paths.
+A later graph mutation invalidates the earlier in_sync decision.
+
+Persist the authenticated actor, policy version, operation identity and commit receipt.
+Include parent/current revisions, submitted/accepted digests, conflict references and timestamps.
+Store content and receipt references in the same admitted transaction as the head decision.
+Outbox publication follows that commit; an acknowledgment is not proof before durability.
+Use named holders to protect current content and unresolved conflicting versions.
+Retention policy is scoped and authorized, with explicit duration and capacity limits.
+Unresolved versions remain pinned. Exhausted capacity refuses new retention before effects.
+Resolved versions retain both contents until their declared deadline and authorized release.
+Graph deletion and recreation cannot rebind old holders to the new graph incarnation.
+
+### Producer sequence and non-ownership
+
+GraphOS later extends GRAPHOS-OPS-R024.4 under R009 and R013.
+It must compose these generated EG contracts through a real engine-backed port.
+It owns authenticated hosted listing, file materialization and conflict artifacts.
+Its operation IDs remain for the GraphOS owner to publish after this producer contract.
+WebUI then refines existing WEBUI-APPS-R031.2 through R031.4 and its R031.7 served proof.
+AU is an EG-driven harness. Neither AU nor WebUI decides synchronization or conflict authority.
+No GraphOS, WebUI, decision-engine or federated-query files change in this producer slice.
