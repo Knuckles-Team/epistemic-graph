@@ -40,6 +40,7 @@ def required_sources(root: Path) -> set[str]:
         "rust-toolchain.toml",
         "README.md",
         "scripts/inject_numeric_kernel.py",
+        "scripts/inject_pyengine.py",
         "scripts/normalize_wheel_build_paths.py",
     }
     directories = ("src", "crates", "epistemic_graph", ".cargo")
