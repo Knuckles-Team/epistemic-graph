@@ -205,7 +205,9 @@
     "EG-FEDERATED-QUERY-R040.2.5",
     "EG-FEDERATED-QUERY-R040.2.6",
     "EG-FEDERATED-QUERY-R039.3",
-    "EG-FEDERATED-QUERY-R040.3"
+    "EG-FEDERATED-QUERY-R040.3",
+    "EG-FEDERATED-QUERY-R039.4",
+    "EG-FEDERATED-QUERY-R040.4"
   ],
   "requirements": [
     {
@@ -725,7 +727,8 @@
       "rollup_of": [
         "EG-FEDERATED-QUERY-R039.1",
         "EG-FEDERATED-QUERY-R039.2",
-        "EG-FEDERATED-QUERY-R039.3"
+        "EG-FEDERATED-QUERY-R039.3",
+        "EG-FEDERATED-QUERY-R039.4"
       ]
     },
     {
@@ -740,7 +743,8 @@
       "rollup_of": [
         "EG-FEDERATED-QUERY-R040.1",
         "EG-FEDERATED-QUERY-R040.2",
-        "EG-FEDERATED-QUERY-R040.3"
+        "EG-FEDERATED-QUERY-R040.3",
+        "EG-FEDERATED-QUERY-R040.4"
       ]
     },
     {
@@ -2186,6 +2190,20 @@
     {
       "id": "EG-FEDERATED-QUERY-R040.3",
       "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R039.4",
+      "title": "Residual behavior: mixed multi-hop traversal and vector top-k",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R040.4",
+      "title": "Residual behavior: filter-aware ANN and BM25 scans",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

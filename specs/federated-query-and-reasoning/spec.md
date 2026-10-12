@@ -81,7 +81,7 @@ Requirement IDs are defined in [requirements.md](requirements.md); delivery stat
 
 The engine must support four-modality retrieval, hard graph constraints, document-section traversal and document-chunk encoding.
 It must supply workload-based column advice and topic/dense fusion through the existing retrieval owners.
-R039.1 through R039.3, R040.1 through R040.3, R077.6 and R081.9.7 define these additions.
+R039.1 through R039.4, R040.1 through R040.4, R077.6 and R081.9.7 define these additions.
 Their delivery state is SPECIFIED; served acceptance is NOT RUN.
 
 The engine must retain community retrieval and R081/R082 termination precedence.
@@ -91,8 +91,8 @@ The definitions add no textual grammar, alternate identity authority or runtime 
 
 | Extension | Delivery | Acceptance |
 |---|---|---|
-| R039.1, R039.2, R039.3 | SPECIFIED | NOT RUN |
-| R040.1, R040.2, R040.3 | SPECIFIED | NOT RUN |
+| R039.1, R039.2, R039.3, R039.4 | SPECIFIED | NOT RUN |
+| R040.1, R040.2, R040.3, R040.4 | SPECIFIED | NOT RUN |
 | R077.6, R081.9.7 | SPECIFIED | NOT RUN |
 
 The generated status.json remains the delivery source for the spec-delivery page.

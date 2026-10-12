@@ -480,3 +480,15 @@ No row becomes delivered merely because its definition or planned test path exis
 
 These papers inspire the space-alignment and chunk-aggregation mechanisms.
 The requirements remain product-neutral and require independent served measurements.
+
+
+### R039.4 and R040.4: retained parent acceptance
+
+The child requirements must retain every original parent behavior and acceptance condition.
+R039.4 retains multi-hop traversal with vector similarity, candidate replenishment, exactly k permitted results or an explicit counted shortfall.
+Its S-01 reference-corpus oracle retains two-hop traversal, parallel edges and stable edge identity. Include ten permitted matches below unfiltered top-k. It remains required independently of modality and hard-constraint extensions.
+R040.4 retains filter-aware ANN and BM25 scans over pre-filtered candidates or bitmap filters, with filtered-search correctness.
+Its fixed-corpus before/after latency benchmark and correctness oracle remain required independently of constraint, encoding and fusion extensions.
+The planned served cases in `test-spec.md` bind both residuals to the existing dispatch and planner paths.
+No numerical latency target, runtime evidence or delivery receipt is invented.
+Both leaves remain SPECIFIED with acceptance NOT RUN until their own evidence satisfies the original contracts.
