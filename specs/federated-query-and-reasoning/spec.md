@@ -194,10 +194,6 @@ EG-owned residual: The complete requested matrix of temporal conflicts, cardinal
 
 Producer/consumer boundary: Existing shape/EL-RL/tableau validation -> contradiction proposal; exact public diagnostic carrier must bind every requested violation kind.
 
-Asymmetry correction: report only an observed reverse pair for a relation declared asymmetric; bind the property/axiom and both observed edge ids/evidence refs. A single forward edge or missing counterpart is not a violation.
-
-Planned asymmetry acceptance: `(a,p,b)` alone is the clean control; adding `(b,p,a)` yields one diagnostic citing both edges and the pinned axiom/revisions.
-
 Preserve existing coverage: `EG-DECISION-ENGINE-R034`, `EG-FEDERATED-QUERY-R001`, `EG-FEDERATED-QUERY-R005`, `EG-FEDERATED-QUERY-R011`, `EG-FEDERATED-QUERY-R012`.
 
 Owner source hash: `973de1c3b38646a438d057299d8070070f0ef7a2056bb30acff6d1a3814df513`. This definition adds no AU/GraphOS/SDK implementation or acceptance claim.
