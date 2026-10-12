@@ -26,7 +26,7 @@ The repository pins CCCC 1.6.0, KISS 0.4.12, Dupehound 0.1.2 (`threshold 0.85`, 
 
 ## Acceptance matrix
 
-PACK-01: TP-01/02; PACK-02: TP-07/10; PACK-03: TP-05/06; PACK-04: TP-05/07; PACK-05: TP-01/04; PACK-06: TP-02/03/04; PACK-07: TP-08; PACK-08: TP-04/09/13; PACK-09: TP-10/11; PACK-10: TP-01/10/13; PACK-11: TP-06/07/08; PACK-12: TP-11/12 and all quality gates. A requirement is `ACCEPTED` only when its mapped tests and applicable gates pass against a merged exact head.
+PACK-01: TP-01/02; PACK-02: TP-07/10; PACK-03: TP-05/06; PACK-04: TP-05/07; PACK-05: TP-01/04; PACK-06: TP-02/03/04; PACK-07: TP-08; PACK-08: TP-04/09/13; PACK-09: TP-10/11; PACK-10: TP-01/10/13; PACK-11: TP-06/07/08; PACK-12: TP-11/12 and all quality gates. Qualification requires the mapped tests and applicable gates to pass against an exact merged head.
 
 ## Boundary and verification notes (EG-TYPED-PACKS-R020, R052, R060, R063, R082)
 
@@ -68,7 +68,7 @@ Every cross-cutting pack-import-safety defect is a named rule (G1-G21) in `epist
 | G20 | empty_pack, withdraw_sixty_percent |
 | G21 | three_hundred_violations |
 
-A requirement is `ACCEPTED` only when every row's regression test passes against a merged exact head, exactly as the acceptance matrix above requires for PACK-06/08.
+Every row's regression test must pass against an exact merged head, as PACK-06/08 requires.
 
 | Repair | Requirement | Regression | Acceptance |
 | --- | --- | --- | --- |
@@ -206,3 +206,81 @@ For R071.1.4 and R097.2.4, use valid targets in every source-refusal case:
 | Known class in an unselected pack or unauthorized source scope | `CROSSWALK_SOURCE_OUT_OF_SCOPE` | No crosswalk or unmapped entry is published for that class. |
 
 Each refusal identifies the source IRI, requested source revision and selected scope. Exercise these through real import and schema attachment. Query pack status, GraphSchemaClasses and OntologyInspect afterward to prove unchanged committed state. Scope refusal must not disclose foreign class metadata.
+
+
+## Prompt and residual acceptance matrix
+
+Every test below is proposed. This definition adds no runtime test binding or execution receipt.
+Retain all original PACK and TP acceptance above, including every original R001/R002/R094 obligation.
+
+| ID | Positive proof | Negative or boundary proof | Proposed proving test |
+|---|---|---|---|
+| EG-TYPED-PACKS-R001.1 | Round-trip every original index and entry field. | Unknown kinds and malformed index fields refuse. | `tests/test_connector_pack_contract.py::test_pack_index_entry_contract` |
+| EG-TYPED-PACKS-R001.2 | Round-trip every section and annotation field without changing existing semantics. | Invalid section bounds and malformed typed annotations refuse. | `tests/test_connector_pack_contract.py::test_pack_section_annotation_contract` |
+| EG-TYPED-PACKS-R001.3 | Preserve ConnectorPackOp and AgentComponent.Content operation and result shapes. | Missing operations and incompatible result shapes fail qualification. | `tests/test_connector_pack_contract.py::test_pack_content_operation_contract` |
+| EG-TYPED-PACKS-R001.4 | Every published connector_pack_digest_vectors.json sample matches byte-for-byte. | Changing a framed input or expected digest fails. | `tests/test_connector_pack_contract.py::test_original_framed_digest_vectors` |
+| EG-TYPED-PACKS-R001.5 | The complete generated-client inventory shares the original wire shapes and golden bytes. | A stale client, omitted client or changed field fails. | `tests/test_connector_pack_contract.py::test_all_clients_share_pack_contract` |
+| EG-TYPED-PACKS-R001.6 | A typed object round-trips all identity and revision fields. | Changing a schema or body pin cannot preserve the old definition identity. | `crates/eg-types/src/agent_component.rs::tests::prompt_blueprint_identity` |
+| EG-TYPED-PACKS-R001.7 | Nested valid objects retain every admitted field and extension value. | Missing task, wrong field types, nonfinite numbers and oversized objects refuse. | `crates/eg-types/src/agent_component/facts.rs::tests::prompt_blueprint_schema_refusals` |
+| EG-TYPED-PACKS-R001.8 | Repeated identical inputs produce the same bytes and render digest. | A changed variable changes the result; invalid input produces no render result. | `crates/eg-compute/src/assemble/prompt.rs::tests::prompt_render_vectors` |
+| EG-TYPED-PACKS-R001.9 | Generated clients encode and decode every declared request, result and typed refusal. | Missing render provenance or an untyped fallback fails. | `tests/test_prompt_blueprint_contract.py::test_generated_prompt_contract` |
+| EG-TYPED-PACKS-R002.1 | Staged bytes use their verified SHA-256 address. | A digest mismatch refuses; staging alone exposes no component. | `tests/test_connector_pack_storage.py::test_body_staging` |
+| EG-TYPED-PACKS-R002.2 | An unchanged import keeps exact holder/refcount values. | Repeated identical import cannot increment or decrement a holder. | `tests/test_connector_pack_storage.py::test_unchanged_holder` |
+| EG-TYPED-PACKS-R002.3 | A revised component binds its new body and preserves historical revision holders. | A changed revision cannot orphan a body held by history. | `tests/test_connector_pack_storage.py::test_revised_holder` |
+| EG-TYPED-PACKS-R002.4 | A withdrawn component retains body access through a valid historical pin. | Withdrawal cannot reclaim a held historical body. | `tests/test_connector_pack_storage.py::test_withdrawn_holder` |
+| EG-TYPED-PACKS-R002.5 | A fault before owner commit leaves an orphan reclaimed only after its grace window. | An unexpired orphan or held body survives reconciliation and restart. | `tests/test_connector_pack_storage.py::test_orphan_grace_fault` |
+| EG-TYPED-PACKS-R002.6 | AgentComponent.Content returns the exact body of its pinned component revision. | Corrupt bytes and denied tenants refuse without leaking body data. | `tests/test_connector_pack_storage.py::test_verified_body_read` |
+| EG-TYPED-PACKS-R002.7 | A successful write has one revision and live holder with its exact body digest. | A fault before owner commit leaves only an unreferenced body subject to the existing grace rule. | `tests/test_prompt_blueprints_served.py::test_prompt_owner_commit` |
+| EG-TYPED-PACKS-R002.8 | Independent graph queries read the exact prompt revision and dependency links. | Replaying an old event cannot regress the visible revision. | `tests/test_prompt_blueprints_served.py::test_prompt_graph_projection` |
+| EG-TYPED-PACKS-R002.9 | A real generated-client request reaches the renderer and returns the pinned revision and expected bytes. | Invalid requests leave graph, body holders, head and render-result publication unchanged. | `tests/test_prompt_blueprints_served.py::test_prompt_render_route` |
+| EG-TYPED-PACKS-R002.10 | A valid served journey renders the pinned version and causes one observed model request. | Each invalid case yields a typed refusal and zero requests at the real model transport boundary. | `tests/test_prompt_blueprints_served.py::test_invalid_prompt_prevents_dispatch` |
+| EG-TYPED-PACKS-R002.11 | Current and historical revisions, graph links and verified body bytes survive restart. | A refused stale update leaves the previous durable head intact. | `tests/test_prompt_blueprints_served.py::test_prompt_restart_readback` |
+| EG-TYPED-PACKS-R094.1 | A generated Python client reads exact verified pack body bytes. | A refusal-only dispatch arm fails this acceptance. | `tests/test_connector_pack_content.py::test_stable_content_returns_body` |
+| EG-TYPED-PACKS-R094.2 | Export preserves nested extension values, nulls, arrays and exact numeric values. | An omitted field, changed revision or lost numeric precision fails. | `tests/test_prompt_blueprints_served.py::test_lossless_blueprint_export` |
+| EG-TYPED-PACKS-R094.3 | Changing one field creates one new revision and preserves every other field. | Concurrent writers cannot overwrite a newer head; reserved pack identities require pack admission. | `tests/test_prompt_blueprints_served.py::test_modified_blueprint_import` |
+| EG-TYPED-PACKS-R094.4 | Replay produces no extra revision, holder or outbox event. | A conflicting retry preserves the prior committed result. | `tests/test_prompt_blueprints_served.py::test_blueprint_retry_identity` |
+| EG-TYPED-PACKS-R094.5 | The new revision contains the one intended change and all unchanged values. | Stale import and denied-tenant cases preserve both historical and current readback. | `tests/test_prompt_blueprints_served.py::test_blueprint_roundtrip_restart` |
+| EG-TYPED-PACKS-R094.6 | Authorized graph adoption uses the normal publication boundary and records the source revision. | A proposal alone causes no active-head change, model dispatch or external write. | `tests/test_prompt_blueprints_served.py::test_prompt_proposal_has_no_authority` |
+| EG-TYPED-PACKS-R094.7 | A real authorized producer journey writes only the approved source and returns a bound receipt. | Absent producers leave this acceptance unfulfilled; graph persistence cannot substitute. | `tests/test_prompt_blueprints_served.py::test_approved_source_effect_dependency` |
+
+### Deterministic fixtures and real served journey
+
+Use synthetic, versioned prompt fixtures with a pinned manifest digest and independently authored expected values.
+Include nested custom fields, arrays, Unicode, null and absent fields, empty collections and the exact integer 9007199254740993.
+Include an exact decimal 0.10000000000000000001; no binary64 conversion may change it.
+The fixture schema explicitly admits both numbers. A narrower schema must refuse rather than round them.
+The render fixture requires task="summarize", topic="alpha" and a declared audience variable with value "engineers".
+Its canonical rendered bytes must be exactly the following UTF-8 sequence, without a trailing newline:
+
+```json
+{"audience":"engineers","task":"summarize","topic":"alpha"}
+```
+
+Repeat rendering with object keys reordered. The bytes and digest must remain equal.
+Change audience to "reviewers"; only that value and the render digest change.
+Test exact and exceeded body, schema, depth, node and output bounds from the admitted profile.
+
+Start a real EG server with disposable durable stores and the required declared features.
+Use generated public clients with authenticated identities; do not call private store helpers as the served proof.
+Publish a schema and prompt, wait for observable graph readiness, then read them through a second client.
+Render the exact prompt revision and observe the named production handler and renderer.
+Export that revision, change one nested field, import with its expected base, and read the new revision.
+Restart the server and compare graph identity, historical revisions, complete payload, schema pins and body digests.
+Retry after a lost reply and assert one committed revision and receipt.
+
+Exercise malformed schemas, invalid payloads, unsupported revisions, missing variables and substituted digest pins separately.
+Race two updates from the same base; one succeeds and the stale update refuses.
+Use a different actor and tenant for every public read and write boundary.
+Assert unchanged head, graph visibility, holders and committed outbox on each rejected mutation.
+Uncommitted staged bodies follow the existing orphan grace rule; they must never become readable prompt revisions.
+
+The dispatch proof traverses the actual AU consumer and its model transport against a disposable recording endpoint.
+A valid control request produces one observed model call with the pinned rendered bytes.
+Every invalid schema, body, revision and scope case produces zero calls and a typed refusal.
+No helper-only counter, mocked dispatcher or missing consumer can satisfy R002.10.
+Record exact EG and consumer heads, generated schema revisions, request IDs, production call sites and readback digests.
+Publish sanitized assertions; exclude credentials, private prompt content and raw request logs.
+
+R094.7 also requires the actual approved SDK/GraphOS source-effect producer journey.
+Use a disposable repository and prove exact-path/base-revision approval, conflict refusal and receipt-bound readback.
+The missing producer IDs and contract remain an explicit dependency; no repository write is executed by this batch.

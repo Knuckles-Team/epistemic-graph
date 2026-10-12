@@ -11,7 +11,7 @@ The order below minimizes incompatible intermediate states. A step may be a veri
 3. **Admission and atomicity proof.** Audit G1–G21, tenant/importer checks, reserved IDs, preflight size checks and stable codes. Ensure the import planner resolves staged pins, stages engine bodies with holder/refcount invariants, and commits all owner rows plus N outbox intents atomically. Test all crash windows and replay identities.
 4. **Lifecycle and catalog proof.** Verify carry-forward, changed pin cascade, reversible withdrawal, permanent retirement, content reads, no-op import and mass-withdrawal override. Confirm typed ServerRegistry owns liveness and component/pack owner owns content; remove any shadow catalog after consumer migration.
 5. **Schema and projection proof.** Reuse one G13–G16/K1–K7 validator for operator, pack and ingestion sources. Attach current pack schema in one graph commit. Mark visibility only after attach; use durable failure/retry and least-privilege row-scoped graph grant. Verify static `AttachPack` staleness and `GraphSchemaClasses` output. Preserve exact `IcvConfigure` behavior.
-6. **Consumer and release proof.** Run an end-to-end connector fixture from SDK package creation through Import, projection, GraphOS typed read and an authorized body read. Run Go/JS/Python/Rust contract vectors and full integration suites on the exact commit. Include scanner and architecture gates, release workflow parity, and a crash/restart restore check. Publish exact evidence before setting a requirement to `ACCEPTED`.
+6. **Consumer and release proof.** Run an end-to-end connector fixture from SDK package creation through Import, projection, GraphOS typed read and an authorized body read. Run Go/JS/Python/Rust contract vectors and full integration suites on the exact commit. Include scanner and architecture gates, release workflow parity, and a crash/restart restore check. Record exact evidence for each required outcome.
 
 ## Interfaces and ownership
 
@@ -328,3 +328,141 @@ They cover absent values, booleans, incorrect datatypes and competing values.
 The reference validator passed nine cases. Five malformed cases passed the baseline but fail the updated shape.
 Native execution remains pending. Reference validation does not establish native acceptance.
 Run `cargo test --locked -p eg-shacl --test swarm_topology_shapes --offline` on an admitted build lane.
+
+
+## Native prompt identity, rendering and blueprint round trips
+
+This definition extends R001, R002 and R094 without changing their original acceptance cells.
+Each child names one producer, transition or proving journey.
+No runtime scenario receipt accompanies these definitions.
+Existing source names establish reuse boundaries, not implementation of the new prompt operations.
+
+### Original acceptance crosswalk
+
+| Original obligation | Required residual children |
+|---|---|
+| ConnectorPackIndex and entry types | R001.1 |
+| Section and annotation types | R001.2 |
+| ConnectorPackOp and AgentComponent.Content shapes | R001.3 |
+| Published framed SHA-256 sample vectors, byte-for-byte | R001.4 |
+| All generated clients share one wire contract | R001.5 |
+| SHA-256 engine body staging | R002.1 |
+| Guarded holder/refcount updates for unchanged components | R002.2 |
+| Revised components and historical holders | R002.3 |
+| Withdrawn components and historical holders | R002.4 |
+| Orphan fault recovery and grace-window reclamation | R002.5 |
+| Verified body serving | R002.6 and R094.1 |
+| Stable Python-visible content method, never a refusal-only success | R094.1 |
+
+Prompt-specific tests cannot substitute for these original obligations.
+Every prior landing receipt and test binding remains evidence at its original scope.
+
+### Existing code and reachability
+
+Inspection base: `38cae80eb37eba97a273e2a6259e2eb0dfe46b02`.
+
+| Source | Observed role and required extension |
+|---|---|
+| `crates/eg-types/src/agent_component.rs:130` | Existing SystemPrompt/McpPrompt kinds, component identity, revisions and dependency pins. Reuse these types. |
+| `crates/eg-types/src/agent_component/facts.rs:395` | Existing static/dynamic variable validation. This does not establish full blueprint validation or rendering. |
+| `src/server/handlers/admin/agent.rs:142` | Authenticated component dispatch. Publish binds verified scope before the owner write at line 184. |
+| `src/server/persistence/agent_component/write.rs:39` | Existing component publication authority. Extend it for validated native prompt bodies and replay. |
+| `src/server/handlers/admin/component_content.rs:55` | Tenant-scoped content lookup uses connector_pack_content_pointer and verifies engine-owned body bytes. |
+| `src/server/blob/engine_bodies.rs:202` | Existing verified engine-body reader. Reuse its digest and holder authority. |
+| `src/server/connector_pack_projection.rs` | Existing pack projection machinery. Native prompt projection requires an explicit admitted extension. |
+
+The inspected dispatch has Publish, Retire, Current, History, Status, Search and Content branches.
+It does not establish a prompt render or blueprint import/export method.
+R001.9 must declare and generate those operations before served acceptance.
+Native SystemPrompt bodies require R002.7; a connector-pack content pointer alone does not establish that capability.
+The intended renderer path in R001.8 is a work target, not an existing implementation.
+Do not copy prompt content into component metadata or introduce a second registry.
+Graph nodes retain typed identity, revisions, schema and body dependencies; engine-owned bodies retain the complete payload.
+
+### Typed payload and render policy
+
+A blueprint envelope carries format revision, component identity, exact base revision, schema pin, payload and provenance.
+The server derives tenant, actor and permitted scope from verified context.
+A schema pin contains component ID, entry revision and definition digest.
+The payload requires a nonempty task string.
+Optional topic, tone, style, audience, goal, input and format fields follow the pinned schema.
+The task remains required when other fields are absent.
+The qualification schema identifies itself as prompt-blueprint/v1.
+Task contains 1 through 4096 UTF-8 bytes. Optional text fields accept strings or explicit null.
+Constraints and deliverables accept arrays of at most 1024 strings; structure accepts a bounded JSON object.
+Custom fields preserve bounded JSON values without overriding the declared types of core fields.
+The envelope keeps identity and authority fields separate from the custom payload.
+Nested structure, constraints, deliverables and custom extension values remain typed JSON data.
+The supported schema profile must declare field types, required fields, extension policy and limits.
+Unsupported schema rules refuse; no validator silently ignores them.
+Schema references resolve only to admitted pinned graph objects, without network access.
+Reject duplicate keys, nonfinite numbers, invalid Unicode and exceeded byte, depth or node limits.
+Use the existing pack limits as ceilings: body 2 MiB, schema 1 MiB and depth 64.
+The qualification profile limits payload and variable trees to 65536 JSON nodes each and rendered output to 2 MiB.
+A node is one scalar, array or object; object keys do not add nodes.
+The root has depth one; each nested array or object adds one level.
+These limits are admission maxima, not performance claims. Test each exact limit and limit-plus-one.
+
+Rendering resolves declared variables from the request or explicitly pinned graph context.
+Each binding names one variable and an existing payload path represented by string keys or nonnegative array indices.
+Reject duplicate variable names, duplicate target paths and overlapping ancestor/descendant targets.
+Bindings replace whole typed values; they never interpolate text or create missing paths.
+The binding declaration and variable schema belong to the pinned blueprint revision.
+Missing or unknown variables refuse; strings never become executable templates, code, files or network requests.
+A variable is inserted as a typed JSON value, with JSON escaping for strings.
+Revalidate the completed object against its exact schema before serialization.
+The qualification renderer sorts object keys by Unicode scalar value and emits compact UTF-8 JSON without a trailing newline.
+It uses required JSON escapes, preserves other Unicode, and normalizes exact decimals without binary floating-point conversion.
+Equivalent decimal spellings normalize to the same exact decimal value; zero uses 0 and insignificant fraction zeros are removed.
+The rendering revision fixes this serialization policy.
+It must preserve numeric values beyond binary64 precision without rounding; unsupported representations refuse.
+No host clock, ambient environment or unpinned latest revision may affect rendering.
+Return rendered bytes, body and schema pins, variable digest, renderer revision and render digest.
+The result is data, not an approval or an authority token.
+
+Lossless export/import means equality of every admitted JSON value, including custom fields, array order and null-versus-absence.
+Whitespace and object-key order may differ under the declared serialization policy.
+Exact numeric values and Unicode strings must not change.
+An export reads a single exact component revision and all dependencies pinned by that revision.
+A modified import names that identity and expected base; an admitted change creates a new revision.
+An unchanged import follows existing no-op semantics, and a lost-reply retry returns the same operation receipt.
+Reserved pack identities still use pack admission; native import cannot bypass importer binding or retirement rules.
+
+### Producer dependencies and authority
+
+| Consumer obligation | Required producer or boundary | Evidence still required |
+|---|---|---|
+| R001.6-R001.9 | Existing component authority and generated contract; EG-CONTRACT-R005 remains a referenced producer. | New schema, supported rules, operations and rendered-result contract. |
+| R002.7-R002.9 | Existing owner write, body store and projection admission. | Native prompt holders, graph readiness and authenticated render dispatch. |
+| R002.10 | R002.9 render result and the actual AU model-dispatch consumer. | Name its owning requirement and production call site before delivery; observe zero invalid model requests. |
+| R094.7 | SDK repository-source effect under GraphOS authorization. | Exact producer IDs and operation schema are unresolved in this recipe. |
+
+R002.10 must bind the dispatched bytes and variable digest to the rendered result and authorized source revision.
+A production consumer must reject a substituted body, schema, scope or revision before model transport.
+The integration fixture must traverse the real consumer; a helper counter cannot establish absence of dispatch.
+Missing consumer wiring remains an explicit prerequisite, not inferred implementation.
+This batch does not edit decision, codec, query or harness sources.
+Any related prompt-evolution overlap is a dependency note only, not another absorbed input.
+
+R094.7 retains the original repository-source persistence obligation.
+A graph write or exported JSON file does not complete that obligation.
+The SDK producer must accept repository identity, allowed path, exact base revision, proposed bytes and their digest.
+GraphOS must bind human approval to that exact effect, actor and scope before execution.
+The producer must refuse absent approval, changed base revision, path traversal and a mismatched payload.
+R094.7 is a retained dependency acceptance obligation, not an assignment to implement another repository.
+Its receipt must bind the approved request, actual repository revision and written-content digest.
+EG may retain that receipt as evidence; it must not grant approval or write repository files.
+No exact approved source-effect contract is established by the two original inputs.
+Therefore EG:71 retains this external definition dependency after the engine definitions land.
+
+### Source provenance and limitations
+
+The two original field-array hashes were checked against the coordinator recipe before writing.
+EG:15 hash: `e58f10a2b4e4daa2525f90a8ac283d43a43bb695c635305900acd420fac669ba`.
+EG:71 hash: `6aeae9e1b05f52baa200ab74a9ddca6feb76bbc068a9a92be43802ecedf392a5`.
+Both original text sources were available and read in full.
+The structured-prompt source motivates schema validation, graph storage, rendering and native typed consumption.
+Its performance claims and historical backend descriptions do not establish current implementation or measured quality.
+The blueprint source requests complete custom-field preservation across load, modification and persistence.
+Its earlier direct-file-write proposal does not override the separate approved-effect boundary.
+Neither accepted input supplies a research paper or arXiv identifier; no research result is claimed here.
