@@ -1290,11 +1290,11 @@ mod tests {
             ),
             (
                 "swarm-topology",
-                "4aae8c4b8203a82179bcc1bd02623c4fae0f2b8c187ee429d854e80ae271a8a8",
+                "ef6e340dd1b9b4802dd3ddf5c11ba35aa73a68f753c91339d13b2105b2d06382",
             ),
             (
                 "swarm-topology-shapes",
-                "699371a30c9e2b770bc565df246fbdfeb7525614e3557b25fc22923b82ea9e9c",
+                "0c68fa2aeffa973e4869a91a916863cce58b661870e82130ea693413fb8a1732",
             ),
             // R004.1 and R004.2.1/.2 added the asset-class migration and portfolio
             // records; semantic acceptance/refusal fixtures live in
