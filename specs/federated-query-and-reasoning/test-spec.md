@@ -80,7 +80,7 @@ Column vectorization (R077): a bound text column answers a nearest-neighbour que
 
 ## EG-FEDERATED-QUERY-R079 and R080 acceptance
 
-These are required acceptance cases, not claims of completed tests. All changed requirements remain SPECIFIED until production evidence satisfies them.
+These are required acceptance cases, not claims of completed tests.
 
 | Scenario | Requirement | Fixture |
 |---|---|---|
@@ -122,7 +122,7 @@ These are required acceptance cases, not claims of completed tests. All changed 
 
 ## R081.7 through R081.9 served acceptance
 
-These cases specify future evidence. Every new requirement remains SPECIFIED until real served tests and the activation benchmark pass.
+These cases specify future evidence. The real served tests and activation benchmark must satisfy their acceptance criteria.
 
 | Scenario | Requirements | Positive and negative acceptance |
 |---|---|---|
@@ -155,7 +155,7 @@ For every missing-calibration case, assert absent margin/threshold and preserved
 
 ## Retrieval policy extensions: served acceptance
 
-Acceptance state: **NOT RUN** for R039.1, R039.2, R039.3, R039.4, R040.1, R040.2, R040.3, R040.4, R077.6 and R081.9.7.
+These acceptance scenarios have not been executed.
 All test paths below are planned; this definitions batch adds no runtime test or implementation.
 
 The harness must start an authenticated engine with disposable persistent storage and two independent tenant clients.
@@ -182,7 +182,7 @@ The mixed query must reach `crates/eg-plan/src/exec.rs::traverse_op` and `crates
 The filtered scan benchmark must reach that vector path and `crates/eg-plan/src/exec.rs::rank_text` with real maintained indexes.
 Record corpus digest, query workload, source revisions, index generations, benchmark environment, measured latency and oracle results.
 The original R040 contract requires the comparison; it supplies no numerical latency target or claimed speedup.
-Both residual cases remain NOT RUN. Existing parent receipts do not establish acceptance for the new leaf IDs.
+These residual acceptance scenarios have not been executed. Existing parent receipts do not establish acceptance for the new leaf IDs.
 
 For chunk numerical comparison, use absolute tolerance 1e-6 and relative tolerance 1e-5 for f32 aggregate outputs.
 Pin the backend numerical mode and record any stricter tolerance required by its contract.
@@ -203,4 +203,4 @@ Neither section selection nor new fusion may claim sufficiency from an uncalibra
 
 Restart before independent readback of published encoding generations, section revisions and retained receipts.
 Record exact source revision, enabled features, test command, policy revisions, measured work and result.
-Unavailable production bindings leave acceptance NOT RUN or failed, never passed through helper-only substitution.
+Unavailable production bindings prevent served acceptance. Helper-only checks do not establish served acceptance.

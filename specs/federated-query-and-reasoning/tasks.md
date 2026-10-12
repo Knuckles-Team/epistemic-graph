@@ -1,6 +1,6 @@
 # Delivery tasks
 
-Check boxes describe work remaining for this combined contract. They do not certify acceptance. Assign one or more stable IDs to each PR, keep implementation and acceptance states separate, and record evidence in the PR and this spec before closing the task.
+Check boxes describe work remaining for this combined contract. They do not certify acceptance. Assign one or more stable IDs to each PR. Record implementation details and acceptance evidence before closing each task.
 
 ## UQL and served query
 
@@ -44,7 +44,7 @@ Check boxes describe work remaining for this combined contract. They do not cert
 ## Acceptance
 
 - [ ] Run all applicable [test cases](test-spec.md) and quality gates on the final public head; record one evidence line per accepted ID.
-- [ ] Reconcile the spec state legend and delivery crosswalk against public merged commits and hosted CI. Do not mark a historical `BUILT` row `ACCEPTED` without the stated proof.
+- [ ] Verify generated delivery records against public merged commits and hosted CI. Require the stated proof for every acceptance claim.
 - [x] Keep the SQL provider module within the configured KISS file cap with behavior-preserving extraction. **EG-FEDERATED-QUERY-R057**
 - [x] Add the typed `NlQueryResult`/`NlQueryError`/`NlQueryBudget` disclosure model (`plan_only`, `plan_and_execute_typed`) to `eg-plan`, with refusal and plan-only tests. **EG-FEDERATED-QUERY-R058.1**
 - [ ] Wire `Method::NlQuery`'s dispatch handler and result contract to the typed disclosure model so the served result carries the executed UQL, and expose a plan-only entry point to callers. **EG-FEDERATED-QUERY-R058.2**

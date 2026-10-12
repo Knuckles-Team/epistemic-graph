@@ -4,13 +4,7 @@
 |---|---|
 | Stable ID | `federated-query-and-reasoning` |
 | Owner | epistemic-graph |
-| Delivery state | `PROPOSED` for this combined contract; source slices exist, but exact-head acceptance is unverified |
-| Acceptance state | `NOT AUDITED` |
 | Primary interfaces | UQL, SQL, SPARQL, OBDA, search, `REASON`, `EXPLAIN`, `PROFILE` |
-
-## State legend
-
-`PROPOSED` means a reviewed implementation contract is available. `BUILDING` means code exists on a development branch. `BUILT` means an implementation slice exists but required acceptance is incomplete. `LANDED` means the source is merged into the owner's public default branch. `ACCEPTED` requires passing exact-head behavior, safety, quality, and client tests. `DEFERRED` names work explicitly excluded from the current release. `CLOSED` means a design decision or superseded item requires no implementation. A source state and an acceptance state are separate. No row below is accepted merely because a test or branch exists.
 
 ## Outcome and scope
 
@@ -44,18 +38,18 @@ Application prompts, agent orchestration, connector certification, UI presentati
 | FQR-10 | Keep proof, trace, score and source metadata stable through Rust server and generated Python client contracts. Client-visible errors distinguish authorization, unsupported feature, budget, source-needs-keys and source failure. | EG-FEDERATED-QUERY-R006, EG-FEDERATED-QUERY-R025–EG-FEDERATED-QUERY-R027, EG-FEDERATED-QUERY-R044 |
 | FQR-11 | Select the sources of a cross-source question from ontology facts and approved virtual mappings, with premises per selection. Federate API, MCP, A2A and GraphQL sources through operation-bound mappings under the FQR-04 guard. | EG-FEDERATED-QUERY-R072, EG-FEDERATED-QUERY-R073; interface to EG-UNIFIED-DATA-PLANE-R037, EG-UNIFIED-DATA-PLANE-R038 |
 
-## Delivery crosswalk
+## Acceptance crosswalk
 
-The following states reflect prior recorded delivery claims, not a fresh exact-head acceptance audit. Preserve the stable IDs in PRs and evidence. A contributor closes only the rows exercised by their changed behavior.
+These workstreams group the required acceptance evidence. Preserve stable IDs in PRs and evidence. Code presence alone does not establish acceptance.
 
-| Workstream | Recorded source state | Acceptance still required |
-|---|---|---|
-| UQL language and serving, EG-FEDERATED-QUERY-R020–EG-FEDERATED-QUERY-R028 | Mostly `BUILT` | Final merged-head grammar, served client, snapshot, proof and exhaustive round-trip gates; `DecideText` EG-DECISION-ENGINE-R104 belongs to `decision-engine` |
-| Federation phase 1, EG-FEDERATED-QUERY-R041–EG-FEDERATED-QUERY-R043 | `BUILT` | Optimized/full-fetch differential, outbound security, hosted and merged-head proof |
-| Federation phase 2/3, EG-FEDERATED-QUERY-R038, EG-FEDERATED-QUERY-R044–EG-FEDERATED-QUERY-R054 | `QUEUED` as last recorded. Some later work may be present | Per-source capability and served oracle for each row. Do not infer acceptance from code presence |
-| Semantic index and search, EG-FEDERATED-QUERY-R059, EG-FEDERATED-QUERY-R008 and related rows (see `requirements.md`) | Source slices `BUILT` or `BUILDING` | Fixed authority, restart, RLS, recall, held-out routing, and measured performance |
-| Reasoning and proof, EG-FEDERATED-QUERY-R001 and related rows (see `requirements.md`) | Earlier rows report `LANDED`. Later corpus and schema slices report `BUILT` | Exact current-head corpus compose, consistency, replay and proof verification. Outbox EG-DURABLE-KERNEL-R002 and GraphSchema EG-TYPED-PACKS-R071 are external owner interfaces |
-| Query-visible numerics, EG-FEDERATED-QUERY-R030–EG-FEDERATED-QUERY-R031 and related rows (see `requirements.md`) | Mixed `BUILT` and `QUEUED` | Exact/golden numerical oracles, streamed parity, and resource limits |
+| Workstream | Required acceptance |
+|---|---|
+| UQL language and serving, EG-FEDERATED-QUERY-R020–EG-FEDERATED-QUERY-R028 | Final merged-head grammar, served client, snapshot, proof and exhaustive round-trip gates; `DecideText` EG-DECISION-ENGINE-R104 belongs to `decision-engine` |
+| Federation phase 1, EG-FEDERATED-QUERY-R041–EG-FEDERATED-QUERY-R043 | Optimized/full-fetch differential, outbound security, hosted and merged-head proof |
+| Federation phase 2/3, EG-FEDERATED-QUERY-R038, EG-FEDERATED-QUERY-R044–EG-FEDERATED-QUERY-R054 | Per-source capability and served oracle for each row. Do not infer acceptance from code presence |
+| Semantic index and search, EG-FEDERATED-QUERY-R059, EG-FEDERATED-QUERY-R008 and related rows (see `requirements.md`) | Fixed authority, restart, RLS, recall, held-out routing, and measured performance |
+| Reasoning and proof, EG-FEDERATED-QUERY-R001 and related rows (see `requirements.md`) | Exact current-head corpus compose, consistency, replay and proof verification. Outbox EG-DURABLE-KERNEL-R002 and GraphSchema EG-TYPED-PACKS-R071 are external owner interfaces |
+| Query-visible numerics, EG-FEDERATED-QUERY-R030–EG-FEDERATED-QUERY-R031 and related rows (see `requirements.md`) | Exact/golden numerical oracles, streamed parity, and resource limits |
 
 The following IDs are classified here for traceability but require no EG feature duplicate: EG-FEDERATED-QUERY-R002 fixes the format-neutral reasoning rejection decision; EG-FEDERATED-QUERY-R003 is folded into the shared derivation budget; EG-FEDERATED-QUERY-R016 and EG-FEDERATED-QUERY-R029 are downstream TUI/client query-text fixes; EG-FEDERATED-QUERY-R019 is finance signal-state maintenance; EG-FEDERATED-QUERY-R057 is the SQL-provider file-size quality repair. Their behavior remains covered by the relevant client, finance, quality or reasoning acceptance, not by a second EG implementation.
 
@@ -82,18 +76,12 @@ Requirement IDs are defined in [requirements.md](requirements.md); delivery stat
 The engine must support four-modality retrieval, hard graph constraints, document-section traversal and document-chunk encoding.
 It must supply workload-based column advice and topic/dense fusion through the existing retrieval owners.
 R039.1 through R039.4, R040.1 through R040.4, R077.6 and R081.9.7 define these additions.
-Their delivery state is SPECIFIED; served acceptance is NOT RUN.
+These extensions define acceptance requirements, without claiming completed served tests.
 
 The engine must retain community retrieval and R081/R082 termination precedence.
 The SDK must execute governed ingestion recipes; the harness must apply bounded decisions.
 The host must compose authenticated access.
 The definitions add no textual grammar, alternate identity authority or runtime implementation.
 
-| Extension | Delivery | Acceptance |
-|---|---|---|
-| R039.1, R039.2, R039.3, R039.4 | SPECIFIED | NOT RUN |
-| R040.1, R040.2, R040.3, R040.4 | SPECIFIED | NOT RUN |
-| R077.6, R081.9.7 | SPECIFIED | NOT RUN |
-
-The generated status.json remains the delivery source for the spec-delivery page.
+The spec-delivery page consumes generated `status.json`.
 The served journeys in test-spec.md must pass before runtime acceptance is claimed.
