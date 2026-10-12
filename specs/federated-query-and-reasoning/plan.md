@@ -2,14 +2,14 @@
 
 ## Sequence
 
-1. **Freeze the baseline.** Record exact public default-branch SHA, method registry, current feature profiles, source kinds, index generations and existing tests. Classify each stable obligation as source present, absent, or incompatible; retain separate acceptance status. Do not translate a historical `BUILT` label into current acceptance.
+1. **Freeze the baseline.** Record the exact public default-branch SHA, method registry and feature profiles. Record source kinds, index generations and existing tests. Document compatible code and missing or incompatible implementations. Record acceptance evidence separately. Historical delivery claims do not establish current acceptance.
 2. **Close the read contract.** Make UQL grammar, lowering, printer, method registry, generated Python sender, proof and error codes agree. Add `LET`/`JOIN`, named score channels and `EXPLAIN`/`PROFILE` only where they can execute; otherwise return `UQL_UNSUPPORTED` with a stable span. Preserve the shared read snapshot and typed parameter path.
 3. **Qualify federation phase 1.** Run full-fetch versus optimized oracles for SQL, HTTP, OBDA and registered foreign sources. Repair any unsound pushdown or missing residual. Validate read-only rendering and single outbound guard. Attach budget/trace to the served plan.
 4. **Complete phase 2.** Add column-carrying rows, direct OBDA solutions, per-source concurrency, SPARQL `SERVICE` bind joins, Iceberg manifest pruning and RemoteEngine pushdown. Keep each capability off until its conformance oracle passes. The attached-source owner supplies registry identity and approved mappings.
 5. **Complete phase 3.** Add persisted source statistics with provenance, freshness/owner-bound fragment caching and additional source kinds. Cache only when the source watermark is known and current. Retire alternate path-specific guards and source catalogs once callers use the common route.
 6. **Close semantic reads.** Finish generation fencing, restart/replay, filtered text/vector/edge retrieval and mixed traversal top-k. Run corpus reasoning and proof verification, including disjointness and skipped-event rebuild. Expose index fallback in explain output.
 7. **Close numerical surfaces.** Implement exact/golden series, attribution, propagation, barrier and motif kernels behind one public syntax and shared compute code. Add deterministic seed and budget handling before enabling a new operator on the served wire.
-8. **Publish evidence.** For each stable ID, record these in the native spec evidence. Record the merged public SHA, exact test profile, positive and negative result, quality gate result, and client and generator version. Mark `ACCEPTED` only after exact-head gates and affected downstream client compatibility pass.
+8. **Publish evidence.** For each stable ID, record these in the native spec evidence. Record the merged public SHA, exact test profile, positive and negative results, and quality gate results. Record client and generator versions. Require exact-head gates and affected downstream client compatibility checks before claiming acceptance.
 
 9. **Ontology source selection.** Add a read method that takes question classes and returns the class path and per-class approved mappings with premises. Reuse the reasoner for subclass entailment and the unified-data-plane mapping approval state. Add operation-bound source kinds to the foreign source registry under the shared outbound guard. (EG-FEDERATED-QUERY-R072, EG-FEDERATED-QUERY-R073)
 
@@ -256,7 +256,7 @@ A missing calibration row always remains visible as `ROUND_NOT_CALIBRATED`, incl
 
 ## Retrieval policy extensions: R039, R040, R077 and R081.9
 
-These definitions extend existing retrieval owners. Their generated delivery state must remain SPECIFIED; planned acceptance is NOT RUN.
+These definitions extend existing retrieval owners. The acceptance scenarios in this amendment have not been executed.
 EG owns context, constraints, retrieval choices, encoding policy, scoring and evidence.
 The SDK owns ingestion execution and provider transport.
 The harness executes bounded engine decisions and acceptance journeys.
@@ -491,4 +491,4 @@ R040.4 retains filter-aware ANN and BM25 scans over pre-filtered candidates or b
 Its fixed-corpus before/after latency benchmark and correctness oracle remain required independently of constraint, encoding and fusion extensions.
 The planned served cases in `test-spec.md` bind both residuals to the existing dispatch and planner paths.
 No numerical latency target, runtime evidence or delivery receipt is invented.
-Both leaves remain SPECIFIED with acceptance NOT RUN until their own evidence satisfies the original contracts.
+Each residual case requires its own execution evidence to satisfy the original contract.
