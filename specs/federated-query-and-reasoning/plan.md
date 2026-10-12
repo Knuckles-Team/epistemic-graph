@@ -492,3 +492,77 @@ Its fixed-corpus before/after latency benchmark and correctness oracle remain re
 The planned served cases in `test-spec.md` bind both residuals to the existing dispatch and planner paths.
 No numerical latency target, runtime evidence or delivery receipt is invented.
 Each residual case requires its own execution evidence to satisfy the original contract.
+
+## R084: existing ShEx surface and evidence boundary
+
+The native request is [Method::ShexValidate](../../crates/eg-types/src/protocol/method/method_07.rs#L394).
+The protocol stores schema text, optional data_graph text and a list of string pairs.
+Omitted data_graph and shape_map use their existing empty defaults.
+The wire result is [ShexValidationReport](../../crates/eg-types/src/rdf_report.rs#L189).
+It contains ordered results with node, shape, conforms and optional reason.
+[ShexReport::from_results](../../crates/eg-shex/src/report.rs) computes the aggregate with all().
+Thus, an empty result list has a true aggregate. It proves no node was checked.
+The shape map creates IRI terms through new_unchecked; this is not evidence of strict IRI syntax validation.
+
+### Existing call path and policy
+
+The RDF-family entry is [try_handle](../../src/server/handlers/rdf/dispatch.rs#L13).
+It calls try_handle_validation, which routes ShexValidate to try_handle_shex_validation.
+That arm requires served-read authority and applies GraphReadAuthority::project_core.
+It calls [handle_shex_validate](../../src/server/handlers/rdf/validation.rs#L176).
+The handler parses Schema::from_shexj, obtains the data graph, then builds ShapeMap::from_iri_pairs.
+It calls [eg_shex::validate](../../crates/eg-shex/src/validate.rs#L72).
+shex_report_wire projects the result into the existing typed response.
+The report preserves per-entry order and the first failing reason.
+
+The [capability row](../../crates/eg-capabilities/src/domains/reasoning.rs#L22) classifies ShexValidate as Internal.
+It declares validation:read, no durability domain, idempotence and Snapshot participation.
+It declares no audit or CDC emission. These declarations do not establish a global snapshot guarantee.
+The [feature declaration](../../Cargo.toml) supplies the handler through shex and its RDF dependency.
+The protocol variant exists independently of that handler feature.
+The RDF dispatcher returns an unmatched method when no applicable handler exists.
+Evidence must observe the resulting dispatch failure rather than infer success from the enum variant.
+This definition changes neither default features nor capability stability.
+
+### Source selection and scope
+
+The handler uses Schema::from_shexj for every served request.
+For nonblank data_graph, graph_from_turtle parses the supplied document.
+For empty or whitespace-only data_graph, export_triples reads the projected core view.
+That export does not promise all durable rows or a cross-request snapshot.
+Inline data remains request-local; validation does not import it or persist the schema.
+The authority projection applies before the live branch.
+Evidence must compare authorized and hidden rows through actual dispatch.
+No storage mutation or alternate authority is part of this contract.
+
+### Matcher semantics and limits
+
+[Schema::from_shexj](../../crates/eg-shex/src/schema.rs#L161) populates the existing shape-expression model.
+The crate also exposes from_shexc through [compact.rs](../../crates/eg-shex/src/compact.rs).
+That parser is not called by the served handler. Its availability does not widen the wire syntax.
+
+[validate.rs](../../crates/eg-shex/src/validate.rs) supplies the following observed behavior:
+
+| Area | Existing behavior | Evidence boundary |
+|---|---|---|
+| Node constraints | Node kind, datatype, value sets, string facets and numeric bounds use explicit checks. | Use bounded positive and negative fixtures, not a blanket conformance claim. |
+| Triple constraints | Matching outgoing arcs form a greedy candidate set checked against cardinality. | Shared predicates have no general backtracking partition proof. |
+| EachOf and OneOf | EachOf consumes sequentially. OneOf commits the first matching trial branch. | A test name claiming exactly one branch does not establish exclusive choice. |
+| Shape composition | AND, OR, NOT and references use the current recursive evaluator. | Unknown labels produce nonconforming results with reasons. |
+| Inverse flag | The parser records inverse, but match_triple_expr discards it. | Parsed inverse syntax is not implemented inverse traversal. |
+| Recursion guard | satisfies returns success when depth exceeds MAX_DEPTH, currently 40. | Guard termination is not evidence of exhaustive conformance or fail-closed budget refusal. |
+| Parser bounds | Known branches reject unsupported expression types, triple-expression references and unsupported value-set members. | Do not infer rejection of every unknown field; some fields are ignored or defaulted. |
+
+The new rows preserve these observations as limits. They do not bless discrepancies as standards conformance.
+A contradiction between an independent fixture and actual output remains a recorded failure.
+Any runtime correction requires its own authorized slice; this definition changes no matcher or parser.
+
+### Refusal and evidence reuse
+
+The handler returns errors prefixed ShexValidate: bad schema, bad data graph, or export live graph.
+Schema parsing fails before data selection. Validation nonconformance remains a successful report response.
+A missing shape label is a result-level failure, distinct from malformed input or missing handler support.
+Source code in [core tests](../../crates/eg-shex/tests/core.rs) covers cardinality, types, values, branches and reports.
+[Compact tests](../../crates/eg-shex/tests/compact.rs) cover parser/model equivalence and compact-syntax refusals.
+Those sources and method-report declarations are not served execution receipts.
+R084.8 requires the real entry point and the observations in test-spec.md.

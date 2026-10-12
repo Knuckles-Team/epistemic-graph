@@ -85,3 +85,12 @@ The definitions add no textual grammar, alternate identity authority or runtime 
 
 The spec-delivery page consumes generated `status.json`.
 The served journeys in test-spec.md must pass before runtime acceptance is claimed.
+
+## ShEx validation boundary
+
+EG-FEDERATED-QUERY-R084 defines the existing served ShEx surface and its proof obligations.
+It preserves the current architecture, capability classification and feature selection.
+Existing OWL, SHACL, derivation-budget and query acceptance remain unchanged.
+The crate compact-syntax parser does not establish compact-syntax support in the served method.
+Declared limitations prevent unsupported full-language conformance claims.
+The lifecycle generator owns status; this definition supplies no runtime receipt.

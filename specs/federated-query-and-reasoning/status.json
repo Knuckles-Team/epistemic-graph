@@ -207,7 +207,16 @@
     "EG-FEDERATED-QUERY-R039.3",
     "EG-FEDERATED-QUERY-R040.3",
     "EG-FEDERATED-QUERY-R039.4",
-    "EG-FEDERATED-QUERY-R040.4"
+    "EG-FEDERATED-QUERY-R040.4",
+    "EG-FEDERATED-QUERY-R084",
+    "EG-FEDERATED-QUERY-R084.1",
+    "EG-FEDERATED-QUERY-R084.2",
+    "EG-FEDERATED-QUERY-R084.3",
+    "EG-FEDERATED-QUERY-R084.4",
+    "EG-FEDERATED-QUERY-R084.5",
+    "EG-FEDERATED-QUERY-R084.6",
+    "EG-FEDERATED-QUERY-R084.7",
+    "EG-FEDERATED-QUERY-R084.8"
   ],
   "requirements": [
     {
@@ -2204,6 +2213,79 @@
     {
       "id": "EG-FEDERATED-QUERY-R040.4",
       "title": "Residual behavior: filter-aware ANN and BM25 scans",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R084",
+      "title": "Served ShEx validation (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-FEDERATED-QUERY-R084.1",
+        "EG-FEDERATED-QUERY-R084.2",
+        "EG-FEDERATED-QUERY-R084.3",
+        "EG-FEDERATED-QUERY-R084.4",
+        "EG-FEDERATED-QUERY-R084.5",
+        "EG-FEDERATED-QUERY-R084.6",
+        "EG-FEDERATED-QUERY-R084.7",
+        "EG-FEDERATED-QUERY-R084.8"
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R084.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R084.2",
+      "title": "Behavior: data selection",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R084.3",
+      "title": "Behavior: supported constraints",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R084.4",
+      "title": "Behavior: semantic limits",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R084.5",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R084.6",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R084.7",
+      "title": "Scoped reads",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R084.8",
+      "title": "Evidence and hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

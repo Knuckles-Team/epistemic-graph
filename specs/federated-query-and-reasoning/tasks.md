@@ -189,3 +189,17 @@ Check boxes describe work remaining for this combined contract. They do not cert
 - [ ] **EG-FEDERATED-QUERY-R040.3:** **Wiring.** The filtered index must consume only complete R039.2 aggregates through rank_top at `crates/eg-plan/src/exec/vector_rank.rs:65`. Its caller is execute at `crates/eg-plan/src/exec.rs:536`. It must reject stale encoding-policy generations before ranking.
 - [ ] **EG-FEDERATED-QUERY-R039.4:** **Residual behavior: mixed multi-hop traversal and vector top-k.** A query must combine multi-hop graph traversal and vector similarity. It must replenish candidates until k results survive the traversal filter. Otherwise, it must return a typed shortfall naming the number of permitted matches. It must never return a silent undercount. Run the reference-corpus correctness oracle for exactly k permitted results or typed shortfall. Retain the S-01 two-hop/parallel-edge fixture and stable edge identity.
 - [ ] **EG-FEDERATED-QUERY-R040.4:** **Residual behavior: filter-aware ANN and BM25 scans.** Filtered approximate-nearest-neighbor and BM25 text search must plan filter-aware index scans. These scans must consume pre-filtered candidate sets or bitmap filters. They must not scan the full unfiltered index and discard non-matching rows afterward. They must preserve the filtered-search correctness guarantee. Compare filtered ANN and BM25 latency before and after the scan change. Use a fixed corpus and run the correctness oracle.
+
+## R084 bounded ShEx slices
+
+Each child is one focused five-minute definition or proof slice. Split larger implementation work before delivery.
+
+- [ ] **EG-FEDERATED-QUERY-R084:** Served ShEx validation (rollup). Use the matching planned acceptance in test-spec.md.
+- [ ] **EG-FEDERATED-QUERY-R084.1:** Model. Use the matching planned acceptance in test-spec.md.
+- [ ] **EG-FEDERATED-QUERY-R084.2:** Behavior: data selection. Use the matching planned acceptance in test-spec.md.
+- [ ] **EG-FEDERATED-QUERY-R084.3:** Behavior: supported constraints. Use the matching planned acceptance in test-spec.md.
+- [ ] **EG-FEDERATED-QUERY-R084.4:** Behavior: semantic limits. Use the matching planned acceptance in test-spec.md.
+- [ ] **EG-FEDERATED-QUERY-R084.5:** Wiring. Use the matching planned acceptance in test-spec.md.
+- [ ] **EG-FEDERATED-QUERY-R084.6:** Refusal. Use the matching planned acceptance in test-spec.md.
+- [ ] **EG-FEDERATED-QUERY-R084.7:** Scoped reads. Use the matching planned acceptance in test-spec.md.
+- [ ] **EG-FEDERATED-QUERY-R084.8:** Evidence and hot-path proof. Use the matching planned acceptance in test-spec.md.
