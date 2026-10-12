@@ -247,7 +247,7 @@
     {
       "id": "EG-REPO-INGEST-R009",
       "title": "Repository hydration links into the specification bridge",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
@@ -270,11 +270,14 @@
     {
       "id": "EG-REPO-INGEST-R009.2",
       "title": "Semantic-bridge projection of the nine relations onto typed triples",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
-        "1f5ba9350abb"
+        "1f5ba9350abb",
+        "5787e0df2b56"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-core/src/graph/core_edge_queries.rs:272"
+      ]
     },
     {
       "id": "EG-REPO-INGEST-R010",
@@ -288,11 +291,14 @@
     {
       "id": "EG-REPO-INGEST-R011",
       "title": "Ingestion community detection uses pure Leiden",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "5787e0df2b56",
         "b5fe3c140c21"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-compute/src/algorithms/tests.rs:133"
+      ]
     }
   ]
 }

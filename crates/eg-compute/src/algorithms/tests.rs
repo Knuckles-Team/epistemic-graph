@@ -130,6 +130,66 @@ mod community_tests {
         assert_eq!(total, ids.len(), "every node must be assigned a community");
     }
 
+    // spec: EG-REPO-INGEST-R011
+    #[test]
+    fn every_community_induces_a_connected_subgraph() {
+        // community_detection is the ingestion path's facade over the pure
+        // Leiden kernel; Leiden's refinement phase makes "every committed
+        // community induces a connected subgraph" a structural guarantee, so
+        // verify it on a committed graph.
+        let edges = [
+            ("n0", "n1"),
+            ("n1", "n2"),
+            ("n2", "n0"),
+            ("n2", "n3"),
+            ("n3", "n4"),
+            ("n4", "n5"),
+            ("n5", "n3"),
+            ("n5", "n6"),
+            ("n6", "n7"),
+            ("n7", "n5"),
+        ];
+        let nodes: Vec<&str> = edges
+            .iter()
+            .flat_map(|(s, t)| [s, t])
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        let mut adjacency: HashMap<&str, Vec<&str>> = HashMap::new();
+        for (s, t) in edges {
+            adjacency.entry(s).or_default().push(t);
+            adjacency.entry(t).or_default().push(s);
+        }
+        let communities = community_detection(&build(&nodes, &edges), 1.0);
+        assert!(!communities.is_empty());
+        for community in &communities {
+            if community.len() <= 1 {
+                continue;
+            }
+            let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
+            let mut queue = vec![community[0].as_str()];
+            seen.insert(community[0].as_str());
+            while let Some(next) = queue.pop() {
+                for neighbor in adjacency.get(next).map(Vec::as_slice).unwrap_or(&[]) {
+                    if community.iter().any(|member| member.as_str() == *neighbor)
+                        && seen.insert(*neighbor)
+                    {
+                        queue.push(*neighbor);
+                    }
+                }
+            }
+            let reached = community
+                .iter()
+                .filter(|member| seen.contains(member.as_str()))
+                .count();
+            assert_eq!(
+                reached,
+                community.len(),
+                "community {community:?} is internally disconnected"
+            );
+        }
+    }
+
     /// EH-284: a `similar_to` edge is a MinHash RESEMBLANCE signal, not a
     /// structural one, and must be excluded from community detection outright
     /// — two triangles joined by ONLY a `similar_to` edge (no structural edge
