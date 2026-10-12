@@ -309,6 +309,12 @@
     "EG-DECISION-ENGINE-R137.4",
     "EG-DECISION-ENGINE-R137.5",
     "EG-DECISION-ENGINE-R137.6",
+    "EG-DECISION-ENGINE-R137.7",
+    "EG-DECISION-ENGINE-R137.8",
+    "EG-DECISION-ENGINE-R137.9",
+    "EG-DECISION-ENGINE-R137.10",
+    "EG-DECISION-ENGINE-R137.11",
+    "EG-DECISION-ENGINE-R137.12",
     "EG-DECISION-ENGINE-R138",
     "EG-DECISION-ENGINE-R138.1",
     "EG-DECISION-ENGINE-R138.2",
@@ -3741,7 +3747,13 @@
         "EG-DECISION-ENGINE-R137.3",
         "EG-DECISION-ENGINE-R137.4",
         "EG-DECISION-ENGINE-R137.5",
-        "EG-DECISION-ENGINE-R137.6"
+        "EG-DECISION-ENGINE-R137.6",
+        "EG-DECISION-ENGINE-R137.7",
+        "EG-DECISION-ENGINE-R137.8",
+        "EG-DECISION-ENGINE-R137.9",
+        "EG-DECISION-ENGINE-R137.10",
+        "EG-DECISION-ENGINE-R137.11",
+        "EG-DECISION-ENGINE-R137.12"
       ]
     },
     {
@@ -3781,6 +3793,48 @@
     },
     {
       "id": "EG-DECISION-ENGINE-R137.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R137.7",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R137.8",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R137.9",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R137.10",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R137.11",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R137.12",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],

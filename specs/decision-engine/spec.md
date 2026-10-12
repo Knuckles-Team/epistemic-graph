@@ -49,3 +49,7 @@ The exact decision-owned ID inventory is in `coverage.md`; it includes each titl
 Adjacent numerical attribution and motif search (EG-FEDERATED-QUERY-R031/EG-FEDERATED-QUERY-R034) are owned by `federated-query-and-reasoning`. KISS parser compatibility (EG-CONTRACT-R012) is owned by `public-engine-contract-and-release`. Cross-app entity resolution (EG-UNIFIED-DATA-PLANE-R030) is owned by `unified-data-plane`. Decision methods consume their typed results without claiming a second implementation.
 
 Requirement IDs are defined in [requirements.md](requirements.md); delivery state per ID is in `status.json`.
+
+## Certified context packages (R137.7–R137.12)
+
+The engine owns certified multi-resolution context-package selection under the tightest applicable window, reserved-output, caller-token, monetary and latency constraints. It preserves exact tokenizer weights, net-value optimization, fewer-token ties and cited source/range/revision identity. AU-CONTEXT-R004 consumes the typed selection without reranking. Full-prompt fit and the existing recursive decomposition and parallel-map obligations remain separate and unchanged. These additive definitions do not claim a served package handler or runtime verification.

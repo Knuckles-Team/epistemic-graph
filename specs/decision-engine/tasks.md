@@ -273,3 +273,14 @@ Existing source modules and tests provide foundations, but this spec does not as
 - [ ] **EG-DECISION-ENGINE-R138.4:** Refusal. A probe whose attack category has no scorer must abstain with `no_scorer_for_category` naming the category. A scorer result with a missing score must count as `inconclusive`, not as `resisted`.
 - [ ] **EG-DECISION-ENGINE-R138.5:** Evidence. The engine must emit one premise per selected scorer holding its score and threshold. It must emit the attack and transform ids. The record must state the weakest evidence class.
 - [ ] **EG-DECISION-ENGINE-R138.6:** Hot-path proof. The entry point is the served `Decide` wire method with a `ProbeVerdict` question. The test `tests/decide/test_red_team_served.py::test_probe_verdict_end_to_end` publishes attack, transform and scorer records and submits probe results. It passes through the wired dispatch and observes the selected scorers and the verdict.
+
+## R137 certified package producer
+
+Deliver these additive leaves in order; preserve R137.1–.6 and R128 unchanged. Each leaf is one bounded implementation/verification slice. Split further before delivery if its concrete work cannot fit five minutes. Named tests remain planned until their owner supplies receipts.
+
+- [ ] **EG-DECISION-ENGINE-R137.7:** Define package records; validate and round-trip every field.
+- [ ] **EG-DECISION-ENGINE-R137.8:** Lower the capacities and net-value/token objective into the existing solver; prove tiny-oracle and boundary cases.
+- [ ] **EG-DECISION-ENGINE-R137.9:** Wire package selection through served Decide, the existing solver and independent verifier.
+- [ ] **EG-DECISION-ENGINE-R137.10:** Add typed package refusals and work-budget/certificate negative tests.
+- [ ] **EG-DECISION-ENGINE-R137.11:** Bind the universe, sources, measurements, full budget and verified certificate to the sealed result.
+- [ ] **EG-DECISION-ENGINE-R137.12:** Run the EG served proof and link AU-CONTEXT-R004 consumer receipts; preserve exact selection and citations.
