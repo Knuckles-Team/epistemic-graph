@@ -272,3 +272,103 @@ Cross-repository: `AU-HARNESS-R024` writes the steps and runs the replay compare
 
 References
 - No paper is cited.
+
+<!-- spec-definition-patch:owner-batch-20261012-orchestration-vocabulary -->
+## Reviewed residual closure plan — owner batch 2026-10-12
+
+### `EG-ORCH-VOCAB-R009.18` — AU:26
+
+- Existing EG rollup: `EG-ORCH-VOCAB-R009`; append-only residual ID: `EG-ORCH-VOCAB-R009.18`.
+- Original objective: The platform monitors latency, token cost and error frequency per run and adjusts model selection and parallelism within declared budgets, recording each adjustment on the trace.
+- Missing EG obligation: Per-run error frequency over a declared window is not the host tenant/child/operation partition. No joint latency/cost/error-driven model-and-width adjustment contract records each before/after model, width, budget and rationale on that run.
+- Producer/consumer route: AU ObservedCost routing.py -> EG routing; AU continuation.py narrows and releases capacity; GraphOS error_budget.decide computes partitioned AIMD. These separate paths have no reviewed joint per-run adjustment producer/consumer contract.
+- Minimum closure action: Extend the existing EG routing/continuation contract with the joint per-run observation window and adjustment receipt; bind AU observations and trace application. Preserve host ceiling and narrow-only enforcement.
+- Preserve covered clauses: `AU-CONTROL-R006`, `AU-CONTROL-R019`, `AU-HARNESS-R007`, `EG-ORCH-VOCAB-R009.8`, `EG-ORCH-VOCAB-R009.9`, `GRAPHOS-CAPACITY-R001.1`.
+- Source review: `8d2f83f788c5fdd36c4dc47f85c9f7673393b6b9075dc46a5ac1c32afd2386e2`; evidence: agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/agent-control-plane/requirements.md:10; agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/agent-control-plane/requirements.md:24; agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:12; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/orchestration-vocabulary/requirements.md:60.
+- Cross-owner behavior and receipts remain with the named owner; no runtime evidence is claimed.
+
+### `EG-ORCH-VOCAB-R013.7` — AU:115
+
+- Existing EG rollup: `EG-ORCH-VOCAB-R013`; append-only residual ID: `EG-ORCH-VOCAB-R013.7`.
+- Original objective: A codebase query can produce a linear code walkthrough and a self-contained interactive explanation artifact, with execution notes streamed to the graph as provenance.
+- Missing EG obligation: Define the walkthrough, self-contained interactive explanation output and its graph-bound execution-note stream.
+- Producer/consumer route: EG repository hydration supplies source relationships; AU-HARNESS-R024 emits spans; EG-ORCH-VOCAB-R013 admits trace steps through AddNode. Explanation producer, artifact schema and WebUI consumption binding are absent definitions.
+- Minimum closure action: Add the query-output and provenance contract under existing owners; retain trace definitions.
+- Preserve covered clauses: `EG-REPO-INGEST-R009`, `AU-HARNESS-R024`, `EG-ORCH-VOCAB-R013.1`, `EG-ORCH-VOCAB-R013.3`.
+- Source review: `445704f78ae07d1c4b62f42dd23797823d91bc470f04a9dc779e3f6777fffbf0`; evidence: epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/repository-index-and-ingestion/requirements.md:24; agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:125; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/orchestration-vocabulary/requirements.md:97; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/orchestration-vocabulary/requirements.md:99.
+- Cross-owner behavior and receipts remain with the named owner; no runtime evidence is claimed.
+
+### `EG-ORCH-VOCAB-R003.8` — EG:12
+
+- Existing EG rollup: `EG-ORCH-VOCAB-R003`; append-only residual ID: `EG-ORCH-VOCAB-R003.8`.
+- Original objective: A team that completes work successfully is promoted to a reusable configuration chosen by similarity to a new task; capabilities are typed nodes carrying handler metadata.
+- Missing EG obligation: Define team-level promotion, task-similarity reuse and typed capability handler metadata.
+- Producer/consumer route: graph.assemble consumes capabilities; Agent Library projects them; compile_program/lookup_program reuse traces. Team similarity selection and handler-metadata consumption are absent definitions.
+- Minimum closure action: Add these residuals under existing assembly/program/vocabulary owners.
+- Preserve covered clauses: `EG-DECISION-ENGINE-R135.2`, `EG-DECISION-ENGINE-R135.4`, `EG-DECISION-ENGINE-R036`, `EG-ORCH-VOCAB-R003.5`, `EG-ORCH-VOCAB-R003.6`.
+- Source review: `517823a931bb93e173b301a9a31fbe6bd75c14687233c72278a59ced1940673a`; evidence: epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:290; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:292; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:52; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/orchestration-vocabulary/requirements.md:21.
+- Cross-owner behavior and receipts remain with the named owner; no runtime evidence is claimed.
+
+### `EG-ORCH-VOCAB-R012.7` — EG:46
+
+- Existing EG rollup: `EG-ORCH-VOCAB-R012`; related existing behavior: `EG-ORCH-VOCAB-R012.2`; append-only residual ID: `EG-ORCH-VOCAB-R012.7`.
+- Original objective: Constitution and policy files from repositories are ingested and synthesized into graph policy nodes consumed by the reasoning layer; a policy that contradicts a stored invariant is refused.
+- Missing EG obligation: Classification into SpecPolicy is not synthesis of file content into reasoning-consumed policy rules. R129 protects human-override promotion; it does not explicitly guard repository policy ingest/activation against stored invariants.
+- Producer/consumer route: IndexRepository -> classify_spec_file -> SpecPolicy; missing semantic synthesis/activation link -> reasoning policy consumer. Existing check_rule_against_invariants applies at the human-override promotion path.
+- Minimum closure action: Credit R012.1-.6 rather than treating policy-node ingestion as wholly absent. Define content-to-policy-rule synthesis and link its activation path to invariant checking and reasoning consumption. A contradictory repository policy must be refused before activation while preserving prior policy state.
+- Preserve covered clauses: `EG-ORCH-VOCAB-R012.1`, `EG-ORCH-VOCAB-R012.2`, `EG-ORCH-VOCAB-R012.3`, `EG-ORCH-VOCAB-R012.4`, `EG-ORCH-VOCAB-R012.5`, `EG-ORCH-VOCAB-R012.6`, `EG-DECISION-ENGINE-R129.3`, `EG-DECISION-ENGINE-R129.4`, `EG-DECISION-ENGINE-R129.5`, `EG-IDENTITY-R008.4`.
+- Source review: `9de4d3274232cb97a9a85ad17ea20b368fff1bd729bdb4e7b2799991da106c58`; evidence: epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/orchestration-vocabulary/requirements.md:90; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/orchestration-vocabulary/requirements.md:91; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/orchestration-vocabulary/requirements.md:92; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/orchestration-vocabulary/requirements.md:93.
+- Cross-owner behavior and receipts remain with the named owner; no runtime evidence is claimed.
+
+### `EG-ORCH-VOCAB-R004.6` — EG:51
+
+- Existing EG rollup: `EG-ORCH-VOCAB-R004`; append-only residual ID: `EG-ORCH-VOCAB-R004.6`.
+- Original objective: The capability registry models functional gaps and desired enhancements as typed nodes in a domain taxonomy, queryable by task class.
+- Missing EG obligation: Persistent typed functional-gap and desired-enhancement nodes, their domain-taxonomy relationships and task-class query are unspecified.
+- Producer/consumer route: Assembly unmet-capability AbstainReason -> proposed governed capability-gap record -> task-class registry query. The latter producer/consumer link remains undefined.
+- Minimum closure action: Extend existing capability/orchestration vocabulary and its registry query contract with gap/enhancement types and task-class relations. Prove persisted create/read and task-class filtering; distinguish a request-local abstention from a durable catalog entry.
+- Preserve covered clauses: `EG-ORCH-VOCAB-R004`, `EG-DECISION-ENGINE-R010`.
+- Source review: `ed01ad35731abc6a739b3e1a39ee198549103acf0d30ec51c77316ca7cf75c49`; evidence: epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:16; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/orchestration-vocabulary/requirements.md:24; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/orchestration-vocabulary/requirements.md:26.
+- Cross-owner behavior and receipts remain with the named owner; no runtime evidence is claimed.
+
+### `EG-ORCH-VOCAB-R012.8` — EG:61
+
+- Existing EG rollup: `EG-ORCH-VOCAB-R012`; related existing behavior: `EG-ORCH-VOCAB-R012.2`; append-only residual ID: `EG-ORCH-VOCAB-R012.8`.
+- Original objective: Epistemic state lives in the graph while normative state (rules, constitutions) lives in versioned files; the graph never overwrites normative files and normative changes require review.
+- Missing EG obligation: A versioned reviewed normative source may coexist with EG active policy authority. Source-revision-to-active-policy binding and the graph no-overwrite invariant are not explicit in these rows. File-only runtime authority is not adopted.
+- Producer/consumer route: Versioned repository policy source -> GraphOS approved engine policy port -> EG active policy node; source mutation separately uses governed SDK effect.
+- Minimum closure action: Bind reviewed file revision/digest to activated EG policy. Require no autonomous source overwrite and route requested source changes via approved SDK writeback; test rejected/stale review leaves file and active policy unchanged.
+- Preserve covered clauses: `EG-IDENTITY-R008.4`, `EG-ORCH-VOCAB-R012.2`, `GRAPHOS-OPS-R050.2`, `GRAPHOS-OPS-R050.4`, `EG-ORCH-VOCAB-R012.5`, `EG-ORCH-VOCAB-R012.6`.
+- Source review: `c5f1dfe7867267169ebc8c75abba87a1d9ed47568a65cbfe1bf6d183b8026e59`; evidence: epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/engine-identity-and-scope/requirements.md:16; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/orchestration-vocabulary/requirements.md:91; graph-os:069eebc785afb9fb26bbbcc907cf5a2a4bcab5c5:specs/hosted-api-operations/requirements.md:147; graph-os:069eebc785afb9fb26bbbcc907cf5a2a4bcab5c5:specs/hosted-api-operations/requirements.md:149.
+- Cross-owner behavior and receipts remain with the named owner; no runtime evidence is claimed.
+<!-- /spec-definition-patch -->
+
+<!-- spec-definition-patch:reviewed-mapped-subsets-20261012 -->
+## Mapped definition implementation plan — 2026-10-12
+
+### `EG-ORCH-VOCAB-R005.100` / AU:33
+
+- Extend existing parent `R005` without removing its existing behavior.
+- Specify: Extend the existing orchestration step contract with a nested input schema and explicit source-slot/path mapping for each field. Before AU dispatch, project only declared paths into the step payload; undeclared sibling/nested fields are withheld even when the full ParallelWorkspace is readable by the coordinator. Define a shielded-field policy and bind the projected-payload digest to step id, schema revision and source-slot digests. Reuse typed result/schema validation.
+- Producer/consumer boundary: EG declares typed step projection/shield policy; AU `_dispatch_parallel_batch`/processor applies projection before tool dispatch. DTO extra-field rejection is not data projection.
+- Source record SHA-256: `1a32741b0a97f0c31cd1a3df4ea31d6eee0069c62c3487c0d8057b1ced4b6cf4`.
+- Keep status SPECIFIED until the EG served producer and each separately owned consumer are implemented, served-tested and independently read back.
+
+### `EG-ORCH-VOCAB-R009.100` / AU:60
+
+- Extend existing parent `R009` without removing its existing behavior.
+- Specify: Define trace export read data by trace id, parent/run id, span ids, child-agent ids, tool-call ids, time range, source revision and redaction profile. Child spans correlate under the parent run and a consumer can retrieve a complete export snapshot with pagination/completeness metadata and stable digest. This is an EG trace correlation/export-read contract only: AU owns span export and GraphOS owns MCP transport to the configured backend.
+- Producer/consumer boundary: AU default_runtime_capabilities/run_agent exports; GraphOS MCP transport carries export; EG contract supports correlated readback. Preserve R008/R024 trace ownership.
+- Source record SHA-256: `5d53cbdda932456b27c6649360c3051d4ab09f2db42018550b4ee81c785748b4`.
+- Keep status SPECIFIED until the EG served producer and each separately owned consumer are implemented, served-tested and independently read back.
+<!-- /spec-definition-patch -->
+
+
+<!-- spec-definition-patch:owner-dispatch-20261012-plan -->
+## Cross-owner producer definition plan — 2026-10-12
+
+- **`EG-ORCH-VOCAB-R009.101` / WEBUI:3:** Add `SyncHarnessSessionIndexV1` and `SearchHarnessSessionsV1` on the RunTrace/AddNode and UQL read substrates. Bind supported-harness manifest and SDK sync receipt, stable tenant/harness/session identity, source/index revisions, coverage and cursor. Preserve exact duplicate idempotency; refuse conflicts, stale cursors and cross-tenant reads. GraphOS serves the adapter for WebUI R006.4. Source SHA-256 `38936b5f2136263c40c29fe639c984243fed8be6dbb9a6d836f40d7b7672116e`.
+- **`EG-ORCH-VOCAB-R010.100` / AU:103:** Add `EvolutionTraceMetricsV1` joining AU proposal/prompt/progress revisions with EG RunTrace refs and stored outcome metrics. Report incomplete trace coverage as partial/unknown and require independent UQL readback. Preserve AU proposal authority and WebUI R004.7 consumer contract. Source SHA-256 `68bae14976bd3581bc33ee65b153b5ad60f807fb894af09577b9debd19be7557`.
+- **`EG-ORCH-VOCAB-R010.101` / WEBUI:4:** Extend RunTrace with project/agent ids and four non-overlapping token counters; add `RunTraceUsageQueryV1` with pinned currency/accounting revisions, unknown-cost semantics, watermark and cursor. Prove p95 ≤500 ms at the stated million-row/32-reader boundary through GraphOS `handle_runs_metrics` and WebUI R004.8. Preserve the existing cost-per-solved-task query. Source SHA-256 `dd790b40c92758d720375c78ccd4278845b8d348022b4d69b978cba049461237`.
+- Keep all three requirements SPECIFIED until the EG served operation, GraphOS adapter and named WebUI consumer have separately passed their contract checks and independent readbacks.
+<!-- /spec-definition-patch -->

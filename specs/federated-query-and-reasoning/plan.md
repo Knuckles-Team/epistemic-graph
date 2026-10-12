@@ -612,3 +612,220 @@ Only an explicit terminal event completes a query. Failure, cancellation, expiry
 Use the real EG approval/verifier dispatch and SDK's registered connector against an actual database. Inject failure after three chunks, revoke between chunks, alter each binding and attempt forbidden SQL effects. Compare fixed-limit fresh-process memory runs across a hundredfold cardinality increase. Set the memory envelope from declared buffers and a documented fixed runtime allowance before measuring. An observed peak that scales with total rows fails the contract. No execution receipt exists for this definition change.
 
 Verification RPC latency and count belong in the execution evidence. Each verification must finish within the remaining execution deadline. Timeout or unavailable verification closes the driver and produces terminal failure. A prior validity result cannot authorize later chunks after verification fails. These are planned acceptance requirements, not measured overhead claims.
+
+<!-- spec-definition-patch:owner-batch-20261012-federated-query-and-reasoning -->
+## Reviewed residual closure plan — owner batch 2026-10-12
+
+### `EG-FEDERATED-QUERY-R070.1` — AU:71
+
+- Existing EG rollup: `EG-FEDERATED-QUERY-R070`; append-only residual ID: `EG-FEDERATED-QUERY-R070.1`.
+- Original objective: An agent may search a raw corpus directly with exact lexical, file-read and context-verification operations without an index; each query reports its cost, and over-budget scans abstain.
+- Missing EG obligation: The existing indexed lexical interaction space does not guarantee raw-corpus operation without an index, exact file-read/context-verification primitives, per-scan cost reporting or refusal before exceeding the scan budget.
+- Producer/consumer route: GraphOS retrieval.space -> GovernedRetriever -> EG retrieval returns a top-K boundary; EG UQL budgets bound rows/visits. No reviewed governed indexless scan/file-read/context-verification producer contract supplies the requested operations.
+- Minimum closure action: Extend existing EG retrieval/source-access contracts with the explicit indexless operations, per-query cost/budget and typed abstention; bind the existing host/AU exploration consumer. Do not claim index scans satisfy no-index acceptance.
+- Preserve covered clauses: `EG-FEDERATED-QUERY-R070`, `GRAPHOS-OPS-R053.2`, `GRAPHOS-OPS-R053.3`, `GRAPHOS-OPS-R053.5`.
+- Source review: `0f1b775fd66c41586bdcdf0047a9ccbc52e38aa1bc21a4e8234e9c641e45c68e`; evidence: epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/federated-query-and-reasoning/requirements.md:83; graph-os:069eebc785afb9fb26bbbcc907cf5a2a4bcab5c5:specs/hosted-api-operations/requirements.md:168; graph-os:069eebc785afb9fb26bbbcc907cf5a2a4bcab5c5:specs/hosted-api-operations/requirements.md:169; graph-os:069eebc785afb9fb26bbbcc907cf5a2a4bcab5c5:specs/hosted-api-operations/requirements.md:171.
+- Cross-owner behavior and receipts remain with the named owner; no runtime evidence is claimed.
+
+### `EG-FEDERATED-QUERY-R006.1` — EG:11
+
+- Existing EG rollup: `EG-FEDERATED-QUERY-R006`; append-only residual ID: `EG-FEDERATED-QUERY-R006.1`.
+- Original objective: The engine derives new facts by temporal forward-chaining rules over extracted facts and records, for each derived fact, provenance back to its originating sentence or axiom.
+- Missing EG obligation: Define temporal extracted-fact forward chaining and durable per-fact sentence/axiom provenance.
+- Producer/consumer route: EG reasoners and proof queries return answer-level evidence; the temporal fact-production API and persistent origin chain are absent.
+- Minimum closure action: Add temporal rule semantics and origin-linked fact admission/readback under the existing owner.
+- Preserve covered clauses: `EG-FEDERATED-QUERY-R001`, `EG-FEDERATED-QUERY-R011`, `EG-DECISION-ENGINE-R003`, `EG-FEDERATED-QUERY-R006`.
+- Source review: `2c2ffcf18d947730bc60a935fed942e1f82e9e8547f4509fe2941a34672fb8f3`; evidence: epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/federated-query-and-reasoning/requirements.md:5; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/federated-query-and-reasoning/requirements.md:15; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:9; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/federated-query-and-reasoning/requirements.md:10.
+- Cross-owner behavior and receipts remain with the named owner; no runtime evidence is claimed.
+
+### `EG-FEDERATED-QUERY-R040.5` — EG:20
+
+- Existing EG rollup: `EG-FEDERATED-QUERY-R040`; append-only residual ID: `EG-FEDERATED-QUERY-R040.5`.
+- Original objective: The platform absorbs new knowledge into a retrievable memory module without changing model parameters or discarding earlier knowledge; retrieval cost scales with query selectivity rather than corpus size, and cross-document relations are encoded.
+- Missing EG obligation: Define continual parameter-free memory/retention, cross-document encoding and corpus-growth/selectivity scaling criteria.
+- Producer/consumer route: EG lifecycle and filtered query operators are adjacent infrastructure; no memory admission/encoding contract joins them with the requested guarantees.
+- Minimum closure action: Add memory/relation semantics and scaling benchmark, retaining filtered-scan coverage.
+- Preserve covered clauses: `EG-FEDERATED-QUERY-R007`, `EG-FEDERATED-QUERY-R040`, `EG-FEDERATED-QUERY-R040.4`, `EG-FEDERATED-QUERY-R008`.
+- Source review: `07df52b453f0f1b7be7aec7bf790f087c3fc5e13500915011382a9fcd8d9d41a`; evidence: epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/federated-query-and-reasoning/requirements.md:11; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/federated-query-and-reasoning/requirements.md:45; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/federated-query-and-reasoning/requirements.md:213; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/federated-query-and-reasoning/requirements.md:12.
+- Cross-owner behavior and receipts remain with the named owner; no runtime evidence is claimed.
+
+### `EG-FEDERATED-QUERY-R040.6` — EG:21
+
+- Existing EG rollup: `EG-FEDERATED-QUERY-R040`; append-only residual ID: `EG-FEDERATED-QUERY-R040.6`.
+- Original objective: Agents keep semantic, procedural and episodic memory layers, built as graph-structured episodes from multi-session dialogue, and retrieve across sessions with hybrid vector and keyword search and temporal validation.
+- Missing EG obligation: Define memory layers, multi-session episode construction and hybrid cross-session retrieval/temporal validation.
+- Producer/consumer route: SourceIngest validates/project transcripts and UnifiedQuery supports filtered search. The episode builder and AU consumer joining these paths are absent definitions.
+- Minimum closure action: Add taxonomy, episode formation and consumer semantics, reusing scoped transcript/search contracts.
+- Preserve covered clauses: `EG-INGEST-WORKER-R003.13`, `EG-INGEST-WORKER-R003.14`, `EG-INGEST-WORKER-R003.17`, `EG-FEDERATED-QUERY-R040`, `EG-INGEST-WORKER-R003.18`, `EG-INGEST-WORKER-R003.16`, `EG-FEDERATED-QUERY-R016`.
+- Source review: `c321db3aa79c29d891456f2bee98f545611b8d1be7c93d299b939c3d73a40279`; evidence: epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/ingest-worker/requirements.md:43; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/ingest-worker/requirements.md:44; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/ingest-worker/requirements.md:47; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/federated-query-and-reasoning/requirements.md:45.
+- Cross-owner behavior and receipts remain with the named owner; no runtime evidence is claimed.
+
+### `EG-FEDERATED-QUERY-R083.7` — EG:22
+
+- Existing EG rollup: `EG-FEDERATED-QUERY-R083.1`; append-only residual ID: `EG-FEDERATED-QUERY-R083.7`.
+- Original objective: Source arbitration compares a direct parametric answer with an evidence-conditioned answer using margins that reward evidence-supported answers and penalize passage-prior-only answers; unsupported answers lose arbitration.
+- Missing EG obligation: Confidence difference alone does not define an evidence-support reward or passage-prior-only penalty. A highly confident unsupported candidate can win the specified R083.2 rule; no support-aware losing invariant is specified.
+- Producer/consumer route: Planned AU-RETRIEVAL-R006 prior probe -> served cross-modal query -> eg_plan::execute -> arbitrate -> ArbitrationVerdict -> harness. R083.3/.6 identify the producer path; this audit does not claim it is implemented.
+- Minimum closure action: Extend existing R083 behavior/model/refusal acceptance with the support-margin inputs and invariant that unsupported candidates lose. Add a served counterexample with a higher-confidence unsupported candidate and an evidence-supported lower-confidence candidate. Retain current two-candidate, class, abstention and evidence obligations.
+- Preserve covered clauses: `EG-FEDERATED-QUERY-R083.1`, `EG-FEDERATED-QUERY-R083.2`, `EG-FEDERATED-QUERY-R083.3`, `EG-FEDERATED-QUERY-R083.4`, `EG-FEDERATED-QUERY-R083.6`.
+- Source review: `544b7b0054e8c7cd9a76aedd0d665589d555a0bcf20d1f00679442574936af36`; evidence: epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/federated-query-and-reasoning/requirements.md:155; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/federated-query-and-reasoning/requirements.md:156; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/federated-query-and-reasoning/requirements.md:157; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/federated-query-and-reasoning/requirements.md:158.
+- Cross-owner behavior and receipts remain with the named owner; no runtime evidence is claimed.
+
+### `EG-FEDERATED-QUERY-R081.10` — EG:25
+
+- Existing EG rollup: `EG-FEDERATED-QUERY-R081.1`; append-only residual ID: `EG-FEDERATED-QUERY-R081.10`.
+- Original objective: Retrieval detects temporal confusion between storage date, event date and narrative time using explicit rules, and when first-pass context is insufficient runs a second pass with fallback queries.
+- Missing EG obligation: No explicit retrieval rules distinguish and detect confusion among storage date, event date and narrative time. Ingest transcript fields distinguish event/storage time only. Existing follow-up expansion coverage should be credited, but it does not establish temporal fallback-query construction or its insufficient-first-pass trigger.
+- Producer/consumer route: EG served cross-modal query -> eg_plan::execute sufficiency/feedback -> bounded EG continuation -> harness dispatch. Ingest R003.13/.14 supplies event/storage fields but no narrative-time retrieval rule.
+- Minimum closure action: Correct the mapping to include R081.8.1-.6 for existing follow-up-query definitions. Retain a narrower R081 residual for three-clock confusion detection and its bounded insufficient-context fallback. Add a fixture where storage/event/narrative dates disagree and verify the selected time basis and second-pass query.
+- Preserve covered clauses: `EG-FEDERATED-QUERY-R081.1`, `EG-FEDERATED-QUERY-R081.2`, `EG-FEDERATED-QUERY-R081.3`, `EG-FEDERATED-QUERY-R081.4`, `EG-FEDERATED-QUERY-R081.8.1`, `EG-FEDERATED-QUERY-R081.8.2`, `EG-FEDERATED-QUERY-R081.8.3`, `EG-FEDERATED-QUERY-R081.8.5`, `EG-FEDERATED-QUERY-R081.8.6`.
+- Source review: `fb8d54d8554b8158da64f7c9e8bf02ea846e5b411768a0381c2682b2e6302dac`; evidence: epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/federated-query-and-reasoning/requirements.md:120; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/federated-query-and-reasoning/requirements.md:121; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/federated-query-and-reasoning/requirements.md:122; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/federated-query-and-reasoning/requirements.md:123.
+- Cross-owner behavior and receipts remain with the named owner; no runtime evidence is claimed.
+
+### `EG-FEDERATED-QUERY-R028.1` — EG:29
+
+- Existing EG rollup: `EG-FEDERATED-QUERY-R028`; append-only residual ID: `EG-FEDERATED-QUERY-R028.1`.
+- Original objective: Typed KnowledgeSet rows carry provenance and policy frame per row; the query surface returns them as a superset of plain row sets and refuses rows lacking either.
+- Missing EG obligation: No requirement makes provenance and policy frame mandatory on each KnowledgeSet row, states plain-row-set superset compatibility, or refuses a row missing either. ForeignRows provenance and an authorized-superset pushdown rule address a different carrier.
+- Producer/consumer route: Existing R028 names UQL and the structured query surface as KnowledgeSet consumers but does not name a complete public row producer/type. R045 ForeignRows must not be used as a substitute; resolve the shared typed result producer in the owner definition.
+- Minimum closure action: Extend existing R028 KnowledgeSet result definition with mandatory per-row provenance/policy-frame fields, plain-row compatibility and typed missing-field refusal. Bind structured and served query acceptance to the same carrier and independently test each absent field. Preserve the held-UQL restriction: this is a definition recommendation only, with no UQL implementation authorization.
+- Preserve covered clauses: `EG-FEDERATED-QUERY-R028`, `EG-FEDERATED-QUERY-R045`.
+- Source review: `2eb8aadb1b6ccc2d5de77a4d1964fc04a4e944bccf9bcc1793e262f146af7583`; evidence: epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/federated-query-and-reasoning/requirements.md:32; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/federated-query-and-reasoning/requirements.md:50.
+- Cross-owner behavior and receipts remain with the named owner; no runtime evidence is claimed.
+
+### `EG-FEDERATED-QUERY-R005.1` — EG:31
+
+- Existing EG rollup: `EG-FEDERATED-QUERY-R005`; append-only residual ID: `EG-FEDERATED-QUERY-R005.1`.
+- Original objective: The platform detects temporal conflicts, cardinality, self-loop and asymmetry axiom violations and ontology defects through conflict rules, and reports each with a typed reason instead of silently choosing.
+- Missing EG obligation: The complete requested matrix of temporal conflicts, cardinality violations, self-loops and asymmetry violations, each with its own typed reason, is not specified by generic shape/consistency acceptance.
+- Producer/consumer route: Existing shape/EL-RL/tableau validation -> contradiction proposal; exact public diagnostic carrier must bind every requested violation kind.
+- Minimum closure action: Extend the existing reasoning/validation owner with an enumerated violation matrix and typed diagnostics. Include positive controls and one independently failing fixture per requested class; preserve explicit authorization before any retraction. No held-UQL implementation is authorized.
+- Preserve covered clauses: `EG-DECISION-ENGINE-R034`, `EG-FEDERATED-QUERY-R001`, `EG-FEDERATED-QUERY-R005`, `EG-FEDERATED-QUERY-R011`, `EG-FEDERATED-QUERY-R012`.
+- Source review: `973de1c3b38646a438d057299d8070070f0ef7a2056bb30acff6d1a3814df513`; evidence: epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:50; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/federated-query-and-reasoning/requirements.md:5; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/federated-query-and-reasoning/requirements.md:9; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/federated-query-and-reasoning/requirements.md:15.
+- Cross-owner behavior and receipts remain with the named owner; no runtime evidence is claimed.
+
+### `EG-FEDERATED-QUERY-R078.7` — EG:59
+
+- Existing EG rollup: `EG-FEDERATED-QUERY-R078`; append-only residual ID: `EG-FEDERATED-QUERY-R078.7`.
+- Original objective: Company context (organizations, roles, data assets, permissions, time-series facts) is held as one graph that agents query under the caller's tenant and clearance.
+- Missing EG obligation: Exact composition and acceptance for organizations, roles, data assets, permissions and time-series facts as the requested company-context view remains unbound. Existing vocabulary must be located/reused, not presumed absent.
+- Producer/consumer route: Approved source mappings plus native graph/time-series -> scoped query plan -> agent consumer. One graph is a logical governed view.
+- Minimum closure action: First link existing vocabulary/mapping IDs for each listed category; add only any remaining view/acceptance obligation. Test the complete logical view under two tenants and differing clearances without copying every attached source.
+- Preserve covered clauses: `EG-DURABLE-KERNEL-R043`, `EG-FEDERATED-QUERY-R078`, `EG-UNIFIED-DATA-PLANE-R001`, `EG-UNIFIED-DATA-PLANE-R003`, `EG-FEDERATED-QUERY-R078.1`, `EG-FEDERATED-QUERY-R078.2`, `EG-FEDERATED-QUERY-R078.3`, `EG-FEDERATED-QUERY-R078.4`, `EG-FEDERATED-QUERY-R078.5`, `EG-FEDERATED-QUERY-R078.6`.
+- Source review: `fd5990a7c9f30e1e1aa0eed9aa08efef4e2ebc8f5f34387598f1c9e577c458dc`; evidence: epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/durable-graph-kernel/requirements.md:86; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/federated-query-and-reasoning/requirements.md:98; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/unified-data-plane/requirements.md:5; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/unified-data-plane/requirements.md:10.
+- Cross-owner behavior and receipts remain with the named owner; no runtime evidence is claimed.
+
+### `EG-FEDERATED-QUERY-R081.9.7.7` — GRAPHOS:24
+
+- Existing EG rollup: `EG-FEDERATED-QUERY-R081.9.7.1`; append-only residual ID: `EG-FEDERATED-QUERY-R081.9.7.7`.
+- Original objective: Retrieval builds a hierarchical tree over documents and answers at multiple granularities by traversing it without external model calls.
+- Missing EG obligation: The original no-external-model-calls constraint is not covered. R081.9.7 uses approved reasoning, inference-call budgets and model revision receipts; its plan explicitly reuses bounded model execution. Vector-free does not prove external-model-free. The requirements also explicitly say no production caller supplies this path today.
+- Producer/consumer route: Governed section-record ingestion -> PlanCtx section traversal before fusion -> run_unified_with approved reasoning -> UnifiedQuery selected spans. The specified reasoning binding does not forbid external model dispatch.
+- Minimum closure action: Map the hierarchy/granularity clauses to existing R081.9.7 children, preserve the source no-external-model constraint, and define only a compatible traversal mode/constraint and hot-path zero-external-call proof. Do not silently relax the source.
+- Preserve covered clauses: `EG-FEDERATED-QUERY-R081.9.7.1`, `EG-FEDERATED-QUERY-R081.9.7.2`, `EG-FEDERATED-QUERY-R081.9.7.3`, `EG-FEDERATED-QUERY-R081.9.7.4`, `EG-FEDERATED-QUERY-R081.9.7.5`, `EG-FEDERATED-QUERY-R081.9.7.6`.
+- Source review: `b2e5de8386b3ca72b59a81ca5fa3193eaf7736af86aca472a720b9e4511961c0`; evidence: spec-audit/reconciliation/fresh-validation-20261012/semantic-reviews/incoming-24-owner-supplements.json.
+- Cross-owner behavior and receipts remain with the named owner; no runtime evidence is claimed.
+
+### `EG-FEDERATED-QUERY-R081.9.7.8` — GRAPHOS:25
+
+- Existing EG rollup: `EG-FEDERATED-QUERY-R081.9.7.1`; append-only residual ID: `EG-FEDERATED-QUERY-R081.9.7.8`.
+- Original objective: Documents in a retrieved space are preprocessed offline into line-numbered tables of contents so agents navigate sub-document spans without reading whole files.
+- Missing EG obligation: No cited contract requires offline preprocessing into line-numbered tables of contents or binds navigation to those line ranges without reading whole files. Source spans and directories alone do not establish line numbering, offline construction, or bounded span-read behavior.
+- Producer/consumer route: SDK source ingestion -> EG immutable document/section records -> GraphOS retrieval.space directories -> AU exploration. The offline line-numbered TOC producer and bounded line-range read contract are unbound.
+- Minimum closure action: Retain space/section mappings as partial coverage; define offline line-numbered TOC and bounded span-read contracts at the source/EG boundary, then link existing GraphOS/AU consumers. Do not recreate interaction spaces.
+- Preserve covered clauses: `GRAPHOS-OPS-R053.1`, `GRAPHOS-OPS-R053.2`, `GRAPHOS-OPS-R053.3`, `GRAPHOS-OPS-R053.6`, `EG-FEDERATED-QUERY-R081.9.7.1`, `EG-FEDERATED-QUERY-R081.9.7.5`.
+- Source review: `6797cff839c16c3b9c3877d6bbf48bf8953eae8696087abc99f2b57147daed93`; evidence: spec-audit/reconciliation/fresh-validation-20261012/semantic-reviews/incoming-24-owner-supplements.json.
+- Cross-owner behavior and receipts remain with the named owner; no runtime evidence is claimed.
+
+### `EG-FEDERATED-QUERY-R040.2.7` — GRAPHOS:28
+
+- Existing EG rollup: `EG-FEDERATED-QUERY-R040.2.1`; append-only residual ID: `EG-FEDERATED-QUERY-R040.2.7`.
+- Original objective: Retrieval uses document topic metadata as semantic guidance to improve ranking and relevance.
+- Missing EG obligation: Explicit per-document topic-metadata/responsibility binding remains unclear: the model specifies backend topic weights, centroids, corpus revision and embedding space, but does not explicitly associate those topic responsibilities with each source document/candidate. Do not infer that association merely from dense-score document operands or stable document-ID tie-breaking.
+- Producer/consumer route: TopicBackend returns responsibilities, centroids, backend revision and corpus generation; `run_unified_with` binds the selected backend and attaches topic scoring before final truncation. The missing edge is each document/candidate bound to revision-matched topic responsibilities before computing its candidate-specific topic score. EG owns retrieval scoring; GraphOS only projects reads, and GRAPHOS-FLEET-R014 catalog ranking is not a substitute.
+- Minimum closure action: Extend the existing R040.2 model/acceptance text to explicitly bind each document/candidate to revision-bound topic metadata/responsibilities, and require a served fixture showing that changing that metadata changes the appropriate candidate topic contribution. Preserve all current fusion/refusal/tenant constraints. Then coordinator may map GRAPHOS:28 to those exact child clauses; do not create a second ranker or fabricate runtime credit.
+- Preserve covered clauses: `EG-FEDERATED-QUERY-R040.2.1`, `EG-FEDERATED-QUERY-R040.2.2`, `EG-FEDERATED-QUERY-R040.2.3`, `EG-FEDERATED-QUERY-R040.2.6`.
+- Source review: `f7654cd07d4d95f32f09fec742c4172b35c689749b3228aef9424830b1f7cc1b`; evidence: plans:a9eedff7a3bea0d23462a1d6972fa783868366a4:spec-audit/writer-queue-merged/graph-os.tsv:28; plans:a9eedff7a3bea0d23462a1d6972fa783868366a4:spec-audit/writer-queue-merged/epistemic-graph.tsv:42; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/federated-query-and-reasoning/requirements.md:203; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/federated-query-and-reasoning/requirements.md:204.
+- Cross-owner behavior and receipts remain with the named owner; no runtime evidence is claimed.
+<!-- /spec-definition-patch -->
+
+<!-- spec-definition-patch:reviewed-mapped-subsets-20261012 -->
+## Mapped definition implementation plan — 2026-10-12
+
+### `EG-FEDERATED-QUERY-R081.8.100` / AU:77
+
+- Extend existing parent `R081.8` without removing its existing behavior.
+- Specify: Extend existing retrieval feedback with retriever id/version, strategy id/digest, corpus/model revisions, evaluation-set digest and transfer-validation receipt. A strategy is reusable without new validation only for the same target retriever id/version and byte-identical corpus, model and policy revisions. Any target or bound-revision change requires a target-bound validation receipt containing target retriever id/version, strategy id/digest, evaluation-set digest, metric id, measured value, acceptance threshold, pass/fail outcome, corpus revision, model revision and policy revision. Activate only when measured value meets or exceeds the declared threshold; a valid receipt below threshold refuses activation and retains the prior strategy. A different retriever never receives a copied strategy by default. Reuse R081.8 feedback and R082 budgets.
+- Producer/consumer boundary: Authenticated crossmodal -> `eg-plan::exec` R081.8 feedback -> selected retriever. Preserve existing R081.8.1-.6 tiering, feedback and refusal behavior.
+- Source record SHA-256: `213700ec5b9e8648657ec47d0c587483a978db10f4661475b467be451d3bb2e1`.
+- Keep status SPECIFIED until the EG served producer and each separately owned consumer are implemented, served-tested and independently read back.
+
+### `EG-FEDERATED-QUERY-R053.100` / EG:37
+
+- Extend existing parent `R053` without removing its existing behavior.
+- Specify: Extend the existing Cypher federation renderer so every generated property key is emitted as a backtick-quoted identifier; embedded backticks use the Cypher grammar escape representation, and values remain parameters rather than interpolated identifiers. The renderer is shared by every Cypher generation path. The build gate validates generated query fixtures and fails on any property key that is unquoted or malformed; it must not add a second renderer or rely on SQL identifier quoting.
+- Producer/consumer boundary: `ForeignSourceSpec::Cypher` federation renderer -> generated Cypher -> configured build gate; preserve R053 typed source registration. Cypher Manual naming rules define backtick quoting and doubled backtick representation.
+- Source record SHA-256: `803f4e4ffbcd939af750e23451469835555beaa37e14ce555ffd0a59c0a3ac48`.
+- Keep status SPECIFIED until the EG served producer and each separately owned consumer are implemented, served-tested and independently read back.
+
+### `EG-FEDERATED-QUERY-R032.100` / AU:43
+
+- Extend existing parent `R032` without removing its existing behavior.
+- Specify: Extend the existing authenticated R032 `PROPAGATE` result with a separate historical-risk dimension. Bind target node/revision, direction, bounded HOPS, ordered layer taxonomy and weights, authorized failure-dataset id/revision/window/digest, observation counts, policy revision and request digest. For each node with observations compute `failure_rate = failures / observations` and `layer_contribution = layer_weight * failure_rate`, with weights and rates in [0,1]. For a path, compute `path_risk = 1 - product(1 - layer_contribution)` over its unique nodes; aggregate duplicate paths to a node by maximum path risk. Enumerate upstream and downstream path sets separately; suppress repeated-node cycles within a path and order ties by hop count, node id and path-edge ids. Return per-node path, layer contribution, counts, coverage state and risk. Missing per-node history yields `unknown` and a partial result with `aggregate_risk = null`; an unavailable or unauthorized dataset refuses. The new score is an additional dimension and cannot replace or alter R032 Noisy-OR or Independent-Cascade results.
+- Producer/consumer boundary: EG owns graph impact query/risk decision; AU requests or displays the result. Existing numeric risk helpers are not this two-direction historical impact contract.
+- Source record SHA-256: `327ced0e0605f34366c662017d82ac892a481c5ca5f40bba2f3693ba6a5f7649`.
+- Keep status SPECIFIED until the EG served producer and each separately owned consumer are implemented, served-tested and independently read back.
+<!-- /spec-definition-patch -->
+
+<!-- spec-definition-patch:final-mappings-20261012 -->
+## Final mapping implementation plan — 2026-10-12
+
+### `EG-FEDERATED-QUERY-R086` — Inductive n-ary hypothesis-only link prediction
+
+- Add the root row and link every child in generated status.
+- Preserve existing parent contracts and owner boundaries: Defines ordered n-ary inference that returns unasserted hypotheses; it does not mutate graph facts or replace observed-edge query/write contracts.
+
+### `EG-FEDERATED-QUERY-R086.100` / EG:14
+
+- Preserve parent `EG-FEDERATED-QUERY-R086` and its existing clauses.
+- Define: Accept an ordered list of at least two source entity refs, a relation/type constraint, tenant and pinned graph/model revisions. Return candidate target refs with confidence, evidence references, ordered source refs, model/policy revision and `hypothesis_only=true`; do not assert edges, mutate graph state or present a prediction as observed fact. Refuse arity below two, unresolved/unauthorized source refs, stale model/graph revisions and malformed relation constraints. Preserve existing binary observed-edge query and graph-write authorities.
+- Producer/consumer: EG federated-query inference owns hypothesis production; AU may consume proposals. No public hyperedge-prediction operation currently exists, so this is a new contract under FQR R086.
+- Source record SHA-256: `7223250e7f899a187aad0b152e597c6174b772c49779ca2bdd12d3ba68f4f5ef`.
+- Keep status SPECIFIED until each named producer and consumer is separately implemented, served-tested and independently read back.
+
+### `EG-FEDERATED-QUERY-R081.101` / AU:126
+
+- Preserve parent `EG-FEDERATED-QUERY-R081` and its existing clauses.
+- Define: Build a document-only state keyed by document id/content digest, encoder revision and compression-policy revision. Store ordered segment boundaries, compressed token representations and the key/value projections required by the scorer; the state must not depend on candidate order or query context. At query time, score the query against stored projections without decoding/generation and return document digest, state revision, segment policy, score and scorer revision. Measure interaction cost against the declared full-token baseline using the same document/query set and report denominator and result digest.
+- Producer/consumer: EG retrieval owns document-state construction and PlanCtx reranking; query embeddings/context remain query inputs and do not alter the reusable state. Preserve existing FQR R081 tiering and selection bounds.
+- Source record SHA-256: `deca151180a749cb3784d9946da0de17205eca89c92e5eb4f275859e1d4be165`.
+- Keep status SPECIFIED until each named producer and consumer is separately implemented, served-tested and independently read back.
+
+### `EG-FEDERATED-QUERY-R081.102` / GRAPHOS:27
+
+- Preserve parent `EG-FEDERATED-QUERY-R081` and its existing clauses.
+- Define: Persist an index-time distilled scorer bound to corpus/index revision, teacher model revision, teacher-judgment dataset digest, scorer artifact digest and quality metric/threshold policy. The scorer is eligible for query use only when its measured quality reaches the declared threshold on a held-out target set. Query-time retrieval applies the stored scorer without any model-service call; it never distills or repairs the scorer on demand. A below-threshold, stale or unbound artifact refuses activation and leaves the prior scorer active.
+- Producer/consumer: EG owns retrieval learning/ranking and the stored scorer; AU may execute evaluation; GraphOS catalog ranking is not this document retrieval contract. Use the existing authenticated UnifiedQuery -> run_unified_with planning route; do not invent a public operation name.
+- Source record SHA-256: `baac22c9fb42470957b5b91499c6e42e1bb2410d24446d15f6f364638c88138e`.
+- Keep status SPECIFIED until each named producer and consumer is separately implemented, served-tested and independently read back.
+<!-- /spec-definition-patch -->
+
+<!-- spec-definition-patch:final-mapping-eg41-20261012 -->
+## Mapped retrieval-selection implementation plan — 2026-10-12
+
+### `EG-FEDERATED-QUERY-R081.100` / EG:41
+
+- Preserve existing parent `R081` and its previous children.
+- Specify: For a query vector q and candidate document matrix V whose rows are revision-pinned document embeddings in the same declared embedding space, select a joint coefficient vector x by minimizing `||q - Vᵀx||₂² + λ||x||₁` subject to xᵢ >= 0 and the existing result-count/tenant bounds. λ, solver version, convergence tolerance, embedding-space revision and input digest are bound to the request. Return selected document ids, nonnegative coefficients, reconstruction residual, solver status and policy revision in deterministic coefficient-descending then document-id order. Do not substitute independent dense/lexical dual-score ranking; preserve the distinct R081.7 mechanism. Refuse mismatched embedding revisions, invalid λ, solver non-convergence or a result set that exceeds existing bounds.
+- Producer/consumer: EG retrieval selection owns the joint objective and set result; the existing served UnifiedQuery/retrieval path consumes it. Preserve R081.1-.9 selection and tenant bounds; no new caller-controlled score authority.
+- Source record SHA-256: `bceeed106b5db2933cf5161d58b4203fc7afe9d714503a31d68323992906c23b`.
+- Keep SPECIFIED until served retrieval and independent result readback pass.
+<!-- /spec-definition-patch -->
+
+
+<!-- spec-definition-patch:owner-dispatch-20261012-plan -->
+## Cross-owner viewport query plan — 2026-10-12
+
+- **`EG-FEDERATED-QUERY-R081.103` / WEBUI:7:** Extend `UnifiedQuery` with the closed `ViewportQueryV1` scatter/line plan variant and typed `ResolveViewportSelectionV1` tokens. Bind source revision/cardinality, axes, filter, viewport pixels and policy. Enforce `min(W×H,262144)` scatter bins, `min(4W,65536)` line bins and `min(16MiB,65536+96×max_bin_count)` encoded payload cap independent of cardinality. Preserve line gaps and exact-versus-aggregate selection. Consumer: GraphOS adapter and WebUI R001.2. Source SHA-256 `483b80b268ba6924ced162740792071fb43f482b1cddf16d9fbd424727d4ed89`.
+- Require real served acceptance at ≥1,000,000,000 indexed points for pan/zoom/selection and all stale/denied/cap-refusal paths; transfer no full source. Keep SPECIFIED pending owner receipts.
+<!-- /spec-definition-patch -->

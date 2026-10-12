@@ -16,3 +16,29 @@ Missing leg (jellyfin unconnected): typed abstention. Raw email in Subscriber: S
 ## Quality and release proof
 
 `cargo test -p eg-core`, repo CCCC/jscpd/dupehound/KISS gates; record revision and output link per row.
+
+<!-- spec-definition-patch:owner-batch-20261012-media-and-personal-vocabulary -->
+## Reviewed residual acceptance targets — owner batch 2026-10-12
+
+All targets below are planned acceptance, not executed tests or receipts. Use the real producer/consumer boundary named for each row and retain existing covered behavior.
+
+- **`EG-MEDIA-VOCAB-R002.5` / EG:50:** Link the existing SDK paper retrieval/metadata producer to EG SourceIngest; define citation-edge construction and fact assertion with source provenance, plus one unidentified-paper refusal that preserves healthy paper ingestion. Do not duplicate provider retrieval or assert unreviewed paper-serving registration exists. Producer/consumer path: SDK paper provider search/download -> PaperRecord/DocumentReceipt -> generated SourceIngest -> EG ResearchPaper/citation facts. SDK plan explicitly says paper-serving registration is not established by its specification. Source review `b6d12a184f1c5812c8f4fd56a0a299e48381e85ad9b18af4eb0ed19faf3d7e0b`. Exercise the served EG producer and named consumer where that owner contract exists; assert its defined output/refusal. These are planned cases only, not test or receipt evidence.
+<!-- /spec-definition-patch -->
+
+<!-- spec-definition-patch:final-mappings-20261012 -->
+## Final mapped planned acceptance — 2026-10-12
+
+No cases listed here have run; they describe required future acceptance, not evidence.
+
+- **`EG-MEDIA-VOCAB-R001.100` / EG:69; source `38f71f6a205cf8df27631a4aa86ec3312a91f7902dfd8bfe843db2a142d1d30f`:** Use an authorized tagged media item and independently read back tag provenance and media revision; query with allowed and denied principals and assert only authorized results are returned. Refuse a tag with missing producer/evidence provenance and stale media revision. Keep a separate pending test for the actual vision producer once its identity and contract are resolved. Producer/consumer: EG owns tag assertion storage, provenance and authorized search. Vision extraction producer identity/execution remains held for its owner; this child does not claim that producer is implemented or served. Parent `EG-MEDIA-VOCAB-R001` remains intact.
+<!-- /spec-definition-patch -->
+
+
+<!-- spec-definition-patch:owner-dispatch-20261012-tests -->
+## Planned served acceptance — meeting and bookmarks
+
+No test in this section has run; each owner receipt remains pending.
+
+- `EG-MEDIA-VOCAB-R001.101`: serve transcript corrections/finalization, independent digest readback, bounded summary-context read, AU provider invocation and citation-bound summary commit. Verify stale summaries after correction and refusals for unfinalized/stale transcript, unauthorized provider, mismatched invocation receipt and invalid citation.
+- `EG-MEDIA-VOCAB-R001.102`: ingest through SDK SourceIngest R005.7-.12 and EG ChangeEnvelope commit; independently read back the bookmark and receipt, semantic-search under a pinned index, and read relations under the same snapshot. Verify unknown metadata, paging, stale index and no denied count/edge leakage. GraphOS/WebUI separately test mindmap and CSV/JSON export.
+<!-- /spec-definition-patch -->

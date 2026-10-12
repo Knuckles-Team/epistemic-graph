@@ -101,3 +101,50 @@ Producer first: terms, then shapes, then projection call sites, then query tests
 - [ ] **EG-ORCH-VOCAB-R013.4:** Refusal. A step with a digest that is not 64 hex characters must be refused with `STEP_DIGEST_INVALID`. A step index that skips or repeats must be refused with `STEP_ORDER_INVALID`. Proving test: `crates/eg-types/src/outcome_bundle.rs::tests::bad_digest_and_gap_refused`.
 - [ ] **EG-ORCH-VOCAB-R013.5:** Evidence. Each stored step must carry `:stepIndex` and `:recordedBy`, the actor that wrote it. The run trace must expose the ordered step digests to a read. Proving test: `crates/eg-types/src/outcome_bundle.rs::tests::stored_steps_read_in_order`.
 - [ ] **EG-ORCH-VOCAB-R013.6:** Hot-path proof. The entry point is the generated client run-trace write, which reaches the `AddNode` wire method. The test writes three steps, reads them back, and compares them with a replayed copy that differs at step two. The call passes through `src/server/handlers/graph_ops/gateway_graph.rs:62`. It observes that the first differing index is two. Proving test: `tests/orchestration/test_run_trace_steps_served.py::test_first_divergence_is_step_two`.
+
+<!-- spec-definition-patch:owner-batch-20261012-orchestration-vocabulary -->
+## Reviewed residual definition tasks — owner batch 2026-10-12
+
+- [ ] **EG-ORCH-VOCAB-R009.18 (AU:26):** Define and wire the EG-owned residual for `EG-ORCH-VOCAB-R009` using the reviewed producer/consumer route; preserve covered clauses `AU-CONTROL-R006`, `AU-CONTROL-R019`, `AU-HARNESS-R007`, `EG-ORCH-VOCAB-R009.8`, `EG-ORCH-VOCAB-R009.9`, `GRAPHOS-CAPACITY-R001.1`.
+- [ ] **EG-ORCH-VOCAB-R009.18 acceptance:** Deliver the positive, negative, refusal, boundary, or readback cases explicitly required by: Extend the existing EG routing/continuation contract with the joint per-run observation window and adjustment receipt; bind AU observations and trace application. Preserve host ceiling and narrow-only enforcement.
+- [ ] **EG-ORCH-VOCAB-R009.18 status:** Keep SPECIFIED until separately reviewed implementation and served evidence are available.
+
+- [ ] **EG-ORCH-VOCAB-R013.7 (AU:115):** Define and wire the EG-owned residual for `EG-ORCH-VOCAB-R013` using the reviewed producer/consumer route; preserve covered clauses `EG-REPO-INGEST-R009`, `AU-HARNESS-R024`, `EG-ORCH-VOCAB-R013.1`, `EG-ORCH-VOCAB-R013.3`.
+- [ ] **EG-ORCH-VOCAB-R013.7 acceptance:** Deliver the positive, negative, refusal, boundary, or readback cases explicitly required by: Add the query-output and provenance contract under existing owners; retain trace definitions.
+- [ ] **EG-ORCH-VOCAB-R013.7 status:** Keep SPECIFIED until separately reviewed implementation and served evidence are available.
+
+- [ ] **EG-ORCH-VOCAB-R003.8 (EG:12):** Define and wire the EG-owned residual for `EG-ORCH-VOCAB-R003` using the reviewed producer/consumer route; preserve covered clauses `EG-DECISION-ENGINE-R135.2`, `EG-DECISION-ENGINE-R135.4`, `EG-DECISION-ENGINE-R036`, `EG-ORCH-VOCAB-R003.5`, `EG-ORCH-VOCAB-R003.6`.
+- [ ] **EG-ORCH-VOCAB-R003.8 acceptance:** Deliver the positive, negative, refusal, boundary, or readback cases explicitly required by: Add these residuals under existing assembly/program/vocabulary owners.
+- [ ] **EG-ORCH-VOCAB-R003.8 status:** Keep SPECIFIED until separately reviewed implementation and served evidence are available.
+
+- [ ] **EG-ORCH-VOCAB-R012.7 (EG:46):** Define and wire the EG-owned residual for `EG-ORCH-VOCAB-R012.2` using the reviewed producer/consumer route; preserve covered clauses `EG-ORCH-VOCAB-R012.1`, `EG-ORCH-VOCAB-R012.2`, `EG-ORCH-VOCAB-R012.3`, `EG-ORCH-VOCAB-R012.4`, `EG-ORCH-VOCAB-R012.5`, `EG-ORCH-VOCAB-R012.6`, `EG-DECISION-ENGINE-R129.3`, `EG-DECISION-ENGINE-R129.4`, `EG-DECISION-ENGINE-R129.5`, `EG-IDENTITY-R008.4`.
+- [ ] **EG-ORCH-VOCAB-R012.7 acceptance:** Deliver the positive, negative, refusal, boundary, or readback cases explicitly required by: Credit R012.1-.6 rather than treating policy-node ingestion as wholly absent. Define content-to-policy-rule synthesis and link its activation path to invariant checking and reasoning consumption. A contradictory repository policy must be refused before activation while preserving prior policy state.
+- [ ] **EG-ORCH-VOCAB-R012.7 status:** Keep SPECIFIED until separately reviewed implementation and served evidence are available.
+
+- [ ] **EG-ORCH-VOCAB-R004.6 (EG:51):** Define and wire the EG-owned residual for `EG-ORCH-VOCAB-R004` using the reviewed producer/consumer route; preserve covered clauses `EG-ORCH-VOCAB-R004`, `EG-DECISION-ENGINE-R010`.
+- [ ] **EG-ORCH-VOCAB-R004.6 acceptance:** Deliver the positive, negative, refusal, boundary, or readback cases explicitly required by: Extend existing capability/orchestration vocabulary and its registry query contract with gap/enhancement types and task-class relations. Prove persisted create/read and task-class filtering; distinguish a request-local abstention from a durable catalog entry.
+- [ ] **EG-ORCH-VOCAB-R004.6 status:** Keep SPECIFIED until separately reviewed implementation and served evidence are available.
+
+- [ ] **EG-ORCH-VOCAB-R012.8 (EG:61):** Define and wire the EG-owned residual for `EG-ORCH-VOCAB-R012.2` using the reviewed producer/consumer route; preserve covered clauses `EG-IDENTITY-R008.4`, `EG-ORCH-VOCAB-R012.2`, `GRAPHOS-OPS-R050.2`, `GRAPHOS-OPS-R050.4`, `EG-ORCH-VOCAB-R012.5`, `EG-ORCH-VOCAB-R012.6`.
+- [ ] **EG-ORCH-VOCAB-R012.8 acceptance:** Deliver the positive, negative, refusal, boundary, or readback cases explicitly required by: Bind reviewed file revision/digest to activated EG policy. Require no autonomous source overwrite and route requested source changes via approved SDK writeback; test rejected/stale review leaves file and active policy unchanged.
+- [ ] **EG-ORCH-VOCAB-R012.8 status:** Keep SPECIFIED until separately reviewed implementation and served evidence are available.
+<!-- /spec-definition-patch -->
+
+<!-- spec-definition-patch:reviewed-mapped-subsets-20261012 -->
+## Mapped definition tasks — 2026-10-12
+
+- [ ] `EG-ORCH-VOCAB-R005.100`: add the typed request/result, policy/revision binding, producer/consumer wiring contract, refusal cases and receipt/readback fields described in requirements; preserve `R005` and its prior children.
+- [ ] `EG-ORCH-VOCAB-R005.100`: add served acceptance for: Served parallel workflow has a secret undeclared nested field and a declared sibling field; worker receives only its declared projection, while coordinator can still synthesize typed outputs. Unknown paths, stale schema or unauthorized source fields refuse before dispatch. Preserve R020 typed result and schema-refusal behavior.
+- [ ] `EG-ORCH-VOCAB-R009.100`: add the typed request/result, policy/revision binding, producer/consumer wiring contract, refusal cases and receipt/readback fields described in requirements; preserve `R009` and its prior children.
+- [ ] `EG-ORCH-VOCAB-R009.100`: add served acceptance for: Served read test exports a parent with multiple spawned agents and tool calls, retrieves all correlated records across pages, and verifies stable digest, redaction and completeness. Missing child, duplicate span, unauthorized read and truncated pagination are detected/refused. Do not assert MCP transport delivery from EG read tests.
+<!-- /spec-definition-patch -->
+
+
+<!-- spec-definition-patch:owner-dispatch-20261012-tasks -->
+## Cross-owner harness analytics tasks — 2026-10-12
+
+- [ ] `EG-ORCH-VOCAB-R009.101`: define and serve manifest-bound harness session sync/search over existing RunTrace records; include source/index revisions, coverage and stable cursor.
+- [ ] `EG-ORCH-VOCAB-R010.100`: define and serve proposal/prompt/progress-to-trace metric joins with partial/unknown semantics and independent trace readback.
+- [ ] `EG-ORCH-VOCAB-R010.101`: add typed non-overlapping token accounting and grouped indexed usage queries; measure the stated 1,000,000-row p95 boundary through the served path.
+- [ ] For each row, implement positive, refusal, stale-revision and cross-tenant cases exactly as its requirement specifies; preserve existing R009/R010 children and metric meanings.
+<!-- /spec-definition-patch -->

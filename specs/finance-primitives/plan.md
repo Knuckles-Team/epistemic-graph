@@ -375,3 +375,29 @@ The held query lane owns missing textual admission; these definitions do not cha
 | Volatility, mean-reversion, hedge and factor models | R002.6.2 through R002.6.5, respectively |
 
 These scenarios have no new execution receipts. Existing parent receipts remain unchanged.
+
+<!-- spec-definition-patch:owner-batch-20261012-finance-primitives -->
+## Reviewed residual closure plan — owner batch 2026-10-12
+
+### `EG-FINANCE-PRIMITIVES-R015.1` — EG:43
+
+- Existing EG rollup: `EG-FINANCE-PRIMITIVES-R015`; append-only residual ID: `EG-FINANCE-PRIMITIVES-R015.1`.
+- Original objective: Orders are staged as immutable versioned snapshots and promoted atomically, with append-only history linked by derivation edges; pre-commit hooks can refuse promotion.
+- Missing EG obligation: Order-specific immutable versioned staging, atomic promotion, append-only derivation history and pre-commit promotion-veto hooks are not established by those primitives.
+- Producer/consumer route: EG proposed order snapshot/admission -> GraphOS authenticated confirmation -> SDK governed provider effect. No public order-snapshot promotion producer is established in these EG rows.
+- Minimum closure action: Define order-snapshot lifecycle and promotion admission using existing sealed-record and transactional authorities; add immutable-history, derivation-link and veto/no-effects acceptance. Keep provider order submission in SDK governed writeback and host confirmation in GraphOS.
+- Preserve covered clauses: `EG-DECISION-ENGINE-R019`, `EG-DURABLE-KERNEL-R057`, `EG-FINANCE-PRIMITIVES-R015`.
+- Source review: `e3ad9b1e3121eb3278c3e2b52ce948817e317db3de48d5886a624ffe2ba9be47`; evidence: epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:30; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/durable-graph-kernel/requirements.md:100; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/finance-primitives/requirements.md:143.
+- Cross-owner behavior and receipts remain with the named owner; no runtime evidence is claimed.
+
+### `EG-FINANCE-PRIMITIVES-R002.11` — EG:67
+
+- Existing EG rollup: `EG-FINANCE-PRIMITIVES-R002`; append-only residual ID: `EG-FINANCE-PRIMITIVES-R002.11`.
+- Original objective: Regime-switching Markov models forecast multi-step state probabilities and feed position sizing; forecasts carry calibration evidence and abstain when regime confidence is low.
+- Missing EG obligation: No multi-step Markov state-probability forecast with its own calibration/confidence refusal is wired into position sizing. A Kalman volatility profile or directional flip confidence is not that joint model.
+- Producer/consumer route: Shared regime HMM -> proposed multi-step probability forecast -> existing sizing analysis; joined public forecast/sizing carrier remains unspecified. No live-order action is authorized.
+- Minimum closure action: Extend existing finance owner with transition/state horizon probabilities and their sizing consumer/calibration binding. Use seeded transition-matrix oracle, horizon sums, low-confidence refusal and served sizing dependency tests; preserve R002 original kernels.
+- Preserve covered clauses: `EG-DECISION-ENGINE-R103`, `EG-FINANCE-PRIMITIVES-R002`, `EG-FINANCE-PRIMITIVES-R010`, `EG-FINANCE-PRIMITIVES-R002.1.14`, `EG-FINANCE-PRIMITIVES-R002.6.2`, `EG-FINANCE-PRIMITIVES-R009.1`.
+- Source review: `037f3edf5fe38f55ac24d6e0cc7bd85f1efc60cadf7c97b66b44978613a7acb6`; evidence: epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:173; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/finance-primitives/requirements.md:6; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/finance-primitives/requirements.md:123; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/finance-primitives/requirements.md:21.
+- Cross-owner behavior and receipts remain with the named owner; no runtime evidence is claimed.
+<!-- /spec-definition-patch -->

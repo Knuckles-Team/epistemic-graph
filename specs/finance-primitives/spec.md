@@ -98,3 +98,31 @@ The test contract requires independent numerical oracles and real served positiv
 
 R002.1, R002.2 and R002.6 retain their acceptance as rollups of kernel-specific and model-specific children.
 The linear recurrence requires mutually uncorrelated process and measurement noises; unsupported correlation declarations refuse.
+
+<!-- spec-definition-patch:owner-batch-20261012-finance-primitives -->
+## Reviewed owner residuals — 2026-10-12
+
+### `EG-FINANCE-PRIMITIVES-R015.1` — EG:43
+
+Original objective: Orders are staged as immutable versioned snapshots and promoted atomically, with append-only history linked by derivation edges; pre-commit hooks can refuse promotion.
+
+EG-owned residual: Order-specific immutable versioned staging, atomic promotion, append-only derivation history and pre-commit promotion-veto hooks are not established by those primitives.
+
+Producer/consumer boundary: EG proposed order snapshot/admission -> GraphOS authenticated confirmation -> SDK governed provider effect. No public order-snapshot promotion producer is established in these EG rows.
+
+Preserve existing coverage: `EG-DECISION-ENGINE-R019`, `EG-DURABLE-KERNEL-R057`, `EG-FINANCE-PRIMITIVES-R015`.
+
+Owner source hash: `e3ad9b1e3121eb3278c3e2b52ce948817e317db3de48d5886a624ffe2ba9be47`. This definition adds no AU/GraphOS/SDK implementation or acceptance claim.
+
+### `EG-FINANCE-PRIMITIVES-R002.11` — EG:67
+
+Original objective: Regime-switching Markov models forecast multi-step state probabilities and feed position sizing; forecasts carry calibration evidence and abstain when regime confidence is low.
+
+EG-owned residual: No multi-step Markov state-probability forecast with its own calibration/confidence refusal is wired into position sizing. A Kalman volatility profile or directional flip confidence is not that joint model.
+
+Producer/consumer boundary: Shared regime HMM -> proposed multi-step probability forecast -> existing sizing analysis; joined public forecast/sizing carrier remains unspecified. No live-order action is authorized.
+
+Preserve existing coverage: `EG-DECISION-ENGINE-R103`, `EG-FINANCE-PRIMITIVES-R002`, `EG-FINANCE-PRIMITIVES-R010`, `EG-FINANCE-PRIMITIVES-R002.1.14`, `EG-FINANCE-PRIMITIVES-R002.6.2`, `EG-FINANCE-PRIMITIVES-R009.1`.
+
+Owner source hash: `037f3edf5fe38f55ac24d6e0cc7bd85f1efc60cadf7c97b66b44978613a7acb6`. This definition adds no AU/GraphOS/SDK implementation or acceptance claim.
+<!-- /spec-definition-patch -->

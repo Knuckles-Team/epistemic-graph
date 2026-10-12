@@ -64,3 +64,19 @@ At least three self-hosted apps, including one on MariaDB, must be attached end 
 All attached-source dialect tiers must pass their applicable conformance rows. Three self-hosted apps including a MariaDB app must be attached with ingest connectors retired. The accelerated copy must hold its lag objective across restart and failover. EG mirrors must match prior fan-out semantics and restore SQL tables into real Postgres. Gramps must either meet the native-hosting exit evidence or close with an evidence report if P6 is not approved. Record the EG-UNIFIED-DATA-PLANE-R001 and EG-UNIFIED-DATA-PLANE-R025 architecture decision records. The [test specification](test-spec.md) defines failures as well as successes, and [tasks](tasks.md) retains every row without marking it built.
 
 Requirement IDs are defined in [requirements.md](requirements.md); delivery state per ID is in `status.json`.
+
+<!-- spec-definition-patch:owner-batch-20261012-unified-data-plane -->
+## Reviewed owner residuals — 2026-10-12
+
+### `EG-UNIFIED-DATA-PLANE-R026.4` — EG:64
+
+Original objective: The platform can act as a persistent store backend for external applications that expect a relational schema, exposing graph data through that schema read-only unless writes are explicitly granted.
+
+EG-owned residual: A write grant must not make a projection writable. Exact graph-to-relational schema/read compatibility and routing separately granted mutations to authoritative graph admission remain incompletely linked.
+
+Producer/consumer boundary: External app -> relational/projection read; writes -> authorized graph MutationBatch (or governed SDK attached-source effect), never projected table writes.
+
+Preserve existing coverage: `EG-DURABLE-KERNEL-R035`, `EG-DURABLE-KERNEL-R043`, `EG-FEDERATED-QUERY-R080`, `EG-UNIFIED-DATA-PLANE-R026`, `EG-FEDERATED-QUERY-R080.1`, `EG-FEDERATED-QUERY-R080.2`, `EG-FEDERATED-QUERY-R080.3`, `EG-FEDERATED-QUERY-R080.4`, `EG-FEDERATED-QUERY-R080.5`, `EG-FEDERATED-QUERY-R080.6`.
+
+Owner source hash: `c55bc629b1bfefc9d0346b75b8bb95e5a231b891e7e34297df17b960d6c9773c`. This definition adds no AU/GraphOS/SDK implementation or acceptance claim.
+<!-- /spec-definition-patch -->

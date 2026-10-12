@@ -28,3 +28,41 @@ Task completion requires code and test evidence at an exact commit. The presence
 - [ ] **T1k — EG-REPO-INGEST-R003.11:** Confirm the migrated placement-mining research capability is reachable only through its EG typed interface and add the consumer test proving the retiring source module no longer performs the same computation.
 
 Parallel implementation is allowed only where interfaces and file ownership are explicit. Merge the native engine contract before dependent SDK or application consumers cut over. Retire obsolete graph writers after their callers are migrated and parity tests pass.
+
+<!-- spec-definition-patch:owner-batch-20261012-repository-index-and-ingestion -->
+## Reviewed residual definition tasks — owner batch 2026-10-12
+
+- [ ] **EG-REPO-INGEST-R002.1 (AU:23):** Define and wire the EG-owned residual for `EG-REPO-INGEST-R002` using the reviewed producer/consumer route; preserve covered clauses `AU-HARNESS-R022.2`, `AU-CONTROL-R037.3`, `AU-CONTROL-R037.5`, `EG-REPO-INGEST-R002`.
+- [ ] **EG-REPO-INGEST-R002.1 acceptance:** Deliver the positive, negative, refusal, boundary, or readback cases explicitly required by: Compile each skill document step with `step_id`, source path/revision/span, instruction digest, typed input/output names and `depends_on` ids into an ordered `TaskPlan` whose nodes preserve those bindings; keep the skill directory as a graph reference and do not copy the document body. Refuse a missing/duplicate step id, unresolved dependency, cycle, unsupported input/output type or absent source span before emitting a plan. Name AU `graph_orchestrate -> execute_workflow` as the consumer; preserve existing directory-reference and gap-resolution clauses.
+- [ ] **EG-REPO-INGEST-R002.1 status:** Keep SPECIFIED until separately reviewed implementation and served evidence are available.
+
+- [ ] **EG-REPO-INGEST-R006.1 (AU:70):** Define and wire the EG-owned residual for `EG-REPO-INGEST-R006` using the reviewed producer/consumer route; preserve covered clauses `AU-RETIRE-R005`, `EG-REPO-INGEST-R006`.
+- [ ] **EG-REPO-INGEST-R006.1 acceptance:** Deliver the positive, negative, refusal, boundary, or readback cases explicitly required by: Measure accepted unique paper ids per rolling 24-hour window at each ingestion stage; report accepted count, attempted count, elapsed seconds, dedup count and stage revision. The target is 2,000 accepted papers per 24 hours. Below target, emit a per-goal decision with observed rate, shortfall, backlog count and budget allocation bound to the same window; purge candidates are limited to terminal, unleased, non-authoritative work items whose durable source and decision receipts are retained. Never purge active work or the last authoritative source copy. Missing/stale telemetry or purge authorization refuses. GraphOS owns governed maintenance dispatch; AU supplies observations, not policy authority.
+- [ ] **EG-REPO-INGEST-R006.1 status:** Keep SPECIFIED until separately reviewed implementation and served evidence are available.
+
+- [ ] **EG-REPO-INGEST-R006.2 (AU:92):** Define and wire the EG-owned residual for `EG-REPO-INGEST-R006` using the reviewed producer/consumer route; preserve covered clauses `EG-REPO-INGEST-R006`, `EG-UNIFIED-DATA-PLANE-R040.2`, `AU-CONTEXT-R002`.
+- [ ] **EG-REPO-INGEST-R006.2 acceptance:** Deliver the positive, negative, refusal, boundary, or readback cases explicitly required by: For each post-sync re-embed job, bind previous/new embedding revisions and per-feature importance values. Minimize `base_embedding_loss + lambda * sum(importance_i * distance(old_i,new_i))` with nonnegative versioned `lambda`; persist the policy and input digest. Enqueue consolidation only after sync commit and never execute it in a routing request. Refuse missing/stale importance evidence or mismatched embedding revisions. Test low-importance update, high-importance retention and no routing-loop consolidation.
+- [ ] **EG-REPO-INGEST-R006.2 status:** Keep SPECIFIED until separately reviewed implementation and served evidence are available.
+
+- [ ] **EG-REPO-INGEST-R006.3 (EG:54):** Define and wire the EG-owned residual for `EG-REPO-INGEST-R006` using the reviewed producer/consumer route; preserve covered clauses `EG-FEDERATED-QUERY-R017`, `EG-REPO-INGEST-R006`, `EG-REPO-INGEST-R009`.
+- [ ] **EG-REPO-INGEST-R006.3 acceptance:** Deliver the positive, negative, refusal, boundary, or readback cases explicitly required by: Define a code-map request with tenant, repository id, pinned source revision, behavior/symbol query and requested relations (`contains`, `calls`, `depends_on`). Return map revision plus modules, symbols, calls and dependencies, each with stable id, language, source path, source span and source revision. Refuse when current repository revision differs from the pinned map/source revision; never return stale symbols as current. Test changed and unchanged symbols after a new source revision and bind the response digest to the exact query.
+- [ ] **EG-REPO-INGEST-R006.3 status:** Keep SPECIFIED until separately reviewed implementation and served evidence are available.
+
+- [ ] **EG-REPO-INGEST-R006.4 (EG:55):** Define and wire the EG-owned residual for `EG-REPO-INGEST-R006` using the reviewed producer/consumer route; preserve covered clauses `EG-REPO-INGEST-R006`, `EG-REPO-INGEST-R007`, `EG-REPO-INGEST-R010`, `SDK-SOURCE-INGEST-R004`.
+- [ ] **EG-REPO-INGEST-R006.4 acceptance:** Deliver the positive, negative, refusal, boundary, or readback cases explicitly required by: For an index request, bind the changed-file set, repository revision and caller-declared `max_working_bytes`; reuse unchanged file entries and parse only changed files. Measure peak working bytes and release parser/index buffers after completion or typed failure; refuse before exceeding the declared bound. The semantic-type registry is an explicit language-id/parser-version/mode matrix; unsupported language or mode returns `unsupported_semantic_types` while syntax indexing may proceed. Test changed vs unchanged file counts, peak bound, post-run release and every declared language/mode row.
+- [ ] **EG-REPO-INGEST-R006.4 status:** Keep SPECIFIED until separately reviewed implementation and served evidence are available.
+<!-- /spec-definition-patch -->
+
+<!-- spec-definition-patch:reviewed-mapped-subsets-20261012 -->
+## Mapped definition tasks — 2026-10-12
+
+- [ ] `EG-REPO-INGEST-R002.100`: add the typed request/result, policy/revision binding, producer/consumer wiring contract, refusal cases and receipt/readback fields described in requirements; preserve `R002` and its prior children.
+- [ ] `EG-REPO-INGEST-R002.100`: add served acceptance for: Served producer/consumer test persists a multi-result search, then reads through a separate authorized query and proves success only after exact match. Refuse denied/partial/mismatched/stale readback and verify success remains unset; independently read back the durable records and both receipts. AU execution/success consumer evidence remains a separate owner obligation.
+<!-- /spec-definition-patch -->
+
+<!-- spec-definition-patch:final-mappings-20261012 -->
+## Final mapped definition tasks — 2026-10-12
+
+- [ ] `EG-REPO-INGEST-R002.101`: implement the typed fields, decision/refusal behavior and owner boundary stated in requirements; preserve `EG-REPO-INGEST-R002`.
+- [ ] `EG-REPO-INGEST-R002.101` acceptance: Run the actual graph-loaded workflow through the named AU path, perform hydration, then independently read it back and verify exact workflow revision, run, output and graph revision bindings before success. Refuse stale workflow, engine/plan mismatch, hydration digest mismatch and denied/partial readback; assert the gate remains failed. Exclude fake-engine/catalog fixtures.
+<!-- /spec-definition-patch -->

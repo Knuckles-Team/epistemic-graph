@@ -62,3 +62,15 @@ Each child is a separate documentation review unit of at most five minutes.
 - [ ] **EG-CONTRACT-R052.2:** Compare build, package, and runtime boundaries using EG-T-12.2.
 - [ ] **EG-CONTRACT-R052.3:** Resolve shared-contract ownership and call sites using EG-T-12.3.
 - [ ] **EG-CONTRACT-R052.4:** Check evidence boundaries and the diagram coverage map using EG-T-12.4.
+
+<!-- spec-definition-patch:owner-batch-20261012-public-engine-contract-and-release -->
+## Reviewed residual definition tasks — owner batch 2026-10-12
+
+- [ ] **EG-CONTRACT-R001.1 (AU:109):** Define and wire the EG-owned residual for `EG-CONTRACT-R001` using the reviewed producer/consumer route; preserve covered clauses `AU-HARNESS-R007`, `EG-CONTRACT-R001`, `AU-HARNESS-R008`.
+- [ ] **EG-CONTRACT-R001.1 acceptance:** Deliver the positive, negative, refusal, boundary, or readback cases explicitly required by: Extend the typed agent lifecycle owner to enumerate construction, mutation/transition validation, persistence and serialization boundaries. Bind them to the existing generated models and prove malformed state refusal and complete lifecycle roundtrip.
+- [ ] **EG-CONTRACT-R001.1 status:** Keep SPECIFIED until separately reviewed implementation and served evidence are available.
+
+- [ ] **EG-CONTRACT-R001.2 (AU:121):** Define and wire the EG-owned residual for `EG-CONTRACT-R001` using the reviewed producer/consumer route; preserve covered clauses `EG-CONTRACT-R001`, `EG-TYPED-PACKS-R094.2`, `EG-TYPED-PACKS-R094.5`, `EG-TYPED-PACKS-R094.7`, `EG-TYPED-PACKS-R094.3`.
+- [ ] **EG-CONTRACT-R001.2 acceptance:** Deliver the positive, negative, refusal, boundary, or readback cases explicitly required by: Link R094.2–.7 as partial coverage; add only disk-format/Pydantic difference semantics.
+- [ ] **EG-CONTRACT-R001.2 status:** Keep SPECIFIED until separately reviewed implementation and served evidence are available.
+<!-- /spec-definition-patch -->

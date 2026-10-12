@@ -182,3 +182,11 @@ For each row, add a subentry containing its merged commit, exact-head test run, 
 - [ ] **EG-UNIFIED-DATA-PLANE-R040.4:** Refusal. A blocked promotion must leave the prior version active. The engine must return `PromotionBlocked` naming each regressed modality, its baseline and its measured value. The engine must not tag any vector with the candidate version.
 - [ ] **EG-UNIFIED-DATA-PLANE-R040.5:** Evidence. The engine must store each `PromotionVerdict` as a node linked to the candidate model and version. It carries the per-modality metric, floor and probe set digest. The node is readable through a graph query.
 - [ ] **EG-UNIFIED-DATA-PLANE-R040.6:** Hot-path proof. The entry point is a served row write on a bound text column. The test replaces the embedding model with a candidate that regresses the image check. The write passes through the re-embed worker and the wired gate. The test observes the blocked promotion and the prior version still active.
+
+<!-- spec-definition-patch:owner-batch-20261012-unified-data-plane -->
+## Reviewed residual definition tasks — owner batch 2026-10-12
+
+- [ ] **EG-UNIFIED-DATA-PLANE-R026.4 (EG:64):** Define and wire the EG-owned residual for `EG-UNIFIED-DATA-PLANE-R026` using the reviewed producer/consumer route; preserve covered clauses `EG-DURABLE-KERNEL-R035`, `EG-DURABLE-KERNEL-R043`, `EG-FEDERATED-QUERY-R080`, `EG-UNIFIED-DATA-PLANE-R026`, `EG-FEDERATED-QUERY-R080.1`, `EG-FEDERATED-QUERY-R080.2`, `EG-FEDERATED-QUERY-R080.3`, `EG-FEDERATED-QUERY-R080.4`, `EG-FEDERATED-QUERY-R080.5`, `EG-FEDERATED-QUERY-R080.6`.
+- [ ] **EG-UNIFIED-DATA-PLANE-R026.4 acceptance:** Deliver the positive, negative, refusal, boundary, or readback cases explicitly required by: Retain the conditional-write intent through a separate authorized MutationBatch/graph endpoint. Link schema mapping/read requirements and add external-application served tests proving projection denial even with write grants and authorized graph mutation reflected on read.
+- [ ] **EG-UNIFIED-DATA-PLANE-R026.4 status:** Keep SPECIFIED until separately reviewed implementation and served evidence are available.
+<!-- /spec-definition-patch -->

@@ -63,3 +63,31 @@ Requirement IDs are defined in [requirements.md](requirements.md); delivery stat
 EG-CONTRACT-R052 owns the source-linked architecture map in [plan.md](plan.md#2026-10-12-current-architecture-boundaries).
 The map preserves existing subsystem owners and distinguishes design, source wiring, generated delivery state, and execution evidence.
 It changes no architecture, enabled feature, package recipe, or release version.
+
+<!-- spec-definition-patch:owner-batch-20261012-public-engine-contract-and-release -->
+## Reviewed owner residuals — 2026-10-12
+
+### `EG-CONTRACT-R001.1` — AU:109
+
+Original objective: Agents use typed models as their primary data model, with construction, validation and serialization throughout the agent lifecycle.
+
+EG-owned residual: Explicit typed primary agent data model with construction, validation and serialization throughout the entire lifecycle beyond existing port/wire boundaries.
+
+Producer/consumer boundary: Retain EG generated strict client types and AU HarnessPort/run_agent contracts. Missing lifecycle model ownership and construction/validation/serialization edges must be named; no parallel wire authority should be introduced.
+
+Preserve existing coverage: `AU-HARNESS-R007`, `EG-CONTRACT-R001`, `AU-HARNESS-R008`.
+
+Owner source hash: `c0d92285a141dcaac6817bcac25ffa438517afeba50be716211751f3a37a31c2`. This definition adds no AU/GraphOS/SDK implementation or acceptance claim.
+
+### `EG-CONTRACT-R001.2` — AU:121
+
+Original objective: Prompt JSON blueprints and Pydantic models round-trip through disk with stable formatting and no field lost; a round-trip difference fails the test.
+
+EG-owned residual: Define stable prompt JSON/Pydantic disk formatting and the exact difference oracle; retain new semantic roundtrip coverage.
+
+Producer/consumer boundary: EG R094.2/.3/.5 exports/adopts native bodies; R094.7 consumes SDK RepositorySourceEffectIntent/Request/Receipt through GraphOS RepositoryWriteBackParams. R001 supplies Pydantic wire types. Missing definition is the disk serializer/test, not merged source-effect ownership.
+
+Preserve existing coverage: `EG-CONTRACT-R001`, `EG-TYPED-PACKS-R094.2`, `EG-TYPED-PACKS-R094.5`, `EG-TYPED-PACKS-R094.7`, `EG-TYPED-PACKS-R094.3`.
+
+Owner source hash: `98b7ad1186ec2a385b334ffa0ad1b28888157ed6b51c6ed4172eeb7b7ef6768e`. This definition adds no AU/GraphOS/SDK implementation or acceptance claim.
+<!-- /spec-definition-patch -->

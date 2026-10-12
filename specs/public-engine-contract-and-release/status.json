@@ -69,13 +69,15 @@
     "EG-CONTRACT-R052.1",
     "EG-CONTRACT-R052.2",
     "EG-CONTRACT-R052.3",
-    "EG-CONTRACT-R052.4"
+    "EG-CONTRACT-R052.4",
+    "EG-CONTRACT-R001.1",
+    "EG-CONTRACT-R001.2"
   ],
   "requirements": [
     {
       "id": "EG-CONTRACT-R001",
       "title": "Strict typed Pydantic models for every method and nested type",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "6cd6c7ea0c87",
         "72c7dfa478ba",
@@ -85,6 +87,10 @@
         "tests/test_generated_models.py:105",
         "tests/test_generated_models.py:122",
         "tests/test_generated_models.py:69"
+      ],
+      "rollup_of": [
+        "EG-CONTRACT-R001.1",
+        "EG-CONTRACT-R001.2"
       ]
     },
     {
@@ -823,6 +829,20 @@
     {
       "id": "EG-CONTRACT-R052.4",
       "title": "Runtime evidence and refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONTRACT-R001.1",
+      "title": "Reviewed residual `AU:109`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONTRACT-R001.2",
+      "title": "Reviewed residual `AU:121`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

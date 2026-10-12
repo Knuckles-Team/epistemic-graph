@@ -496,3 +496,92 @@ Its performance claims and historical backend descriptions do not establish curr
 The blueprint source requests complete custom-field preservation across load, modification and persistence.
 Its earlier direct-file-write proposal does not override the separate approved-effect boundary.
 Neither accepted input supplies a research paper or arXiv identifier; no research result is claimed here.
+
+<!-- spec-definition-patch:owner-batch-20261012-typed-packs-and-catalog -->
+## Reviewed residual closure plan — owner batch 2026-10-12
+
+### `EG-TYPED-PACKS-R100.7` — AU:31
+
+- Existing EG rollup: `EG-TYPED-PACKS-R100.1`; append-only residual ID: `EG-TYPED-PACKS-R100.7`.
+- Original objective: Accumulated graph knowledge about a task domain is distilled into a versioned skill package that the platform publishes only after validation against recorded runs; unvalidated packages are refused.
+- Missing EG obligation: A content digest/graph revision supplies package identity evidence, but neither rendering nor minimum rollout count validates that exact resulting package against recorded runs before publication. The required publication refusal remains absent.
+- Producer/consumer route: AU record_outcome/SkillGraphPipeline yields candidates; EG render_skill_package is called by fleet catalog skill_row and binds graph revision/content digest. No reviewed recorded-run validation receipt gates publication of that exact rendered package.
+- Minimum closure action: Link the existing digest/revision package identity and distillation contracts, then define exact-package recorded-run validation and refusal before publication. Do not duplicate the existing rendered-package version evidence.
+- Preserve covered clauses: `AU-HARNESS-R022.2`, `AU-HARNESS-R022.5`, `AU-HARNESS-R022.6`, `AU-HARNESS-R004.1`, `EG-TYPED-PACKS-R100.1`, `EG-TYPED-PACKS-R100.5`, `EG-TYPED-PACKS-R100.6`.
+- Source review: `96ff38761f9e21d52f608ba593c902aff4c93ca7b1ed13088ad39efd3e968a3a`; evidence: agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:111; agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:114; agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:115; agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:9.
+- Cross-owner behavior and receipts remain with the named owner; no runtime evidence is claimed.
+
+### `EG-TYPED-PACKS-R097.2.7` — EG:35
+
+- Existing EG rollup: `EG-TYPED-PACKS-R097.2.1`; append-only residual ID: `EG-TYPED-PACKS-R097.2.7`.
+- Original objective: External ontology and knowledge-graph schemas are ingested and normalized into the platform ontology through declared mappings; an unmapped term is reported and not silently adopted.
+- Missing EG obligation: R097.2 covers selected pack classes in named domains and R071.1 crosswalks point EG classes to target vocabularies. They do not establish general external ontology/KG schema normalization into platform terms, including non-class terms. A valid pack may retain unmapped declared classes; that is not a blanket refusal of all unmapped external-term ingestion.
+- Producer/consumer route: Connector candidates -> ConnectorPack.Import validate_and_commit -> apply_pack_source -> OntologyInspect/GraphSchemaClasses. Reverse-direction external normalization is not implied by existing SeeAlso/SKOS links.
+- Minimum closure action: Update ledger links to R071.1/R097.2. Retain only the external-to-platform ingestion direction, term-kind scope and normalization/adoption boundary not already defined. Add incoming external-schema fixtures with mapped and unmapped terms; reuse existing crosswalk authority and coverage/refusal machinery.
+- Preserve covered clauses: `EG-TYPED-PACKS-R051`, `EG-UNIFIED-DATA-PLANE-R005`, `EG-UNIFIED-DATA-PLANE-R037`, `EG-TYPED-PACKS-R071.1.1`, `EG-TYPED-PACKS-R071.1.2`, `EG-TYPED-PACKS-R071.1.3`, `EG-TYPED-PACKS-R071.1.4`, `EG-TYPED-PACKS-R071.1.5`, `EG-TYPED-PACKS-R071.1.6`, `EG-TYPED-PACKS-R097.2.1`, `EG-TYPED-PACKS-R097.2.2`, `EG-TYPED-PACKS-R097.2.3`, `EG-TYPED-PACKS-R097.2.4`, `EG-TYPED-PACKS-R097.2.5`, `EG-TYPED-PACKS-R097.2.6`.
+- Source review: `318723aee15c476039eca669a3230b206532c0c704b37efad5a7c49690bbb9c2`; evidence: epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/typed-packs-and-catalog/requirements.md:91; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/unified-data-plane/requirements.md:14; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/unified-data-plane/requirements.md:141; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/typed-packs-and-catalog/requirements.md:116.
+- Cross-owner behavior and receipts remain with the named owner; no runtime evidence is claimed.
+
+### `EG-TYPED-PACKS-R100.8` — EG:56
+
+- Existing EG rollup: `EG-TYPED-PACKS-R100`; append-only residual ID: `EG-TYPED-PACKS-R100.8`.
+- Original objective: Skill workflows are exported as versioned OWL/RDF documents that the engine imports back losslessly; an export whose version is not newer than the stored one is refused.
+- Missing EG obligation: R100 rendering does not define lossless OWL/RDF workflow export/import. No strictly-newer version refusal at export is defined; do not silently move this unusual original clause to import.
+- Producer/consumer route: Fleet catalog skill_row -> render_skill_package -> package consumer; inverse workflow import/version admission remains unbound.
+- Minimum closure action: Preserve the original export-time condition for coordinator decision. Define lossless workflow round-trip and exact version comparison in the existing skill-package owner; test equal/older/newer exports without weakening R100 freshness.
+- Preserve covered clauses: `EG-TYPED-PACKS-R051`, `EG-TYPED-PACKS-R090`, `EG-TYPED-PACKS-R100`, `EG-TYPED-PACKS-R100.1`, `EG-TYPED-PACKS-R100.2`, `EG-TYPED-PACKS-R100.3`, `EG-TYPED-PACKS-R100.4`, `EG-TYPED-PACKS-R100.5`, `EG-TYPED-PACKS-R100.6`.
+- Source review: `620b1ae05d8e35696c7522f207672ef6f374525004d5488fe62fb4b27fc6cf5a`; evidence: epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/typed-packs-and-catalog/requirements.md:91; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/typed-packs-and-catalog/requirements.md:140; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/typed-packs-and-catalog/requirements.md:168; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/typed-packs-and-catalog/requirements.md:169.
+- Cross-owner behavior and receipts remain with the named owner; no runtime evidence is claimed.
+<!-- /spec-definition-patch -->
+
+<!-- spec-definition-patch:reviewed-mapped-subsets-20261012 -->
+## Mapped definition implementation plan — 2026-10-12
+
+### `EG-TYPED-PACKS-R069.100` / AU:69
+
+- Extend existing parent `R069` without removing its existing behavior.
+- Specify: Define `fingerprint_profile` as language id, parser implementation/version, normalization-policy version and grammar digest. The versioned profile registry explicitly lists each supported language and the trivia/comment forms removed from its canonical token stream; strings, literals, token order and all non-trivia tokens are preserved. Hash the canonical token stream together with language/parser/profile versions. Unsupported languages use raw-content digest only and are never classified as cosmetic. On parser/profile revision change, force reparse and recompute; compare under the new profile before deciding whether semantic graph mutation is needed, while always writing the new source revision/raw digest/provenance. Identical raw digest is a full no-op. SDK transports raw revision/digest only; EG owns semantic classification.
+- Producer/consumer boundary: RepositorySnapshotProvider -> SDK transport -> generated IndexRepository -> EG parser/index mutation; R079 embedding dedupe is not structural-mutation suppression.
+- Source record SHA-256: `8ca81dc16448fefc73440f2eb9ea07b2e433f7e38075563f86800071029846e9`.
+- Keep status SPECIFIED until the EG served producer and each separately owned consumer are implemented, served-tested and independently read back.
+
+### `EG-TYPED-PACKS-R100.100` / AU:90
+
+- Extend existing parent `R100` without removing its existing behavior.
+- Specify: Define an edit representation bound to the original SKILL.md byte digest, source revision, frontmatter field spans, step spans, line endings and unknown/custom-field spans. Apply edits as bounded source-range patches; do not parse and reserialize the entire document. Preserve all untouched bytes, ordering, spacing, comments, line endings and unknown frontmatter fields; emit new content digest and source provenance. Continue to enforce R019 SKILL.md-only import and R029 restricted YAML validation.
+- Producer/consumer boundary: EG owns skill parse/admission and R100 rendering; SDK owns source transport/edit write-back edge. No prompt blueprint or whole-document normalization path is substituted.
+- Source record SHA-256: `1b717c4a284896dbf8c7b4fb1f00ebba80fa6a75e930a020c5bc01706634f582`.
+- Keep status SPECIFIED until the EG served producer and each separately owned consumer are implemented, served-tested and independently read back.
+
+### `EG-TYPED-PACKS-R100.101` / AU:98
+
+- Extend existing parent `R100` without removing its existing behavior.
+- Specify: Define an admission record bound to prior/new skill content digests, consumer-declared input/output behavior contract revisions, observed consumer cohort, compatibility verdict, migration id/digest and admission revision. Compatibility is checked against consuming-code behavior, not package version equality, contract-pin equality, endpoint certification or dependency digest alone. A breaking change is refused before publication/invocation unless a declared migration is bound to the exact old/new digests and consumer contract and its migration receipt passes.
+- Producer/consumer boundary: EG skill package read/admission -> GraphOS invoke certification and consumer code; GraphOS owns its invocation gate. Do not equate existing version/dependency pins with compatibility.
+- Source record SHA-256: `531cb0ba1accd9e88833249fb253a9f5f7a3c1a911f653b3c9a5bfc42341f978`.
+- Keep status SPECIFIED until the EG served producer and each separately owned consumer are implemented, served-tested and independently read back.
+
+### `EG-TYPED-PACKS-R001.100` / AU:52
+
+- Extend existing parent `R001` without removing its existing behavior.
+- Specify: Extend existing ConnectorPack prompt and tool definition entries with explicit schema version, nested field schema, required/optional status and compatibility revision. Incremental evolution records base digest, changed paths and compatibility verdict; additive optional fields may be admitted only when consumer policy says compatible, while removed/changed required fields refuse before publication. Pack index/entry digest rules remain canonical. SDK owns tool execution/schema compatibility authority; EG records and serves the versioned declaration and does not authorize SDK calls.
+- Producer/consumer boundary: EG ConnectorPack typed authority -> generated public pack APIs; SDK retains tool compatibility and execution authority. Preserve R001 index/entry/section/annotation and digest contract.
+- Source record SHA-256: `e03b25156a4f84d27c4afba63d0cd9e526b549b5905994a53664d193416d048c`.
+- Keep status SPECIFIED until the EG served producer and each separately owned consumer are implemented, served-tested and independently read back.
+
+### `EG-TYPED-PACKS-R072.100` / AU:97
+
+- Extend existing parent `R072` without removing its existing behavior.
+- Specify: Extend the typed fleet catalog with workflow registration identity, version/content digest, owner/tenant scope, schema and lifecycle state. Registration is persisted through the existing SourceIngest authority; invocation resolves by registry id and exact admitted revision rather than a caller-supplied body. Unknown, withdrawn, stale or unauthorized workflow ids refuse before execution. Engine/client initialization remains lazy at the AU first-use boundary and is not performed at registration or process startup.
+- Producer/consumer boundary: EG typed registry and SourceIngest R002 own durable registration; AU owns lazy client initialization/execution; preserve GRAPHOS-HOST-R022 workflow-store semantics.
+- Source record SHA-256: `f73767d1a3fdba29a702254ed1db2c9904158b6136f6f4b38a3c9a0d3e4fcb03`.
+- Keep status SPECIFIED until the EG served producer and each separately owned consumer are implemented, served-tested and independently read back.
+
+### `EG-TYPED-PACKS-R071.100` / EG:8
+
+- Extend existing parent `R071` without removing its existing behavior.
+- Specify: Define one versioned concept-path grammar and canonicalization rule shared by EG vocabulary producers, with stable segment identity, parent path and canonical concept IRI. Admission resolves the entire path against the pinned vocabulary revision and checks repository-wide uniqueness plus parent/child consistency. Duplicate aliases, a path that contradicts an existing parent/child relationship, or two IRIs for the same canonical path refuse with the conflicting ids; existing published ontology IRIs remain unchanged and are crosswalked rather than rewritten.
+- Producer/consumer boundary: EG vocabulary validation owns canonical identity; repository producers submit proposed paths. Preserve existing published IRIs and federated query vocabulary.
+- Source record SHA-256: `525e39d1d194ac8a820bbd741a1c261ceab0c7d564981c33c731c06c1eb641d8`.
+- Keep status SPECIFIED until the EG served producer and each separately owned consumer are implemented, served-tested and independently read back.
+<!-- /spec-definition-patch -->

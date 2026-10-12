@@ -231,3 +231,15 @@ The new scenarios have no execution receipts. This definition change introduces 
 - [ ] **EG-FINANCE-PRIMITIVES-R002.6.3:** Mean-reversion strength profile. Execute its positive and negative proof from test-spec.md.
 - [ ] **EG-FINANCE-PRIMITIVES-R002.6.4:** Hedge ratio profile. Execute its positive and negative proof from test-spec.md.
 - [ ] **EG-FINANCE-PRIMITIVES-R002.6.5:** Time-varying factor sensitivity profile. Execute its positive and negative proof from test-spec.md.
+
+<!-- spec-definition-patch:owner-batch-20261012-finance-primitives -->
+## Reviewed residual definition tasks — owner batch 2026-10-12
+
+- [ ] **EG-FINANCE-PRIMITIVES-R015.1 (EG:43):** Define and wire the EG-owned residual for `EG-FINANCE-PRIMITIVES-R015` using the reviewed producer/consumer route; preserve covered clauses `EG-DECISION-ENGINE-R019`, `EG-DURABLE-KERNEL-R057`, `EG-FINANCE-PRIMITIVES-R015`.
+- [ ] **EG-FINANCE-PRIMITIVES-R015.1 acceptance:** Deliver the positive, negative, refusal, boundary, or readback cases explicitly required by: Define order-snapshot lifecycle and promotion admission using existing sealed-record and transactional authorities; add immutable-history, derivation-link and veto/no-effects acceptance. Keep provider order submission in SDK governed writeback and host confirmation in GraphOS.
+- [ ] **EG-FINANCE-PRIMITIVES-R015.1 status:** Keep SPECIFIED until separately reviewed implementation and served evidence are available.
+
+- [ ] **EG-FINANCE-PRIMITIVES-R002.11 (EG:67):** Define and wire the EG-owned residual for `EG-FINANCE-PRIMITIVES-R002` using the reviewed producer/consumer route; preserve covered clauses `EG-DECISION-ENGINE-R103`, `EG-FINANCE-PRIMITIVES-R002`, `EG-FINANCE-PRIMITIVES-R010`, `EG-FINANCE-PRIMITIVES-R002.1.14`, `EG-FINANCE-PRIMITIVES-R002.6.2`, `EG-FINANCE-PRIMITIVES-R009.1`.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.11 acceptance:** Deliver the positive, negative, refusal, boundary, or readback cases explicitly required by: Extend existing finance owner with transition/state horizon probabilities and their sizing consumer/calibration binding. Use seeded transition-matrix oracle, horizon sums, low-confidence refusal and served sizing dependency tests; preserve R002 original kernels.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.11 status:** Keep SPECIFIED until separately reviewed implementation and served evidence are available.
+<!-- /spec-definition-patch -->

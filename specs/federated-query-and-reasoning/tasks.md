@@ -217,3 +217,94 @@ Preserve all previous acceptance and receipts. Deliver producer leaves before th
 - [ ] **EG-FEDERATED-QUERY-R085.6:** Behavior: bounded execution contract.. Fulfil the complete requirement and its named proving test.
 - [ ] **EG-FEDERATED-QUERY-R085.7:** Refusal.. Fulfil the complete requirement and its named proving test.
 - [ ] **EG-FEDERATED-QUERY-R085.8:** Evidence and hot-path proof.. Fulfil the complete requirement and its named proving test.
+
+<!-- spec-definition-patch:owner-batch-20261012-federated-query-and-reasoning -->
+## Reviewed residual definition tasks — owner batch 2026-10-12
+
+- [ ] **EG-FEDERATED-QUERY-R070.1 (AU:71):** Define and wire the EG-owned residual for `EG-FEDERATED-QUERY-R070` using the reviewed producer/consumer route; preserve covered clauses `EG-FEDERATED-QUERY-R070`, `GRAPHOS-OPS-R053.2`, `GRAPHOS-OPS-R053.3`, `GRAPHOS-OPS-R053.5`.
+- [ ] **EG-FEDERATED-QUERY-R070.1 acceptance:** Deliver the positive, negative, refusal, boundary, or readback cases explicitly required by: Extend existing EG retrieval/source-access contracts with the explicit indexless operations, per-query cost/budget and typed abstention; bind the existing host/AU exploration consumer. Do not claim index scans satisfy no-index acceptance.
+- [ ] **EG-FEDERATED-QUERY-R070.1 status:** Keep SPECIFIED until separately reviewed implementation and served evidence are available.
+
+- [ ] **EG-FEDERATED-QUERY-R006.1 (EG:11):** Define and wire the EG-owned residual for `EG-FEDERATED-QUERY-R006` using the reviewed producer/consumer route; preserve covered clauses `EG-FEDERATED-QUERY-R001`, `EG-FEDERATED-QUERY-R011`, `EG-DECISION-ENGINE-R003`, `EG-FEDERATED-QUERY-R006`.
+- [ ] **EG-FEDERATED-QUERY-R006.1 acceptance:** Deliver the positive, negative, refusal, boundary, or readback cases explicitly required by: Add temporal rule semantics and origin-linked fact admission/readback under the existing owner.
+- [ ] **EG-FEDERATED-QUERY-R006.1 status:** Keep SPECIFIED until separately reviewed implementation and served evidence are available.
+
+- [ ] **EG-FEDERATED-QUERY-R040.5 (EG:20):** Define and wire the EG-owned residual for `EG-FEDERATED-QUERY-R040` using the reviewed producer/consumer route; preserve covered clauses `EG-FEDERATED-QUERY-R007`, `EG-FEDERATED-QUERY-R040`, `EG-FEDERATED-QUERY-R040.4`, `EG-FEDERATED-QUERY-R008`.
+- [ ] **EG-FEDERATED-QUERY-R040.5 acceptance:** Deliver the positive, negative, refusal, boundary, or readback cases explicitly required by: Add memory/relation semantics and scaling benchmark, retaining filtered-scan coverage.
+- [ ] **EG-FEDERATED-QUERY-R040.5 status:** Keep SPECIFIED until separately reviewed implementation and served evidence are available.
+
+- [ ] **EG-FEDERATED-QUERY-R040.6 (EG:21):** Define and wire the EG-owned residual for `EG-FEDERATED-QUERY-R040` using the reviewed producer/consumer route; preserve covered clauses `EG-INGEST-WORKER-R003.13`, `EG-INGEST-WORKER-R003.14`, `EG-INGEST-WORKER-R003.17`, `EG-FEDERATED-QUERY-R040`, `EG-INGEST-WORKER-R003.18`, `EG-INGEST-WORKER-R003.16`, `EG-FEDERATED-QUERY-R016`.
+- [ ] **EG-FEDERATED-QUERY-R040.6 acceptance:** Deliver the positive, negative, refusal, boundary, or readback cases explicitly required by: Add taxonomy, episode formation and consumer semantics, reusing scoped transcript/search contracts.
+- [ ] **EG-FEDERATED-QUERY-R040.6 status:** Keep SPECIFIED until separately reviewed implementation and served evidence are available.
+
+- [ ] **EG-FEDERATED-QUERY-R083.7 (EG:22):** Define and wire the EG-owned residual for `EG-FEDERATED-QUERY-R083.1` using the reviewed producer/consumer route; preserve covered clauses `EG-FEDERATED-QUERY-R083.1`, `EG-FEDERATED-QUERY-R083.2`, `EG-FEDERATED-QUERY-R083.3`, `EG-FEDERATED-QUERY-R083.4`, `EG-FEDERATED-QUERY-R083.6`.
+- [ ] **EG-FEDERATED-QUERY-R083.7 acceptance:** Deliver the positive, negative, refusal, boundary, or readback cases explicitly required by: Extend existing R083 behavior/model/refusal acceptance with the support-margin inputs and invariant that unsupported candidates lose. Add a served counterexample with a higher-confidence unsupported candidate and an evidence-supported lower-confidence candidate. Retain current two-candidate, class, abstention and evidence obligations.
+- [ ] **EG-FEDERATED-QUERY-R083.7 status:** Keep SPECIFIED until separately reviewed implementation and served evidence are available.
+
+- [ ] **EG-FEDERATED-QUERY-R081.10 (EG:25):** Define and wire the EG-owned residual for `EG-FEDERATED-QUERY-R081.1` using the reviewed producer/consumer route; preserve covered clauses `EG-FEDERATED-QUERY-R081.1`, `EG-FEDERATED-QUERY-R081.2`, `EG-FEDERATED-QUERY-R081.3`, `EG-FEDERATED-QUERY-R081.4`, `EG-FEDERATED-QUERY-R081.8.1`, `EG-FEDERATED-QUERY-R081.8.2`, `EG-FEDERATED-QUERY-R081.8.3`, `EG-FEDERATED-QUERY-R081.8.5`, `EG-FEDERATED-QUERY-R081.8.6`.
+- [ ] **EG-FEDERATED-QUERY-R081.10 acceptance:** Deliver the positive, negative, refusal, boundary, or readback cases explicitly required by: Correct the mapping to include R081.8.1-.6 for existing follow-up-query definitions. Retain a narrower R081 residual for three-clock confusion detection and its bounded insufficient-context fallback. Add a fixture where storage/event/narrative dates disagree and verify the selected time basis and second-pass query.
+- [ ] **EG-FEDERATED-QUERY-R081.10 status:** Keep SPECIFIED until separately reviewed implementation and served evidence are available.
+
+- [ ] **EG-FEDERATED-QUERY-R028.1 (EG:29):** Define and wire the EG-owned residual for `EG-FEDERATED-QUERY-R028` using the reviewed producer/consumer route; preserve covered clauses `EG-FEDERATED-QUERY-R028`, `EG-FEDERATED-QUERY-R045`.
+- [ ] **EG-FEDERATED-QUERY-R028.1 acceptance:** Deliver the positive, negative, refusal, boundary, or readback cases explicitly required by: Extend existing R028 KnowledgeSet result definition with mandatory per-row provenance/policy-frame fields, plain-row compatibility and typed missing-field refusal. Bind structured and served query acceptance to the same carrier and independently test each absent field. Preserve the held-UQL restriction: this is a definition recommendation only, with no UQL implementation authorization.
+- [ ] **EG-FEDERATED-QUERY-R028.1 status:** Keep SPECIFIED until separately reviewed implementation and served evidence are available.
+
+- [ ] **EG-FEDERATED-QUERY-R005.1 (EG:31):** Define and wire the EG-owned residual for `EG-FEDERATED-QUERY-R005` using the reviewed producer/consumer route; preserve covered clauses `EG-DECISION-ENGINE-R034`, `EG-FEDERATED-QUERY-R001`, `EG-FEDERATED-QUERY-R005`, `EG-FEDERATED-QUERY-R011`, `EG-FEDERATED-QUERY-R012`.
+- [ ] **EG-FEDERATED-QUERY-R005.1 acceptance:** Deliver the positive, negative, refusal, boundary, or readback cases explicitly required by: Extend the existing reasoning/validation owner with an enumerated violation matrix and typed diagnostics. Include positive controls and one independently failing fixture per requested class; preserve explicit authorization before any retraction. No held-UQL implementation is authorized.
+- [ ] **EG-FEDERATED-QUERY-R005.1 status:** Keep SPECIFIED until separately reviewed implementation and served evidence are available.
+
+- [ ] **EG-FEDERATED-QUERY-R078.7 (EG:59):** Define and wire the EG-owned residual for `EG-FEDERATED-QUERY-R078` using the reviewed producer/consumer route; preserve covered clauses `EG-DURABLE-KERNEL-R043`, `EG-FEDERATED-QUERY-R078`, `EG-UNIFIED-DATA-PLANE-R001`, `EG-UNIFIED-DATA-PLANE-R003`, `EG-FEDERATED-QUERY-R078.1`, `EG-FEDERATED-QUERY-R078.2`, `EG-FEDERATED-QUERY-R078.3`, `EG-FEDERATED-QUERY-R078.4`, `EG-FEDERATED-QUERY-R078.5`, `EG-FEDERATED-QUERY-R078.6`.
+- [ ] **EG-FEDERATED-QUERY-R078.7 acceptance:** Deliver the positive, negative, refusal, boundary, or readback cases explicitly required by: First link existing vocabulary/mapping IDs for each listed category; add only any remaining view/acceptance obligation. Test the complete logical view under two tenants and differing clearances without copying every attached source.
+- [ ] **EG-FEDERATED-QUERY-R078.7 status:** Keep SPECIFIED until separately reviewed implementation and served evidence are available.
+
+- [ ] **EG-FEDERATED-QUERY-R081.9.7.7 (GRAPHOS:24):** Define and wire the EG-owned residual for `EG-FEDERATED-QUERY-R081.9.7.1` using the reviewed producer/consumer route; preserve covered clauses `EG-FEDERATED-QUERY-R081.9.7.1`, `EG-FEDERATED-QUERY-R081.9.7.2`, `EG-FEDERATED-QUERY-R081.9.7.3`, `EG-FEDERATED-QUERY-R081.9.7.4`, `EG-FEDERATED-QUERY-R081.9.7.5`, `EG-FEDERATED-QUERY-R081.9.7.6`.
+- [ ] **EG-FEDERATED-QUERY-R081.9.7.7 acceptance:** Deliver the positive, negative, refusal, boundary, or readback cases explicitly required by: Map the hierarchy/granularity clauses to existing R081.9.7 children, preserve the source no-external-model constraint, and define only a compatible traversal mode/constraint and hot-path zero-external-call proof. Do not silently relax the source.
+- [ ] **EG-FEDERATED-QUERY-R081.9.7.7 status:** Keep SPECIFIED until separately reviewed implementation and served evidence are available.
+
+- [ ] **EG-FEDERATED-QUERY-R081.9.7.8 (GRAPHOS:25):** Define and wire the EG-owned residual for `EG-FEDERATED-QUERY-R081.9.7.1` using the reviewed producer/consumer route; preserve covered clauses `GRAPHOS-OPS-R053.1`, `GRAPHOS-OPS-R053.2`, `GRAPHOS-OPS-R053.3`, `GRAPHOS-OPS-R053.6`, `EG-FEDERATED-QUERY-R081.9.7.1`, `EG-FEDERATED-QUERY-R081.9.7.5`.
+- [ ] **EG-FEDERATED-QUERY-R081.9.7.8 acceptance:** Deliver the positive, negative, refusal, boundary, or readback cases explicitly required by: Retain space/section mappings as partial coverage; define offline line-numbered TOC and bounded span-read contracts at the source/EG boundary, then link existing GraphOS/AU consumers. Do not recreate interaction spaces.
+- [ ] **EG-FEDERATED-QUERY-R081.9.7.8 status:** Keep SPECIFIED until separately reviewed implementation and served evidence are available.
+
+- [ ] **EG-FEDERATED-QUERY-R040.2.7 (GRAPHOS:28):** Define and wire the EG-owned residual for `EG-FEDERATED-QUERY-R040.2.1` using the reviewed producer/consumer route; preserve covered clauses `EG-FEDERATED-QUERY-R040.2.1`, `EG-FEDERATED-QUERY-R040.2.2`, `EG-FEDERATED-QUERY-R040.2.3`, `EG-FEDERATED-QUERY-R040.2.6`.
+- [ ] **EG-FEDERATED-QUERY-R040.2.7 acceptance:** Deliver the positive, negative, refusal, boundary, or readback cases explicitly required by: Extend the existing R040.2 model/acceptance text to explicitly bind each document/candidate to revision-bound topic metadata/responsibilities, and require a served fixture showing that changing that metadata changes the appropriate candidate topic contribution. Preserve all current fusion/refusal/tenant constraints. Then coordinator may map GRAPHOS:28 to those exact child clauses; do not create a second ranker or fabricate runtime credit.
+- [ ] **EG-FEDERATED-QUERY-R040.2.7 status:** Keep SPECIFIED until separately reviewed implementation and served evidence are available.
+<!-- /spec-definition-patch -->
+
+<!-- spec-definition-patch:reviewed-mapped-subsets-20261012 -->
+## Mapped definition tasks — 2026-10-12
+
+- [ ] `EG-FEDERATED-QUERY-R081.8.100`: add the typed request/result, policy/revision binding, producer/consumer wiring contract, refusal cases and receipt/readback fields described in requirements; preserve `R081.8` and its prior children.
+- [ ] `EG-FEDERATED-QUERY-R081.8.100`: add served acceptance for: Served feedback fixtures accept same-retriever reuse, require validation after retriever version changes, and refuse a failed, stale or missing transfer receipt before retrieval. Verify the strategy digest and target retriever are in the receipt, unchanged feedback budgets remain enforced, and no rejected critique changes active strategy.
+- [ ] `EG-FEDERATED-QUERY-R053.100`: bind the property-key escaping rule to the actual Cypher query-construction path and add a focused build/CI regression test there; keep ForeignSourceSpec registration and Spark batch-only capability unchanged.
+- [ ] `EG-FEDERATED-QUERY-R053.100` build gate: exercise generated Cypher for plain, reserved, spaced, Unicode and embedded-backtick property keys; parse safe outputs with the Cypher grammar and fail the build for an unquoted or malformed generated key. Do not add a served request, runtime receipt, or second renderer.
+- [ ] `EG-FEDERATED-QUERY-R032.100`: add the typed request/result, policy/revision binding, producer/consumer wiring contract, refusal cases and receipt/readback fields described in requirements; preserve `R032` and its prior children.
+- [ ] `EG-FEDERATED-QUERY-R032.100`: add served acceptance for: Served graph fixtures include ancestors and descendants across several layers, different historical failure counts, a cycle boundary and missing-history data. Verify both directions and deterministic layer/history contribution; refuse stale or malformed history, and compare existing R032 propagation outputs unchanged.
+<!-- /spec-definition-patch -->
+
+<!-- spec-definition-patch:final-mappings-20261012 -->
+## Final mapped definition tasks — 2026-10-12
+
+- [ ] Define rollup `EG-FEDERATED-QUERY-R086` and generated child links; keep it SPECIFIED until all required children are implemented and verified.
+- [ ] `EG-FEDERATED-QUERY-R086.100`: implement the typed fields, decision/refusal behavior and owner boundary stated in requirements; preserve `EG-FEDERATED-QUERY-R086`.
+- [ ] `EG-FEDERATED-QUERY-R086.100` acceptance: Serve an ordered three-source fixture that returns a pinned hypothesis and verify candidate provenance and no graph revision change. Reorder source refs and assert the request digest changes. Refuse unary input, unresolved refs and stale model revision; query afterward to prove no predicted edge was asserted.
+- [ ] `EG-FEDERATED-QUERY-R081.101`: implement the typed fields, decision/refusal behavior and owner boundary stated in requirements; preserve `EG-FEDERATED-QUERY-R081`.
+- [ ] `EG-FEDERATED-QUERY-R081.101` acceptance: Build a state once, rerank under two query contexts and reversed candidate order, and assert identical state digest with correctly aligned per-document scores. Assert no decoder/model-generation call. Compare measured interaction cost to the same full-token baseline and refuse stale document/encoder revision, malformed segment coverage or a query-time state rewrite.
+- [ ] `EG-FEDERATED-QUERY-R081.102`: implement the typed fields, decision/refusal behavior and owner boundary stated in requirements; preserve `EG-FEDERATED-QUERY-R081`.
+- [ ] `EG-FEDERATED-QUERY-R081.102` acceptance: Distill and read back an artifact whose held-out quality meets threshold, then run served queries and assert zero model-service calls and scorer digest binding. Below-threshold, missing held-out evidence, stale corpus/index or teacher revision all refuse activation; verify the prior scorer remains active.
+<!-- /spec-definition-patch -->
+
+<!-- spec-definition-patch:final-mapping-eg41-20261012 -->
+## Mapped retrieval-selection task — 2026-10-12
+
+- [ ] `EG-FEDERATED-QUERY-R081.100`: implement the joint objective, typed result fields, existing-bound enforcement and refusals specified in requirements.
+- [ ] Acceptance: Through served retrieval, compare a tiny fixture against an independent exhaustive nonnegative-sparse oracle, including two highly correlated documents and an alternative diverse pair. Assert exact selection, coefficients, residual and deterministic order. Refuse embedding-space mismatch, invalid policy and non-convergence; verify existing tenant and result-count filters still apply.
+<!-- /spec-definition-patch -->
+
+
+<!-- spec-definition-patch:owner-dispatch-20261012-tasks -->
+## Cross-owner viewport query tasks — 2026-10-12
+
+- [ ] `EG-FEDERATED-QUERY-R081.103`: define and wire the typed viewport plan/result and selection-token union through existing `UnifiedQuery`/`run_unified_with`.
+- [ ] Implement separate scatter/line aggregation rules, continuity gaps, exact/aggregate selection and fixed viewport/variant bin plus serialized-byte formula.
+- [ ] Serve pan/zoom/selection at billion-point cardinality; verify no full-source transfer and typed stale-index, authorization and cap refusals.
+<!-- /spec-definition-patch -->

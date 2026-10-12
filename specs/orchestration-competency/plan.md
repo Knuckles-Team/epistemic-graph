@@ -161,3 +161,18 @@ Reused: the call graph from `crates/eg-compute/src/parser/resolve.rs:63` and the
 Decision: derive on read from the graph. Rejected: store a rendered diagram per repository, because it goes stale at the next ingest.
 
 Cross-repository rows: the `AU-WEBUI` row that draws the view depends on the contract name `ArchitectureView`.
+
+<!-- spec-definition-patch:owner-batch-20261012-orchestration-competency -->
+## Reviewed residual closure plan — owner batch 2026-10-12
+
+### `EG-CQ-ORCH-R010.7` — GRAPHOS:20
+
+- Existing EG rollup: `EG-CQ-ORCH-R010.1`; append-only residual ID: `EG-CQ-ORCH-R010.7`.
+- Original objective: Before planning, gap analysis queries the graph for existing architecture and wiring and reports design differences; each new feature names its hot-path attach point, and the plan refuses features with no wiring.
+- Missing EG obligation: No cited contract makes architecture/wiring gap comparison a prerequisite before planning, requires a hot-path attach point for every new feature, or refuses a plan feature with no wiring. A capability gap report and architecture view are inputs, not that admission gate.
+- Producer/consumer route: EG served impact architecture view + capability query -> AU study gap proposals -> EG planning admission. The mandatory preplanning comparison and unwired-feature refusal edge is absent.
+- Minimum closure action: Link the architecture-view and study-gap definitions as prerequisites; define the missing EG planning admission contract and AU consumer attachment without duplicating architecture derivation.
+- Preserve covered clauses: `EG-CQ-ORCH-R010.1`, `EG-CQ-ORCH-R010.2`, `EG-CQ-ORCH-R010.3`, `EG-CQ-ORCH-R010.4`, `EG-CQ-ORCH-R010.5`, `EG-CQ-ORCH-R010.6`, `AU-HARNESS-R019.5`, `AU-HARNESS-R019.6`, `AU-HARNESS-R019.7`.
+- Source review: `bbc3f62e74bc899e49191e1d9bf324afe5e6dc2553df9e8d8651aae1311a8418`; evidence: spec-audit/reconciliation/fresh-validation-20261012/semantic-reviews/incoming-24-owner-supplements.json.
+- Cross-owner behavior and receipts remain with the named owner; no runtime evidence is claimed.
+<!-- /spec-definition-patch -->

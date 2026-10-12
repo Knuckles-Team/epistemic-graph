@@ -126,3 +126,86 @@ all existing implementation. Historical landing trailers remain historical
 implementation evidence; a generated LANDED state without `verified_by` does
 not establish acceptance. Full acceptance still requires the consumer/retirement
 and served boundary evidence specified in requirements.md and test-spec.md.
+
+<!-- spec-definition-patch:owner-batch-20261012-repository-index-and-ingestion -->
+## Reviewed residual closure plan — owner batch 2026-10-12
+
+### `EG-REPO-INGEST-R002.1` — AU:23
+
+- Existing EG rollup: `EG-REPO-INGEST-R002`; append-only residual ID: `EG-REPO-INGEST-R002.1`.
+- Original objective: A skill document's procedural steps compile into an executable plan with no separate workflow file, and the graph references the skill directory instead of copying it.
+- Missing EG obligation: No reviewed clause compiles procedural steps from the skill document itself into an executable plan or guarantees execution without a separate workflow file. The SourceIngest ownership label skill_workflow_ingest is not that behavioral definition.
+- Producer/consumer route: EG SourceIngest owns skill_workflow_ingest; AU graph_orchestrate -> execute_workflow runs an existing workflow after find_workflow_gaps/fill_workflow_gaps. The skill-document-to-executable-plan producer and its consumer link are absent.
+- Minimum closure action: Compile each skill document step with `step_id`, source path/revision/span, instruction digest, typed input/output names and `depends_on` ids into an ordered `TaskPlan` whose nodes preserve those bindings; keep the skill directory as a graph reference and do not copy the document body. Refuse a missing/duplicate step id, unresolved dependency, cycle, unsupported input/output type or absent source span before emitting a plan. Name AU `graph_orchestrate -> execute_workflow` as the consumer; preserve existing directory-reference and gap-resolution clauses.
+- Preserve covered clauses: `AU-HARNESS-R022.2`, `AU-CONTROL-R037.3`, `AU-CONTROL-R037.5`, `EG-REPO-INGEST-R002`.
+- Source review: `3f7e133169a76ce2680ec667c28ea2c5543354ed8874d258c432e65346f2e529`; evidence: agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/agent-control-plane/requirements.md:59; agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/agent-control-plane/requirements.md:61; agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:111; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/repository-index-and-ingestion/requirements.md:6.
+- Cross-owner behavior and receipts remain with the named owner; no runtime evidence is claimed.
+
+### `EG-REPO-INGEST-R006.1` — AU:70
+
+- Existing EG rollup: `EG-REPO-INGEST-R006`; append-only residual ID: `EG-REPO-INGEST-R006.1`.
+- Original objective: Ingestion throughput is profiled per stage against a target of 2000 papers per day; maintenance backlog purge and per-goal budget allocation are prioritized when throughput falls below target.
+- Missing EG obligation: paper throughput numerator/denominator/window and 2000 papers/day target; below-target policy prioritizing maintenance backlog purge and per-goal budget allocation; paper throughput numerator/denominator/window and 2000 papers/day target; below-target policy prioritizing maintenance backlog purge and per-goal budget allocation; safe purge candidates, authorization/admission, refusal and decision/result evidence.
+- Producer/consumer route: SDK paper transport -> EG SourceIngest/native commits + enrichment WorkItems -> ingestion telemetry -> EG budget/purge decision (missing) -> GraphOS governed maintenance dispatch (missing). AU instrumentation supplies observations, not policy authority.
+- Minimum closure action: Measure accepted unique paper ids per rolling 24-hour window at each ingestion stage; report accepted count, attempted count, elapsed seconds, dedup count and stage revision. The target is 2,000 accepted papers per 24 hours. Below target, emit a per-goal decision with observed rate, shortfall, backlog count and budget allocation bound to the same window; purge candidates are limited to terminal, unleased, non-authoritative work items whose durable source and decision receipts are retained. Never purge active work or the last authoritative source copy. Missing/stale telemetry or purge authorization refuses. GraphOS owns governed maintenance dispatch; AU supplies observations, not policy authority.
+- Preserve covered clauses: `AU-RETIRE-R005`, `EG-REPO-INGEST-R006`.
+- Source review: `902f964dd909186f3a31d1f8a84d146b715446e64dfeec62480c8151baa06996`; evidence: epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/repository-index-and-ingestion/requirements.md:21; agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/au-engine-duplicate-retirement/requirements.md:14.
+- Cross-owner behavior and receipts remain with the named owner; no runtime evidence is claimed.
+
+### `EG-REPO-INGEST-R006.2` — AU:92
+
+- Existing EG rollup: `EG-REPO-INGEST-R006`; append-only residual ID: `EG-REPO-INGEST-R006.2`.
+- Original objective: After a sync, embeddings are updated asynchronously with an importance penalty so high-importance features resist change; consolidation never runs in the routing loop.
+- Missing EG obligation: Importance-weighted penalty resisting loss of important features; explicit post-sync consolidation separated from routing.
+- Producer/consumer route: EG ingestion queues durable enrichment; R040.3 names the re-embed worker queued by FQR-R077.3. AU-CONTEXT-R002 requests a governed shadow ANN build/activation proposal. No importance-penalty/consolidation consumer contract exists.
+- Minimum closure action: For each post-sync re-embed job, bind previous/new embedding revisions and per-feature importance values. Minimize `base_embedding_loss + lambda * sum(importance_i * distance(old_i,new_i))` with nonnegative versioned `lambda`; persist the policy and input digest. Enqueue consolidation only after sync commit and never execute it in a routing request. Refuse missing/stale importance evidence or mismatched embedding revisions. Test low-importance update, high-importance retention and no routing-loop consolidation.
+- Preserve covered clauses: `EG-REPO-INGEST-R006`, `EG-UNIFIED-DATA-PLANE-R040.2`, `AU-CONTEXT-R002`.
+- Source review: `771acc731a6e25746641adf30cde9ec91f4eb56edd6597f2d308a42947a3abb3`; evidence: agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/agent-context-and-finance/requirements.md:6; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/repository-index-and-ingestion/requirements.md:21; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/unified-data-plane/requirements.md:153.
+- Cross-owner behavior and receipts remain with the named owner; no runtime evidence is claimed.
+
+### `EG-REPO-INGEST-R006.3` — EG:54
+
+- Existing EG rollup: `EG-REPO-INGEST-R006`; append-only residual ID: `EG-REPO-INGEST-R006.3`.
+- Original objective: The graph exposes structured code maps (modules, symbols, call and dependency relations) so an agent can ask where a behavior lives; stale maps are refused after source change.
+- Missing EG obligation: No complete modules/symbols/calls/dependencies code-map carrier and behavior-location query with source-revision stale-map refusal is specified. Cache invalidation is a distinct guarantee.
+- Producer/consumer route: IndexRepository/SourceIngest -> hydration -> structured query/code-map consumer; exact code-map response remains undefined.
+- Minimum closure action: Define a code-map request with tenant, repository id, pinned source revision, behavior/symbol query and requested relations (`contains`, `calls`, `depends_on`). Return map revision plus modules, symbols, calls and dependencies, each with stable id, language, source path, source span and source revision. Refuse when current repository revision differs from the pinned map/source revision; never return stale symbols as current. Test changed and unchanged symbols after a new source revision and bind the response digest to the exact query.
+- Preserve covered clauses: `EG-FEDERATED-QUERY-R017`, `EG-REPO-INGEST-R006`, `EG-REPO-INGEST-R009`.
+- Source review: `e69e6fa3a5c26ae763809d600cb7d264d028b9ce0d80f8ca6141e1a40cf0638e`; evidence: epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/federated-query-and-reasoning/requirements.md:21; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/repository-index-and-ingestion/requirements.md:21; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/repository-index-and-ingestion/requirements.md:24.
+- Cross-owner behavior and receipts remain with the named owner; no runtime evidence is claimed.
+
+### `EG-REPO-INGEST-R006.4` — EG:55
+
+- Existing EG rollup: `EG-REPO-INGEST-R006`; append-only residual ID: `EG-REPO-INGEST-R006.4`.
+- Original objective: Repository indexing is incremental, bounded in memory and releases resources on completion; it optionally resolves semantic types for the most common languages beyond syntax.
+- Missing EG obligation: These do not require incremental engine index updates, peak-memory bounds, completion resource release or optional semantic type resolution with a named language matrix. Parsing grammar coverage is not semantic typing.
+- Producer/consumer route: SDK delta SourceIngest -> EG native indexing and deferred work; semantic type producer and resource lifecycle need explicit definition.
+- Minimum closure action: For an index request, bind the changed-file set, repository revision and caller-declared `max_working_bytes`; reuse unchanged file entries and parse only changed files. Measure peak working bytes and release parser/index buffers after completion or typed failure; refuse before exceeding the declared bound. The semantic-type registry is an explicit language-id/parser-version/mode matrix; unsupported language or mode returns `unsupported_semantic_types` while syntax indexing may proceed. Test changed vs unchanged file counts, peak bound, post-run release and every declared language/mode row.
+- Preserve covered clauses: `EG-REPO-INGEST-R006`, `EG-REPO-INGEST-R007`, `EG-REPO-INGEST-R010`, `SDK-SOURCE-INGEST-R004`.
+- Source review: `340c1817f2a52dc6da4c9c13d93d215debbeb9fefd8b84b8d2400b86541d4d81`; evidence: epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/repository-index-and-ingestion/requirements.md:21; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/repository-index-and-ingestion/requirements.md:22; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/repository-index-and-ingestion/requirements.md:27; agent-connector-sdk:5babc4cc48ad73928468b243842f219f51e2cca1:specs/SDK-SOURCE-INGEST/requirements.md:8.
+- Cross-owner behavior and receipts remain with the named owner; no runtime evidence is claimed.
+<!-- /spec-definition-patch -->
+
+<!-- spec-definition-patch:reviewed-mapped-subsets-20261012 -->
+## Mapped definition implementation plan — 2026-10-12
+
+### `EG-REPO-INGEST-R002.100` / AU:118
+
+- Extend existing parent `R002` without removing its existing behavior.
+- Specify: Extend the existing SourceIngest/result persistence contract with a write receipt binding run id, tenant, query digest, ordered result ids/content digests, graph revision and source provenance. The consumer performs a separately authorized read-only query after the write, binds its principal/grant revision and selector to that receipt, and compares every expected result id/digest/revision. A run may report success only after a matching readback receipt; missing, partial, stale, denied or mismatched readback is a typed non-success. Do not introduce a second graph writer.
+- Producer/consumer boundary: EG owns durable graph write/read; AU owns execution success reporting. Reuse SourceIngest and existing query authorization, with explicit cross-owner consumer link.
+- Source record SHA-256: `e8ad0c2417b7fa6ce53c46899f1adf8e925977becd0bd1813db6b62d3786af11`.
+- Keep status SPECIFIED until the EG served producer and each separately owned consumer are implemented, served-tested and independently read back.
+<!-- /spec-definition-patch -->
+
+<!-- spec-definition-patch:final-mappings-20261012 -->
+## Final mapping implementation plan — 2026-10-12
+
+### `EG-REPO-INGEST-R002.101` / PIPE:10
+
+- Preserve parent `EG-REPO-INGEST-R002` and its existing clauses.
+- Define: Bind the workflow id/revision loaded from the graph, EG committed plan/decision digest, AU execution run and output digests, SourceIngest write receipt, resulting graph revision and separately authorized readback receipt. The acceptance path uses the real graph_orchestrate -> find_workflow_gaps/fill_workflow_gaps -> execute_workflow consumer and EG graph load/decision plus SourceIngest; a separate authorized graph query must read back the hydrated content and match its digest before the gate reports success. Fake engines/catalogs and generic handoff receipts do not satisfy this contract. Missing/stale workflow, execution mismatch, write failure or denied/partial readback is non-success.
+- Producer/consumer: EG owns workflow graph load/decision and durable SourceIngest; AU owns graph_orchestrate/execution; SDK supplies source-effect runner. Pipelines owns the gate only and does not add a runtime orchestrator.
+- Source record SHA-256: `e0c431512565acb1a8ae00e09b63ec6fb7c8f9e81ef9c786a0fd7b26b2239455`.
+- Keep status SPECIFIED until each named producer and consumer is separately implemented, served-tested and independently read back.
+<!-- /spec-definition-patch -->

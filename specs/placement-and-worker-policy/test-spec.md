@@ -30,3 +30,11 @@ R002.2 producer evidence: `scheduler_config::tests` uses real serde to prove def
 - `EG-PLACEMENT-R004.4`: `crates/eg-jobs/src/store.rs::tests::no_capable_host_refuses`.
 - `EG-PLACEMENT-R004.5`: `crates/eg-jobs/src/store.rs::tests::routing_premises_name_generation`.
 - `EG-PLACEMENT-R004.6`: `tests/jobs/test_capability_claim_served.py::test_backtest_job_lands_on_declared_host`.
+
+<!-- spec-definition-patch:owner-batch-20261012-placement-and-worker-policy -->
+## Reviewed residual acceptance targets — owner batch 2026-10-12
+
+All targets below are planned acceptance, not executed tests or receipts. Use the real producer/consumer boundary named for each row and retain existing covered behavior.
+
+- **`EG-PLACEMENT-R001.15` / EG:9:** Add the closed-loop producer/GraphOS consumer and applied-state receipt; preserve existing GRAPHOS-HOST references. Producer/consumer path: EG capacity premises/place verdicts feed hosting policy; GraphOS exposes limits/mode and pure AIMD. Engine scaling actuation/reconciliation is an absent definition, not an unlinked throttle. Source review `cb17ea03a7344584fed7a9f22a78c1e97c58919616433e7026481606fd0bdccb`. Exercise the served EG producer and named consumer where that owner contract exists; assert its defined output/refusal. These are planned cases only, not test or receipt evidence.
+<!-- /spec-definition-patch -->

@@ -336,3 +336,29 @@ EG-C-07/08, EG-T-10, EG-CONTRACT-R033, and EG-CONTRACT-R037 retain their
 exact-artifact and feature-profile acceptance.
 Source wiring alone does not qualify native release artifacts or promote
 the architecture requirement's generated status.
+
+<!-- spec-definition-patch:owner-batch-20261012-public-engine-contract-and-release -->
+## Reviewed residual closure plan — owner batch 2026-10-12
+
+### `EG-CONTRACT-R001.1` — AU:109
+
+- Existing EG rollup: `EG-CONTRACT-R001`; append-only residual ID: `EG-CONTRACT-R001.1`.
+- Original objective: Agents use typed models as their primary data model, with construction, validation and serialization throughout the agent lifecycle.
+- Missing EG obligation: Explicit typed primary agent data model with construction, validation and serialization throughout the entire lifecycle beyond existing port/wire boundaries.
+- Producer/consumer route: Retain EG generated strict client types and AU HarnessPort/run_agent contracts. Missing lifecycle model ownership and construction/validation/serialization edges must be named; no parallel wire authority should be introduced.
+- Minimum closure action: Extend the typed agent lifecycle owner to enumerate construction, mutation/transition validation, persistence and serialization boundaries. Bind them to the existing generated models and prove malformed state refusal and complete lifecycle roundtrip.
+- Preserve covered clauses: `AU-HARNESS-R007`, `EG-CONTRACT-R001`, `AU-HARNESS-R008`.
+- Source review: `c0d92285a141dcaac6817bcac25ffa438517afeba50be716211751f3a37a31c2`; evidence: agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:12; agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:13; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/public-engine-contract-and-release/requirements.md:5.
+- Cross-owner behavior and receipts remain with the named owner; no runtime evidence is claimed.
+
+### `EG-CONTRACT-R001.2` — AU:121
+
+- Existing EG rollup: `EG-CONTRACT-R001`; append-only residual ID: `EG-CONTRACT-R001.2`.
+- Original objective: Prompt JSON blueprints and Pydantic models round-trip through disk with stable formatting and no field lost; a round-trip difference fails the test.
+- Missing EG obligation: Define stable prompt JSON/Pydantic disk formatting and the exact difference oracle; retain new semantic roundtrip coverage.
+- Producer/consumer route: EG R094.2/.3/.5 exports/adopts native bodies; R094.7 consumes SDK RepositorySourceEffectIntent/Request/Receipt through GraphOS RepositoryWriteBackParams. R001 supplies Pydantic wire types. Missing definition is the disk serializer/test, not merged source-effect ownership.
+- Minimum closure action: Link R094.2–.7 as partial coverage; add only disk-format/Pydantic difference semantics.
+- Preserve covered clauses: `EG-CONTRACT-R001`, `EG-TYPED-PACKS-R094.2`, `EG-TYPED-PACKS-R094.5`, `EG-TYPED-PACKS-R094.7`, `EG-TYPED-PACKS-R094.3`.
+- Source review: `98b7ad1186ec2a385b334ffa0ad1b28888157ed6b51c6ed4172eeb7b7ef6768e`; evidence: epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/public-engine-contract-and-release/requirements.md:5; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/typed-packs-and-catalog/requirements.md:149; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/typed-packs-and-catalog/requirements.md:152; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/typed-packs-and-catalog/requirements.md:154.
+- Cross-owner behavior and receipts remain with the named owner; no runtime evidence is claimed.
+<!-- /spec-definition-patch -->

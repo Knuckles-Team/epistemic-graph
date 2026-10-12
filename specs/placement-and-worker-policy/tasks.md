@@ -49,3 +49,11 @@ Order: R003 (independent, smallest), R002.1-R002.5 with the durable-kernel rows,
 - [ ] **EG-PLACEMENT-R004.4:** Refusal. When no host declares the capability, the engine must refuse with `no_capable_host` naming the capability. It must not fall back to any host.
 - [ ] **EG-PLACEMENT-R004.5:** Evidence. Each routing decision must record `required_capability` and the candidate host list. It must also record the topology fact generation.
 - [ ] **EG-PLACEMENT-R004.6:** Hot-path proof. The entry point is the served job submit and worker claim wire methods. The test `tests/jobs/test_capability_claim_served.py::test_backtest_job_lands_on_declared_host` submits a heavy job. It passes through the wired `claim_next` and observes the claim on the host that declares the capability.
+
+<!-- spec-definition-patch:owner-batch-20261012-placement-and-worker-policy -->
+## Reviewed residual definition tasks — owner batch 2026-10-12
+
+- [ ] **EG-PLACEMENT-R001.15 (EG:9):** Define and wire the EG-owned residual for `EG-PLACEMENT-R001.6` using the reviewed producer/consumer route; preserve covered clauses `GRAPHOS-CAPACITY-R001.1`, `EG-DECISION-ENGINE-R112`, `GRAPHOS-CAPACITY-R001`, `EG-PLACEMENT-R001.6`, `GRAPHOS-CAPACITY-R002`.
+- [ ] **EG-PLACEMENT-R001.15 acceptance:** Deliver the positive, negative, refusal, boundary, or readback cases explicitly required by: Add the closed-loop producer/GraphOS consumer and applied-state receipt; preserve existing GRAPHOS-HOST references.
+- [ ] **EG-PLACEMENT-R001.15 status:** Keep SPECIFIED until separately reviewed implementation and served evidence are available.
+<!-- /spec-definition-patch -->

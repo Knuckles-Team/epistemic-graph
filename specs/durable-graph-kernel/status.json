@@ -174,7 +174,13 @@
     "EG-DURABLE-KERNEL-R086.6",
     "EG-DURABLE-KERNEL-R086.7",
     "EG-DURABLE-KERNEL-R086.8",
-    "EG-DURABLE-KERNEL-R086.9"
+    "EG-DURABLE-KERNEL-R086.9",
+    "EG-DURABLE-KERNEL-R028.1",
+    "EG-DURABLE-KERNEL-R085.9",
+    "EG-DURABLE-KERNEL-R085.10",
+    "EG-DURABLE-KERNEL-R084.7",
+    "EG-DURABLE-KERNEL-R038.100",
+    "EG-DURABLE-KERNEL-R043.100"
   ],
   "requirements": [
     {
@@ -861,12 +867,15 @@
     {
       "id": "EG-DURABLE-KERNEL-R028",
       "title": "WorkItem lifecycle test uses a consistent verified tenant",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "15451958704f",
         "a676823d2b54"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DURABLE-KERNEL-R028.1"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R029",
@@ -1062,7 +1071,7 @@
     {
       "id": "EG-DURABLE-KERNEL-R038",
       "title": "KV namespaces declare an explicit, enforced durability class",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "1ef84395fa69",
         "2146c76bc6f8"
@@ -1070,7 +1079,8 @@
       "verified_by": [],
       "rollup_of": [
         "EG-DURABLE-KERNEL-R038.1",
-        "EG-DURABLE-KERNEL-R038.2"
+        "EG-DURABLE-KERNEL-R038.2",
+        "EG-DURABLE-KERNEL-R038.100"
       ]
     },
     {
@@ -1262,12 +1272,15 @@
     {
       "id": "EG-DURABLE-KERNEL-R043",
       "title": "MutationBatch is the sole persistent write envelope across stores",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "1d83cf4b704f",
         "1ef84395fa69"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DURABLE-KERNEL-R043.100"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R044",
@@ -1925,7 +1938,8 @@
         "EG-DURABLE-KERNEL-R084.3",
         "EG-DURABLE-KERNEL-R084.4",
         "EG-DURABLE-KERNEL-R084.5",
-        "EG-DURABLE-KERNEL-R084.6"
+        "EG-DURABLE-KERNEL-R084.6",
+        "EG-DURABLE-KERNEL-R084.7"
       ]
     },
     {
@@ -1984,7 +1998,9 @@
         "EG-DURABLE-KERNEL-R085.5",
         "EG-DURABLE-KERNEL-R085.6",
         "EG-DURABLE-KERNEL-R085.7",
-        "EG-DURABLE-KERNEL-R085.8"
+        "EG-DURABLE-KERNEL-R085.8",
+        "EG-DURABLE-KERNEL-R085.9",
+        "EG-DURABLE-KERNEL-R085.10"
       ]
     },
     {
@@ -2120,6 +2136,48 @@
     {
       "id": "EG-DURABLE-KERNEL-R086.9",
       "title": "Evidence and hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R028.1",
+      "title": "Reviewed residual `AU:21`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R085.9",
+      "title": "Reviewed residual `AU:48`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R085.10",
+      "title": "Reviewed residual `AU:49`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R084.7",
+      "title": "Reviewed residual `EG:28`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R038.100",
+      "title": "Embedded and served deployment profiles preserve durability classes",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R043.100",
+      "title": "Committed graph changes publish an ordered, revocable cursor feed",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

@@ -271,3 +271,13 @@ Declare Q=1, R=4 and process/measurement cross-covariance=1 in a model admission
 The typed unsupported-noise outcome must leave the prior checkpoint and parameter revision unchanged.
 The server must expose that refusal through the real typed model route required by R002.9.
 Unknown noise-correlation policy must also refuse. No correlated-noise implementation is required by this correction.
+
+<!-- spec-definition-patch:owner-batch-20261012-finance-primitives -->
+## Reviewed residual acceptance targets — owner batch 2026-10-12
+
+All targets below are planned acceptance, not executed tests or receipts. Use the real producer/consumer boundary named for each row and retain existing covered behavior.
+
+- **`EG-FINANCE-PRIMITIVES-R015.1` / EG:43:** Define order-snapshot lifecycle and promotion admission using existing sealed-record and transactional authorities; add immutable-history, derivation-link and veto/no-effects acceptance. Keep provider order submission in SDK governed writeback and host confirmation in GraphOS. Producer/consumer path: EG proposed order snapshot/admission -> GraphOS authenticated confirmation -> SDK governed provider effect. No public order-snapshot promotion producer is established in these EG rows. Source review `e3ad9b1e3121eb3278c3e2b52ce948817e317db3de48d5886a624ffe2ba9be47`. Exercise the served EG producer and named consumer where that owner contract exists; assert its defined output/refusal. These are planned cases only, not test or receipt evidence.
+
+- **`EG-FINANCE-PRIMITIVES-R002.11` / EG:67:** Extend existing finance owner with transition/state horizon probabilities and their sizing consumer/calibration binding. Use seeded transition-matrix oracle, horizon sums, low-confidence refusal and served sizing dependency tests; preserve R002 original kernels. Producer/consumer path: Shared regime HMM -> proposed multi-step probability forecast -> existing sizing analysis; joined public forecast/sizing carrier remains unspecified. No live-order action is authorized. Source review `037f3edf5fe38f55ac24d6e0cc7bd85f1efc60cadf7c97b66b44978613a7acb6`. Exercise the served EG producer and named consumer where that owner contract exists; assert its defined output/refusal. These are planned cases only, not test or receipt evidence.
+<!-- /spec-definition-patch -->

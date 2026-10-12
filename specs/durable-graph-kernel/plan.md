@@ -423,3 +423,72 @@ Their source is useful coverage evidence. None ran in this definition batch.
 The core seam tests in [graph.rs](../../crates/eg-core/src/graph.rs) use stub or counting stores.
 They cannot replace real durable, scoped, served or restart evidence.
 R086.9 requires the served entry points and the observations in test-spec.md.
+
+<!-- spec-definition-patch:owner-batch-20261012-durable-graph-kernel -->
+## Reviewed residual closure plan — owner batch 2026-10-12
+
+### `EG-DURABLE-KERNEL-R028.1` — AU:21
+
+- Existing EG rollup: `EG-DURABLE-KERNEL-R028`; append-only residual ID: `EG-DURABLE-KERNEL-R028.1`.
+- Original objective: Production agent runs checkpoint durably across process boundaries, separate short-term from long-term memory, isolate tenants and stream output.
+- Missing EG obligation: The complete agent-run checkpoint payload and cross-process resume binding are not defined by a WorkItem lifecycle test. Short-term versus long-term memory lifecycle/retention and resumed-output binding to that run/memory state remain unspecified.
+- Producer/consumer route: EG WorkItem lifecycle and isolation -> AU run execution -> existing GRAPHOS-A2A-R001/GRAPHOS-OPS-R001 streaming facade. The reviewed packet has no explicit dependency joining a complete run-checkpoint/memory contract to the resume and stream consumers.
+- Minimum closure action: Retain partial; preserve existing host streaming IDs. Define EG durable checkpoint/memory state and retention, AU resume application, and exact host stream cursor/run-state binding with explicit dependency edges. Do not replace the existing streaming definition with a new rollup.
+- Preserve covered clauses: `EG-DURABLE-KERNEL-R028`, `EG-IDENTITY-R006`, `GRAPHOS-A2A-R001`, `GRAPHOS-A2A-R001.1`, `GRAPHOS-OPS-R001`.
+- Source review: `d89bb9c69e2fdef6a5c3fd428ede3f91868539056c2b949700867d8d8087d1e7`; evidence: epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/durable-graph-kernel/requirements.md:57; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/engine-identity-and-scope/requirements.md:10; graph-os:069eebc785afb9fb26bbbcc907cf5a2a4bcab5c5:specs/a2a/requirements.md:5; graph-os:069eebc785afb9fb26bbbcc907cf5a2a4bcab5c5:specs/a2a/requirements.md:6.
+- Cross-owner behavior and receipts remain with the named owner; no runtime evidence is claimed.
+
+### `EG-DURABLE-KERNEL-R085.9` — AU:48
+
+- Existing EG rollup: `EG-DURABLE-KERNEL-R085`; append-only residual ID: `EG-DURABLE-KERNEL-R085.9`.
+- Original objective: A search run keeps its state (transcript, evidence, constraints, open claims) in an externalized store separate from decision logic, so context growth does not erase evidence.
+- Missing EG obligation: No search-state record explicitly combines transcript, evidence, constraints and open claims; no continuation contract restores all four from authoritative external state after context eviction.
+- Producer/consumer route: AU summary/workspace consumers and EG authenticated durable memory dispatch exist as definitions. Search continuation has no named binding to a complete search-state revision.
+- Minimum closure action: Extend existing EG memory/search state and AU continuation interfaces with all four fields and context-eviction readback acceptance; reuse the durable memory authority.
+- Preserve covered clauses: `AU-HARNESS-R013.13`, `AU-HARNESS-R020.1`, `EG-DURABLE-KERNEL-R085.1`, `EG-DURABLE-KERNEL-R085.4`, `EG-DURABLE-KERNEL-R085.7`.
+- Source review: `8c76fa1637e0cc2082a1cce16b9d637f12b310ae96d1fe9a50ec9c64f8e23944`; evidence: agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:36; agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:92; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/durable-graph-kernel/requirements.md:158; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/durable-graph-kernel/requirements.md:161.
+- Cross-owner behavior and receipts remain with the named owner; no runtime evidence is claimed.
+
+### `EG-DURABLE-KERNEL-R085.10` — AU:49
+
+- Existing EG rollup: `EG-DURABLE-KERNEL-R085.2`; append-only residual ID: `EG-DURABLE-KERNEL-R085.10`.
+- Original objective: The harness stores and retrieves notes on prior sessions and research context transparently, so users need not repeat requirements.
+- Missing EG obligation: Prior-session notes/research context are not automatically captured and reused for the current user/task. Storage conflict retention does not define how stale or conflicting notes influence transparent contextual reuse.
+- Producer/consumer route: EG authorized memory read/list -> AU context consumer; AU experience retrieval handles reusable run records. Automatic research-note capture/relevance/application is not wired by a definition.
+- Minimum closure action: Extend the existing memory/context consumer contract with automatic session-note capture, relevance and stale/conflict behavior, preserving tenant isolation and authoritative versions.
+- Preserve covered clauses: `AU-HARNESS-R022.3`, `EG-DURABLE-KERNEL-R085.2`, `EG-DURABLE-KERNEL-R085.5`, `EG-DURABLE-KERNEL-R085.7`.
+- Source review: `2362fd76bf40223aeb813866392670b65eae13d02a725b1af9a2e6711542dd12`; evidence: agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:112; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/durable-graph-kernel/requirements.md:159; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/durable-graph-kernel/requirements.md:162; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/durable-graph-kernel/requirements.md:164.
+- Cross-owner behavior and receipts remain with the named owner; no runtime evidence is claimed.
+
+### `EG-DURABLE-KERNEL-R084.7` — EG:28
+
+- Existing EG rollup: `EG-DURABLE-KERNEL-R084.1`; append-only residual ID: `EG-DURABLE-KERNEL-R084.7`.
+- Original objective: A multi-tenant graph coordinates concurrent writers across backends so that tenant writes serialize deterministically; a write that cannot be coordinated is rejected with a typed conflict.
+- Missing EG obligation: Single-graph optimistic version arbitration does not establish deterministic tenant-wide ordering across backends, including coordinated failure behavior. R077 exposes width only. R024/R036 treat external backends as federation/mirror targets, while R039 retains one durability authority; these boundaries must not be silently replaced by distributed writes to read-only sources.
+- Producer/consumer route: Served ApplyMutation -> version check/resolve_conflict -> durable mutation authority -> declared mirror targets where supported. R024.1 is read-only; R036 supplies mirror replay/cursors, not distributed transaction coordination.
+- Minimum closure action: Clarify which backends are writable projections/mirrors and define deterministic tenant-scoped coordination under the existing durable authority. Extend R084 with a residual covering multi-backend ordering, uncoordinatable-write refusal and no partial authoritative effects; use two tenants and multiple target failure/replay cases. Preserve the complete existing one-graph conflict acceptance.
+- Preserve covered clauses: `EG-DURABLE-KERNEL-R084.1`, `EG-DURABLE-KERNEL-R084.3`, `EG-DURABLE-KERNEL-R084.4`, `EG-DURABLE-KERNEL-R084.6`, `EG-DURABLE-KERNEL-R084.2`, `EG-DURABLE-KERNEL-R084.5`.
+- Source review: `96c3079859b0e63ec3e1174e25e7a4ab107b23ef6863ae9b54ff0e921a88e4b0`; evidence: epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/durable-graph-kernel/requirements.md:151; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/durable-graph-kernel/requirements.md:153; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/durable-graph-kernel/requirements.md:154; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/durable-graph-kernel/requirements.md:156.
+- Cross-owner behavior and receipts remain with the named owner; no runtime evidence is claimed.
+<!-- /spec-definition-patch -->
+
+<!-- spec-definition-patch:final-mappings-20261012 -->
+## Final mapping implementation plan — 2026-10-12
+
+### `EG-DURABLE-KERNEL-R038.100` / EG:60
+
+- Preserve parent `EG-DURABLE-KERNEL-R038` and its existing clauses.
+- Define: Define an explicit deployment profile with `embedded` (in-process operation requiring no external service) and `served` (configured service endpoint) modes. Profile selection controls transport/startup only; it does not silently change the existing persistent-namespace durability default or sync/redb acknowledgment authority. Ephemeral in-memory namespaces require an explicit `ephemeral` declaration and retain no durable log; persistent namespaces retain their declared `sync` or `async` class. Do not adopt the source request’s universal in-memory default.
+- Producer/consumer: EG owns profile and storage selection; transport mode is separate from namespace DurabilityClass. Preserve R038 durability classes, sync default, redb authority and authorization/HMAC isolation.
+- Source record SHA-256: `b36ed0f40742d2f455b4eae67f2fb64edb7fa6ea87b93cbb8ac0046970728458`.
+- Keep status SPECIFIED until each named producer and consumer is separately implemented, served-tested and independently read back.
+<!-- /spec-definition-patch -->
+
+
+<!-- spec-definition-patch:owner-dispatch-20261012-plan -->
+## Cross-owner graph feed implementation plan — 2026-10-12
+
+- **`EG-DURABLE-KERNEL-R043.100` / WEBUI:5:** Add snapshot/high-water and cursor-read operations over the committed `ApplyChangeEnvelope` path. Include graph incarnation/revision, stable `(commit_id,event_ordinal)` identity, ordering, tombstones, current authorization revision, 24-hour retention, 256-event page limit and explicit expired-cursor/revocation outcomes. Emit versioned commit-to-visible latency fields and target p95 ≤1000 ms. GraphOS and WebUI own the served adapter and readable concurrent layout; consumer id is `WEBUI-APPS-R030.8`. Source SHA-256 `0b416b47d85530fb35cf44bf5dc79e04e1b9746481027d0b0687b66579dc9844`.
+- The read feed must reuse the existing durable mutation authority. Do not create an alternate write envelope or count reload/local optimistic state as feed evidence.
+- Keep SPECIFIED until two authenticated served clients demonstrate concurrent commits, cursor reconnect, tombstone authorization, no-refresh visibility, measured latency and independent graph readback.
+<!-- /spec-definition-patch -->

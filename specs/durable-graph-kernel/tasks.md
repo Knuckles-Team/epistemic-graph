@@ -143,3 +143,39 @@ This batch defines the slices; it runs none of their runtime tests.
 - [ ] **EG-DURABLE-KERNEL-R086.7:** Refusal: unavailable reads. Follow the matching planned acceptance in test-spec.md.
 - [ ] **EG-DURABLE-KERNEL-R086.8:** Restart. Follow the matching planned acceptance in test-spec.md.
 - [ ] **EG-DURABLE-KERNEL-R086.9:** Evidence and hot-path proof. Follow the matching planned acceptance in test-spec.md.
+
+<!-- spec-definition-patch:owner-batch-20261012-durable-graph-kernel -->
+## Reviewed residual definition tasks — owner batch 2026-10-12
+
+- [ ] **EG-DURABLE-KERNEL-R028.1 (AU:21):** Define and wire the EG-owned residual for `EG-DURABLE-KERNEL-R028` using the reviewed producer/consumer route; preserve covered clauses `EG-DURABLE-KERNEL-R028`, `EG-IDENTITY-R006`, `GRAPHOS-A2A-R001`, `GRAPHOS-A2A-R001.1`, `GRAPHOS-OPS-R001`.
+- [ ] **EG-DURABLE-KERNEL-R028.1 acceptance:** Deliver the positive, negative, refusal, boundary, or readback cases explicitly required by: Retain partial; preserve existing host streaming IDs. Define EG durable checkpoint/memory state and retention, AU resume application, and exact host stream cursor/run-state binding with explicit dependency edges. Do not replace the existing streaming definition with a new rollup.
+- [ ] **EG-DURABLE-KERNEL-R028.1 status:** Keep SPECIFIED until separately reviewed implementation and served evidence are available.
+
+- [ ] **EG-DURABLE-KERNEL-R085.9 (AU:48):** Define and wire the EG-owned residual for `EG-DURABLE-KERNEL-R085` using the reviewed producer/consumer route; preserve covered clauses `AU-HARNESS-R013.13`, `AU-HARNESS-R020.1`, `EG-DURABLE-KERNEL-R085.1`, `EG-DURABLE-KERNEL-R085.4`, `EG-DURABLE-KERNEL-R085.7`.
+- [ ] **EG-DURABLE-KERNEL-R085.9 acceptance:** Deliver the positive, negative, refusal, boundary, or readback cases explicitly required by: Extend existing EG memory/search state and AU continuation interfaces with all four fields and context-eviction readback acceptance; reuse the durable memory authority.
+- [ ] **EG-DURABLE-KERNEL-R085.9 status:** Keep SPECIFIED until separately reviewed implementation and served evidence are available.
+
+- [ ] **EG-DURABLE-KERNEL-R085.10 (AU:49):** Define and wire the EG-owned residual for `EG-DURABLE-KERNEL-R085.2` using the reviewed producer/consumer route; preserve covered clauses `AU-HARNESS-R022.3`, `EG-DURABLE-KERNEL-R085.2`, `EG-DURABLE-KERNEL-R085.5`, `EG-DURABLE-KERNEL-R085.7`.
+- [ ] **EG-DURABLE-KERNEL-R085.10 acceptance:** Deliver the positive, negative, refusal, boundary, or readback cases explicitly required by: Extend the existing memory/context consumer contract with automatic session-note capture, relevance and stale/conflict behavior, preserving tenant isolation and authoritative versions.
+- [ ] **EG-DURABLE-KERNEL-R085.10 status:** Keep SPECIFIED until separately reviewed implementation and served evidence are available.
+
+- [ ] **EG-DURABLE-KERNEL-R084.7 (EG:28):** Define and wire the EG-owned residual for `EG-DURABLE-KERNEL-R084.1` using the reviewed producer/consumer route; preserve covered clauses `EG-DURABLE-KERNEL-R084.1`, `EG-DURABLE-KERNEL-R084.3`, `EG-DURABLE-KERNEL-R084.4`, `EG-DURABLE-KERNEL-R084.6`, `EG-DURABLE-KERNEL-R084.2`, `EG-DURABLE-KERNEL-R084.5`.
+- [ ] **EG-DURABLE-KERNEL-R084.7 acceptance:** Deliver the positive, negative, refusal, boundary, or readback cases explicitly required by: Clarify which backends are writable projections/mirrors and define deterministic tenant-scoped coordination under the existing durable authority. Extend R084 with a residual covering multi-backend ordering, uncoordinatable-write refusal and no partial authoritative effects; use two tenants and multiple target failure/replay cases. Preserve the complete existing one-graph conflict acceptance.
+- [ ] **EG-DURABLE-KERNEL-R084.7 status:** Keep SPECIFIED until separately reviewed implementation and served evidence are available.
+<!-- /spec-definition-patch -->
+
+<!-- spec-definition-patch:final-mappings-20261012 -->
+## Final mapped definition tasks — 2026-10-12
+
+- [ ] `EG-DURABLE-KERNEL-R038.100`: implement the typed fields, decision/refusal behavior and owner boundary stated in requirements; preserve `EG-DURABLE-KERNEL-R038`.
+- [ ] `EG-DURABLE-KERNEL-R038.100` acceptance: Start a fresh embedded profile without an external service and read/write an explicitly ephemeral namespace; verify no persistent namespace is silently downgraded. Start served mode against its configured endpoint and verify its declared sync/async class and acknowledgment boundary. Refuse an unknown profile and an ephemeral-to-durable class mismatch; read back profile and namespace declarations.
+<!-- /spec-definition-patch -->
+
+
+<!-- spec-definition-patch:owner-dispatch-20261012-tasks -->
+## Cross-owner graph feed tasks — 2026-10-12
+
+- [ ] `EG-DURABLE-KERNEL-R043.100`: define and wire `OpenGraphSnapshotV1` and `ReadGraphChangesV1` to committed ChangeEnvelope records with same-read high-water cursor, bounded replay, tombstone visibility, retention and revocation semantics.
+- [ ] Add typed cursor-expiry, graph-incarnation and authorization-change outcomes; expose versioned commit-to-visible timing fields.
+- [ ] Preserve R043's single MutationBatch write authority and prove two-client served delivery, reconnect ordering, independent readback and the ≤1000 ms p95 target.
+<!-- /spec-definition-patch -->

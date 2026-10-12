@@ -56,3 +56,11 @@ Producer first: ontology gaps, shapes and authority mappings before fixtures and
 - [ ] EG-CQ-ORCH-R010.4 Abstain when no source supports a container
 - [ ] EG-CQ-ORCH-R010.5 Cite the support of every container
 - [ ] EG-CQ-ORCH-R010.6 Prove the view through the served operation
+
+<!-- spec-definition-patch:owner-batch-20261012-orchestration-competency -->
+## Reviewed residual definition tasks — owner batch 2026-10-12
+
+- [ ] **EG-CQ-ORCH-R010.7 (GRAPHOS:20):** Define and wire the EG-owned residual for `EG-CQ-ORCH-R010.1` using the reviewed producer/consumer route; preserve covered clauses `EG-CQ-ORCH-R010.1`, `EG-CQ-ORCH-R010.2`, `EG-CQ-ORCH-R010.3`, `EG-CQ-ORCH-R010.4`, `EG-CQ-ORCH-R010.5`, `EG-CQ-ORCH-R010.6`, `AU-HARNESS-R019.5`, `AU-HARNESS-R019.6`, `AU-HARNESS-R019.7`.
+- [ ] **EG-CQ-ORCH-R010.7 acceptance:** Deliver the positive, negative, refusal, boundary, or readback cases explicitly required by: Link the architecture-view and study-gap definitions as prerequisites; define the missing EG planning admission contract and AU consumer attachment without duplicating architecture derivation.
+- [ ] **EG-CQ-ORCH-R010.7 status:** Keep SPECIFIED until separately reviewed implementation and served evidence are available.
+<!-- /spec-definition-patch -->

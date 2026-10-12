@@ -64,3 +64,101 @@ Foreign-source scope EG-FEDERATED-QUERY-R013 belongs to `federated-query-and-rea
 The scope above does not claim coverage of independent engine work such as layout upgrades, community detection, domain-specific connectors, query grammar, or unrelated quality regressions. Those concerns require their own owner specs and acceptance evidence.
 
 Requirement IDs are defined in [requirements.md](requirements.md); delivery state per ID is in `status.json`.
+
+<!-- spec-definition-patch:owner-batch-20261012-repository-index-and-ingestion -->
+## Reviewed owner residuals — 2026-10-12
+
+### `EG-REPO-INGEST-R002.1` — AU:23
+
+Original objective: A skill document's procedural steps compile into an executable plan with no separate workflow file, and the graph references the skill directory instead of copying it.
+
+EG-owned residual: No reviewed clause compiles procedural steps from the skill document itself into an executable plan or guarantees execution without a separate workflow file. The SourceIngest ownership label skill_workflow_ingest is not that behavioral definition.
+
+Producer/consumer boundary: EG SourceIngest owns skill_workflow_ingest; AU graph_orchestrate -> execute_workflow runs an existing workflow after find_workflow_gaps/fill_workflow_gaps. The skill-document-to-executable-plan producer and its consumer link are absent.
+
+Preserve existing coverage: `AU-HARNESS-R022.2`, `AU-CONTROL-R037.3`, `AU-CONTROL-R037.5`, `EG-REPO-INGEST-R002`.
+
+Owner source hash: `3f7e133169a76ce2680ec667c28ea2c5543354ed8874d258c432e65346f2e529`. This definition adds no AU/GraphOS/SDK implementation or acceptance claim.
+
+### `EG-REPO-INGEST-R006.1` — AU:70
+
+Original objective: Ingestion throughput is profiled per stage against a target of 2000 papers per day; maintenance backlog purge and per-goal budget allocation are prioritized when throughput falls below target.
+
+EG-owned residual: paper throughput numerator/denominator/window and 2000 papers/day target; below-target policy prioritizing maintenance backlog purge and per-goal budget allocation; safe purge candidates, authorization/admission, refusal and decision/result evidence
+paper throughput numerator/denominator/window and 2000 papers/day target; below-target policy prioritizing maintenance backlog purge and per-goal budget allocation; safe purge candidates, authorization/admission, refusal and decision/result evidence
+Producer/consumer boundary: SDK paper transport -> EG SourceIngest/native commits + enrichment WorkItems -> ingestion telemetry -> EG budget/purge decision (missing) -> GraphOS governed maintenance dispatch (missing). AU instrumentation supplies observations, not policy authority.
+
+Preserve existing coverage: `AU-RETIRE-R005`, `EG-REPO-INGEST-R006`.
+
+Owner source hash: `902f964dd909186f3a31d1f8a84d146b715446e64dfeec62480c8151baa06996`. This definition adds no AU/GraphOS/SDK implementation or acceptance claim.
+
+### `EG-REPO-INGEST-R006.2` — AU:92
+
+Original objective: After a sync, embeddings are updated asynchronously with an importance penalty so high-importance features resist change; consolidation never runs in the routing loop.
+
+EG-owned residual: Importance-weighted penalty resisting loss of important features; explicit post-sync consolidation separated from routing.
+
+Producer/consumer boundary: EG ingestion queues durable enrichment; R040.3 names the re-embed worker queued by FQR-R077.3. AU-CONTEXT-R002 requests a governed shadow ANN build/activation proposal. No importance-penalty/consolidation consumer contract exists.
+
+Preserve existing coverage: `EG-REPO-INGEST-R006`, `EG-UNIFIED-DATA-PLANE-R040.2`, `AU-CONTEXT-R002`.
+
+Owner source hash: `771acc731a6e25746641adf30cde9ec91f4eb56edd6597f2d308a42947a3abb3`. This definition adds no AU/GraphOS/SDK implementation or acceptance claim.
+
+### `EG-REPO-INGEST-R006.3` — EG:54
+
+Original objective: The graph exposes structured code maps (modules, symbols, call and dependency relations) so an agent can ask where a behavior lives; stale maps are refused after source change.
+
+EG-owned residual: No complete modules/symbols/calls/dependencies code-map carrier and behavior-location query with source-revision stale-map refusal is specified. Cache invalidation is a distinct guarantee.
+
+Producer/consumer boundary: IndexRepository/SourceIngest -> hydration -> structured query/code-map consumer; exact code-map response remains undefined.
+
+Preserve existing coverage: `EG-FEDERATED-QUERY-R017`, `EG-REPO-INGEST-R006`, `EG-REPO-INGEST-R009`.
+
+Owner source hash: `e69e6fa3a5c26ae763809d600cb7d264d028b9ce0d80f8ca6141e1a40cf0638e`. This definition adds no AU/GraphOS/SDK implementation or acceptance claim.
+
+### `EG-REPO-INGEST-R006.4` — EG:55
+
+Original objective: Repository indexing is incremental, bounded in memory and releases resources on completion; it optionally resolves semantic types for the most common languages beyond syntax.
+
+EG-owned residual: These do not require incremental engine index updates, peak-memory bounds, completion resource release or optional semantic type resolution with a named language matrix. Parsing grammar coverage is not semantic typing.
+
+Producer/consumer boundary: SDK delta SourceIngest -> EG native indexing and deferred work; semantic type producer and resource lifecycle need explicit definition.
+
+Preserve existing coverage: `EG-REPO-INGEST-R006`, `EG-REPO-INGEST-R007`, `EG-REPO-INGEST-R010`, `SDK-SOURCE-INGEST-R004`.
+
+Owner source hash: `340c1817f2a52dc6da4c9c13d93d215debbeb9fefd8b84b8d2400b86541d4d81`. This definition adds no AU/GraphOS/SDK implementation or acceptance claim.
+<!-- /spec-definition-patch -->
+
+<!-- spec-definition-patch:reviewed-mapped-subsets-20261012 -->
+## Reviewed mapped children — 2026-10-12
+
+The children below extend existing rollups. Existing parent requirements, children, policy authority and refusal behavior remain in force. These are SPECIFIED definitions only; no code, producer receipt, consumer receipt or served result is claimed.
+
+### Extension of R002
+
+Preserve the existing `R002` obligation and all prior children; add `EG-REPO-INGEST-R002.100`. The child definitions below state only the mapped residual and its exact owner boundary.
+
+#### `EG-REPO-INGEST-R002.100` — AU:118
+
+Extend the existing SourceIngest/result persistence contract with a write receipt binding run id, tenant, query digest, ordered result ids/content digests, graph revision and source provenance. The consumer performs a separately authorized read-only query after the write, binds its principal/grant revision and selector to that receipt, and compares every expected result id/digest/revision. A run may report success only after a matching readback receipt; missing, partial, stale, denied or mismatched readback is a typed non-success. Do not introduce a second graph writer.
+
+Producer/consumer: EG owns durable graph write/read; AU owns execution success reporting. Reuse SourceIngest and existing query authorization, with explicit cross-owner consumer link.
+
+Source record SHA-256: `e8ad0c2417b7fa6ce53c46899f1adf8e925977becd0bd1813db6b62d3786af11`. Verification remains planned until independently served by each named owner.
+<!-- /spec-definition-patch -->
+
+<!-- spec-definition-patch:final-mappings-20261012 -->
+## Final mapped contract extensions — 2026-10-12
+
+These definitions are planned contracts; they do not claim implementation or served evidence.
+
+### `EG-REPO-INGEST-R002.101` — PIPE:10
+
+Bind the workflow id/revision loaded from the graph, EG committed plan/decision digest, AU execution run and output digests, SourceIngest write receipt, resulting graph revision and separately authorized readback receipt. The acceptance path uses the real graph_orchestrate -> find_workflow_gaps/fill_workflow_gaps -> execute_workflow consumer and EG graph load/decision plus SourceIngest; a separate authorized graph query must read back the hydrated content and match its digest before the gate reports success. Fake engines/catalogs and generic handoff receipts do not satisfy this contract. Missing/stale workflow, execution mismatch, write failure or denied/partial readback is non-success.
+
+**Producer/consumer boundary:** EG owns workflow graph load/decision and durable SourceIngest; AU owns graph_orchestrate/execution; SDK supplies source-effect runner. Pipelines owns the gate only and does not add a runtime orchestrator.
+
+**Source record SHA-256:** `e0c431512565acb1a8ae00e09b63ec6fb7c8f9e81ef9c786a0fd7b26b2239455`.
+
+**Preserved parent:** `EG-REPO-INGEST-R002` remains unchanged.
+<!-- /spec-definition-patch -->

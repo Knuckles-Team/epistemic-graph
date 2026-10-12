@@ -48,7 +48,8 @@
     "EG-PLACEMENT-R004.3",
     "EG-PLACEMENT-R004.4",
     "EG-PLACEMENT-R004.5",
-    "EG-PLACEMENT-R004.6"
+    "EG-PLACEMENT-R004.6",
+    "EG-PLACEMENT-R001.15"
   ],
   "requirements": [
     {
@@ -71,7 +72,8 @@
         "EG-PLACEMENT-R001.11",
         "EG-PLACEMENT-R001.12",
         "EG-PLACEMENT-R001.13",
-        "EG-PLACEMENT-R001.14"
+        "EG-PLACEMENT-R001.14",
+        "EG-PLACEMENT-R001.15"
       ]
     },
     {
@@ -462,6 +464,13 @@
     {
       "id": "EG-PLACEMENT-R004.6",
       "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-PLACEMENT-R001.15",
+      "title": "Reviewed residual `EG:9`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

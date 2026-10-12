@@ -260,3 +260,35 @@ Record source SHA, binary digest, enabled features, exact command, graph/node sc
 request correlation, commit acknowledgment, residency observations and terminal result.
 Preserve all existing owner receipts. New results must identify the exact source exercised.
 This specification batch makes no runtime execution or implementation-complete claim.
+
+<!-- spec-definition-patch:owner-batch-20261012-durable-graph-kernel -->
+## Reviewed residual acceptance targets — owner batch 2026-10-12
+
+All targets below are planned acceptance, not executed tests or receipts. Use the real producer/consumer boundary named for each row and retain existing covered behavior.
+
+- **`EG-DURABLE-KERNEL-R028.1` / AU:21:** Retain partial; preserve existing host streaming IDs. Define EG durable checkpoint/memory state and retention, AU resume application, and exact host stream cursor/run-state binding with explicit dependency edges. Do not replace the existing streaming definition with a new rollup. Producer/consumer path: EG WorkItem lifecycle and isolation -> AU run execution -> existing GRAPHOS-A2A-R001/GRAPHOS-OPS-R001 streaming facade. The reviewed packet has no explicit dependency joining a complete run-checkpoint/memory contract to the resume and stream consumers. Source review `d89bb9c69e2fdef6a5c3fd428ede3f91868539056c2b949700867d8d8087d1e7`. Exercise the served EG producer and named consumer where that owner contract exists; assert its defined output/refusal. These are planned cases only, not test or receipt evidence.
+
+- **`EG-DURABLE-KERNEL-R085.9` / AU:48:** Extend existing EG memory/search state and AU continuation interfaces with all four fields and context-eviction readback acceptance; reuse the durable memory authority. Producer/consumer path: AU summary/workspace consumers and EG authenticated durable memory dispatch exist as definitions. Search continuation has no named binding to a complete search-state revision. Source review `8c76fa1637e0cc2082a1cce16b9d637f12b310ae96d1fe9a50ec9c64f8e23944`. Exercise the served EG producer and named consumer where that owner contract exists; assert its defined output/refusal. These are planned cases only, not test or receipt evidence.
+
+- **`EG-DURABLE-KERNEL-R085.10` / AU:49:** Extend the existing memory/context consumer contract with automatic session-note capture, relevance and stale/conflict behavior, preserving tenant isolation and authoritative versions. Producer/consumer path: EG authorized memory read/list -> AU context consumer; AU experience retrieval handles reusable run records. Automatic research-note capture/relevance/application is not wired by a definition. Source review `2362fd76bf40223aeb813866392670b65eae13d02a725b1af9a2e6711542dd12`. Exercise the served EG producer and named consumer where that owner contract exists; assert its defined output/refusal. These are planned cases only, not test or receipt evidence.
+
+- **`EG-DURABLE-KERNEL-R084.7` / EG:28:** Clarify which backends are writable projections/mirrors and define deterministic tenant-scoped coordination under the existing durable authority. Extend R084 with a residual covering multi-backend ordering, uncoordinatable-write refusal and no partial authoritative effects; use two tenants and multiple target failure/replay cases. Preserve the complete existing one-graph conflict acceptance. Producer/consumer path: Served ApplyMutation -> version check/resolve_conflict -> durable mutation authority -> declared mirror targets where supported. R024.1 is read-only; R036 supplies mirror replay/cursors, not distributed transaction coordination. Source review `96c3079859b0e63ec3e1174e25e7a4ab107b23ef6863ae9b54ff0e921a88e4b0`. Exercise the served EG producer and named consumer where that owner contract exists; assert its defined output/refusal. These are planned cases only, not test or receipt evidence.
+<!-- /spec-definition-patch -->
+
+<!-- spec-definition-patch:final-mappings-20261012 -->
+## Final mapped planned acceptance — 2026-10-12
+
+No cases listed here have run; they describe required future acceptance, not evidence.
+
+- **`EG-DURABLE-KERNEL-R038.100` / EG:60; source `b36ed0f40742d2f455b4eae67f2fb64edb7fa6ea87b93cbb8ac0046970728458`:** Start a fresh embedded profile without an external service and read/write an explicitly ephemeral namespace; verify no persistent namespace is silently downgraded. Start served mode against its configured endpoint and verify its declared sync/async class and acknowledgment boundary. Refuse an unknown profile and an ephemeral-to-durable class mismatch; read back profile and namespace declarations. Producer/consumer: EG owns profile and storage selection; transport mode is separate from namespace DurabilityClass. Preserve R038 durability classes, sync default, redb authority and authorization/HMAC isolation. Parent `EG-DURABLE-KERNEL-R038` remains intact.
+<!-- /spec-definition-patch -->
+
+
+<!-- spec-definition-patch:owner-dispatch-20261012-tests -->
+## Planned served acceptance — graph change feed
+
+No test in this section has run; it is a future contract.
+
+- `EG-DURABLE-KERNEL-R043.100`: two authenticated clients read a consistent snapshot, apply concurrent ChangeEnvelope commits, consume ordered events without refresh, reconnect from an opaque cursor, deduplicate replay and independently read back the durable graph.
+- Verify tombstones, expired cursor recovery, graph-incarnation mismatch and authorization revocation. Denied edges/counts remain invisible. Measure p95 commit acknowledgement to first authorized read ≤1000 ms using the recorded latency-profile revision; WebUI R030.8 separately proves concurrent layout remains readable.
+<!-- /spec-definition-patch -->

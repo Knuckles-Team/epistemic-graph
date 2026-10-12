@@ -56,3 +56,13 @@ Mutation proof must observe the committed result and the owner's refusal, replay
 A direct native operation must use its own entry point; forcing it through the planner changes the architecture.
 Record revision, feature profile, entry point, command, exit result, artifact digest, and observed effect for each execution claim.
 Keep unexecuted cases explicit. Preserve EG-C-07/08, EG-T-10, and each linked parent's complete acceptance.
+
+<!-- spec-definition-patch:owner-batch-20261012-public-engine-contract-and-release -->
+## Reviewed residual acceptance targets — owner batch 2026-10-12
+
+All targets below are planned acceptance, not executed tests or receipts. Use the real producer/consumer boundary named for each row and retain existing covered behavior.
+
+- **`EG-CONTRACT-R001.1` / AU:109:** Extend the typed agent lifecycle owner to enumerate construction, mutation/transition validation, persistence and serialization boundaries. Bind them to the existing generated models and prove malformed state refusal and complete lifecycle roundtrip. Producer/consumer path: Retain EG generated strict client types and AU HarnessPort/run_agent contracts. Missing lifecycle model ownership and construction/validation/serialization edges must be named; no parallel wire authority should be introduced. Source review `c0d92285a141dcaac6817bcac25ffa438517afeba50be716211751f3a37a31c2`. Exercise the served EG producer and named consumer where that owner contract exists; assert its defined output/refusal. These are planned cases only, not test or receipt evidence.
+
+- **`EG-CONTRACT-R001.2` / AU:121:** Link R094.2–.7 as partial coverage; add only disk-format/Pydantic difference semantics. Producer/consumer path: EG R094.2/.3/.5 exports/adopts native bodies; R094.7 consumes SDK RepositorySourceEffectIntent/Request/Receipt through GraphOS RepositoryWriteBackParams. R001 supplies Pydantic wire types. Missing definition is the disk serializer/test, not merged source-effect ownership. Source review `98b7ad1186ec2a385b334ffa0ad1b28888157ed6b51c6ed4172eeb7b7ef6768e`. Exercise the served EG producer and named consumer where that owner contract exists; assert its defined output/refusal. These are planned cases only, not test or receipt evidence.
+<!-- /spec-definition-patch -->

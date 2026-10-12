@@ -78,3 +78,11 @@ Authenticated Iceberg catalog (R039): a valid token lists and loads its own tabl
 - `EG-UNIFIED-DATA-PLANE-R040.4`: `crates/eg-ann/src/version.rs::tests::blocked_promotion_tags_nothing`.
 - `EG-UNIFIED-DATA-PLANE-R040.5`: `crates/eg-types/src/embedding_promotion.rs::tests::verdict_is_stored_with_modality_entries`.
 - `EG-UNIFIED-DATA-PLANE-R040.6`: `tests/embedding/test_promotion_gate_served.py::test_regressed_modality_blocks_promotion`.
+
+<!-- spec-definition-patch:owner-batch-20261012-unified-data-plane -->
+## Reviewed residual acceptance targets — owner batch 2026-10-12
+
+All targets below are planned acceptance, not executed tests or receipts. Use the real producer/consumer boundary named for each row and retain existing covered behavior.
+
+- **`EG-UNIFIED-DATA-PLANE-R026.4` / EG:64:** Retain the conditional-write intent through a separate authorized MutationBatch/graph endpoint. Link schema mapping/read requirements and add external-application served tests proving projection denial even with write grants and authorized graph mutation reflected on read. Producer/consumer path: External app -> relational/projection read; writes -> authorized graph MutationBatch (or governed SDK attached-source effect), never projected table writes. Source review `c55bc629b1bfefc9d0346b75b8bb95e5a231b891e7e34297df17b960d6c9773c`. Exercise the served EG producer and named consumer where that owner contract exists; assert its defined output/refusal. These are planned cases only, not test or receipt evidence.
+<!-- /spec-definition-patch -->

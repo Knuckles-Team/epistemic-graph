@@ -328,3 +328,39 @@ Vocabulary and shapes land with `cargo test -p eg-core` ontology load and SHACL 
 ## Risks, alternatives, and decisions
 
 Connector ontologies already exist and may drift from the core vocabulary: mitigated by the .1 mapping tests and the collision test. Several questions are BLOCKED on connector operations; EG ships abstentions first so the questions fail honestly.
+
+<!-- spec-definition-patch:owner-batch-20261012-media-and-personal-vocabulary -->
+## Reviewed residual closure plan — owner batch 2026-10-12
+
+### `EG-MEDIA-VOCAB-R002.5` — EG:50
+
+- Existing EG rollup: `EG-MEDIA-VOCAB-R002.1`; append-only residual ID: `EG-MEDIA-VOCAB-R002.5`.
+- Original objective: Research ingestion extracts paper metadata, builds the citation graph and asserts the extracted facts into the knowledge store, refusing papers without identifiable metadata.
+- Missing EG obligation: CitationCount is not citation-edge graph construction. Explicit extracted-fact assertion through EG and per-paper refusal when no identifiable metadata can be obtained remain unbound. Canonical-ID validation is partial support, but per-provider failures do not prove per-paper failure handling.
+- Producer/consumer route: SDK paper provider search/download -> PaperRecord/DocumentReceipt -> generated SourceIngest -> EG ResearchPaper/citation facts. SDK plan explicitly says paper-serving registration is not established by its specification.
+- Minimum closure action: Link the existing SDK paper retrieval/metadata producer to EG SourceIngest; define citation-edge construction and fact assertion with source provenance, plus one unidentified-paper refusal that preserves healthy paper ingestion. Do not duplicate provider retrieval or assert unreviewed paper-serving registration exists.
+- Preserve covered clauses: `EG-MEDIA-VOCAB-R002.1`, `EG-MEDIA-VOCAB-R002.4`, `SDK-SOURCE-INGEST-R005.1`, `SDK-SOURCE-INGEST-R005.2`, `SDK-SOURCE-INGEST-R005.4`, `EG-REPO-INGEST-R002`.
+- Source review: `b6d12a184f1c5812c8f4fd56a0a299e48381e85ad9b18af4eb0ed19faf3d7e0b`; evidence: epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/media-and-personal-vocabulary/requirements.md:13; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/media-and-personal-vocabulary/requirements.md:16; agent-connector-sdk:5babc4cc48ad73928468b243842f219f51e2cca1:specs/SDK-SOURCE-INGEST/requirements.md:10; agent-connector-sdk:5babc4cc48ad73928468b243842f219f51e2cca1:specs/SDK-SOURCE-INGEST/requirements.md:11.
+- Cross-owner behavior and receipts remain with the named owner; no runtime evidence is claimed.
+<!-- /spec-definition-patch -->
+
+<!-- spec-definition-patch:final-mappings-20261012 -->
+## Final mapping implementation plan — 2026-10-12
+
+### `EG-MEDIA-VOCAB-R001.100` / EG:69
+
+- Preserve parent `EG-MEDIA-VOCAB-R001` and its existing clauses.
+- Define: Define each tag assertion with media item/revision, tag taxonomy id/version, object-or-context value, confidence, evidence span/reference, opaque producer id/revision and provenance digest. Store tags as source-backed assertions attached to the media item, not as unqualified labels. Search returns only tags visible under the caller’s media/item authorization and binds the matched tag ids, media revisions and authorization revision. Missing provenance or stale media revision refuses the assertion; unauthorized query returns no protected tag data. The actual vision producer identity and its served extraction contract remain an explicit dependency and are not invented here.
+- Producer/consumer: EG owns tag assertion storage, provenance and authorized search. Vision extraction producer identity/execution remains held for its owner; this child does not claim that producer is implemented or served.
+- Source record SHA-256: `38f71f6a205cf8df27631a4aa86ec3312a91f7902dfd8bfe843db2a142d1d30f`.
+- Keep status SPECIFIED until each named producer and consumer is separately implemented, served-tested and independently read back.
+<!-- /spec-definition-patch -->
+
+
+<!-- spec-definition-patch:owner-dispatch-20261012-plan -->
+## Cross-owner transcript and bookmark plan — 2026-10-12
+
+- **`EG-MEDIA-VOCAB-R001.101` / WEBUI:10:** Extend `TranscriptSegment` with immutable meeting revisions and strict sequence/correction/finalization; add `MeetingSummaryContextV1` and `CommitMeetingSummaryV1` bound to current transcript digest, admitted provider/model/policy and AU invocation receipt. Citation ids must resolve in the final revision. EG authorizes/serves context only; AU executes model calls and mints receipts; WebUI R001.5 renders. Source SHA-256 `c82a815c87428a5baf4379ef7790bafb24a5d3367d16ebd85a6c39ff9b52521d`.
+- **`EG-MEDIA-VOCAB-R001.102` / WEBUI:11:** Reuse SDK SourceIngest R005.7-.12 and the existing EG SourceIngest → ChangeEnvelope commit path. Define bounded semantic bookmark search and authorized relation reads bound to ingestion receipt, source/index/snapshot/auth revisions. Reuse `Method::SemanticSearch` and UQL; do not add an ingestion pipeline. GraphOS/WebUI R001.6 own served adapter/mindmap/export. Source SHA-256 `b1708c96d6b9cadcb1c9f35cc5cb7dde4e60ed2cb1250598e55b9ce4cc66907e`.
+- Keep both SPECIFIED until the EG producer is independently read back and the named AU/GraphOS/WebUI consumers pass their own served receipts. Do not claim a transcript provider, live capture or bookmark export exists from these definitions.
+<!-- /spec-definition-patch -->

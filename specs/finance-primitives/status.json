@@ -151,7 +151,9 @@
     "EG-FINANCE-PRIMITIVES-R018.3",
     "EG-FINANCE-PRIMITIVES-R018.4",
     "EG-FINANCE-PRIMITIVES-R018.5",
-    "EG-FINANCE-PRIMITIVES-R018.6"
+    "EG-FINANCE-PRIMITIVES-R018.6",
+    "EG-FINANCE-PRIMITIVES-R015.1",
+    "EG-FINANCE-PRIMITIVES-R002.11"
   ],
   "requirements": [
     {
@@ -190,7 +192,8 @@
         "EG-FINANCE-PRIMITIVES-R002.7",
         "EG-FINANCE-PRIMITIVES-R002.8",
         "EG-FINANCE-PRIMITIVES-R002.9",
-        "EG-FINANCE-PRIMITIVES-R002.10"
+        "EG-FINANCE-PRIMITIVES-R002.10",
+        "EG-FINANCE-PRIMITIVES-R002.11"
       ]
     },
     {
@@ -1457,11 +1460,14 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R015",
       "title": "AnalysisSnapshot records with share.read control leases",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "3899594fed44"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "rollup_of": [
+        "EG-FINANCE-PRIMITIVES-R015.1"
+      ]
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R016",
@@ -1545,6 +1551,20 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R018.6",
       "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R015.1",
+      "title": "Reviewed residual `EG:43`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R002.11",
+      "title": "Reviewed residual `EG:67`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
