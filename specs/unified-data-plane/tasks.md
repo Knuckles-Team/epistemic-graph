@@ -184,9 +184,7 @@ For each row, add a subentry containing its merged commit, exact-head test run, 
 - [ ] **EG-UNIFIED-DATA-PLANE-R040.6:** Hot-path proof. The entry point is a served row write on a bound text column. The test replaces the embedding model with a candidate that regresses the image check. The write passes through the re-embed worker and the wired gate. The test observes the blocked promotion and the prior version still active.
 
 <!-- spec-definition-patch:owner-batch-20261012-unified-data-plane -->
-## Reviewed residual definition tasks — owner batch 2026-10-12
+## Implementation tasks — owner batch 2026-10-12
 
-- [ ] **EG-UNIFIED-DATA-PLANE-R026.4 (EG:64):** Define and wire the EG-owned residual for `EG-UNIFIED-DATA-PLANE-R026` using the reviewed producer/consumer route; preserve covered clauses `EG-DURABLE-KERNEL-R035`, `EG-DURABLE-KERNEL-R043`, `EG-FEDERATED-QUERY-R080`, `EG-UNIFIED-DATA-PLANE-R026`, `EG-FEDERATED-QUERY-R080.1`, `EG-FEDERATED-QUERY-R080.2`, `EG-FEDERATED-QUERY-R080.3`, `EG-FEDERATED-QUERY-R080.4`, `EG-FEDERATED-QUERY-R080.5`, `EG-FEDERATED-QUERY-R080.6`.
-- [ ] **EG-UNIFIED-DATA-PLANE-R026.4 acceptance:** Deliver the positive, negative, refusal, boundary, or readback cases explicitly required by: Retain the conditional-write intent through a separate authorized MutationBatch/graph endpoint. Link schema mapping/read requirements and add external-application served tests proving projection denial even with write grants and authorized graph mutation reflected on read.
-- [ ] **EG-UNIFIED-DATA-PLANE-R026.4 status:** Keep SPECIFIED until separately reviewed implementation and served evidence are available.
+- [ ] **EG-UNIFIED-DATA-PLANE-R026.4 — projection boundary:** Wire approved revision-pinned R003/R005 mappings to the R026 projection read; refuse DML/DDL through every projection even with a separate mutation grant; admit writes only through authorized graph MutationBatch; prove committed mutation appears on read. **Hold:** R026 owner must supply target application schema and captured statement corpus before app compatibility is claimed. Status stays SPECIFIED. Source SHA-256 `c55bc629b1bfefc9d0346b75b8bb95e5a231b891e7e34297df17b960d6c9773c`.
 <!-- /spec-definition-patch -->

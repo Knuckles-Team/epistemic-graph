@@ -75,43 +75,25 @@ R002.10 retains its missing AU model-dispatch consumer requirement and call-site
 Original pack types, digest vectors, clients, body holders, grace reconciliation and Stable content serving remain mandatory.
 
 <!-- spec-definition-patch:owner-batch-20261012-typed-packs-and-catalog -->
-## Reviewed owner residuals — 2026-10-12
+## Owner definitions — 2026-10-12
 
 ### `EG-TYPED-PACKS-R100.7` — AU:31
 
-Original objective: Accumulated graph knowledge about a task domain is distilled into a versioned skill package that the platform publishes only after validation against recorded runs; unvalidated packages are refused.
+The existing rendered-package path must gate catalog exposure on a `RecordedRunValidationV1` bound to tenant, skill, candidate revision, exact rendered content digest, graph revision and validation-policy reference `{policy_iri, policy_revision}`. Each sorted unique `run_refs` entry carries `{run_ref, package_content_digest, graph_revision, policy_revision, outcome, evidence_digest}`; `run_set_digest` hashes its canonical encoding, `run_set_complete` must be true, and each run attests the same package and policy revisions. Missing, failed, partial, stale, mismatched, or cross-tenant evidence refuses publication before `skill_row` returns a publishable package. AU `record_outcome`/`SkillGraphPipeline` remains the run/candidate producer; EG `render_skill_package` and `skill_row` bind and enforce the receipt.
 
-EG-owned residual: A content digest/graph revision supplies package identity evidence, but neither rendering nor minimum rollout count validates that exact resulting package against recorded runs before publication. The required publication refusal remains absent.
-
-Producer/consumer boundary: AU record_outcome/SkillGraphPipeline yields candidates; EG render_skill_package is called by fleet catalog skill_row and binds graph revision/content digest. No reviewed recorded-run validation receipt gates publication of that exact rendered package.
-
-Preserve existing coverage: `AU-HARNESS-R022.2`, `AU-HARNESS-R022.5`, `AU-HARNESS-R022.6`, `AU-HARNESS-R004.1`, `EG-TYPED-PACKS-R100.1`, `EG-TYPED-PACKS-R100.5`, `EG-TYPED-PACKS-R100.6`.
-
-Owner source hash: `96ff38761f9e21d52f608ba593c902aff4c93ca7b1ed13088ad39efd3e968a3a`. This definition adds no AU/GraphOS/SDK implementation or acceptance claim.
+**Hold:** the reviewed AU rows do not define the validation operation, receipt producer fields, run-set selection, or pass criterion. AU must publish those semantics before a passing cross-owner journey can be accepted. Until then absence of a receipt refuses; this does not close the positive producer path. Preserve `AU-HARNESS-R022.2/.5/.6`, `AU-HARNESS-R004.1`, and `EG-TYPED-PACKS-R100.1/.5/.6`. Source hash: `96ff38761f9e21d52f608ba593c902aff4c93ca7b1ed13088ad39efd3e968a3a`.
 
 ### `EG-TYPED-PACKS-R097.2.7` — EG:35
 
-Original objective: External ontology and knowledge-graph schemas are ingested and normalized into the platform ontology through declared mappings; an unmapped term is reported and not silently adopted.
+External ontology ingestion is directional from the pinned external schema into EG. The import contract covers classes, object/datatype/annotation properties and named individuals (enumerations are a class with named individuals). Each declared term is either mapped by a pinned, importer-authorized, kind-compatible `ExternalTermMappingV1` to a platform IRI with source IRI/kind retained as provenance, or returned in revision-bound coverage as `Unmapped{reason: NoDeclaredMapping}` and not adopted. Coverage sorts by external IRI then kind. Partial unmapped coverage does not invalidate a pack under R097.2; malformed, duplicate, unknown-kind, incompatible, forged or stale mappings refuse before commit/activation. Run validation in `ConnectorPack.Import::validate_and_commit`, recheck in `apply_pack_source`, and return full per-term coverage on `OntologyInspect`; use `GraphSchemaClasses` as independent readback for adopted classes and non-adoption of unmapped classes. R071.1 remains the reverse EG-class-to-external-vocabulary alignment and is not broadened.
 
-EG-owned residual: R097.2 covers selected pack classes in named domains and R071.1 crosswalks point EG classes to target vocabularies. They do not establish general external ontology/KG schema normalization into platform terms, including non-class terms. A valid pack may retain unmapped declared classes; that is not a blanket refusal of all unmapped external-term ingestion.
-
-Producer/consumer boundary: Connector candidates -> ConnectorPack.Import validate_and_commit -> apply_pack_source -> OntologyInspect/GraphSchemaClasses. Reverse-direction external normalization is not implied by existing SeeAlso/SKOS links.
-
-Preserve existing coverage: `EG-TYPED-PACKS-R051`, `EG-UNIFIED-DATA-PLANE-R005`, `EG-UNIFIED-DATA-PLANE-R037`, `EG-TYPED-PACKS-R071.1.1`, `EG-TYPED-PACKS-R071.1.2`, `EG-TYPED-PACKS-R071.1.3`, `EG-TYPED-PACKS-R071.1.4`, `EG-TYPED-PACKS-R071.1.5`, `EG-TYPED-PACKS-R071.1.6`, `EG-TYPED-PACKS-R097.2.1`, `EG-TYPED-PACKS-R097.2.2`, `EG-TYPED-PACKS-R097.2.3`, `EG-TYPED-PACKS-R097.2.4`, `EG-TYPED-PACKS-R097.2.5`, `EG-TYPED-PACKS-R097.2.6`.
-
-Owner source hash: `318723aee15c476039eca669a3230b206532c0c704b37efad5a7c49690bbb9c2`. This definition adds no AU/GraphOS/SDK implementation or acceptance claim.
+Preserve `EG-TYPED-PACKS-R051`, `EG-UNIFIED-DATA-PLANE-R005/R037`, `EG-TYPED-PACKS-R071.1.1-.6`, and `EG-TYPED-PACKS-R097.2.1-.6`. Source hash: `318723aee15c476039eca669a3230b206532c0c704b37efad5a7c49690bbb9c2`.
 
 ### `EG-TYPED-PACKS-R100.8` — EG:56
 
-Original objective: Skill workflows are exported as versioned OWL/RDF documents that the engine imports back losslessly; an export whose version is not newer than the stored one is refused.
+Add `ExportWorkflowRdfV1(workflow_iri, requested_workflow_version, stored_version_ref) -> WorkflowRdfDocumentV1` and `ImportWorkflowRdfV1(document) -> WorkflowImportReceiptV1{workflow_iri, committed_workflow_revision, graph_revision, dataset_digest, importer_id}` to the existing skill-package owner. The versioned `WorkflowRdfDocumentV1` contains workflow/skill IDs, workflow/stored-version/graph/ontology revisions, canonical N-Quads, dataset digest and serializer identity. `dataset_digest` is SHA-256 of the canonical UTF-8 N-Quads bytes selected by the document-pinned serializer. Export preserves every workflow triple, named graph, typed/language-tagged literal, ontology IRI and unknown workflow predicate; import validates the canonical-byte dataset digest and restores an isomorphic graph through the existing graph write boundary. Keep the original strict-newer check at export.
 
-EG-owned residual: R100 rendering does not define lossless OWL/RDF workflow export/import. No strictly-newer version refusal at export is defined; do not silently move this unusual original clause to import.
-
-Producer/consumer boundary: Fleet catalog skill_row -> render_skill_package -> package consumer; inverse workflow import/version admission remains unbound.
-
-Preserve existing coverage: `EG-TYPED-PACKS-R051`, `EG-TYPED-PACKS-R090`, `EG-TYPED-PACKS-R100`, `EG-TYPED-PACKS-R100.1`, `EG-TYPED-PACKS-R100.2`, `EG-TYPED-PACKS-R100.3`, `EG-TYPED-PACKS-R100.4`, `EG-TYPED-PACKS-R100.5`, `EG-TYPED-PACKS-R100.6`.
-
-Owner source hash: `620b1ae05d8e35696c7522f207672ef6f374525004d5488fe62fb4b27fc6cf5a`. This definition adds no AU/GraphOS/SDK implementation or acceptance claim.
+**Hold:** source review does not identify the stored workflow version record to compare, its ordering grammar, or the existing R100 consumer import operation. Do not shift comparison to import or claim a complete round-trip until those owner decisions and exact attach points are identified. Preserve `EG-TYPED-PACKS-R051/R090/R100.1-.6`. Source hash: `620b1ae05d8e35696c7522f207672ef6f374525004d5488fe62fb4b27fc6cf5a`.
 <!-- /spec-definition-patch -->
 
 <!-- spec-definition-patch:reviewed-mapped-subsets-20261012 -->

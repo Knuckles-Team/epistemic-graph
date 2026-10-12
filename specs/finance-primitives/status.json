@@ -1557,14 +1557,14 @@
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R015.1",
-      "title": "Reviewed residual `EG:43`",
+      "title": "Immutable order-proposal snapshot and atomic admission boundary",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R002.11",
-      "title": "Reviewed residual `EG:67`",
+      "title": "Multi-horizon Markov regime forecast and policy-bound sizing input",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

@@ -2004,7 +2004,7 @@
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R026.4",
-      "title": "Reviewed residual `EG:64`",
+      "title": "EG:64 source definition",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

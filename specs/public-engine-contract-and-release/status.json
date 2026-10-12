@@ -835,14 +835,14 @@
     },
     {
       "id": "EG-CONTRACT-R001.1",
-      "title": "Reviewed residual `AU:109`",
+      "title": "Generated types throughout the AU lifecycle",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-CONTRACT-R001.2",
-      "title": "Reviewed residual `AU:121`",
+      "title": "Canonical blueprint disk round trip",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

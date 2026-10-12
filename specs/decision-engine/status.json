@@ -4416,21 +4416,21 @@
     },
     {
       "id": "EG-DECISION-ENGINE-R140.100",
-      "title": "Complexity-gated K-trajectory deliberation",
+      "title": "Complexity-gated K-trajectory decision",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-DECISION-ENGINE-R140.101",
-      "title": "Provenance-preserving trajectory experience transformation and reinsertion",
+      "title": "Provenance-preserving trajectory projection and reinsertion",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-DECISION-ENGINE-R140.102",
-      "title": "Branch-start experience retrieval and outcome-driven exploration breadth",
+      "title": "Branch-start experience retrieval and outcome-driven breadth",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -4444,14 +4444,14 @@
     },
     {
       "id": "EG-DECISION-ENGINE-R141.100",
-      "title": "Fidelity-gated memory rewrite with failed-candidate discard",
+      "title": "Fidelity-gated memory rewrite evaluation",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-DECISION-ENGINE-R141.101",
-      "title": "Memory-change admission requires recall and answer-accuracy benchmark",
+      "title": "Memory-change benchmark receipt before admission",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

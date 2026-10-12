@@ -157,19 +157,11 @@ Keep each ruled boundary and adjacent owner obligation intact.
 - [ ] **EG-TYPED-PACKS-R094.7:** Approved repository-source effect dependency. Execute the positive and negative proving cases in test-spec.md. Consume the pinned SDK R004.5–R004.12 and GraphOS R003.4–R003.10 contracts through their real served composition.
 
 <!-- spec-definition-patch:owner-batch-20261012-typed-packs-and-catalog -->
-## Reviewed residual definition tasks — owner batch 2026-10-12
+## Owner definition tasks — 2026-10-12
 
-- [ ] **EG-TYPED-PACKS-R100.7 (AU:31):** Define and wire the EG-owned residual for `EG-TYPED-PACKS-R100.1` using the reviewed producer/consumer route; preserve covered clauses `AU-HARNESS-R022.2`, `AU-HARNESS-R022.5`, `AU-HARNESS-R022.6`, `AU-HARNESS-R004.1`, `EG-TYPED-PACKS-R100.1`, `EG-TYPED-PACKS-R100.5`, `EG-TYPED-PACKS-R100.6`.
-- [ ] **EG-TYPED-PACKS-R100.7 acceptance:** Deliver the positive, negative, refusal, boundary, or readback cases explicitly required by: Link the existing digest/revision package identity and distillation contracts, then define exact-package recorded-run validation and refusal before publication. Do not duplicate the existing rendered-package version evidence.
-- [ ] **EG-TYPED-PACKS-R100.7 status:** Keep SPECIFIED until separately reviewed implementation and served evidence are available.
-
-- [ ] **EG-TYPED-PACKS-R097.2.7 (EG:35):** Define and wire the EG-owned residual for `EG-TYPED-PACKS-R097.2.1` using the reviewed producer/consumer route; preserve covered clauses `EG-TYPED-PACKS-R051`, `EG-UNIFIED-DATA-PLANE-R005`, `EG-UNIFIED-DATA-PLANE-R037`, `EG-TYPED-PACKS-R071.1.1`, `EG-TYPED-PACKS-R071.1.2`, `EG-TYPED-PACKS-R071.1.3`, `EG-TYPED-PACKS-R071.1.4`, `EG-TYPED-PACKS-R071.1.5`, `EG-TYPED-PACKS-R071.1.6`, `EG-TYPED-PACKS-R097.2.1`, `EG-TYPED-PACKS-R097.2.2`, `EG-TYPED-PACKS-R097.2.3`, `EG-TYPED-PACKS-R097.2.4`, `EG-TYPED-PACKS-R097.2.5`, `EG-TYPED-PACKS-R097.2.6`.
-- [ ] **EG-TYPED-PACKS-R097.2.7 acceptance:** Deliver the positive, negative, refusal, boundary, or readback cases explicitly required by: Update ledger links to R071.1/R097.2. Retain only the external-to-platform ingestion direction, term-kind scope and normalization/adoption boundary not already defined. Add incoming external-schema fixtures with mapped and unmapped terms; reuse existing crosswalk authority and coverage/refusal machinery.
-- [ ] **EG-TYPED-PACKS-R097.2.7 status:** Keep SPECIFIED until separately reviewed implementation and served evidence are available.
-
-- [ ] **EG-TYPED-PACKS-R100.8 (EG:56):** Define and wire the EG-owned residual for `EG-TYPED-PACKS-R100` using the reviewed producer/consumer route; preserve covered clauses `EG-TYPED-PACKS-R051`, `EG-TYPED-PACKS-R090`, `EG-TYPED-PACKS-R100`, `EG-TYPED-PACKS-R100.1`, `EG-TYPED-PACKS-R100.2`, `EG-TYPED-PACKS-R100.3`, `EG-TYPED-PACKS-R100.4`, `EG-TYPED-PACKS-R100.5`, `EG-TYPED-PACKS-R100.6`.
-- [ ] **EG-TYPED-PACKS-R100.8 acceptance:** Deliver the positive, negative, refusal, boundary, or readback cases explicitly required by: Preserve the original export-time condition for coordinator decision. Define lossless workflow round-trip and exact version comparison in the existing skill-package owner; test equal/older/newer exports without weakening R100 freshness.
-- [ ] **EG-TYPED-PACKS-R100.8 status:** Keep SPECIFIED until separately reviewed implementation and served evidence are available.
+- [ ] **`EG-TYPED-PACKS-R100.7`:** Bind exact rendered package identity to a recorded-run receipt at the existing `skill_row` publication boundary; refuse missing/mismatched/failing evidence. Hold positive AU acceptance until AU defines the receipt producer, run selection and pass rubric.
+- [ ] **`EG-TYPED-PACKS-R097.2.7`:** Add external-to-platform mappings for the closed term-kind set, atomic precommit/activation validation and revision-bound all-term `Mapped`/`Unmapped{NoDeclaredMapping}` coverage on existing ontology reads; preserve partial unmapped reporting and R071.1 direction.
+- [ ] **`EG-TYPED-PACKS-R100.8`:** Add canonical workflow RDF export/import with full dataset preservation and digest/revision binding. Hold the strict-newer baseline/order decision and consumer wiring until the stored workflow version record and import owner operation are identified.
 <!-- /spec-definition-patch -->
 
 <!-- spec-definition-patch:reviewed-mapped-subsets-20261012 -->

@@ -66,17 +66,13 @@ All attached-source dialect tiers must pass their applicable conformance rows. T
 Requirement IDs are defined in [requirements.md](requirements.md); delivery state per ID is in `status.json`.
 
 <!-- spec-definition-patch:owner-batch-20261012-unified-data-plane -->
-## Reviewed owner residuals — 2026-10-12
+## Contract definition — `EG-UNIFIED-DATA-PLANE-R026.4`
 
-### `EG-UNIFIED-DATA-PLANE-R026.4` — EG:64
+Expose graph-backed relational projections only through an approved, version-pinned schema mapping (`AttachedCatalogGraph`/R2RML and the existing query surface). A projection-read request binds tenant, actor, graph, mapping id/revision, table, selected columns, typed predicates and query digest; its response binds the mapping revision, graph revision, column types and result digest. Projection reads are always read-only: SQL/relational INSERT, UPDATE, DELETE or DDL through a projected table is refused regardless of any write grant. A write request must name the target graph mutation and pass existing policy/admission through the authoritative `MutationBatch` path; a grant scoped to mutation does not turn a projection into a writer. Preserve R026 P0–P5 and reuse R003/R005 for catalog and mapping and R029 for schema context.
 
-Original objective: The platform can act as a persistent store backend for external applications that expect a relational schema, exposing graph data through that schema read-only unless writes are explicitly granted.
+**Boundary and preserved scope:** External application -> approved relational projection read; writes -> separately authorized graph `MutationBatch`. Preserve EG-DURABLE-KERNEL-R035, EG-DURABLE-KERNEL-R043, EG-FEDERATED-QUERY-R080, EG-UNIFIED-DATA-PLANE-R026, EG-FEDERATED-QUERY-R080.1, EG-FEDERATED-QUERY-R080.2, EG-FEDERATED-QUERY-R080.3, EG-FEDERATED-QUERY-R080.4, EG-FEDERATED-QUERY-R080.5, EG-FEDERATED-QUERY-R080.6. The schema/catalog and `schema_context` owners remain R003/R005/R029.
 
-EG-owned residual: A write grant must not make a projection writable. Exact graph-to-relational schema/read compatibility and routing separately granted mutations to authoritative graph admission remain incompletely linked.
+**Explicit hold:** The source record names no external application, exact relational table/column contract, or driver statement corpus for this row. Therefore the projection boundary and refusal semantics are specified, but application-level schema compatibility remains held until the R026 P0/P5 owner supplies and approves the concrete schema mapping and captured statements; no universal relational schema is implied.
 
-Producer/consumer boundary: External app -> relational/projection read; writes -> authorized graph MutationBatch (or governed SDK attached-source effect), never projected table writes.
-
-Preserve existing coverage: `EG-DURABLE-KERNEL-R035`, `EG-DURABLE-KERNEL-R043`, `EG-FEDERATED-QUERY-R080`, `EG-UNIFIED-DATA-PLANE-R026`, `EG-FEDERATED-QUERY-R080.1`, `EG-FEDERATED-QUERY-R080.2`, `EG-FEDERATED-QUERY-R080.3`, `EG-FEDERATED-QUERY-R080.4`, `EG-FEDERATED-QUERY-R080.5`, `EG-FEDERATED-QUERY-R080.6`.
-
-Owner source hash: `c55bc629b1bfefc9d0346b75b8bb95e5a231b891e7e34297df17b960d6c9773c`. This definition adds no AU/GraphOS/SDK implementation or acceptance claim.
+**Source record SHA-256:** `c55bc629b1bfefc9d0346b75b8bb95e5a231b891e7e34297df17b960d6c9773c`. This is a SPECIFIED contract; no implementation or served result is claimed.
 <!-- /spec-definition-patch -->

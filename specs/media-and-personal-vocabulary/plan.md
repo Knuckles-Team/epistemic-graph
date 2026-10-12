@@ -4,7 +4,7 @@
 
 - `SDK-SOURCE-INGEST-R005.7-.12` is the existing source-envelope prerequisite for bookmark ingestion under `EG-MEDIA-VOCAB-R001.102`; it does not create a second EG ingestion path. `WEBUI-APPS-R001.6` owns mindmap/export presentation. GraphOS query/export adapter requirement ID remains unlinked and is a coordinator hold.
 - `WEBUI-APPS-R001.5` is the meeting summary UI consumer for `EG-MEDIA-VOCAB-R001.101`. AU provider admission and invocation receipt producer IDs are absent from reviewed owner evidence; reserved `AU-SEMANTIC-R030` remains pending for admission, retry-attempt accounting and disabled-provider refusal. Exact producer contracts and served receipts remain required; wrapper-default retries are not treated as one invocation.
-- The vision extraction producer for `EG-MEDIA-VOCAB-R001.100` and SDK/GraphOS producer dependencies for `EG-MEDIA-VOCAB-R002.5` remain explicitly held until their owner IDs are linked.
+- The vision extraction producer for `EG-MEDIA-VOCAB-R001.100` remains held. `EG-MEDIA-VOCAB-R002.5` defines EG receipt-bound paper facts; citation edges remain held pending the SDK reference-ID schema, identity normalization and paper-serving registration.
 
 Governing spec: [spec.md](spec.md).
 
@@ -336,18 +336,16 @@ Vocabulary and shapes land with `cargo test -p eg-core` ontology load and SHACL 
 Connector ontologies already exist and may drift from the core vocabulary: mitigated by the .1 mapping tests and the collision test. Several questions are BLOCKED on connector operations; EG ships abstentions first so the questions fail honestly.
 
 <!-- spec-definition-patch:owner-batch-20261012-media-and-personal-vocabulary -->
-## Reviewed residual closure plan — owner batch 2026-10-12
+## Owner definition and dependency plan — 2026-10-12
 
 ### `EG-MEDIA-VOCAB-R002.5` — EG:50
 
-- Existing EG rollup: `EG-MEDIA-VOCAB-R002.1`; append-only residual ID: `EG-MEDIA-VOCAB-R002.5`.
-- Original objective: Research ingestion extracts paper metadata, builds the citation graph and asserts the extracted facts into the knowledge store, refusing papers without identifiable metadata.
-- Missing EG obligation: CitationCount is not citation-edge graph construction. Explicit extracted-fact assertion through EG and per-paper refusal when no identifiable metadata can be obtained remain unbound. Canonical-ID validation is partial support, but per-provider failures do not prove per-paper failure handling.
-- Producer/consumer route: SDK paper provider search/download -> PaperRecord/DocumentReceipt -> generated SourceIngest -> EG ResearchPaper/citation facts. SDK plan explicitly says paper-serving registration is not established by its specification.
-- Minimum closure action: Link the existing SDK paper retrieval/metadata producer to EG SourceIngest; define citation-edge construction and fact assertion with source provenance, plus one unidentified-paper refusal that preserves healthy paper ingestion. Do not duplicate provider retrieval or assert unreviewed paper-serving registration exists.
-- Preserve covered clauses: `EG-MEDIA-VOCAB-R002.1`, `EG-MEDIA-VOCAB-R002.4`, `SDK-SOURCE-INGEST-R005.1`, `SDK-SOURCE-INGEST-R005.2`, `SDK-SOURCE-INGEST-R005.4`, `EG-REPO-INGEST-R002`.
-- Source review: `b6d12a184f1c5812c8f4fd56a0a299e48381e85ad9b18af4eb0ed19faf3d7e0b`; evidence: epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/media-and-personal-vocabulary/requirements.md:13; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/media-and-personal-vocabulary/requirements.md:16; agent-connector-sdk:5babc4cc48ad73928468b243842f219f51e2cca1:specs/SDK-SOURCE-INGEST/requirements.md:10; agent-connector-sdk:5babc4cc48ad73928468b243842f219f51e2cca1:specs/SDK-SOURCE-INGEST/requirements.md:11.
-- Cross-owner behavior and receipts remain with the named owner; no runtime evidence is claimed.
+- **EG contract:** Reuse SDK `PaperSearchResult` → `PaperRecord`/`DocumentReceipt` → existing `SourceIngest`. Require SDK `exact_identity`, matching paper/revision, complete authorized artifact (URL, media type, byte count, SHA-256 and local artifact), and per-field provenance. Assert `cv:ResearchPaper` plus available DOI, arXiv ID, publication date and citation-count facts with source provenance and receipt/document digest. Exact replay is idempotent; missing identity, mismatched receipt/revision/digest, incomplete artifact or provenance mismatch refuses the affected paper before graph mutation while preserving healthy results.
+- **Explicit hold:** Existing `PaperRecord`/`DocumentReceipt` have no cited-paper ID list, and the SDK plan says paper-serving registration is not established. A citation count cannot generate citation edges. The SDK owner must define/serve reference IDs, target identity/normalization and paper registration before EG can define or claim citation-edge construction. Do not infer a provider or synthesize edges.
+- **Acceptance:** Positive matching record and independent SourceIngest readback of every asserted fact/provenance; byte-identical replay; mixed identified/unidentified batch where only the unidentified paper refuses; negative receipt, revision, artifact and field-provenance mismatches before mutation; count-only paper proves no edge is emitted. Citation-edge acceptance is an explicit dependency hold, not a passing test.
+- **Preserve:** `EG-MEDIA-VOCAB-R002.1`, `.4`, `SDK-SOURCE-INGEST-R005.1`, `.2`, `.4`, `EG-REPO-INGEST-R002`.
+- **Source record:** `b6d12a184f1c5812c8f4fd56a0a299e48381e85ad9b18af4eb0ed19faf3d7e0b`. No runtime receipt is claimed.
+
 <!-- /spec-definition-patch -->
 
 <!-- spec-definition-patch:final-mappings-20261012 -->

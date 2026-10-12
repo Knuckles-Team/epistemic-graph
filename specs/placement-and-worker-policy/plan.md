@@ -98,16 +98,12 @@ Decision: hosts declare capabilities and the graph stores them. Rejected alterna
 Cross-repository: `GRAPHOS-` rows that submit jobs only pass the job class.
 
 <!-- spec-definition-patch:owner-batch-20261012-placement-and-worker-policy -->
-## Reviewed residual closure plan — owner batch 2026-10-12
+## Owner implementation plan — 2026-10-12
 
 ### `EG-PLACEMENT-R001.15` — EG:9
 
-- Existing EG rollup: `EG-PLACEMENT-R001.6`; append-only residual ID: `EG-PLACEMENT-R001.15`.
-- Original objective: The engine scales its own capacity through a closed-loop control plane that observes load and headroom, proposes capacity changes, and refuses changes exceeding declared limits.
-- Missing EG obligation: Define bounded load/headroom scaling proposals, GraphOS application and applied-state reconciliation.
-- Producer/consumer route: EG capacity premises/place verdicts feed hosting policy; GraphOS exposes limits/mode and pure AIMD. Engine scaling actuation/reconciliation is an absent definition, not an unlinked throttle.
-- Minimum closure action: Add the closed-loop producer/GraphOS consumer and applied-state receipt; preserve existing GRAPHOS-HOST references.
-- Preserve covered clauses: `GRAPHOS-CAPACITY-R001.1`, `EG-DECISION-ENGINE-R112`, `GRAPHOS-CAPACITY-R001`, `EG-PLACEMENT-R001.6`, `GRAPHOS-CAPACITY-R002`.
-- Source review: `cb17ea03a7344584fed7a9f22a78c1e97c58919616433e7026481606fd0bdccb`; evidence: graph-os:069eebc785afb9fb26bbbcc907cf5a2a4bcab5c5:specs/adaptive-capacity/requirements.md:6; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:185; graph-os:069eebc785afb9fb26bbbcc907cf5a2a4bcab5c5:specs/adaptive-capacity/requirements.md:5; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/placement-and-worker-policy/requirements.md:11.
-- Cross-owner behavior and receipts remain with the named owner; no runtime evidence is claimed.
+- Define pure `evaluate_capacity_adjustment(proposal, capacity_premise) -> CapacityAdjustmentVerdictV1` with a typed capacity proposal/verdict binding tenant, resource class/unit, unsigned integer current/proposed capacity and bounds, observed load/headroom, UTC millisecond measurement window, premise and policy revisions, and a canonical proposal digest.
+- EG validates the proposal against fresh R112 capacity premises and existing R001.6 placement feasibility; out-of-bound, over-headroom, stale, cross-tenant or malformed requests return `CAPACITY_PROPOSAL_DIGEST_INVALID`, `CAPACITY_MEASUREMENT_INVALID`, `CAPACITY_PREMISE_STALE`, `CAPACITY_TENANT_MISMATCH`, `CAPACITY_UNIT_MISMATCH`, `CAPACITY_WINDOW_INVALID`, `CAPACITY_LIMIT_INVALID`, `CAPACITY_LIMIT_EXCEEDED`, or `CAPACITY_HEADROOM_EXCEEDED` and do not mutate host/graph state. GraphOS owns mode, AIMD proposal generation, limits and actuation.
+- The applied receipt must bind proposal digest, requested/applied amount, resource/host, policy revision and resulting state revision, independently readable from GraphOS. Preserve `GRAPHOS-CAPACITY-R001.1`, `EG-DECISION-ENGINE-R112`, `GRAPHOS-CAPACITY-R001/R002`, `EG-PLACEMENT-R001.6`; source hash `cb17ea03a7344584fed7a9f22a78c1e97c58919616433e7026481606fd0bdccb`.
+- **Hold:** reviewed evidence supplies no EG decision method/QuestionKind, GraphOS apply/readback operation or receipt schema. These exact owner API links are required before this proposed type is described as a wired closed loop.
 <!-- /spec-definition-patch -->

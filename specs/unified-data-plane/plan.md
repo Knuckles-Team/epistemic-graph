@@ -124,16 +124,11 @@ References
 - arXiv:2606.09331 — Li et al., "Conan-embedding-v3: Fusing Modality-Specific Models for Omni-Modal Embedding" (2026)
 
 <!-- spec-definition-patch:owner-batch-20261012-unified-data-plane -->
-## Reviewed residual closure plan — owner batch 2026-10-12
+## Implementation plan — `EG-UNIFIED-DATA-PLANE-R026.4`
 
-### `EG-UNIFIED-DATA-PLANE-R026.4` — EG:64
-
-- Existing EG rollup: `EG-UNIFIED-DATA-PLANE-R026`; append-only residual ID: `EG-UNIFIED-DATA-PLANE-R026.4`.
-- Original objective: The platform can act as a persistent store backend for external applications that expect a relational schema, exposing graph data through that schema read-only unless writes are explicitly granted.
-- Missing EG obligation: A write grant must not make a projection writable. Exact graph-to-relational schema/read compatibility and routing separately granted mutations to authoritative graph admission remain incompletely linked.
-- Producer/consumer route: External app -> relational/projection read; writes -> authorized graph MutationBatch (or governed SDK attached-source effect), never projected table writes.
-- Minimum closure action: Retain the conditional-write intent through a separate authorized MutationBatch/graph endpoint. Link schema mapping/read requirements and add external-application served tests proving projection denial even with write grants and authorized graph mutation reflected on read.
-- Preserve covered clauses: `EG-DURABLE-KERNEL-R035`, `EG-DURABLE-KERNEL-R043`, `EG-FEDERATED-QUERY-R080`, `EG-UNIFIED-DATA-PLANE-R026`, `EG-FEDERATED-QUERY-R080.1`, `EG-FEDERATED-QUERY-R080.2`, `EG-FEDERATED-QUERY-R080.3`, `EG-FEDERATED-QUERY-R080.4`, `EG-FEDERATED-QUERY-R080.5`, `EG-FEDERATED-QUERY-R080.6`.
-- Source review: `c55bc629b1bfefc9d0346b75b8bb95e5a231b891e7e34297df17b960d6c9773c`; evidence: epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/durable-graph-kernel/requirements.md:67; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/durable-graph-kernel/requirements.md:86; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/federated-query-and-reasoning/requirements.md:112; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/unified-data-plane/requirements.md:103.
-- Cross-owner behavior and receipts remain with the named owner; no runtime evidence is claimed.
+- Add the projection request/response to the existing approved R003/R005 mapping and query path. Pin mapping and graph revisions; preserve R026 P0–P5 phase evidence.
+- Enforce projection read-only behavior at the query boundary for all DML/DDL, including callers that hold a separate graph mutation grant. Route only explicitly authorized mutation requests through the existing graph `MutationBatch` admission path from R035/R043.
+- Served acceptance: positive mapped read; deny every projected write with and without a separate mutation grant; show authorized graph mutation visible after commit; deny stale/unapproved mapping and unauthorized mutation.
+- Explicit hold: the source names no target application, full relational schema, or captured statement corpus. The R026 pilot owner must supply and approve those artifacts before application compatibility is accepted.
+- Preserve EG-DURABLE-KERNEL-R035, EG-DURABLE-KERNEL-R043, EG-FEDERATED-QUERY-R080, EG-UNIFIED-DATA-PLANE-R026, EG-FEDERATED-QUERY-R080.1, EG-FEDERATED-QUERY-R080.2, EG-FEDERATED-QUERY-R080.3, EG-FEDERATED-QUERY-R080.4, EG-FEDERATED-QUERY-R080.5, EG-FEDERATED-QUERY-R080.6. Source SHA-256: `c55bc629b1bfefc9d0346b75b8bb95e5a231b891e7e34297df17b960d6c9773c`.
 <!-- /spec-definition-patch -->

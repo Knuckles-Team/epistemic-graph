@@ -1942,21 +1942,21 @@
     },
     {
       "id": "EG-TYPED-PACKS-R100.7",
-      "title": "Reviewed residual `AU:31`",
+      "title": "Exact rendered-package validation gate",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R097.2.7",
-      "title": "Reviewed residual `EG:35`",
+      "title": "Directional external-schema import and complete unmapped-term report",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R100.8",
-      "title": "Reviewed residual `EG:56`",
+      "title": "Lossless versioned workflow RDF export/import",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

@@ -18,11 +18,11 @@ Missing leg (jellyfin unconnected): typed abstention. Raw email in Subscriber: S
 `cargo test -p eg-core`, repo CCCC/jscpd/dupehound/KISS gates; record revision and output link per row.
 
 <!-- spec-definition-patch:owner-batch-20261012-media-and-personal-vocabulary -->
-## Reviewed residual acceptance targets — owner batch 2026-10-12
+## Planned R002.5 owner acceptance — 2026-10-12
 
 All targets below are planned acceptance, not executed tests or receipts. Use the real producer/consumer boundary named for each row and retain existing covered behavior.
 
-- **`EG-MEDIA-VOCAB-R002.5` / EG:50:** Link the existing SDK paper retrieval/metadata producer to EG SourceIngest; define citation-edge construction and fact assertion with source provenance, plus one unidentified-paper refusal that preserves healthy paper ingestion. Do not duplicate provider retrieval or assert unreviewed paper-serving registration exists. Producer/consumer path: SDK paper provider search/download -> PaperRecord/DocumentReceipt -> generated SourceIngest -> EG ResearchPaper/citation facts. SDK plan explicitly says paper-serving registration is not established by its specification. Source review `b6d12a184f1c5812c8f4fd56a0a299e48381e85ad9b18af4eb0ed19faf3d7e0b`. Exercise the served EG producer and named consumer where that owner contract exists; assert its defined output/refusal. These are planned cases only, not test or receipt evidence.
+- **`EG-MEDIA-VOCAB-R002.5` / EG:50:** Planned only. Through SDK `PaperRecord`/`DocumentReceipt` → EG `Method::SourceIngest`, independently read back the `cv:ResearchPaper`, available DOI/arXiv/publication/citation-count facts, receipt/document digest and each source field provenance; exact replay is idempotent. Refuse an unidentified paper, mismatched record/receipt revision or digest, incomplete authorized artifact, or provenance mismatch before that paper mutates the graph, while a healthy sibling persists. A citation-count-only record emits no citation edge. SDK reference-ID schema/identity normalization and paper-serving registration are missing, so citation-edge positive acceptance is held pending that reviewed SDK contract. Preserve existing R002.1/.4, SDK R005.1/.2/.4 and EG-REPO-INGEST-R002. Source SHA-256 `b6d12a184f1c5812c8f4fd56a0a299e48381e85ad9b18af4eb0ed19faf3d7e0b`; no implementation/test/readback evidence is claimed.
 <!-- /spec-definition-patch -->
 
 <!-- spec-definition-patch:final-mappings-20261012 -->

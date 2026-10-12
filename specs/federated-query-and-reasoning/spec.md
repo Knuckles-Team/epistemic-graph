@@ -294,19 +294,11 @@ Source record SHA-256: `327ced0e0605f34366c662017d82ac892a481c5ca5f40bba2f3693ba
 
 These definitions are planned contracts; they do not claim implementation or served evidence.
 
-### New rollup `EG-FEDERATED-QUERY-R086` — Inductive n-ary hypothesis-only link prediction
+### Rollup `EG-FEDERATED-QUERY-R086` — ordered n-ary hypothesis-only link prediction
 
-Defines ordered n-ary inference that returns unasserted hypotheses; it does not mutate graph facts or replace observed-edge query/write contracts.
-
-### `EG-FEDERATED-QUERY-R086.100` — EG:14
-
-Accept an ordered list of at least two source entity refs, a relation/type constraint, tenant and pinned graph/model revisions. Return candidate target refs with confidence, evidence references, ordered source refs, model/policy revision and `hypothesis_only=true`; do not assert edges, mutate graph state or present a prediction as observed fact. Refuse arity below two, unresolved/unauthorized source refs, stale model/graph revisions and malformed relation constraints. Preserve existing binary observed-edge query and graph-write authorities.
-
-**Producer/consumer boundary:** EG federated-query inference owns hypothesis production; AU may consume proposals. No public hyperedge-prediction operation currently exists, so this is a new contract under FQR R086.
+The rollup has one required child, `EG-FEDERATED-QUERY-R086.100`, linked in generated status. The child is held because current `GraphLearnPredict` handles binary pairs and can write `PredictedEdge`; it cannot serve ordered n-ary, unseen-entity, hypothesis-only inference. Preserve the existing binary operation and write authority. The missing model, auth action, producer and AU receipt decisions are stated in the child requirement. Both rows remain SPECIFIED.
 
 **Source record SHA-256:** `7223250e7f899a187aad0b152e597c6174b772c49779ca2bdd12d3ba68f4f5ef`.
-
-**Preserved parent:** `EG-FEDERATED-QUERY-R086` remains unchanged.
 
 ### `EG-FEDERATED-QUERY-R081.101` — AU:126
 
@@ -351,3 +343,9 @@ For a query vector q and candidate document matrix V whose rows are revision-pin
 
 The served acceptance uses an indexed billion-point source and proves pan/zoom/selection without full-source transfer. GraphOS owns its transport adapter and WebUI R001.2 owns rendered interaction. This specification does not claim runtime delivery.
 <!-- /spec-definition-patch -->
+
+<!-- fqr-source-backed-definition-dispositions-20261012 -->
+## Definition boundaries and explicit holds
+
+The exact source-backed contracts and missing owner decisions for the 12 mapped rows are in the corresponding `requirements.md` rows and `plan.md` dispositions. Existing production attach points are named only where the repository has an owning operation. Unbound producers remain held. No implementation or served evidence is claimed.
+<!-- /fqr-source-backed-definition-dispositions-20261012 -->

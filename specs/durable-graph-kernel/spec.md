@@ -94,55 +94,33 @@ This definition batch changes no runtime behavior and claims no completed R086 i
 Lifecycle state comes only from generated status.json.
 
 <!-- spec-definition-patch:owner-batch-20261012-durable-graph-kernel -->
-## Reviewed owner residuals — 2026-10-12
+## Durable-kernel owner definitions and explicit holds — 2026-10-12
+
+These rows define only the EG-owned storage and refusal boundary. AU and GraphOS behavior remains a dependency where named; no implementation or served receipt is claimed.
 
 ### `EG-DURABLE-KERNEL-R028.1` — AU:21
 
-Original objective: Production agent runs checkpoint durably across process boundaries, separate short-term from long-term memory, isolate tenants and stream output.
+A run checkpoint is stored as an immutable R085 `active_context` memory snapshot. Its canonical UTF-8 body binds `run_id`, `work_item_id`, current lease epoch/fencing token, checkpoint revision, payload digest, and separate short-term and long-term memory document references (document ID, revision, digest). Tenant and graph come only from the verified request context. A checkpoint update must be fenced against the live WorkItem lease epoch and fencing token. Current EG surfaces do not define an atomic operation joining an R085 snapshot update to the WorkItem checkpoint pointer/fence; `CasWorkItemMetadata` is scheduling metadata and cannot be treated as a checkpoint transaction. The transaction/recovery contract remains held. `SyncMemorySnapshot` uses the existing MutationBatch path and expected-head comparison; `ReadMemorySnapshot` returns the accepted revision and digest. R039 remains the sole redb durability authority. Stale revision/fence, cross-tenant or cross-graph reference, digest mismatch, changed-body replay identity, or unavailable durable storage refuses without advancing the head.
 
-EG-owned residual: The complete agent-run checkpoint payload and cross-process resume binding are not defined by a WorkItem lifecycle test. Short-term versus long-term memory lifecycle/retention and resumed-output binding to that run/memory state remain unspecified.
-
-Producer/consumer boundary: EG WorkItem lifecycle and isolation -> AU run execution -> existing GRAPHOS-A2A-R001/GRAPHOS-OPS-R001 streaming facade. The reviewed packet has no explicit dependency joining a complete run-checkpoint/memory contract to the resume and stream consumers.
-
-Preserve existing coverage: `EG-DURABLE-KERNEL-R028`, `EG-IDENTITY-R006`, `GRAPHOS-A2A-R001`, `GRAPHOS-A2A-R001.1`, `GRAPHOS-OPS-R001`.
-
-Owner source hash: `d89bb9c69e2fdef6a5c3fd428ede3f91868539056c2b949700867d8d8087d1e7`. This definition adds no AU/GraphOS/SDK implementation or acceptance claim.
+EG does not execute resume or stream operations. Open decisions: retention bounds and release authority for the two memory classes; AU’s exact resume request/receipt binding to the checkpoint and current WorkItem fence; and the host-owned stream ID/cursor authority and replay semantics. Keep the original `EG-DURABLE-KERNEL-R028`, `EG-IDENTITY-R006`, `GRAPHOS-A2A-R001`, `GRAPHOS-A2A-R001.1`, and `GRAPHOS-OPS-R001` obligations. Source SHA-256 `d89bb9c69e2fdef6a5c3fd428ede3f91868539056c2b949700867d8d8087d1e7`.
 
 ### `EG-DURABLE-KERNEL-R085.9` — AU:48
 
-Original objective: A search run keeps its state (transcript, evidence, constraints, open claims) in an externalized store separate from decision logic, so context growth does not erase evidence.
+Represent search state in an R085 `active_context` snapshot keyed by stable search-run document ID. Required exact UTF-8 JSON fields are nonempty-string `search_run_id`, positive `state_revision` equal to the snapshot revision, and array-valued `transcript`, `evidence`, `constraints`, and `open_claims` (arrays may be empty). EG validates this envelope and hashes exact bytes; AU owns array-item schemas and source identities. R085 supplies graph-incarnation binding, exact content digest, immutable revision, expected-head compare-and-set, conflict retention, authorization, one-MiB content ceiling, retention holders, and durable MutationBatch write. AU must write the complete state before context eviction and resume from the exact document ID/revision returned by `ReadMemorySnapshot`; EG returns stored state and does not decide how AU compacts or executes it. Missing/malformed required fields, oversize body, wrong authority, stale graph, digest mismatch, or storage failure refuses without head advance; a stale expected revision retains a conflict under R085 semantics. Preserve `AU-HARNESS-R013.13`, `AU-HARNESS-R020.1`, `EG-DURABLE-KERNEL-R085.1`, `.4`, and `.7`. Source SHA-256 `8c76fa1637e0cc2082a1cce16b9d637f12b310ae96d1fe9a50ec9c64f8e23944`.
 
-EG-owned residual: No search-state record explicitly combines transcript, evidence, constraints and open claims; no continuation contract restores all four from authoritative external state after context eviction.
-
-Producer/consumer boundary: AU summary/workspace consumers and EG authenticated durable memory dispatch exist as definitions. Search continuation has no named binding to a complete search-state revision.
-
-Preserve existing coverage: `AU-HARNESS-R013.13`, `AU-HARNESS-R020.1`, `EG-DURABLE-KERNEL-R085.1`, `EG-DURABLE-KERNEL-R085.4`, `EG-DURABLE-KERNEL-R085.7`.
-
-Owner source hash: `8c76fa1637e0cc2082a1cce16b9d637f12b310ae96d1fe9a50ec9c64f8e23944`. This definition adds no AU/GraphOS/SDK implementation or acceptance claim.
+Open AU decisions: per-entry schemas and source identity for each of the four fields, plus the continuation request/receipt field that binds resume to this exact memory revision. No AU continuation or context-eviction success is claimed by this EG contract.
 
 ### `EG-DURABLE-KERNEL-R085.10` — AU:49
 
-Original objective: The harness stores and retrieves notes on prior sessions and research context transparently, so users need not repeat requirements.
+Persist prior-session notes only as R085 versioned memory snapshots carrying stable note ID, source run/task references, captured source revision, canonical UTF-8 content and digest, provenance, graph incarnation, and parent/current revision. Use only `SyncMemorySnapshot`, `ReadMemorySnapshot`, and `ListMemorySnapshots` through the existing authorized gateway and R039 authority. EG returns the currently authorized revision and explicit R085 sync/conflict state; stale submissions retain the candidate without changing the accepted head. EG never injects notes into a prompt or selects relevance. Preserve `AU-HARNESS-R022.3`, `EG-DURABLE-KERNEL-R085.2`, `.5`, and `.7`. Source SHA-256 `2362fd76bf40223aeb813866392670b65eae13d02a725b1af9a2e6711542dd12`.
 
-EG-owned residual: Prior-session notes/research context are not automatically captured and reused for the current user/task. Storage conflict retention does not define how stale or conflicting notes influence transparent contextual reuse.
-
-Producer/consumer boundary: EG authorized memory read/list -> AU context consumer; AU experience retrieval handles reusable run records. Automatic research-note capture/relevance/application is not wired by a definition.
-
-Preserve existing coverage: `AU-HARNESS-R022.3`, `EG-DURABLE-KERNEL-R085.2`, `EG-DURABLE-KERNEL-R085.5`, `EG-DURABLE-KERNEL-R085.7`.
-
-Owner source hash: `2362fd76bf40223aeb813866392670b65eae13d02a725b1af9a2e6711542dd12`. This definition adds no AU/GraphOS/SDK implementation or acceptance claim.
+Open AU decisions: the capture trigger, note-kind mapping, relevance score and threshold, staleness rule, and presentation/selection of conflicting notes. Automatic capture and transparent contextual reuse remain held until AU defines those inputs and consumer behavior.
 
 ### `EG-DURABLE-KERNEL-R084.7` — EG:28
 
-Original objective: A multi-tenant graph coordinates concurrent writers across backends so that tenant writes serialize deterministically; a write that cannot be coordinated is rejected with a typed conflict.
+**Definition hold.** The supported durable write boundary remains one graph through `ApplyMutation`, expected-version arbitration, and R039’s sole redb authority. R024.1 foreign sources are read-only; R036 mirror cursors describe replay, not distributed transaction coordination. R084’s one-graph conflict behavior does not imply tenant-wide order across independent backends. No write to read-only sources or atomic multi-backend operation is authorized by this row.
 
-EG-owned residual: Single-graph optimistic version arbitration does not establish deterministic tenant-wide ordering across backends, including coordinated failure behavior. R077 exposes width only. R024/R036 treat external backends as federation/mirror targets, while R039 retains one durability authority; these boundaries must not be silently replaced by distributed writes to read-only sources.
-
-Producer/consumer boundary: Served ApplyMutation -> version check/resolve_conflict -> durable mutation authority -> declared mirror targets where supported. R024.1 is read-only; R036 supplies mirror replay/cursors, not distributed transaction coordination.
-
-Preserve existing coverage: `EG-DURABLE-KERNEL-R084.1`, `EG-DURABLE-KERNEL-R084.3`, `EG-DURABLE-KERNEL-R084.4`, `EG-DURABLE-KERNEL-R084.6`, `EG-DURABLE-KERNEL-R084.2`, `EG-DURABLE-KERNEL-R084.5`.
-
-Owner source hash: `96c3079859b0e63ec3e1174e25e7a4ab107b23ef6863ae9b54ff0e921a88e4b0`. This definition adds no AU/GraphOS/SDK implementation or acceptance claim.
+The owner decision is missing: allowed writable backend kinds and their registry owner; coordinator owner; tenant-versus-graph ordering key; atomic-commit versus eventual-mirror contract; and failure, idempotency, retry, and receipt semantics for partial target failure. Preserve R084.1-.6 and R039 unchanged. Keep this child SPECIFIED and held until those choices are reviewed. Source SHA-256 `96c3079859b0e63ec3e1174e25e7a4ab107b23ef6863ae9b54ff0e921a88e4b0`.
 <!-- /spec-definition-patch -->
 
 <!-- spec-definition-patch:final-mappings-20261012 -->

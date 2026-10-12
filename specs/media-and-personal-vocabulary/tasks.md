@@ -39,11 +39,11 @@ Tasks mirror requirements.md rows; check a task only when its evidence is linked
 - [ ] **EG-MEDIA-VOCAB-R033:** Cross-repo, owner jellyfin-mcp and audiobookshelf-mcp: stop declaring :Author in the shared namespace; use mv:contributor to :Person.
 
 <!-- spec-definition-patch:owner-batch-20261012-media-and-personal-vocabulary -->
-## Reviewed residual definition tasks — owner batch 2026-10-12
+## R002.5 owner implementation and held-dependency tasks — 2026-10-12
 
-- [ ] **EG-MEDIA-VOCAB-R002.5 (EG:50):** Define and wire the EG-owned residual for `EG-MEDIA-VOCAB-R002.1` using the reviewed producer/consumer route; preserve covered clauses `EG-MEDIA-VOCAB-R002.1`, `EG-MEDIA-VOCAB-R002.4`, `SDK-SOURCE-INGEST-R005.1`, `SDK-SOURCE-INGEST-R005.2`, `SDK-SOURCE-INGEST-R005.4`, `EG-REPO-INGEST-R002`.
-- [ ] **EG-MEDIA-VOCAB-R002.5 acceptance:** Deliver the positive, negative, refusal, boundary, or readback cases explicitly required by: Link the existing SDK paper retrieval/metadata producer to EG SourceIngest; define citation-edge construction and fact assertion with source provenance, plus one unidentified-paper refusal that preserves healthy paper ingestion. Do not duplicate provider retrieval or assert unreviewed paper-serving registration exists.
-- [ ] **EG-MEDIA-VOCAB-R002.5 status:** Keep SPECIFIED until separately reviewed implementation and served evidence are available.
+- [ ] **EG-MEDIA-VOCAB-R002.5 (EG:50):** Define the receipt-bound `PaperRecord` → existing `Method::SourceIngest` consumer: validate SDK exact identity, matching paper/revision and complete authorized `DocumentReceipt`; assert available paper metadata facts with source-field provenance; make exact replay idempotent; refuse identity/receipt/artifact/provenance mismatch per paper while retaining healthy siblings. Preserve R002.1/.4, SDK R005.1/.2/.4 and EG-REPO-INGEST-R002.
+- [ ] **EG-MEDIA-VOCAB-R002.5 acceptance:** Positive fact/provenance readback and idempotent replay; mixed batch with one unidentified record refusal and one healthy record committed; receipt revision/digest/artifact/provenance negatives before graph mutation; count-only record creates no citation edge. Citation edges stay explicitly held: SDK lacks cited-paper IDs and paper-serving registration, so the SDK owner must define/serve reference IDs and target identity normalization before this part can pass.
+- [ ] **EG-MEDIA-VOCAB-R002.5 status:** SPECIFIED until implementation and exact served source/readback evidence are independently reviewed. Source hash `b6d12a184f1c5812c8f4fd56a0a299e48381e85ad9b18af4eb0ed19faf3d7e0b`.
 <!-- /spec-definition-patch -->
 
 <!-- spec-definition-patch:final-mappings-20261012 -->

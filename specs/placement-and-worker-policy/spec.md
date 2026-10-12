@@ -37,17 +37,11 @@ Owned: `QuestionKind::Placement`, placement vocabulary, `stat_placement.rs`, pro
 R002.2 supplies the pure R076.1 scheduler config contract. FR-003 remains pending until the served R076.2 setting and admission/queue consumers are wired and tested.
 
 <!-- spec-definition-patch:owner-batch-20261012-placement-and-worker-policy -->
-## Reviewed owner residuals — 2026-10-12
+## Owner definitions — 2026-10-12
 
 ### `EG-PLACEMENT-R001.15` — EG:9
 
-Original objective: The engine scales its own capacity through a closed-loop control plane that observes load and headroom, proposes capacity changes, and refuses changes exceeding declared limits.
+EG's proposed pure operation is `evaluate_capacity_adjustment(proposal, capacity_premise) -> CapacityAdjustmentVerdictV1`, a read-only feasibility decision over a GraphOS-generated capacity adjustment proposal. The proposal binds tenant, resource class/unit, unsigned integer current/proposed capacity and bounds, measured load/headroom, UTC millisecond window, premise/policy revisions and SHA-256 digest. Reuse R001.6's capacity premise; refuse invalid digest/measurements, stale or cross-tenant evidence, inconsistent units/window, mismatch between proposal and graph-observed current capacity/headroom, any target outside limits, or an increase larger than observed headroom using the named capacity refusal codes in requirements.md; `allow` carries no reason code and each refusal carries exactly one. GraphOS retains mode, pure AIMD, host actuation and limits; EG never mutates host capacity. Preserve `GRAPHOS-CAPACITY-R001.1`, `EG-DECISION-ENGINE-R112`, `GRAPHOS-CAPACITY-R001/R002`, `EG-PLACEMENT-R001.6`.
 
-EG-owned residual: Define bounded load/headroom scaling proposals, GraphOS application and applied-state reconciliation.
-
-Producer/consumer boundary: EG capacity premises/place verdicts feed hosting policy; GraphOS exposes limits/mode and pure AIMD. Engine scaling actuation/reconciliation is an absent definition, not an unlinked throttle.
-
-Preserve existing coverage: `GRAPHOS-CAPACITY-R001.1`, `EG-DECISION-ENGINE-R112`, `GRAPHOS-CAPACITY-R001`, `EG-PLACEMENT-R001.6`, `GRAPHOS-CAPACITY-R002`.
-
-Owner source hash: `cb17ea03a7344584fed7a9f22a78c1e97c58919616433e7026481606fd0bdccb`. This definition adds no AU/GraphOS/SDK implementation or acceptance claim.
+**Hold:** no reviewed owner requirement identifies the EG Decision method/QuestionKind, GraphOS proposal/apply/readback operations, or applied-state receipt schema. The typed proposal/verdict is a candidate interface only; this is not a closed-loop definition until those exact owner links are resolved. Source hash: `cb17ea03a7344584fed7a9f22a78c1e97c58919616433e7026481606fd0bdccb`.
 <!-- /spec-definition-patch -->

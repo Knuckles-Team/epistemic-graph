@@ -2144,28 +2144,28 @@
     },
     {
       "id": "EG-DURABLE-KERNEL-R028.1",
-      "title": "Reviewed residual `AU:21`",
+      "title": "Run checkpoint and memory binding; owner decisions remain open",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R085.9",
-      "title": "Reviewed residual `AU:48`",
+      "title": "Versioned search state is retained as a complete R085 memory snapshot",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R085.10",
-      "title": "Reviewed residual `AU:49`",
+      "title": "Prior-session notes use the existing authorized memory authority; capture and reuse remain AU-owned",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R084.7",
-      "title": "Reviewed residual `EG:28`",
+      "title": "Definition hold: no cross-backend transaction contract is authorized",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

@@ -937,7 +937,7 @@
     },
     {
       "id": "EG-ORCH-VOCAB-R009.18",
-      "title": "Reviewed residual `AU:26`",
+      "title": "Use one run observation window for model and width adjustments",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -958,21 +958,21 @@
     },
     {
       "id": "EG-ORCH-VOCAB-R012.7",
-      "title": "Reviewed residual `EG:46`",
+      "title": "Synthesize reviewed repository policy with invariant-checked activation",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R004.6",
-      "title": "Reviewed residual `EG:51`",
+      "title": "Persist and query capability gaps and enhancements by task class",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R012.8",
-      "title": "Reviewed residual `EG:61`",
+      "title": "Bind active policy to reviewed normative files without graph writes",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
