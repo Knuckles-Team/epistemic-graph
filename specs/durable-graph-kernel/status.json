@@ -164,7 +164,17 @@
     "EG-DURABLE-KERNEL-R085.5",
     "EG-DURABLE-KERNEL-R085.6",
     "EG-DURABLE-KERNEL-R085.7",
-    "EG-DURABLE-KERNEL-R085.8"
+    "EG-DURABLE-KERNEL-R085.8",
+    "EG-DURABLE-KERNEL-R086",
+    "EG-DURABLE-KERNEL-R086.1",
+    "EG-DURABLE-KERNEL-R086.2",
+    "EG-DURABLE-KERNEL-R086.3",
+    "EG-DURABLE-KERNEL-R086.4",
+    "EG-DURABLE-KERNEL-R086.5",
+    "EG-DURABLE-KERNEL-R086.6",
+    "EG-DURABLE-KERNEL-R086.7",
+    "EG-DURABLE-KERNEL-R086.8",
+    "EG-DURABLE-KERNEL-R086.9"
   ],
   "requirements": [
     {
@@ -2029,6 +2039,87 @@
     {
       "id": "EG-DURABLE-KERNEL-R085.8",
       "title": "Real served acceptance",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R086",
+      "title": "Safe eviction and durable read-through (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DURABLE-KERNEL-R086.1",
+        "EG-DURABLE-KERNEL-R086.2",
+        "EG-DURABLE-KERNEL-R086.3",
+        "EG-DURABLE-KERNEL-R086.4",
+        "EG-DURABLE-KERNEL-R086.5",
+        "EG-DURABLE-KERNEL-R086.6",
+        "EG-DURABLE-KERNEL-R086.7",
+        "EG-DURABLE-KERNEL-R086.8",
+        "EG-DURABLE-KERNEL-R086.9"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R086.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R086.2",
+      "title": "Behavior: memory-only eviction",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R086.3",
+      "title": "Behavior: cache-miss read",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R086.4",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R086.5",
+      "title": "Scoped reads",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R086.6",
+      "title": "Refusal: unsafe eviction",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R086.7",
+      "title": "Refusal: unavailable reads",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R086.8",
+      "title": "Restart",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R086.9",
+      "title": "Evidence and hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

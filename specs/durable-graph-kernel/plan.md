@@ -359,3 +359,67 @@ Its operation IDs remain for the GraphOS owner to publish after this producer co
 WebUI then refines existing WEBUI-APPS-R031.2 through R031.4 and its R031.7 served proof.
 AU is an EG-driven harness. Neither AU nor WebUI decides synchronization or conflict authority.
 No GraphOS, WebUI, decision-engine or federated-query files change in this producer slice.
+
+## 2026-10-12: R086 safe eviction and durable read-through
+
+This is an as-is contract inventory at source 65b7c75fdbfd673c19df4cd79ad83b8afdb93df5.
+Source inspection establishes the call sites below, not successful runtime execution.
+The scope is node-property residency, eviction and durable point reads.
+R039 rebuild and R083 model KV-block eviction retain their separate acceptance.
+Index reopening alone does not establish this node read-through contract.
+The existing [engine reference](../../docs/architecture/engine.md) describes safe eviction.
+R086 makes its proof obligations explicit without changing that document or the architecture.
+
+### Model and reuse
+
+The core owns [ReadThrough and ReadThroughFactory](../../crates/eg-core/src/read_through.rs).
+The facade implements them in [read_through.rs](../../src/server/persistence/read_through.rs).
+The dependency remains from facade to core. The core does not depend on PersistenceBackend.
+The factory binds a logical graph name to its existing sanitized durable key.
+Node identity is interpreted within that graph; sanitization is not authorization.
+The backend returns a result containing bytes, absence or an error.
+The core adapter returns an option and currently collapses backend errors to a logged miss.
+Evidence must preserve that distinction without proposing a replacement public type.
+
+### Behavior and production wiring
+
+| Boundary | Existing source | Required observation |
+|---|---|---|
+| Factory installation | [main.rs:1547](../../src/main.rs#L1547), [registry.rs:553](../../crates/eg-core/src/registry.rs#L553) | Already loaded graphs and graphs created later receive their own read-through. |
+| Resident hit and miss | [core_readthrough.rs:11](../../crates/eg-core/src/graph/core_readthrough.rs#L11) | A hit avoids durable storage access. A miss serves bytes without growing residency. An incomplete Bloom filter cannot hide a durable node. |
+| Durable point lookup | [trait_graph.rs:94](../../src/server/persistence/redb_backend/trait_graph.rs#L94), [store_read.rs:336](../../src/redb_store/store_read.rs#L336) | The selected shard supplies a scoped NODES read and node unseal. The read requires no writer commit. |
+| Presence guard | [store_read.rs:356](../../src/redb_store/store_read.rs#L356) | One snapshot returns aligned presence entries. Presence alone does not prove successful decryption or content equality. |
+| Periodic node cap | [persist.rs:78](../../src/persist.rs#L78) | Only confirmed candidates reach resident eviction. |
+| Tenant budget | [budget.rs:264](../../src/cost/budget.rs#L264) | The budget caller retains candidates when durability is unconfirmed. |
+| Served eviction | [gateway_graph.rs:111](../../src/server/handlers/graph_ops/gateway_graph.rs#L111) | EvictLRU retains its admission/commit gateway before resident removal. The result reports actual removals. |
+| Resident removal | [core_node_mutation.rs:60](../../crates/eg-core/src/graph/core_node_mutation.rs#L60) | The primitive produces no logical REMOVE_NODE record. Durable bytes remain readable. |
+| Served scoped read | [nodes.rs:85](../../src/server/handlers/graph_ops/nodes.rs#L85) | GetNodeProperties can reach raw-core read-through, then checks row visibility before returning it. |
+
+The core primitive does not independently certify durability. Its production caller owns that guard.
+A cap is conditional on confirmed durability. Retained candidates can leave residency above it.
+Current candidate selection uses resident insertion indices; this definition adds no recency policy.
+The served eviction gateway retains its existing admission and receipt effects.
+Memory-only removal means no logical node deletion, not that the entire served request writes nothing.
+
+### Refusal and evidence limits
+
+Missing persistence, failed presence or a malformed vector must not cause candidate removal.
+False presence entries retain their corresponding nodes.
+True presence proves a row exists in that snapshot, not that its content is readable or unchanged.
+Read-through errors currently log a warning and return None at the adapter.
+Capture the backend error separately; that None cannot establish genuine absence.
+Graph and row authority still govern the raw-core fallback.
+Test equal node IDs with distinct properties in separate graphs and denied hidden rows.
+Do not infer a cross-request snapshot, universal concurrency guarantee or new transaction boundary.
+Preserve a contradictory interleaving as a failure for a separate runtime change.
+
+### Existing evidence candidates, not execution receipts
+
+[redb_backend.rs](../../src/server/persistence/redb_backend.rs) contains
+`authoritative_eviction_bounds_memory_and_reads_through`,
+`authoritative_eviction_never_drops_undurable_node` and
+`read_through_snapshot_triggers_no_writer_commit`.
+Their source is useful coverage evidence. None ran in this definition batch.
+The core seam tests in [graph.rs](../../crates/eg-core/src/graph.rs) use stub or counting stores.
+They cannot replace real durable, scoped, served or restart evidence.
+R086.9 requires the served entry points and the observations in test-spec.md.

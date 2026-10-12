@@ -209,3 +209,54 @@ Retention exhaustion must refuse before partial retention or an accepted-head ch
 Inject failure before and after durable commit. Recovery must expose one complete outcome or none.
 Record source SHA, binary digest, generated contract digest and authenticated operation receipts.
 Client mocks and producer unit tests cannot close R085.8.
+
+## R086 planned safe-eviction acceptance
+
+All names below are proposed tests, not completed tests or new bindings to existing receipts.
+Implement them in tests/safe_eviction_read_through.rs using existing production helpers.
+Each child is focused; the rollup waits for all children and the complete served journey.
+
+| Requirement | Planned proving test |
+|---|---|
+| EG-DURABLE-KERNEL-R086 | `served_safe_eviction_read_through_journey` |
+| EG-DURABLE-KERNEL-R086.1 | `read_through_model_outcomes` |
+| EG-DURABLE-KERNEL-R086.2 | `selected_residents_leave_durable_rows_unchanged` |
+| EG-DURABLE-KERNEL-R086.3 | `evicted_blob_reads_without_resident_growth` |
+| EG-DURABLE-KERNEL-R086.4 | `startup_attaches_graph_scoped_read_through` |
+| EG-DURABLE-KERNEL-R086.5 | `served_evicted_reads_preserve_scope` |
+| EG-DURABLE-KERNEL-R086.6 | `production_eviction_retains_unconfirmed_candidates` |
+| EG-DURABLE-KERNEL-R086.7 | `backend_failure_is_not_absence_evidence` |
+| EG-DURABLE-KERNEL-R086.8 | `restarted_engine_reads_an_evicted_node` |
+| EG-DURABLE-KERNEL-R086.9 | `served_safe_eviction_read_through_journey` |
+
+The served journey uses a real authenticated engine, disposable durable directory and independent clients.
+Acknowledge distinct node-property writes before requesting EvictLRU with a small cap.
+Record selected identities and resident counts before and after the call.
+Prove the target is absent from raw-core resident properties and topology before GetNodeProperties.
+Observe the actual core seam, facade adapter and scoped redb lookup without replacing their results.
+Assert exact committed bytes, unchanged durable node rows and no read-driven resident growth.
+Also read a resident node and observe that it avoids the durable read-through seam.
+Capture the served admission receipt separately from memory-only projection removal.
+
+Exercise periodic-cap and tenant-budget callers as separate focused wiring cases.
+At each eviction caller, test absent persistence, failed presence, wrong vector length and false entries.
+A narrowly injected presence fault can exercise that branch but cannot replace the real-store journey.
+Check retained residents and unchanged durable node rows after each refusal.
+For read failure, use an unavailable real backend or an unreadable durable row.
+Record the backend error, adapter warning and missing bytes; do not label this successful absence.
+For genuine absence, separately establish a successful scoped backend lookup returning no row.
+
+Use the same node ID with distinct properties in two authorized graphs.
+Read each after eviction, then repeat with a principal denied access to one graph or row.
+No hidden property may escape through the raw-core fallback or diagnostic evidence.
+Include an incomplete Bloom filter whose missing resident node is nevertheless durable.
+Test a complete-filter negative separately from unavailable storage.
+
+Restart the process on the same directory through normal startup wiring.
+Use a fresh authorized client. If eager load makes the target resident, evict it again first.
+Prove a new cache miss and durable read after restart; compare the acknowledged properties.
+Opening an index or serving an eagerly restored resident does not prove this path.
+Record source SHA, binary digest, enabled features, exact command, graph/node scope,
+request correlation, commit acknowledgment, residency observations and terminal result.
+Preserve all existing owner receipts. New results must identify the exact source exercised.
+This specification batch makes no runtime execution or implementation-complete claim.
