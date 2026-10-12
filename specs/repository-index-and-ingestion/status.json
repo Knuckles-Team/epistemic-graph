@@ -273,7 +273,7 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "1f5ba9350abb",
-        "5787e0df2b56"
+        "2a6ed9ff9a27"
       ],
       "verified_by": [
         "crates/eg-core/src/graph/core_edge_queries.rs:272"
@@ -293,7 +293,7 @@
       "title": "Ingestion community detection uses pure Leiden",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "5787e0df2b56",
+        "2a6ed9ff9a27",
         "b5fe3c140c21"
       ],
       "verified_by": [
