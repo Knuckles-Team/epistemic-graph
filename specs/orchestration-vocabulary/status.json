@@ -958,7 +958,7 @@
     },
     {
       "id": "EG-ORCH-VOCAB-R012.7",
-      "title": "Synthesize reviewed repository policy with invariant-checked activation",
+      "title": "Synthesize reviewed repository policy with invariant-guarded activation",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
