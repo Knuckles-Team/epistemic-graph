@@ -179,3 +179,29 @@ fn an_unapproved_proposal_expires() {
         GovernedStatus::Proposed
     );
 }
+
+// spec: EG-CONTRACT-R014
+#[test]
+fn governed_refusals_preserve_their_declared_wire_codes() {
+    use crate::protocol::Response;
+
+    for refusal in [
+        GovernedRefusal::InvalidRequest,
+        GovernedRefusal::UnknownKind,
+        GovernedRefusal::NotAuthorized,
+        GovernedRefusal::Collision,
+        GovernedRefusal::Full,
+        GovernedRefusal::NotFound,
+        GovernedRefusal::SelfApproval,
+        GovernedRefusal::DelegatedApprover,
+        GovernedRefusal::DigestMismatch,
+        GovernedRefusal::Conflict,
+    ] {
+        let response = Response::err(7, refusal.to_string());
+        assert_eq!(response.error.as_deref(), Some(refusal.code()));
+        assert_eq!(
+            response.refusal_text().as_deref(),
+            Some(refusal.to_string().as_str())
+        );
+    }
+}

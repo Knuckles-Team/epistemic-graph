@@ -426,16 +426,27 @@ fn declared_response_error_separates_code_and_detail() {
         response.error_detail.as_deref(),
         Some("request context tenant does not match graph tenant")
     );
-    let encoded = serde_json::to_vec(&response).unwrap();
-    let decoded: Response = serde_json::from_slice(&encoded).unwrap();
-    assert_eq!(decoded.error, response.error);
-    assert_eq!(decoded.error_detail, response.error_detail);
-    let unknown = Response::err(4, "NOT_A_DECLARED_CODE: raw refusal");
-    assert_eq!(unknown.error.as_deref(), Some("INTERNAL"));
-    assert_eq!(
-        unknown.error_detail.as_deref(),
-        Some("unclassified engine refusal")
-    );
+    let server_errors = crate::contract::ServerErrorCode::ALL
+        .iter()
+        .map(|code| Response::err(3, format!("{}: declared server refusal", code.as_str())));
+    for response in std::iter::once(response).chain(server_errors) {
+        let encoded = serde_json::to_vec(&response).unwrap();
+        let decoded: Response = serde_json::from_slice(&encoded).unwrap();
+        assert_eq!(decoded.error, response.error);
+        assert_eq!(decoded.error_detail, response.error_detail);
+    }
+    for text in [
+        "NOT_A_DECLARED_CODE: raw refusal",
+        "GOVERNED_NOT_REGISTERED: private approval detail",
+    ] {
+        let unknown = Response::err(4, text);
+        assert_eq!(unknown.error.as_deref(), Some("INTERNAL"));
+        assert_eq!(
+            unknown.error_detail.as_deref(),
+            Some("unclassified engine refusal")
+        );
+        assert!(!serde_json::to_string(&unknown).unwrap().contains(text));
+    }
     let code_only = Response::err(5, "ACCESS_DENIED");
     assert_eq!(code_only.error.as_deref(), Some("ACCESS_DENIED"));
     assert!(code_only.error_detail.is_none());

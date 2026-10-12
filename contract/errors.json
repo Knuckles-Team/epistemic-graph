@@ -609,6 +609,66 @@
     },
     {
       "class": "server",
+      "code": "GOVERNED_COLLISION",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "GOVERNED_CONFLICT",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "GOVERNED_DELEGATED_APPROVER",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "GOVERNED_DIGEST_MISMATCH",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "GOVERNED_INVALID",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "GOVERNED_LEDGER_FULL",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "GOVERNED_NOT_AUTHORIZED",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "GOVERNED_NOT_FOUND",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "GOVERNED_SELF_APPROVAL",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "GOVERNED_UNKNOWN_KIND",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
       "code": "GRAPH_NOT_FOUND",
       "http_status_hint": 404,
       "retryable": false

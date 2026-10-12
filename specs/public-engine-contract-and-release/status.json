@@ -336,13 +336,14 @@
       "landed_in": [
         "15acf1a959e5",
         "19d0663aaf5c",
+        "2a4982e949a3",
         "394f82a01e83",
-        "4c25220f6e1b",
-        "b8aac182d679"
+        "4c25220f6e1b"
       ],
       "verified_by": [
         "crates/eg-capabilities/src/contract/errors.rs:470",
-        "crates/eg-capabilities/src/error_routing.rs:326"
+        "crates/eg-capabilities/src/error_routing.rs:326",
+        "crates/eg-types/src/governed_change/tests.rs:183"
       ]
     },
     {

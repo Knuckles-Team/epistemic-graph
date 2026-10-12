@@ -119,6 +119,10 @@ async fn a_forged_actor_in_the_body_is_overwritten() {
         approve(Some(forged)),
     )
     .await;
-    assert!(refused_with(&response, "GOVERNED_"), "{:?}", response.error);
+    assert!(
+        refused_with(&response, "GOVERNED_NOT_AUTHORIZED"),
+        "{:?}",
+        response.error
+    );
     assert_eq!(status(&state).await, GovernedStatus::Proposed);
 }
