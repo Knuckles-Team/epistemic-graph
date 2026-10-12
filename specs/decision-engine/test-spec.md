@@ -301,7 +301,7 @@ These acceptance tests require the consumer prerequisites described in the plan.
 - `EG-DECISION-ENGINE-R128.2`: `crates/eg-types/src/decision/statistical/harness_config.rs::tests::body_requires_every_input`.
 - `EG-DECISION-ENGINE-R128.3`: `crates/eg-types/src/decision/statistical/harness_config.rs::tests::answer_round_trips_through_serde`.
 - `EG-DECISION-ENGINE-R128.4`: `crates/eg-types/src/decision/statistical/harness_config.rs::tests::policy_override_replaces_default`.
-- `EG-DECISION-ENGINE-R128.5`: `crates/eg-types/src/decision/statistical/harness_config.rs::tests::context_policy_none_only_when_overflow_impossible`.
+- `EG-DECISION-ENGINE-R128.5`: `crates/eg-types/src/decision/statistical/harness_config/context_policy/tests.rs::context_policy_none_only_when_overflow_impossible`.
 - `EG-DECISION-ENGINE-R128.6`: `crates/eg-types/src/decision/statistical/harness_config.rs::tests::plan_scaffold_rules`.
 - `EG-DECISION-ENGINE-R128.7`: `crates/eg-types/src/decision/statistical/harness_config.rs::tests::shell_only_needs_both_facts`.
 - `EG-DECISION-ENGINE-R128.8`: `src/server/handlers/decide/stat_tests/harness_config_tests.rs::unknown_profile_is_refused`.

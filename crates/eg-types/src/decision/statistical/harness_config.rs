@@ -1,4 +1,4 @@
-//! Producer types and pure harness rules for R128.2, R128.3, R128.6 and R128.7.
+//! Producer types and pure harness rules for R128.2, R128.3 and R128.5–R128.7.
 //! Profile resolution, question dispatch and persistence are separate leaves.
 
 use serde::{Deserialize, Serialize};
@@ -7,6 +7,9 @@ use crate::agent_component::{MeasuredFact, ObservationRef, ShellProficiency, Sto
 use crate::capacity_lease::LeasePriority;
 use crate::contract::BoundedVec;
 use crate::decision::numeric::UnitRationalWire;
+
+mod context_policy;
+pub use context_policy::{decide_context_policy, ContextPolicyDecision, HarnessDefaults};
 
 /// Typed inputs whose field names match `DecideRequest.params` entries.
 /// References use the opaque strings carried by `TypedValue::Iri`; token counts
