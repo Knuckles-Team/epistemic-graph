@@ -119,3 +119,36 @@ These are required acceptance cases, not claims of completed tests. All changed 
 - `EG-FEDERATED-QUERY-R083.4`: `crates/eg-plan/src/retrieval_arbitration.rs::tests::abstain_returns_both_candidates`.
 - `EG-FEDERATED-QUERY-R083.5`: `crates/eg-plan/src/retrieval_arbitration.rs::tests::arbitration_premise_lists_both_classes`.
 - `EG-FEDERATED-QUERY-R083.6`: `tests/retrieval/test_arbitration_served.py::test_small_gap_abstains_with_both`.
+
+## R081.7 through R081.9 served acceptance
+
+These cases specify future evidence. Every new requirement remains SPECIFIED until real served tests and the activation benchmark pass.
+
+| Scenario | Requirements | Positive and negative acceptance |
+|---|---|---|
+| Typed contracts | R081.7.1, R081.8.1, R081.9.1 | Round-trip revisions, IDs, budgets and receipts. Refuse missing provenance, invalid limits and non-finite scores. |
+| Dual-score golden cases | R081.7.2, R081.7.4, R081.7.6 | With fixture thresholds s=0.7 and r=0.6, rescue (0.2,0.9) and reject (0.2,0.1). Retain dual-high (0.9,0.9). For w=0.3 and residual threshold 0.4, reject (0.9,0.1), whose fused score is 0.34. |
+| Adaptive count and activation | R081.7.3, R081.7.5, R081.7.6 | Two corpus queries return different accepted counts. Compare the fixed-count baseline with identical scoring calls. Selection adds zero inference. Refuse missing or mismatched benchmark approval. |
+| Empty and constant scores | R081.7.2, R081.7.4 | Empty accepted sets return insufficiency. Constant-score normalization follows its declared rule or refuses. Never pad with dual-low evidence. |
+| Feedback and perspectives | R081.8.2, R081.8.3, R081.8.6 | Successive served rounds produce diverse queries and exact reinforce/missing/suppress tiers. Corpus feedback raises useful term weights and lowers misleading ones. |
+| Feedback refusal and critique | R081.8.4, R081.8.5, R081.8.6 | Refuse forged or stale feedback. Record critique and its effect; hostile instructions cannot change measured scores, scope or exhausted budgets. |
+| Hierarchy descent | R081.9.2, R081.9.3, R081.9.6 | Assert summary filtering, community refinement and entity search in order. Compare selected paths and final IDs to an independent corpus oracle. |
+| Hierarchy refusals and costs | R081.9.4, R081.9.5, R081.9.6 | Refuse cycles, stale summaries and missing entities. Assert exact visited-node and scoring counters, plus recorded measured cost and bounded stopping. |
+| Scope and evidence | R081.7.5, R081.8.5, R081.9.5 | Two-tenant fixtures prove every stage applies scope before truncation. Independently read receipts and trace; no forbidden entity, summary or feedback is consumed. |
+
+Fixture thresholds above are deterministic test values, not production defaults or claimed paper parameters. The benchmark defines production thresholds before activation. Use actual served operators and pinned production inference artifacts; helper-only results and mocked terminal responses do not establish acceptance.
+
+### R081.8 / R082 uncalibrated continuation acceptance
+
+`tests/retrieval/test_feedback_served.py::test_uncalibrated_continuation_precedence` covers R081.8.1, R081.8.3 through R081.8.6 and R082.1 through R082.6. Start an authenticated served query against a deterministic corpus and pinned production inference artifacts. Obtain EG continuations from actual completed rounds; do not inject terminal responses or replace production operators. Omit the calibration row for the next round. Retain the same tenant, corpus revision and policy.
+
+| Completed round / remaining limit | Required served result |
+|---|---|
+| New accepted documents, positive quality gain, all limits available | `stop=false`, `continue_uncalibrated`, `ROUND_NOT_CALIBRATED`; one bounded next continuation. |
+| Zero new accepted document IDs, limits available | `stop=true`, `no_new_evidence`, `ROUND_NOT_CALIBRATED`. |
+| New documents with quality gain at the declared saturation threshold for the declared window | `stop=true`, `quality_saturated`, `ROUND_NOT_CALIBRATED`. |
+| Round limit reached and progress also saturated | `stop=true`, `round_limit`, `RETRIEVAL_BUDGET_EXCEEDED`, `ROUND_NOT_CALIBRATED`. |
+| Each query, term, token or inference limit exhausted; saturation also present | `stop=true`, `budget_exhausted`, exact exhausted dimension, both refusal codes. |
+| Forged, stale or cross-tenant saturation evidence | `RETRIEVAL_FEEDBACK_INVALID`; no continuation or successful confidence claim. |
+
+For every missing-calibration case, assert absent margin/threshold and preserved R081 insufficiency. Read the decision trace and dispatch counters independently; terminal and invalid continuations issue zero subsequent retrieval, generation or assessment calls. Repeating a terminal continuation cannot reset budgets. A calibrated control still stops only when the repeated answer exceeds its margin threshold. Equality continues when no earlier terminal condition applies. These are acceptance requirements, not executed runtime evidence.

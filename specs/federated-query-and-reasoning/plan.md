@@ -187,12 +187,12 @@ Cross-repository: `AU-RETRIEVAL-R004` consumes the verdict and applies the repai
 References
 - No paper is cited.
 
-## EG-FEDERATED-QUERY-R082 Iterative retrieval stop rule with a calibrated confidence margin
+## EG-FEDERATED-QUERY-R082 Iterative retrieval stop rule with calibrated confidence and bounded termination
 
 Data flow: served cross-modal query with round history -> `eg_plan::execute` (`crates/eg-plan/src/exec.rs:536`) -> `decide_stop` -> `StopVerdict` with reason -> harness stops or runs the next round.
-Types: `CalibrationTable`, `RoundCalibration`, `StopVerdict`, `StopReason`. The table maps each round to a baseline confidence and a margin threshold.
+Types: `CalibrationTable`, `RoundCalibration`, `StopContext`, `StopVerdict`, `StopReason`. Context carries validated progress and budgets. Verdict carries a terminal or continuation reason separately from a missing-calibration refusal. Margin and threshold are absent without calibration.
 Attach point: `execute` at `crates/eg-plan/src/exec.rs:536`, beside the sufficiency judgement. Production caller: `crates/eg-graphql/src/crossmodal.rs:429`.
-Failure: A round outside the table returns `ROUND_NOT_CALIBRATED` and the loop continues to the round limit.
+Failure: A round outside the table retains `ROUND_NOT_CALIBRATED`. It may continue only while progress and all limits permit. Exhaustion and validated progress termination take precedence without claiming calibrated confidence or enough evidence.
 Consumers: AU-RETRIEVAL (R005)
 Moves from agent-utilities: adaptive_stopping.py:151 (stop rule), adaptive_stopping.py:80 (calibration table)
 Existing code: `crates/eg-plan/src/exec.rs:536`; `crates/eg-compute/src/finance/market/confidence.rs:113` (calibrated confidence with abstention, a separate finance rule). Reachable today: no.
@@ -220,3 +220,36 @@ Cross-repository: `AU-RETRIEVAL-R006` runs the prior probe and applies the verdi
 
 References
 - arXiv:2606.08397 — Xu et al., "TrustMargin: Training-Free Arbitration between Parametric Memory and Retrieved Evidence in Large Language Models" (2026)
+
+## R081.7 through R081.9: retrieval synthesis
+
+The existing R081 verdict owns these extensions. EG keeps score selection, query reformulation, feedback classification and hierarchy decisions. Applications execute bounded engine decisions and read evidence. They do not gain a parallel planner or reranker. Existing R078 tenant predicates, R081 fallback and R082 stopping rules remain binding.
+
+Current production path: `crates/eg-graphql/src/crossmodal.rs:429` invokes `eg_plan::execute` in `crates/eg-plan/src/exec.rs:536`. `fuse_rrf` at line 848 combines ranks. It does not carry paired cross-encoder scores, iterative expansion feedback or hierarchy-stage receipts. Add the missing operators and typed `PlanCtx` scoring/summary bindings at these owners. The served acceptance tests must exercise these bindings, not inject a finished result after execution.
+
+Selection policy is versioned and benchmark-gated. Normalize scores with declared finite-domain rules; constant-score inputs require an explicit policy rather than division by zero. Define `f = w*s + (1-w)*r`, calibrated thresholds and stable ID ties. Dual-high passes; dual-low fails. The low-embedding/high-relevance region is eligible for rescue before the maximum-count cap. The remaining region uses its declared fusion threshold. Rank eligible chunks by fused score and cap the result without padding. Selection adds no inference; existing candidate scoring is measured separately. A failed activation receipt leaves the prior approved policy active or refuses the requested policy.
+
+Feedback starts from the original information need. EG generates diverse perspectives, measures returned relevance and updates bounded term weights. R082 validates feedback first and checks the round limit and other budgets next. It then checks no new evidence, declared saturation and calibrated confidence, in that order. Policy revisions declare exact saturation thresholds. Natural-language critique is recorded advice; it cannot overwrite scores, tenant predicates or stop limits. Generation and assessment calls consume explicit budgets even though pure cardinality selection adds none.
+
+Hierarchical retrieval has three explicit stages: community-summary filtering, community refinement and entity search. Each stage records scoring, pruning, visited IDs and cost. Descent uses pinned summaries and graph revisions. Reject invalid hierarchy links and stop before spending beyond the declared bounds. No flat-search substitution counts as completion of the hierarchy contract.
+
+Activation acceptance pins corpus, labels, model artifacts, policy and baseline. The proposed dynamic-count policy stays inactive until its benchmark passes declared quality/cost thresholds. Instrument actual model invocations and compare the same scored candidates. Do not copy a paper's reported quality or timing into EG evidence.
+
+### Source-to-requirement mapping
+
+| Inputs | Owner extension | Preserved residual clauses | Primary research |
+|---|---|---|---|
+| AU:72, AU:73 | R081.7 | Adaptive count, score fusion, reranker rescue, dual-low rejection and no added selection inference. | [arXiv:2606.14269v1](https://arxiv.org/abs/2606.14269v1) |
+| AU:74, AU:75 | R081.8 | Corpus-grounded term feedback, diverse perspectives and reinforce/missing/suppress tiers. | [arXiv:2606.13905v1](https://arxiv.org/abs/2606.13905v1), [arXiv:2606.17209v1](https://arxiv.org/abs/2606.17209v1) |
+| AU:76 | R081.9 | Community-to-entity descent, stage reranking and breadth/cost control. | [arXiv:2601.11144v3](https://arxiv.org/abs/2601.11144v3) |
+| AU:127 | R081.8 | Traceable natural-language critique can guide another retrieval step without replacing measured relevance. | [arXiv:2606.00590v1](https://arxiv.org/abs/2606.00590v1) |
+
+Primary research informs the mechanisms; EG-specific policies and acceptance remain requirements, not measured results. The source of diverse query initialization has verified authors Murali et al.; the earlier generic author label is not authoritative. The critique source includes additional training mechanisms outside this assigned residual scope.
+
+### R081.8 and R082 termination precedence
+
+Invalid feedback returns `RETRIEVAL_FEEDBACK_INVALID` before further work. A round at its limit returns terminal `round_limit`; other exhausted limits return terminal `budget_exhausted`. Both carry `RETRIEVAL_BUDGET_EXCEEDED` and the exhausted dimension. If two or more other limits are exhausted, choose the primary dimension in this order: query, term, token, inference. Record all exhausted dimensions. Check limits before any retrieval, generation or assessment dispatch.
+
+Only valid completed-round evidence can establish progress termination. No new evidence means zero newly accepted document IDs relative to validated history at the same tenant and corpus revision. Saturation means measured quality improvement meets the policy's declared threshold and observation window. Missing or invalid progress evidence refuses as invalid feedback; a critique assertion is never proof. No-new-evidence takes precedence over saturation. Neither means the answer has enough evidence.
+
+A missing calibration row always remains visible as `ROUND_NOT_CALIBRATED`, including on a terminal verdict. It disables only the calibrated confidence branch. A valid progressing round continues within remaining limits with `continue_uncalibrated`. Saturated, empty-progress or exhausted rounds stop with their specific reason. Margin and threshold stay absent; the calibration refusal remains. The R081 sufficiency verdict remains independent.
