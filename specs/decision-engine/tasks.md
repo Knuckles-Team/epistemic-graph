@@ -462,7 +462,7 @@ Deliver these additive leaves in order; preserve R137.1–.6 and R128 unchanged.
 
 ## Grounded-answer and pre-surface safety tasks — 2026-10-12
 
-- [ ] `EG-DECISION-ENGINE-R100.101`: define and wire `GroundedAnswerEvaluationV1` as `DecisionEvalOp::GroundedAnswerSubmit`; bind scoped corpus/query/label/answer/claim/source/evaluator/policy revisions and immutable result receipt.
-- [ ] Verify exact per-scope topic coverage and soft-label Brier arithmetic; refuse empty query sets, missing votes, zero denominators, incomplete claim/source coverage and stale digests. Preserve R100 hard-negative behavior.
+- [ ] `EG-DECISION-ENGINE-R100.101`: define complete expected/covered topic sets, per-claim label-blind probabilities with scorer provenance, independent annotator labels, scored population, weighted Brier formula and positive denominator in `GroundedAnswerEvaluationV1`.
+- [ ] Verify topic coverage by exact topic-id sets and summed counts; recompute the weighted Brier formula from distinct predictions and labels. Change predictions while holding labels fixed and prove only Brier changes. Refuse incomplete populations, missing provenance, duplicate annotators and zero denominators.
 - [ ] `EG-DECISION-ENGINE-R001.100`: define `RecommendationSafetyV1` on the existing Decide path with per-bound receipt and fail-closed typed verdict; retain the separate GraphOS pre-surface validation dependency.
 - [ ] Serve in-bound/out-of-bound and absent, stale, non-finite, unit-mismatch, and policy-mismatch cases; verify exact violated bound details and no surfacing without GraphOS's separately served receipt.

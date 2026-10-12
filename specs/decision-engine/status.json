@@ -4081,7 +4081,7 @@
     },
     {
       "id": "EG-DECISION-ENGINE-R100.101",
-      "title": "Grounded topic coverage and soft-label unsupported-claim evaluation",
+      "title": "Grounded topic coverage and probability-scored unsupported claims",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
