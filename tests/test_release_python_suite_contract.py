@@ -211,7 +211,7 @@ def test_validation_profile_is_warmed_without_affecting_release_wheels() -> None
     assert "cargo build --locked --features full --bin epistemic-graph-server" in builds
 
 
-def test_compiler_cache_is_installed_before_precisely_two_step_local_wrappers() -> None:
+def test_existing_compiler_cache_commands_retain_setup_and_trust() -> None:
     workflow = _workflow()
     jobs = workflow["jobs"]
     commands = {
@@ -288,10 +288,10 @@ def test_compiler_cache_is_installed_before_precisely_two_step_local_wrappers() 
     assert not cache_backend.keys() & workflow["env"].keys()
     for job_name, job in jobs.items():
         assert "RUSTC_WRAPPER" not in job.get("env", {})
-        if job_name not in commands:
+        if job_name not in COMPILER_CACHE_COMMANDS:
             assert not cache_backend.keys() & job.get("env", {}).keys()
         for step in job.get("steps", []):
-            if all(step is not build for build in wrapped):
+            if step.get("name") not in COMPILER_CACHE_COMMANDS.get(job_name, {}):
                 assert "RUSTC_WRAPPER" not in step.get("env", {})
 
 
@@ -509,3 +509,209 @@ def test_python_suite_installs_native_scorer_tracing_before_full_suite() -> None
     assert " -m " not in _test_step(job)["run"].split("pytest tests/", 1)[1], (
         "native acceptance must not be silently deselected"
     )
+
+
+COMPILER_CACHE_COMMANDS: dict[str, dict[str, tuple[str, ...]]] = {
+    "python-server": {
+        ("Build the full-featured engine binary once"): (
+            ("cargo build --locked --features full --bin epistemic-graph-server"),
+        ),
+    },
+    "gates-facade": {
+        ("Test (facade full)"): (
+            (
+                "python3 scripts/cargo_test_rescue.py cargo test -p epistemic-graph "
+                "--features full --no-fail-fast --timings"
+            ),
+        ),
+    },
+    "gates": {
+        ("Test (lower crates, all features)"): (
+            (
+                "python3 scripts/cargo_test_rescue.py cargo test -p eg-types -p "
+                "eg-core -p eg-compute --all-features --no-fail-fast"
+            ),
+        ),
+        ("Test (canonical capability policy and generated ledger)"): (
+            (
+                "python3 scripts/cargo_test_rescue.py cargo test --locked -p "
+                "eg-capabilities --features contract --no-fail-fast"
+            ),
+        ),
+        ("Test (SQLite format differential conformance)"): (
+            (
+                "python3 scripts/cargo_test_rescue.py cargo test --locked -p "
+                "eg-sqlite-format --test differential --no-fail-fast"
+            ),
+        ),
+        (
+            "Test (replay-determinism — eg-jobs/eg-statechart crash-replay proofs, DE7)"
+        ): (
+            (
+                "python3 scripts/cargo_test_rescue.py cargo test -p eg-jobs -p "
+                "eg-statechart --test replay_determinism --no-fail-fast"
+            ),
+        ),
+        ("Query-pipeline fuzz + chaos (eg-plan)"): (
+            (
+                "python3 scripts/cargo_test_rescue.py cargo test -p eg-plan "
+                '--features "query,owl,text,timeseries,federation" --test '
+                "fuzz_pipelines --no-fail-fast"
+            ),
+        ),
+    },
+    "gates-crates": {
+        ("Test (storage crate, isolated crash-process lifecycle)"): (
+            (
+                "python3 scripts/cargo_test_rescue.py cargo test --locked -p "
+                "eg-storage --all-features --no-fail-fast -- --test-threads=1"
+            ),
+        ),
+        (
+            "Test (every other workspace crate, all features; push to main / "
+            "release tag)"
+        ): (
+            (
+                "python3 scripts/cargo_test_rescue.py cargo test --locked "
+                "--workspace --exclude epistemic-graph --exclude eg-types --exclude "
+                "eg-core --exclude eg-compute --exclude eg-storage --exclude "
+                "eg-tts-piper --exclude eg-numeric --exclude eg-pyengine "
+                "--all-features --no-fail-fast"
+            ),
+        ),
+        ("Test (every other workspace crate -- pull request fast subset)"): (
+            (
+                "python3 scripts/cargo_test_rescue.py cargo test --locked "
+                "--workspace --exclude epistemic-graph --exclude eg-types --exclude "
+                "eg-core --exclude eg-compute --exclude eg-storage --exclude "
+                "eg-tts-piper --exclude eg-numeric --exclude eg-pyengine "
+                "--all-features --no-fail-fast"
+            ),
+            (
+                "python3 scripts/cargo_test_rescue.py cargo test --locked "
+                '"${args[@]}" --all-features --no-fail-fast'
+            ),
+        ),
+        ("Test (pyo3 crates, every feature except python)"): (
+            (
+                "python3 scripts/cargo_test_rescue.py cargo test --locked -p "
+                "eg-numeric -p eg-pyengine --features eg-numeric/analytics,"
+                "eg-numeric/contract,eg-numeric/complex,eg-numeric/decision,"
+                "eg-numeric/motif,eg-pyengine/security,eg-pyengine/ml-pipeline,"
+                "eg-pyengine/reasoning,eg-pyengine/query,eg-pyengine/cypher,"
+                "eg-pyengine/tsdb,eg-pyengine/streaming,eg-pyengine/wasm-udf,"
+                "eg-pyengine/rdf,eg-pyengine/blob,eg-pyengine/jobs,"
+                "eg-pyengine/statechart,eg-pyengine/finance --no-fail-fast"
+            ),
+        ),
+    },
+}
+
+CACHE_BACKEND = {
+    "SCCACHE_IDLE_TIMEOUT": "7200",
+    "SCCACHE_GHA_ENABLED": "true",
+    "SCCACHE_GHA_RW_MODE": (
+        "${{ github.ref == 'refs/heads/main' && 'READ_WRITE' || 'READ_ONLY' }}"
+    ),
+}
+
+
+@pytest.mark.parametrize("job_name", COMPILER_CACHE_COMMANDS)
+def test_compiler_cache_covers_only_explicit_step_local_commands(job_name: str) -> None:
+    workflow = _workflow()
+    job = workflow["jobs"][job_name]
+    assert job["timeout-minutes"] == (
+        "${{ github.event_name == 'pull_request' && 10 || 60 }}"
+    )
+    assert job["env"] == CACHE_BACKEND
+    assert int(CACHE_BACKEND["SCCACHE_IDLE_TIMEOUT"]) > 60 * 60
+    steps = job["steps"]
+    setup = next(
+        s for s in steps if s.get("name") == "Install validation compiler cache"
+    )
+    assert setup["uses"] == (
+        "mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba"
+    )
+    assert setup["with"] == {"version": "v0.16.0"}
+    assert "if" not in setup
+    stats = next(s for s in steps if "sccache --show-stats" in s.get("run", ""))
+    assert stats["if"] == "always()"
+    assert stats["run"].splitlines() == [
+        "echo 'Cache statistics cover the current daemon only; "
+        "a restart resets its counters.'",
+        "sccache --show-stats",
+    ]
+    for step_name, commands in COMPILER_CACHE_COMMANDS[job_name].items():
+        build = next(s for s in steps if s.get("name") == step_name)
+        assert steps.index(setup) < steps.index(build) < steps.index(stats)
+        expected_conditions = {
+            (
+                "Test (every other workspace crate, all features; "
+                "push to main / release tag)"
+            ): "github.event_name != 'pull_request'",
+            "Test (every other workspace crate -- pull request fast subset)": (
+                "github.event_name == 'pull_request'"
+            ),
+        }
+        assert build.get("if") == expected_conditions.get(step_name)
+        expected_env = {"RUSTC_WRAPPER": "sccache"}
+        if (
+            step_name
+            == "Test (every other workspace crate -- pull request fast subset)"
+        ):
+            expected_env["SCOPE"] = "${{ steps.pr-test-scope.outputs.scope }}"
+        assert build["env"] == expected_env
+        assert (
+            tuple(
+                line.strip()
+                for line in build["run"].splitlines()
+                if "cargo test " in line or "cargo build " in line
+            )
+            == commands
+        )
+        for cache_step in (setup, build, stats):
+            effective_env = {
+                **workflow["env"],
+                **job["env"],
+                **cache_step.get("env", {}),
+            }
+            assert {key: effective_env[key] for key in CACHE_BACKEND} == CACHE_BACKEND
+
+
+def test_compiler_cache_trust_and_wrapper_scope_remain_isolated() -> None:
+    workflow = _workflow()
+    jobs = workflow["jobs"]
+    assert workflow["env"]["CARGO_INCREMENTAL"] == "0"
+    assert "RUSTC_WRAPPER" not in workflow["env"]
+    assert not CACHE_BACKEND.keys() & workflow["env"].keys()
+    reference_setup = next(
+        s
+        for s in jobs["gates"]["steps"]
+        if s.get("name") == "Install validation compiler cache"
+    )
+    for job_name, job in jobs.items():
+        assert "RUSTC_WRAPPER" not in job.get("env", {})
+        if job_name in COMPILER_CACHE_COMMANDS:
+            assert job["env"] is jobs["gates"]["env"]
+            setup = next(
+                s
+                for s in job["steps"]
+                if s.get("name") == "Install validation compiler cache"
+            )
+            assert setup is reference_setup
+        else:
+            assert not CACHE_BACKEND.keys() & job.get("env", {}).keys()
+        for step in job.get("steps", []):
+            expected = step.get("name") in COMPILER_CACHE_COMMANDS.get(job_name, {})
+            assert ("RUSTC_WRAPPER" in step.get("env", {})) == expected
+    steps = jobs["python-server"]["steps"]
+    build = next(
+        s
+        for s in steps
+        if s.get("name") == "Build the full-featured engine binary once"
+    )
+    pack = next(
+        s for s in steps if s.get("name") == "Package exact-revision server binary"
+    )
+    assert steps.index(build) < steps.index(pack)
+    assert "if" not in pack
