@@ -1166,7 +1166,7 @@ mod tests {
             ),
             (
                 "capability",
-                "81c5518d2679e96848327df81c879ce08644cdcb5fbf806f2835c2a276b05011",
+                "23bef29fbbc23ce086f187f5f8fe3a23b442d09ef30e5febf221817d7d3b9456",
             ),
             (
                 "argumentation",
@@ -1242,7 +1242,7 @@ mod tests {
             ),
             (
                 "orchestration",
-                "ea7640cb3dab3ec392f7d0e928b96043035fded71163f573cb1a7064aa9e338a",
+                "5fb3be7944564fbc90cdadbe6bb42c279b8ea0b016e1e9d9d0c4491e335a819d",
             ),
             (
                 "personal",
