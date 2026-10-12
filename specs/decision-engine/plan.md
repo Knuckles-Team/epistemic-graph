@@ -233,6 +233,17 @@ claims that every served parent path or the complete Release workflow passed.
 
 ## Amendments
 
+### 2026-10-11: measured plan-scaffold selection (R128.6)
+
+Implement the missing pure plan-scaffold rule beside the existing harness
+action-space rule. Early stopping selects `on` for accuracy; over-verification
+selects `on` for cost. Balanced stopping selects `off` only with a measured
+no-gain ablation. Missing required evidence abstains with conservative `on`.
+The result retains the rule reason and exact evaluation references; malformed
+references are refused through `MeasuredFact::validate`. Native tests qualify
+this producer only. Profile lookup, served dispatch, committed premises and
+generated-client acceptance remain the separate, open R128 wiring leaves.
+
 ### 2026-10-11: retain R093 served acceptance
 
 The previous R093 rollup recorded only its provenance-type child, R093.1.

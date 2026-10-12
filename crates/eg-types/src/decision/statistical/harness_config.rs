@@ -1,9 +1,9 @@
-//! Producer types and pure action-space selection for R128.2, R128.3 and R128.7.
+//! Producer types and pure harness rules for R128.2, R128.3, R128.6 and R128.7.
 //! Profile resolution, question dispatch and persistence are separate leaves.
 
 use serde::{Deserialize, Serialize};
 
-use crate::agent_component::{MeasuredFact, ShellProficiency};
+use crate::agent_component::{MeasuredFact, ObservationRef, ShellProficiency, StoppingBehaviour};
 use crate::capacity_lease::LeasePriority;
 use crate::contract::BoundedVec;
 use crate::decision::numeric::UnitRationalWire;
@@ -151,6 +151,81 @@ where
     Ok(part)
 }
 
+/// Why the plan-scaffold rule selected its part; the served explanation can
+/// retain this reason alongside the measured inputs without inventing evidence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlanScaffoldReason {
+    Accuracy,
+    Cost,
+    NoGainAblation,
+    RetainScaffold,
+    MissingEvidence,
+}
+
+/// Pure rule result, retaining the exact evaluations used by the decision.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlanScaffoldDecision {
+    pub part: HarnessPart<PlanScaffold>,
+    pub reason: PlanScaffoldReason,
+    pub evaluation_refs: Vec<ObservationRef>,
+}
+
+/// Select a scaffold from measured stopping behaviour and, for balanced
+/// behaviour, a measured no-gain ablation. `true` means the cited ablation
+/// observed no gain from the scaffold. Unknown evidence is never `false`.
+pub fn decide_plan_scaffold(
+    stopping: Option<&MeasuredFact<StoppingBehaviour>>,
+    no_gain_ablation: Option<&MeasuredFact<bool>>,
+) -> Result<PlanScaffoldDecision, String> {
+    if let Some(fact) = stopping {
+        fact.validate()?;
+    }
+    if let Some(fact) = no_gain_ablation {
+        fact.validate()?;
+    }
+    let Some(stopping) = stopping else {
+        return Ok(scaffold_abstention("stoppingBehaviour", Vec::new()));
+    };
+    let mut evaluation_refs = vec![stopping.evaluation_run_ref.clone()];
+    let (value, reason) = match stopping.value {
+        StoppingBehaviour::StopsEarly => (PlanScaffold::On, PlanScaffoldReason::Accuracy),
+        StoppingBehaviour::OverVerifies => (PlanScaffold::On, PlanScaffoldReason::Cost),
+        StoppingBehaviour::Balanced => {
+            let Some(ablation) = no_gain_ablation else {
+                return Ok(scaffold_abstention(
+                    "planScaffoldNoGainAblation",
+                    evaluation_refs,
+                ));
+            };
+            evaluation_refs.push(ablation.evaluation_run_ref.clone());
+            if ablation.value {
+                (PlanScaffold::Off, PlanScaffoldReason::NoGainAblation)
+            } else {
+                (PlanScaffold::On, PlanScaffoldReason::RetainScaffold)
+            }
+        }
+    };
+    Ok(PlanScaffoldDecision {
+        part: HarnessPart::Decided { value },
+        reason,
+        evaluation_refs,
+    })
+}
+
+fn scaffold_abstention(
+    missing: &str,
+    evaluation_refs: Vec<ObservationRef>,
+) -> PlanScaffoldDecision {
+    PlanScaffoldDecision {
+        part: HarnessPart::Abstained {
+            missing_fact: BoundedVec::new(vec![missing.to_string()]).expect("one missing fact"),
+            conservative_default: PlanScaffold::On,
+        },
+        reason: PlanScaffoldReason::MissingEvidence,
+        evaluation_refs,
+    }
+}
+
 /// Resolve only from the supplied measured proficiency and resolved task fact.
 /// Invalid evaluation references are refused, using the measured-fact owner.
 pub fn decide_action_space(
@@ -188,6 +263,111 @@ pub fn decide_action_space(
 mod tests {
     use super::*;
     use crate::agent_component::ObservationRef;
+
+    fn measured<T>(value: T, evaluation_id: &str) -> MeasuredFact<T> {
+        MeasuredFact {
+            value,
+            evaluation_run_ref: ObservationRef {
+                evaluation_id: evaluation_id.into(),
+                digest: format!("digest:{evaluation_id}"),
+            },
+        }
+    }
+
+    // spec: EG-DECISION-ENGINE-R128.6
+    #[test]
+    fn plan_scaffold_rules() {
+        let ablation = measured(true, "eval:ablation");
+        for (behaviour, reason) in [
+            (StoppingBehaviour::StopsEarly, PlanScaffoldReason::Accuracy),
+            (StoppingBehaviour::OverVerifies, PlanScaffoldReason::Cost),
+        ] {
+            let stopping = measured(behaviour, "eval:stopping");
+            for evidence in [None, Some(&ablation)] {
+                let result = decide_plan_scaffold(Some(&stopping), evidence).unwrap();
+                assert_eq!(
+                    result.part,
+                    HarnessPart::Decided {
+                        value: PlanScaffold::On
+                    }
+                );
+                assert_eq!(result.reason, reason);
+                assert_eq!(
+                    result.evaluation_refs,
+                    vec![stopping.evaluation_run_ref.clone()]
+                );
+            }
+        }
+        let stopping = measured(StoppingBehaviour::Balanced, "eval:balanced");
+        for (no_gain, value, reason) in [
+            (true, PlanScaffold::Off, PlanScaffoldReason::NoGainAblation),
+            (false, PlanScaffold::On, PlanScaffoldReason::RetainScaffold),
+        ] {
+            let ablation = measured(no_gain, "eval:ablation");
+            let result = decide_plan_scaffold(Some(&stopping), Some(&ablation)).unwrap();
+            assert_eq!(result.part, HarnessPart::Decided { value });
+            assert_eq!(result.reason, reason);
+            assert_eq!(
+                result.evaluation_refs,
+                vec![
+                    stopping.evaluation_run_ref.clone(),
+                    ablation.evaluation_run_ref
+                ]
+            );
+        }
+    }
+
+    // spec: EG-DECISION-ENGINE-R128.6
+    #[test]
+    fn plan_scaffold_missing_evidence_abstains() {
+        let stopping = measured(StoppingBehaviour::Balanced, "eval:balanced");
+        let ablation = measured(true, "eval:ablation");
+        for (behaviour, evidence, missing, references) in [
+            (None, None, "stoppingBehaviour", vec![]),
+            (None, Some(&ablation), "stoppingBehaviour", vec![]),
+            (
+                Some(&stopping),
+                None,
+                "planScaffoldNoGainAblation",
+                vec![stopping.evaluation_run_ref.clone()],
+            ),
+        ] {
+            let result = decide_plan_scaffold(behaviour, evidence).unwrap();
+            assert_eq!(
+                result.part,
+                HarnessPart::Abstained {
+                    missing_fact: BoundedVec::new(vec![missing.into()]).unwrap(),
+                    conservative_default: PlanScaffold::On,
+                }
+            );
+            assert_eq!(result.reason, PlanScaffoldReason::MissingEvidence);
+            assert_eq!(result.evaluation_refs, references);
+            result.part.validate().unwrap();
+        }
+    }
+
+    // spec: EG-DECISION-ENGINE-R128.6
+    #[test]
+    fn plan_scaffold_refuses_invalid_evaluation_references() {
+        let stopping = measured(StoppingBehaviour::Balanced, "eval:balanced");
+        let ablation = measured(true, "eval:ablation");
+        for missing_id in [true, false] {
+            let mut invalid_stopping = stopping.clone();
+            let mut invalid_ablation = ablation.clone();
+            for reference in [
+                &mut invalid_stopping.evaluation_run_ref,
+                &mut invalid_ablation.evaluation_run_ref,
+            ] {
+                if missing_id {
+                    reference.evaluation_id.clear();
+                } else {
+                    reference.digest.clear();
+                }
+            }
+            assert!(decide_plan_scaffold(Some(&invalid_stopping), Some(&ablation)).is_err());
+            assert!(decide_plan_scaffold(Some(&stopping), Some(&invalid_ablation)).is_err());
+        }
+    }
 
     fn request_wire() -> serde_json::Value {
         serde_json::json!({
