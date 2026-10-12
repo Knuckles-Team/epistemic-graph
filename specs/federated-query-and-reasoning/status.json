@@ -216,7 +216,16 @@
     "EG-FEDERATED-QUERY-R084.5",
     "EG-FEDERATED-QUERY-R084.6",
     "EG-FEDERATED-QUERY-R084.7",
-    "EG-FEDERATED-QUERY-R084.8"
+    "EG-FEDERATED-QUERY-R084.8",
+    "EG-FEDERATED-QUERY-R085",
+    "EG-FEDERATED-QUERY-R085.1",
+    "EG-FEDERATED-QUERY-R085.2",
+    "EG-FEDERATED-QUERY-R085.3",
+    "EG-FEDERATED-QUERY-R085.4",
+    "EG-FEDERATED-QUERY-R085.5",
+    "EG-FEDERATED-QUERY-R085.6",
+    "EG-FEDERATED-QUERY-R085.7",
+    "EG-FEDERATED-QUERY-R085.8"
   ],
   "requirements": [
     {
@@ -2285,6 +2294,79 @@
     },
     {
       "id": "EG-FEDERATED-QUERY-R084.8",
+      "title": "Evidence and hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R085",
+      "title": "EG approves immutable source queries for bounded connector execution (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-FEDERATED-QUERY-R085.1",
+        "EG-FEDERATED-QUERY-R085.2",
+        "EG-FEDERATED-QUERY-R085.3",
+        "EG-FEDERATED-QUERY-R085.4",
+        "EG-FEDERATED-QUERY-R085.5",
+        "EG-FEDERATED-QUERY-R085.6",
+        "EG-FEDERATED-QUERY-R085.7",
+        "EG-FEDERATED-QUERY-R085.8"
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R085.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R085.2",
+      "title": "Behavior: issue approval",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R085.3",
+      "title": "Behavior: verify approval",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R085.4",
+      "title": "Behavior: read-only SQL",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R085.5",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R085.6",
+      "title": "Behavior: bounded execution contract",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R085.7",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R085.8",
       "title": "Evidence and hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],

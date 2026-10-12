@@ -566,3 +566,49 @@ Source code in [core tests](../../crates/eg-shex/tests/core.rs) covers cardinali
 [Compact tests](../../crates/eg-shex/tests/compact.rs) cover parser/model equivalence and compact-syntax refusals.
 Those sources and method-report declarations are not served execution receipts.
 R084.8 requires the real entry point and the observations in test-spec.md.
+
+## Approved source query interface (R085)
+
+R085 defines the missing EG producer for [SDK-SOURCE-INGEST-R004.1–.6](https://github.com/Knuckles-Team/agent-connector-sdk/blob/518402ee1a096a1d1dda26b8c604e704d2163cb5/specs/SDK-SOURCE-INGEST/requirements.md#L76). SDK executes transport and native driver calls. EG decides query meaning and authorization. Existing R015/R043/R069 are reuse dependencies, not proof of this interface. All records and operations below are planned.
+
+### Exact producer interface
+
+- `ApproveSourceQuery { request: SourceQueryRequest } -> ApprovedSourceQuery` issues approval after a durable native commit.
+- `VerifySourceQueryApproval { request: SourceQueryApprovalCheck } -> SourceQueryApprovalValidity` checks the authoritative record and current permissions.
+- `SourceQueryRequest { schema_version, source_ref, source_revision, schema_digest, snapshot_ref, dialect, sql, parameters, limits, requested_expires_at_ms, idempotency_key }` requests one read-only SQL operation.
+- `SourceQueryLimits { max_rows, max_bytes, chunk_rows, chunk_bytes, queue_depth, queue_bytes, deadline_ms, max_resident_bytes }` has finite positive integer fields. Row/byte fields count decoded data and encoded payload within their respective declared budgets. Deadline time uses the server's authoritative milliseconds.
+- `SourceQueryParameter { position, kind, value }` uses closed kinds `null`, `bool`, `int64`, `float64`, `text`, `bytes`. Positions and placeholder counts must match. Values must fit the declared type and dialect; nonfinite floats refuse. No string interpolation substitutes for native parameter binding.
+- `ApprovedSourceQuery { schema_version, approval_id, query_id, request, tenant_ref, owner_ref, actor_ref, authority_digest, policy_digest, identity_digest, allowed_operations, issued_at_ms, expires_at_ms, hard_expires_at_ms, operation_digest, parameter_digest, query_digest }` is immutable. `allowed_operations` is exactly `[read_sql]` for this version.
+- `SourceQueryApprovalCheck { approved_query, observed_source_revision, observed_schema_digest, observed_snapshot_ref, phase }` uses phases `start`, `chunk`, `complete`.
+- `SourceQueryApprovalValidity { approval_id, query_id, query_digest, lease_revision, checked_at_ms, valid_until_ms }` is a bounded validation result. It does not replace the next required check or authorize another descriptor.
+
+Each method uses the ordinary authenticated request envelope and request graph. Tenant, owner, actor and authority fields come from verified context. Caller-supplied identity strings cannot mint these fields. Bind the request graph and permitted delegated executor into `authority_digest`. Source resolution uses that verified owner and the registered source catalog. Source/schema/snapshot identities must refer to verified source facts; missing or unverified facts refuse. The connector checks the observed source identities before executing. This contract does not pretend that approval creates a remote snapshot.
+
+`query_digest` uses `Digest256::framed` with domain `eg/source-query-approval/v1` and canonical, versioned field encoding. Bind every field except the digest itself. Preserve parameter type, position, value and SQL bytes through operation/parameter digests. Bind source registration, schema, snapshot, dialect, limits, authority, allowed operations, expiry and query identity. Identical payloads have identical digests; changes to any binding invalidate approval.
+
+### Authority and lifecycle
+
+Use the existing control-lease store with reserved kind `source.query.approval`. Its immutable grant contains query identity and all binding digests, not raw SQL, parameter values or credentials. The descriptor carries the exact approved SQL and parameters. The native issuer validates the descriptor before committing the grant. Generic `IssueControlLease` must reject this reserved kind, even for callers holding `lease:write`. Existing reserved-producer validation patterns separate generic wire issuance from validated native issuance.
+
+Verification reads the actual lease in the verified tenant and request graph, then recomputes every descriptor binding. It requires matching owner/actor or verified delegation and current source authorization. Policy or identity changes invalidate the stored approval. Expiry uses engine time and both immutable expiry bounds. Existing `TransitionControlLease` CAS rules govern authorized revocation; no renewal or reactivation is introduced. Only active approval leases validate. SDK must use its authenticated EG client for verification; a JSON descriptor or copied lease view grants no authority. No new credentials or signing secrets are distributed. `PolicyDecisionLease` remains nonserializable engine authority, not an exported credential.
+
+### Concrete reuse and current limits
+
+Source inspected at EG `560b391592cd405f999fbc72ba8ee8ff64782bd4`:
+
+- [Foreign-query handler](https://github.com/Knuckles-Team/epistemic-graph/blob/560b391592cd405f999fbc72ba8ee8ff64782bd4/src/server/handlers/federation.rs#L21) uses `OwnerScopedCall`. Its `query_columns:66` validates read authority and resolves the owner-scoped catalog. The new methods attach beside it.
+- [Dispatch attachment](https://github.com/Knuckles-Team/epistemic-graph/blob/560b391592cd405f999fbc72ba8ee8ff64782bd4/src/server/dispatch/graph_pipeline/pipeline.rs#L333) reaches that handler under the existing federation feature.
+- [Control-lease contract](https://github.com/Knuckles-Team/epistemic-graph/blob/560b391592cd405f999fbc72ba8ee8ff64782bd4/crates/eg-types/src/control_lease.rs#L1) already defines immutable grants, expiry and one-way CAS transitions. `src/redb_store/work_item/control_lease.rs:58` and `:130` are existing issuance and read seams. Reserved-kind producer wiring is new.
+- [SQL validation](https://github.com/Knuckles-Team/epistemic-graph/blob/560b391592cd405f999fbc72ba8ee8ff64782bd4/crates/eg-plan/src/federation.rs#L933) rejects non-query statements, locking reads and SELECT INTO. Destination validation and database read-only transactions already exist. Complete effect checks and typed parameterized approval remain obligations.
+- [Column rendering](https://github.com/Knuckles-Team/epistemic-graph/blob/560b391592cd405f999fbc72ba8ee8ff64782bd4/crates/eg-plan/src/federation_opt/columns.rs#L215) reuses `sql_text` helpers. Current literal rendering does not establish native parameter binding.
+- [Existing result fetch](https://github.com/Knuckles-Team/epistemic-graph/blob/560b391592cd405f999fbc72ba8ee8ff64782bd4/crates/eg-plan/src/federation.rs#L1255) returns a vector. `handlers/federation.rs:112` collects output. `handlers/knowledge_stream/families.rs:93` also adapts a materialized SQL result. Bounded output batches do not prove flat producer memory.
+
+### SDK handoff and evidence
+
+SDK-SOURCE-INGEST-R004.1 must accept the generated `ApprovedSourceQuery` without changing its semantics or authorization. Its receiving method must call `VerifySourceQueryApproval` at the specified execution boundaries. SDK owns that method's name and implementation. Match its definition to these exact EG records before declaring the cross-owner definition complete. Existing `SourceAdapter` at `agent_connector_sdk/ports/source_adapter.py:21` has only describe/discover/extract/reconcile; native SQL execution remains absent.
+
+Only an explicit terminal event completes a query. Failure, cancellation, expiry, revocation or lost verification after emitted chunks leaves an incomplete execution. Keep existing durable SourceCheckpoint receipts for previously accepted pages; never checkpoint a failed chunk as accepted. Redact SQL literals, parameters and credentials from operational evidence. Record source revisions, descriptor digests, chunk sequence, totals, queue high-water marks and measured resident memory.
+
+Use the real EG approval/verifier dispatch and SDK's registered connector against an actual database. Inject failure after three chunks, revoke between chunks, alter each binding and attempt forbidden SQL effects. Compare fixed-limit fresh-process memory runs across a hundredfold cardinality increase. Set the memory envelope from declared buffers and a documented fixed runtime allowance before measuring. An observed peak that scales with total rows fails the contract. No execution receipt exists for this definition change.
+
+Verification RPC latency and count belong in the execution evidence. Each verification must finish within the remaining execution deadline. Timeout or unavailable verification closes the driver and produces terminal failure. A prior validity result cannot authorize later chunks after verification fails. These are planned acceptance requirements, not measured overhead claims.
