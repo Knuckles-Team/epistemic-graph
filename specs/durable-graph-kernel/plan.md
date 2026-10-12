@@ -289,7 +289,9 @@ Submit carries expected revision, expected content digest and candidate bytes wi
 Creation requires explicit absence; an absent expected revision never means unconditional overwrite.
 Resolve also names the retained conflict and the current accepted revision.
 Results are applied, observation_retained, conflict_retained, materialization_acknowledged or refused.
-Every result includes the accepted revision, content digest, explicit sync state and receipt identity.
+Authorized outcomes include the accepted revision, content digest, explicit sync state and receipt identity.
+Denied results reveal no document existence, revision, digest, conflict reference or stored receipt.
+Other refusals disclose state only after the caller passes the corresponding read-authority check.
 Retained outcomes also include authorized references for both contents and their provenance.
 Refusals reuse registered engine error codes; register missing typed errors before exposing this contract.
 The signed request binds the action, body and existing idempotency identity.
@@ -315,7 +317,9 @@ A prior materialized revision with a newer accepted head means graph_ahead.
 An observe_file receipt based on the current head means file_ahead until submission completes.
 A stale retained edit means conflict and takes precedence until explicit resolution.
 A retention-only change must not advance the accepted document revision.
-A successful materialization acknowledgment for the current revision and digest means in_sync.
+A materialization acknowledgment reports in_sync only when its current revision and digest match.
+There must also be no pending observed edit or unresolved conflict.
+A matching acknowledgment cannot discard an observed edit or clear file_ahead.
 A stale acknowledgment cannot clear graph_ahead or conflict.
 
 GraphOS writes hosted files, then acknowledges their revision and digest through SyncMemorySnapshot.

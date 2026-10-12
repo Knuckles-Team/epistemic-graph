@@ -185,6 +185,7 @@ Read durable state through an independent authorized client after restart.
 
 The complete journey creates a document, reads an exact revision and lists it across pages.
 First observe a host edit and check file_ahead without changing the accepted head.
+Acknowledge the unchanged accepted revision and check that the pending edit and file_ahead remain.
 Two clients submit distinct contents from one base. Exactly one advances the accepted head.
 The other receives a durable conflict reference containing both readable versions and hashes.
 Retry both requests and check stable receipts without duplicate content or holder effects.
@@ -194,6 +195,7 @@ Only the final acknowledgment may report in_sync. A stale acknowledgment must no
 
 Negative cases include another tenant, wrong graph incarnation and a principal without write authority.
 Denied calls leave graph heads, content records, conflict records, holders and outbox rows unchanged.
+Their responses reveal no existence, revision, digest, conflict reference or stored receipt.
 Also test tampered cursors, policy changes, mismatched digests, oversized content and revision overflow.
 A stale cursor or absent producer must produce an explicit refusal, never fabricated empty success.
 Retention exhaustion must refuse before partial retention or an accepted-head change.
