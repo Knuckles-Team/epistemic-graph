@@ -1648,7 +1648,7 @@
     },
     {
       "id": "EG-FEDERATED-QUERY-R082",
-      "title": "Iterative retrieval stop rule with a calibrated confidence margin (rollup)",
+      "title": "Iterative retrieval stop rule with calibrated confidence and bounded termination (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
