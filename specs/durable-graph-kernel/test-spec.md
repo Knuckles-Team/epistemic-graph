@@ -184,10 +184,10 @@ Read durable state through an independent authorized client after restart.
 - `EG-DURABLE-KERNEL-R085.8`: Planned: tests/memory_sync_served.rs::complete_memory_sync_journey.
 
 The complete journey creates a document, reads an exact revision and lists it across pages.
-First observe a host edit and verify file_ahead without changing the accepted head.
+First observe a host edit and check file_ahead without changing the accepted head.
 Two clients submit distinct contents from one base. Exactly one advances the accepted head.
 The other receives a durable conflict reference containing both readable versions and hashes.
-Retry both requests and verify stable receipts without duplicate content or holder effects.
+Retry both requests and check stable receipts without duplicate content or holder effects.
 Restart the engine and run eligible blob collection. Both conflicting versions remain readable.
 Resolve with the current revision, materialize the result, then acknowledge its exact digest.
 Only the final acknowledgment may report in_sync. A stale acknowledgment must not clear newer state.
