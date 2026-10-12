@@ -260,16 +260,20 @@ pub enum GovernedRefusal {
 impl GovernedRefusal {
     pub fn code(self) -> &'static str {
         match self {
-            Self::InvalidRequest => "GOVERNED_INVALID",
-            Self::UnknownKind => "GOVERNED_UNKNOWN_KIND",
-            Self::NotAuthorized => "GOVERNED_NOT_AUTHORIZED",
-            Self::Collision => "GOVERNED_COLLISION",
-            Self::Full => "GOVERNED_LEDGER_FULL",
-            Self::NotFound => "GOVERNED_NOT_FOUND",
-            Self::SelfApproval => "GOVERNED_SELF_APPROVAL",
-            Self::DelegatedApprover => "GOVERNED_DELEGATED_APPROVER",
-            Self::DigestMismatch => "GOVERNED_DIGEST_MISMATCH",
-            Self::Conflict => "GOVERNED_CONFLICT",
+            Self::InvalidRequest => crate::contract::ServerErrorCode::GovernedInvalid.as_str(),
+            Self::UnknownKind => crate::contract::ServerErrorCode::GovernedUnknownKind.as_str(),
+            Self::NotAuthorized => crate::contract::ServerErrorCode::GovernedNotAuthorized.as_str(),
+            Self::Collision => crate::contract::ServerErrorCode::GovernedCollision.as_str(),
+            Self::Full => crate::contract::ServerErrorCode::GovernedLedgerFull.as_str(),
+            Self::NotFound => crate::contract::ServerErrorCode::GovernedNotFound.as_str(),
+            Self::SelfApproval => crate::contract::ServerErrorCode::GovernedSelfApproval.as_str(),
+            Self::DelegatedApprover => {
+                crate::contract::ServerErrorCode::GovernedDelegatedApprover.as_str()
+            }
+            Self::DigestMismatch => {
+                crate::contract::ServerErrorCode::GovernedDigestMismatch.as_str()
+            }
+            Self::Conflict => crate::contract::ServerErrorCode::GovernedConflict.as_str(),
         }
     }
 }

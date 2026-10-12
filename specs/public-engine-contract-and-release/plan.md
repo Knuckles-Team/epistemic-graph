@@ -193,3 +193,12 @@ clean tracked worktree and exact checked-out-tip validation as push. Presence of
 either range variable requires a valid complete pair; partial or invalid ranges
 never fall back to the staged-document optimization. Ordinary commits without
 range variables retain index/worktree agreement checks.
+
+### 2026-10-12: preserve governed-change refusal codes
+
+EG-CONTRACT-R014 declares every existing GovernedRefusal through ServerErrorCode.
+The producer uses those typed declarations, and the generator publishes their
+GovernedChange method routes. Unknown codes still become INTERNAL without raw
+diagnostic text. EG-DURABLE-KERNEL-R027.2 retains two-person approval, direct
+identity and exact-scope checks. The forged-actor regression requires the exact
+authorization refusal instead of accepting any governed prefix.

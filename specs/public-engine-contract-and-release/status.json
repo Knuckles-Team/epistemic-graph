@@ -342,7 +342,8 @@
       ],
       "verified_by": [
         "crates/eg-capabilities/src/contract/errors.rs:470",
-        "crates/eg-capabilities/src/error_routing.rs:326"
+        "crates/eg-capabilities/src/error_routing.rs:326",
+        "crates/eg-types/src/governed_change/tests.rs:183"
       ]
     },
     {

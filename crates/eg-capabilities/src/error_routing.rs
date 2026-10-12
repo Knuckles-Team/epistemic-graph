@@ -325,14 +325,21 @@ mod tests {
 
     // spec: EG-CONTRACT-R014
     #[test]
-    fn governed_actor_refusal_is_only_routed_to_governed_changes() {
-        assert!(method_allows_error(
-            "GovernedChange",
-            "GOVERNED_ACTOR_UNSTAMPED"
-        ));
-        for other in ["RbacElevation", "Identity", "QueryForeignColumns"] {
-            assert!(!method_allows_error(other, "GOVERNED_ACTOR_UNSTAMPED"));
+    fn governed_refusals_are_only_routed_to_governed_changes() {
+        for code in eg_types::contract::ServerErrorCode::ALL
+            .iter()
+            .map(|code| code.as_str())
+            .filter(|code| code.starts_with("GOVERNED_"))
+        {
+            assert!(method_allows_error("GovernedChange", code));
+            for other in ["RbacElevation", "Identity", "QueryForeignColumns"] {
+                assert!(!method_allows_error(other, code));
+            }
         }
+        assert!(!method_allows_error(
+            "GovernedChange",
+            "GOVERNED_NOT_REGISTERED"
+        ));
     }
 
     #[test]
