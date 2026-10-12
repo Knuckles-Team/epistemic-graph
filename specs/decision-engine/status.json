@@ -321,7 +321,14 @@
     "EG-DECISION-ENGINE-R138.3",
     "EG-DECISION-ENGINE-R138.4",
     "EG-DECISION-ENGINE-R138.5",
-    "EG-DECISION-ENGINE-R138.6"
+    "EG-DECISION-ENGINE-R138.6",
+    "EG-DECISION-ENGINE-R139",
+    "EG-DECISION-ENGINE-R139.1",
+    "EG-DECISION-ENGINE-R139.2",
+    "EG-DECISION-ENGINE-R139.3",
+    "EG-DECISION-ENGINE-R139.4",
+    "EG-DECISION-ENGINE-R139.5",
+    "EG-DECISION-ENGINE-R139.6"
   ],
   "requirements": [
     {
@@ -3893,6 +3900,63 @@
     {
       "id": "EG-DECISION-ENGINE-R138.6",
       "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R139",
+      "title": "Comparative-analysis plan producer (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R139.1",
+        "EG-DECISION-ENGINE-R139.2",
+        "EG-DECISION-ENGINE-R139.3",
+        "EG-DECISION-ENGINE-R139.4",
+        "EG-DECISION-ENGINE-R139.5",
+        "EG-DECISION-ENGINE-R139.6"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R139.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R139.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R139.3",
+      "title": "Wiring and authority",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R139.4",
+      "title": "Typed refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R139.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R139.6",
+      "title": "Served acceptance",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
