@@ -48,3 +48,9 @@ No case below has run; no test receipt or closure is inferred.
 | `EG-REPO-INGEST-R002.101` | `e0c431512565acb1a8ae00e09b63ec6fb7c8f9e81ef9c786a0fd7b26b2239455` | Graph-loaded workflow hydration readback | Verify workflow, run, output, and graph bindings before success. Refuse mismatches and denied or partial readback. |
 
 AU consumer receipts remain separate owner obligations where requirements.md identifies them.
+
+
+### Additional future acceptance for EG-REPO-INGEST-R006.3
+
+`tests/repository-index-and-ingestion/test_authority_binding_served.py::test_inventory_advance_fences_map_and_rebinds_symbols` is a planned test, not an existing receipt. Exercise every schema and refusal rule in plan.md through generated served clients. Independently read admitted authority, producer receipts, exact revisions and output after restart. Test identical replay and conflicting source events, stale expected revisions, missing/changed authority, denied tenant and unknown references. Verify refusal stores nothing. Preserve every existing acceptance clause above verbatim.
+Advance inventory before indexing completes. Both changed and unchanged symbol queries and old cursors must refuse. Reindex; read current span/revision for the changed symbol and stable ID/new generation/current revision for the unchanged symbol. Test rename, deletion, incomplete manifest and raced publication.
