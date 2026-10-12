@@ -64,7 +64,12 @@
     "EG-CONTRACT-R049",
     "EG-CONTRACT-R050",
     "EG-CONTRACT-R051",
-    "EG-CONTRACT-R051.1"
+    "EG-CONTRACT-R051.1",
+    "EG-CONTRACT-R052",
+    "EG-CONTRACT-R052.1",
+    "EG-CONTRACT-R052.2",
+    "EG-CONTRACT-R052.3",
+    "EG-CONTRACT-R052.4"
   ],
   "requirements": [
     {
@@ -356,7 +361,7 @@
         "5738b6093ea7"
       ],
       "verified_by": [
-        "tests/test_wheel_contract_surface.py:461"
+        "tests/test_wheel_contract_surface.py:475"
       ]
     },
     {
@@ -777,6 +782,47 @@
     {
       "id": "EG-CONTRACT-R051.1",
       "title": "Client ingest carries harness fields",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONTRACT-R052",
+      "title": "Current architecture documentation (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CONTRACT-R052.1",
+        "EG-CONTRACT-R052.2",
+        "EG-CONTRACT-R052.3",
+        "EG-CONTRACT-R052.4"
+      ]
+    },
+    {
+      "id": "EG-CONTRACT-R052.1",
+      "title": "Module ownership model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONTRACT-R052.2",
+      "title": "Build, package, and deployment behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONTRACT-R052.3",
+      "title": "Shared-contract wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONTRACT-R052.4",
+      "title": "Runtime evidence and refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

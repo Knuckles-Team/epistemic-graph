@@ -5,7 +5,27 @@
   "delivery_state": "SPECIFIED",
   "requirement_ids": [
     "EG-TYPED-PACKS-R001",
+    "EG-TYPED-PACKS-R001.1",
+    "EG-TYPED-PACKS-R001.2",
+    "EG-TYPED-PACKS-R001.3",
+    "EG-TYPED-PACKS-R001.4",
+    "EG-TYPED-PACKS-R001.5",
+    "EG-TYPED-PACKS-R001.6",
+    "EG-TYPED-PACKS-R001.7",
+    "EG-TYPED-PACKS-R001.8",
+    "EG-TYPED-PACKS-R001.9",
     "EG-TYPED-PACKS-R002",
+    "EG-TYPED-PACKS-R002.1",
+    "EG-TYPED-PACKS-R002.2",
+    "EG-TYPED-PACKS-R002.3",
+    "EG-TYPED-PACKS-R002.4",
+    "EG-TYPED-PACKS-R002.5",
+    "EG-TYPED-PACKS-R002.6",
+    "EG-TYPED-PACKS-R002.7",
+    "EG-TYPED-PACKS-R002.8",
+    "EG-TYPED-PACKS-R002.9",
+    "EG-TYPED-PACKS-R002.10",
+    "EG-TYPED-PACKS-R002.11",
     "EG-TYPED-PACKS-R003",
     "EG-TYPED-PACKS-R004",
     "EG-TYPED-PACKS-R005",
@@ -127,6 +147,13 @@
     "EG-TYPED-PACKS-R093.1",
     "EG-TYPED-PACKS-R093.2",
     "EG-TYPED-PACKS-R094",
+    "EG-TYPED-PACKS-R094.1",
+    "EG-TYPED-PACKS-R094.2",
+    "EG-TYPED-PACKS-R094.3",
+    "EG-TYPED-PACKS-R094.4",
+    "EG-TYPED-PACKS-R094.5",
+    "EG-TYPED-PACKS-R094.6",
+    "EG-TYPED-PACKS-R094.7",
     "EG-TYPED-PACKS-R095",
     "EG-TYPED-PACKS-R096",
     "EG-TYPED-PACKS-R097",
@@ -152,19 +179,93 @@
     {
       "id": "EG-TYPED-PACKS-R001",
       "title": "Connector pack contract types and golden digest vectors",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "b43f33569dd4",
         "d116b7dbfd27"
       ],
       "verified_by": [
         "tests/test_connector_pack_client.py:138"
+      ],
+      "rollup_of": [
+        "EG-TYPED-PACKS-R001.1",
+        "EG-TYPED-PACKS-R001.2",
+        "EG-TYPED-PACKS-R001.3",
+        "EG-TYPED-PACKS-R001.4",
+        "EG-TYPED-PACKS-R001.5",
+        "EG-TYPED-PACKS-R001.6",
+        "EG-TYPED-PACKS-R001.7",
+        "EG-TYPED-PACKS-R001.8",
+        "EG-TYPED-PACKS-R001.9"
       ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R001.1",
+      "title": "Original pack index and entry types",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R001.2",
+      "title": "Original section and annotation types",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R001.3",
+      "title": "Original pack and content operations",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R001.4",
+      "title": "Original framed digest vectors",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R001.5",
+      "title": "All generated clients share the pack contract",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R001.6",
+      "title": "Versioned prompt graph identity",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R001.7",
+      "title": "Prompt payload validation",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R001.8",
+      "title": "Deterministic runtime rendering",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R001.9",
+      "title": "Generated prompt operation contract",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R002",
       "title": "Engine-owned body storage with guarded refcounts and reconciliation",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "022736782512",
         "023b482a38d3",
@@ -173,7 +274,97 @@
       ],
       "verified_by": [
         "src/server/handlers/admin/connector_pack/tests/admin.rs:241"
+      ],
+      "rollup_of": [
+        "EG-TYPED-PACKS-R002.1",
+        "EG-TYPED-PACKS-R002.2",
+        "EG-TYPED-PACKS-R002.3",
+        "EG-TYPED-PACKS-R002.4",
+        "EG-TYPED-PACKS-R002.5",
+        "EG-TYPED-PACKS-R002.6",
+        "EG-TYPED-PACKS-R002.7",
+        "EG-TYPED-PACKS-R002.8",
+        "EG-TYPED-PACKS-R002.9",
+        "EG-TYPED-PACKS-R002.10",
+        "EG-TYPED-PACKS-R002.11"
       ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R002.1",
+      "title": "Original engine body staging",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R002.2",
+      "title": "Original unchanged holder transition",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R002.3",
+      "title": "Original revised holder transition",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R002.4",
+      "title": "Original withdrawn holder transition",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R002.5",
+      "title": "Original orphan grace and fault recovery",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R002.6",
+      "title": "Original verified body serving",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R002.7",
+      "title": "Native prompt body persistence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R002.8",
+      "title": "Prompt graph projection",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R002.9",
+      "title": "Served prompt rendering",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R002.10",
+      "title": "Refusal before model dispatch",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R002.11",
+      "title": "Durable prompt restart proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R003",
@@ -1480,11 +1671,69 @@
     {
       "id": "EG-TYPED-PACKS-R094",
       "title": "AgentComponent.content serves pack body bytes directly",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "90f5578ae2f4",
         "a1bb9fb9503e"
       ],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-TYPED-PACKS-R094.1",
+        "EG-TYPED-PACKS-R094.2",
+        "EG-TYPED-PACKS-R094.3",
+        "EG-TYPED-PACKS-R094.4",
+        "EG-TYPED-PACKS-R094.5",
+        "EG-TYPED-PACKS-R094.6",
+        "EG-TYPED-PACKS-R094.7"
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R094.1",
+      "title": "Original Stable content route",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R094.2",
+      "title": "Pinned native blueprint export",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R094.3",
+      "title": "Modified native blueprint import",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R094.4",
+      "title": "Blueprint retry identity",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R094.5",
+      "title": "Served lossless round trip",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R094.6",
+      "title": "Optimization proposals carry no authority",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R094.7",
+      "title": "Approved repository-source effect dependency",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {

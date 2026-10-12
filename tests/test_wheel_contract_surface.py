@@ -25,8 +25,10 @@ import tempfile
 import unittest
 from pathlib import Path
 from typing import TypedDict
+from unittest.mock import patch
 
 import pytest
+import tomllib
 
 
 class _FixtureManifest(TypedDict):
@@ -367,18 +369,30 @@ class ContractProbeFixtures(unittest.TestCase):
 class WheelContractSurface(unittest.TestCase):
     def test_contract_data_is_explicitly_included(self) -> None:
         text = _PYPROJECT.read_text(encoding="utf-8")
-        maturin = text.split("[tool.maturin]", 1)[1].split("\n[", 1)[0]
-        match = re.search(r"^include = (\[.*?\])", maturin, re.M | re.S)
-        assert match is not None, "missing Maturin include list"
-        includes = ast.literal_eval(match.group(1))
-        self.assertTrue(
-            {
-                "epistemic_graph/contract/receipt.json",
-                "epistemic_graph/contract/errors.json",
-                "epistemic_graph/contract/methods.json",
-                "epistemic_graph/contract/schemas/**/*.json",
-            }.issubset(includes)
-        )
+        includes = tomllib.loads(text)["tool"]["maturin"]["include"]
+        for required in (
+            "epistemic_graph/contract/receipt.json",
+            "epistemic_graph/contract/errors.json",
+            "epistemic_graph/contract/methods.json",
+            "epistemic_graph/contract/schemas/**/*.json",
+        ):
+            self.assertIn(required, includes)
+
+    def test_missing_or_sdist_only_contract_include_is_rejected(self) -> None:
+        original = _PYPROJECT.read_text(encoding="utf-8")
+        for required in (
+            "epistemic_graph/contract/receipt.json",
+            "epistemic_graph/contract/errors.json",
+            "epistemic_graph/contract/methods.json",
+            "epistemic_graph/contract/schemas/**/*.json",
+        ):
+            for replacement in ("", f'{{ path = "{required}", format = "sdist" }},'):
+                with self.subTest(required=required, replacement=replacement):
+                    text = original.replace(f'"{required}",', replacement)
+                    self.assertNotEqual(text, original)
+                    with patch.object(Path, "read_text", return_value=text):
+                        with self.assertRaises(AssertionError):
+                            self.test_contract_data_is_explicitly_included()
 
     def test_catalogs_and_all_schemas_are_identical_and_receipt_bound(self) -> None:
         canonical = _ROOT / "contract"

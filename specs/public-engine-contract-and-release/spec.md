@@ -57,3 +57,9 @@ Adjacent EG capabilities specify their own semantics. This spec governs their pu
 All EG-C requirements have linked implementation commits, focused tests and an exact revision release matrix in [tasks.md](tasks.md). The published wheel and both embedded client codecs share one contract digest. Unknown/invalid payloads and policy failures have typed error parity. Hosted gates pass without private environment dependencies. Only then set **ACCEPTED**.
 
 Requirement IDs are defined in [requirements.md](requirements.md); delivery state per ID is in `status.json`.
+
+## Current architecture contract
+
+EG-CONTRACT-R052 owns the source-linked architecture map in [plan.md](plan.md#2026-10-12-current-architecture-boundaries).
+The map preserves existing subsystem owners and distinguishes design, source wiring, generated delivery state, and execution evidence.
+It changes no architecture, enabled feature, package recipe, or release version.
