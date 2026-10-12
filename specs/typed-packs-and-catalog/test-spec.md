@@ -132,7 +132,7 @@ These partial regressions intentionally carry no acceptance binding that would m
 - `EG-TYPED-PACKS-R048.4`: `crates/eg-types/src/agent_component.rs::tests::measured_model_facts_change_digest`.
 - `EG-TYPED-PACKS-R048.5`: `tests/typed_packs/test_model_harness_facts.py::test_model_profile_round_trip`.
 - `EG-TYPED-PACKS-R066.1`: `crates/eg-core/tests/harness_shapes.rs::model_fact_shapes_reject_missing_run`.
-- `EG-TYPED-PACKS-R066.2`: `crates/eg-core/tests/swarm_topology_shapes.rs::shell_centric_must_be_boolean`.
+- `EG-TYPED-PACKS-R066.2`: `crates/eg-shacl/tests/swarm_topology_shapes.rs::shell_centric_must_be_boolean`.
 - `EG-TYPED-PACKS-R066.3`: `crates/eg-core/tests/swarm_topology_shapes.rs::shell_centric_inherits_or_is_absent`.
 - `EG-TYPED-PACKS-R045.1`: `crates/eg-types/src/connector_pack/annotations.rs::tests::new_fields_roundtrip`.
 - `EG-TYPED-PACKS-R045.2`: `crates/eg-types/src/connector_pack/annotations.rs::tests::absent_facts_take_safe_defaults`.

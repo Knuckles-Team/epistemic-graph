@@ -13,6 +13,16 @@
 @prefix xsd:   <http://www.w3.org/2001/XMLSchema#> .
 @prefix owl:   <http://www.w3.org/2002/07/owl#> .
 
+# Task-class declarations and task instances share the same optional fact.
+swarm:ShellCentricShape a sh:NodeShape ;
+    sh:targetClass swarm:TaskShape ;
+    sh:targetSubjectsOf swarm:shellCentric ;
+    sh:property [
+        sh:path swarm:shellCentric ;
+        sh:datatype xsd:boolean ;
+        sh:maxCount 1
+    ] .
+
 swarm:TemplateTopologyShape a sh:NodeShape ;
     sh:targetClass swarm:TopologyTemplate ;
     sh:property [ sh:path swarm:class ; sh:minCount 1 ; sh:maxCount 1 ; sh:nodeKind sh:IRI ] ;
