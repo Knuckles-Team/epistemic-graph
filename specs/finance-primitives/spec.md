@@ -1,6 +1,6 @@
 # EG-FINANCE-PRIMITIVES — Finance primitives: accounts, strategies, risk and evidence
 
-**Owner:** epistemic-graph (EG) · **Program:** finance asset manager · **State:** proposed
+**Owner:** epistemic-graph (EG) · **Program:** finance asset manager
 
 ## Outcome and boundary
 
@@ -10,25 +10,27 @@ Existing `finance-v1` already models `FinancialInstrument`, `Listing`, `Venue`, 
 
 The `BacktestRun` content digest must be canonical across supported hosts: normalize serialization, floating-point and timestamp inputs before hashing, and compare independent builds on two architectures. The SuperTrend/ATR reference companion in Pine must produce the same signal transitions as EG from the same checked-in bar fixture and parameter version. Fold finance-specific classes into the one `finance-v1` ontology and remove duplicate class definitions; this obligation is tracked as EG-FINANCE-PRIMITIVES-R001.
 
-## State legend and evidence rule
+## Evidence and obligations
 
-Delivery and acceptance are independent. `WAITING` means no reviewed implementation is linked; `IN_PROGRESS` means a branch is under review; `SOURCE_LANDED` means the exact change is reachable from published `main`; `RETIRED` requires a recorded superseding decision. `NOT_RUN`, `FAILED`, `PARTIAL`, and `ACCEPTED` describe validation. A green branch check never implies source landing; a merged source never implies acceptance. Record an exact commit SHA, hosted run URL or reproducible local command, result, and date per ID before changing its state. The statuses below describe only this new extension; existing market core is a reuse dependency, not a claim that these extension IDs are complete.
+The generator owns delivery state in `status.json`.
+Record exact commits, commands, hosted runs, dates and scenario outcomes as evidence.
+Existing components establish reuse opportunities, not completion of these obligations.
 
-| ID | Delivery | Acceptance | EG obligation |
-|---|---|---|---|
-| EG-FINANCE-PRIMITIVES-R001 | IN_PROGRESS | NOT_RUN | Cross-host deterministic `BacktestRun` digest, Pine companion parity for SuperTrend/ATR, and one canonical `finance-v1` class authority. |
-| EG-FINANCE-PRIMITIVES-R004 | WAITING | NOT_RUN | Extend ontology and validated portfolio record types. |
-| EG-FINANCE-PRIMITIVES-R005 | WAITING | NOT_RUN | Fixed-point lot accounting and performance kernels. |
-| EG-FINANCE-PRIMITIVES-R006 | WAITING | NOT_RUN | Point-in-time corporate actions and market sessions. |
-| EG-FINANCE-PRIMITIVES-R007 | WAITING | NOT_RUN | Versioned typed strategy evaluator and proposal records. |
-| EG-FINANCE-PRIMITIVES-R008 | WAITING | NOT_RUN | Strategy comparisons through sealed backtests. |
-| EG-FINANCE-PRIMITIVES-R009 | WAITING | NOT_RUN | Calibrated, abstaining informational recommendations. |
-| EG-FINANCE-PRIMITIVES-R010 | WAITING | NOT_RUN | Leverage risk models and live-action refusal boundary. |
-| EG-FINANCE-PRIMITIVES-R011 | WAITING | NOT_RUN | Finance event facts for downstream delivery. |
-| EG-FINANCE-PRIMITIVES-R012 | WAITING | NOT_RUN | Optional one-way portfolio import from an attached source. |
-| EG-FINANCE-PRIMITIVES-R013 | WAITING | NOT_RUN | Golden accounting/risk fixtures and provenance invariants. |
-| EG-FINANCE-PRIMITIVES-R002 | WAITING | NOT_RUN | Shared numeric kernel ownership, thin compatibility aliases, UQL and method-count reconciliation. |
-| EG-FINANCE-PRIMITIVES-R003 | WAITING | NOT_RUN | Split-derived PBO and exact-median convention in sealed backtests. |
+| ID | EG obligation |
+|---|---|
+| EG-FINANCE-PRIMITIVES-R001 | Cross-host deterministic `BacktestRun` digest, Pine companion parity for SuperTrend/ATR, and one canonical `finance-v1` class authority. |
+| EG-FINANCE-PRIMITIVES-R004 | Extend ontology and validated portfolio record types. |
+| EG-FINANCE-PRIMITIVES-R005 | Fixed-point lot accounting and performance kernels. |
+| EG-FINANCE-PRIMITIVES-R006 | Point-in-time corporate actions and market sessions. |
+| EG-FINANCE-PRIMITIVES-R007 | Versioned typed strategy evaluator and proposal records. |
+| EG-FINANCE-PRIMITIVES-R008 | Strategy comparisons through sealed backtests. |
+| EG-FINANCE-PRIMITIVES-R009 | Calibrated, abstaining informational recommendations. |
+| EG-FINANCE-PRIMITIVES-R010 | Leverage risk models and live-action refusal boundary. |
+| EG-FINANCE-PRIMITIVES-R011 | Finance event facts for downstream delivery. |
+| EG-FINANCE-PRIMITIVES-R012 | Optional one-way portfolio import from an attached source. |
+| EG-FINANCE-PRIMITIVES-R013 | Golden accounting/risk fixtures and provenance invariants. |
+| EG-FINANCE-PRIMITIVES-R002 | Shared numeric kernel ownership, thin compatibility aliases, UQL and method-count reconciliation. |
+| EG-FINANCE-PRIMITIVES-R003 | Split-derived PBO and exact-median convention in sealed backtests. |
 
 ## Normative requirements
 
@@ -80,6 +82,16 @@ Every externally displayed monetary, price, return, risk or recommendation field
 
 **EG-FINANCE-PRIMITIVES-R003.** A `BacktestRun` computes PBO from its own combinatorial symmetric cross-validation split matrix, not a separate caller-provided summary row array. For each split, select the highest in-sample candidate by a deterministic tie rule, rank its out-of-sample performance against all candidates, and count it as overfit only when strictly below the exact median; equality to median is not overfit. Record split count, selected candidate, rank and convention in verifiable evidence. A missing/degenerate matrix, unequal candidate dimensions, nonfinite values or mismatched reported split count refuses sealing. The same split matrix supplies related validation outputs so a headline PBO cannot contradict the sealed record.
 
-An ID becomes `SOURCE_LANDED` only at a published-main commit containing its contract, implementation and tests. It becomes `ACCEPTED` only when exact-head hosted CI, deterministic positive/negative fixtures, schema/contract generation, authorization and replay checks, and the quality gates in `test-spec.md` pass. Baseline PR checks must provision disposable data and run without a live deployment or private credentials. Optional external-source integration is tested against a disposable fixture. Record deployment qualification separately from source acceptance.
+Acceptance requires exact-head hosted checks and deterministic positive and negative fixtures.
+It also requires schema generation, authorization, replay and the applicable quality gates in test-spec.md.
+Baseline checks use disposable data without private credentials.
+Optional external-source integration requires disposable fixtures.
+Record deployment qualification separately from source evidence.
 
 Requirement IDs are defined in [requirements.md](requirements.md); delivery state per ID is in `status.json`.
+
+
+R002 also owns versioned causal state-space filtering, bounded innovation retuning and robust nonlinear approximation.
+Its original kernel inventory and acceptance remain mandatory.
+The plan defines all four state models, production attachment points and prerequisite contracts.
+The test contract requires independent numerical oracles and real served positive and negative sequences.

@@ -63,35 +63,35 @@ Requirement IDs not covered by any task above before this line: none remain — 
 
 | ID | Main SHA | Hosted run / command | Result/date |
 |---|---|---|---|
-| EG-FINANCE-PRIMITIVES-R001 | — | — | NOT_RUN |
-| EG-FINANCE-PRIMITIVES-R004 | — | — | NOT_RUN (rollup) |
-| EG-FINANCE-PRIMITIVES-R004.1 | — | `cargo test -p epistemic-graph --lib server::graph_schema::finance_tests` | PR open; see PR for run result |
-| EG-FINANCE-PRIMITIVES-R004.2 | — | — | NOT_RUN |
-| EG-FINANCE-PRIMITIVES-R004.1 | — | — | NOT_RUN |
-| EG-FINANCE-PRIMITIVES-R004.2 | — | — | NOT_RUN (rollup) |
-| EG-FINANCE-PRIMITIVES-R004.2.1 | — | `cargo test -p epistemic-graph --lib server::graph_schema::finance_tests` | PR open; see PR for run result |
-| EG-FINANCE-PRIMITIVES-R004.2.2 | — | `cargo test -p epistemic-graph --all-features --lib server::graph_schema::finance_tests` | PR open; see PR for run result |
-| EG-FINANCE-PRIMITIVES-R004.3 | — | — | NOT_RUN |
-| EG-FINANCE-PRIMITIVES-R005 | — | — | NOT_RUN |
-| EG-FINANCE-PRIMITIVES-R006 | — | — | PARTIAL: corporate-action resolver + session classification delivered; other price paths and ontology remain |
-| EG-FINANCE-PRIMITIVES-R004 | — | — | NOT_RUN |
-| EG-FINANCE-PRIMITIVES-R005 | — | — | NOT_RUN (rollup) |
-| EG-FINANCE-PRIMITIVES-R005.1 | — | `cargo test -p eg-compute --all-features finance::lot_accounting` | PR open; see PR for run result |
-| EG-FINANCE-PRIMITIVES-R005.2 | — | — | NOT_RUN |
-| EG-FINANCE-PRIMITIVES-R006 | — | — | NOT_RUN |
-| EG-FINANCE-PRIMITIVES-R007 | — | — | NOT_RUN |
-| EG-FINANCE-PRIMITIVES-R007.1 | — | — | NOT_RUN |
-| EG-FINANCE-PRIMITIVES-R008 | — | — | NOT_RUN |
-| EG-FINANCE-PRIMITIVES-R008.1 | — | — | NOT_RUN |
-| EG-FINANCE-PRIMITIVES-R009 | — | — | NOT_RUN |
-| EG-FINANCE-PRIMITIVES-R009.1 | — | — | NOT_RUN |
-| EG-FINANCE-PRIMITIVES-R010 | — | — | NOT_RUN |
-| EG-FINANCE-PRIMITIVES-R010.1 | — | — | NOT_RUN |
-| EG-FINANCE-PRIMITIVES-R011 | — | — | NOT_RUN |
-| EG-FINANCE-PRIMITIVES-R012 | — | — | NOT_RUN |
-| EG-FINANCE-PRIMITIVES-R013 | — | — | NOT_RUN |
-| EG-FINANCE-PRIMITIVES-R002 | — | — | NOT_RUN |
-| EG-FINANCE-PRIMITIVES-R003 | — | `cargo test -p eg-compute -p eg-types --all-features --lib market` (eg-lane-run `eg-finance-r003-20261009035243-b5a404398`) | PR open; see run id for result |
+| EG-FINANCE-PRIMITIVES-R001 | — | — | No execution receipt is recorded here. |
+| EG-FINANCE-PRIMITIVES-R004 | — | — | No execution receipt is recorded here. |
+| EG-FINANCE-PRIMITIVES-R004.1 | — | `cargo test -p epistemic-graph --lib server::graph_schema::finance_tests` | The recorded command has no linked result here. |
+| EG-FINANCE-PRIMITIVES-R004.2 | — | — | No execution receipt is recorded here. |
+| EG-FINANCE-PRIMITIVES-R004.1 | — | — | No execution receipt is recorded here. |
+| EG-FINANCE-PRIMITIVES-R004.2 | — | — | No execution receipt is recorded here. |
+| EG-FINANCE-PRIMITIVES-R004.2.1 | — | `cargo test -p epistemic-graph --lib server::graph_schema::finance_tests` | The recorded command has no linked result here. |
+| EG-FINANCE-PRIMITIVES-R004.2.2 | — | `cargo test -p epistemic-graph --all-features --lib server::graph_schema::finance_tests` | The recorded command has no linked result here. |
+| EG-FINANCE-PRIMITIVES-R004.3 | — | — | No execution receipt is recorded here. |
+| EG-FINANCE-PRIMITIVES-R005 | — | — | No execution receipt is recorded here. |
+| EG-FINANCE-PRIMITIVES-R006 | — | — | The corporate-action resolver and session classification exist; other price paths and ontology remain. |
+| EG-FINANCE-PRIMITIVES-R004 | — | — | No execution receipt is recorded here. |
+| EG-FINANCE-PRIMITIVES-R005 | — | — | No execution receipt is recorded here. |
+| EG-FINANCE-PRIMITIVES-R005.1 | — | `cargo test -p eg-compute --all-features finance::lot_accounting` | The recorded command has no linked result here. |
+| EG-FINANCE-PRIMITIVES-R005.2 | — | — | No execution receipt is recorded here. |
+| EG-FINANCE-PRIMITIVES-R006 | — | — | No execution receipt is recorded here. |
+| EG-FINANCE-PRIMITIVES-R007 | — | — | No execution receipt is recorded here. |
+| EG-FINANCE-PRIMITIVES-R007.1 | — | — | No execution receipt is recorded here. |
+| EG-FINANCE-PRIMITIVES-R008 | — | — | No execution receipt is recorded here. |
+| EG-FINANCE-PRIMITIVES-R008.1 | — | — | No execution receipt is recorded here. |
+| EG-FINANCE-PRIMITIVES-R009 | — | — | No execution receipt is recorded here. |
+| EG-FINANCE-PRIMITIVES-R009.1 | — | — | No execution receipt is recorded here. |
+| EG-FINANCE-PRIMITIVES-R010 | — | — | No execution receipt is recorded here. |
+| EG-FINANCE-PRIMITIVES-R010.1 | — | — | No execution receipt is recorded here. |
+| EG-FINANCE-PRIMITIVES-R011 | — | — | No execution receipt is recorded here. |
+| EG-FINANCE-PRIMITIVES-R012 | — | — | No execution receipt is recorded here. |
+| EG-FINANCE-PRIMITIVES-R013 | — | — | No execution receipt is recorded here. |
+| EG-FINANCE-PRIMITIVES-R002 | — | — | No execution receipt is recorded here. |
+| EG-FINANCE-PRIMITIVES-R003 | — | `cargo test -p eg-compute -p eg-types --all-features --lib market` (eg-lane-run `eg-finance-r003-20261009035243-b5a404398`) | The recorded command names its run; no result is linked here. |
 
 ## Decomposition children (tracked)
 
@@ -147,3 +147,19 @@ These children remain unverified. Intended paths and test names define future ac
   - [ ] **EG-FINANCE-PRIMITIVES-R018.4:** Typed abstention on thin input
   - [ ] **EG-FINANCE-PRIMITIVES-R018.5:** Factor provenance edges
   - [ ] **EG-FINANCE-PRIMITIVES-R018.6:** Served factor ranking proof
+
+
+## R002 implementation sequence
+
+- [ ] **EG-FINANCE-PRIMITIVES-R002.5:** Define versioned state-space inputs and checkpoints. Implement its proposed proving test from requirements.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.6:** Apply causal predict-update filtering to four state models. Implement its proposed proving test from requirements.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.7:** Detect innovation shifts and retune within fixed bounds. Implement its proposed proving test from requirements.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.8:** Bound nonlinear approximation and robust tail influence. Implement its proposed proving test from requirements.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.1:** Complete the original shared-kernel inventory. Implement its proposed proving test from requirements.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.4:** Bound original regime derivations and streaming work. Implement its proposed proving test from requirements.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2:** Migrate callers and preserve generic time-series exposure. Implement its proposed proving test from requirements.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.3:** Reconcile generated methods and client bindings. Implement its proposed proving test from requirements.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.9:** Wire versioned filtering through served series operations. Implement its proposed proving test from requirements.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.10:** Prove filtering on the production hot paths. Implement its proposed proving test from requirements.md.
+
+The new scenarios have no execution receipts. This definition change introduces no implementation or test bindings.

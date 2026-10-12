@@ -6,6 +6,16 @@
   "requirement_ids": [
     "EG-FINANCE-PRIMITIVES-R001",
     "EG-FINANCE-PRIMITIVES-R002",
+    "EG-FINANCE-PRIMITIVES-R002.1",
+    "EG-FINANCE-PRIMITIVES-R002.2",
+    "EG-FINANCE-PRIMITIVES-R002.3",
+    "EG-FINANCE-PRIMITIVES-R002.4",
+    "EG-FINANCE-PRIMITIVES-R002.5",
+    "EG-FINANCE-PRIMITIVES-R002.6",
+    "EG-FINANCE-PRIMITIVES-R002.7",
+    "EG-FINANCE-PRIMITIVES-R002.8",
+    "EG-FINANCE-PRIMITIVES-R002.9",
+    "EG-FINANCE-PRIMITIVES-R002.10",
     "EG-FINANCE-PRIMITIVES-R003",
     "EG-FINANCE-PRIMITIVES-R004",
     "EG-FINANCE-PRIMITIVES-R004.1",
@@ -95,7 +105,7 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R002",
       "title": "Rehome generic finance evaluation kernels into eg-numeric",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "0374378eb9db",
         "31cbdeb6d98b"
@@ -104,7 +114,89 @@
         "crates/eg-numeric/src/evaluation/backtest.rs:189",
         "crates/eg-numeric/src/evaluation/backtest.rs:200",
         "crates/eg-numeric/src/evaluation/skill.rs:237"
+      ],
+      "rollup_of": [
+        "EG-FINANCE-PRIMITIVES-R002.1",
+        "EG-FINANCE-PRIMITIVES-R002.2",
+        "EG-FINANCE-PRIMITIVES-R002.3",
+        "EG-FINANCE-PRIMITIVES-R002.4",
+        "EG-FINANCE-PRIMITIVES-R002.5",
+        "EG-FINANCE-PRIMITIVES-R002.6",
+        "EG-FINANCE-PRIMITIVES-R002.7",
+        "EG-FINANCE-PRIMITIVES-R002.8",
+        "EG-FINANCE-PRIMITIVES-R002.9",
+        "EG-FINANCE-PRIMITIVES-R002.10"
       ]
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R002.1",
+      "title": "Complete the original shared-kernel inventory",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R002.2",
+      "title": "Migrate callers and preserve generic time-series exposure",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R002.3",
+      "title": "Reconcile generated methods and client bindings",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R002.4",
+      "title": "Bound original regime derivations and streaming work",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R002.5",
+      "title": "Define versioned state-space inputs and checkpoints",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R002.6",
+      "title": "Apply causal predict-update filtering to four state models",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R002.7",
+      "title": "Detect innovation shifts and retune within fixed bounds",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R002.8",
+      "title": "Bound nonlinear approximation and robust tail influence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R002.9",
+      "title": "Wire versioned filtering through served series operations",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R002.10",
+      "title": "Prove filtering on the production hot paths",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R003",
