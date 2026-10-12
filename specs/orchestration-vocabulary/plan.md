@@ -332,9 +332,9 @@ References
 
 - Existing EG parent/rollup: `EG-ORCH-VOCAB-R004`; preserve its existing obligations.
 - Original objective: The capability registry models functional gaps and desired enhancements as typed domain-taxonomy nodes. Queries filter them by task class.
-- Contract definition: `requirements.md` R004.6 defines distinct CapabilityGap and DesiredEnhancement records. It binds tenant, revision, capability, task class, domain, source evidence, owner, and disposition.
+- Contract definition: `requirements.md` R004.6 defines distinct CapabilityGap and DesiredEnhancement records. It binds tenant, revision, capability, task class, domain, source evidence, owner, and disposition. A request-local abstention alone does not persist a gap; a separately admitted gap may cite it.
 - Production wiring and owner boundary: Extend the existing orchestration ontology/shapes and governed AddNode/ChangeEnvelope path. Reuse the existing task-class/domain taxonomy and Method::UnifiedQuery rather than introducing a second capability registry. Keep the EG:7 owner-export manifest question separate from these persisted domain nodes.
-- Planned acceptance: `capability_gap_and_enhancement_are_queryable` uses served mutation and generated UnifiedQuery. It tests task classes, restart/readback, deduplication, revision conflict, invalid taxonomy, matching modes, tenant isolation, and unchanged capability state.
+- Planned acceptance: `capability_gap_and_enhancement_are_queryable` uses served mutation and generated UnifiedQuery. It proves abstention alone creates no durable gap, then admits a separate gap and enhancement. It tests task classes, restart/readback, deduplication, revision conflict, invalid taxonomy, matching modes, tenant isolation, and unchanged capability state.
 - Preserve existing coverage: `EG-ORCH-VOCAB-R004`, `EG-DECISION-ENGINE-R010`.
 - Source record: EG:51 SHA-256 `ed01ad35731abc6a739b3e1a39ee198549103acf0d30ec51c77316ca7cf75c49`. Owner reference IDs and paths are in the canonical R004.6 requirement.
 - Explicit owner holds: The authoritative domain taxonomy/task-class resolver and admitted mutation producer must be bound to existing owner contracts. Do not fabricate a new owner role-export ID to cover the unrelated EG:7 hold.
