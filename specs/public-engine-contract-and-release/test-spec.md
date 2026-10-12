@@ -38,3 +38,21 @@ The `engine-main-wheel` job runs `scripts/release_wheel_smoke.sh` on the built w
 R031.1 uses tests/test_ci_change_scope.py::test_lint_installs_manifest_rustfmt_before_all_formatting_steps to assert unconditional manifest-resolved provisioning before both formatting paths. Run it alongside tests/test_rustfmt_scope.py. It is setup coverage only.
 
 R031.2 remains unbound until maintainers publish the full same-tree complexity, duplication, dependency, architecture and documentation censuses. They must also publish independent clippy and formatting evidence. A static workflow assertion cannot qualify those runtime checks.
+
+## Current architecture documentation checks
+
+These checks validate documentation against source. They do not execute or certify the engine.
+
+| Check | Requirement | Procedure | Refusal and evidence |
+|---|---|---|---|
+| EG-T-12.1 | EG-CONTRACT-R052.1 | Parse workspace manifests; compare every package with the plan's module inventory. Read `.config/arch-lint.toml`. | Reject missing packages and unsupported dependency-enforcement claims. Record the reviewed commit and manifest inventory. |
+| EG-T-12.2 | EG-CONTRACT-R052.2 | Compare feature values, Python extras, the release action, and `_compose` with the boundary table. | Reject conflated build and deployment claims. Record each recipe separately; retain EG-T-03/06/07/10 acceptance. |
+| EG-T-12.3 | EG-CONTRACT-R052.3 | Resolve every named symbol and call site. Compare each contract with its linked owner. | Reject duplicate authorities and universal-planner claims. Record source anchors and owner IDs. |
+| EG-T-12.4 | EG-CONTRACT-R052.4 | Review real-entry-point evidence requirements against the existing owner tests. Compare diagram labels with the coverage map. | Reject a diagram, unit-only proof, or status label offered as served evidence. Record missing evidence explicitly. |
+
+Runtime proof must enter the actual served or embedded boundary named by the owning requirement.
+Query proof must observe authorized results and the specified planner behavior where applicable.
+Mutation proof must observe the committed result and the owner's refusal, replay, restart, and atomicity cases.
+A direct native operation must use its own entry point; forcing it through the planner changes the architecture.
+Record revision, feature profile, entry point, command, exit result, artifact digest, and observed effect for each execution claim.
+Keep unexecuted cases explicit. Preserve EG-C-07/08, EG-T-10, and each linked parent's complete acceptance.
