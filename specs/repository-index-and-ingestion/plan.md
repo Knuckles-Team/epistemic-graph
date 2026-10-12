@@ -196,7 +196,6 @@ binds repository/ref. Revision and current path/span are query bindings through
 `branch_projection::project_scope`, not a new symbol-ID hash. This binding uses
 current code, not the earlier plan table's revision-scoped FileVersion formula.
 Unchanged file content retains symbol IDs in a new repository revision. Changed
-blobs may change IDs; same-content renames retain symbol IDs while file-version
-and membership change. Deleted membership is absent from the new map. No promise
+blobs may change IDs. Same-content renames retain symbol IDs only with unchanged grammar suffix and parser/identity scheme. File-version and membership still change. A changed grammar suffix or parser/identity scheme requires reparse and may change symbol IDs. Deleted membership is absent from the new map. No promise
 of stable IDs across edits to the same blob is introduced. Preserve typed edge
 identity under R009.1/R009.2 and R069 semantic projection ownership.
