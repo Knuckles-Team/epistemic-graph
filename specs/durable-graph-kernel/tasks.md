@@ -127,3 +127,19 @@ Status key: `[ ]` queued, `[-]` in progress, `[x]` verified at cited main revisi
 - [ ] **EG-DURABLE-KERNEL-R085.6:** Provenance and synchronization evidence. Implement the contract and planned acceptance in this directory.
 - [ ] **EG-DURABLE-KERNEL-R085.7:** Retention. Implement the contract and planned acceptance in this directory.
 - [ ] **EG-DURABLE-KERNEL-R085.8:** Real served acceptance. Implement the contract and planned acceptance in this directory.
+
+## R086 bounded acceptance slices
+
+Each child is one focused five-minute definition or proof slice. Split larger runtime work before delivery.
+This batch defines the slices; it runs none of their runtime tests.
+
+- [ ] **EG-DURABLE-KERNEL-R086:** Safe eviction and durable read-through (rollup). Follow the matching planned acceptance in test-spec.md.
+- [ ] **EG-DURABLE-KERNEL-R086.1:** Model. Follow the matching planned acceptance in test-spec.md.
+- [ ] **EG-DURABLE-KERNEL-R086.2:** Behavior: memory-only eviction. Follow the matching planned acceptance in test-spec.md.
+- [ ] **EG-DURABLE-KERNEL-R086.3:** Behavior: cache-miss read. Follow the matching planned acceptance in test-spec.md.
+- [ ] **EG-DURABLE-KERNEL-R086.4:** Wiring. Follow the matching planned acceptance in test-spec.md.
+- [ ] **EG-DURABLE-KERNEL-R086.5:** Scoped reads. Follow the matching planned acceptance in test-spec.md.
+- [ ] **EG-DURABLE-KERNEL-R086.6:** Refusal: unsafe eviction. Follow the matching planned acceptance in test-spec.md.
+- [ ] **EG-DURABLE-KERNEL-R086.7:** Refusal: unavailable reads. Follow the matching planned acceptance in test-spec.md.
+- [ ] **EG-DURABLE-KERNEL-R086.8:** Restart. Follow the matching planned acceptance in test-spec.md.
+- [ ] **EG-DURABLE-KERNEL-R086.9:** Evidence and hot-path proof. Follow the matching planned acceptance in test-spec.md.

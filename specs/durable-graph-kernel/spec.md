@@ -83,3 +83,12 @@ R011.2 owns the concrete crate, feature, and module-filter declarations in `eg-t
 The declaration refuses an empty discovered selection.
 R011.3 owns pre-merge execution; R011.4 owns exact-head CI acceptance receipts.
 Manifest unit tests do not establish runtime acceptance for R011.
+
+## Safe eviction and durable read-through boundary
+
+EG-DURABLE-KERNEL-R086 records the existing node-residency and durable point-read contract.
+It adds explicit cache-miss, scope, refusal and restart evidence under this durability owner.
+R039 rebuild acceptance and all existing receipts remain unchanged.
+A registry reopen, resident read or declared seam is insufficient proof of safe eviction.
+This definition batch changes no runtime behavior and claims no completed R086 implementation.
+Lifecycle state comes only from generated status.json.
