@@ -283,4 +283,28 @@ Publish sanitized assertions; exclude credentials, private prompt content and ra
 
 R094.7 also requires the actual approved SDK/GraphOS source-effect producer journey.
 Use a disposable repository and prove exact-path/base-revision approval, conflict refusal and receipt-bound readback.
-The missing producer IDs and contract remain an explicit dependency; no repository write is executed by this batch.
+Use [SDK R004.5 through R004.12](https://github.com/Knuckles-Team/agent-connector-sdk/tree/0c6c53dd63fe2a8f9b2ac3568b6d0e8f2c602734/specs/SDK-GOVERNED-WRITEBACK) and [GraphOS R003.4 through R003.10](https://github.com/Knuckles-Team/graph-os/tree/86737b45aaceb2eebe29b3a98ada5a55f8b71955/specs/fleet-catalog-and-tools).
+Their merged definitions identify the exact contracts; this amendment has not run the source-effect journey.
+
+Pass the exact exported bytes through RepositorySourceEffectRequest inside GraphOS RepositoryWriteBackParams.
+Serve `fleet.write_back.preview`, then prepare and confirm `fleet.write_back.commit` with the identical full request and trusted binding.
+Keep the original SDK effect key, independent recorded approval and commit-operation plan association.
+Observe the actual SDK conditional write, separate provider read at its immutable revision, and a fresh durable graph receipt read.
+Match complete payload values and exact written bytes/digest/size, approved path, base, actor, tenant, mode and receipt identity.
+A returned applied flag or request-key echo is insufficient evidence.
+
+For the original blueprint compatibility obligation, pin a manifest of every prompt blueprint at the selected source revision.
+Record the complete file inventory and actual count; the original input described more than sixty prompts.
+Load, modify one declared field, export and reimport every entry, preserving all remaining custom fields and exact numeric values.
+Check declared JSON formatting and final-newline policy when producing repository bytes; those exact bytes enter the approved SDK payload.
+An omitted file or parse/schema failure fails corpus qualification. Lost extension fields and rounded values also fail.
+Repository writes remain separately approved, single-file effects; corpus coverage cannot grant a batch write permission.
+
+Repeat absent/mismatched approval, stale base, path escape, changed bytes, wrong actor/tenant and unbound receipt cases through both surfaces.
+Each pre-effect refusal must produce zero provider mutations; a later readback failure must preserve uncertainty without an additional write.
+Race identical requests and restart GraphOS plus the connector. Recover the same proven receipt or reconcile before any retry.
+Record exact EG/SDK/GraphOS implementation heads separately from the merged definition revisions.
+No new runtime receipt or lifecycle promotion follows from these contract links.
+
+R002.10 still requires a separately named AU owning requirement and production dispatch call site.
+Its existing valid/invalid model-transport acceptance is unchanged. Repository persistence evidence cannot substitute for that consumer proof.

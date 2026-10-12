@@ -435,7 +435,7 @@ Reserved pack identities still use pack admission; native import cannot bypass i
 | R001.6-R001.9 | Existing component authority and generated contract; EG-CONTRACT-R005 remains a referenced producer. | New schema, supported rules, operations and rendered-result contract. |
 | R002.7-R002.9 | Existing owner write, body store and projection admission. | Native prompt holders, graph readiness and authenticated render dispatch. |
 | R002.10 | R002.9 render result and the actual AU model-dispatch consumer. | Name its owning requirement and production call site before delivery; observe zero invalid model requests. |
-| R094.7 | SDK repository-source effect under GraphOS authorization. | Exact producer IDs and operation schema are unresolved in this recipe. |
+| R094.7 | SDK-GOVERNED-WRITEBACK-R004.5 through R004.12 and GRAPHOS-FLEET-R003.4 through R003.10. | Actual served composition, approved conditional effect, independent readback and durable replay remain required. |
 
 R002.10 must bind the dispatched bytes and variable digest to the rendered result and authorized source revision.
 A production consumer must reject a substituted body, schema, scope or revision before model transport.
@@ -452,8 +452,38 @@ The producer must refuse absent approval, changed base revision, path traversal 
 R094.7 is a retained dependency acceptance obligation, not an assignment to implement another repository.
 Its receipt must bind the approved request, actual repository revision and written-content digest.
 EG may retain that receipt as evidence; it must not grant approval or write repository files.
-No exact approved source-effect contract is established by the two original inputs.
-Therefore EG:71 retains this external definition dependency after the engine definitions land.
+The source-effect definitions now have exact merged producers:
+
+- [SDK governed write-back](https://github.com/Knuckles-Team/agent-connector-sdk/tree/0c6c53dd63fe2a8f9b2ac3568b6d0e8f2c602734/specs/SDK-GOVERNED-WRITEBACK) at `0c6c53dd63fe2a8f9b2ac3568b6d0e8f2c602734`.
+- [GraphOS fleet composition](https://github.com/Knuckles-Team/graph-os/tree/86737b45aaceb2eebe29b3a98ada5a55f8b71955/specs/fleet-catalog-and-tools) at `86737b45aaceb2eebe29b3a98ada5a55f8b71955`.
+
+SDK-GOVERNED-WRITEBACK-R004.1 through R004.4 retain generic approval, replay, audit reservation and business-rule routing.
+R004.5 through R004.8 bind the typed request, trusted path scope, exact approval and provider conditional mutation.
+R004.9 and R004.10 bind actual immutable revision, durable attempt and independent readback; R004.11 and R004.12 require recovery and served composition.
+GraphOS GRAPHOS-FLEET-R003.4 retains original fleet-wide acceptance. R003.5 through R003.7 bind the full request, trusted configuration and commit confirmation.
+R003.8 through R003.10 require real effect/readback evidence, zero-effect refusal parity and durable replay after restart.
+GRAPHOS-OPS-R009 remains that producer's existing invoke authority, not a new EG approval boundary.
+
+R094.7 consumes SDK RepositorySourceEffectIntent, RepositorySourceEffectRequest and RepositorySourceEffectReceipt through GraphOS RepositoryWriteBackParams.
+The existing operation IDs are fleet.write_back.preview and fleet.write_back.commit.
+GraphOS RepositoryWriteBackPreview carries the actual SDK DryRunObservation; RepositoryWriteBackResult carries the SDK receipt and its digest.
+These are defined producer contracts; their names and merge commits do not prove runtime availability.
+Their published definitions identify missing exports, provider adapters, registry composition and qualified replay wiring as implementation prerequisites.
+
+Use the exact exported blueprint bytes as SDK payload_base64, with matching SHA-256 and byte count.
+Bind the immutable repository base, relative path, mode, actor, scope, canonical change-set digest, approval and SDK effect key.
+Require request.intent to equal durable.desired_patch["repository_effect"], preserving the SDK's sole-field patch, scope and provenance constraints.
+GraphOS binds the complete RepositoryWriteBackParams projection and trusted configuration digest to the COMMIT operation and existing confirmation.
+A preview-operation lease cannot authorize commit. A GraphOS plan reference cannot replace SDK approval or its effect key.
+Accept source persistence evidence only from the actual immutable provider revision and independent readback, joined to the durable SDK attempt.
+Unknown outcomes require producer reconciliation; an echoed key, applied flag or matching current bytes cannot establish this request's effect.
+EG retains its original graph identity, revision, complete payload and body authority throughout that journey.
+It may store the bound producer receipt as evidence; it neither approves nor performs the repository write.
+
+This resolves the previously unnamed producer-definition dependency for EG:71 without establishing runtime acceptance.
+R002.10 still lacks the exact AU owning requirement and production model-dispatch call site.
+Those must consume the render receipt before transport and prove one valid request versus zero invalid requests.
+The source-effect producers do not fill that boundary. No other prompt-evolution or AU audit input is absorbed by these references.
 
 ### Source provenance and limitations
 
