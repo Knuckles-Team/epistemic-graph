@@ -211,88 +211,88 @@ def test_validation_profile_is_warmed_without_affecting_release_wheels() -> None
     assert "cargo build --locked --features full --bin epistemic-graph-server" in builds
 
 
-def test_compiler_cache_is_installed_before_precisely_two_step_local_wrappers() -> None:
-    workflow = _workflow()
-    jobs = workflow["jobs"]
-    commands = {
-        "python-server": (
-            "Build the full-featured engine binary once",
-            "cargo build --locked --features full --bin epistemic-graph-server",
-        ),
-        "gates-facade": (
-            "Test (facade full)",
-            "python3 scripts/cargo_test_rescue.py cargo test -p epistemic-graph "
-            "--features full --no-fail-fast --timings",
-        ),
-    }
-    cache_backend = {
-        "SCCACHE_IDLE_TIMEOUT": "7200",
-        "SCCACHE_GHA_ENABLED": "true",
-        "SCCACHE_GHA_RW_MODE": (
-            "${{ github.ref == 'refs/heads/main' && 'READ_WRITE' || 'READ_ONLY' }}"
-        ),
-    }
-    wrapped = []
-    setups = []
-    for job_name, (step_name, command) in commands.items():
-        job = jobs[job_name]
-        assert job["timeout-minutes"] == (
-            "${{ github.event_name == 'pull_request' && 10 || 60 }}"
-        )
-        assert int(cache_backend["SCCACHE_IDLE_TIMEOUT"]) > 60 * 60
-        steps = job["steps"]
-        setup = next(
-            s for s in steps if s.get("name") == "Install validation compiler cache"
-        )
-        build = next(s for s in steps if s.get("name") == step_name)
-        setups.append(setup)
-        wrapped.append(build)
-        assert setup["uses"] == (
-            "mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba"
-        )
-        assert setup["with"] == {"version": "v0.16.0"}
-        assert steps.index(setup) < steps.index(build)
-        assert "if" not in setup and "if" not in build
-        assert build["run"] == command
-        assert build["env"] == {"RUSTC_WRAPPER": "sccache"}
-        assert job["env"] == cache_backend
-        stats = next(s for s in steps if "sccache --show-stats" in s.get("run", ""))
-        assert stats["if"] == "always()"
-        assert stats["run"].splitlines() == [
-            "echo 'Cache statistics cover the current daemon only; "
-            "a restart resets its counters.'",
-            "sccache --show-stats",
-        ]
-        assert steps.index(stats) > steps.index(build)
-        # With no reachable daemon, stats synthesize zeroes from caller config.
-        # Both reporting paths must inherit the compilation backend settings.
-        for cache_step in (setup, build, stats):
-            effective_env = {
-                **workflow["env"],
-                **job["env"],
-                **cache_step.get("env", {}),
-            }
-            assert {key: effective_env[key] for key in cache_backend} == cache_backend
-    # The shared anchors keep both installations and cache policies identical.
-    assert setups[0] is setups[1]
-    assert wrapped[0]["env"] is wrapped[1]["env"]
-    assert jobs["python-server"]["env"] is jobs["gates-facade"]["env"]
-    steps = jobs["python-server"]["steps"]
-    pack = next(
-        s for s in steps if s.get("name") == "Package exact-revision server binary"
+def _cache_step(steps: list[dict], name: str) -> dict:
+    return next(step for step in steps if step.get("name") == name)
+
+
+def _assert_cache_installation(setup: dict) -> None:
+    """Install the reviewed binary before any compiler wrapper is enabled."""
+    assert setup["uses"] == (
+        "mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba"
     )
-    assert steps.index(wrapped[0]) < steps.index(pack)
-    assert "if" not in pack
-    assert workflow["env"]["CARGO_INCREMENTAL"] == "0"
-    assert "RUSTC_WRAPPER" not in workflow["env"]
-    assert not cache_backend.keys() & workflow["env"].keys()
-    for job_name, job in jobs.items():
-        assert "RUSTC_WRAPPER" not in job.get("env", {})
-        if job_name not in commands:
-            assert not cache_backend.keys() & job.get("env", {}).keys()
-        for step in job.get("steps", []):
-            if all(step is not build for build in wrapped):
-                assert "RUSTC_WRAPPER" not in step.get("env", {})
+    assert setup["with"] == {"version": "v0.16.0"}
+    assert "if" not in setup
+
+
+def _assert_cache_statistics(stats: dict) -> None:
+    """Report daemon-local counters even when the preceding build fails."""
+    assert stats["if"] == "always()"
+    assert stats["run"].splitlines() == [
+        "echo 'Cache statistics cover the current daemon only; "
+        "a restart resets its counters.'",
+        "sccache --show-stats",
+    ]
+
+
+def _assert_cache_backend(workflow: dict, job: dict, step: dict) -> None:
+    """Compilation and reporting must use the same trusted backend.
+    Step overrides must not change its trust policy or daemon lifetime.
+    """
+    effective_env = {
+        **workflow["env"],
+        **job["env"],
+        **step.get("env", {}),
+    }
+    assert {key: effective_env[key] for key in CACHE_BACKEND} == CACHE_BACKEND
+
+
+def _cache_job_steps(job: dict) -> tuple[list[dict], dict, dict]:
+    """Locate and validate the shared installation and statistics steps."""
+    steps = job["steps"]
+    setup = _cache_step(steps, "Install validation compiler cache")
+    stats = next(s for s in steps if "sccache --show-stats" in s.get("run", ""))
+    _assert_cache_installation(setup)
+    _assert_cache_statistics(stats)
+    return steps, setup, stats
+
+
+def _assert_step_cache_scope(job_name: str, step: dict) -> None:
+    """Require wrappers on precisely the reviewed command allowlist."""
+    expected = step.get("name") in COMPILER_CACHE_COMMANDS.get(job_name, {})
+    assert ("RUSTC_WRAPPER" in step.get("env", {})) == expected
+
+
+def _assert_job_cache_scope(job_name: str, job: dict, reference: dict) -> None:
+    """Keep the backend shared and unrelated jobs free of cache settings."""
+    assert "RUSTC_WRAPPER" not in job.get("env", {})
+    if job_name in COMPILER_CACHE_COMMANDS:
+        assert job["env"] is reference["env"]
+        setup = _cache_step(job["steps"], "Install validation compiler cache")
+        assert setup is _cache_step(
+            reference["steps"], "Install validation compiler cache"
+        )
+    else:
+        assert not CACHE_BACKEND.keys() & job.get("env", {}).keys()
+    for step in job.get("steps", []):
+        _assert_step_cache_scope(job_name, step)
+
+
+def _assert_cache_job_settings(job: dict) -> None:
+    """Preserve the main-only writer policy and the existing time budget."""
+    assert job["env"] == CACHE_BACKEND
+    assert int(CACHE_BACKEND["SCCACHE_IDLE_TIMEOUT"]) > 60 * 60
+    assert job["timeout-minutes"] == (
+        "${{ github.event_name == 'pull_request' && 10 || 60 }}"
+    )
+
+
+def _cargo_commands(script: str) -> tuple[str, ...]:
+    """Include both branches of the PR workspace-selection script."""
+    return tuple(
+        line.strip()
+        for line in script.splitlines()
+        if "cargo test " in line or "cargo build " in line
+    )
 
 
 @pytest.mark.spec("EG-CONTRACT-R009")
@@ -509,3 +509,176 @@ def test_python_suite_installs_native_scorer_tracing_before_full_suite() -> None
     assert " -m " not in _test_step(job)["run"].split("pytest tests/", 1)[1], (
         "native acceptance must not be silently deselected"
     )
+
+
+COMPILER_CACHE_COMMANDS: dict[str, dict[str, tuple[str, ...]]] = {
+    "python-server": {
+        ("Build the full-featured engine binary once"): (
+            ("cargo build --locked --features full --bin epistemic-graph-server"),
+        ),
+    },
+    "gates-facade": {
+        ("Test (facade full)"): (
+            (
+                "python3 scripts/cargo_test_rescue.py cargo test -p epistemic-graph "
+                "--features full --no-fail-fast --timings"
+            ),
+        ),
+    },
+    "gates": {
+        ("Test (lower crates, all features)"): (
+            (
+                "python3 scripts/cargo_test_rescue.py cargo test -p eg-types -p "
+                "eg-core -p eg-compute --all-features --no-fail-fast"
+            ),
+        ),
+        ("Test (canonical capability policy and generated ledger)"): (
+            (
+                "python3 scripts/cargo_test_rescue.py cargo test --locked -p "
+                "eg-capabilities --features contract --no-fail-fast"
+            ),
+        ),
+        ("Test (SQLite format differential conformance)"): (
+            (
+                "python3 scripts/cargo_test_rescue.py cargo test --locked -p "
+                "eg-sqlite-format --test differential --no-fail-fast"
+            ),
+        ),
+        (
+            "Test (replay-determinism — eg-jobs/eg-statechart crash-replay proofs, DE7)"
+        ): (
+            (
+                "python3 scripts/cargo_test_rescue.py cargo test -p eg-jobs -p "
+                "eg-statechart --test replay_determinism --no-fail-fast"
+            ),
+        ),
+        ("Query-pipeline fuzz + chaos (eg-plan)"): (
+            (
+                "python3 scripts/cargo_test_rescue.py cargo test -p eg-plan "
+                '--features "query,owl,text,timeseries,federation" --test '
+                "fuzz_pipelines --no-fail-fast"
+            ),
+        ),
+    },
+    "gates-crates": {
+        ("Test (storage crate, isolated crash-process lifecycle)"): (
+            (
+                "python3 scripts/cargo_test_rescue.py cargo test --locked -p "
+                "eg-storage --all-features --no-fail-fast -- --test-threads=1"
+            ),
+        ),
+        (
+            "Test (every other workspace crate, all features; push to main / "
+            "release tag)"
+        ): (
+            (
+                "python3 scripts/cargo_test_rescue.py cargo test --locked "
+                "--workspace --exclude epistemic-graph --exclude eg-types --exclude "
+                "eg-core --exclude eg-compute --exclude eg-storage --exclude "
+                "eg-tts-piper --exclude eg-numeric --exclude eg-pyengine "
+                "--all-features --no-fail-fast"
+            ),
+        ),
+        ("Test (every other workspace crate -- pull request fast subset)"): (
+            (
+                "python3 scripts/cargo_test_rescue.py cargo test --locked "
+                "--workspace --exclude epistemic-graph --exclude eg-types --exclude "
+                "eg-core --exclude eg-compute --exclude eg-storage --exclude "
+                "eg-tts-piper --exclude eg-numeric --exclude eg-pyengine "
+                "--all-features --no-fail-fast"
+            ),
+            (
+                "python3 scripts/cargo_test_rescue.py cargo test --locked "
+                '"${args[@]}" --all-features --no-fail-fast'
+            ),
+        ),
+        ("Test (pyo3 crates, every feature except python)"): (
+            (
+                "python3 scripts/cargo_test_rescue.py cargo test --locked -p "
+                "eg-numeric -p eg-pyengine --features eg-numeric/analytics,"
+                "eg-numeric/contract,eg-numeric/complex,eg-numeric/decision,"
+                "eg-numeric/motif,eg-pyengine/security,eg-pyengine/ml-pipeline,"
+                "eg-pyengine/reasoning,eg-pyengine/query,eg-pyengine/cypher,"
+                "eg-pyengine/tsdb,eg-pyengine/streaming,eg-pyengine/wasm-udf,"
+                "eg-pyengine/rdf,eg-pyengine/blob,eg-pyengine/jobs,"
+                "eg-pyengine/statechart,eg-pyengine/finance --no-fail-fast"
+            ),
+        ),
+    },
+}
+
+CACHE_BACKEND = {
+    "SCCACHE_IDLE_TIMEOUT": "7200",
+    "SCCACHE_GHA_ENABLED": "true",
+    "SCCACHE_GHA_RW_MODE": (
+        "${{ github.ref == 'refs/heads/main' && 'READ_WRITE' || 'READ_ONLY' }}"
+    ),
+}
+
+
+CACHE_STEP_CONDITIONS = {
+    (
+        "Test (every other workspace crate, all features; push to main / release tag)"
+    ): "github.event_name != 'pull_request'",
+    "Test (every other workspace crate -- pull request fast subset)": (
+        "github.event_name == 'pull_request'"
+    ),
+}
+
+
+@pytest.mark.parametrize("job_name", COMPILER_CACHE_COMMANDS)
+def test_compiler_cache_job_policy_and_reporting(job_name: str) -> None:
+    workflow = _workflow()
+    job = workflow["jobs"][job_name]
+    _assert_cache_job_settings(job)
+    _, setup, stats = _cache_job_steps(job)
+    for step in (setup, stats):
+        _assert_cache_backend(workflow, job, step)
+
+
+@pytest.mark.parametrize(
+    "job_name,step_name,commands",
+    [
+        (job, step, commands)
+        for job, steps in COMPILER_CACHE_COMMANDS.items()
+        for step, commands in steps.items()
+    ],
+)
+def test_compiler_cache_covers_only_explicit_step_local_commands(
+    job_name: str, step_name: str, commands: tuple[str, ...]
+) -> None:
+    workflow = _workflow()
+    job = workflow["jobs"][job_name]
+    steps, setup, stats = _cache_job_steps(job)
+    build = _cache_step(steps, step_name)
+    assert steps.index(setup) < steps.index(build) < steps.index(stats)
+    assert build.get("if") == CACHE_STEP_CONDITIONS.get(step_name)
+    expected_env = {"RUSTC_WRAPPER": "sccache"}
+    if step_name == "Test (every other workspace crate -- pull request fast subset)":
+        expected_env["SCOPE"] = "${{ steps.pr-test-scope.outputs.scope }}"
+    assert build["env"] == expected_env
+    assert _cargo_commands(build["run"]) == commands
+    if len(commands) == 1:
+        assert build["run"] == commands[0]
+    _assert_cache_backend(workflow, job, build)
+
+
+@pytest.mark.parametrize("job_name", tuple(_workflow()["jobs"]))
+def test_compiler_cache_trust_and_wrapper_scope_remain_isolated(job_name: str) -> None:
+    jobs = _workflow()["jobs"]
+    _assert_job_cache_scope(job_name, jobs[job_name], jobs["gates"])
+
+
+def test_compiler_cache_keeps_global_settings_and_server_artifact_boundary() -> None:
+    workflow = _workflow()
+    jobs = workflow["jobs"]
+    assert workflow["env"]["CARGO_INCREMENTAL"] == "0"
+    assert "RUSTC_WRAPPER" not in workflow["env"]
+    assert not CACHE_BACKEND.keys() & workflow["env"].keys()
+    server = jobs["python-server"]["steps"]
+    build = _cache_step(server, "Build the full-featured engine binary once")
+    pack = _cache_step(server, "Package exact-revision server binary")
+    facade = _cache_step(jobs["gates-facade"]["steps"], "Test (facade full)")
+    assert build["env"] is facade["env"]
+    assert server.index(build) < server.index(pack)
+    assert "if" not in pack
