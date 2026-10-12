@@ -1,5 +1,11 @@
 # EG-MEDIA-VOCAB — Design and implementation plan
 
+## Dependencies and unresolved owner contracts
+
+- `SDK-SOURCE-INGEST-R005.7-.12` is the existing source-envelope prerequisite for bookmark ingestion under `EG-MEDIA-VOCAB-R001.102`; it does not create a second EG ingestion path. `WEBUI-APPS-R001.6` owns mindmap/export presentation. GraphOS query/export adapter requirement ID remains unlinked and is a coordinator hold.
+- `WEBUI-APPS-R001.5` is the meeting summary UI consumer for `EG-MEDIA-VOCAB-R001.101`. AU provider admission and invocation receipt producer IDs are absent from reviewed owner evidence; reserved `AU-SEMANTIC-R030` remains pending for admission, retry-attempt accounting and disabled-provider refusal. Exact producer contracts and served receipts remain required; wrapper-default retries are not treated as one invocation.
+- The vision extraction producer for `EG-MEDIA-VOCAB-R001.100` and SDK/GraphOS producer dependencies for `EG-MEDIA-VOCAB-R002.5` remain explicitly held until their owner IDs are linked.
+
 Governing spec: [spec.md](spec.md).
 
 ## Problem and evidence

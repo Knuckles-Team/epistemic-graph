@@ -67,40 +67,13 @@ EG returns a typed refusal before exposing a plan for stale or malformed inputs 
 
 ### `EG-DECISION-ENGINE-R135.7` — AU:18
 
-Original objective: A run first executes the configured test command and feeds the result to planning and verification; the verifier scores whether tests ran and artifacts exist, and each successful cycle is stored as a reusable pattern template in the graph.
-
-EG-owned residual: No reviewed definition requires the configured test command before planning, feeds its result to both planning and verification, or scores tests-ran and artifacts-exist. Bounded programs and three-rollout skill consolidation do not guarantee a reusable graph pattern for every successful cycle.
-
-Producer/consumer boundary: AU run_agent/record_outcome and SkillGraphPipeline produce run experience; EG compile_program -> AgentLibraryStore -> handle_decide ProgramLookup defines reuse. The pre-planning test-result producer and verifier consumer contract are absent; no explicit cross-owner dependency connects those missing obligations.
-
-Preserve existing coverage: `EG-DECISION-ENGINE-R135.2`, `EG-DECISION-ENGINE-R135.3`, `EG-DECISION-ENGINE-R135.5`, `AU-HARNESS-R022.2`.
-
-Owner source hash: `90828a09b388b9910d870ce944aa2baeb561af14d8f7bf88b48a4d51c4da877f`. This definition adds no AU/GraphOS/SDK implementation or acceptance claim.
-
+Before planning, the consumer must bind one `PrePlanTestReceiptV1` to the run, repository revision, configured command and digest. The closed receipt includes start/completion time, exit code, artifact-manifest digest/count and result digest. The same receipt is present in both `TaskPlan` and verifier output; the verifier records `tests_ran`, `artifacts_exist`, evidence refs and policy revision. Only a zero-exit run with both checks true may persist as a reusable pattern in the existing `CompiledProgram`/`AgentLibraryStore` path, indexed through `ProgramLookup`. Missing, late, stale, mismatched or unreadable evidence blocks promotion. AU's exact pre-plan producer/verifier contract remains pending; `AU-HARNESS-R022.2` is preserved as adjacent coverage only.
 ### `EG-DECISION-ENGINE-R106.1` — AU:19
 
-Original objective: Multi-role decisions may be taken by a council of persona agents whose positions are coordinated into one recorded decision.
-
-EG-owned residual: Topology and loop vocabulary do not define collection of persona positions, their coordination into one decision, or retained participating positions and coordination outcome.
-
-Producer/consumer boundary: AU decide/topology/templates.py supplies topology facts to EG AgentGraph validation; swarm:loopsBackTo describes council structure. No reviewed contract connects persona-position execution in AU to an EG coordination/recorded-decision result.
-
-Preserve existing coverage: `AU-CONTROL-R010`, `EG-DECISION-ENGINE-R106`, `EG-ORCH-VOCAB-R006.3`.
-
-Owner source hash: `0bce81c137b521ea446644d2880498e23d67c3ab5701f09ba3f67a4b2c0e00fc`. This definition adds no AU/GraphOS/SDK implementation or acceptance claim.
-
+`CouncilCoordinationV1` supplies closed `CouncilPositionV1` records carrying council/topology revision, position/persona revision, option, claim digest and revisioned evidence/constraint refs, plus a pinned `CouncilPolicyV1` with quorum and deterministic conflict rule. The sealed decision retains all input position ids, accepted/rejected ids, selected-or-abstained outcome, closed abstention reason, policy revision and input/decision digests. The typed branch attaches to `Method::Decide`/`handle_decide`; existing `AgentGraphDraft.topology` and `topology_shape.rs` validate council shape, while `swarm:loopsBackTo` remains topology vocabulary only. AU's persona-position producer contract is missing; `AU-CONTROL-R010` does not cover it.
 ### `EG-DECISION-ENGINE-R137.13` — AU:25
 
-Original objective: The router detects long-context signals (tool output size, node count) and selects recursive mode through the engine's decision ladder, not a separate selector.
-
-EG-owned residual: Tool-output size and node-count observations are not defined as inputs selecting recursive mode through the decision ladder. R137.7-.12 add certified package selection, not that missing mode-selection input contract. Output stubbing and solver-node telemetry are different obligations.
-
-Producer/consumer boundary: AU _router_impl.py:811 -> run_full_rlm executes the EG ContextBudget decision wired beside tool_subset_outcome in stat_decide.rs:134. R137.12 explicitly depends on AU-CONTEXT-R004 for package application; that edge does not bind tool-output/node-count signals to recursive-mode selection.
-
-Preserve existing coverage: `EG-DECISION-ENGINE-R137.1`, `EG-DECISION-ENGINE-R137.2`, `EG-DECISION-ENGINE-R137.3`, `AU-HARNESS-R026.3`, `AU-HARNESS-R026.4`.
-
-Owner source hash: `9724fcb9db21705fe9ac6a4b26d6d27280f55bf8a22bf11907b3ad9449383290`. This definition adds no AU/GraphOS/SDK implementation or acceptance claim.
-
+`QuestionKind::ContextBudget` binds a run to tool-output byte count/digest, tool-call ref, graph snapshot ref, node count, observation time and signal digest, plus a versioned threshold policy. The existing `Method::Decide` ladder returns direct/recursive mode, selected rung, reason codes and all input/policy digests; it is the sole mode selector. Wire beside `tool_subset_outcome` in `stat_decide.rs::handle_decide`; AU `run_full_rlm` consumes the result before execution. This mode decision is independent of R137.7-.12 package selection. AU's exact observation-producer contract is pending; `AU-HARNESS-R026.3/.4` remains adjacent coverage only.
 ### `EG-DECISION-ENGINE-R134.9` — AU:34
 
 Original objective: The agent selects several relevant skills from a skill tree for one task, and selection is tuned from run outcomes, so exploration is not locked to a single skill.
@@ -626,3 +599,13 @@ The existing `DecisionEval` job is the production evaluation attach point. Its n
 
 `RetrievalContextSearchV1` reads authorized document context through the existing query path and returns exact NFC UTF-8 half-open byte offsets, document/index revisions and bounded spans. It never treats local RRF, ranking order or absent labels as relevance truth. WebUI R001.1 consumes the shared immutable evaluation receipt; no test or served result is claimed by this definition.
 <!-- /spec-definition-patch -->
+
+## Reviewed mapped definitions — grounded answers and safety gates
+
+### `EG-DECISION-ENGINE-R100.101` — EG:18
+
+The existing `DecisionEval` job gains `DecisionEvalOp::GroundedAnswerSubmit` with `GroundedAnswerEvaluationV1`. Its receipt binds corpus, query set, label set, answer revision/digest, scope, evaluator and policy; claims and cited sources remain individually revision/digest-bound. Coverage is an integer numerator and denominator by single-document, local multi-document and global-corpus scope. Unsupported-claim judgments retain all valid annotator votes and a soft probability, with a Brier score computed against that probability rather than a hard majority. Empty queries, missing votes/labels, zero denominators, incomplete claims or any stale digest refuse scoring. `UnifiedQuery` supplies retrieval evidence; AU supplies answer/topic/annotator data; WebUI consumes the sealed result. Preserve R100 independent-outcome hard-negative behavior. This definition is SPECIFIED; no producer receipt is claimed.
+
+### `EG-DECISION-ENGINE-R001.100` — GRAPHOS:19
+
+The existing `Method::Decide` request carries `RecommendationSafetyV1` and returns a bound verdict for every required physical/safety constraint. Each `SafetyBoundV1` records bound identity/revision/digest, metric and unit, comparator, limit and measured value/source revision. Missing or invalid measurements, stale policy/recommendation, non-finite values, unit mismatch or a violated bound withhold the recommendation with the bound id, limit and value. GraphOS must validate the result before it surfaces any recommendation. The exact GraphOS pre-surface operation and served receipt are an explicit companion dependency and remain pending; partial AU-HARNESS-R021 cases do not cover that boundary. This definition is SPECIFIED and does not claim the GraphOS gate exists.

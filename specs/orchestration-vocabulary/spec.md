@@ -1,5 +1,12 @@
 # EG-ORCH-VOCAB — Orchestration vocabulary
 
+## Dependencies and unresolved owner contracts
+
+- `EG-REPO-INGEST-R009` supplies repository/source relationships; `AU-HARNESS-R024` supplies connected execution spans. Neither row currently defines the AU walkthrough producer input/output binding or the WebUI interactive artifact consumer. Those exact owner requirement IDs and served receipts remain pending coordinator assignment; `EG-ORCH-VOCAB-R013.7` is SPECIFIED and cannot be treated as end-to-end closed.
+- `AU-HARNESS-R019.5-.7` are the existing study-gap producer/consumer prerequisites for `EG-CQ-ORCH-R010.7`; they must carry the same repository and revision as `EG-CQ-ORCH-R010.1-.6`. If the AU rows lack a stable proposal id/revision, that missing producer field remains a hold.
+- `WEBUI-APPS-R004.7` and `.8` are the named display consumers for `EG-ORCH-VOCAB-R010.100` and `.101`. Exact AU progress-source and SDK harness-manifest/sync-receipt producer IDs, plus the exact GraphOS served-adapter IDs, are not established in this repository evidence and remain explicit holds.
+- Existing `EG-DECISION-ENGINE-R036`, `R135.2`, `R135.4`, and `EG-TYPED-PACKS-R006` are prerequisites for `EG-ORCH-VOCAB-R003.8`; they provide the assembly authority, program store, and Agent Library projection.
+
 Owner: epistemic-graph. Cross-repo IDs: none required (consumer is graph-os intent tools via `EG-CQ-ORCH-R009`).
 Public provenance: closes the MISSING-term lists in `specs/orchestration-competency` (`EG-CQ-ORCH-001`); spec-only change.
 

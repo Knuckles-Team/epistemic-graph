@@ -57,7 +57,7 @@ Tasks mirror requirements.md rows; check a task only when its evidence is linked
 <!-- spec-definition-patch:owner-dispatch-20261012-tasks -->
 ## Cross-owner transcript and bookmark tasks — 2026-10-12
 
-- [ ] `EG-MEDIA-VOCAB-R001.101`: define ordered immutable transcript revision/correction/finalization, bounded finalized summary context, provider admission and summary receipt/citation validation through the existing durable commit authority.
-- [ ] `EG-MEDIA-VOCAB-R001.102`: define bookmark semantic search and relation reads reusing SDK SourceIngest R005.7-.12, existing SourceIngest/ChangeEnvelope commit, SemanticSearch and UQL.
+- [ ] `EG-MEDIA-VOCAB-R001.101`: define ordered immutable transcript revision/correction/finalization, bounded finalized summary context with positive finite policy caps (128 spans, 16384 bytes/segment, 8192 tokens), provider admission and summary receipt/citation validation through the existing durable commit authority; refuse absent/invalid caps.
+- [ ] `EG-MEDIA-VOCAB-R001.102`: define bookmark semantic search and relation reads with positive finite policy caps (100 hits, 500 relationships, 1048576 response bytes), refusing absent/invalid/exceeded caps; reuse SDK SourceIngest R005.7-.12, existing SourceIngest/ChangeEnvelope commit, SemanticSearch and UQL.
 - [ ] Preserve EG's no-generative-weights boundary, AU provider receipt authority, source/index/snapshot revisions, unknown metadata and authorization filtering; verify independent stored readback.
 <!-- /spec-definition-patch -->

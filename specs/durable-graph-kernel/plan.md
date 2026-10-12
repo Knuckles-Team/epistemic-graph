@@ -480,7 +480,7 @@ R086.9 requires the served entry points and the observations in test-spec.md.
 - Preserve parent `EG-DURABLE-KERNEL-R038` and its existing clauses.
 - Define: Define an explicit deployment profile with `embedded` (in-process operation requiring no external service) and `served` (configured service endpoint) modes. Profile selection controls transport/startup only; it does not silently change the existing persistent-namespace durability default or sync/redb acknowledgment authority. Ephemeral in-memory namespaces require an explicit `ephemeral` declaration and retain no durable log; persistent namespaces retain their declared `sync` or `async` class. Do not adopt the source request’s universal in-memory default.
 - Producer/consumer: EG owns profile and storage selection; transport mode is separate from namespace DurabilityClass. Preserve R038 durability classes, sync default, redb authority and authorization/HMAC isolation.
-- Source record SHA-256: `b36ed0f40742d2f455b4eae67f2fb64edb7fa6ea87b93cbb8ac0046970728458`.
+- Source record SHA-256: `b36ed0f40742d2f455b4eae67f2fb64edfb7a6ea87b93cbb8ac0046970728458`.
 - Keep status SPECIFIED until each named producer and consumer is separately implemented, served-tested and independently read back.
 <!-- /spec-definition-patch -->
 
@@ -492,3 +492,7 @@ R086.9 requires the served entry points and the observations in test-spec.md.
 - The read feed must reuse the existing durable mutation authority. Do not create an alternate write envelope or count reload/local optimistic state as feed evidence.
 - Keep SPECIFIED until two authenticated served clients demonstrate concurrent commits, cursor reconnect, tombstone authorization, no-refresh visibility, measured latency and independent graph readback.
 <!-- /spec-definition-patch -->
+
+## Benchmark measurement plan — 2026-10-12
+
+- **`EG-DURABLE-KERNEL-R042.100` / EG:63:** Extend existing `BenchmarkClaim.measured_result` with `BenchmarkMeasurementV1`. Bind full tokenizer input-token count, release/model/profile/workload identities, post-ready inference elapsed time and pinned price table/currency. Exclude startup from throughput; refuse missing measurements, invalid denominators and incomparable profiles. Source SHA-256 `78016644588199c94f30e549cda44e35667f0447e1ae15a2524a4710bdf92e00`.

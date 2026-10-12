@@ -333,6 +333,6 @@ No case listed here has run.
 
 No test in this section has run.
 
-- `EG-FEDERATED-QUERY-R081.103`: execute both scatter and line variants through served UnifiedQuery over a real indexed source with ≥1,000,000,000 points. Verify bin/byte formulas at small and maximum viewports, source/cardinality/index revision binding, line continuity and payload size.
+- `EG-FEDERATED-QUERY-R081.103`: serve scatter and line variants over a real indexed source of at least 1,000,000,000 points; verify viewport-derived bin caps and `min(requested_byte_ceiling, formula_cap)` encoded-byte behavior at minimum/maximum sizes, source/cardinality/index revision and line gaps. Missing, invalid and too-small requested ceilings refuse before scanning. Pan/zoom changes query digest; exact-point and aggregate-bin selections remain revision-bound. Stale index/source, denied selection, invalid/exceeded cap and any full-source transfer fail acceptance.
 - Pan/zoom and exact/aggregate selection prove viewport-bound tokens. Missing index, stale revision, denied point/bin and invalid/exceeded caps refuse; verify no full-source payload or silently dropped bins.
 <!-- /spec-definition-patch -->

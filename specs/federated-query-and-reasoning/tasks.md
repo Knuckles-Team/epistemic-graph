@@ -304,7 +304,7 @@ Preserve all previous acceptance and receipts. Deliver producer leaves before th
 <!-- spec-definition-patch:owner-dispatch-20261012-tasks -->
 ## Cross-owner viewport query tasks — 2026-10-12
 
-- [ ] `EG-FEDERATED-QUERY-R081.103`: define and wire the typed viewport plan/result and selection-token union through existing `UnifiedQuery`/`run_unified_with`.
+- [ ] `EG-FEDERATED-QUERY-R081.103`: define and wire the closed `ViewportQueryV1` and `ResolveViewportSelectionV1` union through existing UnifiedQuery/run_unified_with; serve billion-point scatter/line, pan/zoom, exact/bin selection and stale/denied/cap refusal cases. Verify effective encoded ceiling is the minimum of the caller request and formula cap; refuse missing, invalid and envelope-too-small requests before scanning.
 - [ ] Implement separate scatter/line aggregation rules, continuity gaps, exact/aggregate selection and fixed viewport/variant bin plus serialized-byte formula.
 - [ ] Serve pan/zoom/selection at billion-point cardinality; verify no full-source transfer and typed stale-index, authorization and cap refusals.
 <!-- /spec-definition-patch -->

@@ -299,16 +299,16 @@ Deliver these additive leaves in order; preserve R137.1–.6 and R128 unchanged.
 <!-- spec-definition-patch:owner-batch-20261012-decision-engine -->
 ## Reviewed residual definition tasks — owner batch 2026-10-12
 
-- [ ] **EG-DECISION-ENGINE-R135.7 (AU:18):** Define and wire the EG-owned residual for `EG-DECISION-ENGINE-R135` using the reviewed producer/consumer route; preserve covered clauses `EG-DECISION-ENGINE-R135.2`, `EG-DECISION-ENGINE-R135.3`, `EG-DECISION-ENGINE-R135.5`, `AU-HARNESS-R022.2`.
-- [ ] **EG-DECISION-ENGINE-R135.7 acceptance:** Deliver the positive, negative, refusal, boundary, or readback cases explicitly required by: Retain partial. Define the AU pre-planning test execution/result handoff and verifier scoring fields, plus the EG per-successful-cycle pattern persistence obligation; extend existing harness/run-reuse owners and explicitly connect the producer/consumer IDs. Do not close from R135 or R022 names alone.
+- [ ] **EG-DECISION-ENGINE-R135.7 (AU:18):** Define `PrePlanTestReceiptV1`, bind the same receipt to planning and verifier scores, and persist only a successful test/artifact-qualified pattern through the existing `CompiledProgram` / `AgentLibraryStore` / `ProgramLookup` path. Preserve `.2`, `.3`, `.5` and AU-HARNESS-R022.2 as adjacent coverage only.
+- [ ] **EG-DECISION-ENGINE-R135.7 acceptance:** Served positive receipt and independent pattern readback; negative/missing, late, stale, command/revision mismatch, nonzero exit and missing/unreadable artifact-manifest cases block promotion. Keep SPECIFIED until AU producer/verifier contract and implementation receipts are independently reviewed.
 - [ ] **EG-DECISION-ENGINE-R135.7 status:** Keep SPECIFIED until separately reviewed implementation and served evidence are available.
 
-- [ ] **EG-DECISION-ENGINE-R106.1 (AU:19):** Define and wire the EG-owned residual for `EG-DECISION-ENGINE-R106` using the reviewed producer/consumer route; preserve covered clauses `AU-CONTROL-R010`, `EG-DECISION-ENGINE-R106`, `EG-ORCH-VOCAB-R006.3`.
-- [ ] **EG-DECISION-ENGINE-R106.1 acceptance:** Deliver the positive, negative, refusal, boundary, or readback cases explicitly required by: Retain partial. Extend the existing council decision/topology contract with position inputs, coordination behavior and recorded output, then name the AU execution-to-EG decision dependency. No new topology implementation is required by this finding.
+- [ ] **EG-DECISION-ENGINE-R106.1 (AU:19):** Define `CouncilPositionV1`, `CouncilPolicyV1` and `CouncilCoordinationV1` on the existing Decide path; preserve all input positions, policy outcome and explicit abstention, with topology validated through the existing AgentGraph shape path. Preserve R106 and R006.3.
+- [ ] **EG-DECISION-ENGINE-R106.1 acceptance:** Served tests cover quorum, conflict, abstention, missing/duplicate/stale/unauthorized positions and topology mismatch, with independent decision/position readback. AU position producer remains pending; keep SPECIFIED until its contract and receipts are reviewed.
 - [ ] **EG-DECISION-ENGINE-R106.1 status:** Keep SPECIFIED until separately reviewed implementation and served evidence are available.
 
-- [ ] **EG-DECISION-ENGINE-R137.13 (AU:25):** Define and wire the EG-owned residual for `EG-DECISION-ENGINE-R137` using the reviewed producer/consumer route; preserve covered clauses `EG-DECISION-ENGINE-R137.1`, `EG-DECISION-ENGINE-R137.2`, `EG-DECISION-ENGINE-R137.3`, `AU-HARNESS-R026.3`, `AU-HARNESS-R026.4`.
-- [ ] **EG-DECISION-ENGINE-R137.13 acceptance:** Deliver the positive, negative, refusal, boundary, or readback cases explicitly required by: Retain partial. Extend existing R137/AU-HARNESS-R026 interfaces with the two measured signals, authoritative recursive-mode selection and an explicit AU observation-producer/decision-consumer binding; preserve R137.7-.12 package semantics.
+- [ ] **EG-DECISION-ENGINE-R137.13 (AU:25):** Define `ContextBudgetSignalsV1` and `ContextBudgetPolicyV1` on `Method::Decide`; route tool-output bytes and graph-node count through the existing decision ladder and bind both observations to the returned direct/recursive mode. Preserve `.1-.3` and keep package selection `.7-.12` separate.
+- [ ] **EG-DECISION-ENGINE-R137.13 acceptance:** Served tests vary each signal independently/jointly around thresholds and refuse missing, stale, invalid, mismatched and cross-tenant observations before execution. AU observation producer/consumer remains pending; keep SPECIFIED until reviewed receipts exist.
 - [ ] **EG-DECISION-ENGINE-R137.13 status:** Keep SPECIFIED until separately reviewed implementation and served evidence are available.
 
 - [ ] **EG-DECISION-ENGINE-R134.9 (AU:34):** Define and wire the EG-owned residual for `EG-DECISION-ENGINE-R134` using the reviewed producer/consumer route; preserve covered clauses `EG-DECISION-ENGINE-R134.4`, `EG-DECISION-ENGINE-R134.5`, `AU-HARNESS-R022.3`, `AU-CONTEXT-R001`.
@@ -455,7 +455,14 @@ Deliver these additive leaves in order; preserve R137.1–.6 and R128 unchanged.
 <!-- spec-definition-patch:owner-dispatch-20261012-tasks -->
 ## Cross-owner retrieval evaluation tasks — 2026-10-12
 
-- [ ] `EG-DECISION-ENGINE-R100.100`: define the RetrievalRankingV1 and RetrievalContextSearchV1 typed contracts and extend the existing DecisionEval served job/query handlers.
+- [ ] `EG-DECISION-ENGINE-R100.100`: define `RetrievalRankingV1` and `RetrievalContextSearchV1` over existing DecisionEval, UnifiedQuery and authenticated read paths; add served positive/negative evaluation, exact span, stale cursor and denied-context acceptance.
 - [ ] Bind two algorithm receipts to an identical pinned corpus/label/query/k input; persist exact hits-at-k numerator/denominator and authorized n-gram offsets with bounded context.
 - [ ] Test missing labels, incompatible settings/revisions, incomplete algorithm output, denied context and stale cursor; preserve R100's independent-outcome/hard-negative behavior.
 <!-- /spec-definition-patch -->
+
+## Grounded-answer and pre-surface safety tasks — 2026-10-12
+
+- [ ] `EG-DECISION-ENGINE-R100.101`: define and wire `GroundedAnswerEvaluationV1` as `DecisionEvalOp::GroundedAnswerSubmit`; bind scoped corpus/query/label/answer/claim/source/evaluator/policy revisions and immutable result receipt.
+- [ ] Verify exact per-scope topic coverage and soft-label Brier arithmetic; refuse empty query sets, missing votes, zero denominators, incomplete claim/source coverage and stale digests. Preserve R100 hard-negative behavior.
+- [ ] `EG-DECISION-ENGINE-R001.100`: define `RecommendationSafetyV1` on the existing Decide path with per-bound receipt and fail-closed typed verdict; retain the separate GraphOS pre-surface validation dependency.
+- [ ] Serve in-bound/out-of-bound and absent, stale, non-finite, unit-mismatch, and policy-mismatch cases; verify exact violated bound details and no surfacing without GraphOS's separately served receipt.

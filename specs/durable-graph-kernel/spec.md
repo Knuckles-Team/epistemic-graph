@@ -156,7 +156,7 @@ Define an explicit deployment profile with `embedded` (in-process operation requ
 
 **Producer/consumer boundary:** EG owns profile and storage selection; transport mode is separate from namespace DurabilityClass. Preserve R038 durability classes, sync default, redb authority and authorization/HMAC isolation.
 
-**Source record SHA-256:** `b36ed0f40742d2f455b4eae67f2fb64edb7fa6ea87b93cbb8ac0046970728458`.
+**Source record SHA-256:** `b36ed0f40742d2f455b4eae67f2fb64edfb7a6ea87b93cbb8ac0046970728458`.
 
 **Preserved parent:** `EG-DURABLE-KERNEL-R038` remains unchanged.
 <!-- /spec-definition-patch -->
@@ -169,3 +169,7 @@ Define an explicit deployment profile with `embedded` (in-process operation requ
 
 The feed is read-only over durable commits, not an alternative write envelope or a local browser echo. GraphOS routes the operations to WebUI R030.8; the paired two-client test verifies reconnect/order and independent graph readback. The consumer's readable layout remains a separate WebUI obligation.
 <!-- /spec-definition-patch -->
+
+## Reviewed benchmark measurement extension — `EG-DURABLE-KERNEL-R042.100`
+
+The existing `BenchmarkClaim.measured_result` gains a typed `BenchmarkMeasurementV1` binding a benchmark configuration/workload, dataset/query digest, release commit, model/provider/tokenizer revisions, hardware/profile settings, model-ready and request timestamps, complete input-token count, inference elapsed time and pinned price table. Throughput uses all input tokens divided by post-ready inference time. Cost is calculated per query from the pinned prices and currency exponent with a specified rounding rule. Startup is reported but never included in inference time or throughput. Only identical workload/profile measurements are comparable. Missing tokenizer/token count/price, invalid elapsed time, zero denominator or mismatched profiles refuse claim admission. This extends the existing claim-validation record and does not introduce another benchmark runner. It remains SPECIFIED; no performance result is asserted.

@@ -944,14 +944,14 @@
     },
     {
       "id": "EG-ORCH-VOCAB-R013.7",
-      "title": "Reviewed residual `AU:115`",
+      "title": "Source-pinned code walkthrough artifact and graph-bound execution notes",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R003.8",
-      "title": "Reviewed residual `EG:12`",
+      "title": "Successful-team promotion, schema-safe similarity reuse and typed capability handlers",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -993,7 +993,7 @@
     },
     {
       "id": "EG-ORCH-VOCAB-R009.101",
-      "title": "Authoritative multi-harness session index and search",
+      "title": "Tenant-scoped complete-manifest harness-session index, browse and search",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

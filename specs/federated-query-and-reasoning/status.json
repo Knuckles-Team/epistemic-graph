@@ -2454,7 +2454,7 @@
     },
     {
       "id": "EG-FEDERATED-QUERY-R083.7",
-      "title": "Reviewed residual `EG:22`",
+      "title": "Support-aware arbitration prevents unsupported confidence wins",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

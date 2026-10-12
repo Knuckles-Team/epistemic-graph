@@ -175,7 +175,12 @@ This batch defines the slices; it runs none of their runtime tests.
 <!-- spec-definition-patch:owner-dispatch-20261012-tasks -->
 ## Cross-owner graph feed tasks — 2026-10-12
 
-- [ ] `EG-DURABLE-KERNEL-R043.100`: define and wire `OpenGraphSnapshotV1` and `ReadGraphChangesV1` to committed ChangeEnvelope records with same-read high-water cursor, bounded replay, tombstone visibility, retention and revocation semantics.
+- [ ] `EG-DURABLE-KERNEL-R043.100`: define `OpenGraphSnapshotV1` and `ReadGraphChangesV1` on committed ChangeEnvelope records with same-read high-water cursor, ordered replay ids, bounded retention, tombstone filtering and explicit expired-cursor/revocation outcomes; verify independent durable readback and EG latency through first authorized feed read; keep GraphOS/WebUI browser commit-to-visible p95 and numeric layout limits (visible node/edge budget, interaction and label bounds) as separate companion acceptance.
 - [ ] Add typed cursor-expiry, graph-incarnation and authorization-change outcomes; expose versioned commit-to-visible timing fields.
 - [ ] Preserve R043's single MutationBatch write authority and prove two-client served delivery, reconnect ordering, independent readback and the ≤1000 ms p95 target.
 <!-- /spec-definition-patch -->
+
+## Benchmark measurement tasks — 2026-10-12
+
+- [ ] `EG-DURABLE-KERNEL-R042.100`: extend the existing typed `BenchmarkClaim.measured_result` with complete, revision-bound `BenchmarkMeasurementV1` fields and deterministic TPS/cost formulas; preserve existing superiority gate.
+- [ ] Serve/replay exact arithmetic across releases, exclude startup, and refuse missing token/price data, invalid elapsed time/currency and incomparable profiles.

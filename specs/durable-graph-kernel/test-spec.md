@@ -280,7 +280,7 @@ All targets below are planned acceptance, not executed tests or receipts. Use th
 
 No cases listed here have run; they describe required future acceptance, not evidence.
 
-- **`EG-DURABLE-KERNEL-R038.100` / EG:60; source `b36ed0f40742d2f455b4eae67f2fb64edb7fa6ea87b93cbb8ac0046970728458`:** Start a fresh embedded profile without an external service and read/write an explicitly ephemeral namespace; verify no persistent namespace is silently downgraded. Start served mode against its configured endpoint and verify its declared sync/async class and acknowledgment boundary. Refuse an unknown profile and an ephemeral-to-durable class mismatch; read back profile and namespace declarations. Producer/consumer: EG owns profile and storage selection; transport mode is separate from namespace DurabilityClass. Preserve R038 durability classes, sync default, redb authority and authorization/HMAC isolation. Parent `EG-DURABLE-KERNEL-R038` remains intact.
+- **`EG-DURABLE-KERNEL-R038.100` / EG:60; source `b36ed0f40742d2f455b4eae67f2fb64edfb7a6ea87b93cbb8ac0046970728458`:** Start a fresh embedded profile without an external service and read/write an explicitly ephemeral namespace; verify no persistent namespace is silently downgraded. Start served mode against its configured endpoint and verify its declared sync/async class and acknowledgment boundary. Refuse an unknown profile and an ephemeral-to-durable class mismatch; read back profile and namespace declarations. Producer/consumer: EG owns profile and storage selection; transport mode is separate from namespace DurabilityClass. Preserve R038 durability classes, sync default, redb authority and authorization/HMAC isolation. Parent `EG-DURABLE-KERNEL-R038` remains intact.
 <!-- /spec-definition-patch -->
 
 
@@ -289,6 +289,10 @@ No cases listed here have run; they describe required future acceptance, not evi
 
 No test in this section has run; it is a future contract.
 
-- `EG-DURABLE-KERNEL-R043.100`: two authenticated clients read a consistent snapshot, apply concurrent ChangeEnvelope commits, consume ordered events without refresh, reconnect from an opaque cursor, deduplicate replay and independently read back the durable graph.
+- `EG-DURABLE-KERNEL-R043.100`: use two authenticated served GraphView clients to take a consistent snapshot, commit concurrent `ApplyChangeEnvelope` mutations, consume ordered events without refresh, reconnect from the opaque cursor and independently read back committed state. Test stable dedup ids, tombstones, expired cursor recovery, stale graph incarnation and revoked permissions without denied counts/edges; measure EG commit-to-visible p95 only through first authorized feed read. GraphOS/WebUI acceptance must separately set and verify a versioned browser commit-to-visible p95 and explicit numeric readable-layout limits (visible node/edge budget plus interaction and label bounds); EG feed latency is not end-to-end evidence.
 - Verify tombstones, expired cursor recovery, graph-incarnation mismatch and authorization revocation. Denied edges/counts remain invisible. Measure p95 commit acknowledgement to first authorized read ≤1000 ms using the recorded latency-profile revision; WebUI R030.8 separately proves concurrent layout remains readable.
 <!-- /spec-definition-patch -->
+
+## Planned served acceptance — benchmark measurement
+
+- `EG-DURABLE-KERNEL-R042.100`: read back benchmark input and measured-result bindings for at least two releases; independently recompute input-token TPS and currency-rounded per-query cost, proving startup is excluded. Refuse missing full input-token count/tokenizer/price, zero or invalid inference time, invalid currency exponent and different workload/profile settings. This does not assert that any performance comparison passes.

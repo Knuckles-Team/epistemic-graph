@@ -329,6 +329,8 @@
     "EG-DECISION-ENGINE-R139.4",
     "EG-DECISION-ENGINE-R139.5",
     "EG-DECISION-ENGINE-R139.6",
+    "EG-DECISION-ENGINE-R100.101",
+    "EG-DECISION-ENGINE-R001.100",
     "EG-DECISION-ENGINE-R135.7",
     "EG-DECISION-ENGINE-R106.1",
     "EG-DECISION-ENGINE-R137.13",
@@ -395,7 +397,8 @@
       "verified_by": [],
       "rollup_of": [
         "EG-DECISION-ENGINE-R001.1",
-        "EG-DECISION-ENGINE-R001.2"
+        "EG-DECISION-ENGINE-R001.2",
+        "EG-DECISION-ENGINE-R001.100"
       ]
     },
     {
@@ -2469,6 +2472,7 @@
         "src/server/handlers/decide/stat_tests/retrieval_tests.rs:208"
       ],
       "rollup_of": [
+        "EG-DECISION-ENGINE-R100.101",
         "EG-DECISION-ENGINE-R100.1",
         "EG-DECISION-ENGINE-R100.100"
       ]
@@ -4076,22 +4080,36 @@
       "verified_by": []
     },
     {
+      "id": "EG-DECISION-ENGINE-R100.101",
+      "title": "Grounded topic coverage and soft-label unsupported-claim evaluation",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R001.100",
+      "title": "Quantitative physical/safety bounds before recommendation surfacing",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
       "id": "EG-DECISION-ENGINE-R135.7",
-      "title": "Reviewed residual `AU:18`",
+      "title": "Pre-plan test evidence, verifier scores and successful-cycle reuse",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-DECISION-ENGINE-R106.1",
-      "title": "Reviewed residual `AU:19`",
+      "title": "Council positions are coordinated into one evidence-bound decision",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-DECISION-ENGINE-R137.13",
-      "title": "Reviewed residual `AU:25`",
+      "title": "Measured tool-output and graph-size signals select recursive mode in the decision ladder",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

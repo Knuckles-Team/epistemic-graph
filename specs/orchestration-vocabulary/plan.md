@@ -1,5 +1,12 @@
 # EG-ORCH-VOCAB — Implementation plan
 
+## Dependencies and unresolved owner contracts
+
+- `EG-REPO-INGEST-R009` supplies repository/source relationships; `AU-HARNESS-R024` supplies connected execution spans. Neither row currently defines the AU walkthrough producer input/output binding or the WebUI interactive artifact consumer. Those exact owner requirement IDs and served receipts remain pending coordinator assignment; `EG-ORCH-VOCAB-R013.7` is SPECIFIED and cannot be treated as end-to-end closed.
+- `AU-HARNESS-R019.5-.7` are the existing study-gap producer/consumer prerequisites for `EG-CQ-ORCH-R010.7`; they must carry the same repository and revision as `EG-CQ-ORCH-R010.1-.6`. If the AU rows lack a stable proposal id/revision, that missing producer field remains a hold.
+- `WEBUI-APPS-R004.7` and `.8` are the named display consumers for `EG-ORCH-VOCAB-R010.100` and `.101`. Exact AU progress-source and SDK harness-manifest/sync-receipt producer IDs, plus the exact GraphOS served-adapter IDs, are not established in this repository evidence and remain explicit holds.
+- Existing `EG-DECISION-ENGINE-R036`, `R135.2`, `R135.4`, and `EG-TYPED-PACKS-R006` are prerequisites for `EG-ORCH-VOCAB-R003.8`; they provide the assembly authority, program store, and Agent Library projection.
+
 The architecture and vocabulary decisions are specified in [design.md](plan.md). EG reuses the existing orchestration competency,
 decision-engine and typed-pack contracts. EG introduces no second planner
 and no execution runtime.
@@ -289,25 +296,19 @@ References
 
 ### `EG-ORCH-VOCAB-R013.7` — AU:115
 
-- Existing EG rollup: `EG-ORCH-VOCAB-R013`; append-only residual ID: `EG-ORCH-VOCAB-R013.7`.
-- Original objective: A codebase query can produce a linear code walkthrough and a self-contained interactive explanation artifact, with execution notes streamed to the graph as provenance.
-- Missing EG obligation: Define the walkthrough, self-contained interactive explanation output and its graph-bound execution-note stream.
-- Producer/consumer route: EG repository hydration supplies source relationships; AU-HARNESS-R024 emits spans; EG-ORCH-VOCAB-R013 admits trace steps through AddNode. Explanation producer, artifact schema and WebUI consumption binding are absent definitions.
-- Minimum closure action: Add the query-output and provenance contract under existing owners; retain trace definitions.
-- Preserve covered clauses: `EG-REPO-INGEST-R009`, `AU-HARNESS-R024`, `EG-ORCH-VOCAB-R013.1`, `EG-ORCH-VOCAB-R013.3`.
-- Source review: `445704f78ae07d1c4b62f42dd23797823d91bc470f04a9dc779e3f6777fffbf0`; evidence: epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/repository-index-and-ingestion/requirements.md:24; agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:125; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/orchestration-vocabulary/requirements.md:97; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/orchestration-vocabulary/requirements.md:99.
-- Cross-owner behavior and receipts remain with the named owner; no runtime evidence is claimed.
+- Existing EG operations: `Method::UnifiedQuery` reads revision-pinned repository relationships; `Method::AddNode` stores the existing ordered `RunTrace`; UQL and the content-addressed artifact read path independently verify stored refs. No new graph writer or EG model executor.
+- EG output schema `CodeWalkthroughV1`: run/repository/revision, graph snapshot, query digest, ordered section manifest, source refs with node/revision/digest/path/line range, interaction edges, artifact ref/digest, and execution-note refs to ordered trace steps/spans. Artifact content is immutable and self-contained; mutable external URLs are forbidden. AddNode refuses stale or cross-tenant source refs, uncited sections, unresolved/tampered artifact refs, invalid span/run link, or non-contiguous note order before storage.
+- EG test targets: `crates/eg-types/src/outcome_bundle.rs::tests::code_walkthrough_manifest_round_trips`; `src/server/handlers/graph_ops/gateway_graph.rs::tests::add_run_trace_rejects_stale_walkthrough_source_or_artifact`; served `tests/orchestration/test_code_walkthrough_served.py::test_walkthrough_trace_and_artifact_read_back`.
+- Depends on `EG-REPO-INGEST-R009` and `AU-HARNESS-R024`. AU still needs an exact producer schema/receipt row; WebUI still needs an exact artifact-consumer/interaction row. No matching owner IDs were found; coordinator assignment and served receipts remain a closure hold.
+- Original source AU:115 SHA-256 `445704f78ae07d1c4b62f42dd23797823d91bc470f04a9dc779e3f6777fffbf0`. Status remains SPECIFIED.
 
 ### `EG-ORCH-VOCAB-R003.8` — EG:12
 
-- Existing EG rollup: `EG-ORCH-VOCAB-R003`; append-only residual ID: `EG-ORCH-VOCAB-R003.8`.
-- Original objective: A team that completes work successfully is promoted to a reusable configuration chosen by similarity to a new task; capabilities are typed nodes carrying handler metadata.
-- Missing EG obligation: Define team-level promotion, task-similarity reuse and typed capability handler metadata.
-- Producer/consumer route: graph.assemble consumes capabilities; Agent Library projects them; compile_program/lookup_program reuse traces. Team similarity selection and handler-metadata consumption are absent definitions.
-- Minimum closure action: Add these residuals under existing assembly/program/vocabulary owners.
-- Preserve covered clauses: `EG-DECISION-ENGINE-R135.2`, `EG-DECISION-ENGINE-R135.4`, `EG-DECISION-ENGINE-R036`, `EG-ORCH-VOCAB-R003.5`, `EG-ORCH-VOCAB-R003.6`.
-- Source review: `517823a931bb93e173b301a9a31fbe6bd75c14687233c72278a59ced1940673a`; evidence: epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:290; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:292; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:52; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/orchestration-vocabulary/requirements.md:21.
-- Cross-owner behavior and receipts remain with the named owner; no runtime evidence is claimed.
+- Reuse R135 `CompiledProgram`/`lookup_program`, `AgentLibraryStore`, R003.6 outbox projection and `graph.assemble()`; successful terminal trace is required for promotion.
+- Canonical signature binds task class, sorted capability IRIs, input/output schema digests and topology digest. Similarity uses a caller-pinned versioned policy with explicit weights and minimum score; capability overlap is Jaccard, remaining features name deterministic score functions and source revisions. Candidate signatures/schema/topology must be compatible before scoring; missing or stale inputs exclude candidates. Stable program IRI breaks score ties.
+- Project typed capability handler metadata with id/version/input-output schema digests/effect set; `graph.assemble()` treats it as compatibility/effect constraints and still runs the R036 solver. EG does not execute handlers.
+- Wire through `program_store.rs`, `stat_decide.rs`, `candidates.rs`, `assemble.rs`, `persistence/agent_library.rs`, and the existing R003.6 projection. Tests: type round trip, stale/incompatible-handler refusal, and served successful promotion/similar-task reuse at the exact names in the requirement row.
+- Depends on `EG-DECISION-ENGINE-R135.2`, `.4`, `R036`, `EG-TYPED-PACKS-R006`, and `EG-ORCH-VOCAB-R003.5/.6`. Original EG:12 SHA-256 `517823a931bb93e173b301a9a31fbe6bd75c14687233c72278a59ced1940673a`. Status remains SPECIFIED.
 
 ### `EG-ORCH-VOCAB-R012.7` — EG:46
 
@@ -367,8 +368,8 @@ References
 <!-- spec-definition-patch:owner-dispatch-20261012-plan -->
 ## Cross-owner producer definition plan — 2026-10-12
 
-- **`EG-ORCH-VOCAB-R009.101` / WEBUI:3:** Add `SyncHarnessSessionIndexV1` and `SearchHarnessSessionsV1` on the RunTrace/AddNode and UQL read substrates. Bind supported-harness manifest and SDK sync receipt, stable tenant/harness/session identity, source/index revisions, coverage and cursor. Preserve exact duplicate idempotency; refuse conflicts, stale cursors and cross-tenant reads. GraphOS serves the adapter for WebUI R006.4. Source SHA-256 `38936b5f2136263c40c29fe639c984243fed8be6dbb9a6d836f40d7b7672116e`.
-- **`EG-ORCH-VOCAB-R010.100` / AU:103:** Add `EvolutionTraceMetricsV1` joining AU proposal/prompt/progress revisions with EG RunTrace refs and stored outcome metrics. Report incomplete trace coverage as partial/unknown and require independent UQL readback. Preserve AU proposal authority and WebUI R004.7 consumer contract. Source SHA-256 `68bae14976bd3581bc33ee65b153b5ad60f807fb894af09577b9debd19be7557`.
-- **`EG-ORCH-VOCAB-R010.101` / WEBUI:4:** Extend RunTrace with project/agent ids and four non-overlapping token counters; add `RunTraceUsageQueryV1` with pinned currency/accounting revisions, unknown-cost semantics, watermark and cursor. Prove p95 ≤500 ms at the stated million-row/32-reader boundary through GraphOS `handle_runs_metrics` and WebUI R004.8. Preserve the existing cost-per-solved-task query. Source SHA-256 `dd790b40c92758d720375c78ccd4278845b8d348022b4d69b978cba049461237`.
+- **`EG-ORCH-VOCAB-R009.101` / WEBUI:3:** Add `IndexHarnessSessionBatchV1` and `SearchHarnessSessionsV1` over durable RunTrace/AddNode records and existing UQL, spanning every adapter in the pinned supported-harness manifest. Bind tenant, manifest, SDK sync receipt, session and indexed/source revisions; return source coverage, watermark and snapshot cursor. Optional cost summaries reuse R010.101 accounting profile/unit/unknown semantics. Replay is idempotent; conflicting content, stale cursor and cross-tenant reads refuse. SDK source sync and the GraphOS query-adapter requirement ID remain pending owner dependencies. Source SHA-256 `38936b5f2136263c40c29fe639c984243fed8be6dbb9a6d836f40d7b7672116e`.
+- **`EG-ORCH-VOCAB-R010.100` / AU:103:** Add `EvolutionTraceMetricsV1` with revisioned proposal/prompt/progress records, ordered RunTrace refs, revisioned metrics, observation window and explicit coverage. Missing known traces are partial/unknown, never zero. Existing ChangeEnvelope/AddNode writes traces; UQL independently reads them; GraphOS `runs.get`/`runs.metrics` serves the view, with exact adapter ID pending. AU progress producer ID/schema remains pending. Source SHA-256 `68bae14976bd3581bc33ee65b153b5ad60f807fb894af09577b9debd19be7557`.
+- **`EG-ORCH-VOCAB-R010.101` / WEBUI:4:** Extend RunTrace with project/agent ids and four disjoint token counters; `RunTraceUsageQueryV1` returns grouped exact totals/costs with pinned accounting, price and currency revisions, watermark and unknown semantics. Aggregate exact rational rates and round once per output group/category with currency minor-unit exponent and half-even; preserve p95 ≤500 ms over the stated 1,000,000-row / 32-reader dataset through GraphOS `handle_runs_metrics`. Preserve cost-per-solved-task. Source SHA-256 `dd790b40c92758d720375c78ccd4278845b8d348022b4d69b978cba049461237`.
 - Keep all three requirements SPECIFIED until the EG served operation, GraphOS adapter and named WebUI consumer have separately passed their contract checks and independent readbacks.
 <!-- /spec-definition-patch -->

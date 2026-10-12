@@ -180,7 +180,8 @@
     "EG-DURABLE-KERNEL-R085.10",
     "EG-DURABLE-KERNEL-R084.7",
     "EG-DURABLE-KERNEL-R038.100",
-    "EG-DURABLE-KERNEL-R043.100"
+    "EG-DURABLE-KERNEL-R043.100",
+    "EG-DURABLE-KERNEL-R042.100"
   ],
   "requirements": [
     {
@@ -1244,14 +1245,15 @@
     {
       "id": "EG-DURABLE-KERNEL-R042",
       "title": "Benchmark gate defines and proves performance superiority claims",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "1ef84395fa69",
         "9eac21608e67"
       ],
       "verified_by": [],
       "rollup_of": [
-        "EG-DURABLE-KERNEL-R042.1"
+        "EG-DURABLE-KERNEL-R042.1",
+        "EG-DURABLE-KERNEL-R042.100"
       ]
     },
     {
@@ -2178,6 +2180,13 @@
     {
       "id": "EG-DURABLE-KERNEL-R043.100",
       "title": "Committed graph changes publish an ordered, revocable cursor feed",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R042.100",
+      "title": "Comparable full-input-token throughput and per-query cost measurements",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

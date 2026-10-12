@@ -762,37 +762,25 @@ Dependency order: typed request/plan/refusal/evidence round trip; deterministic 
 
 ### `EG-DECISION-ENGINE-R135.7` — AU:18
 
-- Existing EG rollup: `EG-DECISION-ENGINE-R135`; append-only residual ID: `EG-DECISION-ENGINE-R135.7`.
-- Original objective: A run first executes the configured test command and feeds the result to planning and verification; the verifier scores whether tests ran and artifacts exist, and each successful cycle is stored as a reusable pattern template in the graph.
-- Missing EG obligation: No reviewed definition requires the configured test command before planning, feeds its result to both planning and verification, or scores tests-ran and artifacts-exist. Bounded programs and three-rollout skill consolidation do not guarantee a reusable graph pattern for every successful cycle.
-- Producer/consumer route: AU run_agent/record_outcome and SkillGraphPipeline produce run experience; EG compile_program -> AgentLibraryStore -> handle_decide ProgramLookup defines reuse. The pre-planning test-result producer and verifier consumer contract are absent; no explicit cross-owner dependency connects those missing obligations.
-- Minimum closure action: Retain partial. Define the AU pre-planning test execution/result handoff and verifier scoring fields, plus the EG per-successful-cycle pattern persistence obligation; extend existing harness/run-reuse owners and explicitly connect the producer/consumer IDs. Do not close from R135 or R022 names alone.
-- Preserve covered clauses: `EG-DECISION-ENGINE-R135.2`, `EG-DECISION-ENGINE-R135.3`, `EG-DECISION-ENGINE-R135.5`, `AU-HARNESS-R022.2`.
-- Source review: `90828a09b388b9910d870ce944aa2baeb561af14d8f7bf88b48a4d51c4da877f`; evidence: agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:111; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:290; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:291; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:293.
-- Cross-owner behavior and receipts remain with the named owner; no runtime evidence is claimed.
-
+- Existing rollup: `EG-DECISION-ENGINE-R135`; preserve `.2`, `.3`, `.5` and adjacent `AU-HARNESS-R022.2`.
+- EG contract: accept the closed `PrePlanTestReceiptV1` fields named in requirements, bind the same receipt to planning and verification, score `tests_ran` and `artifacts_exist` separately, and promote only a zero-exit, artifact-readable successful cycle.
+- Production attach point: existing `compile_program` / `AgentLibraryStore` / `handle_decide` `ProgramLookup`; retain `CompiledProgram` and current store, with no second reuse model.
+- Pending owner contract: exact AU pre-plan test producer and verifier receipt ID/schema. `AU-HARNESS-R022.2` is not sufficient evidence for those fields.
+- Planned positive/negative served acceptance: valid receipt is read back from plan, verifier and promoted pattern; missing, late, stale, changed-revision/command, failed test or unreadable artifact evidence blocks promotion.
 ### `EG-DECISION-ENGINE-R106.1` — AU:19
 
-- Existing EG rollup: `EG-DECISION-ENGINE-R106`; append-only residual ID: `EG-DECISION-ENGINE-R106.1`.
-- Original objective: Multi-role decisions may be taken by a council of persona agents whose positions are coordinated into one recorded decision.
-- Missing EG obligation: Topology and loop vocabulary do not define collection of persona positions, their coordination into one decision, or retained participating positions and coordination outcome.
-- Producer/consumer route: AU decide/topology/templates.py supplies topology facts to EG AgentGraph validation; swarm:loopsBackTo describes council structure. No reviewed contract connects persona-position execution in AU to an EG coordination/recorded-decision result.
-- Minimum closure action: Retain partial. Extend the existing council decision/topology contract with position inputs, coordination behavior and recorded output, then name the AU execution-to-EG decision dependency. No new topology implementation is required by this finding.
-- Preserve covered clauses: `AU-CONTROL-R010`, `EG-DECISION-ENGINE-R106`, `EG-ORCH-VOCAB-R006.3`.
-- Source review: `0bce81c137b521ea446644d2880498e23d67c3ab5701f09ba3f67a4b2c0e00fc`; evidence: agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/agent-control-plane/requirements.md:15; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:176; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/orchestration-vocabulary/requirements.md:40.
-- Cross-owner behavior and receipts remain with the named owner; no runtime evidence is claimed.
-
+- Existing rollup: `EG-DECISION-ENGINE-R106`; preserve topology shape and `EG-ORCH-VOCAB-R006.3` loop-back semantics.
+- EG contract: `CouncilCoordinationV1` accepts a complete, non-duplicated set of revision-bound `CouncilPositionV1` records and a pinned quorum/conflict policy; output retains all participants, accepted/rejected positions, outcome, abstention reason and digests.
+- Production attach point: typed `Method::Decide` / `handle_decide` result sealing; validate the referenced council shape through `AgentGraphDraft.topology` and `topology_shape.rs`.
+- Pending owner contract: AU persona-position producer ID/schema; `AU-CONTROL-R010` is topology input only.
+- Planned served acceptance: coherent quorum, policy-resolved conflict, explicit abstention, missing/duplicate/stale/unauthorized position and topology mismatch cases; independently read the sealed decision and all position refs.
 ### `EG-DECISION-ENGINE-R137.13` — AU:25
 
-- Existing EG rollup: `EG-DECISION-ENGINE-R137`; append-only residual ID: `EG-DECISION-ENGINE-R137.13`.
-- Original objective: The router detects long-context signals (tool output size, node count) and selects recursive mode through the engine's decision ladder, not a separate selector.
-- Missing EG obligation: Tool-output size and node-count observations are not defined as inputs selecting recursive mode through the decision ladder. R137.7-.12 add certified package selection, not that missing mode-selection input contract. Output stubbing and solver-node telemetry are different obligations.
-- Producer/consumer route: AU _router_impl.py:811 -> run_full_rlm executes the EG ContextBudget decision wired beside tool_subset_outcome in stat_decide.rs:134. R137.12 explicitly depends on AU-CONTEXT-R004 for package application; that edge does not bind tool-output/node-count signals to recursive-mode selection.
-- Minimum closure action: Retain partial. Extend existing R137/AU-HARNESS-R026 interfaces with the two measured signals, authoritative recursive-mode selection and an explicit AU observation-producer/decision-consumer binding; preserve R137.7-.12 package semantics.
-- Preserve covered clauses: `EG-DECISION-ENGINE-R137.1`, `EG-DECISION-ENGINE-R137.2`, `EG-DECISION-ENGINE-R137.3`, `AU-HARNESS-R026.3`, `AU-HARNESS-R026.4`.
-- Source review: `9724fcb9db21705fe9ac6a4b26d6d27280f55bf8a22bf11907b3ad9449383290`; evidence: agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:144; agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:145; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:304; epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:305.
-- Cross-owner behavior and receipts remain with the named owner; no runtime evidence is claimed.
-
+- Existing rollup: `EG-DECISION-ENGINE-R137`; preserve `.1-.3` and keep package selection `.7-.12` separate.
+- EG contract: `ContextBudgetSignalsV1` binds tool-output bytes/digest and graph-node count/snapshot to a run and observation time; `ContextBudgetPolicyV1` versions thresholds and ladder mapping; result binds the observations and returns direct/recursive mode, selected rung and reason codes.
+- Production attach point: add the `QuestionKind::ContextBudget` branch in `Method::Decide`, beside `tool_subset_outcome` in `stat_decide.rs::handle_decide`; AU `run_full_rlm` consumes the sealed `DecisionBatch` before execution.
+- Pending owner contract: exact AU producer for both observations and its decision consumer binding; `AU-HARNESS-R026.3/.4` does not define these fields.
+- Planned served acceptance: vary each signal independently and together around boundaries; missing, stale, altered-digest, invalid and cross-tenant signals refuse before execution.
 ### `EG-DECISION-ENGINE-R134.9` — AU:34
 
 - Existing EG rollup: `EG-DECISION-ENGINE-R134`; append-only residual ID: `EG-DECISION-ENGINE-R134.9`.
@@ -1239,3 +1227,8 @@ Dependency order: typed request/plan/refusal/evidence round trip; deterministic 
 - Use `Method::UnifiedQuery` as retrieval producer, `Method::DecisionEval` as sealed metric receipt path and the authenticated query/read handler for n-gram spans; do not add a second ranking or truth source.
 - Keep SPECIFIED until fixed-corpus served positive/negative cases and independent receipt/context readback pass.
 <!-- /spec-definition-patch -->
+
+## Grounded-answer and pre-surface safety plans — 2026-10-12
+
+- **`EG-DECISION-ENGINE-R100.101` / EG:18:** Add `DecisionEvalOp::GroundedAnswerSubmit` / `GroundedAnswerEvaluationV1` to the existing DecisionEval job. Bind answer, corpus, query/label set, scope, evaluator/policy revisions, individual claims and cited source digests. Report exact topic-coverage numerator/denominator per scope and soft-label Brier score; refuse empty query sets, absent labels/votes, zero denominator, incomplete claim coverage and stale references. Preserve R100 independent-outcome joins and hard negatives. Source SHA-256 `d978b4b4201059c2e7bcc7a78def0d5845cf7db1e361f2f50ee57f8bcc5733ae`.
+- **`EG-DECISION-ENGINE-R001.100` / GRAPHOS:19:** Extend `Method::Decide` with `RecommendationSafetyV1` and per-bound typed evidence/result. Refuse missing, stale, non-finite, incompatible or over-limit facts with the exact violated bound. GraphOS's pre-surface invocation/validation receipt remains a separate pending prerequisite. Preserve partial AU-HARNESS-R021.4/.6/.7. Source SHA-256 `cd33b64c1d759f3c7dd0a83112b77955d25a49c69d20288fe4c917716c711ff6`.

@@ -109,13 +109,11 @@ Producer first: terms, then shapes, then projection call sites, then query tests
 - [ ] **EG-ORCH-VOCAB-R009.18 acceptance:** Deliver the positive, negative, refusal, boundary, or readback cases explicitly required by: Extend the existing EG routing/continuation contract with the joint per-run observation window and adjustment receipt; bind AU observations and trace application. Preserve host ceiling and narrow-only enforcement.
 - [ ] **EG-ORCH-VOCAB-R009.18 status:** Keep SPECIFIED until separately reviewed implementation and served evidence are available.
 
-- [ ] **EG-ORCH-VOCAB-R013.7 (AU:115):** Define and wire the EG-owned residual for `EG-ORCH-VOCAB-R013` using the reviewed producer/consumer route; preserve covered clauses `EG-REPO-INGEST-R009`, `AU-HARNESS-R024`, `EG-ORCH-VOCAB-R013.1`, `EG-ORCH-VOCAB-R013.3`.
-- [ ] **EG-ORCH-VOCAB-R013.7 acceptance:** Deliver the positive, negative, refusal, boundary, or readback cases explicitly required by: Add the query-output and provenance contract under existing owners; retain trace definitions.
-- [ ] **EG-ORCH-VOCAB-R013.7 status:** Keep SPECIFIED until separately reviewed implementation and served evidence are available.
+- [ ] **EG-ORCH-VOCAB-R013.7:** Extend the existing RunTrace AddNode/UQL path with the source-pinned CodeWalkthroughV1 manifest and typed refusal checks. AU producer and WebUI consumer remain explicit owner holds until their exact requirement IDs are linked.
+- [ ] **EG-ORCH-VOCAB-R013.7 acceptance:** Run `code_walkthrough_manifest_round_trips`, `add_run_trace_rejects_stale_walkthrough_source_or_artifact`, and `test_walkthrough_trace_and_artifact_read_back`; verify independent artifact and UQL digests. These are future tests; status stays SPECIFIED.
 
-- [ ] **EG-ORCH-VOCAB-R003.8 (EG:12):** Define and wire the EG-owned residual for `EG-ORCH-VOCAB-R003` using the reviewed producer/consumer route; preserve covered clauses `EG-DECISION-ENGINE-R135.2`, `EG-DECISION-ENGINE-R135.4`, `EG-DECISION-ENGINE-R036`, `EG-ORCH-VOCAB-R003.5`, `EG-ORCH-VOCAB-R003.6`.
-- [ ] **EG-ORCH-VOCAB-R003.8 acceptance:** Deliver the positive, negative, refusal, boundary, or readback cases explicitly required by: Add these residuals under existing assembly/program/vocabulary owners.
-- [ ] **EG-ORCH-VOCAB-R003.8 status:** Keep SPECIFIED until separately reviewed implementation and served evidence are available.
+- [ ] **EG-ORCH-VOCAB-R003.8:** Extend existing R135 program lookup and Agent Library projection with successful-run promotion, pinned compatible-task similarity, and typed handler metadata; keep graph.assemble as execution authority.
+- [ ] **EG-ORCH-VOCAB-R003.8 acceptance:** Run `similarity_policy_and_signature_round_trip`, `team_reuse_rejects_stale_or_incompatible_handler`, and `test_successful_team_promotes_and_similar_task_reuses_constrained_plan`; include no-candidate and handler refusal. These are future tests; status stays SPECIFIED.
 
 - [ ] **EG-ORCH-VOCAB-R012.7 (EG:46):** Define and wire the EG-owned residual for `EG-ORCH-VOCAB-R012.2` using the reviewed producer/consumer route; preserve covered clauses `EG-ORCH-VOCAB-R012.1`, `EG-ORCH-VOCAB-R012.2`, `EG-ORCH-VOCAB-R012.3`, `EG-ORCH-VOCAB-R012.4`, `EG-ORCH-VOCAB-R012.5`, `EG-ORCH-VOCAB-R012.6`, `EG-DECISION-ENGINE-R129.3`, `EG-DECISION-ENGINE-R129.4`, `EG-DECISION-ENGINE-R129.5`, `EG-IDENTITY-R008.4`.
 - [ ] **EG-ORCH-VOCAB-R012.7 acceptance:** Deliver the positive, negative, refusal, boundary, or readback cases explicitly required by: Credit R012.1-.6 rather than treating policy-node ingestion as wholly absent. Define content-to-policy-rule synthesis and link its activation path to invariant checking and reasoning consumption. A contradictory repository policy must be refused before activation while preserving prior policy state.
@@ -143,8 +141,8 @@ Producer first: terms, then shapes, then projection call sites, then query tests
 <!-- spec-definition-patch:owner-dispatch-20261012-tasks -->
 ## Cross-owner harness analytics tasks — 2026-10-12
 
-- [ ] `EG-ORCH-VOCAB-R009.101`: define and serve manifest-bound harness session sync/search over existing RunTrace records; include source/index revisions, coverage and stable cursor.
-- [ ] `EG-ORCH-VOCAB-R010.100`: define and serve proposal/prompt/progress-to-trace metric joins with partial/unknown semantics and independent trace readback.
-- [ ] `EG-ORCH-VOCAB-R010.101`: add typed non-overlapping token accounting and grouped indexed usage queries; measure the stated 1,000,000-row p95 boundary through the served path.
+- [ ] `EG-ORCH-VOCAB-R009.101`: define and serve full-manifest tenant-scoped harness session index/browse/search from RunTrace; bind SDK receipt, source coverage, cursor and optional R010.101 cost profile, then test idempotent replay/refusals.
+- [ ] `EG-ORCH-VOCAB-R010.100`: define and serve proposal/prompt/progress-to-trace metric joins with revisioned metric fields, partial/unknown semantics and independent readback; link AU producer and GraphOS adapter IDs before closure.
+- [ ] `EG-ORCH-VOCAB-R010.101`: add typed disjoint token accounting and grouped indexed queries; aggregate exact rational cost and round once per output group/category; measure the stated 1,000,000-row p95 boundary through the served path.
 - [ ] For each row, implement positive, refusal, stale-revision and cross-tenant cases exactly as its requirement specifies; preserve existing R009/R010 children and metric meanings.
 <!-- /spec-definition-patch -->
