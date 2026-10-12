@@ -65,66 +65,15 @@ The map preserves existing subsystem owners and distinguishes design, source wir
 It changes no architecture, enabled feature, package recipe, or release version.
 
 <!-- spec-definition-patch:owner-batch-20261012-public-engine-contract-and-release -->
-## Reviewed owner residuals — 2026-10-12
+## Reviewed definition index — 2026-10-12
 
-### `EG-CONTRACT-R001.1` — AU:109
+`requirements.md` holds normative contracts, source mappings, owner references, open holds, and acceptance.
+The entries below extend their listed parent requirements.
+No implementation or served evidence is claimed here.
 
-Original source objective: Agents use typed models as their primary data model, with construction, validation and serialization throughout the agent lifecycle.
-Original intake fields (exact source record array): ["AU-HARNESS","Agents use typed models as their primary data model, with construction, validation and serialization throughout the agent lifecycle.","mechanism","(blank)","prompts/conversations/old/pydantic-native.txt","LOW","WRITE"]
+| Requirement | Parent | Source record | SHA-256 |
+|---|---|---|---|
+| `EG-CONTRACT-R001.1` | `EG-CONTRACT-R001` | `AU:109` | `c0d92285a141dcaac6817bcac25ffa438517afeba50be7167511f3a37a31c2` |
+| `EG-CONTRACT-R001.2` | `EG-CONTRACT-R001` | `AU:121` | `98b7ad1186ec2a385b334ffa0ad1b28888157ed6b51c6ed4172eeb7b7ef6768e` |
 
-**Contract definition:** EG SHALL export strict generated request, result, identity, and decision models, including their complete nested type closure, with a manifest containing the contract revision, schema digest, and exported type identifiers. Construction, deserialization, and serialization SHALL use the same pinned generated schema. Unknown nested fields, invalid enum values, incompatible revisions, and invalid scalar types SHALL fail with a field path before dispatch or persistence. AU owns AgentLifecycleState and its transition rules; its state composes these generated EG types with HarnessRequest, phase, tool requests/results, and RunOutcome. EG SHALL NOT define a second AU lifecycle state machine or permit an unvalidated dictionary to replace an admitted generated value. Rehydration SHALL validate the persisted schema revision and every nested generated value before another agent step can run.
-
-**Production wiring:** Extend the existing EG contract generator and its generated-model manifest; consume those exports in AU HarnessRequest/run_agent and the proposed AU-owned AgentLifecycleState. Tests must cross the generated-client and actual AU execution/persistence boundaries.
-
-**Planned acceptance:** Proposed integration case lifecycle_generated_types_survive_run_and_restart: the generated client enters the real AU run_agent path, transitions through tool request and result to RunOutcome, persists state, restarts, and resumes using the same typed values. Unknown nested fields, wrong scalar types, stale schema revisions, and malformed persisted values each refuse before the next step; AU separately refuses an illegal phase transition. Read back the persisted and resumed values independently and compare every field. A generated-model unit round trip alone does not pass.
-
-Preserve existing coverage: `AU-HARNESS-R007`, `EG-CONTRACT-R001`, `AU-HARNESS-R008`.
-
-Source record SHA-256: `c0d92285a141dcaac6817bcac25ffa438517afeba50be716211751f3a37a31c2`. Owner references:
-- `epistemic-graph@e1db3f4359e659dc07fb0e0ba5e021bed40c9f26:specs/public-engine-contract-and-release/requirements.md:5` — `EG-CONTRACT-R001`
-- `agent-utilities@50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:12` — `AU-HARNESS-R007`
-- `agent-utilities@50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:13` — `AU-HARNESS-R008`
-
-Open owner prerequisites:
-- AU-HARNESS-R007.40 is unmerged. Lifecycle completion requires the AU-owned state, transitions, persistence, and real consumer integration; this EG export clause alone cannot close AU:109.
-
-Unmerged consumer dependencies:
-- `AU-HARNESS-R007.40` (draft_unmerged; observed main `50c313ab01871ff7e10aee2a9d0254fa55d71f07`): Local drafting payload; not a merged producer or implementation receipt.
-
-Owner-review choices (not source-established facts):
-- A schema/type manifest is a proposed export contract, not evidence of a current implemented manifest.
-
-This is a definition only; status remains SPECIFIED and no implementation, served result, receipt, or closure is claimed.
-
-### `EG-CONTRACT-R001.2` — AU:121
-
-Original source objective: Prompt JSON blueprints and Pydantic models round-trip through disk with stable formatting and no field lost; a round-trip difference fails the test.
-
-**Contract definition:** EG SHALL bind each exported prompt blueprint to its blueprint/schema revision, generated-model revision, semantic digest, and canonical-byte digest. The versioned JSON formatting profile SHALL use UTF-8 without a BOM, sorted object keys, two-space indentation, LF line endings, one final newline, explicit declared default and null fields, preserved array order, and no NaN or Infinity. Parsing SHALL reject unknown fields and scalar coercion. The schema-defined number representation and Unicode scalar values SHALL survive without rounding or normalization. Export, SDK-owned disk write, disk read, strict model validation, and re-export SHALL preserve both the typed field values and the canonical bytes. A mismatch SHALL report the first differing JSON pointer/value or byte offset and fail acceptance. EG owns blueprint semantics and validation; existing SDK/GraphOS governed source-effect contracts own filesystem effects.
-
-**Production wiring:** Use EG-TYPED-PACKS-R094.2/.3/.5/.7: the served agent admin export/import and durable persistence path, with SDK-GOVERNED-WRITEBACK-R004.5-.12 and GRAPHOS-FLEET-R003.4-.10 for effects. Reuse those contracts rather than adding an EG filesystem writer.
-
-**Planned acceptance:** Proposed integration case blueprint_canonical_disk_roundtrip_has_no_difference: use the served R094 export and governed SDK disk write/read, then import and re-export after restart. Include nested defaults, nulls, ordered arrays, Unicode, and boundary numeric values admitted by the schema. Compare exact canonical bytes plus schema-typed values. Lost fields, unknown fields, coerced numbers, changed array order, and a changed final newline must each fail the difference oracle. Capture the source-effect receipt; a serializer-only test is insufficient.
-
-Preserve existing coverage: `EG-CONTRACT-R001`, `EG-TYPED-PACKS-R094.2`, `EG-TYPED-PACKS-R094.5`, `EG-TYPED-PACKS-R094.7`, `EG-TYPED-PACKS-R094.3`.
-
-Source record SHA-256: `98b7ad1186ec2a385b334ffa0ad1b28888157ed6b51c6ed4172eeb7b7ef6768e`. Owner references:
-- `epistemic-graph@e1db3f4359e659dc07fb0e0ba5e021bed40c9f26:specs/public-engine-contract-and-release/requirements.md:5` — `EG-CONTRACT-R001`
-- `epistemic-graph@e1db3f4359e659dc07fb0e0ba5e021bed40c9f26:specs/typed-packs-and-catalog/requirements.md:149` — `EG-TYPED-PACKS-R094.2`
-- `epistemic-graph@e1db3f4359e659dc07fb0e0ba5e021bed40c9f26:specs/typed-packs-and-catalog/requirements.md:150` — `EG-TYPED-PACKS-R094.3`
-- `epistemic-graph@e1db3f4359e659dc07fb0e0ba5e021bed40c9f26:specs/typed-packs-and-catalog/requirements.md:152` — `EG-TYPED-PACKS-R094.5`
-- `epistemic-graph@e1db3f4359e659dc07fb0e0ba5e021bed40c9f26:specs/typed-packs-and-catalog/requirements.md:154` — `EG-TYPED-PACKS-R094.7`
-- `agent-utilities@50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/agent-control-plane/requirements.md:30` — `AU-CONTROL-R025`
-
-Open owner prerequisites:
-- AU-CONTROL-R025.40 remains unmerged. The formatter must pin an exact number encoder/profile version; no claim that arbitrary JSON parsers preserve numeric spelling is permitted.
-
-Unmerged consumer dependencies:
-- `AU-CONTROL-R025.40` (draft_unmerged; observed main `50c313ab01871ff7e10aee2a9d0254fa55d71f07`): Local drafting payload; not a merged producer or implementation receipt.
-
-Owner-review choices (not source-established facts):
-- The explicit formatting profile matches the AU draft proposal; it is a proposed cross-owner contract, not an existing landed receipt.
-
-This is a definition only; status remains SPECIFIED and no implementation, served result, receipt, or closure is claimed.
-
-<!-- /spec-definition-patch -->
+Both definitions remain SPECIFIED pending owner review and served evidence.

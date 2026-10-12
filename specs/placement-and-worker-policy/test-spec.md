@@ -34,7 +34,11 @@ R002.2 producer evidence: `scheduler_config::tests` uses real serde to prove def
 <!-- spec-definition-patch:owner-batch-20261012-placement-and-worker-policy -->
 ## Owner acceptance targets — 2026-10-12
 
-No test below has run; all are planned acceptance only.
+These bullets define future acceptance targets. None has run as a test.
 
-- **`EG-PLACEMENT-R001.15`:** Call `evaluate_capacity_adjustment` with a fresh proposal within declared bounds and headroom; assert `verdict=allow` binds proposal, premise and policy revisions. Reject stale/cross-tenant premise, invalid digest/negative measurement, inconsistent unit/window, proposal/current-premise mismatch, current or proposed capacity outside bounds, and requested increase larger than observed headroom with its exact `CapacityRefusalCode` and no mutation. GraphOS must apply a valid proposal and expose an independent readback receipt binding proposal digest, requested/applied capacity, host/resource, policy and resulting state revision. That GraphOS wire journey remains held until its operation and receipt contract are defined.
+- **`EG-PLACEMENT-R001.15`:** A valid proposal within declared bounds and headroom returns `allow` bound to proposal, premise, and policy revisions.
+- Refuse stale/cross-tenant premises, invalid digests or negative measurements, inconsistent units/windows, and proposal/current-premise mismatches without mutation.
+- Refuse capacities outside bounds and increases above observed headroom with the exact `CapacityRefusalCode`.
+- GraphOS applies a valid proposal and exposes an independent readback receipt. Bind it to proposal digest, requested/applied capacity, host/resource, policy, and resulting state revision.
+- Hold GraphOS acceptance until its operation and receipt contract are defined.
 <!-- /spec-definition-patch -->

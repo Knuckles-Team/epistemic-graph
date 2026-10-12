@@ -60,6 +60,6 @@ Producer first: ontology gaps, shapes and authority mappings before fixtures and
 <!-- spec-definition-patch:owner-batch-20261012-orchestration-competency -->
 ## Reviewed residual definition tasks — owner batch 2026-10-12
 
-- [ ] **EG-CQ-ORCH-R010.7:** Gate plan-producing Decide responses on a revision-matched architecture view, AU study-gap record, and per-feature attach point/wiring edge; reject any missing or stale input before returning a plan.
-- [ ] **EG-CQ-ORCH-R010.7 acceptance:** Run `unwired_feature_refuses_before_task_plan`, `stale_architecture_or_study_gap_refuses`, and `test_plan_requires_pinned_architecture_and_attach_points`; assert named refusals and no plan. Confirm AU proposal id/revision contract before cross-owner closure; status remains SPECIFIED.
+- [ ] **EG-CQ-ORCH-R010.7:** Gate plan-producing Decide responses on a revision-matched architecture view and AU study-gap record. Require each feature's attach point and wiring edge. Reject missing or stale inputs before returning a plan.
+- [ ] **EG-CQ-ORCH-R010.7 acceptance:** Run `unwired_feature_refuses_before_task_plan`, `stale_architecture_or_study_gap_refuses`, and `test_plan_requires_pinned_architecture_and_attach_points`. Assert named refusals and no plan. Confirm AU proposal id/revision before cross-owner closure. Status remains SPECIFIED.
 <!-- /spec-definition-patch -->

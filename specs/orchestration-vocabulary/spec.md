@@ -2,22 +2,22 @@
 
 ## Dependencies and unresolved owner contracts
 
-- `EG-REPO-INGEST-R009` supplies repository/source relationships; `AU-HARNESS-R024` supplies connected execution spans. Neither row currently defines the AU walkthrough producer input/output binding or the WebUI interactive artifact consumer. Those exact owner requirement IDs and served receipts remain pending coordinator assignment; `EG-ORCH-VOCAB-R013.7` is SPECIFIED and cannot be treated as end-to-end closed.
+- `EG-REPO-INGEST-R009` defines repository/source relationships; `AU-HARNESS-R024` supplies connected execution spans. Neither row currently defines the AU walkthrough producer input/output binding or the WebUI interactive artifact consumer. Those exact owner requirement IDs and served receipts remain pending coordinator assignment; `EG-ORCH-VOCAB-R013.7` is SPECIFIED and cannot be treated as end-to-end closed.
 - `AU-HARNESS-R019.5-.7` are the existing study-gap producer/consumer prerequisites for `EG-CQ-ORCH-R010.7`; they must carry the same repository and revision as `EG-CQ-ORCH-R010.1-.6`. If the AU rows lack a stable proposal id/revision, that missing producer field remains a hold.
-- `WEBUI-APPS-R004.7` and `.8` are the named display consumers for `EG-ORCH-VOCAB-R010.100` and `.101`. Exact AU progress-source and SDK harness-manifest/sync-receipt producer IDs, plus the exact GraphOS served-adapter IDs, are not established in this repository evidence and remain explicit holds.
-- Existing `EG-DECISION-ENGINE-R036`, `R135.2`, `R135.4`, and `EG-TYPED-PACKS-R006` are prerequisites for `EG-ORCH-VOCAB-R003.8`; they provide the assembly authority, program store, and Agent Library projection.
+- `WEBUI-APPS-R004.7` and `.8` are named consumers for R010.100 and R010.101. AU progress-source and SDK harness-manifest/sync-receipt producer IDs remain unknown. Exact GraphOS served-adapter IDs are also unknown. These remain explicit holds.
+- Existing `EG-DECISION-ENGINE-R036`, `R135.2`, `R135.4`, and `EG-TYPED-PACKS-R006` are prerequisites for `EG-ORCH-VOCAB-R003.8`; they define the assembly authority, program store, and Agent Library projection.
 
 Owner: epistemic-graph. Cross-repo IDs: none required (consumer is graph-os intent tools via `EG-CQ-ORCH-R009`).
 Public provenance: closes the MISSING-term lists in `specs/orchestration-competency` (`EG-CQ-ORCH-001`); spec-only change.
 
 ## Purpose and user stories
 
-The competency spec found that seven orchestration questions cannot be asked of the graph because the ontology lacks the terms. This spec designs the complete vocabulary, says which existing mechanism writes each term and how `graph.assemble()` (`EG-DECISION-ENGINE-R036`) reads it. It adds no planner, router, guardrail engine or topology chooser, and no second catalog: packs and the Agent Library stay the content authority (`EG-TYPED-PACKS-R072`).
+The competency spec found seven questions that the graph cannot answer because ontology terms are missing. This spec defines the complete vocabulary. It names existing writers for each term and explains how `graph.assemble()` (`EG-DECISION-ENGINE-R036`) reads them. It adds no planner, router, guardrail engine, or topology chooser. It adds no second catalog. Packs and Agent Library remain the content authority (`EG-TYPED-PACKS-R072`).
 
 ## Requirements and acceptance
 
-- FR-001: Every missing term listed in `EG-CQ-ORCH-001` exists in the ontology file named in `design.md` (Vocabulary), with domain, range and SHACL constraints stated there.
-- FR-002: Each term has exactly one writer among existing mechanisms (typed packs projection, the Agent Library outbox, the template/topology projection, or the assemble commit) and at least one reader named in `design.md` (Wiring).
+- FR-001: Every missing term in `EG-CQ-ORCH-001` SHALL exist in the ontology file named in `design.md` (Vocabulary). That file SHALL state its domain, range, and SHACL constraints.
+- FR-002: Each term SHALL have exactly one writer. Writers are typed-pack projection, Agent Library outbox, template/topology projection, or assemble commit. Each term SHALL have a reader named in `design.md` (Wiring).
 - FR-003: The worked example (deploy a container) answers the seven part-queries from one fixture and one committed assembly.
 - FR-004: Every caveat from the gap brief is recorded as CONFIRMED, DECIDED or BLOCKED in `design.md` (Decisions), with a Corrections list for `EG-CQ-ORCH-001`.
 - SC-001: `requirements.md` rollups R001..R008 each close when their children pass their named tests.
@@ -43,14 +43,14 @@ Dependency note: the R127 guardrail storage and entailment algorithm are VERIFIE
 
 ### `EG-ORCH-VOCAB-R009.18` — AU:26
 
-Original source objective: The platform monitors latency, token cost and error frequency per run and adjusts model selection and parallelism within declared budgets, recording each adjustment on the trace.
-Original intake fields (exact source record array): ["AU-CONTROL","The platform monitors latency, token cost and error frequency per run and adjusts model selection and parallelism within declared budgets, recording each adjustment on the trace.","mechanism","","prompts/conversations/old/innovation_frameworks.txt","MEDIUM","WRITE"]
+Original source objective: The platform monitors latency, token cost, and error frequency per run. It adjusts model selection and parallelism within declared budgets. It records each adjustment on the trace.
+Original intake fields are recorded exactly in `requirements.md` under R009.18. The source record and its digest are authoritative there.
 
-**Contract definition:** EG SHALL accept one revisioned per-run observation window containing run/window IDs and times, latency samples with units, error count and eligible-attempt denominator, token usage and measured cost with currency/rate revision, current model/profile and parallel width, consumed/remaining budgets, and host capacity receipt. Missing samples/rates, a zero denominator, stale windows, or mismatched run revisions SHALL remain unknown and SHALL NOT become zero-cost or zero-error evidence. The versioned adjustment policy SHALL state latency/error thresholds, the model adequacy/profile inputs, cost prediction basis, and deterministic tie breaks. EG SHALL jointly evaluate model and width against these observations and remaining budget, return a committed feasible pair or a typed abstention/stop, and trace the before/after model, width, budget, window, policy, evidence, and reason. Mid-run continuation SHALL obey AU-CONTROL-R019: width may narrow and release capacity but SHALL NOT widen. Later-run allocation requires a distinct admission decision and capacity grant.
+**Contract definition:** EG SHALL accept one revisioned per-run observation window. It binds run/window IDs and times. It carries latency samples with units, error count, and eligible-attempt denominator. It carries token usage and measured cost with currency/rate revision. It binds current model/profile, parallel width, consumed/remaining budgets, and host-capacity receipt. Missing samples or rates SHALL remain unknown. A zero denominator, stale window, or mismatched run revision SHALL also remain unknown. Unknown values SHALL NOT become zero-cost or zero-error evidence. A versioned adjustment policy SHALL state latency/error thresholds and model-adequacy/profile inputs. It SHALL also state cost-prediction basis and deterministic tie breaks. EG SHALL jointly evaluate model and width against these observations and remaining budget. It SHALL return a committed feasible pair or typed abstention/stop. It SHALL trace before/after model, width, budget, window, policy, evidence, and reason. Mid-run continuation SHALL obey AU-CONTROL-R019. Width may narrow and release capacity; it SHALL NOT widen. Later-run allocation requires distinct admission and capacity grant.
 
-**Production wiring:** Feed the proposed AU RunAdjustmentObservation from the existing routing and continuation paths to Method::Decide. Reuse R136 model adequacy/stage allocation and the existing RunTrace ingestion/readback under R009.17. Persist both adjustments and abstentions before application; GraphOS remains capacity authority.
+**Production wiring:** Feed proposed AU `RunAdjustmentObservation` from existing routing and continuation paths to `Method::Decide`. Reuse R136 model adequacy and stage allocation. Reuse R009.17 RunTrace ingestion/readback. Persist each adjustment and abstention before application. GraphOS remains capacity authority.
 
-**Planned acceptance:** Proposed integration case run_observations_change_model_and_width_with_trace: exercise the actual AU routing/continuation consumer and served EG Decide path using identical budgets but controlled joint latency/cost/error windows. Demonstrate policy-directed model and width changes, a budget-forced refusal/stop, and a trace/readback with exact before/after facts. Reject stale windows and invalid rates/denominators; verify unknown values are not zeros. Demonstrate width narrowing releases capacity and attempted mid-run widening is rejected. A host-only AIMD test or model-only allocator test is insufficient.
+**Planned acceptance:** `run_observations_change_model_and_width_with_trace` exercises actual AU routing/continuation and served EG Decide. It uses identical budgets with controlled joint latency/cost/error windows. Show policy-directed model and width changes. Show budget-forced refusal/stop and exact before/after trace readback. Reject stale windows and invalid rates/denominators. Confirm unknown values stay nonzero-unknown, not zeros. Show narrowing releases capacity. Reject mid-run widening. A host-only AIMD or model-only allocator test is insufficient.
 
 Preserve existing coverage: `AU-CONTROL-R006`, `AU-CONTROL-R019`, `AU-HARNESS-R007`, `EG-ORCH-VOCAB-R009.8`, `EG-ORCH-VOCAB-R009.9`, `GRAPHOS-CAPACITY-R001.1`.
 
@@ -62,7 +62,7 @@ Source record SHA-256: `8d2f83f788c5fdd36c4dc47f85c9f7673393b6b9075dc46a5ac1c32a
 - `graph-os@069eebc785afb9fb26bbbcc907cf5a2a4bcab5c5:specs/adaptive-capacity/requirements.md:6` — `GRAPHOS-CAPACITY-R001.1`
 
 Open owner prerequisites:
-- AU-CONTROL-R006.30 is unmerged. The exact joint policy thresholds, predictive cost inputs, and tie-break semantics require an owner-versioned policy; no tuning defaults or implementation claims are supplied by the source.
+- AU-CONTROL-R006.30 is unmerged. Policy thresholds, predictive cost inputs, and tie breaks require an owner-versioned policy. No tuning defaults or implementation claims come from the source.
 
 Unmerged consumer dependencies:
 - `AU-CONTROL-R006.30` (draft_unmerged; observed main `50c313ab01871ff7e10aee2a9d0254fa55d71f07`): Local drafting payload; not a merged producer or implementation receipt.
@@ -74,7 +74,7 @@ This is a definition only; status remains SPECIFIED and no implementation, serve
 
 ### `EG-ORCH-VOCAB-R013.7` — AU:115
 
-Original objective: A codebase query can produce a linear code walkthrough and a self-contained interactive explanation artifact, with execution notes streamed to the graph as provenance.
+Original objective: A codebase query can produce a linear walkthrough. It can produce a self-contained interactive explanation artifact. Execution notes stream to the graph as provenance.
 
 EG-owned residual: Define the walkthrough, self-contained interactive explanation output and its graph-bound execution-note stream.
 
@@ -86,7 +86,7 @@ Owner source hash: `445704f78ae07d1c4b62f42dd23797823d91bc470f04a9dc779e3f6777ff
 
 ### `EG-ORCH-VOCAB-R003.8` — EG:12
 
-Original objective: A team that completes work successfully is promoted to a reusable configuration chosen by similarity to a new task; capabilities are typed nodes carrying handler metadata.
+Original objective: Successful work promotes a reusable team configuration. Similarity to a new task selects it. Capabilities are typed nodes with handler metadata.
 
 EG-owned residual: Define team-level promotion, task-similarity reuse and typed capability handler metadata.
 
@@ -98,13 +98,13 @@ Owner source hash: `517823a931bb93e173b301a9a31fbe6bd75c14687233c72278a59ced1940
 
 ### `EG-ORCH-VOCAB-R012.7` — EG:46
 
-Original source objective: Constitution and policy files from repositories are ingested and synthesized into graph policy nodes consumed by the reasoning layer; a policy that contradicts a stored invariant is refused.
+Original source objective: Repository constitution and policy files are ingested and synthesized as graph policy nodes for reasoning. A policy that contradicts a stored invariant is refused.
 
-**Contract definition:** IndexRepository SHALL bind each classified constitution/policy source to repository, path, commit, blob digest, and source spans, and synthesize typed GuardrailRule candidates linked to those spans. The synthesis profile SHALL be versioned and declare its supported rule grammar; unparsed or ambiguous clauses SHALL remain inactive with explicit reasons. Synthesis SHALL NOT grant source prose authority to execute or activate itself. Before activating a reviewed candidate set, EG SHALL check every rule against the pinned invariant generation using R129.3, validate the review binding under R012.8, and compare the expected active-policy revision. A contradiction SHALL identify the invariant IRI, candidate rule, and source clause; a stale generation/review or unsupported clause SHALL refuse activation and preserve the previous active set. Successful activation SHALL atomically publish the candidate-set digest and policy revision. Subsequent reasoning SHALL load this active graph policy and record its revision in the decision evidence.
+**Contract definition:** IndexRepository SHALL bind each classified constitution/policy source to repository, path, commit, blob digest, and source spans. It SHALL synthesize typed GuardrailRule candidates linked to those spans. The synthesis profile SHALL be versioned and state its supported rule grammar. Unparsed or ambiguous clauses SHALL remain inactive with explicit reasons. Source prose SHALL NOT self-activate. Before activation, EG SHALL compare every reviewed rule against the pinned invariant generation using R129.3. EG SHALL validate review binding under R012.8 and compare expected active-policy revision. A contradiction SHALL name invariant IRI, candidate rule, and source clause. Stale generation/review or unsupported clauses SHALL refuse and preserve the active set. Successful activation SHALL atomically publish candidate-set digest and policy revision. Later reasoning SHALL load the active graph policy and record its revision in decision evidence.
 
-**Production wiring:** Extend the existing source_ingest router and SourceIngest path after classify_spec_file. Reuse GuardrailRule storage and check_rule_against_invariants; connect activation to the policy graph consumed by the existing decision/reasoning path under EG-IDENTITY-R008.4. R129.5 human-override guarding alone does not establish repository-policy guarding.
+**Production wiring:** Extend existing source_ingest router and SourceIngest after `classify_spec_file`. Reuse GuardrailRule storage and `check_rule_against_invariants`. Link activation to the decision policy under EG-IDENTITY-R008.4. R129.5 human-override guarding alone does not guard repository policy.
 
-**Planned acceptance:** Proposed integration case repository_policy_is_synthesized_guarded_and_used: send a real policy file through IndexRepository, inspect typed candidates and source spans, approve its exact digest through the owner review path, activate, and execute a served decision whose outcome proves that active rule was loaded. A conflicting rule must name the stored invariant and leave the prior active revision unchanged. Also exercise unparsed prose, missing review, changed source digest, and an invariant-generation race. Classification alone or a direct pure invariant-helper test does not satisfy acceptance.
+**Planned acceptance:** `repository_policy_is_synthesized_guarded_and_used` sends a real policy through IndexRepository. Inspect typed candidates and source spans. Approve the exact digest through owner review. Activate it and dispatch a served decision proving rule use. A conflicting rule must name the invariant and preserve prior active revision. Also test unparsed prose, missing review, changed source digest, and invariant-generation race. Classification or a pure invariant-helper test is insufficient.
 
 Preserve existing coverage: `EG-ORCH-VOCAB-R012.1`, `EG-ORCH-VOCAB-R012.2`, `EG-ORCH-VOCAB-R012.3`, `EG-ORCH-VOCAB-R012.4`, `EG-ORCH-VOCAB-R012.5`, `EG-ORCH-VOCAB-R012.6`, `EG-DECISION-ENGINE-R129.3`, `EG-DECISION-ENGINE-R129.4`, `EG-DECISION-ENGINE-R129.5`, `EG-IDENTITY-R008.4`.
 
@@ -127,13 +127,13 @@ This is a definition only; status remains SPECIFIED and no implementation, serve
 
 ### `EG-ORCH-VOCAB-R004.6` — EG:51
 
-Original source objective: The capability registry models functional gaps and desired enhancements as typed nodes in a domain taxonomy, queryable by task class.
+Original source objective: The capability registry models functional gaps and desired enhancements as typed nodes in a domain taxonomy. Queries can filter by task class.
 
-**Contract definition:** EG SHALL persist distinct typed CapabilityGap and DesiredEnhancement nodes with tenant, node ID/revision, capability reference, task-class reference, domain-taxonomy reference, source evidence/digest, owner, and disposition. Edges SHALL connect each node to its capability, task class, and domain; a gap may cite a typed unmet-capability abstention, while an enhancement records a requested improvement without asserting that capability is absent. The governed mutation path SHALL validate references, ownership, and expected revisions and deduplicate a repeated source event. Unknown taxonomy or task-class references SHALL refuse instead of creating arbitrary terms. UnifiedQuery SHALL return these types filtered by task class, with explicit exact or taxonomy-descendant matching and a pinned taxonomy revision. Authorization SHALL run before rows, counts, and pagination. A gap/enhancement node SHALL NOT by itself mark a capability implemented, admitted, or successfully tested.
+**Contract definition:** EG SHALL persist distinct typed CapabilityGap and DesiredEnhancement nodes. Each node binds tenant, ID/revision, capability, task class, domain taxonomy, source evidence/digest, owner, and disposition. Edges SHALL link each node to capability, task class, and domain. A gap may cite typed unmet-capability abstention. An enhancement records a requested improvement without asserting absence. Governed mutation SHALL validate references, ownership, and expected revisions. It SHALL deduplicate repeated source events. Unknown taxonomy/task-class refs SHALL refuse; EG SHALL NOT create arbitrary terms. UnifiedQuery SHALL return these types by task class. Matching SHALL state exact or taxonomy-descendant mode and pinned taxonomy revision. Authorization SHALL precede rows, counts, and pagination. A gap/enhancement node SHALL NOT mark capability implemented, admitted, or tested.
 
-**Production wiring:** Extend the existing orchestration ontology/shapes and governed AddNode/ChangeEnvelope path. Reuse the existing task-class/domain taxonomy and Method::UnifiedQuery rather than introducing a second capability registry. Keep the EG:7 owner-export manifest question separate from these persisted domain nodes.
+**Production wiring:** Extend existing orchestration ontology/shapes and governed AddNode/ChangeEnvelope. Reuse the existing task-class/domain taxonomy and `Method::UnifiedQuery`; do not add a second capability registry. Keep the EG:7 owner-export manifest question separate from these domain nodes.
 
-**Planned acceptance:** Proposed integration case capability_gap_and_enhancement_are_queryable: use the real governed node-mutation route to record a gap from a served abstention and an enhancement from a distinct reviewed request. Query by two different task classes through the generated UnifiedQuery client, restart and repeat, and independently read back typed fields, edges, and provenance. Verify event deduplication, expected-revision conflict, invalid taxonomy refusal, exact versus descendant behavior, denied-tenant counts/cursors, and that capability-implementation state did not change. In-memory registry fixtures alone do not pass.
+**Planned acceptance:** `capability_gap_and_enhancement_are_queryable` records a gap from served abstention and enhancement from a distinct reviewed request. Use the governed mutation route. Query two task classes via generated UnifiedQuery. Restart and repeat. Independently read typed fields, edges, and provenance. Confirm deduplication, revision conflict, invalid taxonomy refusal, exact/descendant behavior, denied-tenant counts/cursors, and unchanged capability state. In-memory fixtures alone fail acceptance.
 
 Preserve existing coverage: `EG-ORCH-VOCAB-R004`, `EG-DECISION-ENGINE-R010`.
 
@@ -154,13 +154,13 @@ This is a definition only; status remains SPECIFIED and no implementation, serve
 
 ### `EG-ORCH-VOCAB-R012.8` — EG:61
 
-Original source objective: Epistemic state lives in the graph while normative state (rules, constitutions) lives in versioned files; the graph never overwrites normative files and normative changes require review.
+Original source objective: Epistemic state and active policy live in the graph. Normative rules and constitutions live in versioned files. Graph writes never overwrite them. Normative changes require review.
 
-**Contract definition:** EG SHALL retain epistemic state and active runtime policy in the graph while binding normative source to versioned reviewed repository files. Each activated source binding SHALL contain repository, path, commit, blob digest, candidate-set digest, review actor/receipt digest, invariant generation, and expected active-policy revision. Review SHALL cover the exact source and synthesized rule digests; stale, absent, rejected, or mismatched review SHALL refuse activation before active-policy mutation. EG graph mutations and reasoning SHALL NOT overwrite normative source files. A proposed source change SHALL use the existing governed SDK source-writeback and GraphOS approval boundary, then be reread at its committed revision and reviewed before it can become active graph policy. A graph policy edit SHALL NOT silently rewrite a file or treat an unreviewed file as runtime authority. R012.7 invariant checks and generation comparison SHALL apply at activation.
+**Contract definition:** EG SHALL retain epistemic state and active runtime policy in the graph. It SHALL bind normative source to reviewed, versioned repository files. Each activated binding SHALL include repository, path, commit, blob digest, and candidate-set digest. It SHALL also include review actor/receipt digest, invariant generation, and expected active-policy revision. Review SHALL cover exact source and synthesized-rule digests. Stale, absent, rejected, or mismatched review SHALL refuse before active-policy mutation. EG mutations and reasoning SHALL NOT overwrite normative files. Source changes SHALL use governed SDK writeback and GraphOS approval. Then reread the committed revision and review it before graph-policy activation. A graph-policy edit SHALL NOT rewrite a file or make an unreviewed file runtime authority. R012.7 invariant checks and generation comparison apply at activation.
 
-**Production wiring:** Link the R012.2 policy classification and EG-IDENTITY-R008.4 active graph policy to R012.7 activation. Bind review/approval evidence to GRAPHOS-OPS-R050.2/.4 and the concrete SDK governed source effect. EG has no normative filesystem writer.
+**Production wiring:** Link R012.2 policy classification and EG-IDENTITY-R008.4 active graph policy to R012.7 activation. Bind review evidence to GRAPHOS-OPS-R050.2/.4 and the concrete SDK source effect. EG has no normative filesystem writer.
 
-**Planned acceptance:** Proposed integration case reviewed_normative_source_activates_without_graph_overwrite: pin a real repository policy and its owner review receipt, ingest and activate through served EG routes, and execute a decision that records the resulting policy revision. Independently compare source bytes and Git revision before/after graph mutation and reasoning. An attempted graph-originated normative write must yield no source effect. Missing/rejected review, a modified blob after review, changed synthesized rules, and a raced invariant/active revision must preserve prior active policy. For a permitted source change, prove actual governed writeback, reread, renewed review, and only then activation; no direct fixture activation substitutes for this path.
+**Planned acceptance:** `reviewed_normative_source_activates_without_graph_overwrite` pins a real policy and owner review receipt. Ingest and activate through served EG routes. Dispatch a decision recording policy revision. Compare source bytes and Git revision before/after graph mutation and reasoning. Graph-originated normative writes must have no source effect. Missing/rejected review, modified blob, changed synthesized rules, or raced revisions preserve prior active policy. A permitted source change requires actual governed writeback, reread, renewed review, then activation. Direct fixture activation is insufficient.
 
 Preserve existing coverage: `EG-IDENTITY-R008.4`, `EG-ORCH-VOCAB-R012.2`, `GRAPHOS-OPS-R050.2`, `GRAPHOS-OPS-R050.4`, `EG-ORCH-VOCAB-R012.5`, `EG-ORCH-VOCAB-R012.6`.
 
@@ -194,7 +194,7 @@ Preserve the existing `R005` obligation and all prior children; add `EG-ORCH-VOC
 
 #### `EG-ORCH-VOCAB-R005.100` — AU:33
 
-Extend the existing orchestration step contract with a nested input schema and explicit source-slot/path mapping for each field. Before AU dispatch, project only declared paths into the step payload; undeclared sibling/nested fields are withheld even when the full ParallelWorkspace is readable by the coordinator. Define a shielded-field policy and bind the projected-payload digest to step id, schema revision and source-slot digests. Reuse typed result/schema validation.
+Extend the existing orchestration step contract with a nested input schema and explicit source-slot/path mapping for each field. Before AU dispatch, project only declared paths into the step payload. Withhold undeclared sibling/nested fields, even when the coordinator can read the full ParallelWorkspace. Define a shielded-field policy. Bind the projected-payload digest to step ID, schema revision, and source-slot digests. Reuse typed result/schema validation.
 
 Producer/consumer: EG declares typed step projection/shield policy; AU `_dispatch_parallel_batch`/processor applies projection before tool dispatch. DTO extra-field rejection is not data projection.
 
@@ -206,7 +206,7 @@ Preserve the existing `R009` obligation and all prior children; add `EG-ORCH-VOC
 
 #### `EG-ORCH-VOCAB-R009.100` — AU:60
 
-Define trace export read data by trace id, parent/run id, span ids, child-agent ids, tool-call ids, time range, source revision and redaction profile. Child spans correlate under the parent run and a consumer can retrieve a complete export snapshot with pagination/completeness metadata and stable digest. This is an EG trace correlation/export-read contract only: AU owns span export and GraphOS owns MCP transport to the configured backend.
+Define trace export reads by trace, parent/run, span, child-agent, and tool-call IDs. Also bind time range, source revision, and redaction profile.
 
 Producer/consumer: AU default_runtime_capabilities/run_agent exports; GraphOS MCP transport carries export; EG contract supports correlated readback. Preserve R008/R024 trace ownership.
 
@@ -217,9 +217,9 @@ Source record SHA-256: `5d53cbdda932456b27c6649360c3051d4ab09f2db42018550b4ee81c
 <!-- spec-definition-patch:owner-dispatch-20261012-spec -->
 ## Cross-owner harness analytics producer contracts
 
-The existing `AddNode` RunTrace write and `Uql` query substrates remain authoritative. The owner-batch additions expose three versioned reads/writes over those records; they do not replace AU discovery, GraphOS transport, or the existing model/task-class metrics.
+The existing `AddNode` RunTrace write and `Uql` query substrates remain authoritative. Owner-batch additions expose three versioned reads/writes over those records. They do not replace AU discovery, GraphOS transport, or existing model/task-class metrics.
 
-`SyncHarnessSessionIndexV1` accepts SDK sync receipts and manifest-pinned source session identities; `SearchHarnessSessionsV1` returns tenant-scoped sessions with per-harness coverage and snapshot-bound cursors. Repeated identical sync is idempotent, conflicts are refused, and missing harness sources stay visibly partial. `RunTraceUsageQueryV1` groups non-overlapping cached/uncached input and reasoning/nonreasoning output token categories by model, project and agent. Costs use pinned accounting profiles and currencies, with unknown values preserved. It targets p95 ≤500 ms at one million indexed traces and 32 concurrent readers.
+`SyncHarnessSessionIndexV1` accepts SDK sync receipts and manifest-pinned source-session identities. `SearchHarnessSessionsV1` returns tenant-scoped sessions with per-harness coverage and snapshot-bound cursors. Identical syncs are idempotent. Conflicts refuse. Missing harness sources remain visibly partial. `RunTraceUsageQueryV1` groups disjoint cached/uncached input and reasoning/nonreasoning output tokens by model, project, and agent. Costs use pinned profiles and currencies; unknown values remain unknown. Target p95 ≤500 ms for one million indexed traces and 32 concurrent readers.
 
-`EvolutionTraceMetricsV1` joins AU proposal/prompt revisions and progress records to exact RunTrace identities, metric windows and stored outcomes. Missing traces produce partial coverage, never a zero or a proxy based on calibration or trace counts. Its served consumer is WebUI R004.7 through GraphOS runs reads; session browse/search and usage totals map to WebUI R006.4 and R004.8. These are SPECIFIED interfaces and future acceptance only.
+`EvolutionTraceMetricsV1` joins AU proposal/prompt revisions and progress to exact RunTrace identities, metric windows, and stored outcomes. Missing traces yield partial coverage, never zero. Calibration or trace counts are not progress proxies. WebUI R004.7 consumes via GraphOS run reads. Session browse/search and usage totals map to WebUI R006.4 and R004.8. These are SPECIFIED interfaces and future acceptance only.
 <!-- /spec-definition-patch -->

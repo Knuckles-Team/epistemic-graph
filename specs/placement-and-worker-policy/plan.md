@@ -102,8 +102,16 @@ Cross-repository: `GRAPHOS-` rows that submit jobs only pass the job class.
 
 ### `EG-PLACEMENT-R001.15` — EG:9
 
-- Define pure `evaluate_capacity_adjustment(proposal, capacity_premise) -> CapacityAdjustmentVerdictV1` with a typed capacity proposal/verdict binding tenant, resource class/unit, unsigned integer current/proposed capacity and bounds, observed load/headroom, UTC millisecond measurement window, premise and policy revisions, and a canonical proposal digest.
-- EG validates the proposal against fresh R112 capacity premises and existing R001.6 placement feasibility; out-of-bound, over-headroom, stale, cross-tenant or malformed requests return `CAPACITY_PROPOSAL_DIGEST_INVALID`, `CAPACITY_MEASUREMENT_INVALID`, `CAPACITY_PREMISE_STALE`, `CAPACITY_TENANT_MISMATCH`, `CAPACITY_UNIT_MISMATCH`, `CAPACITY_WINDOW_INVALID`, `CAPACITY_LIMIT_INVALID`, `CAPACITY_LIMIT_EXCEEDED`, or `CAPACITY_HEADROOM_EXCEEDED` and do not mutate host/graph state. GraphOS owns mode, AIMD proposal generation, limits and actuation.
-- The applied receipt must bind proposal digest, requested/applied amount, resource/host, policy revision and resulting state revision, independently readable from GraphOS. Preserve `GRAPHOS-CAPACITY-R001.1`, `EG-DECISION-ENGINE-R112`, `GRAPHOS-CAPACITY-R001/R002`, `EG-PLACEMENT-R001.6`; source hash `cb17ea03a7344584fed7a9f22a78c1e97c58919616433e7026481606fd0bdccb`.
-- **Hold:** reviewed evidence supplies no EG decision method/QuestionKind, GraphOS apply/readback operation or receipt schema. These exact owner API links are required before this proposed type is described as a wired closed loop.
+- Define pure `evaluate_capacity_adjustment(proposal, capacity_premise) -> CapacityAdjustmentVerdictV1`.
+- Return a verdict for a typed capacity proposal. Bind it to tenant, resource class, and unit.
+- Use unsigned integers for current/proposed capacity and minimum/maximum bounds. Include measured load and available headroom.
+- Record the UTC millisecond window, premise revision, policy revision, and canonical proposal digest.
+- EG validates against fresh R112 capacity premises and R001.6 placement feasibility.
+- Refuse stale, cross-tenant, or malformed proposals. Refuse inconsistent units, invalid windows, and out-of-bound targets.
+- Refuse increases above observed headroom. Return the applicable `CapacityRefusalCode` without host or graph mutation.
+- GraphOS owns mode, AIMD proposal generation, limits, and actuation.
+- GraphOS exposes an applied receipt for independent readback. The receipt binds proposal digest, requested/applied amount, resource/host, policy revision, and resulting state revision.
+- Preserve `GRAPHOS-CAPACITY-R001.1`, `EG-DECISION-ENGINE-R112`, `GRAPHOS-CAPACITY-R001/R002`, and `EG-PLACEMENT-R001.6`. Source hash: `cb17ea03a7344584fed7a9f22a78c1e97c58919616433e7026481606fd0bdccb`.
+- **Hold:** Reviewed evidence names no EG decision method or QuestionKind for this proposal. It names no GraphOS apply/readback operation or receipt schema.
+- Resolve those exact owner API and receipt bindings before this candidate represents a wired closed loop.
 <!-- /spec-definition-patch -->

@@ -944,14 +944,14 @@
     },
     {
       "id": "EG-ORCH-VOCAB-R013.7",
-      "title": "Source-pinned code walkthrough artifact and graph-bound execution notes",
+      "title": "Source-pinned walkthrough artifact and graph-bound execution notes",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R003.8",
-      "title": "Successful-team promotion, schema-safe similarity reuse and typed capability handlers",
+      "title": "Successful-team promotion, safe similarity reuse, and typed handlers",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -979,35 +979,35 @@
     },
     {
       "id": "EG-ORCH-VOCAB-R005.100",
-      "title": "Nested step inputs are declared and projected with field shielding",
+      "title": "Nested inputs use declared projection and shielding",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R009.100",
-      "title": "Trace correlation and export-read contract",
+      "title": "Correlate trace records and export reads",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R009.101",
-      "title": "Tenant-scoped complete-manifest harness-session index, browse and search",
+      "title": "Index, browse, and search harness sessions by tenant and full manifest",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R010.100",
-      "title": "Evolution proposals join to measured source traces",
+      "title": "Join evolution proposals to measured source traces",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R010.101",
-      "title": "Project/agent token and cost accounting has indexed totals and a finite latency bound",
+      "title": "Index project/agent token and cost totals with finite latency",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

@@ -124,7 +124,7 @@
   "requirements": [
     {
       "id": "EG-MEDIA-VOCAB-R001",
-      "title": "Media and personal-content vocabulary: media-v1.ttl",
+      "title": "Shared media ontology",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -1031,7 +1031,7 @@
     },
     {
       "id": "EG-MEDIA-VOCAB-R002.5",
-      "title": "Receipt-bound paper fact assertion; reference-edge hold",
+      "title": "Receipt-bound paper facts; citation-edge hold",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -1052,7 +1052,7 @@
     },
     {
       "id": "EG-MEDIA-VOCAB-R001.102",
-      "title": "Bookmark semantic search and authorized relationship projection reuse SourceIngest",
+      "title": "Bookmark semantic search and authorized relation projection",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

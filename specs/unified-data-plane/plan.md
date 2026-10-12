@@ -127,8 +127,12 @@ References
 ## Implementation plan — `EG-UNIFIED-DATA-PLANE-R026.4`
 
 - Add the projection request/response to the existing approved R003/R005 mapping and query path. Pin mapping and graph revisions; preserve R026 P0–P5 phase evidence.
-- Enforce projection read-only behavior at the query boundary for all DML/DDL, including callers that hold a separate graph mutation grant. Route only explicitly authorized mutation requests through the existing graph `MutationBatch` admission path from R035/R043.
-- Served acceptance: positive mapped read; deny every projected write with and without a separate mutation grant; show authorized graph mutation visible after commit; deny stale/unapproved mapping and unauthorized mutation.
+- Enforce read-only behavior for projections at the query boundary, including callers with a separate graph mutation grant.
+- Route explicitly authorized mutation requests through the existing graph `MutationBatch` admission path from R035/R043.
+- Served acceptance: read a mapped table through an approved, pinned mapping. Bind the response to schema and graph revisions.
+- Deny each projected write for read-only and separately mutation-granted principals. Keep graph revision unchanged.
+- Submit an authorized graph mutation through `MutationBatch`. Confirm the projection read reflects its committed revision.
+- Also deny stale/unapproved mappings and unauthorized graph mutations.
 - Explicit hold: the source names no target application, full relational schema, or captured statement corpus. The R026 pilot owner must supply and approve those artifacts before application compatibility is accepted.
 - Preserve EG-DURABLE-KERNEL-R035, EG-DURABLE-KERNEL-R043, EG-FEDERATED-QUERY-R080, EG-UNIFIED-DATA-PLANE-R026, EG-FEDERATED-QUERY-R080.1, EG-FEDERATED-QUERY-R080.2, EG-FEDERATED-QUERY-R080.3, EG-FEDERATED-QUERY-R080.4, EG-FEDERATED-QUERY-R080.5, EG-FEDERATED-QUERY-R080.6. Source SHA-256: `c55bc629b1bfefc9d0346b75b8bb95e5a231b891e7e34297df17b960d6c9773c`.
 <!-- /spec-definition-patch -->

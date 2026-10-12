@@ -2144,7 +2144,7 @@
     },
     {
       "id": "EG-DURABLE-KERNEL-R028.1",
-      "title": "Run checkpoint and memory binding; owner decisions remain open",
+      "title": "Run checkpoint and memory binding. Owner decisions remain open",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -2158,7 +2158,7 @@
     },
     {
       "id": "EG-DURABLE-KERNEL-R085.10",
-      "title": "Prior-session notes use the existing authorized memory authority; capture and reuse remain AU-owned",
+      "title": "Prior-session notes use the existing authorized memory authority. Capture and reuse remain AU-owned",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

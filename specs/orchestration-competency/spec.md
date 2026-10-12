@@ -53,11 +53,11 @@ What is ingested from a connected source is its **ontology and access contract**
 
 ### `EG-CQ-ORCH-R010.7` — GRAPHOS:20
 
-Original objective: Before planning, gap analysis queries the graph for existing architecture and wiring and reports design differences; each new feature names its hot-path attach point, and the plan refuses features with no wiring.
+Original objective: Before planning, query graph architecture and wiring. Report design differences. Each feature names its hot-path attach point. Refuse plans with unwired features.
 
-EG-owned residual: No cited contract makes architecture/wiring gap comparison a prerequisite before planning, requires a hot-path attach point for every new feature, or refuses a plan feature with no wiring. A capability gap report and architecture view are inputs, not that admission gate.
+EG-owned residual: No cited contract requires architecture/wiring comparison before planning. No cited contract requires a hot-path attach point for every feature. No cited contract refuses unwired features. Capability gap reports and architecture views are inputs, not admission gates.
 
-Producer/consumer boundary: EG served impact architecture view + capability query -> AU study gap proposals -> EG planning admission. The mandatory preplanning comparison and unwired-feature refusal edge is absent.
+Producer/consumer boundary: EG served impact view and capability query feed AU study-gap proposals. AU proposals feed EG planning admission. The preplanning comparison and unwired-feature refusal edge are absent.
 
 Preserve existing coverage: `EG-CQ-ORCH-R010.1`, `EG-CQ-ORCH-R010.2`, `EG-CQ-ORCH-R010.3`, `EG-CQ-ORCH-R010.4`, `EG-CQ-ORCH-R010.5`, `EG-CQ-ORCH-R010.6`, `AU-HARNESS-R019.5`, `AU-HARNESS-R019.6`, `AU-HARNESS-R019.7`.
 

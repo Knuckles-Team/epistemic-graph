@@ -95,7 +95,7 @@
     },
     {
       "id": "EG-CONTRACT-R002",
-      "title": "Served Agent Library test coverage for pack import and Decide",
+      "title": "Served Agent Library tests cover pack import and Decide",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "4f364b55e0dc",
@@ -151,7 +151,7 @@
     },
     {
       "id": "EG-CONTRACT-R003",
-      "title": "Privacy scan covers the relocated graph-backends documentation",
+      "title": "Privacy scan covers relocated graph-backends documentation",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "82e1e970c83a",
@@ -329,7 +329,7 @@
     },
     {
       "id": "EG-CONTRACT-R013",
-      "title": "KISS config keys migrated to avoid a silently dropped section",
+      "title": "KISS config keys avoid a silently dropped section",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "72c7dfa478ba",
@@ -342,7 +342,7 @@
     },
     {
       "id": "EG-CONTRACT-R014",
-      "title": "Generated error catalog with stable auth-mismatch codes",
+      "title": "Generated error catalog has stable auth-mismatch codes",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "15acf1a959e5",

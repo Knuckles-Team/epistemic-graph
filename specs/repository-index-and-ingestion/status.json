@@ -98,7 +98,7 @@
     },
     {
       "id": "EG-REPO-INGEST-R003.2",
-      "title": "EG is sole home for migrated infrastructure processing",
+      "title": "EG owns the migrated infrastructure processing implementation",
       "delivery_state": "LANDED",
       "landed_in": [
         "06a13bef2738",
@@ -254,7 +254,7 @@
     },
     {
       "id": "EG-REPO-INGEST-R008",
-      "title": "Oversized batches return a stable code for retry",
+      "title": "Oversized batches return a stable retry code",
       "delivery_state": "LANDED",
       "landed_in": [
         "504e3109b2b0",
@@ -349,14 +349,14 @@
     },
     {
       "id": "EG-REPO-INGEST-R002.100",
-      "title": "Persisted search results require authorized independent readback before success",
+      "title": "Require independent readback before ingestion success",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "EG-REPO-INGEST-R002.101",
-      "title": "Graph-loaded workflow execution and independent durable hydration readback",
+      "title": "Bind graph-loaded workflow execution to durable hydration readback",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

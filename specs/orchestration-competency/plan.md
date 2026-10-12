@@ -168,10 +168,10 @@ Cross-repository rows: the `AU-WEBUI` row that draws the view depends on the con
 ### `EG-CQ-ORCH-R010.7` — GRAPHOS:20
 
 - Existing EG rollup: `EG-CQ-ORCH-R010.1`; append-only residual ID: `EG-CQ-ORCH-R010.7`.
-- Original objective: Before planning, gap analysis queries the graph for existing architecture and wiring and reports design differences; each new feature names its hot-path attach point, and the plan refuses features with no wiring.
-- Specified EG obligation: `EG-CQ-ORCH-R010.7` defines `PlanAdmissionV1`, the per-feature hot-path attach point/wiring-edge check, and typed refusal before TaskPlan emission. The remaining cross-owner hold is confirmation that AU-HARNESS-R019.5-.7 return the same stable study-gap proposal id/revision and repository revision; without those fields admission must refuse.
-- Producer/consumer route: the served impact architecture view plus capability query and AU study-gap receipt feed `PlanAdmissionV1` before the existing plan-producing Decide handler. AU proposal identity/revision confirmation and implementation/served receipts remain pending; do not re-derive architecture or claim AU producer closure.
-- Minimum closure action: Keep R010.7 as the EG definition; resolve the AU receipt field mapping and record the independent served producer/consumer results. No second EG admission contract is needed.
+- Original objective: Before planning, query graph architecture and wiring. Report design differences. Each feature names its hot-path attach point. Refuse plans with unwired features.
+- Specified EG obligation: `EG-CQ-ORCH-R010.7` defines `PlanAdmissionV1`. It checks each feature's attach point and wiring edge. It returns typed refusal before TaskPlan emission. AU-HARNESS-R019.5-.7 must return the same study-gap proposal id/revision and repository revision. Admission refuses if those fields are absent.
+- Producer/consumer route: The served impact architecture view, capability query, and AU study-gap receipt feed `PlanAdmissionV1`. Admission runs before the existing plan-producing Decide handler. AU identity/revision confirmation and served receipts remain pending. Do not re-derive architecture or claim AU producer closure.
+- Minimum closure action: Keep R010.7 as the EG definition. Resolve AU receipt field mapping. Record independent served producer/consumer results. No second EG admission contract is needed.
 - Preserve covered clauses: `EG-CQ-ORCH-R010.1`, `EG-CQ-ORCH-R010.2`, `EG-CQ-ORCH-R010.3`, `EG-CQ-ORCH-R010.4`, `EG-CQ-ORCH-R010.5`, `EG-CQ-ORCH-R010.6`, `AU-HARNESS-R019.5`, `AU-HARNESS-R019.6`, `AU-HARNESS-R019.7`.
 - Source review: `bbc3f62e74bc899e49191e1d9bf324afe5e6dc2553df9e8d8651aae1311a8418`; evidence: spec-audit/reconciliation/fresh-validation-20261012/semantic-reviews/incoming-24-owner-supplements.json.
 - Cross-owner behavior and receipts remain with the named owner; no runtime evidence is claimed.

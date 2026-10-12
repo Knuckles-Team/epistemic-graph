@@ -6,7 +6,7 @@ Architecture view: a fixture repository plus one diagram yields containers with 
 <!-- spec-definition-patch:owner-batch-20261012-orchestration-competency -->
 ## Reviewed residual acceptance targets — owner batch 2026-10-12
 
-All targets below are planned acceptance, not executed tests or receipts. Use the real producer/consumer boundary named for each row and retain existing covered behavior.
+All targets below are planned acceptance, not completed tests or receipts. Use each named producer/consumer boundary. Retain existing covered behavior.
 
-- **`EG-CQ-ORCH-R010.7` / GRAPHOS:20:** Run served architecture view plus pinned AU study-gap evidence into the existing Decide TaskPlan path. Every feature must bind an attach point and wiring edge; test missing edge/attach, stale revisions and absent AU proposal evidence return named refusals with no plan. Required exact tests are in requirements.md. AU row fields must be checked before integration is called complete.
+- **`EG-CQ-ORCH-R010.7` / GRAPHOS:20:** Send served architecture view and pinned AU study-gap evidence through the existing Decide TaskPlan path. Every feature binds an attach point and wiring edge. Missing edge/attach, stale revisions, and absent AU evidence return named refusals with no plan. Exact tests are in requirements.md. Confirm AU fields before integration closure.
 <!-- /spec-definition-patch -->

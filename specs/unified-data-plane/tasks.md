@@ -186,5 +186,9 @@ For each row, add a subentry containing its merged commit, exact-head test run, 
 <!-- spec-definition-patch:owner-batch-20261012-unified-data-plane -->
 ## Implementation tasks — owner batch 2026-10-12
 
-- [ ] **EG-UNIFIED-DATA-PLANE-R026.4 — projection boundary:** Wire approved revision-pinned R003/R005 mappings to the R026 projection read; refuse DML/DDL through every projection even with a separate mutation grant; admit writes only through authorized graph MutationBatch; prove committed mutation appears on read. **Hold:** R026 owner must supply target application schema and captured statement corpus before app compatibility is claimed. Status stays SPECIFIED. Source SHA-256 `c55bc629b1bfefc9d0346b75b8bb95e5a231b891e7e34297df17b960d6c9773c`.
+- [ ] **EG-UNIFIED-DATA-PLANE-R026.4 — projection boundary:** Route approved, revision-pinned R003/R005 mappings through the R026 projection read.
+  - Refuse projected DML/DDL for read-only and mutation-granted principals. Admit writes only through authorized graph `MutationBatch`.
+  - Verify that projection reads reflect committed graph mutations.
+  - **Hold:** The R026 owner must furnish the target application schema and captured statement corpus before app compatibility is claimed.
+  - Keep status SPECIFIED. Source SHA-256: `c55bc629b1bfefc9d0346b75b8bb95e5a231b891e7e34297df17b960d6c9773c`.
 <!-- /spec-definition-patch -->

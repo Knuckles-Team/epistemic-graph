@@ -82,7 +82,13 @@ Authenticated Iceberg catalog (R039): a valid token lists and loads its own tabl
 <!-- spec-definition-patch:owner-batch-20261012-unified-data-plane -->
 ## Planned owner acceptance — 2026-10-12
 
-All targets below are planned acceptance, not executed tests or receipts. Use the real producer/consumer boundary named for each row and retain existing covered behavior.
+These bullets define future acceptance targets. They are not test evidence or receipts. Exercise each row's actual producer/consumer boundary and retain existing covered behavior.
 
-- **`EG-UNIFIED-DATA-PLANE-R026.4`**: EG:64; source `c55bc629b1bfefc9d0346b75b8bb95e5a231b891e7e34297df17b960d6c9773c`: Using a served external client, read a mapped table with an approved pinned mapping and assert schema/graph revision and row digest. Try INSERT, UPDATE, DELETE and DDL through the projection with read-only and separately mutation-granted principals; each projected write is refused and graph revision stays unchanged. Then submit an authorized graph MutationBatch and prove the projection read reflects its committed revision. Also refuse stale/unapproved mapping and unauthorized graph mutation. Application-level SQL/schema conformance remains held until R026 provides its approved target mapping and captured statement corpus. Preserved IDs: EG-DURABLE-KERNEL-R035, EG-DURABLE-KERNEL-R043, EG-FEDERATED-QUERY-R080, EG-UNIFIED-DATA-PLANE-R026, EG-FEDERATED-QUERY-R080.1, EG-FEDERATED-QUERY-R080.2, EG-FEDERATED-QUERY-R080.3, EG-FEDERATED-QUERY-R080.4, EG-FEDERATED-QUERY-R080.5, EG-FEDERATED-QUERY-R080.6.
+- **`EG-UNIFIED-DATA-PLANE-R026.4`**: EG:64; source SHA-256 `c55bc629b1bfefc9d0346b75b8bb95e5a231b891e7e34297df17b960d6c9773c`.
+  - Read a mapped table through a served external client using an approved, pinned mapping. Bind schema/graph revisions and row digest.
+  - Attempt INSERT, UPDATE, DELETE, and DDL through read-only and mutation-granted principals. Refuse each attempt and preserve graph revision.
+  - Submit an authorized graph `MutationBatch`. Confirm the projection read reflects its committed revision.
+  - Refuse stale/unapproved mappings and unauthorized graph mutations.
+  - Hold application-level SQL/schema conformance until the R026 owner provides the approved target mapping and captured statement corpus.
+  - Preserve EG-DURABLE-KERNEL-R035, EG-DURABLE-KERNEL-R043, EG-FEDERATED-QUERY-R080, EG-UNIFIED-DATA-PLANE-R026, and EG-FEDERATED-QUERY-R080.1 through R080.6.
 <!-- /spec-definition-patch -->
