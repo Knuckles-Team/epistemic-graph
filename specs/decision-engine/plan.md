@@ -233,6 +233,19 @@ claims that every served parent path or the complete Release workflow passed.
 
 ## Amendments
 
+### 2026-10-12: context pressure without treating estimates as bounds (R128.5)
+
+Compute pressure from the caller's trajectory estimate and the profile window
+using unsigned Q32 arithmetic. Pressure can exceed one; never clamp it.
+An estimate, including zero, does not prove that overflow is impossible.
+The pure rule permits `none` only when a hard bound on total task tokens fits
+the window. The bound must cover the whole context, including generated and tool
+tokens; an observed maximum is insufficient. Contradictory estimates refuse.
+Missing windows or estimates abstain with `elide_then_summarize`.
+The rule carries checked `HarnessDefaults` thresholds supplied by its caller.
+R128.4 remains open for tenant-policy resolution and threshold premises.
+No hard-bound storage, served handler, or client acceptance is claimed here.
+
 ### 2026-10-11: measured plan-scaffold selection (R128.6)
 
 Implement the missing pure plan-scaffold rule beside the existing harness
