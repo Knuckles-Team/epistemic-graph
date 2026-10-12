@@ -192,7 +192,8 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "2b681e1a159c",
-        "6cd6c7ea0c87"
+        "6cd6c7ea0c87",
+        "eaf79e845f00"
       ],
       "verified_by": [
         "tests/test_build_method_codec_wasm.py:70"
@@ -508,7 +509,8 @@
       "title": "Exhaustive dispatch matches pass the complexity gate via extraction",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "b43f33569dd4"
+        "b43f33569dd4",
+        "eaf79e845f00"
       ],
       "verified_by": [
         "tests/test_check_complexity_staged.py:417"
@@ -528,7 +530,8 @@
       "title": "Build runner keeps TMPDIR short enough for Unix socket paths",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "2a0d6eae0918"
+        "2a0d6eae0918",
+        "eaf79e845f00"
       ],
       "verified_by": [
         "tests/test_push_gate_evidence.py:256"
@@ -539,7 +542,8 @@
       "title": "Unconstrained build step is not CPU-affinity restricted",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "a1bb9fb9503e"
+        "a1bb9fb9503e",
+        "eaf79e845f00"
       ],
       "verified_by": [
         "tests/test_bounded_test_runner_contract.py:105",
@@ -642,7 +646,8 @@
       "title": "Clippy is warning-free across every release profile",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "04a134298236"
+        "04a134298236",
+        "eaf79e845f00"
       ],
       "verified_by": [
         "tests/test_release_feature_matrix.py:219"
@@ -653,7 +658,8 @@
       "title": "Contract receipt freshness is checked before merge",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "2688cddd2f7f"
+        "2688cddd2f7f",
+        "eaf79e845f00"
       ],
       "verified_by": [
         "tests/test_contract_wave_surface.py:143",
@@ -665,7 +671,8 @@
       "title": "Duplication gate runs against the full combined diff, not per-change",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "57a12eb06632"
+        "57a12eb06632",
+        "eaf79e845f00"
       ],
       "verified_by": [
         "tests/test_jscpd_per_commit_gate.py:41"
@@ -685,7 +692,8 @@
       "title": "Privacy gate detects host paths across the tracked tree",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "2a0d6eae0918"
+        "2a0d6eae0918",
+        "eaf79e845f00"
       ],
       "verified_by": [
         "tests/test_documentation_privacy.py:100",
@@ -740,7 +748,8 @@
       "title": "Slim-server build compiles with broker feature disabled",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "5bf5b719de7e"
+        "5bf5b719de7e",
+        "eaf79e845f00"
       ],
       "verified_by": [
         "tests/test_release_feature_matrix.py:252"
@@ -751,7 +760,8 @@
       "title": "Main publishes a rolling engine wheel for consumer CI",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "9084e9343bf4"
+        "9084e9343bf4",
+        "eaf79e845f00"
       ],
       "verified_by": [
         "tests/test_release_feature_matrix.py:269"
