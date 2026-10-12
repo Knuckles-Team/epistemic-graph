@@ -708,6 +708,13 @@ When no verifier is available, bind an ordered candidate set and candidate diges
 
 **Preserved parent:** `EG-DECISION-ENGINE-R140` remains unchanged.
 
+### `EG-DECISION-ENGINE-R140.104` — TaskPlan production wiring
+
+The wiring row pins the production entry at src/server/dispatch/router/decision_plane.rs:107 and TaskPlan handler at src/server/handlers/decide/stat_decide.rs:48. Bind the R140.100-.103 decision and evidence digests into the returned plan; EG does not execute candidate generation. AU's decision-consumption and matching execution receipts remain explicit prerequisites.
+
+### `EG-DECISION-ENGINE-R140.105` — Trajectory-refinement hot-path proof
+
+The planned integration proof enters the real Method::Decide TaskPlan path and follows decisions into AU execution, then independently reads back digest-bound receipts for generation, projection, breadth and comparison. AU consumer contracts for R140.100-.102 and the R140.103 aggregation policy/receipt remain open; this row does not claim a passing test.
 ### `EG-DECISION-ENGINE-R141.100` — EG:23
 
 A rewrite proposal binds tenant, memory id, active source revision/digest, candidate revision/digest, fidelity metric/policy revision and metric-spec digest, measured fidelity, signal and token counts, signal-per-token value and degradation-history window. Admit only when the declared fidelity threshold passes and the policy’s signal-efficiency/degradation checks pass. On any failed gate, discard the candidate and retain the original active revision unchanged; do not infer rewrite admission from R059 aggregate outcome fidelity or R128 elide/summarize selection.
@@ -730,6 +737,13 @@ Before any memory mutation is activated, bind the baseline and candidate memory 
 
 **Preserved parent:** `EG-DECISION-ENGINE-R141` remains unchanged.
 
+### `EG-DECISION-ENGINE-R141.102` — DecisionEval production wiring
+
+The EG producer entry is DecisionEval at src/server/dispatch/router/decision_plane.rs:119 and src/server/handlers/decide/jobs.rs:30. It must bind R141.100/.101 candidate and evaluation evidence before any active-memory mutation. The authoritative memory store, mutation call sites and atomic receipt/CAS gate remain unidentified, so no universal write gate is claimed.
+
+### `EG-DECISION-ENGINE-R141.103` — Memory-change hot-path proof
+
+The planned proof enters the served DecisionEval route, crosses the actual memory mutation gate, and reads the active revision independently. Failed or stale evidence must preserve the baseline. Metric formulas and the complete mutation/CAS path remain prerequisites; no positive admission is claimed before their review.
 ### `EG-DECISION-ENGINE-R142.100` — GRAPHOS:8
 
 For each skill revision, bind an atomic/workflow classification, local model id/revision, evaluation-set digest, criteria/policy revision, result and attestation digest. EG emits the certification attestation only after AU executes the declared local-model evaluation. GraphOS validates the attestation before normal (non-certification) `orchestrate` or `agents.run`; a separately authorized evaluation run may produce a new attestation. Atomic skills are evaluated first; a workflow skill is certifiable only when every referenced atomic dependency has a valid current attestation. Missing, stale, failed or mismatched dependencies refuse certification/invocation before effects. EG attests evaluation outcome; AU executes; GraphOS owns invocation gate and host policy.
@@ -739,6 +753,14 @@ For each skill revision, bind an atomic/workflow classification, local model id/
 **Source record SHA-256:** `5df3f5a45d486aeba5765a31b6c6283637adf2bd8ce63a87938eddd28b90f082`.
 
 **Preserved parent:** `EG-DECISION-ENGINE-R142` remains unchanged.
+
+### `EG-DECISION-ENGINE-R142.101` — DecisionEval attestation wiring
+
+The EG producer attaches at src/server/dispatch/router/decision_plane.rs:119 and src/server/handlers/decide/jobs.rs:30. It binds AU's evaluation receipt and exact skill/model/dataset/criteria revisions into an immutable attestation. AU's receipt schema and GraphOS R034.7-.12 consumption remain explicit owner holds.
+
+### `EG-DECISION-ENGINE-R142.102` — Certification hot-path proof
+
+The planned proof enters the actual local-model evaluation path and observes GraphOS R034.7-.12 refuse normal workflow invocation without a current matching attestation, then accept the exact receipt before invocation. AU and GraphOS consumer contracts are not yet defined; this is a required proof, not evidence that it has run.
 <!-- /spec-definition-patch -->
 
 

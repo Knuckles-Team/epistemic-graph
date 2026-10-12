@@ -155,6 +155,7 @@ Extend the typed fleet catalog with workflow registration identity, version/cont
 
 Producer/consumer: EG typed registry and SourceIngest R002 own durable registration; AU owns lazy client initialization/execution; preserve GRAPHOS-HOST-R022 workflow-store semantics.
 
+**Open owner prerequisite:** AU-CONTROL-R037.5 only fills a requirement gap; it does not define lazy initialization timing, the first-use operation, or the execution receipt. No exact AU companion requirement ID is identified. Keep that consumer as an explicit hold until its owner publishes the operation and receipt; no invocation evidence is claimed.
 Source record SHA-256: `f73767d1a3fdba29a702254ed1db2c9904158b6136f6f4b38a3c9a0d3e4fcb03`. Verification remains planned until independently served by each named owner.
 
 ### Extension of R071
@@ -167,5 +168,6 @@ Define one versioned concept-path grammar and canonicalization rule shared by EG
 
 Producer/consumer: EG vocabulary validation owns canonical identity; repository producers submit proposed paths. Preserve existing published IRIs and federated query vocabulary.
 
+**Open owner decision:** The canonical segment grammar is not approved for separators/escaping, Unicode normalization, case, or whitespace. Keep admission SPECIFIED until the vocabulary owner publishes one versioned grammar shared by producers; preserve existing published IRIs.
 Source record SHA-256: `525e39d1d194ac8a820bbd741a1c261ceab0c7d564981c33c731c06c1eb641d8`. Verification remains planned until independently served by each named owner.
 <!-- /spec-definition-patch -->

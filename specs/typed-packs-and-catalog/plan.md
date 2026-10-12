@@ -559,6 +559,7 @@ Neither accepted input supplies a research paper or arXiv identifier; no researc
 - Extend existing parent `R072` without removing its existing behavior.
 - Specify: Extend the typed fleet catalog with workflow registration identity, version/content digest, owner/tenant scope, schema and lifecycle state. Registration is persisted through the existing SourceIngest authority; invocation resolves by registry id and exact admitted revision rather than a caller-supplied body. Unknown, withdrawn, stale or unauthorized workflow ids refuse before execution. Engine/client initialization remains lazy at the AU first-use boundary and is not performed at registration or process startup.
 - Producer/consumer boundary: EG typed registry and SourceIngest R002 own durable registration; AU owns lazy client initialization/execution; preserve GRAPHOS-HOST-R022 workflow-store semantics.
+- Owner prerequisite: AU-CONTROL-R037.5 only fills a requirement gap; it does not define lazy initialization timing, the first-use operation, or the execution receipt. No exact AU companion requirement ID is identified. Keep that consumer as an explicit hold until its owner publishes the operation and receipt; no invocation evidence is claimed.
 - Source record SHA-256: `f73767d1a3fdba29a702254ed1db2c9904158b6136f6f4b38a3c9a0d3e4fcb03`.
 - Keep status SPECIFIED until the EG served producer and each separately owned consumer are implemented, served-tested and independently read back.
 
@@ -567,6 +568,7 @@ Neither accepted input supplies a research paper or arXiv identifier; no researc
 - Extend existing parent `R071` without removing its existing behavior.
 - Specify: Define one versioned concept-path grammar and canonicalization rule shared by EG vocabulary producers, with stable segment identity, parent path and canonical concept IRI. Admission resolves the entire path against the pinned vocabulary revision and checks repository-wide uniqueness plus parent/child consistency. Duplicate aliases, a path that contradicts an existing parent/child relationship, or two IRIs for the same canonical path refuse with the conflicting ids; existing published ontology IRIs remain unchanged and are crosswalked rather than rewritten.
 - Producer/consumer boundary: EG vocabulary validation owns canonical identity; repository producers submit proposed paths. Preserve existing published IRIs and federated query vocabulary.
+- Owner decision hold: the canonical segment grammar is not approved for separators/escaping, Unicode normalization, case, or whitespace. Keep admission SPECIFIED until the vocabulary owner publishes one versioned grammar shared by producers; preserve existing published IRIs.
 - Source record SHA-256: `525e39d1d194ac8a820bbd741a1c261ceab0c7d564981c33c731c06c1eb641d8`.
 - Keep status SPECIFIED until the EG served producer and each separately owned consumer are implemented, served-tested and independently read back.
 <!-- /spec-definition-patch -->

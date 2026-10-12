@@ -379,9 +379,15 @@
     "EG-DECISION-ENGINE-R140.101",
     "EG-DECISION-ENGINE-R140.102",
     "EG-DECISION-ENGINE-R140.103",
+    "EG-DECISION-ENGINE-R140.104",
+    "EG-DECISION-ENGINE-R140.105",
     "EG-DECISION-ENGINE-R141.100",
     "EG-DECISION-ENGINE-R141.101",
+    "EG-DECISION-ENGINE-R141.102",
+    "EG-DECISION-ENGINE-R141.103",
     "EG-DECISION-ENGINE-R142.100",
+    "EG-DECISION-ENGINE-R142.101",
+    "EG-DECISION-ENGINE-R142.102",
     "EG-DECISION-ENGINE-R100.100"
   ],
   "requirements": [
@@ -4369,7 +4375,9 @@
         "EG-DECISION-ENGINE-R140.100",
         "EG-DECISION-ENGINE-R140.101",
         "EG-DECISION-ENGINE-R140.102",
-        "EG-DECISION-ENGINE-R140.103"
+        "EG-DECISION-ENGINE-R140.103",
+        "EG-DECISION-ENGINE-R140.104",
+        "EG-DECISION-ENGINE-R140.105"
       ]
     },
     {
@@ -4380,7 +4388,9 @@
       "verified_by": [],
       "rollup_of": [
         "EG-DECISION-ENGINE-R141.100",
-        "EG-DECISION-ENGINE-R141.101"
+        "EG-DECISION-ENGINE-R141.101",
+        "EG-DECISION-ENGINE-R141.102",
+        "EG-DECISION-ENGINE-R141.103"
       ]
     },
     {
@@ -4390,7 +4400,9 @@
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "EG-DECISION-ENGINE-R142.100"
+        "EG-DECISION-ENGINE-R142.100",
+        "EG-DECISION-ENGINE-R142.101",
+        "EG-DECISION-ENGINE-R142.102"
       ]
     },
     {
@@ -4443,6 +4455,20 @@
       "verified_by": []
     },
     {
+      "id": "EG-DECISION-ENGINE-R140.104",
+      "title": "TaskPlan trajectory-decision wiring row",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R140.105",
+      "title": "Trajectory-refinement hot-path proof row",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
       "id": "EG-DECISION-ENGINE-R141.100",
       "title": "Fidelity-gated memory rewrite evaluation",
       "delivery_state": "SPECIFIED",
@@ -4457,8 +4483,36 @@
       "verified_by": []
     },
     {
+      "id": "EG-DECISION-ENGINE-R141.102",
+      "title": "DecisionEval memory-change wiring row",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R141.103",
+      "title": "Memory-change hot-path proof row",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
       "id": "EG-DECISION-ENGINE-R142.100",
       "title": "Atomic-before-workflow local-model certification attestation",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R142.101",
+      "title": "DecisionEval certification wiring row",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R142.102",
+      "title": "Local-model-certification hot-path proof row",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

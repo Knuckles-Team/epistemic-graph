@@ -211,6 +211,7 @@ and served boundary evidence specified in requirements.md and test-spec.md.
 - Extend existing parent `R002` without removing its existing behavior.
 - Specify: Extend the existing SourceIngest/result persistence contract with a write receipt binding run id, tenant, query digest, ordered result ids/content digests, graph revision and source provenance. The consumer performs a separately authorized read-only query after the write, binds its principal/grant revision and selector to that receipt, and compares every expected result id/digest/revision. A run may report success only after a matching readback receipt; missing, partial, stale, denied or mismatched readback is a typed non-success. Do not introduce a second graph writer.
 - Producer/consumer boundary: EG owns durable graph write/read; AU owns execution success reporting. Reuse SourceIngest and existing query authorization, with explicit cross-owner consumer link.
+- Owner prerequisite: no exact reviewed AU companion requirement ID currently binds its execution-success transition to this EG readback receipt. Keep the AU consumer ID unassigned and treat this consumer evidence as missing; do not infer an ID.
 - Source record SHA-256: `e8ad0c2417b7fa6ce53c46899f1adf8e925977becd0bd1813db6b62d3786af11`.
 - Keep status SPECIFIED until the EG served producer and each separately owned consumer are implemented, served-tested and independently read back.
 <!-- /spec-definition-patch -->
@@ -223,6 +224,7 @@ and served boundary evidence specified in requirements.md and test-spec.md.
 - Preserve parent `EG-REPO-INGEST-R002` and its existing clauses.
 - Define: Bind the workflow id/revision loaded from the graph, EG committed plan/decision digest, AU execution run and output digests, SourceIngest write receipt, resulting graph revision and separately authorized readback receipt. The acceptance path uses the real graph_orchestrate -> find_workflow_gaps/fill_workflow_gaps -> execute_workflow consumer and EG graph load/decision plus SourceIngest; a separate authorized graph query must read back the hydrated content and match its digest before the gate reports success. Fake engines/catalogs and generic handoff receipts do not satisfy this contract. Missing/stale workflow, execution mismatch, write failure or denied/partial readback is non-success.
 - Producer/consumer: EG owns workflow graph load/decision and durable SourceIngest; AU owns graph_orchestrate/execution; SDK supplies source-effect runner. Pipelines owns the gate only and does not add a runtime orchestrator.
+- Owner prerequisite: no exact reviewed AU companion requirement ID is identified for graph_orchestrate/execute_workflow to gate success on this EG hydration readback. Keep the AU consumer ID unassigned and treat execution-success evidence as missing; Pipelines gate coverage does not establish the AU consumer.
 - Source record SHA-256: `e0c431512565acb1a8ae00e09b63ec6fb7c8f9e81ef9c786a0fd7b26b2239455`.
 - Keep status SPECIFIED until each named producer and consumer is separately implemented, served-tested and independently read back.
 <!-- /spec-definition-patch -->

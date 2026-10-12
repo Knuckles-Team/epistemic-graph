@@ -1216,6 +1216,19 @@ Dependency order: typed request/plan/refusal/evidence round trip; deterministic 
 - Source record SHA-256: `6f67238075c0bf262188d97a1813b18bfb0c71e13c6689a583c788d956287612`.
 - Keep status SPECIFIED until each named producer and consumer is separately implemented, served-tested and independently read back.
 
+### `EG-DECISION-ENGINE-R140.104` — Wiring row
+
+- Production call sites: src/server/dispatch/router/decision_plane.rs:107 -> src/server/handlers/decide/stat_decide.rs:48.
+- Bind every R140 decision digest and policy/source revision into the existing TaskPlan result; do not move AU model or trajectory execution into EG.
+- Owner hold: AU's exact decision-digest/K, projection, breadth and pairwise execution receipt fields remain pending; R140.103 policy selection remains pending.
+- Planned proving test: tests/decide/test_trajectory_refinement_served.py::test_real_decide_route_emits_pinned_refinement_decisions.
+
+### `EG-DECISION-ENGINE-R140.105` — Hot-path proof row
+
+- Planned proving integration test: tests/decide/test_trajectory_refinement_served.py::test_taskplan_decisions_reach_au_and_receipts_read_back.
+- It enters Method::Decide, observes the TaskPlan binding through AU generation/refinement and independently reads back every receipt; refusal is required for a missing/mismatched digest.
+- Explicit AU holds: consumer contracts for R140.100/.101/.102 and pairwise aggregation/receipt for R140.103. No successful proof is claimed until these are reviewed and served.
+
 ### `EG-DECISION-ENGINE-R141.100` / EG:23
 
 - Preserve parent `EG-DECISION-ENGINE-R141` and its existing clauses.
@@ -1234,6 +1247,19 @@ Dependency order: typed request/plan/refusal/evidence round trip; deterministic 
 - Source record SHA-256: `27a6a74820b2b646163d8f7bd58b94167b9f0a3e423b8bf5210fe6e758deb440`.
 - Keep status SPECIFIED until each named producer and consumer is separately implemented, served-tested and independently read back.
 
+### `EG-DECISION-ENGINE-R141.102` — Wiring row
+
+- Production call sites: src/server/dispatch/router/decision_plane.rs:119 -> src/server/handlers/decide/jobs.rs:30.
+- Bind R141.100/.101 evidence into DecisionEval receipts before any active-memory mutation.
+- Explicit owner hold: no authoritative memory store, full write-entrypoint list, or atomic receipt/CAS check is identified. Do not claim the current evaluation handler universally gates writes.
+- Planned proving test: tests/decide/test_memory_change_admission_served.py::test_real_decision_eval_binds_memory_candidate_and_metrics.
+
+### `EG-DECISION-ENGINE-R141.103` — Hot-path proof row
+
+- Planned proving integration test: tests/decide/test_memory_change_admission_served.py::test_memory_mutation_requires_current_decision_eval_receipt.
+- Enter DecisionEval, cross the authoritative write/CAS gate, and independently read back the active revision; failed or stale receipts must preserve the baseline.
+- Explicit owner holds: reviewed fidelity/benchmark formulas and the mutation/CAS map are prerequisites; no positive activation is claimed.
+
 ### `EG-DECISION-ENGINE-R142.100` / GRAPHOS:8
 
 - Preserve parent `EG-DECISION-ENGINE-R142` and its existing clauses.
@@ -1247,6 +1273,19 @@ Dependency order: typed request/plan/refusal/evidence round trip; deterministic 
 <!-- spec-definition-patch:owner-dispatch-20261012-plan -->
 
 - **Operational wiring / exact hold:** Bind AU’s local-model evaluation receipt to EG DecisionEval, then bind the resulting attestation to GraphOS R034.7-.12. Keep AU producer and GraphOS consumer evidence pending; do not claim that the existing identity checks consume an EG attestation.
+### `EG-DECISION-ENGINE-R142.101` — Wiring row
+
+- Production call sites: src/server/dispatch/router/decision_plane.rs:119 -> src/server/handlers/decide/jobs.rs:30.
+- The EG attestation must bind the AU evaluation receipt and exact skill/model/dataset/criteria revisions; GraphOS consumption is at GRAPHOS-FLEET-R034.7-.12.
+- Explicit owner holds: AU's per-criterion evaluation receipt and GraphOS's attestation-consumer operation are not defined; R034 identity checks alone do not close this dependency.
+- Planned proving test: tests/decide/test_local_skill_certification_served.py::test_decision_eval_attestation_binds_au_receipt.
+
+### `EG-DECISION-ENGINE-R142.102` — Hot-path proof row
+
+- Planned proving integration test: tests/decide/test_local_skill_certification_served.py::test_current_attestation_is_checked_before_graphos_workflow_run.
+- Enter the actual evaluation/normal-invocation path and verify missing/stale attestation refusal before effects, then accept only the exact current attestation.
+- Explicit owner holds: AU must serve the receipt; GraphOS must serve the R034 invocation check. No end-to-end evidence is claimed.
+
 ## Cross-owner retrieval evaluation plan — 2026-10-12
 
 - **`EG-DECISION-ENGINE-R100.100` / WEBUI:6:** Extend the existing served `DecisionEval` job with `RetrievalRankingV1` input/result identity and `RetrievalContextSearchV1` bounded exact-span reads. Bind corpus, binary labels, query set, k, algorithms/settings, evaluator, result digests and numerator/denominator. Compare only identical inputs; refuse missing labels or incompatible revisions. Preserve R100 hard-negative learning from independently evaluated outcomes. Consumer: WebUI R001.1 side-by-side comparison. Source SHA-256 `3dc3c464a10a5178a413463f2b43baeb015732f5b8df508f6dbab9c37cc1165d`.

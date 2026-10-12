@@ -229,6 +229,7 @@ Extend the existing SourceIngest/result persistence contract with a write receip
 
 Producer/consumer: EG owns durable graph write/read; AU owns execution success reporting. Reuse SourceIngest and existing query authorization, with explicit cross-owner consumer link.
 
+**Open AU owner prerequisite:** No exact reviewed AU companion requirement ID currently binds its execution-success transition to this EG readback receipt. Keep the AU consumer ID unassigned and treat this consumer evidence as missing; do not infer an ID.
 Source record SHA-256: `e8ad0c2417b7fa6ce53c46899f1adf8e925977becd0bd1813db6b62d3786af11`. Verification remains planned until independently served by each named owner.
 <!-- /spec-definition-patch -->
 
@@ -243,6 +244,7 @@ Bind the workflow id/revision loaded from the graph, EG committed plan/decision 
 
 **Producer/consumer boundary:** EG owns workflow graph load/decision and durable SourceIngest; AU owns graph_orchestrate/execution; SDK supplies source-effect runner. Pipelines owns the gate only and does not add a runtime orchestrator.
 
+**Open AU owner prerequisite:** No exact reviewed AU companion requirement ID is identified for graph_orchestrate/execute_workflow to gate success on this EG hydration readback. Keep the AU consumer ID unassigned and treat execution-success evidence as missing; Pipelines gate coverage does not establish the AU consumer.
 **Source record SHA-256:** `e0c431512565acb1a8ae00e09b63ec6fb7c8f9e81ef9c786a0fd7b26b2239455`.
 
 **Preserved parent:** `EG-REPO-INGEST-R002` remains unchanged.

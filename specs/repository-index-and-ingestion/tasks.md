@@ -57,12 +57,12 @@ Parallel implementation is allowed only where interfaces and file ownership are 
 ## Mapped definition tasks — 2026-10-12
 
 - [ ] `EG-REPO-INGEST-R002.100`: add the typed request/result, policy/revision binding, producer/consumer wiring contract, refusal cases and receipt/readback fields described in requirements; preserve `R002` and its prior children.
-- [ ] `EG-REPO-INGEST-R002.100`: add served acceptance for: Served producer/consumer test persists a multi-result search, then reads through a separate authorized query and proves success only after exact match. Refuse denied/partial/mismatched/stale readback and verify success remains unset; independently read back the durable records and both receipts. AU execution/success consumer evidence remains a separate owner obligation.
+- [ ] `EG-REPO-INGEST-R002.100`: add served acceptance for: Served producer/consumer test persists a multi-result search, then reads through a separate authorized query and proves success only after exact match. Refuse denied/partial/mismatched/stale readback and verify success remains unset; independently read back the durable records and both receipts. AU execution/success consumer evidence remains a separate owner obligation. Owner prerequisite: no exact reviewed AU companion requirement ID currently binds its execution-success transition to this EG readback receipt. Keep the AU consumer ID unassigned and treat this consumer evidence as missing; do not infer an ID.
 <!-- /spec-definition-patch -->
 
 <!-- spec-definition-patch:final-mappings-20261012 -->
 ## Final mapped definition tasks — 2026-10-12
 
 - [ ] `EG-REPO-INGEST-R002.101`: implement the typed fields, decision/refusal behavior and owner boundary stated in requirements; preserve `EG-REPO-INGEST-R002`.
-- [ ] `EG-REPO-INGEST-R002.101` acceptance: Run the actual graph-loaded workflow through the named AU path, perform hydration, then independently read it back and verify exact workflow revision, run, output and graph revision bindings before success. Refuse stale workflow, engine/plan mismatch, hydration digest mismatch and denied/partial readback; assert the gate remains failed. Exclude fake-engine/catalog fixtures.
+- [ ] `EG-REPO-INGEST-R002.101` acceptance: Run the actual graph-loaded workflow through the named AU path, perform hydration, then independently read it back and verify exact workflow revision, run, output and graph revision bindings before success. Refuse stale workflow, engine/plan mismatch, hydration digest mismatch and denied/partial readback; assert the gate remains failed. Exclude fake-engine/catalog fixtures. Owner prerequisite: no exact reviewed AU companion requirement ID is identified for graph_orchestrate/execute_workflow to gate success on this EG hydration readback. Keep the AU consumer ID unassigned and treat execution-success evidence as missing; Pipelines gate coverage does not establish the AU consumer.
 <!-- /spec-definition-patch -->
