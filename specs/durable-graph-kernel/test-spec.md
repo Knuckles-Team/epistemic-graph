@@ -165,3 +165,47 @@ Shared KV-cache tier (R083): two consumers share one content-addressed block. A 
 |---|---|---|
 | Two writers, one version | R084.6 | Both write against version N. One commits. The other gets `WRITE_CONFLICT`. |
 | Strategy merge | R084.2 | A `FieldUnion` scope merges two disjoint field edits. |
+
+
+## R085 planned acceptance
+
+All test names below are proposed. None ran in this specification batch.
+Use the real server binary, authenticated public client and disposable durable directory.
+Transport, graph authorization, mutation dispatch and persistence must remain real.
+Read durable state through an independent authorized client after restart.
+
+- `EG-DURABLE-KERNEL-R085.1`: Planned: tests/memory_sync_contract.rs::bounded_contract_round_trips_and_refuses_invalid_fields.
+- `EG-DURABLE-KERNEL-R085.2`: Planned: tests/memory_sync_served.rs::authorized_read_list_and_cursor_isolation.
+- `EG-DURABLE-KERNEL-R085.3`: Planned: tests/memory_sync_served.rs::competing_saves_retain_both_and_resolve_once.
+- `EG-DURABLE-KERNEL-R085.4`: Planned: tests/memory_sync_served.rs::wire_methods_reach_durable_gateway.
+- `EG-DURABLE-KERNEL-R085.5`: Planned: tests/memory_sync_served.rs::denied_and_malformed_requests_have_no_effects.
+- `EG-DURABLE-KERNEL-R085.6`: Planned: tests/memory_sync_served.rs::provenance_and_materialization_ack_survive_restart.
+- `EG-DURABLE-KERNEL-R085.7`: Planned: tests/memory_sync_served.rs::conflicts_survive_gc_and_retention_refusal.
+- `EG-DURABLE-KERNEL-R085.8`: Planned: tests/memory_sync_served.rs::complete_memory_sync_journey.
+
+The complete journey creates a document, reads an exact revision and lists it across pages.
+First observe a host edit and check file_ahead without changing the accepted head.
+Capture an acknowledgment for the accepted revision and observation generation before the host edit.
+Retain the host edit without advancing the accepted revision, then deliver that delayed acknowledgment.
+Check a generation-mismatch refusal and unchanged pending content, receipt and file_ahead state.
+A fresh acknowledgment also cannot clear file_ahead while that observed edit remains pending.
+Two clients submit distinct contents from one base. Exactly one advances the accepted head.
+The other receives a durable conflict reference containing both readable versions and hashes.
+Retry both requests and check stable receipts without duplicate content or holder effects.
+Restart the engine and run eligible blob collection. Both conflicting versions remain readable.
+Resolve with the current revision, materialize the result, then acknowledge its exact digest.
+Only the final acknowledgment may report in_sync. A stale acknowledgment must not clear newer state.
+
+Negative cases include another tenant, wrong graph incarnation and a principal without write authority.
+Denied calls leave graph heads, content records, conflict records, holders and outbox rows unchanged.
+Their responses reveal no existence, revision, digest, conflict reference or stored receipt.
+Compare denied reads, saves and creation attempts against both existing and absent documents.
+Check equal error codes and response shapes after removing request-local correlation identities.
+An authorized but refused creation also uses Refused without synthetic head metadata.
+Round-trip every tagged outcome and reject head fields attached to Refused.
+Also test tampered cursors, policy changes, mismatched digests, oversized content and revision overflow.
+A stale cursor or absent producer must produce an explicit refusal, never fabricated empty success.
+Retention exhaustion must refuse before partial retention or an accepted-head change.
+Inject failure before and after durable commit. Recovery must expose one complete outcome or none.
+Record source SHA, binary digest, generated contract digest and authenticated operation receipts.
+Client mocks and producer unit tests cannot close R085.8.

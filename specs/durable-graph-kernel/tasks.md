@@ -115,3 +115,15 @@ Status key: `[ ]` queued, `[-]` in progress, `[x]` verified at cited main revisi
   - [ ] **EG-DURABLE-KERNEL-R084.4:** Typed conflict refusal
   - [ ] **EG-DURABLE-KERNEL-R084.5:** Conflict record in the mutation trace
   - [ ] **EG-DURABLE-KERNEL-R084.6:** Two-writer proof
+
+
+## R085 producer sequence
+
+- [ ] **EG-DURABLE-KERNEL-R085.1:** Model. Implement the contract and planned acceptance in this directory.
+- [ ] **EG-DURABLE-KERNEL-R085.2:** Versioned reads and listing. Implement the contract and planned acceptance in this directory.
+- [ ] **EG-DURABLE-KERNEL-R085.3:** Sync decisions and compare-and-set. Implement the contract and planned acceptance in this directory.
+- [ ] **EG-DURABLE-KERNEL-R085.4:** Production wiring. Implement the contract and planned acceptance in this directory.
+- [ ] **EG-DURABLE-KERNEL-R085.5:** Authority and refusals. Implement the contract and planned acceptance in this directory.
+- [ ] **EG-DURABLE-KERNEL-R085.6:** Provenance and synchronization evidence. Implement the contract and planned acceptance in this directory.
+- [ ] **EG-DURABLE-KERNEL-R085.7:** Retention. Implement the contract and planned acceptance in this directory.
+- [ ] **EG-DURABLE-KERNEL-R085.8:** Real served acceptance. Implement the contract and planned acceptance in this directory.
