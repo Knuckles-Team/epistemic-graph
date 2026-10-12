@@ -152,3 +152,45 @@ Fixture thresholds above are deterministic test values, not production defaults 
 | Forged, stale or cross-tenant saturation evidence | `RETRIEVAL_FEEDBACK_INVALID`; no continuation or successful confidence claim. |
 
 For every missing-calibration case, assert absent margin/threshold and preserved R081 insufficiency. Read the decision trace and dispatch counters independently; terminal and invalid continuations issue zero subsequent retrieval, generation or assessment calls. Repeating a terminal continuation cannot reset budgets. A calibrated control still stops only when the repeated answer exceeds its margin threshold. Equality continues when no earlier terminal condition applies. These are acceptance requirements, not executed runtime evidence.
+
+## Retrieval policy extensions: served acceptance
+
+Acceptance state: **NOT RUN** for R039.1, R039.2, R039.3, R040.1, R040.2, R040.3, R077.6 and R081.9.7.
+All test paths below are planned; this definitions batch adds no runtime test or implementation.
+
+The harness must start an authenticated engine with disposable persistent storage and two independent tenant clients.
+It must pin corpus, policy, model artifacts, preprocessing, tokenizer, graph and index generations.
+It must invoke real transport, authorization, production dispatch, planner, model bindings and index reads.
+It must not mock those components or inject finished rankings, feedback, topic scores or receipts.
+A deterministic hash embedder cannot establish semantic or cross-modal acceptance.
+The evidence reader must use a separate authorized client and read the actual trace and persisted records.
+
+| Planned test | Positive acceptance | Negative acceptance |
+|---|---|---|
+| `tests/retrieval/test_multimodal_served.py` | Issue all sixteen text/image/audio/video direction pairs through UnifiedQuery. Read expected permitted matches and shared space identity. Verify actual model invocations and maintained index reads. | Delete one authorized target embedding and assert exact missing_embedding shortfall. Delete query binding and refuse before rank. Reject same-width incompatible spaces, unavailable modalities and cross-tenant inputs. |
+| `tests/retrieval/test_constraints_served.py` | Load a real relationship fixture where the best similarity violates a required edge. Require permitted lower-scored results and exact replenishment. Compare optimized and unoptimized results with a separate exhaustive graph oracle. | Contradictory predicates produce zero eligible results and typed shortfall. Unsupported operators and stale graph revisions refuse. Prohibited candidates remain absent from text, vector and topic branches. |
+| `tests/retrieval/test_section_tree_served.py` | Ingest a three-level section tree without vectors. Invoke approved production reasoning and read complete ordered paths, spans and pruning evidence. Assert zero embedding/index calls. | Reject cycles, multiple roots, dangling parents, invalid spans and stale summaries. Exhaust each limit separately and together. Refuse before further work; preserve completed incomplete paths and tenant isolation. |
+| `tests/retrieval/test_chunk_encoding_served.py` | Governed ingestion must encode the same long document with local-reset and absolute-offset policies. Capture actual token ranges and independent model calls. Recompute mean and final normalization independently, then query the single published vector through UnifiedQuery. | Reject overlap at least size, unsupported offsets, non-finite or mismatched vectors and failed chunks. Empty input cannot publish a vector. Policy-generation mismatch must refuse; failed replacement must retain the prior complete generation. |
+| `tests/retrieval/test_column_advice_served.py` | Create two equally distributed text columns. Issue column-specific text-search queries, then select from column_vector_advice through Sql. Reverse observed demand and assert reversed recommendations. Independently verify recorded workload contributions. | Reject unembeddable types before recommendation scoring. Cover no observations, stale schema, denied tables and unavailable encoders. Assert zero new bindings, embedding calls and write-side effects. |
+| `tests/retrieval/test_topic_fusion_served.py` | Bind two production topic backends sequentially to the same corpus and space. Query at weights 0, 0.5 and 1. Independently reproduce normalized scores and stable ordering from receipts. | Reject mismatched dimensions, model revision, preprocessing, space tuple and corpus generation. Reject invalid responsibilities, zero vectors and missing backends. Hidden-topic data must never affect ranking or evidence. |
+
+For chunk numerical comparison, use absolute tolerance 1e-6 and relative tolerance 1e-5 for f32 aggregate outputs.
+Pin the backend numerical mode and record any stricter tolerance required by its contract.
+Exact token boundaries, counts, identities and generations permit no tolerance.
+The fixture must include partial final chunks and nonzero overlap.
+Different position modes require independently checked position inputs; an assumed difference in ranking is not proof.
+
+For constraints, test required and forbidden directed edges plus typed entity predicates.
+Set k above the number of surviving candidates and verify typed constraint-exhaustion shortfall.
+For multimodal shortfall, include both missing vectors and unauthorized vectors.
+Unauthorized items must contribute neither identifiers nor counts to the response.
+
+For section traversal, rerun the existing community journey in `tests/retrieval/test_hierarchy_served.py`.
+Document-section selection must not alter community stages or entity paths.
+Rerun `tests/retrieval/test_feedback_served.py::test_uncalibrated_continuation_precedence`.
+Invalid feedback, round exhaustion, other budget exhaustion, no new evidence and saturation must retain their existing precedence.
+Neither section selection nor new fusion may claim sufficiency from an uncalibrated terminal result.
+
+Restart before independent readback of published encoding generations, section revisions and retained receipts.
+Record exact source revision, enabled features, test command, policy revisions, measured work and result.
+Unavailable production bindings leave acceptance NOT RUN or failed, never passed through helper-only substitution.

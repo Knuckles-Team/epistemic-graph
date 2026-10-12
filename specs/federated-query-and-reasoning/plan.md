@@ -253,3 +253,230 @@ Invalid feedback returns `RETRIEVAL_FEEDBACK_INVALID` before further work. A rou
 Only valid completed-round evidence can establish progress termination. No new evidence means zero newly accepted document IDs relative to validated history at the same tenant and corpus revision. Saturation means measured quality improvement meets the policy's declared threshold and observation window. Missing or invalid progress evidence refuses as invalid feedback; a critique assertion is never proof. No-new-evidence takes precedence over saturation. Neither means the answer has enough evidence.
 
 A missing calibration row always remains visible as `ROUND_NOT_CALIBRATED`, including on a terminal verdict. It disables only the calibrated confidence branch. A valid progressing round continues within remaining limits with `continue_uncalibrated`. Saturated, empty-progress or exhausted rounds stop with their specific reason. Margin and threshold stay absent; the calibration refusal remains. The R081 sufficiency verdict remains independent.
+
+## Retrieval policy extensions: R039, R040, R077 and R081.9
+
+These definitions extend existing retrieval owners. Their generated delivery state must remain SPECIFIED; planned acceptance is NOT RUN.
+EG owns context, constraints, retrieval choices, encoding policy, scoring and evidence.
+The SDK owns ingestion execution and provider transport.
+The harness executes bounded engine decisions and acceptance journeys.
+The host composes authenticated service access.
+No consumer gains a second planner.
+
+Dependencies include [EG-TYPED-PACKS-R043 and R048](../typed-packs-and-catalog/requirements.md), for modality annotations and model facts.
+Ingestion uses [SDK-SOURCE-INGEST](https://github.com/Knuckles-Team/agent-connector-sdk/tree/main/specs/SDK-SOURCE-INGEST).
+Harness evaluation uses [AU-RETRIEVAL-R001](https://github.com/Knuckles-Team/agent-utilities/tree/main/specs/retrieval-evaluation).
+Hosting uses [host-composition-boundary](https://github.com/Knuckles-Team/graph-os/tree/main/specs/host-composition-boundary).
+These are dependencies, not delivery claims against those owners.
+
+Common served path: `Method::UnifiedQuery` → `src/server/handlers/query/dispatch.rs:133` → `src/server/handlers/query/sql_read.rs:305` → `src/server/handlers/query/planning.rs:854`.
+Binding continues through `src/server/handlers/query/planning.rs:424` → `src/server/handlers/query/planning.rs:411` → `crates/eg-plan/src/exec.rs:536`.
+The GraphQL caller at `crates/eg-graphql/src/crossmodal.rs:429` must consume equivalent typed policies when enabled.
+New typed operators below are proposed additions to the structured plan contract.
+They require generated contract and client updates during implementation.
+They do not require new textual grammar.
+
+Policy lookup must bind verified tenant, graph, corpus revision and policy revision before reading candidates.
+Constraint filters and R078 tenant predicates must execute before ranking, fusion and every truncation.
+Receipts must preserve authorized evidence only.
+The R081.8/R082 precedence and independent sufficiency verdict remain unchanged.
+New ranking components cannot reinterpret uncalibrated continuation, progress termination or exhausted budgets.
+
+### R039.1: shared multimodal retrieval
+
+Existing code: `crates/eg-types/src/embedding.rs:47` defines EmbeddingSpaceRef.
+`crates/eg-plan/src/exec.rs:278` defines the text-only TextEmbedder.
+`src/server/handlers/query/planning.rs:11` currently binds only an optional deterministic hash embedder.
+`crates/eg-plan/src/exec/vector_rank.rs:65` and `crates/eg-plan/src/exec/vector_rank.rs:97` rank authorized candidate vectors.
+Reachable today: no, for the complete four-modality contract.
+The generic rank path is reachable; the hash embedder proves no semantic or cross-modal quality.
+
+Proposed `RankModality` must carry a typed query input, target modality set, requested count and policy reference.
+Text inputs carry bounded text; other inputs carry authorized content references and media metadata.
+The modality contract must resolve approved encoders into one pinned EmbeddingSpaceRef.
+Each binding must declare model revision, preprocessing digest, output width, normalization and supported input kinds.
+Different modality encoders may share a coordinate space only through that explicit compatibility contract.
+The engine must compare the full validated tuple, not trust an opaque digest or equal width alone.
+
+The compatible_space_only default must score every supported query-to-target direction by the declared shared metric.
+Target items without vectors must contribute authorized missing counts.
+Shortfall must carry requested count, returned count, missing embeddings, eligible count, corpus exhaustion and exhausted budget dimensions.
+A shortfall may report multiple causes; it must never count invisible items or fabricate zero vectors.
+Missing query bindings must refuse before candidate scoring.
+Evidence must distinguish actual inference from supplied vectors.
+
+Decision: reuse the stamped vector store and extend its binding contract.
+Reject separate indexes whose coordinates merely have equal dimensions.
+Acceptance must cover four same-modality and twelve cross-modality pairs with real approved model artifacts.
+
+### R040.1 and R039.3: declared hard constraints
+
+Existing code: `crates/eg-types/src/wire_query_core.rs:27` defines Pred; `crates/eg-plan/src/algebra.rs:21` re-exports it.
+`crates/eg-plan/src/exec.rs:536` invokes optimization and execution.
+`crates/eg-plan/src/exec/vector_rank.rs:97` accepts a constrained candidate set.
+Reachable today: no, for compilation of the declared entity/relationship contract.
+Generic predicates and filtered ranking exist.
+
+RetrievalConstraints must carry entity predicates and directed edge predicates over the same pinned graph snapshot.
+Entity predicates must identify an approved property, typed operator and typed value.
+Relationship predicates must identify edge kind, direction, target predicate and `exists` or `not_exists`.
+Entity operators must be eq, ne, lt, le, gt, ge or in, subject to the property's declared type.
+All constraints use conjunction; unsupported operators must refuse rather than weaken the predicate.
+The require_all default must intersect these sets before either text or vector ranking.
+The optimizer must preserve that semantic barrier during reordering and replenishment.
+Absence under an authorized graph view cannot establish a hidden relationship's existence.
+Constraint evaluation must never fetch unauthorized edges to resolve an assertion.
+
+A valid contradiction yields zero eligible candidates and typed shortfall.
+Invalid syntax, unknown property types, stale snapshots and unsupported semantics yield refusal before ranking.
+Evidence must bind the normalized constraint digest and authorized predicate outcomes.
+R039.3 closes the replenishment path: exhausted constraints never permit unconstrained replacement candidates.
+
+Decision: compile into the existing predicate and candidate-set machinery.
+Reject soft penalties because a highly similar prohibited candidate may still survive.
+
+### R081.9.7: typed document-section hierarchy
+
+Existing code: `crates/eg-plan/src/leanrag.rs:66` exposes GraphTopology.
+Its HierarchicalRetriever at `crates/eg-plan/src/leanrag.rs:125` depends on AnnIndex and per-node embeddings.
+`crates/eg-plan/src/exec.rs:84` supplies PlanCtx bindings.
+Reachable today: no, for vector-free reasoning traversal.
+R081.9.1 through R081.9.6 retain their community-summary, community-refinement and entity-search semantics.
+
+HierarchyRetrievalPolicy must distinguish `community` from `document_section`.
+A section record must carry document identity/revision, section ID, one parent, ordered children, granularity and source span.
+Its summary must bind the source revision and summary-generation digest.
+A document must have one root; child spans must lie within their parent's span.
+The engine must admit structurally valid section records received through governed ingestion.
+A query must bind one immutable document/tree revision.
+
+The section_beam default must rank authorized child summaries using the approved reasoning binding.
+It must descend in score order, break ties by section ID and retain every visited root-to-section path.
+A selected leaf must resolve to its exact source span; a summary alone is not leaf evidence.
+Every inference must consume declared token, call and cost budgets before dispatch.
+Breadth, depth and visited-node limits must stop traversal before the next expansion.
+The result must mark incomplete traversal and preserve all completed authorized paths.
+The tree kind must work when no vector store exists.
+Untrusted source text must remain evidence, never authority to change limits or access.
+
+Decision: extend the existing hierarchy policy with a discriminated section variant.
+Reject treating document sections as graph communities or using an absent vector as minimum relevance.
+Reuse graph reads and bounded model execution, with a new section decision operator before terminal fusion.
+Record bounded selection premises; do not request hidden reasoning traces.
+
+### R039.2 and R040.3: document encoding policy
+
+Existing code: EmbeddingSpaceRef at `crates/eg-types/src/embedding.rs:47` pins vector identity.
+EmbeddingBinding at `crates/eg-query/src/tables/embedding_binding.rs:398` owns column bindings.
+`src/server/handlers/semantic_index/dispatch.rs:14` dispatches governed ingestion stages.
+`src/server/handlers/semantic_index/worker.rs:175` completes a generation stage.
+`src/server/handlers/query/planning.rs:611` binds query encoding.
+Reachable today: no, for complete independent chunk encoding and aggregate validation.
+
+DocumentEncodingPolicy must pin tokenizer digest, model revision, chunk size, overlap, position mode and aggregation revision.
+Its initial mean_chunks default uses 1024 tokens, zero overlap and local_reset positions.
+These replaceable defaults are engineering starting values inspired by research, not measured optimal settings.
+For size S and overlap O, windows start at 0 and advance by S-O. Stop after the first window whose end reaches the document end.
+Require S greater than zero and 0 less than or equal to O less than S.
+Tokenize once; preserve token IDs and include the final partial window exactly once.
+Absolute positions retain original token offsets; local positions start at zero for each window.
+Unsupported absolute offsets must refuse, never reset silently.
+
+The SDK ingestion worker must execute the EG-approved recipe through its existing provider binding.
+Each chunk must use a fresh encoder context.
+The initial aggregate must be the arithmetic mean of raw chunk vectors, accumulated in ordinal order.
+Normalize only the final aggregate when the pinned space requires normalization.
+The recipe must be query-independent; it must leave query encoding unchanged.
+Empty input, failed chunks and zero-norm normalized aggregates cannot publish a successful document vector.
+Completion must validate the full receipt before publishing one document vector into the maintained generation.
+R040.3 must prevent queries from mixing generations encoded under different policy identities.
+Policy changes require a complete replacement generation; serving retains the prior compatible generation until activation.
+
+Decision: one stored vector per document, with explicit chunk provenance.
+Reject independently ranked chunk entries and full-document encoding presented as independent encoding.
+The paper supports this mechanism; its benchmark gains are not acceptance evidence.
+
+### R077.6: workload-based column advice
+
+Existing code: `crates/eg-query/src/tables/embedding_binding.rs:398` defines EmbeddingBinding.
+`src/server/handlers/query/sql_read.rs:100` handles SQL reads.
+Its catalog response at `src/server/handlers/query/sql_read.rs:379` invokes the authorized table store and typed SQL executor.
+`crates/eg-query/src/sql/ann.rs:116` supplies ANN ranking, not a recommendation service.
+Reachable today: no, for workload-based recommendation and recommendation-specific refusal.
+Search terms included ColumnVector, recommendation, workload and column statistics.
+
+ColumnVectorAdvice must carry stable table/column identities, schema revision and an observation interval.
+Observation counts must derive from successfully authorized, resolved query plans, not guesses from raw SQL strings.
+The record must count text-search uses separately from exact filters, projections and joins.
+Text-search uses include resolved pattern predicates, full-text queries and vector similarity queries.
+Pattern predicates supply workload evidence before a column has any vector binding.
+The workload_first default must require at least one observed text-search use for a positive recommendation.
+It must sort by text-search-use count, then average text length, then distinct ratio, then stable column ID.
+A versioned policy may replace those weights or thresholds only with explicit evidence.
+Eligible columns without enough observations return insufficient_observations, not a fabricated positive score.
+
+The initial eligibility rule permits embeddable text only.
+It must reject numeric, boolean, timestamp, foreign-key, enumeration and unsupported binary data before recommendation scoring.
+This recommendation refusal is separate from R077.2 binding refusal.
+An unavailable approved encoder also prevents a positive recommendation.
+Advice must consume schema and workload from the same authorized scope and declare both revisions.
+
+Proposed read-only catalog relation: `column_vector_advice`.
+A served `Sql` SELECT over this relation must invoke the advisor through the existing catalog response.
+An implementation must register and authorize that relation before claiming serving.
+The advisor must record only bounded counts and feature contributions; it must retain no raw query text.
+Advice must not bind columns, schedule embedding work or modify existing binding lifecycle state.
+
+Decision: extend R077.4 with measured workload input through R077.6.
+Reject a second binding registry and recommendations based only on global query popularity.
+
+### R040.2: topic/dense fusion
+
+Existing code: `crates/eg-plan/src/exec.rs:84` defines PlanCtx.
+`crates/eg-plan/src/exec.rs:848` implements fuse_rrf over ranked branches.
+`crates/eg-plan/src/exec/vector_rank.rs:65` performs vector scoring.
+EmbeddingSpaceRef at `crates/eg-types/src/embedding.rs:47` already defines coordinate identity.
+Reachable today: no, for topic-backend ranking fusion.
+Search terms included topic backend, topic centroid and aggregate embedding.
+
+TopicBackend must return bounded topic responsibilities, centroids, backend revision and corpus generation.
+Every centroid must carry the retriever's validated full space tuple.
+Empirical centroids must derive only from authorized vectors in that same generation.
+Native centroids require the same compatibility proof; equal dimensionality is insufficient.
+
+The weighted_topic_dense default must use weight w in [0,1], initially 0.5.
+Dense score D is (1+cosine(query,document))/2.
+Topic score T is the responsibility-weighted mean of (1+cosine(query,centroid))/2.
+Responsibilities must be nonnegative, finite and sum to one within absolute tolerance 1e-6.
+Final score is (1-w)*D+w*T; stable document ID resolves ties.
+Hard constraints and tenant filters must run before either component and final truncation.
+Missing topic metadata, incompatible centroids and zero-norm inputs must refuse when topic fusion is requested.
+A caller may explicitly choose a separately declared dense-only policy; silent fallback is forbidden.
+
+Decision: bind replaceable topic providers into the existing planner.
+Reject an in-process cosine-prototype helper as proof of production topic fusion.
+No model training or teacher pipeline is required by this extension.
+
+### Input mapping and delivery slices
+
+| Accepted input | Extended requirement | Residual covered |
+|---|---|---|
+| EG:32 | R039.1 | Shared four-modality coordinate space and missing-embedding shortfall. |
+| EG:33 | R040.1, R039.3 | Declared hard exclusions before ranking and constrained replenishment. |
+| EG:38 | R081.9.7 | Distinct vector-free section hierarchy and complete authorized search paths. |
+| EG:39 | R039.2, R040.3 | Configurable independent encoding, one aggregate and generation-safe filtered ranking. |
+| EG:40 | R077.6 | Observed per-column workload and recommendation-specific type refusal. |
+| EG:42 | R040.2 | Replaceable topic scoring with centroid-space compatibility. |
+
+Each leaf is an implementation checkpoint: model, behavior, wiring, refusal, evidence, then served proof.
+Chunk encoding separates window construction, independent inference and aggregation into individual leaves.
+Cross-owner worker, harness and hosting work must land through their existing contracts.
+No row becomes delivered merely because its definition or planned test path exists.
+
+### References
+
+- arXiv:2605.08384v2 — Hönicke et al., "jina-embeddings-v5-omni: Geometry-preserving Embeddings via Locked Aligned Towers" (2026).
+- arXiv:2606.18781v1 — Lyu et al., "Lost in a Single Vector: Improving Long-Document Retrieval with Chunk Evidence Aggregation" (2026).
+
+These papers inspire the space-alignment and chunk-aggregation mechanisms.
+The requirements remain product-neutral and require independent served measurements.
