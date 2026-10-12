@@ -288,6 +288,10 @@ An ill-conditioned solve produces a typed numerical refusal; it must not silentl
 
 The gain minimizes linear mean-square estimation error under the declared linear model and correct second moments.
 The linear profile requires zero-mean, temporally uncorrelated noises independent of the initial state.
+Process and measurement noises must also be mutually uncorrelated at all time indices.
+The current S, K and Joseph formulas support only zero process/measurement cross-covariance.
+Model admission must refuse any declaration of nonzero cross-covariance before an update or checkpoint change.
+Unknown noise-correlation policy must refuse; model revisions must explicitly declare the supported uncorrelated-noise policy.
 Mutually independent Gaussian noises and a Gaussian initial state also permit the conditional-mean interpretation.
 Nonlinear approximations, transformed volatility observations and robust weights carry no universal optimality guarantee.
 
@@ -346,3 +350,28 @@ The [primary paper reproduction](https://scispace.com/pdf/a-new-approach-to-line
 The accepted source provides no arXiv identifier; none is assigned here.
 The bounded retuning and robust qualification profiles above are engineering requirements, not results attributed to that paper.
 The source method requests innovation adaptation and tail downweighting but provides no validated numerical policy for either.
+
+
+### 2026-10-12: preserve acceptance through smaller R002 units
+
+R002.1, R002.2 and R002.6 are rollups; their original acceptance remains mandatory.
+Each new leaf names one kernel or one model at one boundary.
+Source paths are intended attachment points, not claims of completed implementations.
+R002.2.4 checks the complete caller census; an omitted caller prevents parent completion.
+Any additional independent caller requires an explicit child before its migration.
+Each leaf retains its own positive and negative proof.
+The generic route and generated contract are prerequisites for served caller tests.
+R002.3 still requires method counts and client bindings to reconcile in the migration change.
+The held query lane owns missing textual admission; these definitions do not change that grammar.
+
+| Retained obligation | Explicit descendants |
+|---|---|
+| Fourteen shared kernels and independent unit vectors | R002.1.1 through R002.1.14, in original inventory order |
+| Generic callers for all fourteen kernels | R002.2.1.1 through R002.2.1.14 |
+| Removed or thin documented finance aliases | R002.2.2.1 through R002.2.2.14 |
+| Real UQL exposure for all fourteen kernels | R002.2.3.1 through R002.2.3.14 |
+| Complete caller coverage, including additional discovered callers | R002.2.4 |
+| Causal recurrence and supported noise assumptions | R002.6.1 |
+| Volatility, mean-reversion, hedge and factor models | R002.6.2 through R002.6.5, respectively |
+
+These scenarios have no new execution receipts. Existing parent receipts remain unchanged.

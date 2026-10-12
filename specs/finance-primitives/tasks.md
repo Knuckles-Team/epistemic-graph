@@ -152,14 +152,82 @@ These children remain unverified. Intended paths and test names define future ac
 ## R002 implementation sequence
 
 - [ ] **EG-FINANCE-PRIMITIVES-R002.5:** Define versioned state-space inputs and checkpoints. Implement its proposed proving test from requirements.md.
-- [ ] **EG-FINANCE-PRIMITIVES-R002.6:** Apply causal predict-update filtering to four state models. Implement its proposed proving test from requirements.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.6:** Retain the original rollup acceptance and complete every child below.
 - [ ] **EG-FINANCE-PRIMITIVES-R002.7:** Detect innovation shifts and retune within fixed bounds. Implement its proposed proving test from requirements.md.
 - [ ] **EG-FINANCE-PRIMITIVES-R002.8:** Bound nonlinear approximation and robust tail influence. Implement its proposed proving test from requirements.md.
-- [ ] **EG-FINANCE-PRIMITIVES-R002.1:** Complete the original shared-kernel inventory. Implement its proposed proving test from requirements.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.1:** Retain the original rollup acceptance and complete every child below.
 - [ ] **EG-FINANCE-PRIMITIVES-R002.4:** Bound original regime derivations and streaming work. Implement its proposed proving test from requirements.md.
-- [ ] **EG-FINANCE-PRIMITIVES-R002.2:** Migrate callers and preserve generic time-series exposure. Implement its proposed proving test from requirements.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2:** Retain the original rollup acceptance and complete every child below.
 - [ ] **EG-FINANCE-PRIMITIVES-R002.3:** Reconcile generated methods and client bindings. Implement its proposed proving test from requirements.md.
 - [ ] **EG-FINANCE-PRIMITIVES-R002.9:** Wire versioned filtering through served series operations. Implement its proposed proving test from requirements.md.
 - [ ] **EG-FINANCE-PRIMITIVES-R002.10:** Prove filtering on the production hot paths. Implement its proposed proving test from requirements.md.
 
 The new scenarios have no execution receipts. This definition change introduces no implementation or test bindings.
+
+### R002 kernel and model units
+
+- [ ] **EG-FINANCE-PRIMITIVES-R002.1.1:** Rolling z-score shared kernel. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.1.2:** EWMA shared kernel. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.1.3:** Information coefficient shared kernel. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.1.4:** Information ratio shared kernel. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.1.5:** Effective sample size shared kernel. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.1.6:** Diebold-Mariano shared kernel. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.1.7:** Deflated Sharpe shared kernel. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.1.8:** Purged combinatorial cross-validation shared kernel. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.1.9:** Probability of backtest overfitting shared kernel. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.1.10:** Brier shared kernel. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.1.11:** Kalman shared kernel. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.1.12:** Ornstein-Uhlenbeck shared kernel. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.1.13:** ADF shared kernel. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.1.14:** Regime HMM shared kernel. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.1:** Generic caller migration rollup. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.1.1:** Rolling z-score generic caller migration. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.1.2:** EWMA generic caller migration. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.1.3:** Information coefficient generic caller migration. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.1.4:** Information ratio generic caller migration. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.1.5:** Effective sample size generic caller migration. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.1.6:** Diebold-Mariano generic caller migration. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.1.7:** Deflated Sharpe generic caller migration. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.1.8:** Purged combinatorial cross-validation generic caller migration. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.1.9:** Probability of backtest overfitting generic caller migration. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.1.10:** Brier generic caller migration. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.1.11:** Kalman generic caller migration. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.1.12:** Ornstein-Uhlenbeck generic caller migration. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.1.13:** ADF generic caller migration. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.1.14:** Regime HMM generic caller migration. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.2:** Finance alias compatibility rollup. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.2.1:** Rolling z-score finance alias compatibility. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.2.2:** EWMA finance alias compatibility. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.2.3:** Information coefficient finance alias compatibility. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.2.4:** Information ratio finance alias compatibility. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.2.5:** Effective sample size finance alias compatibility. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.2.6:** Diebold-Mariano finance alias compatibility. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.2.7:** Deflated Sharpe finance alias compatibility. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.2.8:** Purged combinatorial cross-validation finance alias compatibility. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.2.9:** Probability of backtest overfitting finance alias compatibility. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.2.10:** Brier finance alias compatibility. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.2.11:** Kalman finance alias compatibility. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.2.12:** Ornstein-Uhlenbeck finance alias compatibility. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.2.13:** ADF finance alias compatibility. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.2.14:** Regime HMM finance alias compatibility. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.3:** UQL time-series exposure rollup. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.3.1:** Rolling z-score uql time-series exposure. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.3.2:** EWMA uql time-series exposure. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.3.3:** Information coefficient uql time-series exposure. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.3.4:** Information ratio uql time-series exposure. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.3.5:** Effective sample size uql time-series exposure. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.3.6:** Diebold-Mariano uql time-series exposure. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.3.7:** Deflated Sharpe uql time-series exposure. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.3.8:** Purged combinatorial cross-validation uql time-series exposure. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.3.9:** Probability of backtest overfitting uql time-series exposure. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.3.10:** Brier uql time-series exposure. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.3.11:** Kalman uql time-series exposure. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.3.12:** Ornstein-Uhlenbeck uql time-series exposure. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.3.13:** ADF uql time-series exposure. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.3.14:** Regime HMM uql time-series exposure. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.4:** Complete caller coverage check. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.6.1:** Shared causal linear recurrence. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.6.2:** Volatility regime profile. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.6.3:** Mean-reversion strength profile. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.6.4:** Hedge ratio profile. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.6.5:** Time-varying factor sensitivity profile. Execute its positive and negative proof from test-spec.md.

@@ -95,3 +95,6 @@ R002 also owns versioned causal state-space filtering, bounded innovation retuni
 Its original kernel inventory and acceptance remain mandatory.
 The plan defines all four state models, production attachment points and prerequisite contracts.
 The test contract requires independent numerical oracles and real served positive and negative sequences.
+
+R002.1, R002.2 and R002.6 retain their acceptance as rollups of kernel-specific and model-specific children.
+The linear recurrence requires mutually uncorrelated process and measurement noises; unsupported correlation declarations refuse.
