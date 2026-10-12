@@ -1,14 +1,14 @@
 # EG-IDENTITY — Engine identity, mode and scope authority
 
-**Owner:** epistemic-graph. **Delivery:** SPECIFIED. **Acceptance:** NOT_AUDITED.
+**Owner:** epistemic-graph.
 
 ## Outcome
 
 An operator can configure several trusted identity issuers, modify engine roles, and transition identity modes without losing administrative access or allowing an unverified caller to widen authority. Clients can discover the exact engine scope registry from the public contract. A contributor can implement and test every requirement from this directory and a fresh public checkout.
 
-## State legend
+## Evidence requirements
 
-`SPECIFIED` means the design and tests are reviewable; `BUILDING` means source is in progress; `BUILT` means a branch artifact exists; `LANDED` requires the exact public main commit; `ACCEPTED` requires the negative, persistence, consumer and release tests for that commit. A historical `BUILT` label is not acceptance. EG-IDENTITY-R001, EG-IDENTITY-R002, EG-IDENTITY-R003 and EG-IDENTITY-R004 remain **NOT_AUDITED** here: the current default branch has partial OIDC, RBAC and audit wiring, while the multi-issuer store, mode transition and generated scope registry are not proven present.
+Delivery evidence requires the exact public main commit. Acceptance requires the negative, persistence, consumer and release tests for that commit. A historical branch artifact does not establish acceptance. EG-IDENTITY-R001, EG-IDENTITY-R002, EG-IDENTITY-R003 and EG-IDENTITY-R004 have not been audited here. The current default branch has partial OIDC, RBAC and audit wiring. The multi-issuer store, mode transition and generated scope registry are not proven present.
 
 ## Requirements
 
@@ -40,6 +40,6 @@ Tests cover both accepted and denied paths and exact restart behavior. Run CCCC,
 
 ## Completion
 
-Each requirement row receives a public merged-head SHA, focused positive/negative test result, package/consumer test and applicable release gate. Only then may its acceptance become ACCEPTED; a single passing CI run or current code-path presence cannot close the four obligations.
+Each requirement row receives a public merged-head SHA, focused positive/negative test result, package/consumer test and applicable release gate. Acceptance requires all four obligations. A single passing CI run or current code-path presence cannot close them.
 
 Requirement IDs are defined in [requirements.md](requirements.md); delivery state per ID is in `status.json`.
