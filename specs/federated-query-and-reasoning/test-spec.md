@@ -250,3 +250,17 @@ Include shared-predicate, inverse and recursion-boundary fixtures as explicit se
 Record both expected semantics and actual results. Do not rewrite the oracle to hide a discrepancy.
 Those cases cannot certify unsupported full-language behavior.
 Crate parser tests cannot stand in for served ShExJ syntax, authorization or report projection.
+
+## R085 planned evidence
+
+The following are proving targets, not execution receipts. Runtime delivery requires the real producer and the linked SDK consumer.
+
+- **EG-FEDERATED-QUERY-R085:** All child tests and linked consumer evidence. Each child must pass; these definitions do not establish runtime delivery.
+- **EG-FEDERATED-QUERY-R085.1:** `crates/eg-types/src/source_query.rs::tests::approval_records_round_trip` (planned). Round trips preserve every binding. Invalid references, parameter types, nonfinite values, absent snapshot identity and zero/unbounded limits refuse.
+- **EG-FEDERATED-QUERY-R085.2:** `src/server/handlers/federation/source_query_tests.rs::approval_requires_authority_and_native_commit` (planned). A successful response follows durable issuance. Generic lease writes cannot forge approval. Issuance uses existing storage and credentials; no external SQL executes during approval.
+- **EG-FEDERATED-QUERY-R085.3:** `src/server/handlers/federation/source_query_tests.rs::changed_or_revoked_approval_refuses` (planned). Changing any binding, authority, source or revision refuses. Revoked, expired, consumed, unavailable or missing leases refuse. Verification grants no SQL effect and creates no bearer credential.
+- **EG-FEDERATED-QUERY-R085.4:** `crates/eg-plan/src/federation_tests.rs::approved_source_query_has_no_write_effects` (planned). Native parameter binding preserves values and query meaning. Supported projections, predicates, ordering and limits match the query oracle. Unknown dialects, functions or effects refuse without issuing approval.
+- **EG-FEDERATED-QUERY-R085.5:** `tests/source_query_approval_served.rs::real_dispatch_issues_and_verifies_approval` (planned). Real authenticated dispatch reaches source validation, native issuance and fresh verification. No parallel planner, store or client-side approval authority appears. Current source has neither method.
+- **EG-FEDERATED-QUERY-R085.6:** `tests/source_query_approval_served.rs::bounded_stream_preserves_approval` (planned). Oversized rows, exceeded budgets or failed revalidation stop execution and close the driver. Exactly one explicit completion or typed failure stops an execution. Missing terminal completion never means success.
+- **EG-FEDERATED-QUERY-R085.7:** `tests/source_query_approval_served.rs::failure_after_three_chunks_is_terminal` (planned). Failure after three chunks stays failure with an incomplete execution identity. No successful terminal event or failed-chunk checkpoint follows. Earlier accepted pages retain their actual durable receipts.
+- **EG-FEDERATED-QUERY-R085.8:** `tests/source_query_approval_served.rs::approval_to_connector_query_journey` (planned). Keep row widths, driver settings and all limits fixed while increasing cardinality by two orders of magnitude. Declare the baseline, memory envelope and tolerance before runs. Every peak must fit that fixed envelope; whole-result buffering fails. Record exact revisions, features, commands, rows/bytes, queue high-water marks, terminal outcomes and checkpoint agreement.

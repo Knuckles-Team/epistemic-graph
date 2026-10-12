@@ -203,3 +203,17 @@ Each child is one focused five-minute definition or proof slice. Split larger im
 - [ ] **EG-FEDERATED-QUERY-R084.6:** Refusal. Use the matching planned acceptance in test-spec.md.
 - [ ] **EG-FEDERATED-QUERY-R084.7:** Scoped reads. Use the matching planned acceptance in test-spec.md.
 - [ ] **EG-FEDERATED-QUERY-R084.8:** Evidence and hot-path proof. Use the matching planned acceptance in test-spec.md.
+
+## R085 producer delivery
+
+Preserve all previous acceptance and receipts. Deliver producer leaves before the SDK consumer. Split concrete implementation work further if a leaf exceeds five minutes.
+
+- [ ] **EG-FEDERATED-QUERY-R085:** EG approves immutable source queries for bounded connector execution (rollup).. Fulfil the complete requirement and its named proving test.
+- [ ] **EG-FEDERATED-QUERY-R085.1:** Model.. Fulfil the complete requirement and its named proving test.
+- [ ] **EG-FEDERATED-QUERY-R085.2:** Behavior: issue approval.. Fulfil the complete requirement and its named proving test.
+- [ ] **EG-FEDERATED-QUERY-R085.3:** Behavior: verify approval.. Fulfil the complete requirement and its named proving test.
+- [ ] **EG-FEDERATED-QUERY-R085.4:** Behavior: read-only SQL.. Fulfil the complete requirement and its named proving test.
+- [ ] **EG-FEDERATED-QUERY-R085.5:** Wiring.. Fulfil the complete requirement and its named proving test.
+- [ ] **EG-FEDERATED-QUERY-R085.6:** Behavior: bounded execution contract.. Fulfil the complete requirement and its named proving test.
+- [ ] **EG-FEDERATED-QUERY-R085.7:** Refusal.. Fulfil the complete requirement and its named proving test.
+- [ ] **EG-FEDERATED-QUERY-R085.8:** Evidence and hot-path proof.. Fulfil the complete requirement and its named proving test.

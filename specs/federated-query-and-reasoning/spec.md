@@ -94,3 +94,7 @@ Existing OWL, SHACL, derivation-budget and query acceptance remain unchanged.
 The crate compact-syntax parser does not establish compact-syntax support in the served method.
 Declared limitations prevent unsupported full-language conformance claims.
 The lifecycle generator owns status; this definition supplies no runtime receipt.
+
+## Approved source queries (R085)
+
+EG supplies immutable, read-only source-query approvals and verifies their authority throughout bounded connector execution. SDK-SOURCE-INGEST-R004 consumes that producer contract. Query semantics, authorization and provenance remain engine-owned; native driver execution remains SDK-owned. Existing query, lease and checkpoint contracts remain intact. These definitions introduce no runtime delivery claim.
