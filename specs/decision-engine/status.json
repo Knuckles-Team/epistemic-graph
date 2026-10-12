@@ -3111,8 +3111,10 @@
     {
       "id": "EG-DECISION-ENGINE-R128.1",
       "title": "The question kind exists in the enum",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "c7da75413a3c"
+      ],
       "verified_by": [
         "crates/eg-types/src/decision/statistical.rs:348"
       ]
@@ -3235,8 +3237,10 @@
     {
       "id": "EG-DECISION-ENGINE-R128.14",
       "title": "The generated contract and clients carry the kind",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "c7da75413a3c"
+      ],
       "verified_by": [
         "crates/eg-capabilities/tests/contract_generated.rs:44"
       ]
