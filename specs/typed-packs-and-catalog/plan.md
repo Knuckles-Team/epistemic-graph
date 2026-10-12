@@ -316,3 +316,15 @@ The acceptance suite uses real signed import, schema attachment and generated cl
 Cross-repository boundary: connectors and applications supply candidates and consume governed pack views. They own no RDF/OWL authority, target-vocabulary activation or duplicate crosswalk registry. This change adds no external source mutation.
 
 The direction contract follows the [SKOS mapping reference](https://www.w3.org/TR/skos-reference/#mapping). Its broadMatch relation points to the broader concept; narrowMatch is its inverse.
+
+### 2026-10-12 — R066.2 shell-centric task fact
+
+The registered `core:swarm-topology@1` source now declares `swarm:shellCentric` as an optional boolean.
+Its shape permits at most one value. It checks both task instances and task-class declarations.
+Absent values remain unknown; R066.3 owns inheritance.
+
+Three native tests use the registered shape with EG's existing SHACL validator.
+They cover absent values, booleans, incorrect datatypes and competing values.
+The reference validator passed nine cases. Five malformed cases passed the baseline but fail the updated shape.
+Native execution remains pending. Reference validation does not establish native acceptance.
+Run `cargo test --locked -p eg-shacl --test swarm_topology_shapes --offline` on an admitted build lane.

@@ -39,6 +39,10 @@ swarm:k a owl:DatatypeProperty ; rdfs:range xsd:nonNegativeInteger .
 swarm:n a owl:DatatypeProperty ; rdfs:range xsd:nonNegativeInteger .
 swarm:resourceClass a owl:DatatypeProperty ; rdfs:range xsd:string .
 swarm:amount a owl:DatatypeProperty ; rdfs:range xsd:nonNegativeInteger .
+swarm:shellCentric a owl:DatatypeProperty ;
+    rdfs:domain swarm:TaskShape ;
+    rdfs:range xsd:boolean ;
+    rdfs:comment "Whether this task shape primarily requires shell interaction; absence is an unknown fact." .
 
 # --- Topology classes -------------------------------------------------------
 
