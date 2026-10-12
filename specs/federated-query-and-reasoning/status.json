@@ -159,7 +159,55 @@
     "EG-FEDERATED-QUERY-R083.3",
     "EG-FEDERATED-QUERY-R083.4",
     "EG-FEDERATED-QUERY-R083.5",
-    "EG-FEDERATED-QUERY-R083.6"
+    "EG-FEDERATED-QUERY-R083.6",
+    "EG-FEDERATED-QUERY-R039.1",
+    "EG-FEDERATED-QUERY-R039.1.1",
+    "EG-FEDERATED-QUERY-R039.1.2",
+    "EG-FEDERATED-QUERY-R039.1.3",
+    "EG-FEDERATED-QUERY-R039.1.4",
+    "EG-FEDERATED-QUERY-R039.1.5",
+    "EG-FEDERATED-QUERY-R039.1.6",
+    "EG-FEDERATED-QUERY-R040.1",
+    "EG-FEDERATED-QUERY-R040.1.1",
+    "EG-FEDERATED-QUERY-R040.1.2",
+    "EG-FEDERATED-QUERY-R040.1.3",
+    "EG-FEDERATED-QUERY-R040.1.4",
+    "EG-FEDERATED-QUERY-R040.1.5",
+    "EG-FEDERATED-QUERY-R040.1.6",
+    "EG-FEDERATED-QUERY-R081.9.7",
+    "EG-FEDERATED-QUERY-R081.9.7.1",
+    "EG-FEDERATED-QUERY-R081.9.7.2",
+    "EG-FEDERATED-QUERY-R081.9.7.3",
+    "EG-FEDERATED-QUERY-R081.9.7.4",
+    "EG-FEDERATED-QUERY-R081.9.7.5",
+    "EG-FEDERATED-QUERY-R081.9.7.6",
+    "EG-FEDERATED-QUERY-R039.2",
+    "EG-FEDERATED-QUERY-R039.2.1",
+    "EG-FEDERATED-QUERY-R039.2.2",
+    "EG-FEDERATED-QUERY-R039.2.3",
+    "EG-FEDERATED-QUERY-R039.2.4",
+    "EG-FEDERATED-QUERY-R039.2.5",
+    "EG-FEDERATED-QUERY-R039.2.6",
+    "EG-FEDERATED-QUERY-R039.2.7",
+    "EG-FEDERATED-QUERY-R039.2.8",
+    "EG-FEDERATED-QUERY-R077.6",
+    "EG-FEDERATED-QUERY-R077.6.1",
+    "EG-FEDERATED-QUERY-R077.6.2",
+    "EG-FEDERATED-QUERY-R077.6.3",
+    "EG-FEDERATED-QUERY-R077.6.4",
+    "EG-FEDERATED-QUERY-R077.6.5",
+    "EG-FEDERATED-QUERY-R077.6.6",
+    "EG-FEDERATED-QUERY-R040.2",
+    "EG-FEDERATED-QUERY-R040.2.1",
+    "EG-FEDERATED-QUERY-R040.2.2",
+    "EG-FEDERATED-QUERY-R040.2.3",
+    "EG-FEDERATED-QUERY-R040.2.4",
+    "EG-FEDERATED-QUERY-R040.2.5",
+    "EG-FEDERATED-QUERY-R040.2.6",
+    "EG-FEDERATED-QUERY-R039.3",
+    "EG-FEDERATED-QUERY-R040.3",
+    "EG-FEDERATED-QUERY-R039.4",
+    "EG-FEDERATED-QUERY-R040.4"
   ],
   "requirements": [
     {
@@ -670,22 +718,34 @@
     {
       "id": "EG-FEDERATED-QUERY-R039",
       "title": "Mixed traversal and vector queries return k or a typed shortfall",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "5c2ab50088c4",
         "62c450561948"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "rollup_of": [
+        "EG-FEDERATED-QUERY-R039.1",
+        "EG-FEDERATED-QUERY-R039.2",
+        "EG-FEDERATED-QUERY-R039.3",
+        "EG-FEDERATED-QUERY-R039.4"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R040",
       "title": "Filter-aware index scans for filtered vector and text search",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "08b2c9d4b567",
         "62c450561948"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "rollup_of": [
+        "EG-FEDERATED-QUERY-R040.1",
+        "EG-FEDERATED-QUERY-R040.2",
+        "EG-FEDERATED-QUERY-R040.3",
+        "EG-FEDERATED-QUERY-R040.4"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R041",
@@ -1206,7 +1266,8 @@
         "EG-FEDERATED-QUERY-R077.2",
         "EG-FEDERATED-QUERY-R077.3",
         "EG-FEDERATED-QUERY-R077.4",
-        "EG-FEDERATED-QUERY-R077.5"
+        "EG-FEDERATED-QUERY-R077.5",
+        "EG-FEDERATED-QUERY-R077.6"
       ]
     },
     {
@@ -1591,7 +1652,7 @@
     },
     {
       "id": "EG-FEDERATED-QUERY-R081.9",
-      "title": "Bounded community-to-entity retrieval (rollup)",
+      "title": "Bounded typed hierarchy retrieval (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -1601,7 +1662,8 @@
         "EG-FEDERATED-QUERY-R081.9.3",
         "EG-FEDERATED-QUERY-R081.9.4",
         "EG-FEDERATED-QUERY-R081.9.5",
-        "EG-FEDERATED-QUERY-R081.9.6"
+        "EG-FEDERATED-QUERY-R081.9.6",
+        "EG-FEDERATED-QUERY-R081.9.7"
       ]
     },
     {
@@ -1756,6 +1818,392 @@
     {
       "id": "EG-FEDERATED-QUERY-R083.6",
       "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R039.1",
+      "title": "Shared multimodal space and missing-embedding shortfall (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-FEDERATED-QUERY-R039.1.1",
+        "EG-FEDERATED-QUERY-R039.1.2",
+        "EG-FEDERATED-QUERY-R039.1.3",
+        "EG-FEDERATED-QUERY-R039.1.4",
+        "EG-FEDERATED-QUERY-R039.1.5",
+        "EG-FEDERATED-QUERY-R039.1.6"
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R039.1.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R039.1.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R039.1.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R039.1.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R039.1.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R039.1.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R040.1",
+      "title": "Hard entity and relationship constraints (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-FEDERATED-QUERY-R040.1.1",
+        "EG-FEDERATED-QUERY-R040.1.2",
+        "EG-FEDERATED-QUERY-R040.1.3",
+        "EG-FEDERATED-QUERY-R040.1.4",
+        "EG-FEDERATED-QUERY-R040.1.5",
+        "EG-FEDERATED-QUERY-R040.1.6"
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R040.1.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R040.1.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R040.1.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R040.1.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R040.1.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R040.1.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R081.9.7",
+      "title": "Vector-free document-section traversal (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-FEDERATED-QUERY-R081.9.7.1",
+        "EG-FEDERATED-QUERY-R081.9.7.2",
+        "EG-FEDERATED-QUERY-R081.9.7.3",
+        "EG-FEDERATED-QUERY-R081.9.7.4",
+        "EG-FEDERATED-QUERY-R081.9.7.5",
+        "EG-FEDERATED-QUERY-R081.9.7.6"
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R081.9.7.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R081.9.7.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R081.9.7.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R081.9.7.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R081.9.7.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R081.9.7.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R039.2",
+      "title": "Independent document-chunk encoding and aggregation [arXiv:2606.18781] (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-FEDERATED-QUERY-R039.2.1",
+        "EG-FEDERATED-QUERY-R039.2.2",
+        "EG-FEDERATED-QUERY-R039.2.3",
+        "EG-FEDERATED-QUERY-R039.2.4",
+        "EG-FEDERATED-QUERY-R039.2.5",
+        "EG-FEDERATED-QUERY-R039.2.6",
+        "EG-FEDERATED-QUERY-R039.2.7",
+        "EG-FEDERATED-QUERY-R039.2.8"
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R039.2.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R039.2.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R039.2.3",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R039.2.4",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R039.2.5",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R039.2.6",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R039.2.7",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R039.2.8",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R077.6",
+      "title": "Workload-aware column vectorization advice (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-FEDERATED-QUERY-R077.6.1",
+        "EG-FEDERATED-QUERY-R077.6.2",
+        "EG-FEDERATED-QUERY-R077.6.3",
+        "EG-FEDERATED-QUERY-R077.6.4",
+        "EG-FEDERATED-QUERY-R077.6.5",
+        "EG-FEDERATED-QUERY-R077.6.6"
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R077.6.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R077.6.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R077.6.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R077.6.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R077.6.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R077.6.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R040.2",
+      "title": "Topic and dense ranking fusion (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-FEDERATED-QUERY-R040.2.1",
+        "EG-FEDERATED-QUERY-R040.2.2",
+        "EG-FEDERATED-QUERY-R040.2.3",
+        "EG-FEDERATED-QUERY-R040.2.4",
+        "EG-FEDERATED-QUERY-R040.2.5",
+        "EG-FEDERATED-QUERY-R040.2.6"
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R040.2.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R040.2.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R040.2.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R040.2.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R040.2.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R040.2.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R039.3",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R040.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R039.4",
+      "title": "Residual behavior: mixed multi-hop traversal and vector top-k",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R040.4",
+      "title": "Residual behavior: filter-aware ANN and BM25 scans",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

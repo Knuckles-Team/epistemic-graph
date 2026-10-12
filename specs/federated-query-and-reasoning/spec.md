@@ -76,3 +76,24 @@ The following IDs are classified here for traceability but require no EG feature
 All P0 scenarios pass for native and foreign query routes at the exact merged head. A recording mock verifies that every pushed request narrows data transfer without changing answers; unsupported/inexact pushdown retains the residual. Security negatives yield stable codes and zero leaked credentials. The search oracle returns all permitted matches up to `k`, or an explicit shortfall. Corpus compose and restart complete within declared budgets without stack overflow. Numerical fixtures meet the tolerances in [test-spec.md](test-spec.md). Every accepted row has a public commit, exact test command/result, and an evidence entry; source existence alone leaves acceptance open.
 
 Requirement IDs are defined in [requirements.md](requirements.md); delivery state per ID is in `status.json`.
+
+## Retrieval policy extension contract
+
+The engine must support four-modality retrieval, hard graph constraints, document-section traversal and document-chunk encoding.
+It must supply workload-based column advice and topic/dense fusion through the existing retrieval owners.
+R039.1 through R039.4, R040.1 through R040.4, R077.6 and R081.9.7 define these additions.
+Their delivery state is SPECIFIED; served acceptance is NOT RUN.
+
+The engine must retain community retrieval and R081/R082 termination precedence.
+The SDK must execute governed ingestion recipes; the harness must apply bounded decisions.
+The host must compose authenticated access.
+The definitions add no textual grammar, alternate identity authority or runtime implementation.
+
+| Extension | Delivery | Acceptance |
+|---|---|---|
+| R039.1, R039.2, R039.3, R039.4 | SPECIFIED | NOT RUN |
+| R040.1, R040.2, R040.3, R040.4 | SPECIFIED | NOT RUN |
+| R077.6, R081.9.7 | SPECIFIED | NOT RUN |
+
+The generated status.json remains the delivery source for the spec-delivery page.
+The served journeys in test-spec.md must pass before runtime acceptance is claimed.
