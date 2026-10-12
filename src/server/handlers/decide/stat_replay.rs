@@ -22,7 +22,9 @@ use super::stat_classes::current_rules;
 use super::stat_executor::{
     pinned_inputs, recorded_explanation, run_on_matrix, Executed, ExecutionContext, MatrixInputs,
 };
-use super::stat_support::{materialize_matrix, refusal, resolve_policy};
+use super::stat_support::{
+    materialize_matrix, refusal, require_supported_question_kind, resolve_policy,
+};
 
 fn mismatch(detail: &str) -> String {
     format!(
@@ -83,6 +85,7 @@ pub(super) fn replay(
     if statistical_record_digest(record) != record.record_digest {
         return Err(mismatch("the record digest does not match its content"));
     }
+    require_supported_question_kind(record.question.kind)?;
     if !loggable(&record.outcome) {
         return Err(refusal(
             StatisticalErrorCode::ParameterInvalid,

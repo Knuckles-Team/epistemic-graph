@@ -1204,6 +1204,8 @@ mod classes_tests;
 
 mod tool_subset_tests;
 
+mod harness_config_tests;
+
 mod consumer_tests;
 
 #[cfg(feature = "query")]

@@ -744,3 +744,20 @@ The JavaScript suite passed 517 tests. Go passed 519 tests and subtests.
 Both regenerated client codecs passed the official byte check.
 These checks reported zero failures or skips.
 The harness handler and served acceptance remain separate requirements.
+
+
+### 2026-10-12 — fail closed while HarnessConfig execution is pending
+
+PR528 review found an unguarded path from the new `harness_config` kind to generic scoring and verify-replay.
+The specialized handler is pending.
+Fresh Decide and statistical replay share a temporary `PARAMETER_INVALID` refusal for this kind.
+Tenant and caller authorization still precede execution.
+Replay verifies the record digest before the question kind.
+The wire kind, schemas, models, receipts and codecs remain unchanged.
+
+Tests in `stat_tests/harness_config_tests.rs` use real dispatch and successful Route and DecisionLog controls.
+They refuse a relabelled, rehashed `harness_config` record and verify that its identifier has no stored record.
+Both native regressions passed on R710: 2 passed, 0 failed and 0 ignored.
+The run used the existing facade profile with all features and the warm cache.
+All approved contract payload hashes remain unchanged.
+R128.8–R128.13 and R128.15 remain pending.

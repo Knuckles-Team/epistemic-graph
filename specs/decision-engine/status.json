@@ -3116,7 +3116,9 @@
         "c7da75413a3c"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/statistical.rs:348"
+        "crates/eg-types/src/decision/statistical.rs:348",
+        "src/server/handlers/decide/stat_tests/harness_config_tests.rs:57",
+        "src/server/handlers/decide/stat_tests/harness_config_tests.rs:98"
       ]
     },
     {
