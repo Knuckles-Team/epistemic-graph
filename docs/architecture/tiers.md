@@ -78,8 +78,9 @@ SQL/DataFusion is part of the main build. These dependency boundaries gate the t
 
 The engine binary never links a Python extension. The release action folds the
 compiled numeric and engine extensions into the same wheel while preserving the
-server binary's no-PyO3 boundary. The source-build backend currently folds only the
-numeric extension; see [the package boundary map](../../specs/public-engine-contract-and-release/plan.md#behavior-builds-packages-and-deployments).
+server binary's no-PyO3 boundary. The source-build backend also builds and folds
+both extensions through its shared PEP 517/660 composition path; see
+[the source-build amendment](../../specs/public-engine-contract-and-release/plan.md#2026-10-12-source-build-composition-after-engine-parity).
 
 ## Cargo `full` and Python `[full]`
 
