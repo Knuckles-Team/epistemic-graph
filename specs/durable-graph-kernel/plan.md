@@ -290,8 +290,8 @@ Creation requires explicit absence; an absent expected revision never means unco
 Resolve also names the retained conflict and the current accepted revision.
 The result is a tagged union, with no shared accepted-head fields.
 Applied carries the newly committed head, sync state and receipt identity.
-Observation_retained carries the existing head, observed content reference, observation generation and receipt.
-Conflict_retained carries the accepted head, both retained content references, their provenance and receipt.
+Observation_retained carries the existing head, observed content reference, observation generation, sync state and receipt.
+Conflict_retained carries the accepted head, both retained content references, their provenance, sync state and receipt.
 Materialization_acknowledged carries the existing head, checked observation generation, sync state and receipt.
 These four outcomes require authority and an existing or newly committed accepted head.
 Observe_file, resolve and acknowledge_materialization require an existing authorized document.
