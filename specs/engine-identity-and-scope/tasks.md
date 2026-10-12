@@ -30,3 +30,13 @@ For each task record public PR URL, exact merged SHA, test command and hosted ru
 - [ ] **EG-IDENTITY-R023.4:** Refusal. A read naming a unit outside the principal's scope must return `OutOfScope` naming the unit id. It must not reveal the unit's content.
 - [ ] **EG-IDENTITY-R023.5:** Evidence. Each read must append an audit entry. The entry lists the principal and the returned unit ids. It also counts units hidden by scope or version.
 - [ ] **EG-IDENTITY-R023.6:** Hot-path proof. The entry point is the served content-read wire method. The test `tests/identity/test_segment_retrieval_served.py::test_shared_unit_visible_only_in_scope` writes a private and a shared unit. It passes through the wired retrieval call and observes that only the permitted current version returns.
+
+
+## Typed metadata producer tasks
+
+- [ ] **EG-IDENTITY-R023.7:** Model. Implement the typed metadata contract and its planned proving test.
+- [ ] **EG-IDENTITY-R023.8:** Behavior. Implement the typed metadata contract and its planned proving test.
+- [ ] **EG-IDENTITY-R023.9:** Wiring. Implement the typed metadata contract and its planned proving test.
+- [ ] **EG-IDENTITY-R023.10:** Refusal. Implement the typed metadata contract and its planned proving test.
+- [ ] **EG-IDENTITY-R023.11:** Evidence. Implement the typed metadata contract and its planned proving test.
+- [ ] **EG-IDENTITY-R023.12:** Hot-path proof. Implement the typed metadata contract and its planned proving test.
