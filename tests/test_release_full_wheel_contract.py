@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 import tomllib
 import yaml
-from check_sdist_completeness import validate
+from check_sdist_completeness import required_sources, validate
 
 pytestmark = pytest.mark.no_engine
 
@@ -393,12 +393,16 @@ def test_release_concurrency_preserves_running_main(
     assert concurrency["group"].replace("${{ github.ref }}", ref) == f"release-{ref}"
 
 
-def _source_archive(tmp_path, *, omitted="", version="2.27.1", unsafe=False):
+def _source_archive(
+    tmp_path, *, omitted="", version="2.27.1", unsafe=False, extra_members=()
+):
     path = tmp_path / "epistemic_graph-2.27.1.tar.gz"
     entries = {
         "Cargo.toml": '[package]\nversion = "2.27.1"\n',
         "PKG-INFO": f"Name: epistemic-graph\nVersion: {version}\n",
         "crates/leaf/src/lib.rs": "pub fn leaf() {}",
+        "build.rs": "fn main() {}",
+        "src/server/viz_interactive_client.html": "<main>client</main>",
     }
     if unsafe:
         entries["../escape"] = "outside"
@@ -410,6 +414,12 @@ def _source_archive(tmp_path, *, omitted="", version="2.27.1", unsafe=False):
             item = tarfile.TarInfo(f"epistemic_graph-2.27.1/{name}")
             item.size = len(data)
             output.addfile(item, io.BytesIO(data))
+        for name, text, kind in extra_members:
+            item = tarfile.TarInfo(f"epistemic_graph-2.27.1/{name}")
+            item.type = kind
+            data = text.encode()
+            item.size = len(data) if item.isfile() else 0
+            output.addfile(item, io.BytesIO(data) if item.isfile() else None)
     return path
 
 
@@ -434,3 +444,128 @@ def test_rejects_incomplete_or_misidentified_sources(tmp_path, kwargs, match):
             {"Cargo.toml", "crates/leaf/src/lib.rs"},
             "2.27.1",
         )
+
+
+@pytest.mark.parametrize(
+    "alias",
+    [
+        "./Cargo.toml",
+        "nested/../Cargo.toml",
+        "nested//Cargo.toml",
+        "nested/./Cargo.toml",
+        "nested\\Cargo.toml",
+        "/Cargo.toml",
+        "",
+    ],
+)
+def test_sdist_rejects_noncanonical_member_aliases(tmp_path, alias):
+    archive = _source_archive(
+        tmp_path,
+        extra_members=[
+            (alias, '[package]\nversion = "0.0.0"\n', tarfile.REGTYPE),
+        ],
+    )
+    with pytest.raises(ValueError, match="noncanonical"):
+        validate(archive, {"Cargo.toml"}, "2.27.1")
+
+
+@pytest.mark.parametrize(
+    "extras",
+    [
+        [("Cargo.toml", "", tarfile.DIRTYPE)],
+        [("folder", "", tarfile.DIRTYPE), ("folder", "", tarfile.DIRTYPE)],
+        [("folder", "", tarfile.DIRTYPE), ("folder", "file", tarfile.REGTYPE)],
+        [
+            ("folder", "file", tarfile.REGTYPE),
+            ("folder/child", "child", tarfile.REGTYPE),
+        ],
+        [
+            ("folder/child", "child", tarfile.REGTYPE),
+            ("folder", "file", tarfile.REGTYPE),
+        ],
+    ],
+)
+def test_sdist_rejects_directory_identity_collisions(tmp_path, extras):
+    with pytest.raises(ValueError, match="duplicate|collision"):
+        validate(
+            _source_archive(tmp_path, extra_members=extras), {"Cargo.toml"}, "2.27.1"
+        )
+
+
+def test_sdist_accepts_canonical_directory_entries(tmp_path):
+    archive = _source_archive(
+        tmp_path,
+        extra_members=[
+            ("", "", tarfile.DIRTYPE),
+            ("folder", "", tarfile.DIRTYPE),
+            ("folder/source.rs", "pub fn source() {}", tarfile.REGTYPE),
+        ],
+    )
+    validate(archive, {"Cargo.toml", "folder/source.rs"}, "2.27.1")
+
+
+def test_sdist_requires_root_build_script(tmp_path):
+    assert "build.rs" in required_sources(REPO)
+    with pytest.raises(ValueError, match="build.rs"):
+        validate(_source_archive(tmp_path, omitted="build.rs"), {"build.rs"}, "2.27.1")
+
+
+def test_sdist_inventory_includes_explicit_manifest_inputs(tmp_path):
+    manifest = tmp_path / "Cargo.toml"
+    manifest.write_text("""[package]
+name = "fixture"
+version = "1.0.0"
+build = "tools/prepare.input"
+readme = "PACKAGE.txt"
+license-file = "LICENSE.txt"
+[lib]
+path = "library/entry.input"
+[[bin]]
+name = "server"
+path = "programs/server.input"
+[[example]]
+name = "example"
+path = "examples/entry.input"
+[[bench]]
+name = "bench"
+path = "benches/entry.input"
+[[test]]
+name = "test"
+path = "integration/entry.input"
+""")
+    leaf = tmp_path / "crates/leaf"
+    leaf.mkdir(parents=True)
+    (leaf / "Cargo.toml").write_text('[package]\nname = "leaf"\nversion = "1.0.0"\n')
+    (leaf / "build.rs").write_text("fn main() {}")
+    expected = {
+        "build.rs",
+        "tools/prepare.input",
+        "PACKAGE.txt",
+        "LICENSE.txt",
+        "library/entry.input",
+        "programs/server.input",
+        "examples/entry.input",
+        "benches/entry.input",
+        "integration/entry.input",
+        "crates/leaf/build.rs",
+    }
+    assert expected <= required_sources(tmp_path)
+
+
+def test_sdist_requires_compiled_html_asset(tmp_path):
+    asset = "src/server/viz_interactive_client.html"
+    assert asset in required_sources(REPO)
+    validate(_source_archive(tmp_path), {asset}, "2.27.1")
+    with pytest.raises(ValueError, match="viz_interactive_client.html"):
+        validate(_source_archive(tmp_path, omitted=asset), {asset}, "2.27.1")
+
+
+@pytest.mark.parametrize("asset", ["client.html", "shader.wgsl", "lookup.bin"])
+def test_sdist_inventory_has_no_native_asset_suffix_filter(tmp_path, asset):
+    (tmp_path / "Cargo.toml").write_text(
+        '[package]\nname = "fixture"\nversion = "1.0.0"\n'
+    )
+    directory = tmp_path / "src"
+    directory.mkdir()
+    (directory / asset).write_bytes(b"build input")
+    assert f"src/{asset}" in required_sources(tmp_path)
