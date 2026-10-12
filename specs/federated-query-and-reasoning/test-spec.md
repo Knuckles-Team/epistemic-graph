@@ -204,3 +204,49 @@ Neither section selection nor new fusion may claim sufficiency from an uncalibra
 Restart before independent readback of published encoding generations, section revisions and retained receipts.
 Record exact source revision, enabled features, test command, policy revisions, measured work and result.
 Unavailable production bindings prevent served acceptance. Helper-only checks do not establish served acceptance.
+
+## R084 planned ShEx acceptance
+
+These are proposed tests in tests/shex_served.rs. None supplies execution evidence in this definition batch.
+Each child has a focused case. The rollup requires every child and the served journey.
+
+| Requirement | Planned proving test |
+|---|---|
+| EG-FEDERATED-QUERY-R084 | `served_shex_contract_journey` |
+| EG-FEDERATED-QUERY-R084.1 | `wire_report_preserves_shape_map` |
+| EG-FEDERATED-QUERY-R084.2 | `inline_and_live_data_selection` |
+| EG-FEDERATED-QUERY-R084.3 | `bounded_constraints_report_results` |
+| EG-FEDERATED-QUERY-R084.4 | `semantic_limits_remain_visible` |
+| EG-FEDERATED-QUERY-R084.5 | `real_dispatch_reaches_shex_validator` |
+| EG-FEDERATED-QUERY-R084.6 | `parse_and_dispatch_failures_are_distinct` |
+| EG-FEDERATED-QUERY-R084.7 | `live_validation_obeys_read_authority` |
+| EG-FEDERATED-QUERY-R084.8 | `served_shex_contract_journey` |
+
+Start a real authenticated engine with the shex handler enabled and disposable durable storage.
+Send actual ShexValidate requests through the existing native protocol.
+Keep transport, authorization, dispatch, data export and eg-shex validation real.
+Observe handle_shex_validate, validate and shex_report_wire without substituting their results.
+Record source SHA, binary digest, features, request identity, graph scope and terminal result.
+
+Use a ShExJ schema with two focus nodes, one conforming and one nonconforming.
+Assert result order, lexical node identities, labels, per-node reasons and the aggregate.
+Repeat duplicate pairs and an empty map. Empty-map success must carry no whole-graph validation claim.
+Check START and unknown-label outcomes separately from malformed JSON.
+Submit malformed Turtle and an explicitly unsupported expression type.
+Exercise a real live-export error or retain its missing proof as an open acceptance item.
+A build without the handler must fail dispatch, not return a synthetic conforming report.
+Use existing approved build infrastructure for that case; no feature change is requested here.
+
+For live selection, write known authorized graph data and send empty and whitespace-only data_graph.
+Compare with a matching inline Turtle request, then a different inline graph.
+Prove inline data does not import rows or change stored schema.
+Use a second graph and hidden rows to test the authority projection through dispatch.
+Read graph and schema state independently before and after successful and refused requests.
+A denied request must not disclose hidden triples through a reason or result.
+
+Keep constraint tests bounded: node kinds, datatypes, a value set, facets, cardinality and closed/extra behavior.
+Distinguish sequential EachOf from the first-success OneOf implementation.
+Include shared-predicate, inverse and recursion-boundary fixtures as explicit semantic-limit evidence.
+Record both expected semantics and actual results. Do not rewrite the oracle to hide a discrepancy.
+Those cases cannot certify unsupported full-language behavior.
+Crate parser tests cannot stand in for served ShExJ syntax, authorization or report projection.
