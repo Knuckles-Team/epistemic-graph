@@ -80,11 +80,18 @@ Column vectorization (R077): a bound text column answers a nearest-neighbour que
 
 ## EG-FEDERATED-QUERY-R079 and R080 acceptance
 
+These are required acceptance cases, not claims of completed tests. All changed requirements remain SPECIFIED until production evidence satisfies them.
+
 | Scenario | Requirement | Fixture |
 |---|---|---|
-| Schema evolution and time travel | R079.6 | One table takes a rename and a drop. Both snapshots load by time and their manifests read back. |
-| Unapproved drop | R079.4 | A drop without approval returns `SCHEMA_CHANGE_NOT_APPROVED` and keeps the schema version. |
-| Projection stays read-only | R080.6 | A graph write shows in the projection. A projected write returns `PROJECTION_READ_ONLY`. |
+| Publication model | R079.1 | Round-trip version, tenant, schema, snapshot, locations and digests; reject missing binding and unsupported format. |
+| Manifest writing compatibility | R079.2, R079.6 | Authoritative served graph append, compaction and copy-on-write deletion produce v2 manifests. A pinned independent reader queries their Parquet data through the authenticated catalog. Check counts, paths, sizes, partition/schema IDs and sequence metadata. |
+| Schema evolution and time travel | R079.2, R079.3, R079.6 | Authoritative graph schema changes add, drop, rename and reorder. The external reader resolves current and retained snapshots, stable field IDs and expected rows. Identify the real graph handler, publisher and REST routes. |
+| Atomic publication failure | R079.2, R079.4 | Fail artifact durability before metadata visibility. The previous snapshot remains readable. The catalog advertises no incomplete snapshot. Retry cannot expose duplicate committed state. |
+| Unapproved drop and invalid publication | R079.4 | Unapproved drop, unknown column, absent graph binding and unsupported manifest features return their typed codes. Visible versions remain unchanged. |
+| Correlated publication evidence | R079.5 | Match committed graph version and LSN to schema/snapshot IDs, artifact digests, outcome and time-travel resolution. Record reader version and feature matrix. |
+| Projection stays read-only | R080.2, R080.4, R080.6 | Reject create, data commit, metadata/schema commit, rename, drop and unknown mutation through the projection. Assert HTTP 405, `PROJECTION_READ_ONLY`, no graph change and no publication call. |
+| Boundary preservation | R079.3, R080.6 | Graph write becomes externally readable through the engine publisher without a separate copy job. No external-source adapter effect or credentials are invoked by manifest publication; requested source effects require the existing SDK-governed contract. |
 
 ### EG-FEDERATED-QUERY-R081 tests
 

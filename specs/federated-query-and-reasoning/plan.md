@@ -137,19 +137,24 @@ Cross-repository: `AU-SEMANTIC` rows pass the verified tenant through the reques
 References
 - No paper is cited.
 
-## EG-FEDERATED-QUERY-R079 lake catalog schema evolution and time travel
+## EG-FEDERATED-QUERY-R079 Iceberg v2 manifest publication
 
-Data flow: Iceberg REST commit → `commit_table` (`src/server/lake/rest/catalog.rs:318`) → `LakeManager::evolve_column` → `LakeTable::evolve_column` (`crates/eg-lake/src/lib.rs`) → new schema version in metadata → `load_table_as_of` (`src/server/lake/catalog_ops.rs:184`) resolves a snapshot by time.
-Types: `SchemaChangeKind` gains `ReorderColumn`; the table keeps one schema version per change. Field ids stay stable across renames.
-Attach point: `commit_table`; its production caller is the listener route dispatch. Today `commit_table` only compacts, and `evolve_add_column` (`crates/eg-lake/src/lib.rs:179`) is reached from `src/server/lake/mod.rs:243` but not from a REST route.
-Failure: an unapproved destructive change or an unknown column is refused with a typed code and no new version.
-Existing code: `src/server/lake/rest/catalog.rs:270`, `:318`; `src/server/lake/catalog_ops.rs:184`. Also `crates/eg-lake/src/lib.rs:179`, `:241`, `:285`; `crates/eg-lake/src/iceberg.rs:315`, `:348`. Also `crates/eg-lake/src/iceberg_avro.rs:371`, `:408`; `crates/eg-types/src/lake_catalog.rs:216`, `:248`. Reachable today: load and time travel yes; schema evolution through REST no.
-Reuses the table builder. Reuses the manifest writer. Reuses the compatibility classifier. New: drop, rename and reorder. New: commit-route wiring.
-Decision: evolve through the standard commit route. Rejected: a private admin call, which external engines cannot use.
-Cross-repository: the authenticated catalog is owned by `EG-UNIFIED-DATA-PLANE-R039`; this rollup adds no new access rule.
+Candidate EG:2 requires REST catalog schema evolution, time travel, and both reading and writing Iceberg v2 manifests. R079 defines compatibility; R080 defines write authority. The graph remains the sole authoritative write boundary. External analytic engines consume its projections.
+
+Data flow: served authoritative graph mutation -> committed graph version and source LSN -> `LakeManager::drain_series` (`src/server/lake/mod.rs:602`) -> `materialize_batch` (`:537`) -> `prepare_materialization` (`src/server/lake/catalog_ops.rs:104`) -> `LakeTable::iceberg_manifests` (`crates/eg-lake/src/lib.rs:299`) -> `build_iceberg_manifests` (`crates/eg-lake/src/iceberg_avro.rs:371`) -> durable engine artifact store. Read flow: committed catalog metadata -> authenticated REST load/time-travel -> external reader.
+
+Types: extend `SchemaChangeKind` and introduce `ManifestPublication` in `crates/eg-types/src/lake_catalog.rs`. Bind tenant, graph version and source LSN to schema and snapshot IDs. Include format version, artifact locations and digests. Schema changes preserve field IDs and retained schema history.
+
+Existing code writes Avro manifests and stages Parquet, manifests, manifest lists and metadata in `prepare_materialization`. `publish_artifacts` publishes artifacts; the table builder supports add-column evolution and retained snapshots. Reuse these owners. Complete graph-version binding, drop/rename/reorder handling and independent-reader acceptance remain unverified. The current REST CommitTable handler compacts; its existence is not permission for external schema or data writes. No complete served graph-to-manifest compatibility proof is established here.
+
+Failure: missing authority/version binding, unsupported format features and incomplete publication must leave the prior visible snapshot intact. Destructive schema changes require authoritative approval. R080 refuses all projection data and metadata mutation before publication. Acceptance must exercise append, compaction, copy-on-write deletion, schema changes and retained snapshots with a pinned independent reader. The engine's own decoder alone is insufficient.
+
+Decision: engine-owned serialization of committed graph state writes the projection artifacts. A client cannot bypass graph authority by submitting an Iceberg commit. This replaces the earlier contradictory REST schema-write scenario while retaining the schema-evolution obligation.
+
+Cross-repository: `EG-UNIFIED-DATA-PLANE-R039` owns catalog authentication, tenant isolation and partition metadata. `EG-UNIFIED-DATA-PLANE-R012` and `SDK-GOVERNED-WRITEBACK-R002` through `R004` govern effects on externally owned sources: credentials, approval, idempotency, audit reservation and adapter execution remain SDK responsibilities. This requirement creates no direct external-source write or unmanaged export path. Engine artifact publication is not source writeback.
 
 References
-- No paper is cited.
+- Existing engine catalog, manifest writer and governed-writeback contracts are the implementation anchors. Candidate EG:2 has no paper citation.
 
 ## EG-FEDERATED-QUERY-R080 read-only table projections
 
@@ -160,7 +165,7 @@ Failure: a projected write returns `PROJECTION_READ_ONLY` and the graph is uncha
 Existing code: `crates/eg-lake/src/catalog.rs:27`; `crates/eg-core/src/projection_catalog.rs:75`; `crates/eg-plan/src/federation.rs:933`; `src/server/lake/rest/catalog.rs:318`, `:349`. Reachable today: SQL write refusal yes; projection write refusal no.
 Reuses the shared read-only SQL check pattern. New: the typed access value and the route refusal.
 Decision: one refusal at the listener. Rejected: per-route checks, which a new route may skip.
-Cross-repository: none.
+Cross-repository: R079 may write engine-owned manifest artifacts from committed graph state. External source effects retain the SDK-governed boundary described above.
 
 References
 - No paper is cited.
