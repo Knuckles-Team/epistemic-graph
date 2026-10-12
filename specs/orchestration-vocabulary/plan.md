@@ -285,18 +285,14 @@ References
 
 ### `EG-ORCH-VOCAB-R009.18` — AU:26
 
-- Existing EG parent/rollup: `EG-ORCH-VOCAB-R009`; preserve its existing obligations.
-- Original objective: Platform monitors latency, token cost, and error frequency per run. It adjusts model selection and parallelism within declared budgets. It records each adjustment on the trace.
-- Original intake source record: AU:26. Its exact source array and SHA-256 remain in the canonical R009.18 requirement.
-- Contract definition: R009.18 in `requirements.md` specifies the complete revisioned observation window, fields, validation, joint decision, trace, and capacity behavior. This plan preserves that contract without restating its long field list.
-- Production wiring and owner boundary: Feed the proposed AU RunAdjustmentObservation from the existing routing and continuation paths to Method::Decide. Reuse R136 model adequacy/stage allocation and the existing RunTrace ingestion/readback under R009.17. Persist both adjustments and abstentions before application; GraphOS remains capacity authority.
-- Planned acceptance: `run_observations_change_model_and_width_with_trace` exercises AU routing/continuation and served EG Decide. It compares controlled latency, cost, and error windows under identical budgets. Full positive, refusal, trace, and capacity cases remain in `requirements.md` and `test-spec.md`.
-- Preserve existing coverage: `AU-CONTROL-R006`, `AU-CONTROL-R019`, `AU-HARNESS-R007`, `EG-ORCH-VOCAB-R009.8`, `EG-ORCH-VOCAB-R009.9`, `GRAPHOS-CAPACITY-R001.1`.
-- Source record: AU:26 SHA-256 and exact owner references are retained in `requirements.md`.
-- Explicit owner holds: AU-CONTROL-R006.30 is unmerged. Policy thresholds, predictive cost inputs, and tie breaks remain open until the owner publishes a versioned policy. No tuning defaults or implementation claims are supplied.
-- Unmerged consumer dependencies: AU-CONTROL-R006.30 (draft/unmerged).
-- Proposed owner-review choices, not source-established facts: The joint carrier and policy-required fields make missing decisions explicit. A self-referential command to adjust appropriately is not a substitute for that published policy..
-- Keep status SPECIFIED with empty `landed_in`/`verified_by` until separately reviewed implementation and served evidence exist; no receipt is inferred.
+- Parent: `EG-ORCH-VOCAB-R009`; preserve its existing obligations.
+- Plan: Feed AU RunAdjustmentObservation from routing/continuation to Method::Decide; reuse R136, R009.17 RunTrace, and GraphOS capacity authority.
+- Planned acceptance: `EG-ORCH-VOCAB-R009.18` uses `run_observations_change_model_and_width_with_trace`; the complete positive, refusal, and independent-readback contract is in `requirements.md` and `test-spec.md`.
+- Owner references: `agent-utilities@50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/agent-control-plane/requirements.md:10` — `AU-CONTROL-R006`; `agent-utilities@50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/agent-control-plane/requirements.md:24` — `AU-CONTROL-R019`; `epistemic-graph@e1db3f4359e659dc07fb0e0ba5e021bed40c9f26:specs/decision-engine/requirements.md:298` — `EG-DECISION-ENGINE-R136.3`; `epistemic-graph@e1db3f4359e659dc07fb0e0ba5e021bed40c9f26:specs/orchestration-vocabulary/requirements.md:69` — `EG-ORCH-VOCAB-R009.17`; `graph-os@069eebc785afb9fb26bbbcc907cf5a2a4bcab5c5:specs/adaptive-capacity/requirements.md:6` — `GRAPHOS-CAPACITY-R001.1`.
+- Unmerged consumer dependencies: `AU-CONTROL-R006.30` is `draft_unmerged` at `agent-utilities@50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/agent-control-plane/requirements.md`; Local drafting payload; not a merged producer or implementation receipt.
+- Explicit holds: AU-CONTROL-R006.30 is unmerged; versioned joint-policy thresholds, cost inputs, and deterministic tie breaks remain open.
+- Owner-review proposal, not source-established fact: The joint carrier and policy-required fields make missing decisions explicit. A self-referential command to adjust appropriately is not a substitute for that published policy.
+- Source SHA-256: `8d2f83f788c5fdd36c4dc47f85c9f7673393b6b9075dc46a5ac1c32afd2386e2`. Status remains SPECIFIED with empty receipts; no implementation or closure is claimed.
 
 ### `EG-ORCH-VOCAB-R013.7` — AU:115
 
@@ -316,49 +312,37 @@ References
 
 ### `EG-ORCH-VOCAB-R012.7` — EG:46
 
-- Existing EG parent/rollup: `EG-ORCH-VOCAB-R012`; preserve its existing obligations.
-- Original objective: Repository constitution and policy files become graph policy nodes for reasoning. A policy that contradicts a stored invariant is refused.
-- Contract definition: `requirements.md` R012.7 defines source bindings and typed GuardrailRule candidates. It also defines versioned grammar, inactive ambiguity, review/invariant checks, atomic activation, and reasoning evidence.
-- Production wiring: Extend the existing source_ingest router and SourceIngest path after `classify_spec_file`. Reuse GuardrailRule storage and `check_rule_against_invariants`. Link activation to the R012.7 decision-policy path under EG-IDENTITY-R008.4. R129.5 alone does not establish repository-policy guarding.
-- Planned acceptance: `repository_policy_is_synthesized_guarded_and_used` exercises real IndexRepository ingestion, exact-digest owner review, activation, and served decision use. Full conflict, stale, unsupported, and race cases remain in `requirements.md` and `test-spec.md`.
-- Preserve existing coverage: `EG-ORCH-VOCAB-R012.1`, `EG-ORCH-VOCAB-R012.2`, `EG-ORCH-VOCAB-R012.3`, `EG-ORCH-VOCAB-R012.4`, `EG-ORCH-VOCAB-R012.5`, `EG-ORCH-VOCAB-R012.6`, `EG-DECISION-ENGINE-R129.3`, `EG-DECISION-ENGINE-R129.4`, `EG-DECISION-ENGINE-R129.5`, `EG-IDENTITY-R008.4`.
-- Source record: EG:46 SHA-256 `9de4d3274232cb97a9a85ad17ea20b368fff1bd729bdb4e7b2799991da106c58`. Owner reference IDs and paths are in the canonical R012.7 requirement.
-- Explicit owner holds: The supported declarative grammar/synthesis profile and concrete review receipt producer must be published and bound. Unstructured text synthesis may produce candidates, but cannot silently fill those authority gaps.
+- Parent: `EG-ORCH-VOCAB-R012`; preserve its existing obligations.
+- Plan: Extend SourceIngest after classify_spec_file; synthesize GuardrailRule candidates, reuse invariant checking, validate R012.8 review, and activate via R129.3/R008.4.
+- Planned acceptance: `EG-ORCH-VOCAB-R012.7` uses `repository_policy_is_synthesized_guarded_and_used`; the complete positive, refusal, and independent-readback contract is in `requirements.md` and `test-spec.md`.
+- Owner references: `epistemic-graph@e1db3f4359e659dc07fb0e0ba5e021bed40c9f26:specs/orchestration-vocabulary/requirements.md:91` — `EG-ORCH-VOCAB-R012.2`; `epistemic-graph@e1db3f4359e659dc07fb0e0ba5e021bed40c9f26:specs/engine-identity-and-scope/requirements.md:16` — `EG-IDENTITY-R008.4`; `epistemic-graph@e1db3f4359e659dc07fb0e0ba5e021bed40c9f26:specs/decision-engine/requirements.md:247` — `EG-DECISION-ENGINE-R129.3`; `epistemic-graph@e1db3f4359e659dc07fb0e0ba5e021bed40c9f26:specs/decision-engine/requirements.md:249` — `EG-DECISION-ENGINE-R129.5`.
 - Unmerged consumer dependencies: none.
-- Proposed owner-review choice, not source-established fact: Atomic publication covers the active graph policy set only. It does not imply atomic cross-repository filesystem effects.
-- Keep status SPECIFIED with empty `landed_in`/`verified_by` until separately reviewed implementation and served evidence exist; no receipt is inferred.
+- Explicit holds: Supported declarative grammar and concrete review-receipt producer remain owner prerequisites.
+- Owner-review proposal, not source-established fact: Atomic publication is confined to the active graph policy set; it does not imply atomic cross-repository filesystem effects.
+- Source SHA-256: `9de4d3274232cb97a9a85ad17ea20b368fff1bd729bdb4e7b2799991da106c58`. Status remains SPECIFIED with empty receipts; no implementation or closure is claimed.
 
 ### `EG-ORCH-VOCAB-R004.6` — EG:51
 
-- Existing EG parent/rollup: `EG-ORCH-VOCAB-R004`; preserve its existing obligations.
-- Original objective: The capability registry models functional gaps and desired enhancements as typed domain-taxonomy nodes. Queries filter them by task class.
-- Contract definition: `requirements.md` R004.6 defines distinct CapabilityGap and DesiredEnhancement records. It binds tenant, revision, capability, task class, domain, source evidence, owner, and disposition. A request-local abstention alone does not persist a gap; a separately admitted gap may cite it.
-- Production wiring and owner boundary: Extend the existing orchestration ontology/shapes and governed AddNode/ChangeEnvelope path. Reuse the existing task-class/domain taxonomy and Method::UnifiedQuery rather than introducing a second capability registry. Keep the EG:7 owner-export manifest question separate from these persisted domain nodes.
-- Planned acceptance: `capability_gap_and_enhancement_are_queryable` uses served mutation and generated UnifiedQuery. It proves abstention alone creates no durable gap, then admits a separate gap and enhancement. It tests task classes, restart/readback, deduplication, revision conflict, invalid taxonomy, matching modes, tenant isolation, and unchanged capability state.
-- Preserve existing coverage: `EG-ORCH-VOCAB-R004`, `EG-DECISION-ENGINE-R010`.
-- Source record: EG:51 SHA-256 `ed01ad35731abc6a739b3e1a39ee198549103acf0d30ec51c77316ca7cf75c49`. Owner reference IDs and paths are in the canonical R004.6 requirement.
-- Explicit owner holds: The authoritative domain taxonomy/task-class resolver and admitted mutation producer must be bound to existing owner contracts. Do not fabricate a new owner role-export ID to cover the unrelated EG:7 hold.
+- Parent: `EG-ORCH-VOCAB-R004`; preserve its existing obligations.
+- Plan: Use existing ontology/shapes, governed AddNode/ChangeEnvelope, task/domain taxonomy, and Method::UnifiedQuery; keep EG:7 export separate.
+- Planned acceptance: `EG-ORCH-VOCAB-R004.6` uses `capability_gap_and_enhancement_are_queryable`; the complete positive, refusal, and independent-readback contract is in `requirements.md` and `test-spec.md`.
+- Owner references: `epistemic-graph@e1db3f4359e659dc07fb0e0ba5e021bed40c9f26:specs/orchestration-vocabulary/requirements.md:24` — `EG-ORCH-VOCAB-R004`; `epistemic-graph@e1db3f4359e659dc07fb0e0ba5e021bed40c9f26:specs/decision-engine/requirements.md:16` — `EG-DECISION-ENGINE-R010`.
 - Unmerged consumer dependencies: none.
-- Proposed owner-review choices, not source-established facts: Distinct gap/enhancement types and explicit query match mode are proposed schema additions..
-- Keep status SPECIFIED with empty `landed_in`/`verified_by` until separately reviewed implementation and served evidence exist; no receipt is inferred.
+- Explicit holds: Authoritative taxonomy/task-class resolver and admitted mutation producer remain unbound; do not invent an EG:7 export ID.
+- Owner-review proposal, not source-established fact: Distinct gap/enhancement types and explicit query match mode are proposed schema additions.
+- Source SHA-256: `ed01ad35731abc6a739b3e1a39ee198549103acf0d30ec51c77316ca7cf75c49`. Status remains SPECIFIED with empty receipts; no implementation or closure is claimed.
 
 ### `EG-ORCH-VOCAB-R012.8` — EG:61
 
-- Existing EG parent/rollup: `EG-ORCH-VOCAB-R012`; preserve its existing obligations.
-- Original objective: Epistemic state and active policy live in the graph. Normative rules and constitutions live in versioned files. Graph writes never overwrite those files. Normative changes require review.
-- Contract definition: `requirements.md` R012.8 defines the normative-source binding, review digest, generation/revision checks, governed writeback, reread, and activation conditions.
-- Production wiring and owner boundary: Link the R012.2 policy classification and EG-IDENTITY-R008.4 active graph policy to R012.7 activation. Bind review/approval evidence to GRAPHOS-OPS-R050.2/.4 and the concrete SDK governed source effect. EG has no normative filesystem writer.
-- Planned acceptance: `reviewed_normative_source_activates_without_graph_overwrite` exercises served ingestion, owner review, activation, and decision use. It confirms unchanged source bytes after graph operations and refusal without reviewed governed writeback. Full mismatch, stale, and race cases remain in `requirements.md` and `test-spec.md`.
-- Preserve existing coverage: `EG-IDENTITY-R008.4`, `EG-ORCH-VOCAB-R012.2`, `GRAPHOS-OPS-R050.2`, `GRAPHOS-OPS-R050.4`, `EG-ORCH-VOCAB-R012.5`, `EG-ORCH-VOCAB-R012.6`.
-- Source record: EG:61 SHA-256 `c5f1dfe7867267169ebc8c75abba87a1d9ed47568a65cbfe1bf6d183b8026e59`. Owner reference IDs and paths are in the canonical R012.8 requirement.
-- Explicit owner holds: The concrete producer of the review receipt and normative-file source-effect binding must be owner-confirmed. R050 references establish review/ops boundaries, not proof that the proposed full carrier already exists.
+- Parent: `EG-ORCH-VOCAB-R012`; preserve its existing obligations.
+- Plan: Bind reviewed normative repository files to active graph policy; connect R012.2/R008.4 to R012.7 and use SDK writeback plus GraphOS review. EG does not write files.
+- Planned acceptance: `EG-ORCH-VOCAB-R012.8` uses `reviewed_normative_source_activates_without_graph_overwrite`; the complete positive, refusal, and independent-readback contract is in `requirements.md` and `test-spec.md`.
+- Owner references: `epistemic-graph@e1db3f4359e659dc07fb0e0ba5e021bed40c9f26:specs/orchestration-vocabulary/requirements.md:91` — `EG-ORCH-VOCAB-R012.2`; `epistemic-graph@e1db3f4359e659dc07fb0e0ba5e021bed40c9f26:specs/engine-identity-and-scope/requirements.md:16` — `EG-IDENTITY-R008.4`; `graph-os@069eebc785afb9fb26bbbcc907cf5a2a4bcab5c5:specs/hosted-api-operations/requirements.md:147` — `GRAPHOS-OPS-R050.2`; `graph-os@069eebc785afb9fb26bbbcc907cf5a2a4bcab5c5:specs/hosted-api-operations/requirements.md:149` — `GRAPHOS-OPS-R050.4`.
 - Unmerged consumer dependencies: none.
-- Proposed owner-review choice, not source-established fact: Reviewed files remain normative source. EG owns active policy, not file-only runtime authority.
-- Keep status SPECIFIED with empty `landed_in`/`verified_by` until separately reviewed implementation and served evidence exist; no receipt is inferred.
+- Explicit holds: Concrete review-receipt producer and normative-file source-effect binding require owner confirmation.
+- Owner-review proposal, not source-established fact: This preserves the accepted authority correction: reviewed files are normative source; EG owns active policy. It does not adopt file-only runtime authority.
+- Source SHA-256: `c5f1dfe7867267169ebc8c75abba87a1d9ed47568a65cbfe1bf6d183b8026e59`. Status remains SPECIFIED with empty receipts; no implementation or closure is claimed.
 
-<!-- /spec-definition-patch -->
-
-<!-- spec-definition-patch:reviewed-mapped-subsets-20261012 -->
 ## Mapped definition implementation plan — 2026-10-12
 
 ### `EG-ORCH-VOCAB-R005.100` / AU:33

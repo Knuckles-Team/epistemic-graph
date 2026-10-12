@@ -314,7 +314,7 @@
     },
     {
       "id": "EG-REPO-INGEST-R002.1",
-      "title": "Compile a skill document into a typed plan",
+      "title": "Compile a skill document into its executable plan",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

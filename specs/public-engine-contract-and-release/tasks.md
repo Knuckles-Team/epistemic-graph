@@ -68,6 +68,6 @@ Each child is a separate documentation review unit of at most five minutes.
 
 The linked requirement rows retain the full contract, hashes, acceptance, and owner holds.
 
-- [ ] `EG-CONTRACT-R001.1`: Extend the EG generator and manifest. Wire exports into AU `HarnessRequest` and `run_agent`. Keep AU lifecycle ownership.
-- [ ] `EG-CONTRACT-R001.2`: Use R094 export/import and governed filesystem effects. Pin the canonical number encoder. Do not add an EG filesystem writer.
+- [ ] `EG-CONTRACT-R001.1`: Extend EG generator/manifest and export strict generated types to AU HarnessRequest/run_agent; AU retains state transitions and persistence. Preserve parent `EG-CONTRACT-R001`. Hold: AU-HARNESS-R007.40 remains unmerged; AU lifecycle implementation and integration remain open. Source `c0d92285a141dcaac6817bcac25ffa438517afeba50be716211751f3a37a31c2`; no implementation or served evidence is claimed.
+- [ ] `EG-CONTRACT-R001.2`: Use EG-TYPED-PACKS-R094.2/.3/.5/.7 for served export/import and persistence; use SDK/GraphOS governed writeback for disk effects. EG adds no filesystem writer. Preserve parent `EG-CONTRACT-R001`. Hold: AU-CONTROL-R025.40 remains unmerged; pin the exact canonical number encoder/profile. Source `98b7ad1186ec2a385b334ffa0ad1b28888157ed6b51c6ed4172eeb7b7ef6768e`; no implementation or served evidence is claimed.
 - [ ] Keep both definitions SPECIFIED until implementation and served evidence receive separate review.

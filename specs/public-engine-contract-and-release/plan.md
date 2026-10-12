@@ -345,7 +345,7 @@ Each task preserves its existing parent and owner boundary.
 
 | Requirement | Implementation work | Open dependency | Source SHA-256 |
 |---|---|---|---|
-| `EG-CONTRACT-R001.1` | Extend the EG generated-model manifest. Connect its exports to AU `HarnessRequest` and `run_agent`. | AU-HARNESS-R007.40 remains unmerged. AU owns lifecycle transitions, persistence, and consumer integration. | `c0d92285a141dcaac6817bcac25ffa438517afeba50be716211751f3a37a31c2` |
-| `EG-CONTRACT-R001.2` | Use R094 export/import with governed SDK and GraphOS disk effects. Pin the number encoder. | AU-CONTROL-R025.40 remains unmerged. EG SHALL NOT add a filesystem writer. | `98b7ad1186ec2a385b334ffa0ad1b28888157ed6b51c6ed4172eeb7b7ef6768e` |
+| `EG-CONTRACT-R001.1` | Extend EG generator/manifest and export strict generated types to AU HarnessRequest/run_agent; AU retains state transitions and persistence. | `AU-HARNESS-R007.40` is `draft_unmerged` at `agent-utilities@50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md`; Local drafting payload; not a merged producer or implementation receipt; AU-HARNESS-R007.40 remains unmerged; AU lifecycle implementation and integration remain open. | `c0d92285a141dcaac6817bcac25ffa438517afeba50be716211751f3a37a31c2` |
+| `EG-CONTRACT-R001.2` | Use EG-TYPED-PACKS-R094.2/.3/.5/.7 for served export/import and persistence; use SDK/GraphOS governed writeback for disk effects. EG adds no filesystem writer. | `AU-CONTROL-R025.40` is `draft_unmerged` at `agent-utilities@50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/agent-control-plane/requirements.md`; Local drafting payload; not a merged producer or implementation receipt; AU-CONTROL-R025.40 remains unmerged; pin the exact canonical number encoder/profile. | `98b7ad1186ec2a385b334ffa0ad1b28888157ed6b51c6ed4172eeb7b7ef6768e` |
 
 Both requirements remain SPECIFIED until separately reviewed implementation and served evidence exist.

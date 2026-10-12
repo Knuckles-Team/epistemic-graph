@@ -135,11 +135,11 @@ Each work item below extends its named parent and preserves existing obligations
 
 | Requirement | Plan | Open dependency |
 |---|---|---|
-| `EG-REPO-INGEST-R002.1` | Compile a pinned skill directory into a typed plan through SourceIngest and AU. Use the existing graph orchestration path. | Versioned grammar and capability/type lookup remain owner prerequisites. AU-CONTROL-R037.30 remains unmerged. |
-| `EG-REPO-INGEST-R006.1` | Measure distinct completed papers over 24 hours. Admit maintenance only with authorization and bounded goal allocation. | Stage roster, freshness policy, allocation policy, and GraphOS operation remain owner prerequisites. |
-| `EG-REPO-INGEST-R006.2` | Queue re-embedding outside query routing. Gate promotion through unified data-plane R040.2/.3 before tag_batch. | Importance producer and compatible embedding-space policy remain owner prerequisites. |
-| `EG-REPO-INGEST-R006.3` | Serve typed code maps through current-revision UnifiedQuery. Refuse changed and unchanged-symbol queries against a stale generation. | Source-inventory producer and code-entity IDs remain owner prerequisites. |
-| `EG-REPO-INGEST-R006.4` | Apply revision-scoped deltas under host-granted working-memory limits. | Semantic support matrix and host resource-grant binding remain owner prerequisites. |
+| `EG-REPO-INGEST-R002.1` | Compile pinned SKILL.md through SourceIngest skill_workflow_ingest and feed the resulting TaskPlan into AU graph_orchestrate/execute_workflow. | `AU-CONTROL-R037.30` is `draft_unmerged` at `agent-utilities@50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/agent-control-plane/requirements.md`; Local drafting payload; not a merged producer or implementation receipt; Versioned skill grammar and capability/type lookup remain owner prerequisites; AU-CONTROL-R037.30 is unmerged. |
+| `EG-REPO-INGEST-R006.1` | Read completed-stage/work receipts from SourceIngest; make the shortfall decision and per-goal allocation in EG; route admitted maintenance to GraphOS. | none; Stage roster, freshness policy, allocation objective/tie break, and GraphOS operation/authorization remain unbound. |
+| `EG-REPO-INGEST-R006.2` | Queue re-embedding through FEDERATED-QUERY-R077.3; gate promotion through UNIFIED-DATA-PLANE-R040.2/.3 before tag_batch. | none; Importance producer, revisioned export, compatible embedding-space policy, and R040.3 production caller remain open. |
+| `EG-REPO-INGEST-R006.3` | Produce maps through native IndexRepository/SourceIngest and serve them through Method::UnifiedQuery; bind every page/cursor to the map and source inventory. | none; Authoritative current source-inventory producer and existing code-entity ID scheme remain prerequisites. |
+| `EG-REPO-INGEST-R006.4` | Apply deltas in existing SourceIngest/IndexRepository and SDK-SOURCE-INGEST-R004; retain R007 admission and account parser/index worker bytes. | none; Owner must publish the semantic-language/resolver matrix and host resource-grant binding. |
 | `EG-REPO-INGEST-R002.100` | Require independently authorized readback before ingestion success. | AU success-transition consumer ID remains unassigned. |
 | `EG-REPO-INGEST-R002.101` | Gate graph-loaded workflow completion on durable hydration readback. | AU execution-success consumer ID remains unassigned. |
 
