@@ -343,6 +343,9 @@ References
 - Owner-review proposal, not source-established fact: This preserves the accepted authority correction: reviewed files are normative source; EG owns active policy. It does not adopt file-only runtime authority.
 - Source SHA-256: `c5f1dfe7867267169ebc8c75abba87a1d9ed47568a65cbfe1bf6d183b8026e59`. Status remains SPECIFIED with empty receipts; no implementation or closure is claimed.
 
+<!-- /spec-definition-patch -->
+
+<!-- spec-definition-patch:reviewed-mapped-subsets-20261012 -->
 ## Mapped definition implementation plan — 2026-10-12
 
 ### `EG-ORCH-VOCAB-R005.100` / AU:33

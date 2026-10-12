@@ -207,6 +207,13 @@ Original source objective: Epistemic state and active policy live in the graph. 
 
 Source record: `EG:61`, SHA-256 `c5f1dfe7867267169ebc8c75abba87a1d9ed47568a65cbfe1bf6d183b8026e59`. Status remains SPECIFIED; `landed_in` and `verified_by` remain empty. No implementation, served receipt, or closure is claimed.
 
+<!-- /spec-definition-patch -->
+
+<!-- spec-definition-patch:reviewed-mapped-subsets-20261012 -->
+## Reviewed mapped children — 2026-10-12
+
+The children below extend existing rollups. Existing parent requirements, children, policy authority and refusal behavior remain in force. These are SPECIFIED definitions only; no code, producer receipt, consumer receipt or served result is claimed.
+
 ### Extension of R005
 
 Preserve the existing `R005` obligation and all prior children; add `EG-ORCH-VOCAB-R005.100`. The child definitions below state only the mapped residual and its exact owner boundary.
