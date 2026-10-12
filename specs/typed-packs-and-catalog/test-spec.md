@@ -159,3 +159,19 @@ results. Native types/RDF test execution and contract generation are required
 before integration of the producer fields.
 
 Skill package rendering: a changed referenced node changes the digest on the next listing. A dangling term is refused and the row stays listed.
+
+## R071.1 and R097.2 crosswalk acceptance
+
+All cases below are required future evidence. Definition publication leaves every new row SPECIFIED.
+
+| Scenario | Requirements | Required evidence |
+|---|---|---|
+| Typed records and domain kinds | R071.1.1, R097.2.1 | Round-trip revisions, origins, relations and coverage. Reject malformed IRIs, unknown kinds and foreign coverage entries. |
+| Deterministic generation | R071.1.2, R097.2.2 | Regenerate RDF twice. Compare declared mappings and exact unmapped sets against independently enumerated source classes. |
+| Real production path | R071.1.3, R097.2.3 | Signed import reaches production validation and schema attachment. Generated client inspection reads the committed revision and digest. |
+| Refusal before activation | R071.1.4, R097.2.4 | Reject conflicts, category mismatch, stale revision, forged evidence and every bound. Read pack status and active schema independently afterward. |
+| Evidence ownership | R071.1.5, R097.2.5 | Correlate tenant, graph, pack, vocabulary and schema digests. Inline reports cannot claim committed activation. |
+| Core metadata served proof | R071.1.6 | Real server exposes person, event and document mappings. A rejected Person-to-Event mapping preserves the prior schema. |
+| Domain served proof | R097.2.6 | Import medical, technology and labor fixtures with mapped and unmapped classes. Query exact coverage, restart, and read it again. |
+
+Proving integration owner: `tests/test_ontology_crosswalk_served.py`. Use generated client operations and independent schema/pack readback. Mocked routes, inline-only inspection and direct helper calls cannot close these rows.
