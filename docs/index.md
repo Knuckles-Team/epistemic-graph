@@ -50,7 +50,7 @@ authority, durability, audit, CDC, and transaction properties.
 ## Where this engine fits
 
 <figure class="site-card">
-  <img src="assets/runtime-architecture.svg" alt="Clients enter through GraphOS, agent-utilities runs agents and workflows, Epistemic Graph owns durable knowledge, and connector packages synchronize external systems.">
+  <img src="https://raw.githubusercontent.com/Knuckles-Team/epistemic-graph/main/docs/assets/runtime-architecture.svg" alt="People use browser, terminal, desktop, or messaging clients. Graph OS serves clients. Agent Utilities coordinates agents. Epistemic Graph stores knowledge. Connectors synchronize source systems.">
   <figcaption>Epistemic Graph is the durable authority at the base of the shared runtime.</figcaption>
 </figure>
 

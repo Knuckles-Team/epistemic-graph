@@ -82,7 +82,7 @@ for the current behavior of each operation.
 ## Architecture
 
 <p align="center">
-  <img src="docs/assets/runtime-architecture.svg" alt="People enter through Agent Web UI, Agent Terminal UI over REST, Geniusbot, or messaging services hosted by Graph OS. MCP, REST, and A2A clients also connect to Graph OS, which routes to Agent Utilities and Epistemic Graph. Source systems connect to Epistemic Graph through Agent Connector SDK." width="960">
+  <img src="https://raw.githubusercontent.com/Knuckles-Team/epistemic-graph/main/docs/assets/runtime-architecture.svg" alt="People use browser, terminal, desktop, or messaging clients. Graph OS serves clients. Agent Utilities coordinates agents. Epistemic Graph stores knowledge. Connectors synchronize source systems." width="960">
 </p>
 
 <p align="center">
