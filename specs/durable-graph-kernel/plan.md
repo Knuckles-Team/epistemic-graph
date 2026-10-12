@@ -288,11 +288,18 @@ Both outcomes require durable content retention and current write authority.
 Submit carries expected revision, expected content digest and candidate bytes with their digest.
 Creation requires explicit absence; an absent expected revision never means unconditional overwrite.
 Resolve also names the retained conflict and the current accepted revision.
-Results are applied, observation_retained, conflict_retained, materialization_acknowledged or refused.
-Authorized outcomes include the accepted revision, content digest, explicit sync state and receipt identity.
-Denied results reveal no document existence, revision, digest, conflict reference or stored receipt.
-Other refusals disclose state only after the caller passes the corresponding read-authority check.
-Retained outcomes also include authorized references for both contents and their provenance.
+The result is a tagged union, with no shared accepted-head fields.
+Applied carries the newly committed head, sync state and receipt identity.
+Observation_retained carries the existing head, observed content reference, observation generation and receipt.
+Conflict_retained carries the accepted head, both retained content references, their provenance and receipt.
+Materialization_acknowledged carries the existing head, checked observation generation, sync state and receipt.
+These four outcomes require authority and an existing or newly committed accepted head.
+Observe_file, resolve and acknowledge_materialization require an existing authorized document.
+Refused carries only a registered error code and request-local correlation identity.
+It carries no accepted head, document existence, revision, digest, conflict reference or stored receipt.
+This variant also represents refused creation when no accepted head exists.
+Denied operations use the same redacted result whether the document exists or is absent.
+Creation uses an explicit absent-head precondition; no synthetic revision represents absence.
 Refusals reuse registered engine error codes; register missing typed errors before exposing this contract.
 The signed request binds the action, body and existing idempotency identity.
 Replay with the same identity and body returns the same receipt.
@@ -324,7 +331,12 @@ A stale acknowledgment cannot clear graph_ahead or conflict.
 
 GraphOS writes hosted files, then acknowledges their revision and digest through SyncMemorySnapshot.
 Only a verified materializer authority can acknowledge. A browser assertion is insufficient.
-The acknowledgment binds document, graph incarnation, revision, digest and materialization attempt.
+Each retained observed edit advances a durable, checked observation_generation counter.
+The materializer reads that generation with the snapshot before writing hosted files.
+The acknowledgment binds document, graph incarnation, revision, digest, observation_generation and materialization attempt.
+EG compares both the accepted head and observation_generation atomically when recording an acknowledgment.
+A generation mismatch refuses without changing synchronization evidence or pending edits.
+A newer observe_file therefore invalidates an older acknowledgment even when the accepted revision is unchanged.
 EG stores this evidence but does not access GraphOS filesystem paths.
 A later graph mutation invalidates the earlier in_sync decision.
 
