@@ -69,4 +69,7 @@ Reuse component identity, graph projections, engine bodies and generated operati
 A prompt must pass its pinned schema before rendering or model dispatch.
 Optimization emits proposals; existing policy controls adoption.
 Repository-source writes require separate approved SDK execution under GraphOS authority.
+R094.7 now references merged SDK-GOVERNED-WRITEBACK-R004.5 through R004.12 and GRAPHOS-FLEET-R003.4 through R003.10.
+The exact producer revisions and contracts are pinned in plan.md; runtime acceptance still requires the actual served journey.
+R002.10 retains its missing AU model-dispatch consumer requirement and call-site prerequisite.
 Original pack types, digest vectors, clients, body holders, grace reconciliation and Stable content serving remain mandatory.

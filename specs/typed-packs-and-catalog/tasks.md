@@ -146,7 +146,7 @@ Keep each ruled boundary and adjacent owner obligation intact.
 - [ ] **EG-TYPED-PACKS-R002.7:** Native prompt body persistence. Execute the positive and negative proving cases in test-spec.md.
 - [ ] **EG-TYPED-PACKS-R002.8:** Prompt graph projection. Execute the positive and negative proving cases in test-spec.md.
 - [ ] **EG-TYPED-PACKS-R002.9:** Served prompt rendering. Execute the positive and negative proving cases in test-spec.md.
-- [ ] **EG-TYPED-PACKS-R002.10:** Refusal before model dispatch. Execute the positive and negative proving cases in test-spec.md.
+- [ ] **EG-TYPED-PACKS-R002.10:** Refusal before model dispatch. Execute the positive and negative proving cases in test-spec.md. Name the AU owning requirement and actual dispatch call site; source-effect producers do not satisfy this task.
 - [ ] **EG-TYPED-PACKS-R002.11:** Durable prompt restart proof. Execute the positive and negative proving cases in test-spec.md.
 - [ ] **EG-TYPED-PACKS-R094.1:** Original Stable content route. Execute the positive and negative proving cases in test-spec.md.
 - [ ] **EG-TYPED-PACKS-R094.2:** Pinned native blueprint export. Execute the positive and negative proving cases in test-spec.md.
@@ -154,4 +154,4 @@ Keep each ruled boundary and adjacent owner obligation intact.
 - [ ] **EG-TYPED-PACKS-R094.4:** Blueprint retry identity. Execute the positive and negative proving cases in test-spec.md.
 - [ ] **EG-TYPED-PACKS-R094.5:** Served lossless round trip. Execute the positive and negative proving cases in test-spec.md.
 - [ ] **EG-TYPED-PACKS-R094.6:** Optimization proposals carry no authority. Execute the positive and negative proving cases in test-spec.md.
-- [ ] **EG-TYPED-PACKS-R094.7:** Approved repository-source effect dependency. Execute the positive and negative proving cases in test-spec.md.
+- [ ] **EG-TYPED-PACKS-R094.7:** Approved repository-source effect dependency. Execute the positive and negative proving cases in test-spec.md. Consume the pinned SDK R004.5–R004.12 and GraphOS R003.4–R003.10 contracts through their real served composition.
