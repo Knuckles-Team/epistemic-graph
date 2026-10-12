@@ -35,7 +35,11 @@ For any strategy: identical spec and input digests yield byte-identical proposal
 
 Run the repository's pinned formatter, Rust Clippy, affected crate tests, ontology/SHACL tests, Python client tests and contract generation freshness check at the exact PR head. Run CCCC, jscpd with zero new clone pairs against main, Dupehound and KISS checks for changed code. The affected-path gate must exercise finance compute, server route, generated client and graph authorization/retention paths; a compile-only check is insufficient. Use the repository's checked-in scripts/configuration as the command authority, and record the exact command/version in evidence when implemented. Hosted CI must create disposable stores and mocks itself and must not require a live finance provider or manually provisioned environment. A live-provider smoke test may be a separate nonblocking qualification.
 
-`ACCEPTED` for a row requires all its positive and refusal cases, exact published-main SHA, relevant hosted run URL, independent fixture provenance, and no unresolved severity-one finance correctness defect. A row may be `PARTIAL` when a subset passes; document the subset and missing proof. No blanket train-level acceptance closes an unproven row.
+Each row requires all positive and refusal cases, an exact published-main SHA and the relevant hosted run URL.
+Record independent fixture provenance and unresolved correctness defects.
+An unresolved severity-one correctness defect prevents completion.
+When only a subset passes, describe that subset and its missing proof.
+A train-level result does not close unproven scenarios.
 
 ## R013 decomposed fixture acceptance
 
@@ -48,7 +52,7 @@ The R013.1 production-module unit gate admits a fully-provenanced figure and ref
 | EG-FINANCE-PRIMITIVES-R013.2.4 | Published multi-session fund return/NAV vectors match fixed-point daily-reset results with explicit fees, scale and rounding. | A modified return/reference, omitted daily reset and each absent source/as-of/session fail. |
 | EG-FINANCE-PRIMITIVES-R013.2.5 | Published contract/settlement vectors match roll cash and position ticks and replay identically. | Incorrect expiry/tick size/multiplier/reference ticks and each absent source/as-of/session fail. |
 
-Every fixture must carry an independently inspectable source URL, publication/version and content digest plus as-of/session and applicable currency. Check in redistributable reference extracts so baseline tests need no provider account or live network. Expected values are independent of the implementation under test. These four rows are NOT_RUN; defining their acceptance adds no test binding or delivery claim. Record exact published-main SHA and hosted run for each before accepting the parent fixture family.
+Every fixture must carry an independently inspectable source URL, publication/version and content digest plus as-of/session and applicable currency. Check in redistributable reference extracts so baseline tests need no provider account or live network. Expected values are independent of the implementation under test. These four scenarios have no execution receipts; their definitions add no test bindings. Record exact published-main SHA and hosted run for each before accepting the parent fixture family.
 
 ## Restored runtime acceptance
 
@@ -107,3 +111,163 @@ R011.2 and R011.3 track that runtime acceptance without claiming these module te
 |---|---|---|
 | Rank three factors | R018.6 | Three factors rank by absolute information ratio and write three nodes. |
 | Thin input | R018.4 | Zero and one row return `FACTOR_INSUFFICIENT_DATA`. |
+
+
+## R002 numerical and served acceptance
+
+Every test below is proposed. This definition change has no runtime scenario evidence.
+Keep the original R002 positive and negative rows above as independent obligations.
+The proving test names below are implementation targets, not existing test bindings.
+
+| ID | Positive proof | Negative or boundary proof | Proposed proving test |
+|---|---|---|---|
+| EG-FINANCE-PRIMITIVES-R002.1 | Complete the original shared-kernel inventory; run its requirements.md verification. | Run every refusal stated in that row and the fixtures below. | `tests/test_finance_shared_kernel_inventory.py::test_complete_kernel_inventory` |
+| EG-FINANCE-PRIMITIVES-R002.2 | Migrate callers and preserve generic time-series exposure; run its requirements.md verification. | Run every refusal stated in that row and the fixtures below. | `tests/test_finance_shared_kernel_routes.py::test_generic_alias_and_uql_equivalence` |
+| EG-FINANCE-PRIMITIVES-R002.3 | Reconcile generated methods and client bindings; run its requirements.md verification. | Run every refusal stated in that row and the fixtures below. | `tests/test_finance_shared_kernel_routes.py::test_generated_method_identity_reconciliation` |
+| EG-FINANCE-PRIMITIVES-R002.4 | Bound original regime derivations and streaming work; run its requirements.md verification. | Run every refusal stated in that row and the fixtures below. | `crates/eg-tsdb/src/derive/maintain_tests.rs::state_space_resource_bounds` |
+| EG-FINANCE-PRIMITIVES-R002.5 | Define versioned state-space inputs and checkpoints; run its requirements.md verification. | Run every refusal stated in that row and the fixtures below. | `crates/eg-types/src/series_expr.rs::tests::state_space_model_and_refusals` |
+| EG-FINANCE-PRIMITIVES-R002.6 | Apply causal predict-update filtering to four state models; run its requirements.md verification. | Run every refusal stated in that row and the fixtures below. | `crates/eg-numeric/src/series/kalman.rs::tests::four_models_match_independent_oracles` |
+| EG-FINANCE-PRIMITIVES-R002.7 | Detect innovation shifts and retune within fixed bounds; run its requirements.md verification. | Run every refusal stated in that row and the fixtures below. | `crates/eg-numeric/src/series/kalman.rs::tests::bounded_innovation_retuning` |
+| EG-FINANCE-PRIMITIVES-R002.8 | Bound nonlinear approximation and robust tail influence; run its requirements.md verification. | Run every refusal stated in that row and the fixtures below. | `crates/eg-numeric/src/series/kalman.rs::tests::nonlinear_robust_gain` |
+| EG-FINANCE-PRIMITIVES-R002.9 | Wire versioned filtering through served series operations; run its requirements.md verification. | Run every refusal stated in that row and the fixtures below. | `tests/test_finance_state_space_served.py::test_served_filter_wiring` |
+| EG-FINANCE-PRIMITIVES-R002.10 | Prove filtering on the production hot paths; run its requirements.md verification. | Run every refusal stated in that row and the fixtures below. | `tests/test_finance_state_space_served.py::test_stream_restart_refusals_and_hot_path_receipts` |
+
+
+### Fixed numerical vectors
+
+Use explicit scalar prior x=0, P=1, F=H=1, Q=0, R=1 and observations [1, 2].
+The first update produces innovation=1, S=2, K=1/2, x=1/2 and P=1/2.
+The second produces innovation=3/2, S=3/2, K=1/3, x=1 and P=1/3.
+Check every intermediate against these independent rational values with absolute error at most 1e-12.
+For multidimensional goldens, use abs(error) <= 1e-12 + 1e-10*abs(expected).
+Pin input serialization and numeric policy separately from mathematical tolerances.
+Same-build replay must produce identical checkpoint bytes. Cross-host comparisons use the declared tolerances and identical revision identities.
+
+For the nonlinear profile, use prior x=2, P=1, Q=0, R=1 and observation z=5.
+The Jacobian is 4, innovation is 1, S=17, K=4/17 and posterior x=38/17.
+Joseph covariance is 1/17 before robust downweighting; this residual has weight 1.
+For the scalar tail case, replace the first observation with 1000.
+With c=2.5, the effective update magnitude is 2.5/sqrt(2), below the ordinary update magnitude 500.
+Check both signs and the Joseph covariance with the actual effective gain.
+
+Check in independent fixture outputs for every named kernel and all four state profiles.
+Fixtures record generator version, seed=44045, input digest and oracle provenance.
+Use 4096 observations: stable variance, a persistent fourfold noise-variance change, and isolated signed outliers.
+Include a seeded Student-t sequence with five degrees of freedom and explicit generator details.
+Freeze generated bytes so library RNG changes cannot change the fixture silently.
+The oracle must not import production numerical functions.
+Compare every state, covariance, innovation statistic, tail weight, shift cursor and parameter revision.
+Pin expected trigger positions from the declared window algorithm, including three-window confirmation and cooldown.
+Check windows at 31, 32, 63 and 64 observations and exact threshold equality.
+A single outlier must not satisfy the three-window confirmation rule.
+Changing an observation after cursor t must not change the result at t.
+
+### Served protocol and hot-path receipts
+
+Launch a real EG server with disposable stores and the required time-series, query and finance feature set.
+Record the exact source head, feature list, generated schema revision and kernel revision.
+Create source series through its served operation and install a supported versioned model through the typed production route.
+Append observations through `TsAppend`; observe derived maintenance at `maintain_after_append` and `maintain_one`.
+Read results through `TsRange` and run the equivalent structured `UnifiedQuery` plan.
+Exercise existing UQL exposure for every original R002 kernel when its implementation prerequisite is present.
+Compare raw wire readback with independent goldens, including diagnostics and revision identities.
+Repeat as one sequence and chunks [1, 31, 32, 64, remainder].
+Restart the server between chunks and compare restored checkpoint behavior with uninterrupted execution.
+Replay a correction within budget, then compare its affected suffix with the independent oracle.
+Preserve prior known-at read results.
+
+Send malformed dimensions, nonfinite values, negative covariance, singular innovation covariance and unsupported model/schema revisions.
+Also send zero-return transforms without an admitted floor, misaligned factor arrays, conflicting retries and out-of-order observations.
+Require typed outcomes, unchanged prior derived checkpoints and no fabricated complete result.
+Repeat using another actor and tenant; neither may read or mutate the original series.
+At every configured resource limit, test exact admission and limit-plus-one refusal.
+If source append succeeds before maintenance refuses, verify source visibility, unchanged derived cursor and explicit lag.
+Inject checkpoint revision mismatch and incompatible parameter updates; require refusal or the explicitly requested bounded replay.
+
+Receipts identify public test names, request IDs, production call sites, revisions, consumed budgets and output digests.
+Record sanitized assertions rather than raw request logs or credentials.
+A helper invocation, mocked dispatcher or unobserved handler cannot establish production integration.
+No numerical, route or hot-path proof closes R002 while any original inventory or migration obligation remains uncovered.
+
+
+### R002 leaf and subrollup acceptance
+
+Each proving test below is proposed. No new runtime test binding or receipt accompanies this definition change.
+Each real served request must reach its named production caller; mocks do not establish that acceptance.
+Kernel fixtures retain the independent source, numeric policy and digest requirements above.
+Model fixtures retain seed 44045, 4096 observations and the causal prefix comparison.
+
+| ID | Positive proof | Negative or boundary proof | Proposed proving test |
+|---|---|---|---|
+| EG-FINANCE-PRIMITIVES-R002.1.1 | Independent fixed vectors match this kernel and its declared precision. | Malformed and short vectors refuse; a duplicate authority fails qualification. | `crates/eg-numeric/src/series/kernel.rs::tests::rolling_z_score_independent_vectors` |
+| EG-FINANCE-PRIMITIVES-R002.1.2 | Independent fixed vectors match this kernel and its declared precision. | Malformed and short vectors refuse; a duplicate authority fails qualification. | `crates/eg-numeric/src/series/kernel.rs::tests::ewma_independent_vectors` |
+| EG-FINANCE-PRIMITIVES-R002.1.3 | Independent fixed vectors match this kernel and its declared precision. | Malformed and short vectors refuse; a duplicate authority fails qualification. | `crates/eg-numeric/src/evaluation/skill.rs::tests::information_coefficient_independent_vectors` |
+| EG-FINANCE-PRIMITIVES-R002.1.4 | Independent fixed vectors match this kernel and its declared precision. | Malformed and short vectors refuse; a duplicate authority fails qualification. | `crates/eg-numeric/src/evaluation/skill.rs::tests::information_ratio_independent_vectors` |
+| EG-FINANCE-PRIMITIVES-R002.1.5 | Independent fixed vectors match this kernel and its declared precision. | Malformed and short vectors refuse; a duplicate authority fails qualification. | `crates/eg-numeric/src/evaluation/skill.rs::tests::effective_sample_size_independent_vectors` |
+| EG-FINANCE-PRIMITIVES-R002.1.6 | Independent fixed vectors match this kernel and its declared precision. | Malformed and short vectors refuse; a duplicate authority fails qualification. | `crates/eg-numeric/src/evaluation/skill.rs::tests::diebold_mariano_independent_vectors` |
+| EG-FINANCE-PRIMITIVES-R002.1.7 | Independent fixed vectors match this kernel and its declared precision. | Malformed and short vectors refuse; a duplicate authority fails qualification. | `crates/eg-numeric/src/evaluation/backtest.rs::tests::deflated_sharpe_independent_vectors` |
+| EG-FINANCE-PRIMITIVES-R002.1.8 | Independent fixed vectors match this kernel and its declared precision. | Malformed and short vectors refuse; a duplicate authority fails qualification. | `crates/eg-numeric/src/evaluation/backtest.rs::tests::purged_cv_independent_vectors` |
+| EG-FINANCE-PRIMITIVES-R002.1.9 | Independent fixed vectors match this kernel and its declared precision. | Malformed and short vectors refuse; a duplicate authority fails qualification. | `crates/eg-numeric/src/evaluation/backtest.rs::tests::pbo_independent_vectors` |
+| EG-FINANCE-PRIMITIVES-R002.1.10 | Independent fixed vectors match this kernel and its declared precision. | Malformed and short vectors refuse; a duplicate authority fails qualification. | `crates/eg-numeric/src/evaluation/skill.rs::tests::brier_independent_vectors` |
+| EG-FINANCE-PRIMITIVES-R002.1.11 | Independent fixed vectors match this kernel and its declared precision. | Malformed and short vectors refuse; a duplicate authority fails qualification. | `crates/eg-numeric/src/series/kalman.rs::tests::kalman_independent_vectors` |
+| EG-FINANCE-PRIMITIVES-R002.1.12 | Independent fixed vectors match this kernel and its declared precision. | Malformed and short vectors refuse; a duplicate authority fails qualification. | `crates/eg-numeric/src/evaluation/mod.rs::tests::ou_independent_vectors` |
+| EG-FINANCE-PRIMITIVES-R002.1.13 | Independent fixed vectors match this kernel and its declared precision. | Malformed and short vectors refuse; a duplicate authority fails qualification. | `crates/eg-numeric/src/evaluation/mod.rs::tests::adf_independent_vectors` |
+| EG-FINANCE-PRIMITIVES-R002.1.14 | Independent fixed vectors match this kernel and its declared precision. | Malformed and short vectors refuse; a duplicate authority fails qualification. | `crates/eg-numeric/src/evaluation/mod.rs::tests::regime_hmm_independent_vectors` |
+| EG-FINANCE-PRIMITIVES-R002.2.1 | Every kernel-specific child passes its served positive and negative cases. | One passing kernel cannot satisfy this rollup. | `tests/test_finance_shared_kernel_routes.py::test_generic_inventory` |
+| EG-FINANCE-PRIMITIVES-R002.2.1.1 | A real generic request reaches this caller and matches its independent vectors. | Short inputs and incompatible precision refuse without producing a fabricated result. | `tests/test_finance_shared_kernel_routes.py::test_rolling_z_score_generic_caller` |
+| EG-FINANCE-PRIMITIVES-R002.2.1.2 | A real generic request reaches this caller and matches its independent vectors. | Short inputs and incompatible precision refuse without producing a fabricated result. | `tests/test_finance_shared_kernel_routes.py::test_ewma_generic_caller` |
+| EG-FINANCE-PRIMITIVES-R002.2.1.3 | A real generic request reaches this caller and matches its independent vectors. | Short inputs and incompatible precision refuse without producing a fabricated result. | `tests/test_finance_shared_kernel_routes.py::test_information_coefficient_generic_caller` |
+| EG-FINANCE-PRIMITIVES-R002.2.1.4 | A real generic request reaches this caller and matches its independent vectors. | Short inputs and incompatible precision refuse without producing a fabricated result. | `tests/test_finance_shared_kernel_routes.py::test_information_ratio_generic_caller` |
+| EG-FINANCE-PRIMITIVES-R002.2.1.5 | A real generic request reaches this caller and matches its independent vectors. | Short inputs and incompatible precision refuse without producing a fabricated result. | `tests/test_finance_shared_kernel_routes.py::test_effective_sample_size_generic_caller` |
+| EG-FINANCE-PRIMITIVES-R002.2.1.6 | A real generic request reaches this caller and matches its independent vectors. | Short inputs and incompatible precision refuse without producing a fabricated result. | `tests/test_finance_shared_kernel_routes.py::test_diebold_mariano_generic_caller` |
+| EG-FINANCE-PRIMITIVES-R002.2.1.7 | A real generic request reaches this caller and matches its independent vectors. | Short inputs and incompatible precision refuse without producing a fabricated result. | `tests/test_finance_shared_kernel_routes.py::test_deflated_sharpe_generic_caller` |
+| EG-FINANCE-PRIMITIVES-R002.2.1.8 | A real generic request reaches this caller and matches its independent vectors. | Short inputs and incompatible precision refuse without producing a fabricated result. | `tests/test_finance_shared_kernel_routes.py::test_purged_cv_generic_caller` |
+| EG-FINANCE-PRIMITIVES-R002.2.1.9 | A real generic request reaches this caller and matches its independent vectors. | Short inputs and incompatible precision refuse without producing a fabricated result. | `tests/test_finance_shared_kernel_routes.py::test_pbo_generic_caller` |
+| EG-FINANCE-PRIMITIVES-R002.2.1.10 | A real generic request reaches this caller and matches its independent vectors. | Short inputs and incompatible precision refuse without producing a fabricated result. | `tests/test_finance_shared_kernel_routes.py::test_brier_generic_caller` |
+| EG-FINANCE-PRIMITIVES-R002.2.1.11 | A real generic request reaches this caller and matches its independent vectors. | Short inputs and incompatible precision refuse without producing a fabricated result. | `tests/test_finance_shared_kernel_routes.py::test_kalman_generic_caller` |
+| EG-FINANCE-PRIMITIVES-R002.2.1.12 | A real generic request reaches this caller and matches its independent vectors. | Short inputs and incompatible precision refuse without producing a fabricated result. | `tests/test_finance_shared_kernel_routes.py::test_ou_generic_caller` |
+| EG-FINANCE-PRIMITIVES-R002.2.1.13 | A real generic request reaches this caller and matches its independent vectors. | Short inputs and incompatible precision refuse without producing a fabricated result. | `tests/test_finance_shared_kernel_routes.py::test_adf_generic_caller` |
+| EG-FINANCE-PRIMITIVES-R002.2.1.14 | A real generic request reaches this caller and matches its independent vectors. | Short inputs and incompatible precision refuse without producing a fabricated result. | `tests/test_finance_shared_kernel_routes.py::test_regime_hmm_generic_caller` |
+| EG-FINANCE-PRIMITIVES-R002.2.2 | Every kernel-specific child passes its served positive and negative cases. | One passing kernel cannot satisfy this rollup. | `tests/test_finance_shared_kernel_routes.py::test_alias_inventory` |
+| EG-FINANCE-PRIMITIVES-R002.2.2.1 | Real generic and retained-alias requests agree in values, precision and typed outcomes. | An unknown alias refuses; a second implementation fails qualification. | `tests/test_finance_shared_kernel_routes.py::test_rolling_z_score_alias` |
+| EG-FINANCE-PRIMITIVES-R002.2.2.2 | Real generic and retained-alias requests agree in values, precision and typed outcomes. | An unknown alias refuses; a second implementation fails qualification. | `tests/test_finance_shared_kernel_routes.py::test_ewma_alias` |
+| EG-FINANCE-PRIMITIVES-R002.2.2.3 | Real generic and retained-alias requests agree in values, precision and typed outcomes. | An unknown alias refuses; a second implementation fails qualification. | `tests/test_finance_shared_kernel_routes.py::test_information_coefficient_alias` |
+| EG-FINANCE-PRIMITIVES-R002.2.2.4 | Real generic and retained-alias requests agree in values, precision and typed outcomes. | An unknown alias refuses; a second implementation fails qualification. | `tests/test_finance_shared_kernel_routes.py::test_information_ratio_alias` |
+| EG-FINANCE-PRIMITIVES-R002.2.2.5 | Real generic and retained-alias requests agree in values, precision and typed outcomes. | An unknown alias refuses; a second implementation fails qualification. | `tests/test_finance_shared_kernel_routes.py::test_effective_sample_size_alias` |
+| EG-FINANCE-PRIMITIVES-R002.2.2.6 | Real generic and retained-alias requests agree in values, precision and typed outcomes. | An unknown alias refuses; a second implementation fails qualification. | `tests/test_finance_shared_kernel_routes.py::test_diebold_mariano_alias` |
+| EG-FINANCE-PRIMITIVES-R002.2.2.7 | Real generic and retained-alias requests agree in values, precision and typed outcomes. | An unknown alias refuses; a second implementation fails qualification. | `tests/test_finance_shared_kernel_routes.py::test_deflated_sharpe_alias` |
+| EG-FINANCE-PRIMITIVES-R002.2.2.8 | Real generic and retained-alias requests agree in values, precision and typed outcomes. | An unknown alias refuses; a second implementation fails qualification. | `tests/test_finance_shared_kernel_routes.py::test_purged_cv_alias` |
+| EG-FINANCE-PRIMITIVES-R002.2.2.9 | Real generic and retained-alias requests agree in values, precision and typed outcomes. | An unknown alias refuses; a second implementation fails qualification. | `tests/test_finance_shared_kernel_routes.py::test_pbo_alias` |
+| EG-FINANCE-PRIMITIVES-R002.2.2.10 | Real generic and retained-alias requests agree in values, precision and typed outcomes. | An unknown alias refuses; a second implementation fails qualification. | `tests/test_finance_shared_kernel_routes.py::test_brier_alias` |
+| EG-FINANCE-PRIMITIVES-R002.2.2.11 | Real generic and retained-alias requests agree in values, precision and typed outcomes. | An unknown alias refuses; a second implementation fails qualification. | `tests/test_finance_shared_kernel_routes.py::test_kalman_alias` |
+| EG-FINANCE-PRIMITIVES-R002.2.2.12 | Real generic and retained-alias requests agree in values, precision and typed outcomes. | An unknown alias refuses; a second implementation fails qualification. | `tests/test_finance_shared_kernel_routes.py::test_ou_alias` |
+| EG-FINANCE-PRIMITIVES-R002.2.2.13 | Real generic and retained-alias requests agree in values, precision and typed outcomes. | An unknown alias refuses; a second implementation fails qualification. | `tests/test_finance_shared_kernel_routes.py::test_adf_alias` |
+| EG-FINANCE-PRIMITIVES-R002.2.2.14 | Real generic and retained-alias requests agree in values, precision and typed outcomes. | An unknown alias refuses; a second implementation fails qualification. | `tests/test_finance_shared_kernel_routes.py::test_regime_hmm_alias` |
+| EG-FINANCE-PRIMITIVES-R002.2.3 | Every kernel-specific child passes its served positive and negative cases. | One passing kernel cannot satisfy this rollup. | `tests/test_finance_shared_kernel_routes.py::test_uql_inventory` |
+| EG-FINANCE-PRIMITIVES-R002.2.3.1 | A real UQL request reaches the shared kernel and matches independent vectors through readback. | Invalid arguments and incompatible precision refuse; absent textual admission leaves this obligation unfulfilled. | `tests/test_finance_shared_kernel_routes.py::test_rolling_z_score_uql` |
+| EG-FINANCE-PRIMITIVES-R002.2.3.2 | A real UQL request reaches the shared kernel and matches independent vectors through readback. | Invalid arguments and incompatible precision refuse; absent textual admission leaves this obligation unfulfilled. | `tests/test_finance_shared_kernel_routes.py::test_ewma_uql` |
+| EG-FINANCE-PRIMITIVES-R002.2.3.3 | A real UQL request reaches the shared kernel and matches independent vectors through readback. | Invalid arguments and incompatible precision refuse; absent textual admission leaves this obligation unfulfilled. | `tests/test_finance_shared_kernel_routes.py::test_information_coefficient_uql` |
+| EG-FINANCE-PRIMITIVES-R002.2.3.4 | A real UQL request reaches the shared kernel and matches independent vectors through readback. | Invalid arguments and incompatible precision refuse; absent textual admission leaves this obligation unfulfilled. | `tests/test_finance_shared_kernel_routes.py::test_information_ratio_uql` |
+| EG-FINANCE-PRIMITIVES-R002.2.3.5 | A real UQL request reaches the shared kernel and matches independent vectors through readback. | Invalid arguments and incompatible precision refuse; absent textual admission leaves this obligation unfulfilled. | `tests/test_finance_shared_kernel_routes.py::test_effective_sample_size_uql` |
+| EG-FINANCE-PRIMITIVES-R002.2.3.6 | A real UQL request reaches the shared kernel and matches independent vectors through readback. | Invalid arguments and incompatible precision refuse; absent textual admission leaves this obligation unfulfilled. | `tests/test_finance_shared_kernel_routes.py::test_diebold_mariano_uql` |
+| EG-FINANCE-PRIMITIVES-R002.2.3.7 | A real UQL request reaches the shared kernel and matches independent vectors through readback. | Invalid arguments and incompatible precision refuse; absent textual admission leaves this obligation unfulfilled. | `tests/test_finance_shared_kernel_routes.py::test_deflated_sharpe_uql` |
+| EG-FINANCE-PRIMITIVES-R002.2.3.8 | A real UQL request reaches the shared kernel and matches independent vectors through readback. | Invalid arguments and incompatible precision refuse; absent textual admission leaves this obligation unfulfilled. | `tests/test_finance_shared_kernel_routes.py::test_purged_cv_uql` |
+| EG-FINANCE-PRIMITIVES-R002.2.3.9 | A real UQL request reaches the shared kernel and matches independent vectors through readback. | Invalid arguments and incompatible precision refuse; absent textual admission leaves this obligation unfulfilled. | `tests/test_finance_shared_kernel_routes.py::test_pbo_uql` |
+| EG-FINANCE-PRIMITIVES-R002.2.3.10 | A real UQL request reaches the shared kernel and matches independent vectors through readback. | Invalid arguments and incompatible precision refuse; absent textual admission leaves this obligation unfulfilled. | `tests/test_finance_shared_kernel_routes.py::test_brier_uql` |
+| EG-FINANCE-PRIMITIVES-R002.2.3.11 | A real UQL request reaches the shared kernel and matches independent vectors through readback. | Invalid arguments and incompatible precision refuse; absent textual admission leaves this obligation unfulfilled. | `tests/test_finance_shared_kernel_routes.py::test_kalman_uql` |
+| EG-FINANCE-PRIMITIVES-R002.2.3.12 | A real UQL request reaches the shared kernel and matches independent vectors through readback. | Invalid arguments and incompatible precision refuse; absent textual admission leaves this obligation unfulfilled. | `tests/test_finance_shared_kernel_routes.py::test_ou_uql` |
+| EG-FINANCE-PRIMITIVES-R002.2.3.13 | A real UQL request reaches the shared kernel and matches independent vectors through readback. | Invalid arguments and incompatible precision refuse; absent textual admission leaves this obligation unfulfilled. | `tests/test_finance_shared_kernel_routes.py::test_adf_uql` |
+| EG-FINANCE-PRIMITIVES-R002.2.3.14 | A real UQL request reaches the shared kernel and matches independent vectors through readback. | Invalid arguments and incompatible precision refuse; absent textual admission leaves this obligation unfulfilled. | `tests/test_finance_shared_kernel_routes.py::test_regime_hmm_uql` |
+| EG-FINANCE-PRIMITIVES-R002.2.4 | Every discovered caller has a named child and observed use of the generic authority. | An omitted census entry or retained old implementation must fail. | `tests/test_finance_shared_kernel_routes.py::test_complete_caller_coverage` |
+| EG-FINANCE-PRIMITIVES-R002.6.1 | The existing scalar rational vectors match every intermediate and checkpoint. | The Q=1, R=4, cross-covariance=1 declaration refuses; it must not return the independent-noise gain. | `crates/eg-numeric/src/series/kalman.rs::tests::causal_linear_recurrence_and_noise_refusal` |
+| EG-FINANCE-PRIMITIVES-R002.6.2 | Independent seeded vectors match every prior, innovation, gain, posterior and covariance. Zero returns without an admitted floor and invalid transform revisions refuse. | Zero returns without an admitted floor and invalid transform revisions refuse. Future observations cannot alter earlier prefix results. | `crates/eg-numeric/src/series/kalman.rs::tests::volatility_profile_oracle` |
+| EG-FINANCE-PRIMITIVES-R002.6.3 | Independent seeded vectors match every prior, innovation, gain, posterior and covariance. Other phi values produce the typed non-reverting outcome; invalid dt refuses. | Other phi values produce the typed non-reverting outcome; invalid dt refuses. Future observations cannot alter earlier prefix results. | `crates/eg-numeric/src/series/kalman.rs::tests::mean_reversion_profile_oracle` |
+| EG-FINANCE-PRIMITIVES-R002.6.4 | Independent seeded vectors match every prior, innovation, gain, posterior and covariance. Misaligned pairs and incompatible units refuse. | Misaligned pairs and incompatible units refuse. Future observations cannot alter earlier prefix results. | `crates/eg-numeric/src/series/kalman.rs::tests::hedge_profile_oracle` |
+| EG-FINANCE-PRIMITIVES-R002.6.5 | Independent seeded vectors match every prior, innovation, gain, posterior and covariance. Unequal factor arrays, changed ordering and future factor observations refuse. | Unequal factor arrays, changed ordering and future factor observations refuse. Future observations cannot alter earlier prefix results. | `crates/eg-numeric/src/series/kalman.rs::tests::factor_profile_oracle` |
+
+The supported noise policy declares zero process/measurement cross-covariance at every time index.
+Repeat the scalar vectors with this explicit policy and retain their existing expected values.
+Declare Q=1, R=4 and process/measurement cross-covariance=1 in a model admission request.
+The typed unsupported-noise outcome must leave the prior checkpoint and parameter revision unchanged.
+The server must expose that refusal through the real typed model route required by R002.9.
+Unknown noise-correlation policy must also refuse. No correlated-noise implementation is required by this correction.

@@ -63,35 +63,35 @@ Requirement IDs not covered by any task above before this line: none remain — 
 
 | ID | Main SHA | Hosted run / command | Result/date |
 |---|---|---|---|
-| EG-FINANCE-PRIMITIVES-R001 | — | — | NOT_RUN |
-| EG-FINANCE-PRIMITIVES-R004 | — | — | NOT_RUN (rollup) |
-| EG-FINANCE-PRIMITIVES-R004.1 | — | `cargo test -p epistemic-graph --lib server::graph_schema::finance_tests` | PR open; see PR for run result |
-| EG-FINANCE-PRIMITIVES-R004.2 | — | — | NOT_RUN |
-| EG-FINANCE-PRIMITIVES-R004.1 | — | — | NOT_RUN |
-| EG-FINANCE-PRIMITIVES-R004.2 | — | — | NOT_RUN (rollup) |
-| EG-FINANCE-PRIMITIVES-R004.2.1 | — | `cargo test -p epistemic-graph --lib server::graph_schema::finance_tests` | PR open; see PR for run result |
-| EG-FINANCE-PRIMITIVES-R004.2.2 | — | `cargo test -p epistemic-graph --all-features --lib server::graph_schema::finance_tests` | PR open; see PR for run result |
-| EG-FINANCE-PRIMITIVES-R004.3 | — | — | NOT_RUN |
-| EG-FINANCE-PRIMITIVES-R005 | — | — | NOT_RUN |
-| EG-FINANCE-PRIMITIVES-R006 | — | — | PARTIAL: corporate-action resolver + session classification delivered; other price paths and ontology remain |
-| EG-FINANCE-PRIMITIVES-R004 | — | — | NOT_RUN |
-| EG-FINANCE-PRIMITIVES-R005 | — | — | NOT_RUN (rollup) |
-| EG-FINANCE-PRIMITIVES-R005.1 | — | `cargo test -p eg-compute --all-features finance::lot_accounting` | PR open; see PR for run result |
-| EG-FINANCE-PRIMITIVES-R005.2 | — | — | NOT_RUN |
-| EG-FINANCE-PRIMITIVES-R006 | — | — | NOT_RUN |
-| EG-FINANCE-PRIMITIVES-R007 | — | — | NOT_RUN |
-| EG-FINANCE-PRIMITIVES-R007.1 | — | — | NOT_RUN |
-| EG-FINANCE-PRIMITIVES-R008 | — | — | NOT_RUN |
-| EG-FINANCE-PRIMITIVES-R008.1 | — | — | NOT_RUN |
-| EG-FINANCE-PRIMITIVES-R009 | — | — | NOT_RUN |
-| EG-FINANCE-PRIMITIVES-R009.1 | — | — | NOT_RUN |
-| EG-FINANCE-PRIMITIVES-R010 | — | — | NOT_RUN |
-| EG-FINANCE-PRIMITIVES-R010.1 | — | — | NOT_RUN |
-| EG-FINANCE-PRIMITIVES-R011 | — | — | NOT_RUN |
-| EG-FINANCE-PRIMITIVES-R012 | — | — | NOT_RUN |
-| EG-FINANCE-PRIMITIVES-R013 | — | — | NOT_RUN |
-| EG-FINANCE-PRIMITIVES-R002 | — | — | NOT_RUN |
-| EG-FINANCE-PRIMITIVES-R003 | — | `cargo test -p eg-compute -p eg-types --all-features --lib market` (eg-lane-run `eg-finance-r003-20261009035243-b5a404398`) | PR open; see run id for result |
+| EG-FINANCE-PRIMITIVES-R001 | — | — | No execution receipt is recorded here. |
+| EG-FINANCE-PRIMITIVES-R004 | — | — | No execution receipt is recorded here. |
+| EG-FINANCE-PRIMITIVES-R004.1 | — | `cargo test -p epistemic-graph --lib server::graph_schema::finance_tests` | The recorded command has no linked result here. |
+| EG-FINANCE-PRIMITIVES-R004.2 | — | — | No execution receipt is recorded here. |
+| EG-FINANCE-PRIMITIVES-R004.1 | — | — | No execution receipt is recorded here. |
+| EG-FINANCE-PRIMITIVES-R004.2 | — | — | No execution receipt is recorded here. |
+| EG-FINANCE-PRIMITIVES-R004.2.1 | — | `cargo test -p epistemic-graph --lib server::graph_schema::finance_tests` | The recorded command has no linked result here. |
+| EG-FINANCE-PRIMITIVES-R004.2.2 | — | `cargo test -p epistemic-graph --all-features --lib server::graph_schema::finance_tests` | The recorded command has no linked result here. |
+| EG-FINANCE-PRIMITIVES-R004.3 | — | — | No execution receipt is recorded here. |
+| EG-FINANCE-PRIMITIVES-R005 | — | — | No execution receipt is recorded here. |
+| EG-FINANCE-PRIMITIVES-R006 | — | — | The corporate-action resolver and session classification exist; other price paths and ontology remain. |
+| EG-FINANCE-PRIMITIVES-R004 | — | — | No execution receipt is recorded here. |
+| EG-FINANCE-PRIMITIVES-R005 | — | — | No execution receipt is recorded here. |
+| EG-FINANCE-PRIMITIVES-R005.1 | — | `cargo test -p eg-compute --all-features finance::lot_accounting` | The recorded command has no linked result here. |
+| EG-FINANCE-PRIMITIVES-R005.2 | — | — | No execution receipt is recorded here. |
+| EG-FINANCE-PRIMITIVES-R006 | — | — | No execution receipt is recorded here. |
+| EG-FINANCE-PRIMITIVES-R007 | — | — | No execution receipt is recorded here. |
+| EG-FINANCE-PRIMITIVES-R007.1 | — | — | No execution receipt is recorded here. |
+| EG-FINANCE-PRIMITIVES-R008 | — | — | No execution receipt is recorded here. |
+| EG-FINANCE-PRIMITIVES-R008.1 | — | — | No execution receipt is recorded here. |
+| EG-FINANCE-PRIMITIVES-R009 | — | — | No execution receipt is recorded here. |
+| EG-FINANCE-PRIMITIVES-R009.1 | — | — | No execution receipt is recorded here. |
+| EG-FINANCE-PRIMITIVES-R010 | — | — | No execution receipt is recorded here. |
+| EG-FINANCE-PRIMITIVES-R010.1 | — | — | No execution receipt is recorded here. |
+| EG-FINANCE-PRIMITIVES-R011 | — | — | No execution receipt is recorded here. |
+| EG-FINANCE-PRIMITIVES-R012 | — | — | No execution receipt is recorded here. |
+| EG-FINANCE-PRIMITIVES-R013 | — | — | No execution receipt is recorded here. |
+| EG-FINANCE-PRIMITIVES-R002 | — | — | No execution receipt is recorded here. |
+| EG-FINANCE-PRIMITIVES-R003 | — | `cargo test -p eg-compute -p eg-types --all-features --lib market` (eg-lane-run `eg-finance-r003-20261009035243-b5a404398`) | The recorded command names its run; no result is linked here. |
 
 ## Decomposition children (tracked)
 
@@ -147,3 +147,87 @@ These children remain unverified. Intended paths and test names define future ac
   - [ ] **EG-FINANCE-PRIMITIVES-R018.4:** Typed abstention on thin input
   - [ ] **EG-FINANCE-PRIMITIVES-R018.5:** Factor provenance edges
   - [ ] **EG-FINANCE-PRIMITIVES-R018.6:** Served factor ranking proof
+
+
+## R002 implementation sequence
+
+- [ ] **EG-FINANCE-PRIMITIVES-R002.5:** Define versioned state-space inputs and checkpoints. Implement its proposed proving test from requirements.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.6:** Retain the original rollup acceptance and complete every child below.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.7:** Detect innovation shifts and retune within fixed bounds. Implement its proposed proving test from requirements.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.8:** Bound nonlinear approximation and robust tail influence. Implement its proposed proving test from requirements.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.1:** Retain the original rollup acceptance and complete every child below.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.4:** Bound original regime derivations and streaming work. Implement its proposed proving test from requirements.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2:** Retain the original rollup acceptance and complete every child below.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.3:** Reconcile generated methods and client bindings. Implement its proposed proving test from requirements.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.9:** Wire versioned filtering through served series operations. Implement its proposed proving test from requirements.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.10:** Prove filtering on the production hot paths. Implement its proposed proving test from requirements.md.
+
+The new scenarios have no execution receipts. This definition change introduces no implementation or test bindings.
+
+### R002 kernel and model units
+
+- [ ] **EG-FINANCE-PRIMITIVES-R002.1.1:** Rolling z-score shared kernel. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.1.2:** EWMA shared kernel. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.1.3:** Information coefficient shared kernel. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.1.4:** Information ratio shared kernel. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.1.5:** Effective sample size shared kernel. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.1.6:** Diebold-Mariano shared kernel. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.1.7:** Deflated Sharpe shared kernel. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.1.8:** Purged combinatorial cross-validation shared kernel. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.1.9:** Probability of backtest overfitting shared kernel. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.1.10:** Brier shared kernel. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.1.11:** Kalman shared kernel. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.1.12:** Ornstein-Uhlenbeck shared kernel. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.1.13:** ADF shared kernel. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.1.14:** Regime HMM shared kernel. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.1:** Generic caller migration rollup. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.1.1:** Rolling z-score generic caller migration. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.1.2:** EWMA generic caller migration. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.1.3:** Information coefficient generic caller migration. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.1.4:** Information ratio generic caller migration. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.1.5:** Effective sample size generic caller migration. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.1.6:** Diebold-Mariano generic caller migration. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.1.7:** Deflated Sharpe generic caller migration. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.1.8:** Purged combinatorial cross-validation generic caller migration. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.1.9:** Probability of backtest overfitting generic caller migration. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.1.10:** Brier generic caller migration. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.1.11:** Kalman generic caller migration. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.1.12:** Ornstein-Uhlenbeck generic caller migration. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.1.13:** ADF generic caller migration. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.1.14:** Regime HMM generic caller migration. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.2:** Finance alias compatibility rollup. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.2.1:** Rolling z-score finance alias compatibility. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.2.2:** EWMA finance alias compatibility. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.2.3:** Information coefficient finance alias compatibility. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.2.4:** Information ratio finance alias compatibility. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.2.5:** Effective sample size finance alias compatibility. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.2.6:** Diebold-Mariano finance alias compatibility. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.2.7:** Deflated Sharpe finance alias compatibility. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.2.8:** Purged combinatorial cross-validation finance alias compatibility. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.2.9:** Probability of backtest overfitting finance alias compatibility. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.2.10:** Brier finance alias compatibility. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.2.11:** Kalman finance alias compatibility. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.2.12:** Ornstein-Uhlenbeck finance alias compatibility. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.2.13:** ADF finance alias compatibility. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.2.14:** Regime HMM finance alias compatibility. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.3:** UQL time-series exposure rollup. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.3.1:** Rolling z-score uql time-series exposure. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.3.2:** EWMA uql time-series exposure. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.3.3:** Information coefficient uql time-series exposure. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.3.4:** Information ratio uql time-series exposure. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.3.5:** Effective sample size uql time-series exposure. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.3.6:** Diebold-Mariano uql time-series exposure. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.3.7:** Deflated Sharpe uql time-series exposure. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.3.8:** Purged combinatorial cross-validation uql time-series exposure. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.3.9:** Probability of backtest overfitting uql time-series exposure. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.3.10:** Brier uql time-series exposure. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.3.11:** Kalman uql time-series exposure. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.3.12:** Ornstein-Uhlenbeck uql time-series exposure. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.3.13:** ADF uql time-series exposure. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.3.14:** Regime HMM uql time-series exposure. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.2.4:** Complete caller coverage check. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.6.1:** Shared causal linear recurrence. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.6.2:** Volatility regime profile. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.6.3:** Mean-reversion strength profile. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.6.4:** Hedge ratio profile. Execute its positive and negative proof from test-spec.md.
+- [ ] **EG-FINANCE-PRIMITIVES-R002.6.5:** Time-varying factor sensitivity profile. Execute its positive and negative proof from test-spec.md.

@@ -209,3 +209,169 @@ Cross-repository: none.
 
 References
 - No paper is cited.
+
+
+## Streaming state-space design for R002
+
+R002.1 through R002.4 retain the original numerical, migration, surface and budget obligations.
+R002.5 through R002.10 add typed filtering, adaptation, robust approximation, wiring and served proof.
+No child removes an original acceptance obligation.
+
+### Original acceptance coverage
+
+| Original parent obligation | Required children | Proof retained |
+|---|---|---|
+| Every named numerical kernel moves to eg-numeric | R002.1 | Independent positive and negative unit vectors for every kernel |
+| UQL time-series exposure for every kernel | R002.2 | Real UQL requests and shared-kernel equivalence |
+| Wrapper removal or documented thin aliases; migrated callers | R002.2 | Caller inventory, generic requests, alias equivalence and duplicate detection |
+| Generated method counts match client bindings in one change | R002.3 | Identity-set, count, schema and client reconciliation |
+| Prefix refits declare bounds or refuse with typed state-budget errors | R002.4 | Exact-bound success, overflow refusal and unchanged prior state |
+| Golden precision, invalid aliases, nonfinite/short inputs and stale bindings | R002.1, R002.2, R002.3, R002.4 | Preserve both existing R002 test-spec rows |
+| Shared Kalman ownership and no duplicate implementation | R002.1, R002.6, R002.8 | One recurrence for all models and consumers |
+| Served integration and production hot paths | R002.9, R002.10 | Wire request, call-site observation, independent oracle and readback |
+
+The original R002 verification cell remains mandatory alongside this matrix.
+New filtering tests cannot substitute for the residual kernel and migration children.
+Further decomposition must preserve each listed obligation in explicit children.
+
+### Existing implementation and attachment points
+
+Inspection base: `a98f2037d36d0ab6f79a10ba91b9816f61658377`.
+
+| Existing source | Observed behavior and required extension |
+|---|---|
+| `crates/eg-numeric/src/series/kalman.rs:52` | `Kalman::observe` provides scalar predict/update. It lacks versioned adaptation and robust matrix profiles. |
+| `crates/eg-compute/src/finance/statespace.rs:56` | Level and beta wrappers call the shared scalar kernel. Volatility keeps a separate recurrence. |
+| `crates/eg-compute/src/finance/statespace.rs:94` | Unspecified volatility initialization uses the first 60 available observations. Streaming initialization must use an explicit prior or completed warmup. |
+| `crates/eg-compute/src/finance/statespace.rs:167` and `crates/eg-compute/src/finance/regime.rs` | ADF, OU and regime calculations still require the original ownership migration. |
+| `src/server/handlers/finance/route_families.rs:576` | Finance filter requests enter existing compute wrappers. Preserve compatibility while migrating generic callers. |
+| `src/server/handlers/timeseries.rs:367` | `handle_append` commits source points, then calls `derived::maintain_after_append`. |
+| `src/server/handlers/timeseries/derived.rs:222` | `maintain_one` advances or replays `DerivedState`, then commits derived points and checkpoint state. |
+| `crates/eg-tsdb/src/derive/mod.rs:1` | `Program` compiles series expressions to shared numerical kernels. The current kernel revision is `eg-series-kernels/2`. |
+| `src/server/handlers/query/sql_read.rs:305` | `handle_unified_query` handles structured plans. The planner's `Op::Derive` dispatch uses the same series evaluator. |
+
+The structured path is `handle_unified_query` -> `run_unified_off_lock` -> `run_unified_off_lock_with`.
+The runner binds the served plan context before calling `execute_rows`.
+`apply_timeseries` dispatches `Op::Derive` at `crates/eg-plan/src/exec/dispatch.rs:461`.
+`derive_op` at `crates/eg-plan/src/exec/derive.rs:21` compiles `Program`, then `derive_row` calls `Program::step`.
+Extend these existing boundaries to carry the typed profiles and diagnostics.
+The current append path commits source data before derived maintenance.
+Maintenance failure can leave the derived series behind its source.
+R002.9 must expose that cursor and lag; it must never imply source and derived commits are atomic together.
+Existing `TsDefineSeries` parses an expression string. It does not establish a typed matrix-model endpoint.
+R002.5 carriers and R002.9 schema/operation registration are prerequisites for serving the new profiles.
+Preserve existing operation compatibility and record the new schema and kernel revisions explicitly.
+Do not claim new models already exist because scalar method names exist.
+The held textual query grammar remains outside this definition change.
+R002.2 remains incomplete until every original kernel has its required UQL exposure through its owning implementation lane.
+R002.9 must use the existing structured-plan route for new typed profiles without silently extending textual grammar.
+Adapters and harnesses consume EG results and decisions. They must not retune parameters or duplicate filter authority.
+
+### Model and numerical behavior
+
+Each checkpoint binds the observation cursor, source revisions, model parameters, transform revision, kernel revision and numeric policy.
+Each observation has a stable sequence key and strictly ordered event time within its source revision.
+An exact retry returns the prior result. A conflicting retry refuses.
+Corrections require explicit bounded replay from a compatible checkpoint, preserving existing as-of visibility.
+Missing observations produce an explicit gap outcome unless the model declares a predict-only step.
+No profile silently pairs unequal arrays, clamps a transform or reads future observations during initialization.
+
+Use x_minus = F*x and P_minus = F*P*F_transpose + Q.
+Then innovation v = z - H*x_minus and S = H*P_minus*H_transpose + R.
+Solve S for K = P_minus*H_transpose*S_inverse; do not require an explicit matrix inverse.
+Update x = x_minus + K*v.
+Let Identity denote the identity matrix.
+Use Joseph covariance P = (Identity-K*H)*P_minus*(Identity-K*H)_transpose + K*R*K_transpose.
+Validate finite dimensions, symmetric positive-semidefinite P/Q and positive-definite R/S before committing any update.
+Pin symmetry tolerance, decomposition tolerance and floating-point policy in the model revision.
+An ill-conditioned solve produces a typed numerical refusal; it must not silently replace gain with zero.
+
+The gain minimizes linear mean-square estimation error under the declared linear model and correct second moments.
+The linear profile requires zero-mean, temporally uncorrelated noises independent of the initial state.
+Process and measurement noises must also be mutually uncorrelated at all time indices.
+The current S, K and Joseph formulas support only zero process/measurement cross-covariance.
+Model admission must refuse any declaration of nonzero cross-covariance before an update or checkpoint change.
+Unknown noise-correlation policy must refuse; model revisions must explicitly declare the supported uncorrelated-noise policy.
+Mutually independent Gaussian noises and a Gaussian initial state also permit the conditional-mean interpretation.
+Nonlinear approximations, transformed volatility observations and robust weights carry no universal optimality guarantee.
+
+| Profile | State and observation contract |
+|---|---|
+| Volatility regime | State is log variance with random-walk dynamics. Observe log(return squared) using a declared positive floor and bias correction. Report latent variance and configured variance-band classification. Do not label this classification an HMM posterior. |
+| Mean-reversion strength | State is the varying coefficient phi in spread_next = phi*spread_previous + noise. Fixed interval dt and centering revision are mandatory. Report theta = -log(phi)/dt only for 0 < phi < 1. Other phi values produce a typed non-reverting outcome. |
+| Hedge ratio | State contains intercept and hedge coefficient. The paired-series observation uses H = [1, hedge_input]. Alignment, units and hedge direction belong to the model revision. |
+| Time-varying factor sensitivity | State contains one coefficient per ordered factor. H contains contemporaneously available factor returns. Factor ordering and all source timestamps are pinned. |
+
+Warmup consumes only already-observed data and reports its sample count.
+The first emitted estimate follows the completed warmup or explicit provided prior.
+No earlier estimate is backfilled from later calibration data.
+
+### Bounded adaptation and robust approximation
+
+The following defaults define reproducible qualification profiles, not universal market parameters.
+Model revisions may replace them only with recorded numerical and served evidence.
+Retain a fixed baseline window and a recent window, each containing W=32 observations.
+The initial baseline uses the first 32 observations; subsequent non-overlapping windows provide the recent statistics.
+Whiten each innovation using its own predicted S before inserting it into the windows.
+Compute each window's centered sample variance per component, then average across components.
+Use a canonical lower-triangular Cholesky solve for whitening and divide centered sums by W-1.
+After 64 observations, compare recent variance with max(baseline variance, 1e-12).
+Keep that baseline fixed throughout confirmation.
+A ratio outside [0.5, 2.0] for three consecutive completed windows triggers a shift.
+Advance comparisons every 32 observations. Reset the confirmation count after an in-range window.
+After a shift, enforce a 64-observation cooldown.
+Use its final 32 observations as the next fixed baseline; resume comparison with the next complete window.
+Scale R by clamp(ratio, 0.5, 2.0); constrain each eigenvalue to its revision's positive absolute bounds.
+Keep Q unchanged in this profile. Do not pretend innovation variance uniquely identifies Q and R.
+Publish old/new parameter digests and the trigger cursor. Apply the revision starting at the next observation.
+State and covariance survive retuning; incompatible parameter changes require an explicit reset or bounded replay.
+Budget limits cover window storage, eigenvalue work, retuning count and replay.
+
+For nonlinear profiles, use one extended-filter linearization at the prior state per observation.
+Registered transition/observation functions provide finite Jacobians and explicit valid domains.
+No caller-provided executable code enters the numerical kernel.
+Qualification uses f(x)=x and h(x)=x squared on x>0, with derivative 2*x.
+This approximation must report its profile revision and must not claim exact nonlinear inference.
+
+For robust gain, let d = sqrt(v_transpose*S_inverse*v).
+Set weight w = min(1, c/max(d, 1e-12)), with qualification c=2.5.
+Use K_effective = w*K for both the state update and Joseph covariance.
+Report w, d and the approximation flag. State corrections then have bounded innovation influence for fixed prior matrices.
+Compute shift windows from pre-downweight innovations, with each whitened component clipped to [-8, 8].
+Clipping affects detection only; the robust state update uses the original innovation.
+This limits isolated tail contamination while retaining persistent-shift detection in the declared profile.
+The clipping threshold and warmup/cooldown state belong to the checkpoint revision.
+Unbounded errors, invalid covariance and work exhaustion produce typed outcomes without publishing a new derived checkpoint.
+
+### References
+
+R. E. Kalman, "A New Approach to Linear Filtering and Prediction Problems" (1960), sections "Optimal Estimates" and "Orthogonal Projections".
+The [primary paper reproduction](https://scispace.com/pdf/a-new-approach-to-linear-filtering-and-prediction-problems-1f1lkk9j5b.pdf) supports the linear estimation assumptions.
+The accepted source provides no arXiv identifier; none is assigned here.
+The bounded retuning and robust qualification profiles above are engineering requirements, not results attributed to that paper.
+The source method requests innovation adaptation and tail downweighting but provides no validated numerical policy for either.
+
+
+### 2026-10-12: preserve acceptance through smaller R002 units
+
+R002.1, R002.2 and R002.6 are rollups; their original acceptance remains mandatory.
+Each new leaf names one kernel or one model at one boundary.
+Source paths are intended attachment points, not claims of completed implementations.
+R002.2.4 checks the complete caller census; an omitted caller prevents parent completion.
+Any additional independent caller requires an explicit child before its migration.
+Each leaf retains its own positive and negative proof.
+The generic route and generated contract are prerequisites for served caller tests.
+R002.3 still requires method counts and client bindings to reconcile in the migration change.
+The held query lane owns missing textual admission; these definitions do not change that grammar.
+
+| Retained obligation | Explicit descendants |
+|---|---|
+| Fourteen shared kernels and independent unit vectors | R002.1.1 through R002.1.14, in original inventory order |
+| Generic callers for all fourteen kernels | R002.2.1.1 through R002.2.1.14 |
+| Removed or thin documented finance aliases | R002.2.2.1 through R002.2.2.14 |
+| Real UQL exposure for all fourteen kernels | R002.2.3.1 through R002.2.3.14 |
+| Complete caller coverage, including additional discovered callers | R002.2.4 |
+| Causal recurrence and supported noise assumptions | R002.6.1 |
+| Volatility, mean-reversion, hedge and factor models | R002.6.2 through R002.6.5, respectively |
+
+These scenarios have no new execution receipts. Existing parent receipts remain unchanged.
