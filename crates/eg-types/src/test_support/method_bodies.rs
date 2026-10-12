@@ -13,6 +13,7 @@ use crate::protocol::{Method, Request};
 /// decoding, which a schema-minimal sample therefore cannot satisfy.
 pub fn typed_samples() -> Vec<(&'static str, Method)> {
     let mut samples = super::contract_wave::contract_wave_samples();
+    samples.push(("Decide.harness_config", harness_config_sample()));
     samples.push((
         "ApplyChangeEnvelope",
         Method::ApplyChangeEnvelope {
@@ -37,6 +38,43 @@ pub fn typed_samples() -> Vec<(&'static str, Method)> {
         },
     ));
     samples
+}
+
+/// A typed harness question exercises the shared client codec's new enum value.
+fn harness_config_sample() -> Method {
+    use crate::contract::BoundedVec;
+    use crate::decision::{QuestionKind, TypedParam, TypedValue};
+
+    let mut request = super::contract_wave::statistical::decide_request();
+    request.question.kind = QuestionKind::HarnessConfig;
+    request.question.question_id = "harness.configuration".into();
+    request.head = None;
+    request.params = BoundedVec::new(vec![
+        TypedParam {
+            name: "expected_trajectory_tokens".into(),
+            value: TypedValue::Int(2048),
+        },
+        TypedParam {
+            name: "model_profile_ref".into(),
+            value: TypedValue::Iri("eg:model/example".into()),
+        },
+        TypedParam {
+            name: "priority".into(),
+            value: TypedValue::Text("interactive".into()),
+        },
+        TypedParam {
+            name: "task_class".into(),
+            value: TypedValue::Iri("eg:task/research".into()),
+        },
+        TypedParam {
+            name: "usable_context_budget_tokens".into(),
+            value: TypedValue::Int(4096),
+        },
+    ])
+    .expect("five harness inputs fit the parameter bound");
+    Method::Decide {
+        request: Box::new(request),
+    }
 }
 
 #[cfg(feature = "query")]

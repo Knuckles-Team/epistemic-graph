@@ -855,7 +855,7 @@
         "b23e8815f42c"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/statistical.rs:345"
+        "crates/eg-types/src/decision/statistical.rs:360"
       ]
     },
     {
@@ -888,7 +888,7 @@
         "b23e8815f42c"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/statistical.rs:352"
+        "crates/eg-types/src/decision/statistical.rs:367"
       ]
     },
     {
@@ -3113,7 +3113,9 @@
       "title": "The question kind exists in the enum",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/decision/statistical.rs:348"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R128.2",
@@ -3235,7 +3237,9 @@
       "title": "The generated contract and clients carry the kind",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-capabilities/tests/contract_generated.rs:44"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R128.15",

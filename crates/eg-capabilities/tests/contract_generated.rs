@@ -41,6 +41,45 @@ fn committed_json(path: &str) -> serde_json::Value {
     serde_json::from_str(&text).unwrap_or_else(|error| panic!("{path} is not JSON: {error}"))
 }
 
+// spec: EG-DECISION-ENGINE-R128.14
+#[test]
+fn question_kind_lists_harness_config() {
+    let schemas = repo_root().join("contract/schemas");
+    let mut checked = std::collections::BTreeSet::new();
+    for entry in std::fs::read_dir(schemas).unwrap() {
+        let path = entry.unwrap().path();
+        let name = path.file_name().unwrap().to_str().unwrap();
+        if name != "method.request.json" && !name.starts_with("result.") {
+            continue;
+        }
+        let document = committed_json(&format!("contract/schemas/{name}"));
+        let Some(kind) = document["$defs"].get("QuestionKind") else {
+            continue;
+        };
+        let values = kind["oneOf"]
+            .as_array()
+            .expect("question kinds are a union");
+        for expected in ["tool_subset", "harness_config"] {
+            assert!(
+                values
+                    .iter()
+                    .any(|value| value["const"].as_str() == Some(expected)),
+                "{name} omits {expected}"
+            );
+        }
+        checked.insert(name.to_string());
+    }
+    assert!(checked.contains("method.request.json"));
+    assert!(checked.iter().any(|name| name.starts_with("result.")));
+    let models =
+        std::fs::read_to_string(repo_root().join("epistemic_graph/generated/models.py")).unwrap();
+    assert!(models.contains("Literal[\"harness_config\"]"));
+    let vectors = committed_json("contract/fixtures/method_body_vectors.json");
+    assert!(vectors["vectors"].as_array().unwrap().iter().any(|row| {
+        row["label"] == "sample:Decide.harness_config" && row["method"] == "Decide"
+    }));
+}
+
 /// The contract profile turns on `eg-types/timeseries` (via `canonical-ledger`), so the
 /// `Op` variants that feature gates are part of the published request schema. `Op` is
 /// externally tagged: a variant's name is its subschema's single required key.

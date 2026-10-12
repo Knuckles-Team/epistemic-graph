@@ -731,3 +731,16 @@ Cross-repository: `AU-QUAL-R009` runs the probe, submits the scorer results and 
 
 References
 - arXiv:2605.04019 — Dheekonda et al., "Redefining AI Red Teaming in the Agentic Era: From Weeks to Hours" (2026)
+
+
+### 2026-10-12: R128 question-kind contract
+
+R128.1 adds the evaluate-only `harness_config` question kind and its serialization test.
+R128.14 uses the existing schema-driven Python projection and native contract generator.
+Its regression checks request and result schemas plus the generated Python literal.
+Go and JavaScript share the regenerated native Method codec.
+Native validation passed 17 Rust tests and matched 73 generated artifacts.
+The JavaScript suite passed 517 tests. Go passed 519 tests and subtests.
+Both regenerated client codecs passed the official byte check.
+These checks reported zero failures or skips.
+The harness handler and served acceptance remain separate requirements.
