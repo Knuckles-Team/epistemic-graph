@@ -1530,10 +1530,34 @@ jobs:
   # `build` needs the product tests, runtime-contract checks, security, and
   # real-inference tests. Optional feature builds and benchmarks are not
   # prerequisites and cannot hold up publication.
+  build-sdist:
+    name: Build and validate source distribution
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version-file: '.python-version'
+      - name: Build source archive without native compilation
+        run: |
+          python -m pip install 'maturin==1.14.1'
+          maturin sdist --out dist-sdist
+          python scripts/check_sdist_completeness.py dist-sdist/*.tar.gz
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: source-distribution
+          path: dist-sdist/*.tar.gz
+          if-no-files-found: error
+
   publish-pypi:
     timeout-minutes: 360
-    name: Publish wheels to PyPI (release only)
-    needs: [build, build-x86]
+    name: Publish distributions to PyPI (release only)
+    needs: [build, build-x86, build-sdist]
     runs-on: ubuntu-latest
     if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
     permissions:
@@ -1549,6 +1573,10 @@ jobs:
         with:
           pattern: wheel-*
           merge-multiple: true
+          path: dist
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: source-distribution
           path: dist
       # The supported install targets. Publishing without one of these would
       # silently ship a release that cannot be installed on a platform we claim
@@ -1581,6 +1609,7 @@ jobs:
           echo "Distributions staged for upload:"
           ls -1 dist/
           python scripts/check_wheel_completeness.py --require-engine-kernel dist/*.whl
+          python scripts/check_sdist_completeness.py dist/*.tar.gz
 
       - name: Checkout immutable publication contract
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4

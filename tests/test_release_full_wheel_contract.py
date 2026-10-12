@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import re
 import subprocess
+import tarfile
 from pathlib import Path
 
 import pytest
 import tomllib
 import yaml
+from check_sdist_completeness import validate
 
 pytestmark = pytest.mark.no_engine
 
@@ -252,7 +255,23 @@ def test_release_wheels_are_rebuilt_and_compared_reproducibly() -> None:
 def test_incomplete_fallback_artifacts_cannot_be_published() -> None:
     raw = WORKFLOW.read_text(encoding="utf-8")
     assert "command: sdist" not in raw
-    assert "dist/*.tar.gz" not in raw
+    jobs = yaml.safe_load(raw)["jobs"]
+    publish = jobs["publish-pypi"]
+    assert set(publish["needs"]) == {"build", "build-x86", "build-sdist"}
+    assert publish["permissions"] == {"contents": "read"}
+    steps = publish["steps"]
+    gate_name = "Require every distribution to be complete before upload"
+    gate = next(step["run"] for step in steps if step.get("name") == gate_name)
+    assert "check_wheel_completeness.py --require-engine-kernel dist/*.whl" in gate
+    assert "check_sdist_completeness.py dist/*.tar.gz" in gate
+    names = [step.get("name", "") for step in steps]
+    assert names.index(gate_name) < names.index(
+        "Freeze exact staged publication identity"
+    )
+    source_steps = jobs["build-sdist"]["steps"]
+    assert any(
+        "check_sdist_completeness.py" in step.get("run", "") for step in source_steps
+    )
     assert not (REPO / ".github" / "workflows" / "pipeline.yml").exists()
     # The two-workflow redesign folded the former release-build.yml (this
     # test's wheel-build workflow, pre-rename) and rust-ci.yml into
@@ -372,3 +391,46 @@ def test_release_concurrency_preserves_running_main(
     assert match is not None
     assert (event == match.group(1)) is cancel
     assert concurrency["group"].replace("${{ github.ref }}", ref) == f"release-{ref}"
+
+
+def _source_archive(tmp_path, *, omitted="", version="2.27.1", unsafe=False):
+    path = tmp_path / "epistemic_graph-2.27.1.tar.gz"
+    entries = {
+        "Cargo.toml": '[package]\nversion = "2.27.1"\n',
+        "PKG-INFO": f"Name: epistemic-graph\nVersion: {version}\n",
+        "crates/leaf/src/lib.rs": "pub fn leaf() {}",
+    }
+    if unsafe:
+        entries["../escape"] = "outside"
+    with tarfile.open(path, "w:gz") as output:
+        for name, text in entries.items():
+            if name == omitted:
+                continue
+            data = text.encode()
+            item = tarfile.TarInfo(f"epistemic_graph-2.27.1/{name}")
+            item.size = len(data)
+            output.addfile(item, io.BytesIO(data))
+    return path
+
+
+def test_accepts_complete_sources(tmp_path):
+    validate(
+        _source_archive(tmp_path), {"Cargo.toml", "crates/leaf/src/lib.rs"}, "2.27.1"
+    )
+
+
+@pytest.mark.parametrize(
+    "kwargs,match",
+    [
+        ({"omitted": "crates/leaf/src/lib.rs"}, "missing source"),
+        ({"version": "2.27.0"}, "metadata identity"),
+        ({"unsafe": True}, "unsafe"),
+    ],
+)
+def test_rejects_incomplete_or_misidentified_sources(tmp_path, kwargs, match):
+    with pytest.raises(ValueError, match=match):
+        validate(
+            _source_archive(tmp_path, **kwargs),
+            {"Cargo.toml", "crates/leaf/src/lib.rs"},
+            "2.27.1",
+        )
