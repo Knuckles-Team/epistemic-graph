@@ -321,7 +321,74 @@
     "EG-DECISION-ENGINE-R138.3",
     "EG-DECISION-ENGINE-R138.4",
     "EG-DECISION-ENGINE-R138.5",
-    "EG-DECISION-ENGINE-R138.6"
+    "EG-DECISION-ENGINE-R138.6",
+    "EG-DECISION-ENGINE-R139",
+    "EG-DECISION-ENGINE-R139.1",
+    "EG-DECISION-ENGINE-R139.2",
+    "EG-DECISION-ENGINE-R139.3",
+    "EG-DECISION-ENGINE-R139.4",
+    "EG-DECISION-ENGINE-R139.5",
+    "EG-DECISION-ENGINE-R139.6",
+    "EG-DECISION-ENGINE-R100.101",
+    "EG-DECISION-ENGINE-R001.100",
+    "EG-DECISION-ENGINE-R135.7",
+    "EG-DECISION-ENGINE-R106.1",
+    "EG-DECISION-ENGINE-R137.13",
+    "EG-DECISION-ENGINE-R134.9",
+    "EG-DECISION-ENGINE-R137.14",
+    "EG-DECISION-ENGINE-R134.10",
+    "EG-DECISION-ENGINE-R137.15",
+    "EG-DECISION-ENGINE-R134.11",
+    "EG-DECISION-ENGINE-R059.1",
+    "EG-DECISION-ENGINE-R134.12",
+    "EG-DECISION-ENGINE-R134.13",
+    "EG-DECISION-ENGINE-R029.1",
+    "EG-DECISION-ENGINE-R134.14",
+    "EG-DECISION-ENGINE-R020.1",
+    "EG-DECISION-ENGINE-R133.7",
+    "EG-DECISION-ENGINE-R100.1",
+    "EG-DECISION-ENGINE-R088.2",
+    "EG-DECISION-ENGINE-R137.16",
+    "EG-DECISION-ENGINE-R029.2",
+    "EG-DECISION-ENGINE-R134.15",
+    "EG-DECISION-ENGINE-R135.8",
+    "EG-DECISION-ENGINE-R042.100",
+    "EG-DECISION-ENGINE-R042.101",
+    "EG-DECISION-ENGINE-R129.100",
+    "EG-DECISION-ENGINE-R134.100",
+    "EG-DECISION-ENGINE-R134.101",
+    "EG-DECISION-ENGINE-R137.100",
+    "EG-DECISION-ENGINE-R134.102",
+    "EG-DECISION-ENGINE-R136.100",
+    "EG-DECISION-ENGINE-R031.100",
+    "EG-DECISION-ENGINE-R036.100",
+    "EG-DECISION-ENGINE-R136.101",
+    "EG-DECISION-ENGINE-R121.100",
+    "EG-DECISION-ENGINE-R138.100",
+    "EG-DECISION-ENGINE-R136.102",
+    "EG-DECISION-ENGINE-R138.101",
+    "EG-DECISION-ENGINE-R036.101",
+    "EG-DECISION-ENGINE-R014.100",
+    "EG-DECISION-ENGINE-R140",
+    "EG-DECISION-ENGINE-R141",
+    "EG-DECISION-ENGINE-R142",
+    "EG-DECISION-ENGINE-R139.100",
+    "EG-DECISION-ENGINE-R019.100",
+    "EG-DECISION-ENGINE-R029.100",
+    "EG-DECISION-ENGINE-R140.100",
+    "EG-DECISION-ENGINE-R140.101",
+    "EG-DECISION-ENGINE-R140.102",
+    "EG-DECISION-ENGINE-R140.103",
+    "EG-DECISION-ENGINE-R140.104",
+    "EG-DECISION-ENGINE-R140.105",
+    "EG-DECISION-ENGINE-R141.100",
+    "EG-DECISION-ENGINE-R141.101",
+    "EG-DECISION-ENGINE-R141.102",
+    "EG-DECISION-ENGINE-R141.103",
+    "EG-DECISION-ENGINE-R142.100",
+    "EG-DECISION-ENGINE-R142.101",
+    "EG-DECISION-ENGINE-R142.102",
+    "EG-DECISION-ENGINE-R100.100"
   ],
   "requirements": [
     {
@@ -336,7 +403,8 @@
       "verified_by": [],
       "rollup_of": [
         "EG-DECISION-ENGINE-R001.1",
-        "EG-DECISION-ENGINE-R001.2"
+        "EG-DECISION-ENGINE-R001.2",
+        "EG-DECISION-ENGINE-R001.100"
       ]
     },
     {
@@ -535,7 +603,7 @@
     {
       "id": "EG-DECISION-ENGINE-R014",
       "title": "Composition solved as bounded constraint optimization",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "14743fbffa3d",
         "52f333ca756e",
@@ -544,6 +612,9 @@
       "verified_by": [
         "crates/eg-compute/tests/solve/exhaustive.rs:41",
         "crates/eg-compute/tests/solve/model_validation.rs:223"
+      ],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R014.100"
       ]
     },
     {
@@ -650,7 +721,7 @@
     {
       "id": "EG-DECISION-ENGINE-R019",
       "title": "Decision commit re-derives and verifies before writing",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "14743fbffa3d",
         "52f333ca756e",
@@ -660,18 +731,24 @@
         "src/server/persistence/decision_record/tests.rs:167",
         "src/server/persistence/decision_record/tests.rs:196",
         "src/server/persistence/decision_record/tests.rs:222"
+      ],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R019.100"
       ]
     },
     {
       "id": "EG-DECISION-ENGINE-R020",
       "title": "Bounded, keyed exploration excluded from sensitive questions",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "2a0d6eae0918",
         "52f333ca756e"
       ],
       "verified_by": [
         "src/server/handlers/decide/stat_tests.rs:868"
+      ],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R020.1"
       ]
     },
     {
@@ -797,7 +874,7 @@
     {
       "id": "EG-DECISION-ENGINE-R029",
       "title": "Decision-based retrieval-plan selection",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "52f333ca756e",
         "5951a4a6272e",
@@ -806,6 +883,11 @@
       ],
       "verified_by": [
         "crates/eg-types/src/decision/statistical/retrieval_plan.rs:132"
+      ],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R029.1",
+        "EG-DECISION-ENGINE-R029.2",
+        "EG-DECISION-ENGINE-R029.100"
       ]
     },
     {
@@ -826,7 +908,7 @@
     {
       "id": "EG-DECISION-ENGINE-R031",
       "title": "Expected-value scheduling for enrichment work",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "7db76f6142e3",
         "aa3e35c45f82",
@@ -836,6 +918,9 @@
       ],
       "verified_by": [
         "crates/eg-types/src/decision/statistical/enrichment_schedule.rs:126"
+      ],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R031.100"
       ]
     },
     {
@@ -932,7 +1017,7 @@
     {
       "id": "EG-DECISION-ENGINE-R036",
       "title": "graph.assemble() as the authority for agent composition",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "9ea2c1ac6a24",
         "d6baf6dfc8c9",
@@ -940,6 +1025,10 @@
       ],
       "verified_by": [
         "crates/eg-compute/src/assemble/tests/golden.rs:56"
+      ],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R036.100",
+        "EG-DECISION-ENGINE-R036.101"
       ]
     },
     {
@@ -1058,7 +1147,7 @@
     {
       "id": "EG-DECISION-ENGINE-R042",
       "title": "Connector tool-choice advisory via Decide",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "67d04f5e9087",
         "e8eaaf916a40",
@@ -1066,6 +1155,10 @@
       ],
       "verified_by": [
         "src/server/handlers/decide/stat_tests/connector_toolchoice_tests.rs:24"
+      ],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R042.100",
+        "EG-DECISION-ENGINE-R042.101"
       ]
     },
     {
@@ -1411,13 +1504,16 @@
     {
       "id": "EG-DECISION-ENGINE-R059",
       "title": "Outcome aggregate with independent-evaluation join",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "3e6d786460c5",
         "fa780d3e101a"
       ],
       "verified_by": [
         "crates/eg-numeric/src/decision/aggregate.rs:268"
+      ],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R059.1"
       ]
     },
     {
@@ -2116,7 +2212,8 @@
         "crates/eg-numeric/tests/decision/scorer.rs:215"
       ],
       "rollup_of": [
-        "EG-DECISION-ENGINE-R088.1"
+        "EG-DECISION-ENGINE-R088.1",
+        "EG-DECISION-ENGINE-R088.2"
       ]
     },
     {
@@ -2371,7 +2468,7 @@
     {
       "id": "EG-DECISION-ENGINE-R100",
       "title": "Retrieval decisions join cited evidence with independent outcomes",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "03bb9b81b3a4",
         "534f763afc81",
@@ -2379,6 +2476,11 @@
       ],
       "verified_by": [
         "src/server/handlers/decide/stat_tests/retrieval_tests.rs:208"
+      ],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R100.101",
+        "EG-DECISION-ENGINE-R100.1",
+        "EG-DECISION-ENGINE-R100.100"
       ]
     },
     {
@@ -2470,13 +2572,16 @@
     {
       "id": "EG-DECISION-ENGINE-R106",
       "title": "AgentGraph templates carry topology facts for standard shapes",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "534f763afc81",
         "ca2bc11e6d73"
       ],
       "verified_by": [
         "src/server/graph_schema/swarm_topology_tests.rs:128"
+      ],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R106.1"
       ]
     },
     {
@@ -2863,7 +2968,8 @@
       "verified_by": [],
       "rollup_of": [
         "EG-DECISION-ENGINE-R121.1",
-        "EG-DECISION-ENGINE-R121.2"
+        "EG-DECISION-ENGINE-R121.2",
+        "EG-DECISION-ENGINE-R121.100"
       ]
     },
     {
@@ -3262,7 +3368,8 @@
         "EG-DECISION-ENGINE-R129.3",
         "EG-DECISION-ENGINE-R129.4",
         "EG-DECISION-ENGINE-R129.5",
-        "EG-DECISION-ENGINE-R129.6"
+        "EG-DECISION-ENGINE-R129.6",
+        "EG-DECISION-ENGINE-R129.100"
       ]
     },
     {
@@ -3495,7 +3602,8 @@
         "EG-DECISION-ENGINE-R133.3",
         "EG-DECISION-ENGINE-R133.4",
         "EG-DECISION-ENGINE-R133.5",
-        "EG-DECISION-ENGINE-R133.6"
+        "EG-DECISION-ENGINE-R133.6",
+        "EG-DECISION-ENGINE-R133.7"
       ]
     },
     {
@@ -3554,7 +3662,17 @@
         "EG-DECISION-ENGINE-R134.5",
         "EG-DECISION-ENGINE-R134.6",
         "EG-DECISION-ENGINE-R134.7",
-        "EG-DECISION-ENGINE-R134.8"
+        "EG-DECISION-ENGINE-R134.8",
+        "EG-DECISION-ENGINE-R134.9",
+        "EG-DECISION-ENGINE-R134.10",
+        "EG-DECISION-ENGINE-R134.11",
+        "EG-DECISION-ENGINE-R134.12",
+        "EG-DECISION-ENGINE-R134.13",
+        "EG-DECISION-ENGINE-R134.14",
+        "EG-DECISION-ENGINE-R134.15",
+        "EG-DECISION-ENGINE-R134.100",
+        "EG-DECISION-ENGINE-R134.101",
+        "EG-DECISION-ENGINE-R134.102"
       ]
     },
     {
@@ -3625,7 +3743,9 @@
         "EG-DECISION-ENGINE-R135.3",
         "EG-DECISION-ENGINE-R135.4",
         "EG-DECISION-ENGINE-R135.5",
-        "EG-DECISION-ENGINE-R135.6"
+        "EG-DECISION-ENGINE-R135.6",
+        "EG-DECISION-ENGINE-R135.7",
+        "EG-DECISION-ENGINE-R135.8"
       ]
     },
     {
@@ -3683,7 +3803,10 @@
         "EG-DECISION-ENGINE-R136.4",
         "EG-DECISION-ENGINE-R136.5",
         "EG-DECISION-ENGINE-R136.6",
-        "EG-DECISION-ENGINE-R136.7"
+        "EG-DECISION-ENGINE-R136.7",
+        "EG-DECISION-ENGINE-R136.100",
+        "EG-DECISION-ENGINE-R136.101",
+        "EG-DECISION-ENGINE-R136.102"
       ]
     },
     {
@@ -3753,7 +3876,12 @@
         "EG-DECISION-ENGINE-R137.9",
         "EG-DECISION-ENGINE-R137.10",
         "EG-DECISION-ENGINE-R137.11",
-        "EG-DECISION-ENGINE-R137.12"
+        "EG-DECISION-ENGINE-R137.12",
+        "EG-DECISION-ENGINE-R137.13",
+        "EG-DECISION-ENGINE-R137.14",
+        "EG-DECISION-ENGINE-R137.15",
+        "EG-DECISION-ENGINE-R137.16",
+        "EG-DECISION-ENGINE-R137.100"
       ]
     },
     {
@@ -3852,7 +3980,9 @@
         "EG-DECISION-ENGINE-R138.3",
         "EG-DECISION-ENGINE-R138.4",
         "EG-DECISION-ENGINE-R138.5",
-        "EG-DECISION-ENGINE-R138.6"
+        "EG-DECISION-ENGINE-R138.6",
+        "EG-DECISION-ENGINE-R138.100",
+        "EG-DECISION-ENGINE-R138.101"
       ]
     },
     {
@@ -3893,6 +4023,503 @@
     {
       "id": "EG-DECISION-ENGINE-R138.6",
       "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R139",
+      "title": "Comparative-analysis plan producer (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R139.1",
+        "EG-DECISION-ENGINE-R139.2",
+        "EG-DECISION-ENGINE-R139.3",
+        "EG-DECISION-ENGINE-R139.4",
+        "EG-DECISION-ENGINE-R139.5",
+        "EG-DECISION-ENGINE-R139.6",
+        "EG-DECISION-ENGINE-R139.100"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R139.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R139.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R139.3",
+      "title": "Wiring and authority",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R139.4",
+      "title": "Typed refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R139.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R139.6",
+      "title": "Served acceptance",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R100.101",
+      "title": "Grounded topic coverage and probability-scored unsupported claims",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R001.100",
+      "title": "Quantitative physical/safety bounds before recommendation surfacing",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R135.7",
+      "title": "Pre-plan test evidence, verifier scores and successful-cycle reuse",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R106.1",
+      "title": "Council positions are coordinated into one evidence-bound decision",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R137.13",
+      "title": "Measured tool-output and graph-size signals select recursive mode in the decision ladder",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R134.9",
+      "title": "Reviewed residual `AU:34`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R137.14",
+      "title": "Reviewed residual `AU:37`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R134.10",
+      "title": "Reviewed residual `AU:39`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R137.15",
+      "title": "Reviewed residual `AU:40`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R134.11",
+      "title": "Reviewed residual `AU:45`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R059.1",
+      "title": "Reviewed residual `AU:57`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R134.12",
+      "title": "Reviewed residual `AU:85`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R134.13",
+      "title": "Reviewed residual `AU:91`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R029.1",
+      "title": "Reviewed residual `AU:93`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R134.14",
+      "title": "Reviewed residual `AU:105`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R020.1",
+      "title": "Reviewed residual `AU:110`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R133.7",
+      "title": "Reviewed residual `EG:13`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R100.1",
+      "title": "Reviewed residual `EG:16`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R088.2",
+      "title": "Reviewed residual `EG:17`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R137.16",
+      "title": "Reviewed residual `EG:26`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R029.2",
+      "title": "Reviewed residual `EG:30`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R134.15",
+      "title": "Reviewed residual `EG:36`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R135.8",
+      "title": "Reviewed residual `EG:52`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R042.100",
+      "title": "Tool-path outcome history and repeated-failure skip rule",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R042.101",
+      "title": "Per-model measured tool necessity and every-call mismatch trace",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R129.100",
+      "title": "Human correction to approved, versioned behavioral rule lifecycle",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R134.100",
+      "title": "Public aggregation operation bound to FanoutResult and fleet receipts",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R134.101",
+      "title": "Designated coordinator delivers one complete structured artifact",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R137.100",
+      "title": "Relevance-triggered instruction disclosure with separate initial/runtime versions",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R134.102",
+      "title": "Delegation quality threshold over a stable outcome window",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R136.100",
+      "title": "Trace-derived fix admission requires paired before/after regression receipts",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R031.100",
+      "title": "Paper relevance admission against platform goals and graph content",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R036.100",
+      "title": "Typed substitutable prompt, tool, memory and control-flow primitives",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R136.101",
+      "title": "Per-criterion report revision nonregression",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R121.100",
+      "title": "Step verification binds uncertainty and trace proof before continuation",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R138.100",
+      "title": "Adversarial generated-code verifier is a mandatory admission gate",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R136.102",
+      "title": "Outcome, rubric and artifact-bound criterion grading required before proposal admission",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R138.101",
+      "title": "Five-class semantic changeset review with evidence and impact filtering",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R036.101",
+      "title": "Compose discovered coding-agent facts with skill transformations",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R014.100",
+      "title": "Choose the smallest adequate legal solution from explicit size and cost facts",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R140",
+      "title": "Trajectory refinement and ranking family (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R140.100",
+        "EG-DECISION-ENGINE-R140.101",
+        "EG-DECISION-ENGINE-R140.102",
+        "EG-DECISION-ENGINE-R140.103",
+        "EG-DECISION-ENGINE-R140.104",
+        "EG-DECISION-ENGINE-R140.105"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R141",
+      "title": "Memory-change evaluation and rewrite admission (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R141.100",
+        "EG-DECISION-ENGINE-R141.101",
+        "EG-DECISION-ENGINE-R141.102",
+        "EG-DECISION-ENGINE-R141.103"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R142",
+      "title": "Atomic-before-workflow local-model certification (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R142.100",
+        "EG-DECISION-ENGINE-R142.101",
+        "EG-DECISION-ENGINE-R142.102"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R139.100",
+      "title": "Graph-backed comparative sources with exact revision provenance",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R019.100",
+      "title": "Decision-wide evidence provenance and human approval before recommendation commit",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R029.100",
+      "title": "Typed retrieval command configuration and inference-mode digest binding",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R140.100",
+      "title": "Complexity-gated K-trajectory decision",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R140.101",
+      "title": "Provenance-preserving trajectory projection and reinsertion",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R140.102",
+      "title": "Branch-start experience retrieval and outcome-driven breadth",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R140.103",
+      "title": "Verifier-free pairwise candidate ranking with bounded revision",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R140.104",
+      "title": "TaskPlan trajectory-decision wiring row",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R140.105",
+      "title": "Trajectory-refinement hot-path proof row",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R141.100",
+      "title": "Fidelity-gated memory rewrite evaluation",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R141.101",
+      "title": "Memory-change benchmark receipt before admission",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R141.102",
+      "title": "DecisionEval memory-change wiring row",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R141.103",
+      "title": "Memory-change hot-path proof row",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R142.100",
+      "title": "Atomic-before-workflow local-model certification attestation",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R142.101",
+      "title": "DecisionEval certification wiring row",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R142.102",
+      "title": "Local-model-certification hot-path proof row",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R100.100",
+      "title": "Pinned retrieval evaluation and authorized context spans",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

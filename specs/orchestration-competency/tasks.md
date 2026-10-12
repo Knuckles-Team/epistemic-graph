@@ -56,3 +56,10 @@ Producer first: ontology gaps, shapes and authority mappings before fixtures and
 - [ ] EG-CQ-ORCH-R010.4 Abstain when no source supports a container
 - [ ] EG-CQ-ORCH-R010.5 Cite the support of every container
 - [ ] EG-CQ-ORCH-R010.6 Prove the view through the served operation
+
+<!-- spec-definition-patch:owner-batch-20261012-orchestration-competency -->
+## Reviewed residual definition tasks — owner batch 2026-10-12
+
+- [ ] **EG-CQ-ORCH-R010.7:** Gate plan-producing Decide responses on a revision-matched architecture view and AU study-gap record. Require each feature's attach point and wiring edge. Reject missing or stale inputs before returning a plan.
+- [ ] **EG-CQ-ORCH-R010.7 acceptance:** Run `unwired_feature_refuses_before_task_plan`, `stale_architecture_or_study_gap_refuses`, and `test_plan_requires_pinned_architecture_and_attach_points`. Assert named refusals and no plan. Confirm AU proposal id/revision before cross-owner closure. Status remains SPECIFIED.
+<!-- /spec-definition-patch -->

@@ -156,7 +156,8 @@
     "EG-UNIFIED-DATA-PLANE-R040.3",
     "EG-UNIFIED-DATA-PLANE-R040.4",
     "EG-UNIFIED-DATA-PLANE-R040.5",
-    "EG-UNIFIED-DATA-PLANE-R040.6"
+    "EG-UNIFIED-DATA-PLANE-R040.6",
+    "EG-UNIFIED-DATA-PLANE-R026.4"
   ],
   "requirements": [
     {
@@ -1390,7 +1391,8 @@
       "rollup_of": [
         "EG-UNIFIED-DATA-PLANE-R026.1",
         "EG-UNIFIED-DATA-PLANE-R026.2",
-        "EG-UNIFIED-DATA-PLANE-R026.3"
+        "EG-UNIFIED-DATA-PLANE-R026.3",
+        "EG-UNIFIED-DATA-PLANE-R026.4"
       ]
     },
     {
@@ -1996,6 +1998,13 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R040.6",
       "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R026.4",
+      "title": "EG:64 source definition",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

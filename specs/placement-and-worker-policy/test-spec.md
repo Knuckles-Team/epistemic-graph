@@ -30,3 +30,15 @@ R002.2 producer evidence: `scheduler_config::tests` uses real serde to prove def
 - `EG-PLACEMENT-R004.4`: `crates/eg-jobs/src/store.rs::tests::no_capable_host_refuses`.
 - `EG-PLACEMENT-R004.5`: `crates/eg-jobs/src/store.rs::tests::routing_premises_name_generation`.
 - `EG-PLACEMENT-R004.6`: `tests/jobs/test_capability_claim_served.py::test_backtest_job_lands_on_declared_host`.
+
+<!-- spec-definition-patch:owner-batch-20261012-placement-and-worker-policy -->
+## Owner acceptance targets — 2026-10-12
+
+These bullets define future acceptance targets. None has run as a test.
+
+- **`EG-PLACEMENT-R001.15`:** A valid proposal within declared bounds and headroom returns `allow` bound to proposal, premise, and policy revisions.
+- Refuse stale/cross-tenant premises, invalid digests or negative measurements, inconsistent units/windows, and proposal/current-premise mismatches without mutation.
+- Refuse capacities outside bounds and increases above observed headroom with the exact `CapacityRefusalCode`.
+- GraphOS applies a valid proposal and exposes an independent readback receipt. Bind it to proposal digest, requested/applied capacity, host/resource, policy, and resulting state revision.
+- Hold GraphOS acceptance until its operation and receipt contract are defined.
+<!-- /spec-definition-patch -->

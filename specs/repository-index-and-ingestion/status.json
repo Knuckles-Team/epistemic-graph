@@ -2,7 +2,7 @@
   "schema_version": 2,
   "spec_id": "EG-REPO-INGEST",
   "owner_repo": "epistemic-graph",
-  "delivery_state": "LANDED",
+  "delivery_state": "SPECIFIED",
   "requirement_ids": [
     "EG-REPO-INGEST-R001",
     "EG-REPO-INGEST-R002",
@@ -27,7 +27,14 @@
     "EG-REPO-INGEST-R009.1",
     "EG-REPO-INGEST-R009.2",
     "EG-REPO-INGEST-R010",
-    "EG-REPO-INGEST-R011"
+    "EG-REPO-INGEST-R011",
+    "EG-REPO-INGEST-R002.1",
+    "EG-REPO-INGEST-R006.1",
+    "EG-REPO-INGEST-R006.2",
+    "EG-REPO-INGEST-R006.3",
+    "EG-REPO-INGEST-R006.4",
+    "EG-REPO-INGEST-R002.100",
+    "EG-REPO-INGEST-R002.101"
   ],
   "requirements": [
     {
@@ -43,12 +50,17 @@
     {
       "id": "EG-REPO-INGEST-R002",
       "title": "SourceIngest is sole owner of migrated ingestion capabilities",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "06a13bef2738",
         "f17f47ab300f"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "rollup_of": [
+        "EG-REPO-INGEST-R002.1",
+        "EG-REPO-INGEST-R002.100",
+        "EG-REPO-INGEST-R002.101"
+      ]
     },
     {
       "id": "EG-REPO-INGEST-R003",
@@ -86,7 +98,7 @@
     },
     {
       "id": "EG-REPO-INGEST-R003.2",
-      "title": "EG is sole home for migrated infrastructure processing",
+      "title": "EG owns the migrated infrastructure processing implementation",
       "delivery_state": "LANDED",
       "landed_in": [
         "06a13bef2738",
@@ -215,12 +227,18 @@
     {
       "id": "EG-REPO-INGEST-R006",
       "title": "Native ingestion commits fast; heavy enrichment deferred",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "0554e82ae743",
         "6bb88b0a90cc"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "rollup_of": [
+        "EG-REPO-INGEST-R006.1",
+        "EG-REPO-INGEST-R006.2",
+        "EG-REPO-INGEST-R006.3",
+        "EG-REPO-INGEST-R006.4"
+      ]
     },
     {
       "id": "EG-REPO-INGEST-R007",
@@ -236,7 +254,7 @@
     },
     {
       "id": "EG-REPO-INGEST-R008",
-      "title": "Oversized batches return a stable code for retry",
+      "title": "Oversized batches return a stable retry code",
       "delivery_state": "LANDED",
       "landed_in": [
         "504e3109b2b0",
@@ -299,6 +317,55 @@
       "verified_by": [
         "crates/eg-compute/src/algorithms/tests.rs:133"
       ]
+    },
+    {
+      "id": "EG-REPO-INGEST-R002.1",
+      "title": "Compile a skill document into a typed plan",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R006.1",
+      "title": "Measure the daily paper target and admit bounded maintenance",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R006.2",
+      "title": "Apply importance resistance in the deferred re-embed worker",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R006.3",
+      "title": "Serve revision-bound structured code maps",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R006.4",
+      "title": "Bound incremental indexing and declare semantic-type support",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R002.100",
+      "title": "Require independent readback before ingestion success",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R002.101",
+      "title": "Bind graph-loaded workflow execution to durable hydration readback",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     }
   ]
 }
