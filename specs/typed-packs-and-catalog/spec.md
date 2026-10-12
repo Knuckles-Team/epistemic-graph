@@ -4,12 +4,13 @@
 |---|---|
 | Stable spec ID | `typed-packs-and-catalog` |
 | Owner | `epistemic-graph` |
-| State | `PROPOSED` (specification only; implementation and acceptance require evidence) |
 | Scope | Typed connector and agent components, content packs, schema composition, fleet/catalog authority, generated contract receipts |
 
-## State legend
+## Evidence
 
-`PROPOSED` means this complete design is open for review. `READY` means contracts and tests have been reviewed. `IMPLEMENTED` means code exists on a branch. `LANDED` means an exact commit is merged into the owning repository's default branch. `ACCEPTED` means the exact landed commit passes the tests and release gates in [test-spec.md](test-spec.md), including served behavior where required. `DEFERRED` means a requirement is intentionally queued; `REJECTED` means a ruled alternative must not be built. A prior status label such as `BUILT`, `LANDED`, or `CLOSED` is historical classification, not proof of this spec's acceptance. Each requirement can have its own state and evidence. No requirement is marked `ACCEPTED` in this revision.
+The generator owns delivery state in `status.json`.
+Record exact source, commands, test results and served evidence for each obligation.
+Existing records do not establish execution of newly defined scenarios.
 
 ## Outcome and user stories
 
@@ -55,6 +56,17 @@ The IDs in the requirement table are stable work identifiers; the full behavior 
 
 ## Success criteria
 
-Every PACK requirement has an exact merged commit, passing mapped tests, matching generated contract artifacts, zero new unjustified duplication/complexity, and a served-path result for Import, Status, Content and projection. The visibility gate survives crash and retry; unauthorized and malformed input never changes durable state; no public client must infer a wire result. Acceptance evidence records revision, command, test count, environment and result in a future `evidence.md` before this state can change to `ACCEPTED`.
+Every PACK requirement has an exact merged commit, passing mapped tests, matching generated contract artifacts, zero new unjustified duplication/complexity, and a served-path result for Import, Status, Content and projection. The visibility gate survives crash and retry; unauthorized and malformed input never changes durable state; no public client must infer a wire result. Record source revision, command, test count, environment and scenario results in this spec bundle.
+These records must establish every required served and durable outcome.
 
 Requirement IDs are defined in [requirements.md](requirements.md); delivery state per ID is in `status.json`.
+
+
+## Native prompt blueprints
+
+R001, R002 and R094 also own typed versioned prompt objects, runtime rendering and native blueprint round trips.
+Reuse component identity, graph projections, engine bodies and generated operations.
+A prompt must pass its pinned schema before rendering or model dispatch.
+Optimization emits proposals; existing policy controls adoption.
+Repository-source writes require separate approved SDK execution under GraphOS authority.
+Original pack types, digest vectors, clients, body holders, grace reconciliation and Stable content serving remain mandatory.
