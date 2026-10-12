@@ -315,3 +315,24 @@ For runtime rows, name the actual production call site and its served integratio
 | Durable graph kernel | [engine.md](../../docs/architecture/engine.md), `crates/eg-core/src/read_through.rs`, `src/redb_store/` | Add safe-eviction/read-through acceptance under the existing durability owner, with cache-miss and restart observations. |
 
 No follow-on above asserts a passed test or changes a subsystem's acceptance in this batch.
+
+### 2026-10-12: source-build composition after engine parity
+
+EG-CONTRACT-R052.2 records this source update at
+`3756ef27dd49e18aa54b962c7a1c743504b34dd6`.
+The architecture review above remains pinned to
+`54aab65786bf72fac94f565796eb21f5d1ec72c4`; its numeric-only backend
+observation describes that earlier revision.
+
+[build_backend.py](../../build_backend.py), `_compose`, now builds and folds
+`eg-numeric/python` and `eg-pyengine/python,security` with the existing
+`inject_numeric_kernel.py` and `inject_pyengine.py` helpers.
+Both `build_wheel` and `build_editable` use this composition path.
+The staging lock covers the server build, both component builds, and both folds.
+The server binary retains its separate no-PyO3 boundary.
+
+This closes the source-composition difference recorded above.
+EG-C-07/08, EG-T-10, EG-CONTRACT-R033, and EG-CONTRACT-R037 retain their
+exact-artifact and feature-profile acceptance.
+Source wiring alone does not qualify native release artifacts or promote
+the architecture requirement's generated status.
