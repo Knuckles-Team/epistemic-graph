@@ -1,15 +1,15 @@
 # EG-IDENTITY — Work and evidence
 
-| Task | IDs | Exit condition | State | Public evidence |
-|---|---|---|---|---|
-| I-1 | EG-IDENTITY-R001 | Multi-issuer verifier and envelope binding pass I-01/I-02, including rotation and cross-tenant denials. | SPECIFIED | PENDING |
-| I-2 | EG-IDENTITY-R002 | Full role replacement and identity audit share one durable transaction; I-03/I-04 pass after restart. | SPECIFIED | PENDING |
-| I-3 | EG-IDENTITY-R003 | Mode singleton, epoch CAS, attested preconditions and revocation recovery pass I-05/I-06. | SPECIFIED | PENDING |
-| I-4 | EG-IDENTITY-R004 | Generated scope registry and installed-wheel consumer parity pass I-07/I-08. | SPECIFIED | PENDING |
-| I-5 | EG-IDENTITY-R005 | A production semantic worker presents one verified identity across every queue class it processes. | SPECIFIED | PENDING |
-| I-6 | all | Exact-head hosted, CCCC, KISS, jscpd, Dupehound, contract, consumer and release proof passes I-09. | SPECIFIED | PENDING |
+| Task | IDs | Exit condition | Public evidence |
+|---|---|---|---|
+| I-1 | EG-IDENTITY-R001 | Multi-issuer verifier and envelope binding pass I-01/I-02, including rotation and cross-tenant denials. | No public evidence recorded |
+| I-2 | EG-IDENTITY-R002 | Full role replacement and identity audit share one durable transaction; I-03/I-04 pass after restart. | No public evidence recorded |
+| I-3 | EG-IDENTITY-R003 | Mode singleton, epoch CAS, attested preconditions and revocation recovery pass I-05/I-06. | No public evidence recorded |
+| I-4 | EG-IDENTITY-R004 | Generated scope registry and installed-wheel consumer parity pass I-07/I-08. | No public evidence recorded |
+| I-5 | EG-IDENTITY-R005 | A production semantic worker presents one verified identity across every queue class it processes. | No public evidence recorded |
+| I-6 | all | Exact-head hosted, CCCC, KISS, jscpd, Dupehound, contract, consumer and release proof passes I-09. | No public evidence recorded |
 
-For each task record public PR URL, exact merged SHA, test command and hosted run, tool versions, pass/fail, package digest and remaining unrun proof. Mark `LANDED` only at a verified public main ancestor and `ACCEPTED` only after tests, consumer and release receipts on that same commit. A historical branch-level `BUILT` description is an input to review, not completion evidence.
+For each task record public PR URL, exact merged SHA, test command and hosted run, tool versions, pass/fail, package digest and remaining unrun proof. Delivery evidence requires a verified public main ancestor. Acceptance requires tests, consumer and release receipts on that same commit. A historical branch artifact is an input to review, not completion evidence.
 
 ## Task list
 
@@ -21,8 +21,8 @@ For each task record public PR URL, exact merged SHA, test command and hosted ru
 - [x] **I-6:** Run the full checks in [test-spec.md](test-spec.md) — `cargo run -q --locked -p eg-capabilities --features contract --bin gen_contract -- --check`, focused Rust tests for OIDC, isolation identity admin, RBAC persistence and audit, `pre-commit run --config .config/pre-commit.yaml --all-files` and `bash scripts/ci_parity.sh` — at the exact PR head; review generated-artifact diffs; record a merged-head SHA plus hosted results. Closes `EG-IDENTITY-R001`–`EG-IDENTITY-R005` (all). Test I-09.
 - [x] **I-7:** Add the commons Read grant to tenant role provisioning and add the isolation unit test `a_tenant_role_reads_but_never_writes_the_shared_commons`. Closes `EG-IDENTITY-R006`. Test I-10.
 - [x] **I-8:** Backfill the commons Read grant for tenant roles that exist before this change. Provisioning runs only on `CreateGraph`, so an existing deployment needs one `RbacAdmin` `AddGrant` per tenant role, or a startup reconcile. Closes the live rollout of `EG-IDENTITY-R006`.
-| I-9 | EG-IDENTITY-R007 | Scopes `identity:admin`, `loops:read` and `loops:control` are registered in the engine contract. | SPECIFIED | PENDING |
-| I-11 | EG-IDENTITY-R008 | Plan scope is bounded by a stored policy node; I-11 passes including the refusal. | SPECIFIED | PENDING |
+| I-9 | EG-IDENTITY-R007 | Scopes `identity:admin`, `loops:read` and `loops:control` are registered in the engine contract. | No public evidence recorded |
+| I-11 | EG-IDENTITY-R008 | Plan scope is bounded by a stored policy node; I-11 passes including the refusal. | No public evidence recorded |
 - [ ] **EG-IDENTITY-R023:** Principal-scoped knowledge segments with explicit sharing.
 - [ ] **EG-IDENTITY-R023.1:** Model. Add `KnowledgeUnit{id, owner, version, supersedes, access_labels, share_scope}` in `crates/eg-types/src/identity/segment.rs`. Closed `share_scope` values are `private`, `placement` and `tenant`.
 - [ ] **EG-IDENTITY-R023.2:** Behavior. Add `visible_units(principal, units)` returning owned units and units a matching scope shares. It keeps only the highest version of each lineage. Each rule is a named replaceable default.
