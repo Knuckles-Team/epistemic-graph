@@ -24,7 +24,13 @@
     "EG-IDENTITY-R023.3",
     "EG-IDENTITY-R023.4",
     "EG-IDENTITY-R023.5",
-    "EG-IDENTITY-R023.6"
+    "EG-IDENTITY-R023.6",
+    "EG-IDENTITY-R023.7",
+    "EG-IDENTITY-R023.8",
+    "EG-IDENTITY-R023.9",
+    "EG-IDENTITY-R023.10",
+    "EG-IDENTITY-R023.11",
+    "EG-IDENTITY-R023.12"
   ],
   "requirements": [
     {
@@ -174,7 +180,13 @@
         "EG-IDENTITY-R023.3",
         "EG-IDENTITY-R023.4",
         "EG-IDENTITY-R023.5",
-        "EG-IDENTITY-R023.6"
+        "EG-IDENTITY-R023.6",
+        "EG-IDENTITY-R023.7",
+        "EG-IDENTITY-R023.8",
+        "EG-IDENTITY-R023.9",
+        "EG-IDENTITY-R023.10",
+        "EG-IDENTITY-R023.11",
+        "EG-IDENTITY-R023.12"
       ]
     },
     {
@@ -214,6 +226,48 @@
     },
     {
       "id": "EG-IDENTITY-R023.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-IDENTITY-R023.7",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-IDENTITY-R023.8",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-IDENTITY-R023.9",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-IDENTITY-R023.10",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-IDENTITY-R023.11",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-IDENTITY-R023.12",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],

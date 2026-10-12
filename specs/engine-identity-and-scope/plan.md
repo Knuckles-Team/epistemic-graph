@@ -77,3 +77,94 @@ Types: `KnowledgeUnit`, `share_scope`. Attach point: the retrieval function in t
 Reused: the visibility pattern at `crates/eg-types/src/rbac_elevation/ledger.rs:268` and the audit append from R002. New: version lineage and share scope on stored units.
 
 Decision: access labels live in the unit itself, so every reader enforces them. Rejected alternative: a separate access table, because it can diverge from the unit it guards.
+
+
+## Typed principal metadata within R023
+
+### Model and authority
+
+EG owns typed preferences, client descriptions and interaction networks as graph records.
+The canonical identity store remains the sole principal, credential and grant authority.
+`crates/eg-types/src/identity/model.rs:41` defines UserRecord and its stable principal_id.
+`crates/eg-types/src/identity.rs:1` documents that authority and its RBAC projection.
+Metadata references exact canonical principal IDs. It never infers identity from an alias, hash or display name.
+A client description references its controlling principal. It does not register a principal or confer a credential.
+Interaction links describe observed relationships. They never create membership, sharing grants or trust.
+R023 sharing still requires an explicit authorized scope. Private scope is the default.
+
+Extend the proposed `crates/eg-types/src/identity/segment.rs` model from R023.1.
+Its metadata payload is a closed union: Preference, ClientMetadata or InteractionNetwork.
+Common fields are node ID, owner principal, tenant, graph incarnation, revision, schema digest and provenance.
+Preference contains a registered preference key and a value matching that key's declared type.
+Value types are boolean, signed integer, bounded text and a registered enum choice.
+ClientMetadata contains an opaque client ID, canonical controlling principal reference and a bounded display label.
+InteractionNetwork contains typed member references and directed links with a registered relation kind and observed timestamp.
+Each member reference distinguishes a canonical principal from a client metadata node.
+Refuse dangling, wrong-kind and foreign-scope references before storing any node or link.
+Bounds are 128 UTF-8 bytes per key, 1024 per label and 4096 per text value.
+One payload has at most 64 members, 256 links and 64 KiB of encoded content.
+Use checked revision counters, existing bounded containers and Digest256. Reject unknown fields and variants.
+No payload field carries passwords, tokens, credential hashes, role grants or arbitrary authorization claims.
+
+### Behavior and schema admission
+
+Use an engine-managed graph schema source named identity_metadata through the existing R051 schema composition authority.
+The source declares the three variants, reference kinds, required fields and bounds.
+Declare a principal-metadata graph domain at graph provisioning; the declaration requires current administrative authority.
+Every node and edge in that domain must satisfy the metadata contract, even without a caller-supplied type label.
+Removing a label, using raw properties or changing the schema source cannot bypass admission.
+Refuse source detachment or weakening while retained metadata depends on it.
+Generic graphs retain their existing contracts; they cannot masquerade as the authoritative principal-metadata domain.
+Resolve references and validate the complete candidate state before committing an atomic MutationBatch.
+Updates require the expected revision and schema digest. Concurrent mismatches refuse without partial changes.
+Current authorization and schema changes invalidate stale admission evidence before commit.
+Metadata reads use the graph authority and R023 principal scope; metadata cannot widen either.
+
+### Existing code and production wiring
+
+The reviewed source is c0b952776129fd509b9f87b411a298593c2591ec.
+Existing code: `src/server/auth.rs:901` binds the verified caller; `src/server/access.rs:702` checks graph access.
+`src/server/handlers/graph_ops/gateway.rs:72` routes structural graph mutations through the existing commit gateway.
+`src/server/handlers/graph_ops/gateway_graph.rs:151` handles ApplyMutation application.
+`src/server/mutation_batch/compile.rs:126` defines compile_methods_with_outbox for the canonical write set.
+`src/server/mutation_batch/commit/` owns durable commit and projection publication.
+`src/server/handlers/graph_ops/nodes.rs:85` serves GetNodeProperties through the authorized read path.
+`src/server/graph_schema/compose.rs` uses validate_and_compose for existing named schema sources.
+`src/server/handlers/rdf/validation.rs:21` calls eg_shacl::validate through the served ShaclValidate boundary.
+ShaclValidate is read-only inspection. It is not a mandatory metadata admission gate today.
+Reachable today: no. The mandatory metadata domain, typed variants and common admission predicate remain proposed.
+
+The new predicate must run before compilation and again against the admitted schema and authority at commit.
+Structural writes enter through AddNode, AddEdge and ApplyMutation at the existing gateway.
+Query and RDF writes use their existing gateway routes and must reach the same predicate.
+Audit direct and opaque batch paths; a path lacking validated metadata evidence must refuse for this domain.
+No alternate GraphCore mutation, direct store write or caller-selected schema may bypass that check.
+Use existing generated method contracts. Register new fields and typed refusal codes before exposing them.
+No new client metadata store, identity registry, schema composer or public write method is required.
+
+### Refusal, migration and evidence
+
+Check caller authority before resolving protected principal references or exposing their existence.
+Denied existing and absent references return the same redacted error shape and no stored metadata.
+Validate type, bounds, schema digest, ownership, reference scope and expected revision before any durable mutation.
+A disabled or revoked actor cannot regain access through previously admitted metadata or an import receipt.
+Refusal leaves graph records, edges, revisions, import receipts and mutation outbox rows unchanged.
+Existing security denial auditing remains separate and must contain no metadata payload or protected reference details.
+
+Imports from legacy files require an explicit versioned mapping into these same variants and admission rules.
+Record source kind, logical source reference, source Digest256, mapping version and verified importing actor.
+Record the schema digest, previous revision and commit receipt in the same admitted transaction.
+The caller supplies candidate source evidence; EG checks the bytes and derives the stored digest.
+The same import identity and content replay once. Reusing it with changed content refuses.
+Invalid legacy records remain unimported; an import cannot retain an untyped fallback in the authoritative graph.
+A bounded import batch commits all validated records or none. Large imports use explicit independent batches.
+Readback after restart uses EG records, even when the source file disappears or changes.
+An exported file is a snapshot, never write authority. Reimport requires fresh admission and an expected revision.
+Migration never changes canonical identity records, grants, credentials or principal IDs.
+
+### Acceptance and ownership
+
+The six new children require the planned positive and negative cases in test-spec.md.
+No helper-only test, schema declaration or generated client establishes served acceptance.
+R051 and R098 remain schema prerequisites; their typed-packs files and crosswalk work are unchanged.
+GraphOS may compose these engine results. AU applies them; clients cannot become metadata or identity authorities.

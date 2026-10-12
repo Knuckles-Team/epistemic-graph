@@ -20,6 +20,12 @@ An operator can configure several trusted identity issuers, modify engine roles,
 | ID-04 / EG-IDENTITY-R004 | EG publishes one generated, versioned scope registry from capability declarations. Each scope has exact name and class `user`, `domain`, `service-only`, `approver` or `admin`; generated package catalog and server checks share the same digest. | Human roles cannot inherit service-only scopes. Approver requires direct designated human group membership; admin requires human kind. Wildcards and `kg:admin` do not imply `approver` or `identity:admin`. Unknown or unclassified scope fails generation. |
 | ID-06 / EG-IDENTITY-R006 | Each auto-provisioned `tenant:<slug>` role holds Read on the shared `__commons__` graph. The role keeps Read and Write on `tenant__<slug>__*`. Commons is the union-read layer for every tenant member. The tenant graph stays the write target. | A tenant role never holds Write on `__commons__`. The commons grant never widens access to another tenant's graphs. Repeated provisioning adds no duplicate grant. |
 
+## Typed principal metadata
+
+Principal preferences, client descriptions and interaction networks use typed graph records under R023.
+Canonical identity records still own authentication and grants. Metadata references those records without replacing their authority.
+Untyped writes must refuse before mutation. Legacy file imports require explicit mapping, provenance and the same graph admission.
+
 ## Public interfaces and ownership
 
 EG owns token verification, durable engine RBAC/mode state, capability scope declarations, method-level authorization and generated scope catalog. A serving gateway supplies a **signed, nonce-bound attestation** of loopback binding and fresh MFA when a mode transition requires facts EG cannot observe directly. EG verifies the attestation signature, audience, expiry, tenant, principal, nonce and one-time use before the transition; caller-supplied booleans are never trusted. The gateway may narrow access but cannot replace EG's durable role or scope authority. Client applications use the generated registry; they cannot manually extend the engine registry.

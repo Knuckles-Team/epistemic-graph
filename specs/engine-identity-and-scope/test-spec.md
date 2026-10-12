@@ -73,3 +73,39 @@ Hosted facade execution must establish R005 acceptance; source inspection alone 
 - `EG-IDENTITY-R023.4`: `crates/eg-types/src/identity/segment.rs::tests::out_of_scope_names_id_only`.
 - `EG-IDENTITY-R023.5`: `crates/eg-types/src/identity/tests/segment_audit.rs::read_audit_counts_hidden`.
 - `EG-IDENTITY-R023.6`: `tests/identity/test_segment_retrieval_served.py::test_shared_unit_visible_only_in_scope`.
+
+
+## R023 typed metadata acceptance
+
+All names below are planned tests; this definition batch does not run runtime acceptance.
+Use a real authenticated server, generated client and disposable durable storage.
+Do not mock transport, authorization, schema composition, mutation admission or persistence.
+
+- `EG-IDENTITY-R023.7`: Planned: tests/identity/test_typed_metadata_served.py::typed_metadata_variants_round_trip.
+
+- `EG-IDENTITY-R023.8`: Planned: tests/identity/test_typed_metadata_served.py::typed_metadata_persists_without_file_authority.
+
+- `EG-IDENTITY-R023.9`: Planned: tests/identity/test_typed_metadata_served.py::all_metadata_write_routes_reach_admission.
+
+- `EG-IDENTITY-R023.10`: Planned: tests/identity/test_typed_metadata_served.py::invalid_metadata_has_no_durable_effect.
+
+- `EG-IDENTITY-R023.11`: Planned: tests/identity/test_typed_metadata_served.py::metadata_import_provenance_survives_restart.
+
+- `EG-IDENTITY-R023.12`: Planned: tests/identity/test_typed_metadata_served.py::typed_metadata_served_journey.
+
+Create each variant through served AddNode and ApplyMutation, including typed interaction links through AddEdge.
+Read through GetNodeProperties and an independent authorized client; restart and repeat the reads.
+Check the exact payload, owner, scope, schema digest, revision and source provenance.
+Remove or change the import file and prove the committed graph remains authoritative.
+Replay the same import and prove one mutation and one receipt; altered replay must refuse.
+Exercise structural, batch, query and RDF writes into the managed metadata domain.
+Every route must reject missing types, removed labels, malformed fields, unknown variants and stale schema digests.
+Include dangling principals, client/principal kind confusion, disabled actors and foreign-tenant interaction endpoints.
+Test schema detachment, caller-forged ownership, stale revisions and authorization revocation between admission and commit.
+Compare denied existing and absent identities after removing request-local correlation IDs; neither response reveals stored metadata.
+Check unchanged graph nodes, edges, revisions, import receipts and mutation outbox through independent authorized readback.
+Security denial audit records may follow the existing policy; they must contain no metadata payload.
+Inject persistence failure and restart. A batch must expose every accepted record and receipt, or none.
+Confirm metadata cannot register an identity, grant a role, change a credential or widen sharing.
+Record the source SHA, generated contract digest, binary digest and authenticated receipts for eventual served proof.
+Run contract generation and the affected language, CCCC, KISS, jscpd and Dupehound checks when runtime code changes.
