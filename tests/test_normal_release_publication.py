@@ -61,11 +61,59 @@ class ReleasePublication(unittest.TestCase):
             jobs["build-x86"]["uses"],
             "Knuckles-Team/epistemic-graph/.github/workflows/eg-release-x86.yml@bc4448160e8d16deb8210ce8aeb058b2da293d93",
         )
-        for name in ("docker-image", "publish-pypi"):
-            self.assertEqual(jobs[name]["needs"], ["build", "build-x86"])
+        self.assertEqual(jobs["docker-image"]["needs"], ["build", "build-x86"])
+        self.assertEqual(
+            jobs["publish-pypi"]["needs"], ["build", "build-x86", "build-sdist"]
+        )
         self.assertEqual(
             jobs["publish-image"]["needs"], ["docker-image", "publish-pypi"]
         )
+
+    def test_source_archive_is_validated_before_upload(self):
+        jobs = self.workflow["jobs"]
+        source = jobs["build-sdist"]
+        self.assertEqual(source["permissions"], {"contents": "read"})
+        self.assertNotIn("continue-on-error", source)
+        source_steps = source["steps"]
+        build = next(
+            index
+            for index, step in enumerate(source_steps)
+            if "maturin sdist" in step.get("run", "")
+        )
+        command = source_steps[build]["run"]
+        self.assertIn("scripts/check_sdist_completeness.py", command)
+        self.assertLess(
+            command.index("maturin sdist"),
+            command.index("scripts/check_sdist_completeness.py"),
+        )
+        upload = next(
+            index
+            for index, step in enumerate(source_steps)
+            if step.get("uses", "").startswith("actions/upload-artifact@")
+        )
+        self.assertLess(build, upload)
+        self.assertEqual(source_steps[upload]["with"]["if-no-files-found"], "error")
+        self.assertFalse(any(step.get("continue-on-error") for step in source_steps))
+
+    def test_source_archive_is_validated_before_publication(self):
+        publish = self.workflow["jobs"]["publish-pypi"]["steps"]
+        download = next(
+            index
+            for index, step in enumerate(publish)
+            if step.get("with", {}).get("name") == "source-distribution"
+        )
+        validate = next(
+            index
+            for index, step in enumerate(publish)
+            if "scripts/check_sdist_completeness.py" in step.get("run", "")
+        )
+        freeze = next(
+            index
+            for index, step in enumerate(publish)
+            if "publication.py preflight" in step.get("run", "")
+        )
+        self.assertLess(download, validate)
+        self.assertLess(validate, freeze)
 
     def test_storage_crash_processes_do_not_overlap_sibling_file_tests(self):
         steps = self.workflow["jobs"]["gates-crates"]["steps"]
