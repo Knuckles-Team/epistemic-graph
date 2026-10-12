@@ -294,3 +294,25 @@ then submits the original signature with all three camelCase aliases and require
 successful import and canonical readback. Alias decoding must preserve the signed
 canonical body. These aliases do not establish R048.1 ontology or Python naming.
 Test bindings alone do not establish served acceptance.
+
+## R071.1 and R097.2: governed vocabulary crosswalks
+
+Candidates EG:34 and EG:58 extend the existing core ontology and domain-pack owners. Schema.org and SKOS provide interoperability terms. They do not become ontology authorities. EG retains RDF/OWL semantics, upper-ontology disjointness, schema validation and activation decisions.
+
+Existing code: `VocabularyModule::to_turtle` in `crates/eg-core/src/ontology_codegen.rs:45` emits deterministic Turtle from typed declarations. Its current vocabulary model has no versioned crosswalk records. `crates/eg-types/src/domain_pack.rs` defines HR, legal, medical and government kinds with local consistency validation. Its own module documentation leaves import wiring to later requirements. Neither mechanism proves the new crosswalk contract.
+
+Reuse `core-foundation-v1.ttl` person, event and document terms without changing their IRIs. Reuse `medical-v1.ttl`, `software-v1.ttl` and `hr-v1.ttl` as current domain vocabulary inputs. Extend the typed authority and generator under R090; never hand-edit generated artifacts as the authority. Existing `rdfs:seeAlso` statements provide candidate alignments, not automatic exact matches. Add the missing Technology domain kind. Labor coverage belongs to Hr.
+
+Data flow: typed crosswalk declarations -> generated RDF artifacts -> signed pack import -> schema attachment -> committed schema. Read flow: authenticated OntologyInspect -> revision-bound mappings and coverage. GraphSchemaClasses provides independent class and digest readback.
+
+The production pack route is `handle_connector_pack` -> `serve_import` -> `import::validate_and_commit`. Add validation before any new pack head becomes visible. `src/server/graph_schema.rs::apply_pack_source` checks composition before schema activation. `src/server/handlers/rdf/dispatch.rs` routes OntologyInspect to its current inspection handler. Extend that handler and its generated DTO contract. The new domain crosswalk path has no production caller today; these requirements create the missing calls.
+
+Use bounded pinned target declarations, not runtime vocabulary downloads. Preserve explicit relation direction and vocabulary revisions. For broadMatch the target is broader; for narrowMatch the target is narrower. The test specification fixes exact tuples, including conservative SeeAlso references for all three core metadata classes. Document includes physical documents, so its DigitalDocument reference cannot justify an exact match. These fixtures preserve existing core OWL axioms; they do not derive new axioms from crosswalks. Crosswalk relations do not generate identity or class-equivalence entailments. Reject conflicting or category-incompatible declarations before activation. Apply the existing bounded EL+/RL and tableau consistency checks to the resulting schema.
+
+Unmapped reporting covers the exact declared class set of the selected pack revision. A valid pack can contain unmapped classes; coverage must name each one. Resolve each source class against the pinned revision and selected authorized source set. Unknown sources return `CROSSWALK_SOURCE_UNKNOWN`; known sources outside that set return `CROSSWALK_SOURCE_OUT_OF_SCOPE`. A valid target cannot rescue an invalid source. Invalid mappings cannot masquerade as unmapped classes. Rejected publication preserves the old pack head and active schema. Repeated import and restart readback must retain the same digest-bound report.
+
+The acceptance suite uses real signed import, schema attachment and generated client calls against the server. Separate reads inspect committed mappings and list classes. Cover every named domain, all three core metadata classes, unmapped classes, conflicts, bounds, stale revisions and disjointness violations. The plan defines required evidence and claims no runtime completion.
+
+Cross-repository boundary: connectors and applications supply candidates and consume governed pack views. They own no RDF/OWL authority, target-vocabulary activation or duplicate crosswalk registry. This change adds no external source mutation.
+
+The direction contract follows the [SKOS mapping reference](https://www.w3.org/TR/skos-reference/#mapping). Its broadMatch relation points to the broader concept; narrowMatch is its inverse.

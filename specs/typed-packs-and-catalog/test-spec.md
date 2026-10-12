@@ -159,3 +159,50 @@ results. Native types/RDF test execution and contract generation are required
 before integration of the producer fields.
 
 Skill package rendering: a changed referenced node changes the digest on the next listing. A dangling term is refused and the row stays listed.
+
+## R071.1 and R097.2 crosswalk acceptance
+
+All cases below are required future evidence. Definition publication leaves every new row SPECIFIED.
+
+| Scenario | Requirements | Required evidence |
+|---|---|---|
+| Typed records and domain kinds | R071.1.1, R097.2.1 | Round-trip revisions, origins, relations and coverage. Reject malformed IRIs, unknown kinds and foreign coverage entries. |
+| Deterministic generation | R071.1.2, R097.2.2 | Regenerate RDF twice. Compare declared mappings and exact unmapped sets against independently enumerated source classes. |
+| Real production path | R071.1.3, R097.2.3 | Signed import reaches production validation and schema attachment. Generated client inspection reads the committed revision and digest. |
+| Refusal before activation | R071.1.4, R097.2.4 | Reject unknown and out-of-scope sources, conflicts, category mismatch, stale revision, forged evidence and every bound. Read pack status and active schema independently afterward. |
+| Evidence ownership | R071.1.5, R097.2.5 | Correlate tenant, graph, pack, vocabulary and schema digests. Inline reports cannot claim committed activation. |
+| Core metadata served proof | R071.1.6 | Real server returns the exact golden source/target/relation tuples below, not merely three results. A rejected Person-to-Event mapping preserves the prior schema. |
+| Domain served proof | R097.2.6 | Import medical, technology and labor fixtures with mapped and unmapped classes. Query exact coverage, restart, and read it again. |
+
+Proving integration owner: `tests/test_ontology_crosswalk_served.py`. Use generated client operations and independent schema/pack readback. Mocked routes, inline-only inspection and direct helper calls cannot close these rows.
+
+### Golden tuples and source-resolution refusals
+
+For R071.1.2 and R071.1.6, compare these literal tuples after served import and inspection. Preserve each IRI's scheme. A count-only assertion is insufficient.
+
+| Source class IRI | Target class IRI | Declared relation |
+|---|---|---|
+| `http://knuckles.team/kg#Person` | `http://schema.org/Person` | `SeeAlso` |
+| `http://knuckles.team/kg#Event` | `http://schema.org/Event` | `SeeAlso` |
+| `http://knuckles.team/kg#Document` | `http://schema.org/DigitalDocument` | `SeeAlso` |
+
+The fixture pins source revision `core-crosswalk-fixture-v1` and target revision `schemaorg-crosswalk-fixture-v1`, with their document digests. These are fixture labels, not claimed upstream releases. The report must return both labels and digests unchanged. EG Document includes digital and physical documents. Its reference does not license `SkosExactMatch`, `owl:sameAs` or a new equivalence axiom. Existing core axioms remain unchanged.
+
+For directional acceptance, the fixture declares Document and DigitalDocument in both source and target vocabularies. DigitalDocument is narrower than Document in each approved fixture. Pin both revisions and assert these exact tuples:
+
+| Source class IRI | Target class IRI | Declared relation |
+|---|---|---|
+| `urn:eg:crosswalk-fixture:source:DigitalDocument` | `urn:eg:crosswalk-fixture:target:Document` | `SkosBroadMatch` |
+| `urn:eg:crosswalk-fixture:source:Document` | `urn:eg:crosswalk-fixture:target:DigitalDocument` | `SkosNarrowMatch` |
+
+These asymmetric fixtures must detect swapped endpoints or relations. The broadMatch target is broader than its source; the narrowMatch target is narrower. Compare emitted predicates and served records separately. A submitted reversed relation must return `CROSSWALK_CONFLICT` against the pinned fixture declaration.
+
+For R071.1.4 and R097.2.4, use valid targets in every source-refusal case:
+
+| Source fixture | Exact refusal | Independent readback |
+|---|---|---|
+| Undeclared class, or a property IRI used as a class | `CROSSWALK_SOURCE_UNKNOWN` | Pack head, receipts and schema digest remain unchanged. |
+| Class declared only by a later source revision | `CROSSWALK_SOURCE_UNKNOWN` | The pinned earlier revision cannot resolve it. |
+| Known class in an unselected pack or unauthorized source scope | `CROSSWALK_SOURCE_OUT_OF_SCOPE` | No crosswalk or unmapped entry is published for that class. |
+
+Each refusal identifies the source IRI, requested source revision and selected scope. Exercise these through real import and schema attachment. Query pack status, GraphSchemaClasses and OntologyInspect afterward to prove unchanged committed state. Scope refusal must not disclose foreign class metadata.

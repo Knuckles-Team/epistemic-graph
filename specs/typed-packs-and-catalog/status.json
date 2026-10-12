@@ -94,6 +94,13 @@
     "EG-TYPED-PACKS-R069",
     "EG-TYPED-PACKS-R070",
     "EG-TYPED-PACKS-R071",
+    "EG-TYPED-PACKS-R071.1",
+    "EG-TYPED-PACKS-R071.1.1",
+    "EG-TYPED-PACKS-R071.1.2",
+    "EG-TYPED-PACKS-R071.1.3",
+    "EG-TYPED-PACKS-R071.1.4",
+    "EG-TYPED-PACKS-R071.1.5",
+    "EG-TYPED-PACKS-R071.1.6",
     "EG-TYPED-PACKS-R072",
     "EG-TYPED-PACKS-R073",
     "EG-TYPED-PACKS-R074",
@@ -124,6 +131,13 @@
     "EG-TYPED-PACKS-R096",
     "EG-TYPED-PACKS-R097",
     "EG-TYPED-PACKS-R097.1",
+    "EG-TYPED-PACKS-R097.2",
+    "EG-TYPED-PACKS-R097.2.1",
+    "EG-TYPED-PACKS-R097.2.2",
+    "EG-TYPED-PACKS-R097.2.3",
+    "EG-TYPED-PACKS-R097.2.4",
+    "EG-TYPED-PACKS-R097.2.5",
+    "EG-TYPED-PACKS-R097.2.6",
     "EG-TYPED-PACKS-R098",
     "EG-TYPED-PACKS-R099",
     "EG-TYPED-PACKS-R100",
@@ -1115,11 +1129,71 @@
     {
       "id": "EG-TYPED-PACKS-R071",
       "title": "Generated core ontology corpus as GraphSchema authority",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "86787edc8a87",
         "90f5578ae2f4"
       ],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-TYPED-PACKS-R071.1"
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R071.1",
+      "title": "Versioned core vocabulary crosswalks (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-TYPED-PACKS-R071.1.1",
+        "EG-TYPED-PACKS-R071.1.2",
+        "EG-TYPED-PACKS-R071.1.3",
+        "EG-TYPED-PACKS-R071.1.4",
+        "EG-TYPED-PACKS-R071.1.5",
+        "EG-TYPED-PACKS-R071.1.6"
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R071.1.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R071.1.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R071.1.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R071.1.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R071.1.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R071.1.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {
@@ -1430,14 +1504,15 @@
     {
       "id": "EG-TYPED-PACKS-R097",
       "title": "Domain vocabularies ship as typed domain packs",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "6a1a0e46d99f",
         "90f5578ae2f4"
       ],
       "verified_by": [],
       "rollup_of": [
-        "EG-TYPED-PACKS-R097.1"
+        "EG-TYPED-PACKS-R097.1",
+        "EG-TYPED-PACKS-R097.2"
       ]
     },
     {
@@ -1447,6 +1522,63 @@
       "landed_in": [
         "6a1a0e46d99f"
       ],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R097.2",
+      "title": "Domain crosswalks and exact unmapped-class reports (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-TYPED-PACKS-R097.2.1",
+        "EG-TYPED-PACKS-R097.2.2",
+        "EG-TYPED-PACKS-R097.2.3",
+        "EG-TYPED-PACKS-R097.2.4",
+        "EG-TYPED-PACKS-R097.2.5",
+        "EG-TYPED-PACKS-R097.2.6"
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R097.2.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R097.2.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R097.2.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R097.2.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R097.2.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R097.2.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {
