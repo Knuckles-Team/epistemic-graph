@@ -199,3 +199,11 @@ Unchanged file content retains symbol IDs in a new repository revision. Changed
 blobs may change IDs. Same-content renames retain symbol IDs only with unchanged grammar suffix and parser/identity scheme. File-version and membership still change. A changed grammar suffix or parser/identity scheme requires reparse and may change symbol IDs. Deleted membership is absent from the new map. No promise
 of stable IDs across edits to the same blob is introduced. Preserve typed edge
 identity under R009.1/R009.2 and R069 semantic projection ownership.
+
+
+### 2026-10-13: correct R009.2 acceptance binding
+
+The direct GraphCore typed-edge test proves R009.1 storage behavior only.
+It does not exercise hydration or the semantic bridge required by R009.2.
+Remove the R009.2 marker and leave its verification evidence empty until that integration test exists.
+Keep the R011 connectivity regression and its distinct acceptance binding.

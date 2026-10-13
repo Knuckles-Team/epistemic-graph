@@ -265,7 +265,7 @@
     {
       "id": "EG-REPO-INGEST-R009",
       "title": "Repository hydration links into the specification bridge",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
@@ -288,14 +288,12 @@
     {
       "id": "EG-REPO-INGEST-R009.2",
       "title": "Semantic-bridge projection of the nine relations onto typed triples",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "1f5ba9350abb",
         "2a6ed9ff9a27"
       ],
-      "verified_by": [
-        "crates/eg-core/src/graph/core_edge_queries.rs:272"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-REPO-INGEST-R010",

@@ -269,7 +269,6 @@ mod typed_edge_identity_tests {
     }
 
     // spec: EG-REPO-INGEST-R009.1
-    // spec: EG-REPO-INGEST-R009.2
     #[test]
     fn typed_edges_are_addressable_by_relation_type_triple() {
         let core = GraphCore::new();

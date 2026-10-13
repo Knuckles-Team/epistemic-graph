@@ -56,7 +56,7 @@ jobs:
   # Documentation-only PRs avoid unrelated builds; main, tags and manual
   # runs retain exhaustive validation. Unknown files/history run everything.
   changes:
-    timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
     name: Change scope
     runs-on: ubuntu-latest
     outputs:
@@ -75,7 +75,7 @@ jobs:
 
   # ── Dependency and source-history security checks. ─────────────────────
   security:
-    timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
     name: Security checks
     needs: changes
     if: always()
@@ -128,7 +128,7 @@ jobs:
 
   # ── STAGE 1: release-critical checks only. Nothing else may live here. ──
   gates:
-    timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
     name: gates
     needs: changes
     if: needs.changes.outputs.code == 'true'
@@ -223,8 +223,8 @@ jobs:
       - name: Query-pipeline fuzz + chaos (eg-plan)
         env: *eg-validation-compiler-cache-env
         run: python3 scripts/cargo_test_rescue.py cargo test -p eg-plan --features "query,owl,text,timeseries,federation" --test fuzz_pipelines --no-fail-fast
-      - name: Install pytest
-        run: pip install pytest
+      - name: Install locked pytest for generated-client checks
+        run: uv pip install --python "$(command -v python3)" pytest==9.1.1 iniconfig==2.3.0 packaging==26.2 pluggy==1.6.0 pygments==2.20.0
       - name: Epistemic Operations manifest ⇄ Rust DTO parity
         run: python3 scripts/check_epistemic_operations_protocol.py
       - name: Engine contract parity (registry ⇄ Method enum ⇄ generated client)
@@ -389,7 +389,7 @@ jobs:
   # failure, with nine selections still to go). Every step is carried over
   # verbatim; `build` needs all three.
   gates-facade:
-    timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
     name: gates (facade full)
     needs: changes
     if: needs.changes.outputs.code == 'true'
@@ -493,7 +493,7 @@ jobs:
   # pyo3 crates get every feature except `python` (pyo3 extension-module cannot
   # link a test binary).
   gates-crates:
-    timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
     name: gates (workspace crates)
     needs: changes
     if: needs.changes.outputs.code == 'true'
@@ -655,7 +655,7 @@ jobs:
   # job's "Build gates pyengine kernel wheel" step runs for the WHEEL path.
   # Prepare native inputs independently; the required python-suite job joins both.
   python-kernels:
-    timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
     name: Python native kernels
     needs: changes
     if: needs.changes.outputs.code == 'true'
@@ -693,7 +693,7 @@ jobs:
           compression-level: 0
 
   python-server:
-    timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
     name: Python full server preparation
     needs: changes
     if: needs.changes.outputs.code == 'true'
@@ -724,7 +724,7 @@ jobs:
           compression-level: 0
 
   python-suite:
-    timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
     name: Python suite (tests/)
     needs: [changes, python-kernels, python-server]
     if: always() && needs.changes.outputs.code == 'true'
@@ -819,7 +819,7 @@ jobs:
   #     runner image. Installed so bindgen's libclang lookup does not depend on
   #     which clang packages the image happens to ship.
   tts-piper-inference:
-    timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
     name: eg-tts-piper real-inference tests
     needs: changes
     if: needs.changes.outputs.code == 'true'
@@ -856,7 +856,7 @@ jobs:
   # byte-for-byte, then replays every contract method-body vector (body digest and
   # envelope MAC) through each client's signer, plus the clients' own unit tests.
   language-clients:
-    timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
     name: Go and JavaScript clients
     needs: changes
     if: needs.changes.outputs.code == 'true'
@@ -898,7 +898,7 @@ jobs:
   # modality, reasoning, release-campaign, and persisted-schema behavior.
   # They remain blocking alongside the executable test suites.
   lint-and-architecture:
-    timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
     name: Lint, format and architecture (pre-commit)
     runs-on: ubuntu-latest
     steps:
@@ -985,7 +985,7 @@ jobs:
   # published build (`full,ast-extended` = MATURIN_FEATURES, which has no raft) or
   # the slim `server` build; each profile is its own leg.
   quality-advisory:
-    timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
     name: Clippy ${{ matrix.profile.name }}
     needs: changes
     if: needs.changes.outputs.code == 'true'
@@ -1026,7 +1026,7 @@ jobs:
   # jscpd step left CCCC, KISS, import-linter, depcruise and arch-lint unrun.
   # The job still fails at the end if any step failed.
   scanner-quality:
-    timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
     name: Scanner + architecture quality (advisory)
     needs: changes
     if: needs.changes.outputs.code == 'true'

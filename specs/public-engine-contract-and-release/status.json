@@ -553,7 +553,7 @@
         "e729dc1650b6"
       ],
       "verified_by": [
-        "tests/test_ci_change_scope.py:168"
+        "tests/test_ci_change_scope.py:169"
       ],
       "rollup_of": [
         "EG-CONTRACT-R031.1",
@@ -568,7 +568,7 @@
         "733e1766936b"
       ],
       "verified_by": [
-        "tests/test_ci_change_scope.py:169"
+        "tests/test_ci_change_scope.py:170"
       ]
     },
     {
@@ -617,6 +617,7 @@
         "66e652687765"
       ],
       "verified_by": [
+        "tests/test_ci_change_scope.py:452",
         "tests/test_release_gates_test_target_coverage.py:62"
       ]
     },
