@@ -283,7 +283,7 @@
         "f6bd64b35e00"
       ],
       "verified_by": [
-        "src/server/handlers/admin/connector_pack/tests/admin.rs:241"
+        "src/server/handlers/admin/connector_pack/tests/admin.rs:242"
       ],
       "rollup_of": [
         "EG-TYPED-PACKS-R002.1",
@@ -387,7 +387,7 @@
         "f6bd64b35e00"
       ],
       "verified_by": [
-        "src/server/handlers/admin/connector_pack/tests/admin.rs:440"
+        "src/server/handlers/admin/connector_pack/tests/admin.rs:441"
       ]
     },
     {
@@ -412,7 +412,7 @@
         "f6bd64b35e00"
       ],
       "verified_by": [
-        "src/server/handlers/admin/connector_pack/tests/admin.rs:542"
+        "src/server/handlers/admin/connector_pack/tests/admin.rs:543"
       ]
     },
     {
@@ -438,7 +438,7 @@
         "f6bd64b35e00"
       ],
       "verified_by": [
-        "src/server/handlers/admin/connector_pack/tests/admin.rs:321"
+        "src/server/handlers/admin/connector_pack/tests/admin.rs:322"
       ]
     },
     {
@@ -552,29 +552,36 @@
     {
       "id": "EG-TYPED-PACKS-R017",
       "title": "Release scope excludes an offline Agent Library upgrade path",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "34b9f502483d"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-storage/src/owner/agent_library_upgrade/tests.rs:107"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R018",
       "title": "Body reads use AgentComponent.Content, not a pack-specific method",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "71533e899d52"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/connector_pack/ops.rs:275",
+        "src/server/handlers/admin/connector_pack/tests/admin.rs:241"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R019",
       "title": "Only SKILL.md is imported as skill content",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "a1bb9fb9503e"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/handlers/admin/connector_pack/import/skill_files.rs:74"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R020",
@@ -872,7 +879,7 @@
         "c764285d098c"
       ],
       "verified_by": [
-        "src/server/handlers/admin/connector_pack/tests/admin.rs:440",
+        "src/server/handlers/admin/connector_pack/tests/admin.rs:441",
         "src/server/handlers/admin/connector_pack/tests/content_model.rs:598"
       ]
     },

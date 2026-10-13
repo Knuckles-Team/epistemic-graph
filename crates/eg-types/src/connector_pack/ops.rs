@@ -268,4 +268,21 @@ mod tests {
             "import IS a real pack-admission variant, got: {error}"
         );
     }
+
+    /// R018: body bytes are read through `AgentComponent.Content` alone --
+    /// `ConnectorPackOp` lists no body-read case, so a request naming one is
+    /// refused at deserialization, before any handler runs.
+    // spec: EG-TYPED-PACKS-R018
+    #[test]
+    fn pack_op_exposes_no_body_read_variant() {
+        for body_read_op in ["body_read", "read_body"] {
+            let wire = serde_json::json!({ "op": body_read_op, "request": {} });
+            let error = serde_json::from_value::<ConnectorPackOp>(wire)
+                .expect_err("no body-read variant exists for pack operations");
+            assert!(
+                error.to_string().contains("unknown variant"),
+                "op {body_read_op:?} must be refused as an unknown variant, got: {error}"
+            );
+        }
+    }
 }
