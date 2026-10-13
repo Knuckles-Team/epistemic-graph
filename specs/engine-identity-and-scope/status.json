@@ -101,7 +101,7 @@
         "dfb2367561d1"
       ],
       "verified_by": [
-        "crates/eg-core/src/isolation.rs:1751"
+        "crates/eg-core/src/isolation.rs:1753"
       ]
     },
     {
@@ -136,16 +136,27 @@
     {
       "id": "EG-IDENTITY-R008.2",
       "title": "Typed `ScopeBound`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "3c61dc94a9ed",
+        "92de9f434e0b"
+      ],
+      "verified_by": [
+        "crates/eg-core/src/isolation/scope_bound.rs:107",
+        "crates/eg-core/src/isolation/scope_bound.rs:144"
+      ]
     },
     {
       "id": "EG-IDENTITY-R008.3",
       "title": "Pure subset check",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "92de9f434e0b"
+      ],
+      "verified_by": [
+        "crates/eg-core/src/isolation/scope_bound.rs:123",
+        "crates/eg-core/src/isolation/scope_bound.rs:164"
+      ]
     },
     {
       "id": "EG-IDENTITY-R008.4",
