@@ -98,3 +98,27 @@ The test contract requires independent numerical oracles and real served positiv
 
 R002.1, R002.2 and R002.6 retain their acceptance as rollups of kernel-specific and model-specific children.
 The linear recurrence requires mutually uncorrelated process and measurement noises; unsupported correlation declarations refuse.
+
+<!-- spec-definition-patch:owner-batch-20261012-finance-primitives -->
+## Owner definition extensions — 2026-10-12
+
+### `EG-FINANCE-PRIMITIVES-R015.1` — EG:43
+
+**EG-owned lifecycle.** EG defines `FinanceOrderProposal.StageV1` and `PromoteV1`. `OrderProposalSnapshotV1` is sealed and content-addressed. It binds tenant/proposal/revision, predecessor digest, decision identity/revision/digest, and schema identity/revision. It also binds canonical payload bytes/SHA-256, policy identity/revision/digest, and evidence refs. Hash stored bytes as-is. Refuse noncanonical bytes for the declared schema/version. Staging is create-only. Revision 1 has no predecessor. Later revisions name the prior digest and use expected-head CAS. An identical retry is idempotent; conflicting bytes refuse.
+
+`PromoteV1` binds the expected promoted head, candidate digest, gate-manifest digest, and gate receipts. It rechecks the staged payload hash/digest. It rechecks R019 verification/approval and the R010 risk/sizing policy. Apply per-instrument policy and designated approvers when required. Atomically write the promotion pointer, `derivedFrom` history, and `OrderAdmissionReceiptV1`. Bind the receipt to proposal, revision, snapshot, decision, policy, gate receipts, and transaction revision. Stale heads, missing/mismatched evidence, unavailable/failed gates, incomplete receipts, and vetoes refuse before writes. The result admits host review only; it submits no order. Keep `AnalysisSnapshot` informational-only. Preserve `EG-DECISION-ENGINE-R019`, `EG-DURABLE-KERNEL-R057`, and `EG-FINANCE-PRIMITIVES-R015`.
+
+**Exact cross-owner hold.** Evidence does not identify the SDK-accepted payload schema/version. It does not identify the complete admission-hook registry or its owner. GraphOS confirmation operation and receipt fields are also undefined. EG may stage and validate the opaque payload. EG must refuse promotion until those owner contracts are reviewed. SDK writeback must not cause an effect. No live-order behavior or external effect is included.
+
+Preserve source record SHA-256 `e3ad9b1e3121eb3278c3e2b52ce948817e317db3de48d5886a624ffe2ba9be47`. Definition only; no implementation, GraphOS receipt, or SDK effect is claimed.
+
+### `EG-FINANCE-PRIMITIVES-R002.11` — EG:67
+
+**Forecast contract.** Extend shared regime-HMM kernel R002.1.14 through typed route R002.9 with `RegimeForecastV1`. Input binds model/source identities and revisions, `as_of`, ordered horizons, `horizon_unit`, policy identity/revision/digest, and held-out dataset digest. Resolve `p0`, state order, and `T` only from the pinned model/source revision. Refuse caller overrides. Return `p_h=p0*T^h`, ordered vectors, top-state probability, calibration evidence, and bound digests. Require finite nonnegative stochastic rows/vectors within model-declared precision.
+
+Each held-out row binds `{sample_id, model_revision, source_series_id, origin_as_of, horizon, ordered_state_ids, predicted_probability_vector, realized_state_id, target_observation_at, scoring_revision}`. Require unique samples, matching model/state order, and one row per source/origin/horizon. Require origin before target observation. Score categorical Brier separately per horizon with positive `N_h` meeting its policy floor. Bind dataset, model, state-order, and scoring revisions. Policy requires per-horizon Brier maxima, top-state probability floors, and positive sample floors. Each policy map covers every requested horizon exactly once. All thresholds must pass before sizing eligibility. Return horizon, dataset/model/state-order/scoring revisions, policy digest, sample count, score, applied thresholds, and pass state.
+
+**Sizing.** R010 consumes the forecast digest and `RegimeSizingPolicyV1`. The policy binds `{policy_id, revision, instrument_id, target_weight_by_state, unit, fixed_point_scale, risk_cap}`. State weights and the risk cap use one R010 policy unit/scale. Compute `expected_target_weight_h=Σ_s p_h[s]×target_weight_s`, then apply the risk cap. Missing weights, cap excess, stale revisions, or failed calibration yield typed abstention with no sizing value. Never create an order. Preserve `EG-DECISION-ENGINE-R103`, `EG-FINANCE-PRIMITIVES-R002`, R010, R002.1.14, R002.6.2, and R009.1. R009.1 remains flip calibration, not state calibration.
+
+**Exact policy hold.** Source evidence sets no Brier thresholds, confidence floors, sample floors, state weights, or risk cap. A complete versioned policy must supply every value. No defaults exist. Missing or invalid values refuse sizing. Preserve source record SHA-256 `037f3edf5fe38f55ac24d6e0cc7bd85f1efc60cadf7c97b66b44978613a7acb6`. Definition only; no implementation or served evidence is claimed.
+<!-- /spec-definition-patch -->

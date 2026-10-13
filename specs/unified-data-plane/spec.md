@@ -64,3 +64,15 @@ At least three self-hosted apps, including one on MariaDB, must be attached end 
 All attached-source dialect tiers must pass their applicable conformance rows. Three self-hosted apps including a MariaDB app must be attached with ingest connectors retired. The accelerated copy must hold its lag objective across restart and failover. EG mirrors must match prior fan-out semantics and restore SQL tables into real Postgres. Gramps must either meet the native-hosting exit evidence or close with an evidence report if P6 is not approved. Record the EG-UNIFIED-DATA-PLANE-R001 and EG-UNIFIED-DATA-PLANE-R025 architecture decision records. The [test specification](test-spec.md) defines failures as well as successes, and [tasks](tasks.md) retains every row without marking it built.
 
 Requirement IDs are defined in [requirements.md](requirements.md); delivery state per ID is in `status.json`.
+
+<!-- spec-definition-patch:owner-batch-20261012-unified-data-plane -->
+## Contract definition — `EG-UNIFIED-DATA-PLANE-R026.4`
+
+Expose graph-backed relational projections through an approved, version-pinned schema mapping. Reuse `AttachedCatalogGraph`/R2RML and the existing query surface. A projection-read request binds tenant, actor, graph, mapping id/revision, table, selected columns, typed predicates, and query digest. Bind the response to mapping revision, graph revision, column types, and result digest. Projection reads are read-only. Refuse INSERT, UPDATE, DELETE, or DDL through projected tables. Apply the same refusal to read-only principals and principals with a separate write grant. Write requests name the target graph mutation. Route them through existing policy/admission and the authoritative `MutationBatch` path. A separate mutation grant never makes a projection a writer. Preserve R026 P0–P5. Reuse R003/R005 for catalog and mapping. Reuse R029 for schema context.
+
+**Boundary and preserved scope:** External application -> approved relational projection read; writes -> separately authorized graph `MutationBatch`. Preserve EG-DURABLE-KERNEL-R035, EG-DURABLE-KERNEL-R043, EG-FEDERATED-QUERY-R080, EG-UNIFIED-DATA-PLANE-R026, EG-FEDERATED-QUERY-R080.1, EG-FEDERATED-QUERY-R080.2, EG-FEDERATED-QUERY-R080.3, EG-FEDERATED-QUERY-R080.4, EG-FEDERATED-QUERY-R080.5, EG-FEDERATED-QUERY-R080.6. The schema/catalog and `schema_context` owners remain R003/R005/R029.
+
+**Explicit hold:** The source record names no external application, relational table/column contract, or driver statement corpus. Keep application-level schema compatibility open until the R026 P0/P5 owner furnishes and approves the concrete schema mapping and captured statements. Do not imply a universal relational schema.
+
+**Source record SHA-256:** `c55bc629b1bfefc9d0346b75b8bb95e5a231b891e7e34297df17b960d6c9773c`. This is a SPECIFIED contract; no implementation or served result is claimed.
+<!-- /spec-definition-patch -->

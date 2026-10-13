@@ -69,13 +69,15 @@
     "EG-CONTRACT-R052.1",
     "EG-CONTRACT-R052.2",
     "EG-CONTRACT-R052.3",
-    "EG-CONTRACT-R052.4"
+    "EG-CONTRACT-R052.4",
+    "EG-CONTRACT-R001.1",
+    "EG-CONTRACT-R001.2"
   ],
   "requirements": [
     {
       "id": "EG-CONTRACT-R001",
       "title": "Strict typed Pydantic models for every method and nested type",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "6cd6c7ea0c87",
         "72c7dfa478ba",
@@ -85,11 +87,15 @@
         "tests/test_generated_models.py:105",
         "tests/test_generated_models.py:122",
         "tests/test_generated_models.py:69"
+      ],
+      "rollup_of": [
+        "EG-CONTRACT-R001.1",
+        "EG-CONTRACT-R001.2"
       ]
     },
     {
       "id": "EG-CONTRACT-R002",
-      "title": "Served Agent Library test coverage for pack import and Decide",
+      "title": "Served Agent Library tests cover pack import and Decide",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "4f364b55e0dc",
@@ -145,7 +151,7 @@
     },
     {
       "id": "EG-CONTRACT-R003",
-      "title": "Privacy scan covers the relocated graph-backends documentation",
+      "title": "Privacy scan covers relocated graph-backends documentation",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "82e1e970c83a",
@@ -323,7 +329,7 @@
     },
     {
       "id": "EG-CONTRACT-R013",
-      "title": "KISS config keys migrated to avoid a silently dropped section",
+      "title": "KISS config keys avoid a silently dropped section",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "72c7dfa478ba",
@@ -336,7 +342,7 @@
     },
     {
       "id": "EG-CONTRACT-R014",
-      "title": "Generated error catalog with stable auth-mismatch codes",
+      "title": "Generated error catalog has stable auth-mismatch codes",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "15acf1a959e5",
@@ -823,6 +829,20 @@
     {
       "id": "EG-CONTRACT-R052.4",
       "title": "Runtime evidence and refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONTRACT-R001.1",
+      "title": "Generated types throughout the AU lifecycle",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONTRACT-R001.2",
+      "title": "Canonical blueprint disk round trip",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

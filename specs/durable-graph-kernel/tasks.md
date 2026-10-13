@@ -143,3 +143,44 @@ This batch defines the slices; it runs none of their runtime tests.
 - [ ] **EG-DURABLE-KERNEL-R086.7:** Refusal: unavailable reads. Follow the matching planned acceptance in test-spec.md.
 - [ ] **EG-DURABLE-KERNEL-R086.8:** Restart. Follow the matching planned acceptance in test-spec.md.
 - [ ] **EG-DURABLE-KERNEL-R086.9:** Evidence and hot-path proof. Follow the matching planned acceptance in test-spec.md.
+
+<!-- spec-definition-patch:owner-batch-20261012-durable-graph-kernel -->
+## Durable-kernel owner definition tasks — 2026-10-12
+
+- [ ] **EG-DURABLE-KERNEL-R028.1:** Implement the R085-backed checkpoint snapshot with run/work-item/fence/checkpoint identity and separate short-/long-term memory references. Enforce verified scope, digest and expected-head refusal rules. Preserve `EG-DURABLE-KERNEL-R028`, `EG-IDENTITY-R006`, and existing GRAPHOS-A2A/OPS streaming requirements.
+- [ ] **EG-DURABLE-KERNEL-R028.1 acceptance:** Checkpoint acceptance covers restart/readback and refusal of wrong scope or stale fence/revision. Also refuse digest mismatch, changed-body replay and unavailable storage. Test recovery from interruption between snapshot and pointer update. AU resume/GraphOS stream continuation remain blocked until transaction/recovery, resume-binding and retention decisions are defined.
+- [ ] **EG-DURABLE-KERNEL-R028.1 status:** Keep SPECIFIED. No runtime or consumer receipt is claimed.
+
+- [ ] **EG-DURABLE-KERNEL-R085.9:** Store complete canonical search state under R085 `active_context`, requiring `search_run_id`, `state_revision`, `transcript`, `evidence`, `constraints`, and `open_claims`. Preserve AU R013.13/R020.1 and EG R085.1/.4/.7.
+- [ ] **EG-DURABLE-KERNEL-R085.9 acceptance:** Exact restart/context-eviction readback. Malformed, missing-field, oversize, wrong-authority, stale-graph, digest and backend refusals. Stale conflict retains candidate without head advance. AU continuation receipt/schema is an explicit dependency hold.
+- [ ] **EG-DURABLE-KERNEL-R085.9 status:** Keep SPECIFIED. No implementation or served evidence is claimed.
+
+- [ ] **EG-DURABLE-KERNEL-R085.10:** Persist authorized session notes via R085 with note ID, source run/task/revision, content digest, provenance and graph/revision binding. EG returns only authorized versions and conflict state. It performs no auto-injection or relevance selection. Preserve AU R022.3 and EG R085.2/.5/.7.
+- [ ] **EG-DURABLE-KERNEL-R085.10 acceptance:** Acceptance covers durable readback, scope/revocation redaction, stale conflict retention and capacity refusal. AU must define capture trigger, kind mapping, relevance/staleness and conflict presentation before transparent reuse is accepted.
+- [ ] **EG-DURABLE-KERNEL-R085.10 status:** Keep SPECIFIED. No automatic capture/reuse behavior is claimed.
+
+- [ ] **EG-DURABLE-KERNEL-R084.7:** Hold cross-backend coordination until owners decide allowed writable targets, registry/coordinator owner and ordering key. They must also define atomic-versus-eventual semantics and failure/retry/idempotency/receipt behavior. Preserve one-graph R084.1-.6 and R039 as sole durability authority. Never infer writes to R024.1 sources from mirror cursors.
+- [ ] **EG-DURABLE-KERNEL-R084.7 acceptance:** Existing one-graph two-writer test only. Define multi-target tests after the owner decisions. This row is not closed by R084.6.
+- [ ] **EG-DURABLE-KERNEL-R084.7 status:** Keep SPECIFIED and explicitly held.
+<!-- /spec-definition-patch -->
+
+<!-- spec-definition-patch:final-mappings-20261012 -->
+## Final mapped definition tasks — 2026-10-12
+
+- [ ] `EG-DURABLE-KERNEL-R038.100`: implement the typed fields, decision/refusal behavior and owner boundary stated in requirements. Preserve `EG-DURABLE-KERNEL-R038`.
+- [ ] `EG-DURABLE-KERNEL-R038.100` acceptance: Start a fresh embedded profile without an external service and read/write an explicitly ephemeral namespace. Verify no persistent namespace is silently downgraded. Start served mode against its configured endpoint and verify its declared sync/async class and acknowledgment boundary. Refuse an unknown profile and an ephemeral-to-durable class mismatch. Read back profile and namespace declarations.
+<!-- /spec-definition-patch -->
+
+
+<!-- spec-definition-patch:owner-dispatch-20261012-tasks -->
+## Cross-owner graph feed tasks — 2026-10-12
+
+- [ ] `EG-DURABLE-KERNEL-R043.100`: define `OpenGraphSnapshotV1` and `ReadGraphChangesV1` on committed ChangeEnvelope records with a same-read high-water cursor, ordered replay ids and bounded retention. Include tombstone filtering and explicit expired-cursor/revocation outcomes. Verify independent durable readback and EG latency through first authorized feed read. Keep GraphOS/WebUI browser commit-to-visible p95 as separate companion acceptance. Also set numeric layout limits for visible node/edge budgets, interactions and labels.
+- [ ] Add typed cursor-expiry, graph-incarnation and authorization-change outcomes. Expose versioned commit-to-visible timing fields.
+- [ ] Preserve R043's single MutationBatch write authority and prove two-client served delivery, reconnect ordering, independent readback and the ≤1000 ms p95 target.
+<!-- /spec-definition-patch -->
+
+## Benchmark measurement tasks — 2026-10-12
+
+- [ ] `EG-DURABLE-KERNEL-R042.100`: extend the existing typed `BenchmarkClaim.measured_result` with complete, revision-bound `BenchmarkMeasurementV1` fields and deterministic TPS/cost formulas. Preserve existing superiority gate.
+- [ ] Serve and replay exact arithmetic across releases. Exclude startup. Refuse missing token/price data, invalid elapsed time/currency and incomparable profiles.

@@ -49,3 +49,9 @@ Order: R003 (independent, smallest), R002.1-R002.5 with the durable-kernel rows,
 - [ ] **EG-PLACEMENT-R004.4:** Refusal. When no host declares the capability, the engine must refuse with `no_capable_host` naming the capability. It must not fall back to any host.
 - [ ] **EG-PLACEMENT-R004.5:** Evidence. Each routing decision must record `required_capability` and the candidate host list. It must also record the topology fact generation.
 - [ ] **EG-PLACEMENT-R004.6:** Hot-path proof. The entry point is the served job submit and worker claim wire methods. The test `tests/jobs/test_capability_claim_served.py::test_backtest_job_lands_on_declared_host` submits a heavy job. It passes through the wired `claim_next` and observes the claim on the host that declares the capability.
+
+<!-- spec-definition-patch:owner-batch-20261012-placement-and-worker-policy -->
+## Owner definition tasks — 2026-10-12
+
+- [ ] **`EG-PLACEMENT-R001.15`:** Define typed read-only capacity feasibility input/verdict and refusal rules using R112 premises and R001.6. GraphOS must define proposal, actuation and independent applied-state readback receipt APIs before the row can claim a closed loop.
+<!-- /spec-definition-patch -->

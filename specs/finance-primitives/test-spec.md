@@ -271,3 +271,13 @@ Declare Q=1, R=4 and process/measurement cross-covariance=1 in a model admission
 The typed unsupported-noise outcome must leave the prior checkpoint and parameter revision unchanged.
 The server must expose that refusal through the real typed model route required by R002.9.
 Unknown noise-correlation policy must also refuse. No correlated-noise implementation is required by this correction.
+
+<!-- spec-definition-patch:owner-batch-20261012-finance-primitives -->
+## Planned finance owner acceptance — 2026-10-12
+
+All targets below are planned acceptance, not completed tests or receipts. Use the named producer/consumer boundary and retain existing coverage.
+
+- **`EG-FINANCE-PRIMITIVES-R015.1` / EG:43:** Stage and read back a sealed `OrderProposalSnapshotV1`. Prove revision-1 creation, predecessor-bound next revision, byte-identical idempotency, and same-revision mutation refusal. Stale CAS, R019 mismatch, missing evidence, unavailable/failing gates, and vetoes each preserve pointer, history, and receipt. Keep promotion refused until SDK payload schema, complete hook registry, and GraphOS confirmation contract are defined. Then verify the atomic promoted pointer, derivation edge, and `OrderAdmissionReceiptV1`. Bind proposal/revision/snapshot/decision/policy/gate/transaction revisions. The result admits host review only; it sends no external order. No host/SDK effect test is claimed. Source `e3ad9b1e3121eb3278c3e2b52ce948817e317db3de48d5886a624ffe2ba9be47`.
+
+- **`EG-FINANCE-PRIMITIVES-R002.11` / EG:67:** A seeded three-state pinned HMM drives `RegimeForecastV1`. Callers cannot override `p0` or `T`. Check `p_h=p0*T^h` and each horizon's probability sum. Score held-out categorical Brier with `Brier_h=(1/N_h)Σ_nΣ_s(p_{n,h,s}-1[y_n=s])²` on unique rows. Bind sample/source/origin/horizon/state order/prediction/realized state/target time. Require origin before target. Require `N_h` to meet its policy floor. Match dataset/model/state-order/scoring revisions. A complete versioned per-horizon policy and `RegimeSizingPolicyV1` yield deterministic sizing. Refuse malformed/stale vectors/matrix, invalid horizons, missing/duplicate samples, and future leakage. Also refuse zero denominator, low sample counts, threshold failures, missing weights, or risk-cap excess. Prove refusal returns no sizing value. Policy values absent from source have no defaults. No live-order behavior is tested. Source `037f3edf5fe38f55ac24d6e0cc7bd85f1efc60cadf7c97b66b44978613a7acb6`.
+<!-- /spec-definition-patch -->

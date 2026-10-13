@@ -64,3 +64,25 @@ Foreign-source scope EG-FEDERATED-QUERY-R013 belongs to `federated-query-and-rea
 The scope above does not claim coverage of independent engine work such as layout upgrades, community detection, domain-specific connectors, query grammar, or unrelated quality regressions. Those concerns require their own owner specs and acceptance evidence.
 
 Requirement IDs are defined in [requirements.md](requirements.md); delivery state per ID is in `status.json`.
+
+<!-- spec-definition-patch:owner-batch-20261012-repository-index-and-ingestion -->
+## Reviewed definition index — 2026-10-12
+
+Normative contracts, production wiring, owner references, holds, and acceptance cases appear in `requirements.md`.
+This file indexes the definitions and their source records.
+Each child extends the listed parent. Existing parent obligations remain unchanged.
+No implementation or served evidence is claimed here.
+
+| Requirement | Parent | Source record | SHA-256 |
+|---|---|---|---|
+| `EG-REPO-INGEST-R002.1` | `EG-REPO-INGEST-R002` | `AU:23` | `3f7e133169a76ce2680ec667c28ea2c5543354ed8874d258c432e65346f2e529` |
+| `EG-REPO-INGEST-R006.1` | `EG-REPO-INGEST-R006` | `AU:70` | `902f964dd909186f3a31d1f8a84d146b715446e64dfeec62480c8151baa06996` |
+| `EG-REPO-INGEST-R006.2` | `EG-REPO-INGEST-R006` | `AU:92` | `771acc731a6e25746641adf30cde9ec91f4eb56edd6597f2d308a42947a3abb3` |
+| `EG-REPO-INGEST-R006.3` | `EG-REPO-INGEST-R006` | `EG:54` | `e69e6fa3a5c26ae763809d600cb7d264d028b9ce0d80f8ca6141e1a40cf0638e` |
+| `EG-REPO-INGEST-R006.4` | `EG-REPO-INGEST-R006` | `EG:55` | `340c1817f2a52dc6da4c9c13d93d215debbeb9fefd8b84b8d2400b86541d4d81` |
+| `EG-REPO-INGEST-R002.100` | `EG-REPO-INGEST-R002` | `AU:118` | `e8ad0c2417b7fa6ce53c46899f1adf8e925977becd0bd1813db6b62d3786af11` |
+| `EG-REPO-INGEST-R002.101` | `EG-REPO-INGEST-R002` | `PIPE:10` | `e0c431512565acb1a8ae00e09b63ec6fb7c8f9e81ef9c786a0fd7b26b2239455` |
+
+R006.3 binds each code-map page and cursor to one map generation and current source revision. After source changes, queries for changed and unchanged symbols refuse against the old generation. Reindex acceptance checks current spans and stable logical identity.
+
+<!-- /spec-definition-patch -->

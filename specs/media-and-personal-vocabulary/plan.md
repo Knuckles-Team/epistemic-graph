@@ -1,5 +1,11 @@
 # EG-MEDIA-VOCAB — Design and implementation plan
 
+## Dependencies and unresolved owner contracts
+
+- `SDK-SOURCE-INGEST-R005.7-.12` is the existing source-envelope prerequisite for bookmark ingestion under `EG-MEDIA-VOCAB-R001.102`; it does not create a second EG ingestion path. `WEBUI-APPS-R001.6` owns mindmap/export presentation. GraphOS query/export adapter requirement ID remains unlinked and is a coordinator hold.
+- `WEBUI-APPS-R001.5` is the meeting summary UI consumer for `EG-MEDIA-VOCAB-R001.101`. Reviewed evidence lacks AU provider-admission and invocation-receipt producer IDs. Reserved `AU-SEMANTIC-R030` remains pending admission, retry-attempt accounting, and disabled-provider refusal. Producer contracts and served receipts remain required. Wrapper-default retries do not count as one invocation.
+- The vision extraction producer for `EG-MEDIA-VOCAB-R001.100` remains held. `EG-MEDIA-VOCAB-R002.5` defines EG receipt-bound paper facts; citation edges remain held pending the SDK reference-ID schema, identity normalization and paper-serving registration.
+
 Governing spec: [spec.md](spec.md).
 
 ## Problem and evidence
@@ -328,3 +334,37 @@ Vocabulary and shapes land with `cargo test -p eg-core` ontology load and SHACL 
 ## Risks, alternatives, and decisions
 
 Connector ontologies already exist and may drift from the core vocabulary: mitigated by the .1 mapping tests and the collision test. Several questions are BLOCKED on connector operations; EG ships abstentions first so the questions fail honestly.
+
+<!-- spec-definition-patch:owner-batch-20261012-media-and-personal-vocabulary -->
+## Owner definition and dependency plan — 2026-10-12
+
+### `EG-MEDIA-VOCAB-R002.5` — EG:50
+
+- **EG contract:** Reuse SDK `PaperSearchResult` → `PaperRecord`/`DocumentReceipt` → existing `SourceIngest`. Require SDK `exact_identity`, matching paper/revision, a complete authorized artifact, and per-field provenance. The artifact binds URL, media type, byte count, SHA-256, and local artifact. Assert `cv:ResearchPaper` and available DOI, arXiv ID, publication date, and citation-count facts. Bind each fact to source provenance and the receipt/document digest. Exact replay is idempotent. Missing identity or mismatched receipt/revision/digest refuses the affected paper before graph mutation. Incomplete artifacts or provenance mismatches also refuse. Preserve healthy sibling results.
+- **Explicit hold:** Current `PaperRecord`/`DocumentReceipt` lacks cited-paper IDs. The SDK plan also leaves paper-serving registration open. Citation counts cannot create citation edges. The SDK owner must define and serve reference IDs, target identity/normalization, and paper registration. EG must await those definitions before defining or claiming citation-edge construction. Do not infer providers or synthesize edges.
+- **Acceptance:** Test a matching record and independent `SourceIngest` readback for every asserted fact/provenance. Test byte-identical replay. Test mixed identified/unidentified batches; only the unidentified paper refuses. Test receipt, revision, artifact, and field-provenance mismatches before mutation. Confirm that a count-only paper emits no edge. Citation-edge acceptance remains held; it is not a passing test.
+- **Preserve:** `EG-MEDIA-VOCAB-R002.1`, `.4`, `SDK-SOURCE-INGEST-R005.1`, `.2`, `.4`, `EG-REPO-INGEST-R002`.
+- **Source record:** `b6d12a184f1c5812c8f4fd56a0a299e48381e85ad9b18af4eb0ed19faf3d7e0b`. No runtime receipt is claimed.
+
+<!-- /spec-definition-patch -->
+
+<!-- spec-definition-patch:final-mappings-20261012 -->
+## Final mapping implementation plan — 2026-10-12
+
+### `EG-MEDIA-VOCAB-R001.100` / EG:69
+
+- Preserve parent `EG-MEDIA-VOCAB-R001` and all existing clauses.
+- Define each tag assertion with `{media item/revision, taxonomy id/version, object-or-context value, confidence, evidence span/reference, opaque producer id/revision, provenance digest}`. Store each tag as a source-backed assertion attached to its media item. Do not store unqualified labels. Search returns only tags visible under caller media/item authorization. Bind matched tag IDs, media revisions, and authorization revision. Missing provenance or stale media revision refuses assertion. Unauthorized queries return no protected tag data.
+- EG owns tag storage, provenance, and authorized search. The vision extraction producer identity and contract remain held by its owner. No producer implementation or served result is claimed.
+- Source record SHA-256: `38f71f6a205cf8df27631a4aa86ec3312a91f7902dfd8bfe843db2a142d1d30f`.
+- Keep status SPECIFIED until each named producer and consumer is implemented, served-tested, and independently read back.
+<!-- /spec-definition-patch -->
+
+
+<!-- spec-definition-patch:owner-dispatch-20261012-plan -->
+## Cross-owner transcript and bookmark plan — 2026-10-12
+
+- **`EG-MEDIA-VOCAB-R001.101` / WEBUI:10:** Extend `TranscriptSegment` with immutable meeting revisions, strict sequence, correction, and finalization. Add `MeetingSummaryContextV1` and `CommitMeetingSummaryV1`. Bind both to current transcript digest, admitted provider/model/policy, and AU invocation receipt. Resolve citation IDs in the final revision. EG authorizes and serves context only. AU invokes models and mints receipts. WebUI R001.5 renders. Source SHA-256 `c82a815c87428a5baf4379ef7790bafb24a5d3367d16ebd85a6c39ff9b52521d`.
+- **`EG-MEDIA-VOCAB-R001.102` / WEBUI:11:** Reuse SDK SourceIngest R005.7-.12 and the existing EG SourceIngest → ChangeEnvelope commit path. Define bounded semantic bookmark search and authorized relation reads. Bind ingestion receipt and source/index/snapshot/authorization revisions. Reuse `Method::SemanticSearch` and UQL; add no ingestion pipeline. GraphOS/WebUI R001.6 owns the served adapter, mindmap, and export. Source SHA-256 `b1708c96d6b9cadcb1c9f35cc5cb7dde4e60ed2cb1250598e55b9ce4cc66907e`.
+- Keep both SPECIFIED until EG producer readback and the named AU/GraphOS/WebUI served receipts pass. Do not claim transcript provider, live capture, or bookmark export from these definitions.
+<!-- /spec-definition-patch -->
