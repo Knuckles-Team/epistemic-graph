@@ -38,10 +38,26 @@ impl std::error::Error for ScopeBoundError {}
 /// EG-IDENTITY-R008.2: construction REFUSES an empty `policy_iri` with
 /// [`ScopeBoundError::EmptyPolicyIri`]; an empty `allowed_tools` is legal and
 /// simply means "no tools allowed".
+///
+/// External callers cannot bypass construction:
+/// ```compile_fail,E0451
+/// use eg_core::isolation::ScopeBound;
+/// let _ = ScopeBound {
+///     policy_iri: String::new(),
+///     allowed_tools: vec![],
+///     allowed_graphs: vec![],
+/// };
+/// ```
+/// Nor can they clear a validated policy IRI:
+/// ```compile_fail,E0616
+/// use eg_core::isolation::ScopeBound;
+/// let mut bound = ScopeBound::new("urn:policy:worker", vec![], vec![]).unwrap();
+/// bound.policy_iri.clear();
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScopeBound {
     /// IRI of the stored policy node this bound was read from. Never empty.
-    pub policy_iri: String,
+    policy_iri: String,
     /// Tool IRIs the policy allows the run to name.
     pub allowed_tools: Vec<String>,
     /// Graph names the policy allows the run to touch.
@@ -49,6 +65,11 @@ pub struct ScopeBound {
 }
 
 impl ScopeBound {
+    /// Read the policy IRI without permitting mutation.
+    pub fn policy_iri(&self) -> &str {
+        &self.policy_iri
+    }
+
     /// Build a bound, refusing an empty `policy_iri` fail-closed.
     pub fn new(
         policy_iri: &str,
@@ -129,7 +150,7 @@ mod tests {
             vec!["__commons__".to_string(), "agent:worker".to_string()],
         )
         .expect("a non-empty policy_iri must construct");
-        assert_eq!(bound.policy_iri, "http://ex.org/policy/worker");
+        assert_eq!(bound.policy_iri(), "http://ex.org/policy/worker");
         assert_eq!(
             bound.allowed_tools,
             vec!["http://ex.org/tools/query".to_string()]

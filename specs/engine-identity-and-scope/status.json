@@ -141,8 +141,8 @@
         "92de9f434e0b"
       ],
       "verified_by": [
-        "crates/eg-core/src/isolation/scope_bound.rs:123",
-        "crates/eg-core/src/isolation/scope_bound.rs:86"
+        "crates/eg-core/src/isolation/scope_bound.rs:107",
+        "crates/eg-core/src/isolation/scope_bound.rs:144"
       ]
     },
     {
@@ -153,8 +153,8 @@
         "92de9f434e0b"
       ],
       "verified_by": [
-        "crates/eg-core/src/isolation/scope_bound.rs:102",
-        "crates/eg-core/src/isolation/scope_bound.rs:143"
+        "crates/eg-core/src/isolation/scope_bound.rs:123",
+        "crates/eg-core/src/isolation/scope_bound.rs:164"
       ]
     },
     {
