@@ -343,13 +343,16 @@ def _assert_runner_budget(workflow: Path, name: str, job: dict) -> None:
             "macos-15-intel",
         }
     else:
-        # Fast PR-scope rollout: PR runs get a bounded cap (45m: the prior
-        # 10m budget was unreachable on cold hosted runners), push/dispatch
-        # runs keep a longer (but not full-build) budget.
-        pr_scoped = "${{ github.event_name == 'pull_request' && 45 || 60 }}"
-        assert job.get("timeout-minutes") in (360, 5, pr_scoped), (
-            f"{workflow.name}:{name}"
-        )
+        # Only full-engine jobs retain the longer PR compilation budget.
+        # Classification, lint, security and independently split jobs stay short.
+        if workflow.name == "release.yml" and name in {"gates", "gates-facade"}:
+            expected = "${{ github.event_name == 'pull_request' && 45 || 60 }}"
+            assert job.get("timeout-minutes") == expected
+        else:
+            pr_scoped = "${{ github.event_name == 'pull_request' && 10 || 60 }}"
+            assert job.get("timeout-minutes") in (360, 5, pr_scoped), (
+                f"{workflow.name}:{name}"
+            )
 
 
 def _assert_workflow_job_budget(workflow: Path, name: str, job: dict) -> None:

@@ -149,7 +149,7 @@ def test_workspace_gates_use_hosted_runner_with_required_headers() -> None:
     assert job["needs"] == "changes"
     assert job["if"] == "needs.changes.outputs.code == 'true'"
     assert job["timeout-minutes"] == (
-        "${{ github.event_name == 'pull_request' && 45 || 60 }}"
+        "${{ github.event_name == 'pull_request' && 10 || 60 }}"
     )
     installs = [
         step
