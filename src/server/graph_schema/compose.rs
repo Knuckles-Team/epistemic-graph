@@ -770,7 +770,9 @@ ex:parent a owl:AsymmetricProperty .
         // +95: the portfolio-accounting declarations above are semantic axioms;
         // the ontology headers and import edges are unchanged.
         // +8: the two orchestration vocabulary class declarations.
-        assert_eq!(semantic_axioms, 13_573);
+        // +4: the shell-centric task vocabulary -- `swarm:shellCentric`'s
+        // declaration, domain, range and comment (EG-TYPED-PACKS-R066.2).
+        assert_eq!(semantic_axioms, 13_577);
 
         let count_type = |object: &str| {
             composed
