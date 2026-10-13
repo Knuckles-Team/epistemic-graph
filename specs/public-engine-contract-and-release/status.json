@@ -401,7 +401,8 @@
       "landed_in": [
         "43200ff368b9",
         "b8aac182d679",
-        "cfd03dda1ef7"
+        "cfd03dda1ef7",
+        "d556e4d0895e"
       ],
       "verified_by": [
         "tests/test_release_feature_matrix.py:249",
