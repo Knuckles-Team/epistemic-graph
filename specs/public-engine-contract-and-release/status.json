@@ -399,6 +399,7 @@
       "title": "Release feature matrix includes the motif Cargo feature",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "43200ff368b9",
         "b8aac182d679",
         "cfd03dda1ef7"
       ],
