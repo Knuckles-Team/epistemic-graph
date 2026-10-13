@@ -349,3 +349,14 @@ Each task preserves its existing parent and owner boundary.
 | `EG-CONTRACT-R001.2` | Use R094 export/import with governed SDK and GraphOS disk effects. Pin the number encoder. | AU-CONTROL-R025.40 remains unmerged. EG SHALL NOT add a filesystem writer. | `98b7ad1186ec2a385b334ffa0ad1b28888157ed6b51c6ed4172eeb7b7ef6768e` |
 
 Both requirements remain SPECIFIED until separately reviewed implementation and served evidence exist.
+
+
+### 2026-10-13: isolate pyo3 validation from the workspace queue
+
+Extend R018 and R035 by moving the existing pyo3 test command unchanged into `gates-pyo3`.
+The job depends only on change classification, not storage or the workspace sweep.
+Preserve its feature set, prerequisites, compiler wrapper and ten-minute PR ceiling.
+All release build consumers must require it. Main runs the same profile and may write caches; PR caches remain read-only.
+This removes preceding work from the pyo3 job budget. It does not claim a measured runtime improvement yet.
+Hosted exact-head timings must establish completion before larger lower/facade sharding or artifact-reuse changes.
+No server artifact identity or validation is relaxed by this split.

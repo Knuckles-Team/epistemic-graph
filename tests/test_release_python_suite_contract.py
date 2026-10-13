@@ -50,7 +50,14 @@ def _test_step(job: dict) -> dict:
 
 @pytest.mark.parametrize(
     "job_name",
-    ["gates", "gates-facade", "gates-variants", "gates-crates", "python-suite"],
+    [
+        "gates",
+        "gates-facade",
+        "gates-variants",
+        "gates-crates",
+        "gates-pyo3",
+        "python-suite",
+    ],
 )
 def test_capability_dependencies_bootstrap_uv_for_the_test_interpreter(
     job_name: str,
@@ -592,6 +599,8 @@ COMPILER_CACHE_COMMANDS: dict[str, dict[str, tuple[str, ...]]] = {
                 '"${args[@]}" --all-features --no-fail-fast'
             ),
         ),
+    },
+    "gates-pyo3": {
         ("Test (pyo3 crates, every feature except python)"): (
             (
                 "python3 scripts/cargo_test_rescue.py cargo test --locked -p "

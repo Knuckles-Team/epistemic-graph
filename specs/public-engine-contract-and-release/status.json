@@ -269,11 +269,11 @@
         "8baee8a94894"
       ],
       "verified_by": [
-        "tests/test_release_python_suite_contract.py:112",
-        "tests/test_release_python_suite_contract.py:123",
-        "tests/test_release_python_suite_contract.py:298",
-        "tests/test_release_python_suite_contract.py:341",
-        "tests/test_release_python_suite_contract.py:84"
+        "tests/test_release_python_suite_contract.py:102",
+        "tests/test_release_python_suite_contract.py:119",
+        "tests/test_release_python_suite_contract.py:130",
+        "tests/test_release_python_suite_contract.py:305",
+        "tests/test_release_python_suite_contract.py:348"
       ]
     },
     {
@@ -403,6 +403,7 @@
         "cfd03dda1ef7"
       ],
       "verified_by": [
+        "tests/test_release_feature_matrix.py:249",
         "tests/test_release_feature_matrix.py:87"
       ]
     },
