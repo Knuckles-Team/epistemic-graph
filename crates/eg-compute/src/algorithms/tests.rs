@@ -151,7 +151,7 @@ mod community_tests {
         ];
         let nodes: Vec<&str> = edges
             .iter()
-            .flat_map(|(s, t)| [s, t])
+            .flat_map(|&(s, t)| [s, t])
             .collect::<std::collections::BTreeSet<_>>()
             .into_iter()
             .collect();
