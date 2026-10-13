@@ -248,6 +248,8 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ${{ github.event_name == 'push' && fromJSON('["self-hosted", "homelab"]') || 'ubuntu-latest' }}
+    env:
+      EG_GATES_WHEEL_VENV: "${{ runner.temp }}/.gates-wheel-venv"
     steps:
       - *eg-gates-checkout
       - *eg-gates-python
@@ -342,9 +344,9 @@ jobs:
         run: python scripts/check_wheel_completeness.py --require-engine-kernel dist-gates/*.whl
       - name: Install the folded epistemic-graph wheel into a clean throwaway venv
         run: |
-          python -m venv .gates-wheel-venv
-          .gates-wheel-venv/bin/pip install --upgrade pip
-          .gates-wheel-venv/bin/pip install numpy pytest "$(ls dist-gates/epistemic_graph-*.whl)"
+          python -m venv "$EG_GATES_WHEEL_VENV"
+          "$EG_GATES_WHEEL_VENV/bin/pip" install --upgrade pip
+          "$EG_GATES_WHEEL_VENV/bin/pip" install numpy pytest "$(ls dist-gates/epistemic_graph-*.whl)"
       # Run from a scratch directory, NOT the repo root. `python -m pytest` puts
       # CWD first on sys.path, so from the root `import epistemic_graph.numeric`
       # resolves the SOURCE TREE's `epistemic_graph/numeric.abi3.so` — a
@@ -362,7 +364,7 @@ jobs:
         run: |
           REPO="$PWD"
           cd "$(mktemp -d)"
-          PYTHONNOUSERSITE=1 "$REPO/.gates-wheel-venv/bin/python" -m pytest \
+          PYTHONNOUSERSITE=1 "$EG_GATES_WHEEL_VENV/bin/python" -m pytest \
             "$REPO/crates/eg-numeric/tests/test_kernel_parity.py" --noconftest -q
       # NE-249: the boundary contract, which nothing ran until now. This file
       # holds the single most load-bearing property of the NumPy retirement --
@@ -377,7 +379,7 @@ jobs:
         run: |
           REPO="$PWD"
           cd "$(mktemp -d)"
-          PYTHONNOUSERSITE=1 "$REPO/.gates-wheel-venv/bin/python" -m pytest \
+          PYTHONNOUSERSITE=1 "$EG_GATES_WHEEL_VENV/bin/python" -m pytest \
             "$REPO/crates/eg-numeric/tests/test_builtin_boundary.py" --noconftest -q
       # BUG-PE-002: `import epistemic_graph.engine` must succeed from the INSTALLED
       # wheel, exactly the same shadowing-avoidance discipline as the numeric smoke
@@ -387,7 +389,7 @@ jobs:
         run: |
           REPO="$PWD"
           cd "$(mktemp -d)"
-          PYTHONNOUSERSITE=1 "$REPO/.gates-wheel-venv/bin/python" -c \
+          PYTHONNOUSERSITE=1 "$EG_GATES_WHEEL_VENV/bin/python" -c \
             "import epistemic_graph.engine as e; print('engine kernel OK:', e.__file__, '| __engine__=', getattr(e, '__engine__', None))"
       # EG-CONTRACT-R002.3: the Decide/pack-import client surface that the
       # EG-CONTRACT-R002.1/.2 served tests exercise must itself resolve from this
@@ -398,7 +400,7 @@ jobs:
         run: |
           REPO="$PWD"
           cd "$(mktemp -d)"
-          EG_INSTALLED_WHEEL_GATE=1 PYTHONNOUSERSITE=1 "$REPO/.gates-wheel-venv/bin/python" -m pytest \
+          EG_INSTALLED_WHEEL_GATE=1 PYTHONNOUSERSITE=1 "$EG_GATES_WHEEL_VENV/bin/python" -m pytest \
             "$REPO/tests/test_installed_wheel_decision_client_boundary.py" --noconftest -q
 
 

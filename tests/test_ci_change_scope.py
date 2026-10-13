@@ -485,7 +485,7 @@ def test_generated_contract_pytest_uses_test_interpreter_and_lock() -> None:
     [
         (
             "gates-wheel",
-            "d1bb117dca4b7a33f9d4bcb53ca7c35cbce779954194bc46421aaeed696a5c9e",
+            "1b1950e2782fc63c8a3f575baabe5aef3048b5d1d8ba2489b2f6e8a910b2e724",
         ),
         (
             "gates-whisper",
@@ -535,3 +535,29 @@ def test_wheel_gate_inherits_locked_pytest_before_parity_dependencies() -> None:
     )
     assert steps.index(locked) == 5
     assert steps.index(locked) < steps.index(parity)
+
+
+def test_wheel_acceptance_uses_only_the_external_virtualenv() -> None:
+    jobs = yaml.safe_load((ROOT / ".github/workflows/release.yml").read_text())["jobs"]
+    job = jobs["gates-wheel"]
+    assert job["env"]["EG_GATES_WHEEL_VENV"] == ("${{ runner.temp }}/.gates-wheel-venv")
+    steps = {step.get("name"): step.get("run", "") for step in job["steps"]}
+    install = steps[
+        "Install the folded epistemic-graph wheel into a clean throwaway venv"
+    ]
+    assert 'python -m venv "$EG_GATES_WHEEL_VENV"' in install
+    assert install.count('"$EG_GATES_WHEEL_VENV/bin/pip"') == 2
+    consumers = {
+        "numpy-parity gate (compiled kernel vs numpy)",
+        "numpy-free boundary contract (NE-249)",
+        "engine kernel smoke test (import epistemic_graph.engine)",
+        "installed-wheel no-source-tree-import check (EG-CONTRACT-R002.3)",
+    }
+    actual = {
+        name
+        for name, command in steps.items()
+        if '"$EG_GATES_WHEEL_VENV/bin/python"' in command
+    }
+    assert actual == consumers
+    for command in steps.values():
+        assert ".gates-wheel-venv" not in command
