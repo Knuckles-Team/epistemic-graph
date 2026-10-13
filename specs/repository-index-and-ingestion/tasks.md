@@ -46,3 +46,12 @@ Every task extends its listed parent. Existing obligations remain active.
 | `EG-REPO-INGEST-R002.101` | `e0c431512565acb1a8ae00e09b63ec6fb7c8f9e81ef9c786a0fd7b26b2239455` | Gate graph-loaded workflow completion on durable hydration readback. | AU execution-success consumer ID remains unassigned. Pipelines is not the runtime producer. |
 
 All seven definitions remain SPECIFIED. Tasks remain open pending owner review and served evidence.
+
+
+### Proposed producer work for EG-REPO-INGEST-R006.3
+
+- [ ] Implement the exact typed authority and producer contracts in plan.md.
+- [ ] Wire existing authorization, ChangeEnvelope admission and generated UnifiedQuery.
+- [ ] Run `test_inventory_advance_fences_map_and_rebinds_symbols` with restart and independent durable readback.
+
+Status remains SPECIFIED. `landed_in` and `verified_by` remain empty.
