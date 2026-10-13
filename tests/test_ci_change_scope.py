@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import subprocess
 import sys
@@ -476,3 +478,37 @@ def test_generated_contract_pytest_uses_test_interpreter_and_lock() -> None:
     )
     assert consumer["run"] == "python3 tests/test_generated_client_contract.py"
     assert steps.index(install) < steps.index(consumer)
+
+
+@pytest.mark.parametrize(
+    ("job_name", "steps_digest"),
+    [
+        (
+            "gates-wheel",
+            "d1bb117dca4b7a33f9d4bcb53ca7c35cbce779954194bc46421aaeed696a5c9e",
+        ),
+        (
+            "gates-whisper",
+            "6a4943c685f7d0a3b4e27fd57ab2f3e3b7c0616cf2c156e294461a7786dce2cb",
+        ),
+    ],
+)
+def test_split_native_acceptance_preserves_commands_and_release_dependencies(
+    job_name: str,
+    steps_digest: str,
+) -> None:
+    jobs = yaml.safe_load((ROOT / ".github/workflows/release.yml").read_text())["jobs"]
+    job = jobs[job_name]
+    assert job["needs"] == "changes"
+    assert job["if"] == jobs["gates"]["if"]
+    assert job["runs-on"] == jobs["gates"]["runs-on"]
+    assert job["timeout-minutes"] == jobs["gates"]["timeout-minutes"]
+    assert job["steps"][:5] == jobs["gates"]["steps"][:5]
+    # Snapshot the unchanged step mappings, including every command and its env.
+    actual = json.dumps(job["steps"][5:], sort_keys=True).encode()
+    assert hashlib.sha256(actual).hexdigest() == steps_digest
+    for consumer in ("build", "build-x86", "engine-main-wheel"):
+        assert job_name in jobs[consumer]["needs"]
+    original = "gates" if job_name == "gates-wheel" else "gates-facade"
+    original_names = {step.get("name") for step in jobs[original]["steps"]}
+    assert not original_names & {step["name"] for step in job["steps"][5:]}
