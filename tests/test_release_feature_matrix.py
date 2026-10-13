@@ -216,6 +216,7 @@ def _assert_required_clippy_declarations(workflow):
 # This is partial parent declaration coverage, not native execution evidence.
 @pytest.mark.spec("EG-DURABLE-KERNEL-R011")
 @pytest.mark.spec("EG-DURABLE-KERNEL-R011.5")
+@pytest.mark.spec("EG-CONTRACT-R037")
 def test_required_clippy_profiles_and_command_are_declared(release_matrix):
     workflow, _ = release_matrix
     _assert_required_clippy_declarations(workflow)
@@ -244,3 +245,39 @@ def test_required_clippy_declaration_drift_is_refused(release_matrix, mutation):
         ]
     with pytest.raises(AssertionError):
         _assert_required_clippy_declarations(workflow)
+
+
+# Partial declaration coverage, not native execution evidence: the slim
+# profile's compile-and-lint evidence remains owned by the CI legs.
+@pytest.mark.spec("EG-CONTRACT-R046")
+def test_release_workflow_checks_the_slim_server_profile(release_matrix):
+    workflow, _ = release_matrix
+    profiles = workflow["jobs"]["quality-advisory"]["strategy"]["matrix"]["profile"]
+    matches = [profile for profile in profiles if profile["name"] == "slim-server"]
+    assert len(matches) == 1, "slim-server Clippy profile must occur once"
+    assert shlex.split(matches[0]["flags"]) == shlex.split(
+        "--no-default-features --features server"
+    )
+    runs = [
+        str(step.get("run", "")) for step in workflow["jobs"]["gates-variants"]["steps"]
+    ]
+    assert any("--no-default-features --features server" in run for run in runs), (
+        "no gate compiles the slim server profile"
+    )
+
+
+@pytest.mark.spec("EG-CONTRACT-R047")
+def test_engine_main_wheel_publishes_a_prerelease_on_main_push_only(release_matrix):
+    workflow, _ = release_matrix
+    job = workflow["jobs"]["engine-main-wheel"]
+    assert "push" in job["if"] and "refs/heads/main" in job["if"]
+    assert "gates-variants" in job["needs"]
+    assert job["env"]["EG_WHEEL_TARGET"] == "x86_64-unknown-linux-gnu"
+    names = [str(step.get("name", "")) for step in job["steps"]]
+    assert any("Smoke test" in name for name in names)
+    assert any("SHA256SUMS" in str(step.get("run", "")) for step in job["steps"])
+    publish = next(
+        step for step in job["steps"] if str(step.get("name", "")).startswith("Publish")
+    )
+    assert "gh release create engine-main" in publish["run"]
+    assert "--prerelease" in publish["run"]

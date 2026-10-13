@@ -58,6 +58,7 @@ def test_r820_gate_preserves_all_feature_selection_and_no_fail_fast():
     assert "EG_ALL_FEATURE_TEST_TIMEOUT" in source
 
 
+@pytest.mark.spec("EG-CONTRACT-R030")
 def test_constrained_gate_routes_every_test_phase_through_runner():
     source = CONSTRAINED_GATE.read_text(encoding="utf-8")
     assert "bounded_test() {" in source
@@ -99,3 +100,19 @@ def test_constrained_gate_never_charges_compilation_to_the_test_contract():
             assert runner == "bounded_build", (runner, args)
         else:
             assert runner in ("bounded_test", "bounded_kafka_test"), (runner, args)
+
+
+@pytest.mark.spec("EG-CONTRACT-R030")
+def test_constrained_compile_phases_keep_full_host_parallelism():
+    """EH-305: the taskset CPU pin is a test-phase bound only. Every `--no-run`
+    compile keeps the host's full CPU availability; pinning the build is exactly
+    what killed the cold runs under the bounded wall-clock bounds."""
+    source = CONSTRAINED_GATE.read_text(encoding="utf-8")
+    builds = [
+        line
+        for line in source.splitlines()
+        if "bounded_build" in line and "--no-run" in line
+    ]
+    assert len(builds) >= 3, builds
+    for line in builds:
+        assert "taskset" not in line, line

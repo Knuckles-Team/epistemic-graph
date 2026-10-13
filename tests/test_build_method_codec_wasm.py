@@ -67,6 +67,7 @@ def test_invalid_or_importing_modules_fail_closed(codec, module):
         codec.verify_no_imports(module)
 
 
+@pytest.mark.spec("EG-CONTRACT-R006")
 def test_check_requires_both_client_copies_to_equal_fresh_bytes(
     codec, tmp_path, capsys
 ):

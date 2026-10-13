@@ -349,3 +349,22 @@ Each task preserves its existing parent and owner boundary.
 | `EG-CONTRACT-R001.2` | Use R094 export/import with governed SDK and GraphOS disk effects. Pin the number encoder. | AU-CONTROL-R025.40 remains unmerged. EG SHALL NOT add a filesystem writer. | `98b7ad1186ec2a385b334ffa0ad1b28888157ed6b51c6ed4172eeb7b7ef6768e` |
 
 Both requirements remain SPECIFIED until separately reviewed implementation and served evidence exist.
+
+
+### 2026-10-13: bind R035 pytest provisioning to the test interpreter
+
+The gates job must install pytest into the Python interpreter that runs generated-client contract checks.
+Use the existing uv-managed environment and pin its Linux/Python 3.12 pytest dependencies to uv.lock.
+Keep the ten-minute PR timeout policy. Do not install the project or build native code for this provisioning step.
+
+
+### 2026-10-13: limit PR543 acceptance evidence to what its tests prove
+
+R027 remains without acceptance evidence. The classifier-exemption test does not prove extraction without a classifier special case.
+R038 remains without acceptance evidence. Receipt counts and format identities do not prove regeneration or refusal of a changed digest.
+R039 remains without acceptance evidence. A declared base-ref flag does not prove scanning the complete combined tree against origin/main.
+Keep those tests under their original bindings only. Do not add R027, R038 or R039 markers to them.
+Future R027 acceptance must measure the affected extracted dispatch functions and retain functional coverage.
+Future R038 acceptance must run the blocking generator check and reject a changed receipt digest.
+Future R039 acceptance must run the actual duplication gate against origin/main across the combined changes.
+No runtime, scanner result or new acceptance receipt is claimed for these three rows.
