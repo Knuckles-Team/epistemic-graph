@@ -115,12 +115,16 @@
     "EG-MEDIA-VOCAB-R030",
     "EG-MEDIA-VOCAB-R031",
     "EG-MEDIA-VOCAB-R032",
-    "EG-MEDIA-VOCAB-R033"
+    "EG-MEDIA-VOCAB-R033",
+    "EG-MEDIA-VOCAB-R002.5",
+    "EG-MEDIA-VOCAB-R001.100",
+    "EG-MEDIA-VOCAB-R001.101",
+    "EG-MEDIA-VOCAB-R001.102"
   ],
   "requirements": [
     {
       "id": "EG-MEDIA-VOCAB-R001",
-      "title": "Media and personal-content vocabulary: media-v1.ttl",
+      "title": "Shared media ontology",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -130,7 +134,10 @@
         "EG-MEDIA-VOCAB-R001.3",
         "EG-MEDIA-VOCAB-R001.4",
         "EG-MEDIA-VOCAB-R001.5",
-        "EG-MEDIA-VOCAB-R001.6"
+        "EG-MEDIA-VOCAB-R001.6",
+        "EG-MEDIA-VOCAB-R001.100",
+        "EG-MEDIA-VOCAB-R001.101",
+        "EG-MEDIA-VOCAB-R001.102"
       ]
     },
     {
@@ -185,7 +192,8 @@
         "EG-MEDIA-VOCAB-R002.1",
         "EG-MEDIA-VOCAB-R002.2",
         "EG-MEDIA-VOCAB-R002.3",
-        "EG-MEDIA-VOCAB-R002.4"
+        "EG-MEDIA-VOCAB-R002.4",
+        "EG-MEDIA-VOCAB-R002.5"
       ]
     },
     {
@@ -1017,6 +1025,34 @@
     {
       "id": "EG-MEDIA-VOCAB-R033",
       "title": "Cross-repo, owner jellyfin-mcp and audiobookshelf-mcp: stop declaring :Author in the shared namespace; use mv:contributor to :Person",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-MEDIA-VOCAB-R002.5",
+      "title": "Receipt-bound paper facts; citation-edge hold",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-MEDIA-VOCAB-R001.100",
+      "title": "Provenanced object/context tags and authorized media search",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-MEDIA-VOCAB-R001.101",
+      "title": "Meeting transcript revisions and provider-bound summary context",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-MEDIA-VOCAB-R001.102",
+      "title": "Bookmark semantic search and authorized relation projection",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

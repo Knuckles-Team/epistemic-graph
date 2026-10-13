@@ -225,7 +225,28 @@
     "EG-FEDERATED-QUERY-R085.5",
     "EG-FEDERATED-QUERY-R085.6",
     "EG-FEDERATED-QUERY-R085.7",
-    "EG-FEDERATED-QUERY-R085.8"
+    "EG-FEDERATED-QUERY-R085.8",
+    "EG-FEDERATED-QUERY-R070.1",
+    "EG-FEDERATED-QUERY-R006.1",
+    "EG-FEDERATED-QUERY-R040.5",
+    "EG-FEDERATED-QUERY-R040.6",
+    "EG-FEDERATED-QUERY-R083.7",
+    "EG-FEDERATED-QUERY-R081.10",
+    "EG-FEDERATED-QUERY-R028.1",
+    "EG-FEDERATED-QUERY-R005.1",
+    "EG-FEDERATED-QUERY-R078.7",
+    "EG-FEDERATED-QUERY-R081.9.7.7",
+    "EG-FEDERATED-QUERY-R081.9.7.8",
+    "EG-FEDERATED-QUERY-R040.2.7",
+    "EG-FEDERATED-QUERY-R081.8.100",
+    "EG-FEDERATED-QUERY-R053.100",
+    "EG-FEDERATED-QUERY-R032.100",
+    "EG-FEDERATED-QUERY-R086",
+    "EG-FEDERATED-QUERY-R086.100",
+    "EG-FEDERATED-QUERY-R081.101",
+    "EG-FEDERATED-QUERY-R081.102",
+    "EG-FEDERATED-QUERY-R081.100",
+    "EG-FEDERATED-QUERY-R081.103"
   ],
   "requirements": [
     {
@@ -288,7 +309,7 @@
     {
       "id": "EG-FEDERATED-QUERY-R005",
       "title": "UQL VALIDATE SHAPE stage",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "0265d3a41baf",
         "1ac87735b5a3",
@@ -298,12 +319,15 @@
       "verified_by": [
         "crates/eg-plan/src/uql/tests/shape.rs:44",
         "src/server/handlers/rdf/validation.rs:376"
+      ],
+      "rollup_of": [
+        "EG-FEDERATED-QUERY-R005.1"
       ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R006",
       "title": "Proof-carrying results for SPARQL and rule-derived queries",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "0265d3a41baf",
         "8bbe95351da3"
@@ -312,6 +336,9 @@
         "crates/eg-rdf/src/rules/tests.rs:348",
         "crates/eg-rdf/src/rules/tests.rs:376",
         "crates/eg-rdf/src/rules/tests.rs:386"
+      ],
+      "rollup_of": [
+        "EG-FEDERATED-QUERY-R006.1"
       ]
     },
     {
@@ -589,12 +616,15 @@
     {
       "id": "EG-FEDERATED-QUERY-R028",
       "title": "KnowledgeSet is reachable from UQL",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "0265d3a41baf",
         "681de5cb1968"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "rollup_of": [
+        "EG-FEDERATED-QUERY-R028.1"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R029",
@@ -641,7 +671,7 @@
     {
       "id": "EG-FEDERATED-QUERY-R032",
       "title": "Probabilistic impact propagation with cone-scoped recomputation",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "0265d3a41baf",
         "c06e903d0def"
@@ -650,6 +680,9 @@
         "src/server/impact_watch/tests.rs:112",
         "src/server/impact_watch/tests.rs:135",
         "src/server/impact_watch/tests.rs:157"
+      ],
+      "rollup_of": [
+        "EG-FEDERATED-QUERY-R032.100"
       ]
     },
     {
@@ -762,7 +795,9 @@
         "EG-FEDERATED-QUERY-R040.1",
         "EG-FEDERATED-QUERY-R040.2",
         "EG-FEDERATED-QUERY-R040.3",
-        "EG-FEDERATED-QUERY-R040.4"
+        "EG-FEDERATED-QUERY-R040.4",
+        "EG-FEDERATED-QUERY-R040.5",
+        "EG-FEDERATED-QUERY-R040.6"
       ]
     },
     {
@@ -923,13 +958,16 @@
     {
       "id": "EG-FEDERATED-QUERY-R053",
       "title": "Trino, Cypher and Spark sources are typed ForeignSourceSpec kinds",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "09385617b3ae",
         "62c450561948",
         "ec4d3c4ee5a3"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "rollup_of": [
+        "EG-FEDERATED-QUERY-R053.100"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R054",
@@ -1175,13 +1213,16 @@
     {
       "id": "EG-FEDERATED-QUERY-R070",
       "title": "UQL execution budgets are enforced and reported in EXPLAIN/PROFILE",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "62c450561948",
         "e93f988eae07"
       ],
       "verified_by": [
         "crates/eg-plan/src/budget.rs:73"
+      ],
+      "rollup_of": [
+        "EG-FEDERATED-QUERY-R070.1"
       ]
     },
     {
@@ -1335,7 +1376,8 @@
         "EG-FEDERATED-QUERY-R078.3",
         "EG-FEDERATED-QUERY-R078.4",
         "EG-FEDERATED-QUERY-R078.5",
-        "EG-FEDERATED-QUERY-R078.6"
+        "EG-FEDERATED-QUERY-R078.6",
+        "EG-FEDERATED-QUERY-R078.7"
       ]
     },
     {
@@ -1509,7 +1551,12 @@
         "EG-FEDERATED-QUERY-R081.6",
         "EG-FEDERATED-QUERY-R081.7",
         "EG-FEDERATED-QUERY-R081.8",
-        "EG-FEDERATED-QUERY-R081.9"
+        "EG-FEDERATED-QUERY-R081.9",
+        "EG-FEDERATED-QUERY-R081.10",
+        "EG-FEDERATED-QUERY-R081.101",
+        "EG-FEDERATED-QUERY-R081.102",
+        "EG-FEDERATED-QUERY-R081.100",
+        "EG-FEDERATED-QUERY-R081.103"
       ]
     },
     {
@@ -1623,7 +1670,8 @@
         "EG-FEDERATED-QUERY-R081.8.3",
         "EG-FEDERATED-QUERY-R081.8.4",
         "EG-FEDERATED-QUERY-R081.8.5",
-        "EG-FEDERATED-QUERY-R081.8.6"
+        "EG-FEDERATED-QUERY-R081.8.6",
+        "EG-FEDERATED-QUERY-R081.8.100"
       ]
     },
     {
@@ -1795,7 +1843,8 @@
         "EG-FEDERATED-QUERY-R083.3",
         "EG-FEDERATED-QUERY-R083.4",
         "EG-FEDERATED-QUERY-R083.5",
-        "EG-FEDERATED-QUERY-R083.6"
+        "EG-FEDERATED-QUERY-R083.6",
+        "EG-FEDERATED-QUERY-R083.7"
       ]
     },
     {
@@ -1966,7 +2015,9 @@
         "EG-FEDERATED-QUERY-R081.9.7.3",
         "EG-FEDERATED-QUERY-R081.9.7.4",
         "EG-FEDERATED-QUERY-R081.9.7.5",
-        "EG-FEDERATED-QUERY-R081.9.7.6"
+        "EG-FEDERATED-QUERY-R081.9.7.6",
+        "EG-FEDERATED-QUERY-R081.9.7.7",
+        "EG-FEDERATED-QUERY-R081.9.7.8"
       ]
     },
     {
@@ -2153,7 +2204,8 @@
         "EG-FEDERATED-QUERY-R040.2.3",
         "EG-FEDERATED-QUERY-R040.2.4",
         "EG-FEDERATED-QUERY-R040.2.5",
-        "EG-FEDERATED-QUERY-R040.2.6"
+        "EG-FEDERATED-QUERY-R040.2.6",
+        "EG-FEDERATED-QUERY-R040.2.7"
       ]
     },
     {
@@ -2368,6 +2420,156 @@
     {
       "id": "EG-FEDERATED-QUERY-R085.8",
       "title": "Evidence and hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R070.1",
+      "title": "Source-backed definition disposition",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R006.1",
+      "title": "Source-backed definition disposition",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R040.5",
+      "title": "Source-backed definition disposition",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R040.6",
+      "title": "Source-backed definition disposition",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R083.7",
+      "title": "Support-aware arbitration prevents unsupported confidence wins",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R081.10",
+      "title": "Source-backed definition disposition",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R028.1",
+      "title": "Source-backed definition disposition",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R005.1",
+      "title": "Source-backed definition disposition",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R078.7",
+      "title": "Source-backed definition disposition",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R081.9.7.7",
+      "title": "Source-backed definition disposition",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R081.9.7.8",
+      "title": "Source-backed definition disposition",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R040.2.7",
+      "title": "Source-backed definition disposition",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R081.8.100",
+      "title": "Retriever-bound query strategy and transfer revalidation",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R053.100",
+      "title": "Generated Cypher property keys use grammar-valid backtick quoting and build refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R032.100",
+      "title": "Layer- and history-weighted impact traverses both dependency directions",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R086",
+      "title": "Inductive n-ary hypothesis-only link prediction (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-FEDERATED-QUERY-R086.100"
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R086.100",
+      "title": "Ordered n-ary inductive link prediction emits hypotheses only",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R081.101",
+      "title": "Reusable compressed document state with decoding-free reranking",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R081.102",
+      "title": "Index-time teacher distillation with measured quality and zero query model calls",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R081.100",
+      "title": "Joint sparse nonnegative reconstruction selects a diverse document set",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R081.103",
+      "title": "Viewport-bounded scatter and line queries over billion-point indexed sources",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

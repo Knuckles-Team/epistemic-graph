@@ -65,7 +65,8 @@
     "EG-CQ-ORCH-R010.3",
     "EG-CQ-ORCH-R010.4",
     "EG-CQ-ORCH-R010.5",
-    "EG-CQ-ORCH-R010.6"
+    "EG-CQ-ORCH-R010.6",
+    "EG-CQ-ORCH-R010.7"
   ],
   "requirements": [
     {
@@ -529,7 +530,8 @@
         "EG-CQ-ORCH-R010.3",
         "EG-CQ-ORCH-R010.4",
         "EG-CQ-ORCH-R010.5",
-        "EG-CQ-ORCH-R010.6"
+        "EG-CQ-ORCH-R010.6",
+        "EG-CQ-ORCH-R010.7"
       ]
     },
     {
@@ -570,6 +572,13 @@
     {
       "id": "EG-CQ-ORCH-R010.6",
       "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R010.7",
+      "title": "Preplanning architecture-gap admission and unwired-feature refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

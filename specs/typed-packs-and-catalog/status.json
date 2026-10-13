@@ -173,7 +173,16 @@
     "EG-TYPED-PACKS-R100.3",
     "EG-TYPED-PACKS-R100.4",
     "EG-TYPED-PACKS-R100.5",
-    "EG-TYPED-PACKS-R100.6"
+    "EG-TYPED-PACKS-R100.6",
+    "EG-TYPED-PACKS-R100.7",
+    "EG-TYPED-PACKS-R097.2.7",
+    "EG-TYPED-PACKS-R100.8",
+    "EG-TYPED-PACKS-R069.100",
+    "EG-TYPED-PACKS-R100.100",
+    "EG-TYPED-PACKS-R100.101",
+    "EG-TYPED-PACKS-R001.100",
+    "EG-TYPED-PACKS-R072.100",
+    "EG-TYPED-PACKS-R071.100"
   ],
   "requirements": [
     {
@@ -196,7 +205,8 @@
         "EG-TYPED-PACKS-R001.6",
         "EG-TYPED-PACKS-R001.7",
         "EG-TYPED-PACKS-R001.8",
-        "EG-TYPED-PACKS-R001.9"
+        "EG-TYPED-PACKS-R001.9",
+        "EG-TYPED-PACKS-R001.100"
       ]
     },
     {
@@ -1306,11 +1316,14 @@
     {
       "id": "EG-TYPED-PACKS-R069",
       "title": "Branch-aware, blob-deduplicated repository indexing",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "a1bb9fb9503e"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "rollup_of": [
+        "EG-TYPED-PACKS-R069.100"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R070",
@@ -1333,7 +1346,8 @@
       ],
       "verified_by": [],
       "rollup_of": [
-        "EG-TYPED-PACKS-R071.1"
+        "EG-TYPED-PACKS-R071.1",
+        "EG-TYPED-PACKS-R071.100"
       ]
     },
     {
@@ -1396,12 +1410,15 @@
     {
       "id": "EG-TYPED-PACKS-R072",
       "title": "EG/SDK typed fleet-catalog authority, not SQL tables",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "2a0d6eae0918",
         "90f5578ae2f4"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "rollup_of": [
+        "EG-TYPED-PACKS-R072.100"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R073",
@@ -1791,7 +1808,8 @@
         "EG-TYPED-PACKS-R097.2.3",
         "EG-TYPED-PACKS-R097.2.4",
         "EG-TYPED-PACKS-R097.2.5",
-        "EG-TYPED-PACKS-R097.2.6"
+        "EG-TYPED-PACKS-R097.2.6",
+        "EG-TYPED-PACKS-R097.2.7"
       ]
     },
     {
@@ -1873,7 +1891,11 @@
         "EG-TYPED-PACKS-R100.3",
         "EG-TYPED-PACKS-R100.4",
         "EG-TYPED-PACKS-R100.5",
-        "EG-TYPED-PACKS-R100.6"
+        "EG-TYPED-PACKS-R100.6",
+        "EG-TYPED-PACKS-R100.7",
+        "EG-TYPED-PACKS-R100.8",
+        "EG-TYPED-PACKS-R100.100",
+        "EG-TYPED-PACKS-R100.101"
       ]
     },
     {
@@ -1914,6 +1936,69 @@
     {
       "id": "EG-TYPED-PACKS-R100.6",
       "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R100.7",
+      "title": "Exact rendered-package validation gate",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R097.2.7",
+      "title": "Directional external-schema import and complete unmapped-term report",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R100.8",
+      "title": "Lossless versioned workflow RDF export/import",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R069.100",
+      "title": "Semantic fingerprint separates cosmetic from structural repository changes",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R100.100",
+      "title": "Lossless SKILL.md frontmatter and step editing round trip",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R100.101",
+      "title": "Skill consumer compatibility and declared-migration admission",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R001.100",
+      "title": "Versioned nested prompt/tool schemas with incremental compatibility",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R072.100",
+      "title": "Workflow registration and invocation through typed registry",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R071.100",
+      "title": "Canonical shared hierarchical concept paths across repositories",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
