@@ -269,11 +269,11 @@
         "8baee8a94894"
       ],
       "verified_by": [
-        "tests/test_release_python_suite_contract.py:112",
-        "tests/test_release_python_suite_contract.py:123",
-        "tests/test_release_python_suite_contract.py:298",
-        "tests/test_release_python_suite_contract.py:341",
-        "tests/test_release_python_suite_contract.py:84"
+        "tests/test_release_python_suite_contract.py:102",
+        "tests/test_release_python_suite_contract.py:119",
+        "tests/test_release_python_suite_contract.py:130",
+        "tests/test_release_python_suite_contract.py:305",
+        "tests/test_release_python_suite_contract.py:348"
       ]
     },
     {
@@ -399,10 +399,13 @@
       "title": "Release feature matrix includes the motif Cargo feature",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "43200ff368b9",
         "b8aac182d679",
-        "cfd03dda1ef7"
+        "cfd03dda1ef7",
+        "d556e4d0895e"
       ],
       "verified_by": [
+        "tests/test_release_feature_matrix.py:250",
         "tests/test_release_feature_matrix.py:87"
       ]
     },
@@ -744,7 +747,7 @@
         "5bf5b719de7e"
       ],
       "verified_by": [
-        "tests/test_release_feature_matrix.py:252"
+        "tests/test_release_feature_matrix.py:287"
       ]
     },
     {

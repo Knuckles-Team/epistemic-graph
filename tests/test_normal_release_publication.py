@@ -50,6 +50,7 @@ class ReleasePublication(unittest.TestCase):
                 "gates-facade",
                 "gates-variants",
                 "gates-crates",
+                "gates-pyo3",
                 "python-suite",
                 "security",
                 "lint-and-architecture",

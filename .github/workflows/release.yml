@@ -6,7 +6,7 @@ name: Release
 # freshness, lint, scanner/census analysis, optional feature builds, and
 # benchmarks remain visible but advisory; they do not delay publication.
 #
-# Blocking path: {gates, gates-facade, gates-variants, gates-crates, python-suite,
+# Blocking path: {gates, gates-facade, gates-variants, gates-crates, gates-pyo3, python-suite,
 # security, lint-and-architecture, tts-piper-inference, language-clients}
 # -> {build, build-x86} -> {docker-image, publish-pypi} -> publish-image.
 # Quality and documentation checks run independently. GitHub Pages deploys
@@ -597,11 +597,35 @@ jobs:
           echo "pr-test-scope: running only the changed crates this diff affects:"
           printf '%s\n' "${args[@]}"
           python3 scripts/cargo_test_rescue.py cargo test --locked "${args[@]}" --all-features --no-fail-fast
+
+      - name: Report workspace-crate compiler cache reuse
+        if: always()
+        run: *eg-validation-compiler-cache-stats
+
+  # Keep pyo3 validation independent of storage and the workspace sweep.
+  # Main warms the same profile; pull requests retain read-only caches.
+  gates-pyo3:
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
+    name: gates (pyo3 crates)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    env: *eg-validation-compiler-cache-backend
+    steps:
+      - *eg-gates-checkout
+      - *eg-gates-python
+      - *eg-gates-pydeps
+      - *eg-gates-sasl
+      - *eg-gates-toolchain
+      - *eg-gates-cache
+      - *eg-validation-compiler-cache
+      - *eg-gates-sqlite
+      - *eg-gates-whisper
       - name: Test (pyo3 crates, every feature except python)
         env: *eg-validation-compiler-cache-env
         run: python3 scripts/cargo_test_rescue.py cargo test --locked -p eg-numeric -p eg-pyengine --features eg-numeric/analytics,eg-numeric/contract,eg-numeric/complex,eg-numeric/decision,eg-numeric/motif,eg-pyengine/security,eg-pyengine/ml-pipeline,eg-pyengine/reasoning,eg-pyengine/query,eg-pyengine/cypher,eg-pyengine/tsdb,eg-pyengine/streaming,eg-pyengine/wasm-udf,eg-pyengine/rdf,eg-pyengine/blob,eg-pyengine/jobs,eg-pyengine/statechart,eg-pyengine/finance --no-fail-fast
 
-      - name: Report workspace-crate compiler cache reuse
+      - name: Report pyo3 compiler cache reuse
         if: always()
         run: *eg-validation-compiler-cache-stats
 
@@ -1278,7 +1302,7 @@ jobs:
   build:
     timeout-minutes: 360
     name: wheel ${{ matrix.name }}
-    needs: [gates, gates-facade, gates-variants, gates-crates, python-suite, security, lint-and-architecture, tts-piper-inference, language-clients]
+    needs: [gates, gates-facade, gates-variants, gates-crates, gates-pyo3, python-suite, security, lint-and-architecture, tts-piper-inference, language-clients]
     # Hosted platform legs; x86 is isolated in the immutable reusable job below.
     if: >-
       github.repository == 'Knuckles-Team/epistemic-graph'
@@ -1497,7 +1521,7 @@ jobs:
 
   build-x86:
     name: wheel linux-x86_64
-    needs: [gates, gates-facade, gates-variants, gates-crates, python-suite, security, lint-and-architecture, tts-piper-inference, language-clients]
+    needs: [gates, gates-facade, gates-variants, gates-crates, gates-pyo3, python-suite, security, lint-and-architecture, tts-piper-inference, language-clients]
     if: >-
       github.repository == 'Knuckles-Team/epistemic-graph'
       && ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || github.event_name == 'workflow_dispatch')
@@ -1817,7 +1841,7 @@ jobs:
   engine-main-wheel:
     timeout-minutes: 360
     name: engine-main wheel (linux-x86_64)
-    needs: [gates, gates-facade, gates-variants, gates-crates, python-suite, security, lint-and-architecture]
+    needs: [gates, gates-facade, gates-variants, gates-crates, gates-pyo3, python-suite, security, lint-and-architecture]
     if: >-
       github.repository == 'Knuckles-Team/epistemic-graph'
       && github.event_name == 'push' && github.ref == 'refs/heads/main'

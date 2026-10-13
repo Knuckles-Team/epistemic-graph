@@ -351,6 +351,17 @@ Each task preserves its existing parent and owner boundary.
 Both requirements remain SPECIFIED until separately reviewed implementation and served evidence exist.
 
 
+### 2026-10-13: isolate pyo3 validation from the workspace queue
+
+Extend R018 and R035 by moving the existing pyo3 test command unchanged into `gates-pyo3`.
+The job depends only on change classification, not storage or the workspace sweep.
+Preserve its feature set, prerequisites, compiler wrapper and ten-minute PR ceiling.
+All release build consumers must require it. Main runs the same profile and may write caches; PR caches remain read-only.
+This removes preceding work from the pyo3 job budget. It does not claim a measured runtime improvement yet.
+Hosted exact-head timings must establish completion before larger lower/facade sharding or artifact-reuse changes.
+No server artifact identity or validation is relaxed by this split.
+
+
 ### 2026-10-13: bind R035 pytest provisioning to the test interpreter
 
 The gates job must install pytest into the Python interpreter that runs generated-client contract checks.
