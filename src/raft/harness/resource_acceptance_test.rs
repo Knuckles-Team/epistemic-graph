@@ -2566,6 +2566,7 @@ async fn kg_delegate_public_dispatch_replicates_and_replays_after_failover_scena
 /// Agent Library owner itself. The fixture seeds the retained definition before
 /// the crash, then deliberately leaves the reopened ServerState's in-memory
 /// `agent_library` handle unset until this public route is dispatched.
+// spec: EG-DURABLE-KERNEL-R006
 #[cfg(feature = "redb")]
 #[test]
 fn kg_delegate_public_dispatch_first_request_after_restart() {
