@@ -225,7 +225,8 @@ jobs:
       - name: Query-pipeline fuzz + chaos (eg-plan)
         env: *eg-validation-compiler-cache-env
         run: python3 scripts/cargo_test_rescue.py cargo test -p eg-plan --features "query,owl,text,timeseries,federation" --test fuzz_pipelines --no-fail-fast
-      - name: Install locked pytest for generated-client checks
+      - &eg-locked-pytest
+        name: Install locked pytest for generated-client checks
         run: uv pip install --python "$(command -v python3)" pytest==9.1.1 iniconfig==2.3.0 packaging==26.2 pluggy==1.6.0 pygments==2.20.0
       - name: Epistemic Operations manifest ⇄ Rust DTO parity
         run: python3 scripts/check_epistemic_operations_protocol.py
@@ -253,6 +254,9 @@ jobs:
       - *eg-gates-pydeps
       - *eg-gates-toolchain
       - *eg-gates-cache
+
+      # Preserve the locked test environment inherited before the job split.
+      - *eg-locked-pytest
 
       # numeric-parity + NE-249: the developer-only reference gate proves EVERY
       # kernel op matches its NumPy reference, AND that the kernel still imports

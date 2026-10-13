@@ -505,10 +505,33 @@ def test_split_native_acceptance_preserves_commands_and_release_dependencies(
     assert job["timeout-minutes"] == jobs["gates"]["timeout-minutes"]
     assert job["steps"][:5] == jobs["gates"]["steps"][:5]
     # Snapshot the unchanged step mappings, including every command and its env.
-    actual = json.dumps(job["steps"][5:], sort_keys=True).encode()
+    acceptance_steps = job["steps"][6 if job_name == "gates-wheel" else 5 :]
+    actual = json.dumps(acceptance_steps, sort_keys=True).encode()
     assert hashlib.sha256(actual).hexdigest() == steps_digest
     for consumer in ("build", "build-x86", "engine-main-wheel"):
         assert job_name in jobs[consumer]["needs"]
     original = "gates" if job_name == "gates-wheel" else "gates-facade"
     original_names = {step.get("name") for step in jobs[original]["steps"]}
-    assert not original_names & {step["name"] for step in job["steps"][5:]}
+    assert not original_names & {step["name"] for step in acceptance_steps}
+
+
+def test_wheel_gate_inherits_locked_pytest_before_parity_dependencies() -> None:
+    jobs = yaml.safe_load((ROOT / ".github/workflows/release.yml").read_text())["jobs"]
+    original = next(
+        step
+        for step in jobs["gates"]["steps"]
+        if step.get("name") == "Install locked pytest for generated-client checks"
+    )
+    steps = jobs["gates-wheel"]["steps"]
+    locked = next(
+        step
+        for step in steps
+        if step.get("name") == "Install locked pytest for generated-client checks"
+    )
+    # Reuse the exact step whose interpreter and uv.lock pins are checked above.
+    assert locked is original
+    parity = next(
+        step for step in steps if step.get("name") == "Install maturin + parity deps"
+    )
+    assert steps.index(locked) == 5
+    assert steps.index(locked) < steps.index(parity)
