@@ -15,7 +15,7 @@ use eg_types::agent_component::{AgentComponentEntry, AgentComponentKind, Compone
 use eg_types::decision::digest::policy_digest;
 use eg_types::decision::policy::policy_from_attributes;
 use eg_types::decision::statistical::body::decode_body;
-use eg_types::decision::statistical::StatisticalErrorCode;
+use eg_types::decision::statistical::{QuestionKind, StatisticalErrorCode};
 use eg_types::decision::{
     DecisionPolicy, DecisionPolicyRef, QuantScaleTag, QuantisedValue, StatisticalPolicy,
     TraceFidelityLevel, UnitRationalWire,
@@ -72,6 +72,17 @@ pub(super) fn refusal(code: StatisticalErrorCode, detail: impl std::fmt::Display
 
 pub(super) fn invalid_parameter(detail: impl std::fmt::Display) -> String {
     refusal(StatisticalErrorCode::ParameterInvalid, detail)
+}
+
+/// The wire kind is published before its specialized executor and replay path.
+/// Refuse it until both can derive the three-part harness configuration.
+pub(super) fn require_supported_question_kind(kind: QuestionKind) -> Result<(), String> {
+    if kind == QuestionKind::HarnessConfig {
+        return Err(invalid_parameter(
+            "harness_config is not supported by the decision executor",
+        ));
+    }
+    Ok(())
 }
 
 /// The revision a pin names, checked for tenant, kind and digest.

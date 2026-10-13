@@ -732,6 +732,36 @@ Cross-repository: `AU-QUAL-R009` runs the probe, submits the scorer results and 
 References
 - arXiv:2605.04019 — Dheekonda et al., "Redefining AI Red Teaming in the Agentic Era: From Weeks to Hours" (2026)
 
+
+### 2026-10-12: R128 question-kind contract
+
+R128.1 adds the evaluate-only `harness_config` question kind and its serialization test.
+R128.14 uses the existing schema-driven Python projection and native contract generator.
+Its regression checks request and result schemas plus the generated Python literal.
+Go and JavaScript share the regenerated native Method codec.
+Native validation passed 17 Rust tests and matched 73 generated artifacts.
+The JavaScript suite passed 517 tests. Go passed 519 tests and subtests.
+Both regenerated client codecs passed the official byte check.
+These checks reported zero failures or skips.
+The harness handler and served acceptance remain separate requirements.
+
+
+### 2026-10-12 — fail closed while HarnessConfig execution is pending
+
+PR528 review found an unguarded path from the new `harness_config` kind to generic scoring and verify-replay.
+The specialized handler is pending.
+Fresh Decide and statistical replay share a temporary `PARAMETER_INVALID` refusal for this kind.
+Tenant and caller authorization still precede execution.
+Replay verifies the record digest before the question kind.
+The wire kind, schemas, models, receipts and codecs remain unchanged.
+
+Tests in `stat_tests/harness_config_tests.rs` use real dispatch and successful Route and DecisionLog controls.
+They refuse a relabelled, rehashed `harness_config` record and verify that its identifier has no stored record.
+Both native regressions passed on R710: 2 passed, 0 failed and 0 ignored.
+The run used the existing facade profile with all features and the warm cache.
+All approved contract payload hashes remain unchanged.
+R128.8–R128.13 and R128.15 remain pending.
+
 ## R137 package-selection contract
 
 This extends the existing R137 owner. The first six children retain their acceptance. R137.7–.12 specify the certified package producer required by [AU-CONTEXT-R004](https://github.com/Knuckles-Team/agent-utilities/blob/50c313ab01871ff7e10aee2a9d0254fa55d71f07/specs/agent-context-and-finance/requirements.md#L8). Acceptance covers exact-token multi-resolution selection within window, cost and latency limits. It also requires preserved cited ranges/source ids and abstention when no admissible package fits. Existing R128 policy rows are dependencies and are not changed. R045 tool set-cover and EG-INGEST-WORKER-R003.2 relevance selection do not own this optimization.

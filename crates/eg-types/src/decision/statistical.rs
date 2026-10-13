@@ -94,6 +94,9 @@ pub enum QuestionKind {
     /// budget are typed request params (`required_capabilities`,
     /// `context_budget_tokens`). See `stat_tool_subset`.
     ToolSubset,
+    /// Evaluate-only harness configuration advice (EG-DECISION-ENGINE-R128).
+    /// Returns proposed context, scaffold and action-space choices; never runs them.
+    HarnessConfig,
 }
 
 /// What is at stake. Exploration is permitted only for
@@ -341,6 +344,18 @@ pub struct DecisionBatch {
 #[cfg(test)]
 mod question_kind_declared_tests {
     use super::QuestionKind;
+
+    // spec: EG-DECISION-ENGINE-R128.1
+    #[test]
+    fn harness_config_kind_serialises_snake_case() {
+        let wire = serde_json::to_string(&QuestionKind::HarnessConfig).unwrap();
+        assert_eq!(wire, "\"harness_config\"");
+        assert_eq!(
+            serde_json::from_str::<QuestionKind>(&wire).unwrap(),
+            QuestionKind::HarnessConfig
+        );
+        assert!(serde_json::from_str::<QuestionKind>("\"HarnessConfig\"").is_err());
+    }
 
     // spec: EG-DECISION-ENGINE-R032.1
     #[test]

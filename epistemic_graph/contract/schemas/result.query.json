@@ -43059,6 +43059,11 @@
           "const": "tool_subset",
           "description": "The smallest tool subset covering every required capability within a\ncontext-token budget (EG-DECISION-ENGINE-R045). Candidates are\ndeclared (`CandidateSource::Declared`); required capabilities and the\nbudget are typed request params (`required_capabilities`,\n`context_budget_tokens`). See `stat_tool_subset`.",
           "type": "string"
+        },
+        {
+          "const": "harness_config",
+          "description": "Evaluate-only harness configuration advice (EG-DECISION-ENGINE-R128).\nReturns proposed context, scaffold and action-space choices; never runs them.",
+          "type": "string"
         }
       ]
     },

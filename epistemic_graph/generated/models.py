@@ -24581,6 +24581,7 @@ QuestionKind = (
     | Literal["connector_tool_choice"]
     | Literal["connector_write_back"]
     | Literal["tool_subset"]
+    | Literal["harness_config"]
 )
 
 

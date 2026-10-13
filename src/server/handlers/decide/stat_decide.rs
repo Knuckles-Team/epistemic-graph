@@ -34,7 +34,9 @@ use super::stat_executor::{
 };
 use super::stat_log::{fill_outcome_rates, LogReader};
 use super::stat_nl::binding;
-use super::stat_support::{refusal, resolve_policy, ResolvedPolicy};
+use super::stat_support::{
+    refusal, require_supported_question_kind, resolve_policy, ResolvedPolicy,
+};
 use super::stat_tool_subset::tool_subset_outcome;
 use super::telemetry;
 use crate::protocol::{Response, ResultPayload};
@@ -72,6 +74,7 @@ async fn serve(
             "ACCESS_DENIED: Decide tenant must match the verified request tenant".to_string(),
         );
     }
+    require_supported_question_kind(request.question.kind)?;
     if request.max_records == Some(0) {
         return Err(refusal(
             StatisticalErrorCode::ParameterInvalid,
