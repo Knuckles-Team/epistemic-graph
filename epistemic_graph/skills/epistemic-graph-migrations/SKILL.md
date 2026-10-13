@@ -2,7 +2,7 @@
 name: epistemic-graph-migrations
 skill_type: skill
 description: >
-  Upgrade and migrate a live epistemic-graph engine (the AI-native database): binary
+  Upgrade and migrate a live epistemic-graph engine (the SI-native database): binary
   version flips, the one-time snapshot/.mp -> redb authoritative migration, config/env
   migrations (e.g. retired GRAPH_BACKEND values), and on-disk data-format evolution
   (bi-temporal fields, persisted blobs). Use when raising the engine version, flipping to
@@ -19,7 +19,7 @@ metadata:
 
 Principles (from the engine's No-Legacy rule): **code carries no back-compat**, but
 **persisted state and deployment config may need a one-time migration** (read-old →
-write-new, then drop the old reader). This skill is that boundary for the AI-native DB.
+write-new, then drop the old reader). This skill is that boundary for the SI-native DB.
 
 ## 1. Binary version flip
 Build + promote per `epistemic-graph-deploy`. New optional fields on persisted structs use

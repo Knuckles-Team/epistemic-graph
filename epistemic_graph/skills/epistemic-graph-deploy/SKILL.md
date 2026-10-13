@@ -2,7 +2,7 @@
 name: epistemic-graph-deploy
 skill_type: skill
 description: >
-  Promote and deploy the epistemic-graph engine (the AI-native database) in the live
+  Promote and deploy the epistemic-graph engine (the SI-native database) in the live
   Kubernetes graph-os unified-image deployment, and restart its clients safely. Use when
   shipping a new engine build, rolling out Rust-side changes, or restarting graph-os and
   messaging to pick up a validated artifact. The engine is baked into graph-os-unified;
