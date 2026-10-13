@@ -528,11 +528,13 @@
     {
       "id": "EG-CONTRACT-R029",
       "title": "Build runner keeps TMPDIR short enough for Unix socket paths",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "2a0d6eae0918"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_push_gate_evidence.py:256"
+      ]
     },
     {
       "id": "EG-CONTRACT-R030",
@@ -553,7 +555,7 @@
         "e729dc1650b6"
       ],
       "verified_by": [
-        "tests/test_ci_change_scope.py:168"
+        "tests/test_ci_change_scope.py:169"
       ],
       "rollup_of": [
         "EG-CONTRACT-R031.1",
@@ -568,7 +570,7 @@
         "733e1766936b"
       ],
       "verified_by": [
-        "tests/test_ci_change_scope.py:169"
+        "tests/test_ci_change_scope.py:170"
       ]
     },
     {
@@ -617,6 +619,7 @@
         "66e652687765"
       ],
       "verified_by": [
+        "tests/test_ci_change_scope.py:452",
         "tests/test_release_gates_test_target_coverage.py:62"
       ]
     },
@@ -637,11 +640,13 @@
     {
       "id": "EG-CONTRACT-R037",
       "title": "Clippy is warning-free across every release profile",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "04a134298236"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_release_feature_matrix.py:219"
+      ]
     },
     {
       "id": "EG-CONTRACT-R038",
@@ -673,11 +678,14 @@
     {
       "id": "EG-CONTRACT-R041",
       "title": "Privacy gate detects host paths across the tracked tree",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "2a0d6eae0918"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_documentation_privacy.py:100",
+        "tests/test_documentation_privacy.py:87"
+      ]
     },
     {
       "id": "EG-CONTRACT-R042",
@@ -725,11 +733,13 @@
     {
       "id": "EG-CONTRACT-R046",
       "title": "Slim-server build compiles with broker feature disabled",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "5bf5b719de7e"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_release_feature_matrix.py:252"
+      ]
     },
     {
       "id": "EG-CONTRACT-R047",
