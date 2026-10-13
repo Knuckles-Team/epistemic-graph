@@ -248,8 +248,6 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ${{ github.event_name == 'push' && fromJSON('["self-hosted", "homelab"]') || 'ubuntu-latest' }}
-    env:
-      EG_GATES_WHEEL_VENV: "${{ runner.temp }}/.gates-wheel-venv"
     steps:
       - *eg-gates-checkout
       - *eg-gates-python
@@ -259,6 +257,9 @@ jobs:
 
       # Preserve the locked test environment inherited before the job split.
       - *eg-locked-pytest
+
+      - name: Initialize external wheel virtualenv path
+        run: echo "EG_GATES_WHEEL_VENV=${RUNNER_TEMP:?}/.gates-wheel-venv" >> "$GITHUB_ENV"
 
       # numeric-parity + NE-249: the developer-only reference gate proves EVERY
       # kernel op matches its NumPy reference, AND that the kernel still imports

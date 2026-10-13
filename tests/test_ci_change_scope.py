@@ -505,7 +505,7 @@ def test_split_native_acceptance_preserves_commands_and_release_dependencies(
     assert job["timeout-minutes"] == jobs["gates"]["timeout-minutes"]
     assert job["steps"][:5] == jobs["gates"]["steps"][:5]
     # Snapshot the unchanged step mappings, including every command and its env.
-    acceptance_steps = job["steps"][6 if job_name == "gates-wheel" else 5 :]
+    acceptance_steps = job["steps"][7 if job_name == "gates-wheel" else 5 :]
     actual = json.dumps(acceptance_steps, sort_keys=True).encode()
     assert hashlib.sha256(actual).hexdigest() == steps_digest
     for consumer in ("build", "build-x86", "engine-main-wheel"):
@@ -537,10 +537,26 @@ def test_wheel_gate_inherits_locked_pytest_before_parity_dependencies() -> None:
     assert steps.index(locked) < steps.index(parity)
 
 
-def test_wheel_acceptance_uses_only_the_external_virtualenv() -> None:
+def test_wheel_acceptance_uses_only_the_external_virtualenv(tmp_path: Path) -> None:
     jobs = yaml.safe_load((ROOT / ".github/workflows/release.yml").read_text())["jobs"]
     job = jobs["gates-wheel"]
-    assert job["env"]["EG_GATES_WHEEL_VENV"] == ("${{ runner.temp }}/.gates-wheel-venv")
+    assert "EG_GATES_WHEEL_VENV" not in job.get("env", {})
+    initialize = job["steps"][6]
+    assert initialize["name"] == "Initialize external wheel virtualenv path"
+    environment_file = tmp_path / "github-env"
+    runner_temp = tmp_path / "runner temp"
+    subprocess.run(
+        ["bash", "-e", "-c", initialize["run"]],
+        env={
+            **os.environ,
+            "RUNNER_TEMP": str(runner_temp),
+            "GITHUB_ENV": str(environment_file),
+        },
+        check=True,
+    )
+    assert environment_file.read_text() == (
+        f"EG_GATES_WHEEL_VENV={runner_temp}/.gates-wheel-venv\n"
+    )
     steps = {step.get("name"): step.get("run", "") for step in job["steps"]}
     install = steps[
         "Install the folded epistemic-graph wheel into a clean throwaway venv"
@@ -559,5 +575,18 @@ def test_wheel_acceptance_uses_only_the_external_virtualenv() -> None:
         if '"$EG_GATES_WHEEL_VENV/bin/python"' in command
     }
     assert actual == consumers
-    for command in steps.values():
-        assert ".gates-wheel-venv" not in command
+    for name, command in steps.items():
+        if name != initialize["name"]:
+            assert ".gates-wheel-venv" not in command
+
+
+@pytest.mark.parametrize("context", ["runner", "env", "steps", "job"])
+def test_job_environment_uses_only_allowed_expression_contexts(context: str) -> None:
+    # These runtime contexts are available to steps, not job-level env.
+    # actionlint validates the complete workflow expression grammar separately.
+    jobs = yaml.safe_load((ROOT / ".github/workflows/release.yml").read_text())["jobs"]
+    for name, job in jobs.items():
+        for value in job.get("env", {}).values():
+            if isinstance(value, str) and "${{" in value:
+                assert f"{context}." not in value, name
+                assert f"{context}[" not in value, name
