@@ -289,7 +289,7 @@ def _assert_cache_job_settings(job: dict) -> None:
     assert job["env"] == CACHE_BACKEND
     assert int(CACHE_BACKEND["SCCACHE_IDLE_TIMEOUT"]) > 60 * 60
     assert job["timeout-minutes"] == (
-        "${{ github.event_name == 'pull_request' && 10 || 60 }}"
+        "${{ github.event_name == 'pull_request' && 45 || 60 }}"
     )
 
 
