@@ -312,7 +312,8 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "2a6ed9ff9a27",
-        "b5fe3c140c21"
+        "b5fe3c140c21",
+        "d59c36008d58"
       ],
       "verified_by": [
         "crates/eg-compute/src/algorithms/tests.rs:133"
