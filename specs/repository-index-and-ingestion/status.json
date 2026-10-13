@@ -306,11 +306,13 @@
     {
       "id": "EG-REPO-INGEST-R011",
       "title": "Ingestion community detection uses pure Leiden",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "b5fe3c140c21"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-compute/src/algorithms/tests.rs:133"
+      ]
     },
     {
       "id": "EG-REPO-INGEST-R002.1",
