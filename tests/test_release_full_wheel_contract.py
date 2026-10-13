@@ -345,7 +345,12 @@ def _assert_runner_budget(workflow: Path, name: str, job: dict) -> None:
     else:
         # Only full-engine jobs retain the longer PR compilation budget.
         # Classification, lint, security and independently split jobs stay short.
-        if workflow.name == "release.yml" and name in {"gates", "gates-facade"}:
+        if workflow.name == "release.yml" and name in {
+            "gates",
+            "gates-wheel",
+            "gates-facade",
+            "gates-whisper",
+        }:
             expected = "${{ github.event_name == 'pull_request' && 45 || 60 }}"
             assert job.get("timeout-minutes") == expected
         else:

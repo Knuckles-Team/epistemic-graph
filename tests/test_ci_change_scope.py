@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import subprocess
 import sys
@@ -476,3 +478,115 @@ def test_generated_contract_pytest_uses_test_interpreter_and_lock() -> None:
     )
     assert consumer["run"] == "python3 tests/test_generated_client_contract.py"
     assert steps.index(install) < steps.index(consumer)
+
+
+@pytest.mark.parametrize(
+    ("job_name", "steps_digest"),
+    [
+        (
+            "gates-wheel",
+            "1b1950e2782fc63c8a3f575baabe5aef3048b5d1d8ba2489b2f6e8a910b2e724",
+        ),
+        (
+            "gates-whisper",
+            "6a4943c685f7d0a3b4e27fd57ab2f3e3b7c0616cf2c156e294461a7786dce2cb",
+        ),
+    ],
+)
+def test_split_native_acceptance_preserves_commands_and_release_dependencies(
+    job_name: str,
+    steps_digest: str,
+) -> None:
+    jobs = yaml.safe_load((ROOT / ".github/workflows/release.yml").read_text())["jobs"]
+    job = jobs[job_name]
+    assert job["needs"] == "changes"
+    assert job["if"] == jobs["gates"]["if"]
+    assert job["runs-on"] == jobs["gates"]["runs-on"]
+    assert job["timeout-minutes"] == jobs["gates"]["timeout-minutes"]
+    assert job["steps"][:5] == jobs["gates"]["steps"][:5]
+    # Snapshot the unchanged step mappings, including every command and its env.
+    acceptance_steps = job["steps"][7 if job_name == "gates-wheel" else 5 :]
+    actual = json.dumps(acceptance_steps, sort_keys=True).encode()
+    assert hashlib.sha256(actual).hexdigest() == steps_digest
+    for consumer in ("build", "build-x86", "engine-main-wheel"):
+        assert job_name in jobs[consumer]["needs"]
+    original = "gates" if job_name == "gates-wheel" else "gates-facade"
+    original_names = {step.get("name") for step in jobs[original]["steps"]}
+    assert not original_names & {step["name"] for step in acceptance_steps}
+
+
+def test_wheel_gate_inherits_locked_pytest_before_parity_dependencies() -> None:
+    jobs = yaml.safe_load((ROOT / ".github/workflows/release.yml").read_text())["jobs"]
+    original = next(
+        step
+        for step in jobs["gates"]["steps"]
+        if step.get("name") == "Install locked pytest for generated-client checks"
+    )
+    steps = jobs["gates-wheel"]["steps"]
+    locked = next(
+        step
+        for step in steps
+        if step.get("name") == "Install locked pytest for generated-client checks"
+    )
+    # Reuse the exact step whose interpreter and uv.lock pins are checked above.
+    assert locked is original
+    parity = next(
+        step for step in steps if step.get("name") == "Install maturin + parity deps"
+    )
+    assert steps.index(locked) == 5
+    assert steps.index(locked) < steps.index(parity)
+
+
+def test_wheel_acceptance_uses_only_the_external_virtualenv(tmp_path: Path) -> None:
+    jobs = yaml.safe_load((ROOT / ".github/workflows/release.yml").read_text())["jobs"]
+    job = jobs["gates-wheel"]
+    assert "EG_GATES_WHEEL_VENV" not in job.get("env", {})
+    initialize = job["steps"][6]
+    assert initialize["name"] == "Initialize external wheel virtualenv path"
+    environment_file = tmp_path / "github-env"
+    runner_temp = tmp_path / "runner temp"
+    subprocess.run(
+        ["bash", "-e", "-c", initialize["run"]],
+        env={
+            **os.environ,
+            "RUNNER_TEMP": str(runner_temp),
+            "GITHUB_ENV": str(environment_file),
+        },
+        check=True,
+    )
+    assert environment_file.read_text() == (
+        f"EG_GATES_WHEEL_VENV={runner_temp}/.gates-wheel-venv\n"
+    )
+    steps = {step.get("name"): step.get("run", "") for step in job["steps"]}
+    install = steps[
+        "Install the folded epistemic-graph wheel into a clean throwaway venv"
+    ]
+    assert 'python -m venv "$EG_GATES_WHEEL_VENV"' in install
+    assert install.count('"$EG_GATES_WHEEL_VENV/bin/pip"') == 2
+    consumers = {
+        "numpy-parity gate (compiled kernel vs numpy)",
+        "numpy-free boundary contract (NE-249)",
+        "engine kernel smoke test (import epistemic_graph.engine)",
+        "installed-wheel no-source-tree-import check (EG-CONTRACT-R002.3)",
+    }
+    actual = {
+        name
+        for name, command in steps.items()
+        if '"$EG_GATES_WHEEL_VENV/bin/python"' in command
+    }
+    assert actual == consumers
+    for name, command in steps.items():
+        if name != initialize["name"]:
+            assert ".gates-wheel-venv" not in command
+
+
+@pytest.mark.parametrize("context", ["runner", "env", "steps", "job"])
+def test_job_environment_uses_only_allowed_expression_contexts(context: str) -> None:
+    # These runtime contexts are available to steps, not job-level env.
+    # actionlint validates the complete workflow expression grammar separately.
+    jobs = yaml.safe_load((ROOT / ".github/workflows/release.yml").read_text())["jobs"]
+    for name, job in jobs.items():
+        for value in job.get("env", {}).values():
+            if isinstance(value, str) and "${{" in value:
+                assert f"{context}." not in value, name
+                assert f"{context}[" not in value, name
