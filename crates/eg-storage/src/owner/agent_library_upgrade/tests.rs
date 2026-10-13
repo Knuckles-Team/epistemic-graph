@@ -104,6 +104,7 @@ fn inspected_bytes_are_rechecked_before_any_upgrade_write() {
     assert!(StorageKernel::open_owner::<AgentLibraryOwner>(&path, identity(), None).is_err());
 }
 
+// spec: EG-TYPED-PACKS-R017
 #[test]
 fn earlier_connector_packless_layout_is_not_upgradeable() {
     let directory = private_local_tempdir();
