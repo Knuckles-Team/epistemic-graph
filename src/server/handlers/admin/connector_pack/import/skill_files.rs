@@ -71,7 +71,6 @@ mod tests {
         }
     }
 
-    // spec: EG-TYPED-PACKS-R019
     #[test]
     fn a_nested_supporting_file_of_its_skill_is_accepted() {
         let ok = entry(

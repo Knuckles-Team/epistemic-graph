@@ -554,7 +554,8 @@
       "title": "Release scope excludes an offline Agent Library upgrade path",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "34b9f502483d"
+        "34b9f502483d",
+        "dc9d269c4bc6"
       ],
       "verified_by": [
         "crates/eg-storage/src/owner/agent_library_upgrade/tests.rs:107"
@@ -565,7 +566,8 @@
       "title": "Body reads use AgentComponent.Content, not a pack-specific method",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "71533e899d52"
+        "71533e899d52",
+        "dc9d269c4bc6"
       ],
       "verified_by": [
         "crates/eg-types/src/connector_pack/ops.rs:275",
@@ -575,13 +577,12 @@
     {
       "id": "EG-TYPED-PACKS-R019",
       "title": "Only SKILL.md is imported as skill content",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
-        "a1bb9fb9503e"
+        "a1bb9fb9503e",
+        "dc9d269c4bc6"
       ],
-      "verified_by": [
-        "src/server/handlers/admin/connector_pack/import/skill_files.rs:74"
-      ]
+      "verified_by": []
     },
     {
       "id": "EG-TYPED-PACKS-R020",
