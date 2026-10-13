@@ -198,7 +198,8 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "2b681e1a159c",
-        "6cd6c7ea0c87"
+        "6cd6c7ea0c87",
+        "bf65ce91adb6"
       ],
       "verified_by": [
         "tests/test_build_method_codec_wasm.py:70"
@@ -532,7 +533,8 @@
       "title": "Build runner keeps TMPDIR short enough for Unix socket paths",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "2a0d6eae0918"
+        "2a0d6eae0918",
+        "bf65ce91adb6"
       ],
       "verified_by": [
         "tests/test_push_gate_evidence.py:256"
@@ -543,7 +545,8 @@
       "title": "Unconstrained build step is not CPU-affinity restricted",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "a1bb9fb9503e"
+        "a1bb9fb9503e",
+        "bf65ce91adb6"
       ],
       "verified_by": [
         "tests/test_bounded_test_runner_contract.py:105",
@@ -621,7 +624,8 @@
       "landed_in": [
         "16c35404ef56",
         "4d1920f636e7",
-        "66e652687765"
+        "66e652687765",
+        "bf65ce91adb6"
       ],
       "verified_by": [
         "tests/test_ci_change_scope.py:452",
@@ -647,7 +651,8 @@
       "title": "Clippy is warning-free across every release profile",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "04a134298236"
+        "04a134298236",
+        "bf65ce91adb6"
       ],
       "verified_by": [
         "tests/test_release_feature_matrix.py:219"
@@ -685,7 +690,8 @@
       "title": "Privacy gate detects host paths across the tracked tree",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "2a0d6eae0918"
+        "2a0d6eae0918",
+        "bf65ce91adb6"
       ],
       "verified_by": [
         "tests/test_documentation_privacy.py:100",
@@ -740,7 +746,8 @@
       "title": "Slim-server build compiles with broker feature disabled",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "5bf5b719de7e"
+        "5bf5b719de7e",
+        "bf65ce91adb6"
       ],
       "verified_by": [
         "tests/test_release_feature_matrix.py:252"
@@ -751,7 +758,8 @@
       "title": "Main publishes a rolling engine wheel for consumer CI",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "9084e9343bf4"
+        "9084e9343bf4",
+        "bf65ce91adb6"
       ],
       "verified_by": [
         "tests/test_release_feature_matrix.py:269"
