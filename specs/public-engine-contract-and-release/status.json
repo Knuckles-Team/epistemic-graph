@@ -64,13 +64,20 @@
     "EG-CONTRACT-R049",
     "EG-CONTRACT-R050",
     "EG-CONTRACT-R051",
-    "EG-CONTRACT-R051.1"
+    "EG-CONTRACT-R051.1",
+    "EG-CONTRACT-R052",
+    "EG-CONTRACT-R052.1",
+    "EG-CONTRACT-R052.2",
+    "EG-CONTRACT-R052.3",
+    "EG-CONTRACT-R052.4",
+    "EG-CONTRACT-R001.1",
+    "EG-CONTRACT-R001.2"
   ],
   "requirements": [
     {
       "id": "EG-CONTRACT-R001",
       "title": "Strict typed Pydantic models for every method and nested type",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "6cd6c7ea0c87",
         "72c7dfa478ba",
@@ -80,11 +87,15 @@
         "tests/test_generated_models.py:105",
         "tests/test_generated_models.py:122",
         "tests/test_generated_models.py:69"
+      ],
+      "rollup_of": [
+        "EG-CONTRACT-R001.1",
+        "EG-CONTRACT-R001.2"
       ]
     },
     {
       "id": "EG-CONTRACT-R002",
-      "title": "Served Agent Library test coverage for pack import and Decide",
+      "title": "Served Agent Library tests cover pack import and Decide",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "4f364b55e0dc",
@@ -140,7 +151,7 @@
     },
     {
       "id": "EG-CONTRACT-R003",
-      "title": "Privacy scan covers the relocated graph-backends documentation",
+      "title": "Privacy scan covers relocated graph-backends documentation",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "82e1e970c83a",
@@ -258,11 +269,11 @@
         "8baee8a94894"
       ],
       "verified_by": [
-        "tests/test_release_python_suite_contract.py:112",
-        "tests/test_release_python_suite_contract.py:123",
-        "tests/test_release_python_suite_contract.py:298",
-        "tests/test_release_python_suite_contract.py:341",
-        "tests/test_release_python_suite_contract.py:84"
+        "tests/test_release_python_suite_contract.py:102",
+        "tests/test_release_python_suite_contract.py:119",
+        "tests/test_release_python_suite_contract.py:130",
+        "tests/test_release_python_suite_contract.py:305",
+        "tests/test_release_python_suite_contract.py:348"
       ]
     },
     {
@@ -318,7 +329,7 @@
     },
     {
       "id": "EG-CONTRACT-R013",
-      "title": "KISS config keys migrated to avoid a silently dropped section",
+      "title": "KISS config keys avoid a silently dropped section",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "72c7dfa478ba",
@@ -331,7 +342,7 @@
     },
     {
       "id": "EG-CONTRACT-R014",
-      "title": "Generated error catalog with stable auth-mismatch codes",
+      "title": "Generated error catalog has stable auth-mismatch codes",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "15acf1a959e5",
@@ -356,7 +367,7 @@
         "5738b6093ea7"
       ],
       "verified_by": [
-        "tests/test_wheel_contract_surface.py:461"
+        "tests/test_wheel_contract_surface.py:475"
       ]
     },
     {
@@ -388,10 +399,13 @@
       "title": "Release feature matrix includes the motif Cargo feature",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "43200ff368b9",
         "b8aac182d679",
-        "cfd03dda1ef7"
+        "cfd03dda1ef7",
+        "d556e4d0895e"
       ],
       "verified_by": [
+        "tests/test_release_feature_matrix.py:250",
         "tests/test_release_feature_matrix.py:87"
       ]
     },
@@ -517,11 +531,14 @@
     {
       "id": "EG-CONTRACT-R029",
       "title": "Build runner keeps TMPDIR short enough for Unix socket paths",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
-        "2a0d6eae0918"
+        "2a0d6eae0918",
+        "4342dc5bc1c6"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_push_gate_evidence.py:256"
+      ]
     },
     {
       "id": "EG-CONTRACT-R030",
@@ -542,7 +559,7 @@
         "e729dc1650b6"
       ],
       "verified_by": [
-        "tests/test_ci_change_scope.py:168"
+        "tests/test_ci_change_scope.py:169"
       ],
       "rollup_of": [
         "EG-CONTRACT-R031.1",
@@ -557,7 +574,7 @@
         "733e1766936b"
       ],
       "verified_by": [
-        "tests/test_ci_change_scope.py:169"
+        "tests/test_ci_change_scope.py:170"
       ]
     },
     {
@@ -602,10 +619,13 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "16c35404ef56",
+        "4342dc5bc1c6",
         "4d1920f636e7",
-        "66e652687765"
+        "66e652687765",
+        "69411a23a248"
       ],
       "verified_by": [
+        "tests/test_ci_change_scope.py:452",
         "tests/test_release_gates_test_target_coverage.py:62"
       ]
     },
@@ -626,11 +646,14 @@
     {
       "id": "EG-CONTRACT-R037",
       "title": "Clippy is warning-free across every release profile",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
-        "04a134298236"
+        "04a134298236",
+        "4342dc5bc1c6"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_release_feature_matrix.py:219"
+      ]
     },
     {
       "id": "EG-CONTRACT-R038",
@@ -662,11 +685,15 @@
     {
       "id": "EG-CONTRACT-R041",
       "title": "Privacy gate detects host paths across the tracked tree",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
-        "2a0d6eae0918"
+        "2a0d6eae0918",
+        "4342dc5bc1c6"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_documentation_privacy.py:100",
+        "tests/test_documentation_privacy.py:87"
+      ]
     },
     {
       "id": "EG-CONTRACT-R042",
@@ -714,11 +741,14 @@
     {
       "id": "EG-CONTRACT-R046",
       "title": "Slim-server build compiles with broker feature disabled",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "4342dc5bc1c6",
         "5bf5b719de7e"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_release_feature_matrix.py:287"
+      ]
     },
     {
       "id": "EG-CONTRACT-R047",
@@ -777,6 +807,61 @@
     {
       "id": "EG-CONTRACT-R051.1",
       "title": "Client ingest carries harness fields",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONTRACT-R052",
+      "title": "Current architecture documentation (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CONTRACT-R052.1",
+        "EG-CONTRACT-R052.2",
+        "EG-CONTRACT-R052.3",
+        "EG-CONTRACT-R052.4"
+      ]
+    },
+    {
+      "id": "EG-CONTRACT-R052.1",
+      "title": "Module ownership model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONTRACT-R052.2",
+      "title": "Build, package, and deployment behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONTRACT-R052.3",
+      "title": "Shared-contract wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONTRACT-R052.4",
+      "title": "Runtime evidence and refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONTRACT-R001.1",
+      "title": "Generated types throughout the AU lifecycle",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CONTRACT-R001.2",
+      "title": "Canonical blueprint disk round trip",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

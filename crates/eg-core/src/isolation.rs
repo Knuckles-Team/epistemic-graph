@@ -481,6 +481,8 @@ mod governed_admin;
 pub use governed_admin::GovernedError;
 mod layer_store;
 mod policy_admin;
+mod scope_bound;
+pub use scope_bound::{scope_within_bound, ScopeBound, ScopeBoundError};
 #[cfg(test)]
 mod tests {
     use super::*;

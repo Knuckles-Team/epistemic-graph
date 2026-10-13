@@ -161,3 +161,18 @@ Reused: the call graph from `crates/eg-compute/src/parser/resolve.rs:63` and the
 Decision: derive on read from the graph. Rejected: store a rendered diagram per repository, because it goes stale at the next ingest.
 
 Cross-repository rows: the `AU-WEBUI` row that draws the view depends on the contract name `ArchitectureView`.
+
+<!-- spec-definition-patch:owner-batch-20261012-orchestration-competency -->
+## Reviewed residual closure plan — owner batch 2026-10-12
+
+### `EG-CQ-ORCH-R010.7` — GRAPHOS:20
+
+- Existing EG rollup: `EG-CQ-ORCH-R010.1`; append-only residual ID: `EG-CQ-ORCH-R010.7`.
+- Original objective: Before planning, query graph architecture and wiring. Report design differences. Each feature names its hot-path attach point. Refuse plans with unwired features.
+- Specified EG obligation: `EG-CQ-ORCH-R010.7` defines `PlanAdmissionV1`. It checks each feature's attach point and wiring edge. It returns typed refusal before TaskPlan emission. AU-HARNESS-R019.5-.7 must return the same study-gap proposal id/revision and repository revision. Admission refuses if those fields are absent.
+- Producer/consumer route: The served impact architecture view, capability query, and AU study-gap receipt feed `PlanAdmissionV1`. Admission runs before the existing plan-producing Decide handler. AU identity/revision confirmation and served receipts remain pending. Do not re-derive architecture or claim AU producer closure.
+- Minimum closure action: Keep R010.7 as the EG definition. Resolve AU receipt field mapping. Record independent served producer/consumer results. No second EG admission contract is needed.
+- Preserve covered clauses: `EG-CQ-ORCH-R010.1`, `EG-CQ-ORCH-R010.2`, `EG-CQ-ORCH-R010.3`, `EG-CQ-ORCH-R010.4`, `EG-CQ-ORCH-R010.5`, `EG-CQ-ORCH-R010.6`, `AU-HARNESS-R019.5`, `AU-HARNESS-R019.6`, `AU-HARNESS-R019.7`.
+- Source review: `bbc3f62e74bc899e49191e1d9bf324afe5e6dc2553df9e8d8651aae1311a8418`; evidence: spec-audit/reconciliation/fresh-validation-20261012/semantic-reviews/incoming-24-owner-supplements.json.
+- Cross-owner behavior and receipts remain with the named owner; no runtime evidence is claimed.
+<!-- /spec-definition-patch -->

@@ -76,7 +76,7 @@ The semantic bridge projects typed relations for `declares`, `calls`, `inherits`
 
 ### Atomicity, replay and recovery
 
-Lowering canonicalizes properties and graph methods, validates the complete operation and MessagePack item/byte budget, and hashes the lowered write set. The envelope includes policy and privacy attestation, source references, provenance, tombstones and optional outbox intent. The graph version, projection, cursor/marker and receipt commit together. Identical request digests replay; same external id with different content is a conflict. Over-limit requests return `REPOSITORY_BATCH_TOO_LARGE` before graph commit. A client may split the batch; each split remains independently atomic and converges to the same final graph.
+Lowering canonicalizes properties and graph methods. It validates the complete operation and MessagePack item/byte budget, then hashes the write set. The envelope includes policy and privacy attestation, source references and provenance. It also includes tombstones and optional outbox intent. The graph version, projection, cursor/marker and receipt commit together. Identical request digests replay; same external id with different content is a conflict. Over-limit requests return `REPOSITORY_BATCH_TOO_LARGE` before graph commit. A client may split the batch; each split remains independently atomic and converges to the same final graph.
 
 A restart reads the committed envelope and source marker from durable storage. Incomplete CAS admission is recoverable or garbage-collectable by holder policy but never advertised as indexed. Outbox leases are durable and fenced; a worker may reattempt after crash without duplicating a completed result. With replication enabled, write and worker submission require current placement/leader authority. An unsupported feature build returns a stable feature refusal; it cannot return a success shaped like an empty index.
 
@@ -126,3 +126,84 @@ all existing implementation. Historical landing trailers remain historical
 implementation evidence; a generated LANDED state without `verified_by` does
 not establish acceptance. Full acceptance still requires the consumer/retirement
 and served boundary evidence specified in requirements.md and test-spec.md.
+
+<!-- spec-definition-patch:owner-batch-20261012-repository-index-and-ingestion -->
+## Reviewed implementation plan — 2026-10-12
+
+Normative contracts, source hashes, owner references, holds, and acceptance remain in `requirements.md`.
+Each work item below extends its named parent and preserves existing obligations.
+
+| Requirement | Plan | Open dependency |
+|---|---|---|
+| `EG-REPO-INGEST-R002.1` | Compile a pinned skill directory into a typed plan through SourceIngest and AU. Use the existing graph orchestration path. | Versioned grammar and capability/type lookup remain owner prerequisites. AU-CONTROL-R037.30 remains unmerged. |
+| `EG-REPO-INGEST-R006.1` | Measure distinct completed papers over 24 hours. Admit maintenance only with authorization and bounded goal allocation. | Stage roster, freshness policy, allocation policy, and GraphOS operation remain owner prerequisites. |
+| `EG-REPO-INGEST-R006.2` | Queue re-embedding outside query routing. Gate promotion through unified data-plane R040.2/.3 before tag_batch. | Importance producer and compatible embedding-space policy remain owner prerequisites. |
+| `EG-REPO-INGEST-R006.3` | Serve typed code maps through current-revision UnifiedQuery. Refuse changed and unchanged-symbol queries against a stale generation. | Source-inventory producer and code-entity IDs remain owner prerequisites. |
+| `EG-REPO-INGEST-R006.4` | Apply revision-scoped deltas under host-granted working-memory limits. | Semantic support matrix and host resource-grant binding remain owner prerequisites. |
+| `EG-REPO-INGEST-R002.100` | Require independently authorized readback before ingestion success. | AU success-transition consumer ID remains unassigned. |
+| `EG-REPO-INGEST-R002.101` | Gate graph-loaded workflow completion on durable hydration readback. | AU execution-success consumer ID remains unassigned. |
+
+Acceptance cases and exact refusal conditions remain in the linked requirements rows.
+All seven definitions remain SPECIFIED with empty `landed_in` and `verified_by` fields.
+Implementation and served acceptance await separate owner review.
+
+
+### Proposed inventory authority and identity binding for R006.3
+
+These proposed EG contracts extend R006/R009 and the R017 query consumer.
+They are not existing API or implementation claims. All fields are required.
+Text IDs are nonempty UTF-8; counters are unsigned 64-bit integers; digests
+are lowercase `sha256:<64 hex>`. Unknown fields and missing bindings refuse.
+
+`RepositoryInventoryAuthorityV1` = `{tenant, repository_id, ref_name, binding_id, binding_revision, publisher_principal, source_binding_ref, source_binding_revision, source_binding_digest, provenance_ref, provenance_digest}`.
+Admit through existing governed ChangeEnvelope authorization and expected
+binding revision. Verified tenant and graph authority control admission;
+payload principal does not grant permission. The binding selects an explicit
+publisher/source without assigning either role to SDK transport or GraphOS/AU.
+The publisher must have current graph write authority at every submission.
+
+`AdvanceRepositoryInventoryV1` = `{binding_id, binding_revision, expected_inventory_revision, source_event_id, source_revision, inventory_digest, files}`. Each file is `{path, blob_digest, byte_length}`. Paths are unique,
+normalized repository-relative paths. The list is the complete source snapshot,
+canonically sorted by UTF-8 path bytes. Inventory digest hashes canonical JSON
+of this list (RFC 8785). Source revision is an immutable provider revision,
+not a guessed remote HEAD. Verified caller must match the admitted publisher;
+source binding and provenance must validate against the submitted revision.
+Output = `{binding_id, binding_revision, inventory_revision, source_revision, inventory_digest, graph_revision, source_event_id}`. The proposed operation
+extends the existing SourceIngest preparation and ChangeEnvelope commit path
+in `src/server/handlers/source_ingestion.rs`. It atomically compares expected
+inventory revision, increments it, stores the complete manifest and receipt,
+and invalidates the prior current-map binding. No partial inventory is current.
+Identical source event/payload replays the receipt; conflicting replay, stale
+CAS, unknown binding, incomplete manifest or unauthorized publisher stores nothing.
+
+`PublishRepositoryMapV1` = `{binding_id, binding_revision, inventory_revision, inventory_digest, source_revision, expected_map_generation, map_digest, identity_scheme, parser_digest, complete}`. Output adds `{map_generation, graph_revision}` to these fields. `complete` must be true. Every admitted file must have an explicit parse outcome, including unsupported/error outcomes.
+Unsupported relations remain incomplete. EG publishes only after comparing the
+current inventory and all native IndexRepository/SourceIngest results in one
+ChangeEnvelope. A failed/raced publish keeps the old map historical, never current.
+Every UnifiedQuery page and cursor checks authority, inventory revision/digest,
+map generation/digest and source revision before data, counts or cursors.
+Missing inventory and an advanced inventory without a complete matching map refuse.
+
+The identity scheme is the existing branch parser projection, pinned by its
+source revision/digest in `identity_scheme` = `{source_revision, source_digest}`.
+Reuse `branch_index::ParseUnits::build` / `unit_name`,
+`tree_sitter_walk::{emit_symbol,hash_fields}`, and
+`branch_scope::{blob_node_id,file_version_id,branch_node_id}` under
+`crates/eg-compute/src/parser/`. Symbols hash length-prefixed parse-unit path,
+symbol type, qualified name and ordinal; branch parse-unit paths bind blob
+content and grammar suffix. FileVersion binds repository/path/blob; Branch
+binds repository/ref. Revision and current path/span are query bindings through
+`branch_projection::project_scope`, not a new symbol-ID hash. This binding uses
+current code, not the earlier plan table's revision-scoped FileVersion formula.
+Unchanged file content retains symbol IDs in a new repository revision. Changed
+blobs may change IDs. Same-content renames retain symbol IDs only with unchanged grammar suffix and parser/identity scheme. File-version and membership still change. A changed grammar suffix or parser/identity scheme requires reparse and may change symbol IDs. Deleted membership is absent from the new map. No promise
+of stable IDs across edits to the same blob is introduced. Preserve typed edge
+identity under R009.1/R009.2 and R069 semantic projection ownership.
+
+
+### 2026-10-13: correct R009.2 acceptance binding
+
+The direct GraphCore typed-edge test proves R009.1 storage behavior only.
+It does not exercise hydration or the semantic bridge required by R009.2.
+Remove the R009.2 marker and leave its verification evidence empty until that integration test exists.
+Keep the R011 connectivity regression and its distinct acceptance binding.

@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 import pytest
+import tomllib
 import yaml
 
 from scripts import ci_change_scope as scope
@@ -223,6 +224,44 @@ def local_gate_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     return gate, git
 
 
+@pytest.mark.parametrize("mode", ["100755", "120000", "160000"])
+def test_normalized_document_modes_keep_real_git_ranges_conservative(
+    local_gate_repo, mode: str
+) -> None:
+    _, git = local_gate_repo
+    path = "docs/guide.md"
+    git("update-index", "--chmod=+x", path)
+    git("commit", "-qm", "executable documentation baseline")
+    executable = git("rev-parse", "HEAD")
+    git("update-index", "--chmod=-x", path)
+    git("commit", "-qm", "normalize documentation mode")
+    normalized = git("rev-parse", "HEAD")
+    assert git("rev-parse", f"{executable}:{path}") == git(
+        "rev-parse", f"{normalized}:{path}"
+    )
+    assert scope.requires_code("pull_request", executable, normalized)
+
+    Path(path).write_text("updated prose\n")
+    git("add", path)
+    git("commit", "-qm", "ordinary documentation edit")
+    prose = git("rev-parse", "HEAD")
+    assert not scope.requires_code("pull_request", normalized, prose)
+    assert scope.requires_code("pull_request", executable, prose)
+
+    if mode == "100755":
+        git("update-index", "--chmod=+x", path)
+    elif mode == "120000":
+        Path(path).unlink()
+        Path(path).symlink_to("elsewhere")
+        git("add", path)
+    else:
+        git("update-index", "--add", "--cacheinfo", f"160000,{prose},{path}")
+    git("commit", "-qm", "non-document mode requires full CI")
+    head = git("rev-parse", "HEAD")
+    assert git("ls-tree", head, path).split()[0] == mode
+    assert scope.requires_code("pull_request", prose, head)
+
+
 def test_local_scope_reuses_parser_without_broadening_ci(local_gate_repo) -> None:
     gate, git = local_gate_repo
     Path(gate.SKILL).write_text("updated\n")
@@ -408,3 +447,32 @@ def test_frozen_commit_stage_entry_uses_complete_range(local_gate_repo, monkeypa
         assert result.returncode == 0, result.stderr
         assert "scan unnecessary" in result.stdout
     assert not git("status", "--porcelain")
+
+
+# spec: EG-CONTRACT-R035
+def test_generated_contract_pytest_uses_test_interpreter_and_lock() -> None:
+    jobs = yaml.safe_load((ROOT / ".github/workflows/release.yml").read_text())["jobs"]
+    steps = jobs["gates"]["steps"]
+    install = next(
+        step
+        for step in steps
+        if step.get("name") == "Install locked pytest for generated-client checks"
+    )
+    command = install["run"]
+    assert command.startswith('uv pip install --python "$(command -v python3)" ')
+    packages = tomllib.loads((ROOT / "uv.lock").read_text())["package"]
+    versions = {
+        package["name"]: package["version"]
+        for package in packages
+        if "version" in package
+    }
+    expected = {
+        f"{name}=={versions[name]}"
+        for name in ("pytest", "iniconfig", "packaging", "pluggy", "pygments")
+    }
+    assert set(command.split('" ', 1)[1].split()) == expected
+    consumer = next(
+        step for step in steps if step.get("name") == "Generated Python client contract"
+    )
+    assert consumer["run"] == "python3 tests/test_generated_client_contract.py"
+    assert steps.index(install) < steps.index(consumer)

@@ -14,7 +14,7 @@
 [![PyPI - Version](https://img.shields.io/pypi/v/epistemic-graph)](https://pypi.org/project/epistemic-graph/)
 [![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-526cff)](https://knuckles-team.github.io/epistemic-graph/)
 [![GitHub license](https://img.shields.io/github/license/Knuckles-Team/epistemic-graph)](LICENSE)
-[![Version](https://img.shields.io/badge/version-2.27.0-blue)](https://github.com/Knuckles-Team/epistemic-graph/releases)
+[![Version](https://img.shields.io/badge/version-2.27.1-blue)](https://github.com/Knuckles-Team/epistemic-graph/releases)
 [![Build](https://github.com/Knuckles-Team/epistemic-graph/actions/workflows/release.yml/badge.svg?branch=main)](https://github.com/Knuckles-Team/epistemic-graph/actions/workflows/release.yml)
 [![GitHub Repo stars](https://img.shields.io/github/stars/Knuckles-Team/epistemic-graph)](https://github.com/Knuckles-Team/epistemic-graph/stargazers)
 [![GitHub forks](https://img.shields.io/github/forks/Knuckles-Team/epistemic-graph)](https://github.com/Knuckles-Team/epistemic-graph/forks)
@@ -82,7 +82,7 @@ for the current behavior of each operation.
 ## Architecture
 
 <p align="center">
-  <img src="docs/assets/runtime-architecture.svg" alt="People enter through Agent Web UI, Agent Terminal UI over REST, Geniusbot, or messaging services hosted by Graph OS. MCP, REST, and A2A clients also connect to Graph OS, which routes to Agent Utilities and Epistemic Graph. Source systems connect to Epistemic Graph through Agent Connector SDK." width="960">
+  <img src="https://raw.githubusercontent.com/Knuckles-Team/epistemic-graph/main/docs/assets/runtime-architecture.svg" alt="People use browser, terminal, desktop, or messaging clients. Graph OS serves clients. Agent Utilities coordinates agents. Epistemic Graph stores knowledge. Connectors synchronize source systems." width="960">
 </p>
 
 <p align="center">

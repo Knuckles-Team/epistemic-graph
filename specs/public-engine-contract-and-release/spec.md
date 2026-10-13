@@ -57,3 +57,23 @@ Adjacent EG capabilities specify their own semantics. This spec governs their pu
 All EG-C requirements have linked implementation commits, focused tests and an exact revision release matrix in [tasks.md](tasks.md). The published wheel and both embedded client codecs share one contract digest. Unknown/invalid payloads and policy failures have typed error parity. Hosted gates pass without private environment dependencies. Only then set **ACCEPTED**.
 
 Requirement IDs are defined in [requirements.md](requirements.md); delivery state per ID is in `status.json`.
+
+## Current architecture contract
+
+EG-CONTRACT-R052 owns the source-linked architecture map in [plan.md](plan.md#2026-10-12-current-architecture-boundaries).
+The map preserves existing subsystem owners and distinguishes design, source wiring, generated delivery state, and execution evidence.
+It changes no architecture, enabled feature, package recipe, or release version.
+
+<!-- spec-definition-patch:owner-batch-20261012-public-engine-contract-and-release -->
+## Reviewed definition index — 2026-10-12
+
+`requirements.md` holds normative contracts, source mappings, owner references, open holds, and acceptance.
+The entries below extend their listed parent requirements.
+No implementation or served evidence is claimed here.
+
+| Requirement | Parent | Source record | SHA-256 |
+|---|---|---|---|
+| `EG-CONTRACT-R001.1` | `EG-CONTRACT-R001` | `AU:109` | `c0d92285a141dcaac6817bcac25ffa438517afeba50be716211751f3a37a31c2` |
+| `EG-CONTRACT-R001.2` | `EG-CONTRACT-R001` | `AU:121` | `98b7ad1186ec2a385b334ffa0ad1b28888157ed6b51c6ed4172eeb7b7ef6768e` |
+
+Both definitions remain SPECIFIED pending owner review and served evidence.

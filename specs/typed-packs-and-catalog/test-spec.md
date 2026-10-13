@@ -13,7 +13,7 @@ Tests may run in an isolated ephemeral EG/SDK environment using synthetic packs 
 | TP-05 | PACK-03, 04 | Import same pack twice. Lose response and retry same operation identity. Retry with different bytes. Race two expected heads. Change only package version. Change server contract version. Remove and restore one tool. | No-op creates no revision. Replay returns same receipt. Changed bytes conflict. One racing head refuses. Contract change cascades pins, package-only change does not. Withdrawal/republication preserves ID. |
 | TP-06 | PACK-03, 11 | Kill child after body store and before owner commit, during owner commit, after commit and before response. Cancel timed-out import and immediately Bind same tenant. | Orphan bodies are reclaimed after grace. Owner state is all-or-nothing. Receipt replays. Lock is released and next operation is not blocked. |
 | TP-07 | PACK-02, 04, 11 | Authorized and unauthorized `Status`, `Content`, Bind/Unbind/Retire/Reproject, direct `mcp:` Publish, cross-tenant and graph reads, clustered writer. | Authz actions and stable codes match descriptors. No cross-tenant bytes/metadata. Reserved ID and LocalOnly refusals. Historic pin may resolve withdrawn revision but new selection cannot. |
-| TP-08 | PACK-07, 08 | Crash projection between graph attach and visibility ack, inject graph grant denial, process stale outbox event after newer head, retry failed event, attach pack snapshot to another graph. | At most one visible revision; stale worker refuses; denial is durable failed status; later events are not collateral-dead-lettered; static attachment reports staleness. |
+| TP-08 | PACK-07, 08 | Crash projection between graph attach and visibility ack. Inject graph grant denial. Process a stale outbox event after a newer head. Retry a failed event. Attach a pack snapshot to another graph. | At most one revision is visible. A stale worker refuses. Denial becomes durable failed status. Later events are not collateral-dead-lettered. Static attachment reports staleness. |
 | TP-09 | PACK-08 | Attach two compatible sources, conflicting shape owner, duplicate shared class, source bound overflow, `IcvConfigure` compatibility and attach→detach→attach same bytes; compare `GraphSchemaClasses`. | Composed policy/digest and class list deterministic; only real conflict refuses; cache cannot suppress repeated attach; no retroactive data scan is implied. |
 | TP-10 | PACK-09, 10 | Run generated-contract fixpoint and committed-artifact comparison. Replay method-body signing vectors in Python/Go/JS. Every OpKind/PredKind printer/parser round trip, 512 property cases and fuzz target. | Receipt and generated files match by content. Every public client signs and decodes same typed contract. No variant silently falls to Dynamic. |
 | TP-11 | PACK-09, 12 | Synthetic connector from SDK manifest/tool probe through pack import, visible projection, fleet catalog join and body read. Restart and restore. | Content and liveness have distinct authorities. No duplicate catalog row. Served result matches local typed result after restart. |
@@ -26,11 +26,11 @@ The repository pins CCCC 1.6.0, KISS 0.4.12, Dupehound 0.1.2 (`threshold 0.85`, 
 
 ## Acceptance matrix
 
-PACK-01: TP-01/02; PACK-02: TP-07/10; PACK-03: TP-05/06; PACK-04: TP-05/07; PACK-05: TP-01/04; PACK-06: TP-02/03/04; PACK-07: TP-08; PACK-08: TP-04/09/13; PACK-09: TP-10/11; PACK-10: TP-01/10/13; PACK-11: TP-06/07/08; PACK-12: TP-11/12 and all quality gates. A requirement is `ACCEPTED` only when its mapped tests and applicable gates pass against a merged exact head.
+PACK-01: TP-01/02; PACK-02: TP-07/10; PACK-03: TP-05/06; PACK-04: TP-05/07; PACK-05: TP-01/04; PACK-06: TP-02/03/04; PACK-07: TP-08; PACK-08: TP-04/09/13; PACK-09: TP-10/11; PACK-10: TP-01/10/13; PACK-11: TP-06/07/08; PACK-12: TP-11/12 and all quality gates. Qualification requires the mapped tests and applicable gates to pass against an exact merged head.
 
 ## Boundary and verification notes (EG-TYPED-PACKS-R020, R052, R060, R063, R082)
 
-These five requirements are boundary or verify-against-existing-contract rows, not net-new pack behavior; each is covered by evidence that already exists rather than a new fixture.
+These five requirements are boundary or verify-against-existing-contract rows. They add no net-new pack behavior. Existing evidence covers each row; no new fixture is required.
 
 | ID | Note |
 |---|---|
@@ -68,7 +68,7 @@ Every cross-cutting pack-import-safety defect is a named rule (G1-G21) in `epist
 | G20 | empty_pack, withdraw_sixty_percent |
 | G21 | three_hundred_violations |
 
-A requirement is `ACCEPTED` only when every row's regression test passes against a merged exact head, exactly as the acceptance matrix above requires for PACK-06/08.
+Every row's regression test must pass against an exact merged head, as PACK-06/08 requires.
 
 | Repair | Requirement | Regression | Acceptance |
 | --- | --- | --- | --- |
@@ -206,3 +206,133 @@ For R071.1.4 and R097.2.4, use valid targets in every source-refusal case:
 | Known class in an unselected pack or unauthorized source scope | `CROSSWALK_SOURCE_OUT_OF_SCOPE` | No crosswalk or unmapped entry is published for that class. |
 
 Each refusal identifies the source IRI, requested source revision and selected scope. Exercise these through real import and schema attachment. Query pack status, GraphSchemaClasses and OntologyInspect afterward to prove unchanged committed state. Scope refusal must not disclose foreign class metadata.
+
+
+## Prompt and residual acceptance matrix
+
+Every test below is proposed. This definition adds no runtime test binding or execution receipt.
+Retain all original PACK and TP acceptance above, including every original R001/R002/R094 obligation.
+
+| ID | Positive proof | Negative or boundary proof | Proposed proving test |
+|---|---|---|---|
+| EG-TYPED-PACKS-R001.1 | Round-trip every original index and entry field. | Unknown kinds and malformed index fields refuse. | `tests/test_connector_pack_contract.py::test_pack_index_entry_contract` |
+| EG-TYPED-PACKS-R001.2 | Round-trip every section and annotation field without changing existing semantics. | Invalid section bounds and malformed typed annotations refuse. | `tests/test_connector_pack_contract.py::test_pack_section_annotation_contract` |
+| EG-TYPED-PACKS-R001.3 | Preserve ConnectorPackOp and AgentComponent.Content operation and result shapes. | Missing operations and incompatible result shapes fail qualification. | `tests/test_connector_pack_contract.py::test_pack_content_operation_contract` |
+| EG-TYPED-PACKS-R001.4 | Every published connector_pack_digest_vectors.json sample matches byte-for-byte. | Changing a framed input or expected digest fails. | `tests/test_connector_pack_contract.py::test_original_framed_digest_vectors` |
+| EG-TYPED-PACKS-R001.5 | The complete generated-client inventory shares the original wire shapes and golden bytes. | A stale client, omitted client or changed field fails. | `tests/test_connector_pack_contract.py::test_all_clients_share_pack_contract` |
+| EG-TYPED-PACKS-R001.6 | A typed object round-trips all identity and revision fields. | Changing a schema or body pin cannot preserve the old definition identity. | `crates/eg-types/src/agent_component.rs::tests::prompt_blueprint_identity` |
+| EG-TYPED-PACKS-R001.7 | Nested valid objects retain every admitted field and extension value. | Missing task, wrong field types, nonfinite numbers and oversized objects refuse. | `crates/eg-types/src/agent_component/facts.rs::tests::prompt_blueprint_schema_refusals` |
+| EG-TYPED-PACKS-R001.8 | Repeated identical inputs produce the same bytes and render digest. | A changed variable changes the result; invalid input produces no render result. | `crates/eg-compute/src/assemble/prompt.rs::tests::prompt_render_vectors` |
+| EG-TYPED-PACKS-R001.9 | Generated clients encode and decode every declared request, result and typed refusal. | Missing render provenance or an untyped fallback fails. | `tests/test_prompt_blueprint_contract.py::test_generated_prompt_contract` |
+| EG-TYPED-PACKS-R002.1 | Staged bytes use their verified SHA-256 address. | A digest mismatch refuses; staging alone exposes no component. | `tests/test_connector_pack_storage.py::test_body_staging` |
+| EG-TYPED-PACKS-R002.2 | An unchanged import keeps exact holder/refcount values. | Repeated identical import cannot increment or decrement a holder. | `tests/test_connector_pack_storage.py::test_unchanged_holder` |
+| EG-TYPED-PACKS-R002.3 | A revised component binds its new body and preserves historical revision holders. | A changed revision cannot orphan a body held by history. | `tests/test_connector_pack_storage.py::test_revised_holder` |
+| EG-TYPED-PACKS-R002.4 | A withdrawn component retains body access through a valid historical pin. | Withdrawal cannot reclaim a held historical body. | `tests/test_connector_pack_storage.py::test_withdrawn_holder` |
+| EG-TYPED-PACKS-R002.5 | A fault before owner commit leaves an orphan reclaimed only after its grace window. | An unexpired orphan or held body survives reconciliation and restart. | `tests/test_connector_pack_storage.py::test_orphan_grace_fault` |
+| EG-TYPED-PACKS-R002.6 | AgentComponent.Content returns the exact body of its pinned component revision. | Corrupt bytes and denied tenants refuse without leaking body data. | `tests/test_connector_pack_storage.py::test_verified_body_read` |
+| EG-TYPED-PACKS-R002.7 | A successful write has one revision and live holder with its exact body digest. | A fault before owner commit leaves only an unreferenced body subject to the existing grace rule. | `tests/test_prompt_blueprints_served.py::test_prompt_owner_commit` |
+| EG-TYPED-PACKS-R002.8 | Independent graph queries read the exact prompt revision and dependency links. | Replaying an old event cannot regress the visible revision. | `tests/test_prompt_blueprints_served.py::test_prompt_graph_projection` |
+| EG-TYPED-PACKS-R002.9 | A real generated-client request reaches the renderer and returns the pinned revision and expected bytes. | Invalid requests leave graph, body holders, head and render-result publication unchanged. | `tests/test_prompt_blueprints_served.py::test_prompt_render_route` |
+| EG-TYPED-PACKS-R002.10 | A valid served journey renders the pinned version and causes one observed model request. | Each invalid case yields a typed refusal and zero requests at the real model transport boundary. | `tests/test_prompt_blueprints_served.py::test_invalid_prompt_prevents_dispatch` |
+| EG-TYPED-PACKS-R002.11 | Current and historical revisions, graph links and verified body bytes survive restart. | A refused stale update leaves the previous durable head intact. | `tests/test_prompt_blueprints_served.py::test_prompt_restart_readback` |
+| EG-TYPED-PACKS-R094.1 | A generated Python client reads exact verified pack body bytes. | A refusal-only dispatch arm fails this acceptance. | `tests/test_connector_pack_content.py::test_stable_content_returns_body` |
+| EG-TYPED-PACKS-R094.2 | Export preserves nested extension values, nulls, arrays and exact numeric values. | An omitted field, changed revision or lost numeric precision fails. | `tests/test_prompt_blueprints_served.py::test_lossless_blueprint_export` |
+| EG-TYPED-PACKS-R094.3 | Changing one field creates one new revision and preserves every other field. | Concurrent writers cannot overwrite a newer head; reserved pack identities require pack admission. | `tests/test_prompt_blueprints_served.py::test_modified_blueprint_import` |
+| EG-TYPED-PACKS-R094.4 | Replay produces no extra revision, holder or outbox event. | A conflicting retry preserves the prior committed result. | `tests/test_prompt_blueprints_served.py::test_blueprint_retry_identity` |
+| EG-TYPED-PACKS-R094.5 | The new revision contains the one intended change and all unchanged values. | Stale import and denied-tenant cases preserve both historical and current readback. | `tests/test_prompt_blueprints_served.py::test_blueprint_roundtrip_restart` |
+| EG-TYPED-PACKS-R094.6 | Authorized graph adoption uses the normal publication boundary and records the source revision. | A proposal alone causes no active-head change, model dispatch or external write. | `tests/test_prompt_blueprints_served.py::test_prompt_proposal_has_no_authority` |
+| EG-TYPED-PACKS-R094.7 | A real authorized producer journey writes only the approved source and returns a bound receipt. | Absent producers leave this acceptance unfulfilled; graph persistence cannot substitute. | `tests/test_prompt_blueprints_served.py::test_approved_source_effect_dependency` |
+
+### Deterministic fixtures and real served journey
+
+Use synthetic, versioned prompt fixtures with a pinned manifest digest and independently authored expected values.
+Include nested custom fields, arrays, Unicode, null and absent fields, empty collections and the exact integer 9007199254740993.
+Include an exact decimal 0.10000000000000000001; no binary64 conversion may change it.
+The fixture schema explicitly admits both numbers. A narrower schema must refuse rather than round them.
+The render fixture requires task="summarize", topic="alpha" and a declared audience variable with value "engineers".
+Its canonical rendered bytes must be exactly the following UTF-8 sequence, without a trailing newline:
+
+```json
+{"audience":"engineers","task":"summarize","topic":"alpha"}
+```
+
+Repeat rendering with object keys reordered. The bytes and digest must remain equal.
+Change audience to "reviewers"; only that value and the render digest change.
+Test exact and exceeded body, schema, depth, node and output bounds from the admitted profile.
+
+Start a real EG server with disposable durable stores and the required declared features.
+Use generated public clients with authenticated identities; do not call private store helpers as the served proof.
+Publish a schema and prompt, wait for observable graph readiness, then read them through a second client.
+Render the exact prompt revision and observe the named production handler and renderer.
+Export that revision, change one nested field, import with its expected base, and read the new revision.
+Restart the server and compare graph identity, historical revisions, complete payload, schema pins and body digests.
+Retry after a lost reply and assert one committed revision and receipt.
+
+Exercise malformed schemas, invalid payloads, unsupported revisions, missing variables and substituted digest pins separately.
+Race two updates from the same base; one succeeds and the stale update refuses.
+Use a different actor and tenant for every public read and write boundary.
+Assert unchanged head, graph visibility, holders and committed outbox on each rejected mutation.
+Uncommitted staged bodies follow the existing orphan grace rule; they must never become readable prompt revisions.
+
+The dispatch proof traverses the actual AU consumer and its model transport against a disposable recording endpoint.
+A valid control request produces one observed model call with the pinned rendered bytes.
+Every invalid schema, body, revision and scope case produces zero calls and a typed refusal.
+No helper-only counter, mocked dispatcher or missing consumer can satisfy R002.10.
+Record exact EG and consumer heads, generated schema revisions, request IDs, production call sites and readback digests.
+Publish sanitized assertions; exclude credentials, private prompt content and raw request logs.
+
+R094.7 also requires the actual approved SDK/GraphOS source-effect producer journey.
+Use a disposable repository and prove exact-path/base-revision approval, conflict refusal and receipt-bound readback.
+Use [SDK R004.5 through R004.12](https://github.com/Knuckles-Team/agent-connector-sdk/tree/0c6c53dd63fe2a8f9b2ac3568b6d0e8f2c602734/specs/SDK-GOVERNED-WRITEBACK) and [GraphOS R003.4 through R003.10](https://github.com/Knuckles-Team/graph-os/tree/86737b45aaceb2eebe29b3a98ada5a55f8b71955/specs/fleet-catalog-and-tools).
+Their merged definitions identify the exact contracts; this amendment has not run the source-effect journey.
+
+Pass the exact exported bytes through RepositorySourceEffectRequest inside GraphOS RepositoryWriteBackParams.
+Serve `fleet.write_back.preview`, then prepare and confirm `fleet.write_back.commit` with the identical full request and trusted binding.
+Keep the original SDK effect key, independent recorded approval and commit-operation plan association.
+Observe the actual SDK conditional write, separate provider read at its immutable revision, and a fresh durable graph receipt read.
+Match complete payload values and exact written bytes/digest/size, approved path, base, actor, tenant, mode and receipt identity.
+A returned applied flag or request-key echo is insufficient evidence.
+
+For the original blueprint compatibility obligation, pin a manifest of every prompt blueprint at the selected source revision.
+Record the complete file inventory and actual count; the original input described more than sixty prompts.
+Load, modify one declared field, export and reimport every entry, preserving all remaining custom fields and exact numeric values.
+Check declared JSON formatting and final-newline policy when producing repository bytes; those exact bytes enter the approved SDK payload.
+An omitted file or parse/schema failure fails corpus qualification. Lost extension fields and rounded values also fail.
+Repository writes remain separately approved, single-file effects; corpus coverage cannot grant a batch write permission.
+
+Repeat absent/mismatched approval, stale base, path escape, changed bytes, wrong actor/tenant and unbound receipt cases through both surfaces.
+Each pre-effect refusal must produce zero provider mutations; a later readback failure must preserve uncertainty without an additional write.
+Race identical requests and restart GraphOS plus the connector. Recover the same proven receipt or reconcile before any retry.
+Record exact EG/SDK/GraphOS implementation heads separately from the merged definition revisions.
+No new runtime receipt or lifecycle promotion follows from these contract links.
+
+R002.10 still requires a separately named AU owning requirement and production dispatch call site.
+Its existing valid/invalid model-transport acceptance is unchanged. Repository persistence evidence cannot substitute for that consumer proof.
+
+<!-- spec-definition-patch:owner-batch-20261012-typed-packs-and-catalog -->
+## Owner acceptance targets — 2026-10-12
+
+All tests below are planned and unexecuted; they create no implementation or served receipts.
+
+- **`EG-TYPED-PACKS-R100.7`:** Matching exact-package passing validation evidence enables the catalog package. Require `run_set_complete=true` and canonical sorted unique run refs. Missing evidence, wrong tenant, candidate/package/graph/policy digest mismatch, incomplete run set, stale source or failed verdict refuses. The refusal leaves no publishable package. Re-run current dangling-ontology refusal. Hold positive AU receipt production and its pass criterion until AU defines the exact operation and rubric. Source record SHA-256: `96ff38761f9e21d52f608ba593c902aff4c93ca7b1ed13088ad39efd3e968a3a`.
+- **`EG-TYPED-PACKS-R097.2.7`:** Import a pinned schema with every supported term kind and mapped/unmapped examples. Independently read full coverage through `OntologyInspect` after commit/restart. Read class activation through `GraphSchemaClasses`. Verify the exact sorted `Mapped`/`Unmapped{NoDeclaredMapping}` report and provenance. Verify unmapped terms are not adopted, order/digest are deterministic, partial packs are admitted, and R071.1 reverse links remain unchanged. Each malformed, duplicate, unsupported-kind, kind-mismatch, stale or forged case refuses with pack head and active schema unchanged.
+- **`EG-TYPED-PACKS-R100.8`:** Export/import a workflow containing named graphs, unknown predicate, typed and language-tagged literals and ontology references; SHA-256 digest of canonical N-Quads and RDF graph isomorphism must survive. Tampered digest, invalid RDF, unresolved references and unsupported serializer refuse without writes. Equal/older export refusal and newer export admission require a resolved stored-version baseline/order contract; positive end-to-end consumer remains held. Source record SHA-256: `620b1ae05d8e35696c7522f207672ef6f374525004d5488fe62fb4b27fc6cf5a`.
+<!-- /spec-definition-patch -->
+
+<!-- spec-definition-patch:reviewed-mapped-subsets-20261012 -->
+## Planned mapped acceptance — 2026-10-12
+
+No test named here has run; names describe acceptance obligations, not evidence.
+
+- **`EG-TYPED-PACKS-R069.100` (AU:69; source `8ca81dc16448fefc73440f2eb9ea07b2e433f7e38075563f86800071029846e9`):** Exercise five outcomes. (1) Exact repeated full identity/profile is fully idempotent. (2) An identical blob at another branch/ref or normalized path writes a distinct source binding and provenance. This holds even when parsed content is reused. (3) A new commit with cosmetic-only content writes source revision/provenance but leaves semantic graph revision unchanged. (4) A parser/normalization-profile revision reparses the same raw blob and records the new profile binding. Graph mutation occurs only if the recomputed semantic fingerprint changes. (5) Structural token changes update both source binding and semantic graph revision. In every case, read back source-binding revision/digest separately from semantic graph revision. Unsupported language uses raw digest and is not classified cosmetic. A source identity plus profile key, not raw blob digest alone, determines full no-op. Producer/consumer boundary: RepositorySnapshotProvider -> SDK transport -> generated IndexRepository -> EG parser/index mutation. R079 embedding dedupe is not structural-mutation suppression. Require exact source revision, input/output digests, caller and independent readback where specified. These cases are planned only; no implementation or receipt is asserted. Planned proving tests (names only; not present or executed evidence): `tests/typed_packs/test_repository_fingerprint_identity_served.py::test_source_identity_profile_drives_mutation_decision`, `tests/typed_packs/test_repository_fingerprint_identity_served.py::test_unsupported_language_uses_raw_digest_only`. No runtime/test receipt is asserted.
+
+- **`EG-TYPED-PACKS-R100.100` (AU:90; source `1b717c4a284896dbf8c7b4fb1f00ebba80fa6a75e930a020c5bc01706634f582`):** A served export/edit/reimport test changes one frontmatter value and one step. Assert all non-target byte ranges, custom fields, comments, spacing, ordering and CRLF/LF style remain identical. Malformed anchors, overlapping patches, stale source digest and unknown edit spans refuse without writes. A prompt-blueprint JSON roundtrip is not accepted as evidence. Producer/consumer boundary: EG owns skill parse/admission and R100 rendering; SDK owns source transport/edit write-back. Do not substitute a prompt blueprint or whole-document normalization path. Require exact source revision, input/output digests, caller and independent readback where specified. These cases are planned only; no implementation or receipt is asserted. Planned proving tests (names only; not present or executed evidence): `tests/typed_packs/test_skill_lossless_edit_served.py::test_frontmatter_and_step_edits_preserve_unmodified_bytes`, `tests/typed_packs/test_skill_lossless_edit_served.py::test_stale_or_ambiguous_edit_refuses_before_write`. No runtime/test receipt is asserted.
+
+- **`EG-TYPED-PACKS-R100.101` (AU:98; source `531cb0ba1accd9e88833249fb253a9f5f7a3c1a911f653b3c9a5bfc42341f978`):** Serve compatible upgrade, breaking upgrade without migration (refused before effects), and breaking upgrade with exact declared migration. Changing a consumer contract, package digest or migration receipt invalidates admission. Keep historical package readable and read back the admitted new version only after validation. Producer/consumer boundary: EG skill package read/admission -> GraphOS invoke certification and consumer code; GraphOS owns its invocation gate. Do not equate existing version/dependency pins with compatibility. Require exact source revision, input/output digests, caller and independent readback where specified. These cases are planned only; no implementation or receipt is asserted. Planned proving tests (names only; not present or executed evidence): `tests/typed_packs/test_skill_compatibility_admission_served.py::test_breaking_upgrade_requires_exact_consumer_migration`, `tests/typed_packs/test_skill_compatibility_admission_served.py::test_changed_consumer_contract_invalidates_admission`. No runtime/test receipt is asserted.
+
+- **`EG-TYPED-PACKS-R001.100` (AU:52; source `e03b25156a4f84d27c4afba63d0cd9e526b549b5905994a53664d193416d048c`):** Round-trip nested schemas and version metadata through generated clients and canonical digest vectors. Test additive optional-field evolution, required-field removal, incompatible type change, stale base digest and unknown nested fields. Verify SDK authority remains separate and no tool dispatch occurs from pack admission. Producer/consumer boundary: EG ConnectorPack typed authority -> generated public pack APIs; SDK retains tool compatibility and execution authority. Preserve R001 index/entry/section/annotation and digest contract. Require exact source revision, input/output digests, caller and independent readback where specified. These cases are planned only; no implementation or receipt is asserted. Planned proving tests (names only; not present or executed evidence): `tests/typed_packs/test_connector_nested_schema_served.py::test_nested_schema_evolution_preserves_digest`, `tests/typed_packs/test_connector_nested_schema_served.py::test_incompatible_nested_schema_refuses_before_dispatch`. No runtime/test receipt is asserted.
+
+- **`EG-TYPED-PACKS-R072.100` (AU:97; source `f73767d1a3fdba29a702254ed1db2c9904158b6136f6f4b38a3c9a0d3e4fcb03`):** Served registry tests register and read a workflow. Prove no eager AU engine initialization and one initialization on first invocation. Invoke by registry id. Refuse unknown/withdrawn/stale ids with no run. Read back registry and invocation receipt independently. Producer/consumer boundary: EG typed registry and SourceIngest R002 own durable registration; AU owns lazy client initialization/execution. Preserve GRAPHOS-HOST-R022 workflow-store semantics. Require exact source revision, input/output digests, caller and independent readback where specified. These cases are planned only; no implementation or receipt is asserted. Planned proving tests (names only; not present or executed evidence): `tests/typed_packs/test_workflow_registry_served.py::test_registration_is_lazy_and_invokes_exact_revision`, `tests/typed_packs/test_workflow_registry_served.py::test_unknown_withdrawn_or_stale_registry_id_refuses`. Owner prerequisite: AU-CONTROL-R037.5 fills only a requirement gap. It does not define lazy initialization timing, the first-use operation or the execution receipt. No exact AU companion requirement ID is identified. Keep that consumer as an explicit hold until its owner publishes the operation and receipt. No invocation evidence is claimed. No runtime/test receipt is asserted.
+
+- **`EG-TYPED-PACKS-R071.100` (EG:8; source `525e39d1d194ac8a820bbd741a1c261ceab0c7d564981c33c731c06c1eb641d8`):** Cross-repository fixtures admit a new unique path. They refuse duplicate canonical paths, alias collisions, incompatible parent assignments and stale vocabulary revisions. Read back canonical path and unchanged published IRIs. Retain R071 generated ontology authority and R001.4 digest vectors. Producer/consumer boundary: EG vocabulary validation owns canonical identity; repository producers submit proposed paths. Preserve existing published IRIs and federated query vocabulary. Require exact source revision, input/output digests, caller and independent readback where specified. These cases are planned only; no implementation or receipt is asserted. Planned proving tests (names only; not present or executed evidence): `tests/typed_packs/test_concept_path_admission_served.py::test_owner_approved_path_grammar_is_shared`, `tests/typed_packs/test_concept_path_admission_served.py::test_duplicate_or_conflicting_paths_refuse_without_iri_changes`. Owner decision hold: the canonical segment grammar is not approved for separators/escaping, Unicode normalization, case, or whitespace. Keep admission SPECIFIED until the vocabulary owner publishes one versioned grammar shared by producers; preserve existing published IRIs. No runtime/test receipt is asserted.
+<!-- /spec-definition-patch -->

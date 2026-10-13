@@ -359,3 +359,123 @@ Its operation IDs remain for the GraphOS owner to publish after this producer co
 WebUI then refines existing WEBUI-APPS-R031.2 through R031.4 and its R031.7 served proof.
 AU is an EG-driven harness. Neither AU nor WebUI decides synchronization or conflict authority.
 No GraphOS, WebUI, decision-engine or federated-query files change in this producer slice.
+
+## 2026-10-12: R086 safe eviction and durable read-through
+
+This is an as-is contract inventory at source 65b7c75fdbfd673c19df4cd79ad83b8afdb93df5.
+Source inspection establishes the call sites below, not successful runtime execution.
+The scope is node-property residency, eviction and durable point reads.
+R039 rebuild and R083 model KV-block eviction retain their separate acceptance.
+Index reopening alone does not establish this node read-through contract.
+The existing [engine reference](../../docs/architecture/engine.md) describes safe eviction.
+R086 makes its proof obligations explicit without changing that document or the architecture.
+
+### Model and reuse
+
+The core owns [ReadThrough and ReadThroughFactory](../../crates/eg-core/src/read_through.rs).
+The facade implements them in [read_through.rs](../../src/server/persistence/read_through.rs).
+The dependency remains from facade to core. The core does not depend on PersistenceBackend.
+The factory binds a logical graph name to its existing sanitized durable key.
+Node identity is interpreted within that graph; sanitization is not authorization.
+The backend returns a result containing bytes, absence or an error.
+The core adapter returns an option and currently collapses backend errors to a logged miss.
+Evidence must preserve that distinction without proposing a replacement public type.
+
+### Behavior and production wiring
+
+| Boundary | Existing source | Required observation |
+|---|---|---|
+| Factory installation | [main.rs:1547](../../src/main.rs#L1547), [registry.rs:553](../../crates/eg-core/src/registry.rs#L553) | Already loaded graphs and graphs created later receive their own read-through. |
+| Resident hit and miss | [core_readthrough.rs:11](../../crates/eg-core/src/graph/core_readthrough.rs#L11) | A hit avoids durable storage access. A miss serves bytes without growing residency. An incomplete Bloom filter cannot hide a durable node. |
+| Durable point lookup | [trait_graph.rs:94](../../src/server/persistence/redb_backend/trait_graph.rs#L94), [store_read.rs:336](../../src/redb_store/store_read.rs#L336) | The selected shard supplies a scoped NODES read and node unseal. The read requires no writer commit. |
+| Presence guard | [store_read.rs:356](../../src/redb_store/store_read.rs#L356) | One snapshot returns aligned presence entries. Presence alone does not prove successful decryption or content equality. |
+| Periodic node cap | [persist.rs:78](../../src/persist.rs#L78) | Only confirmed candidates reach resident eviction. |
+| Tenant budget | [budget.rs:264](../../src/cost/budget.rs#L264) | The budget caller retains candidates when durability is unconfirmed. |
+| Served eviction | [gateway_graph.rs:111](../../src/server/handlers/graph_ops/gateway_graph.rs#L111) | EvictLRU retains its admission/commit gateway before resident removal. The result reports actual removals. |
+| Resident removal | [core_node_mutation.rs:60](../../crates/eg-core/src/graph/core_node_mutation.rs#L60) | The primitive produces no logical REMOVE_NODE record. Durable bytes remain readable. |
+| Served scoped read | [nodes.rs:85](../../src/server/handlers/graph_ops/nodes.rs#L85) | GetNodeProperties can reach raw-core read-through, then checks row visibility before returning it. |
+
+The core primitive does not independently certify durability. Its production caller owns that guard.
+A cap is conditional on confirmed durability. Retained candidates can leave residency above it.
+Current candidate selection uses resident insertion indices; this definition adds no recency policy.
+The served eviction gateway retains its existing admission and receipt effects.
+Memory-only removal means no logical node deletion, not that the entire served request writes nothing.
+
+### Refusal and evidence limits
+
+Missing persistence, failed presence or a malformed vector must not cause candidate removal.
+False presence entries retain their corresponding nodes.
+True presence proves a row exists in that snapshot, not that its content is readable or unchanged.
+Read-through errors currently log a warning and return None at the adapter.
+Capture the backend error separately; that None cannot establish genuine absence.
+Graph and row authority still govern the raw-core fallback.
+Test equal node IDs with distinct properties in separate graphs and denied hidden rows.
+Do not infer a cross-request snapshot, universal concurrency guarantee or new transaction boundary.
+Preserve a contradictory interleaving as a failure for a separate runtime change.
+
+### Existing evidence candidates, not execution receipts
+
+[redb_backend.rs](../../src/server/persistence/redb_backend.rs) contains
+`authoritative_eviction_bounds_memory_and_reads_through`,
+`authoritative_eviction_never_drops_undurable_node` and
+`read_through_snapshot_triggers_no_writer_commit`.
+Their source is useful coverage evidence. None ran in this definition batch.
+The core seam tests in [graph.rs](../../crates/eg-core/src/graph.rs) use stub or counting stores.
+They cannot replace real durable, scoped, served or restart evidence.
+R086.9 requires the served entry points and the observations in test-spec.md.
+
+<!-- spec-definition-patch:owner-batch-20261012-durable-graph-kernel -->
+## Durable-kernel owner implementation plan — 2026-10-12
+
+### `EG-DURABLE-KERNEL-R028.1` — AU:21
+
+- **EG storage contract:** persist the run checkpoint as an R085 `active_context` snapshot. Bind `run_id`, `work_item_id`, lease epoch/fencing token, checkpoint revision and payload digest in canonical UTF-8 content. Bind separate short-/long-term memory references by document ID, revision and digest. Derive tenant and graph only from verified request context. Fence updates to the live WorkItem lease epoch/token. No current EG operation atomically joins the R085 snapshot and WorkItem checkpoint pointer; `CasWorkItemMetadata` is scheduling metadata only. Define transaction and crash-recovery semantics before claiming this binding.
+- **Attach point:** proposed R085 `SyncMemorySnapshot` / `ReadMemorySnapshot`. Writes pass through existing MutationBatch, expected-head CAS. R039 remains the sole redb authority. A stale fence/revision, authority mismatch, digest mismatch, changed-body replay, or unavailable store refuses without head advance.
+- **Required acceptance:** restart and read the same checkpoint and memory references. Negative cases cover wrong tenant/graph, stale revision/fence, digest mismatch, changed-body replay, and unavailable persistence.
+- **Explicit dependency hold:** retention bounds/release authority. Owners must define the atomic transaction or explicit recovery contract joining the snapshot and WorkItem checkpoint pointer/fence. AU must define the resume request/receipt binding to the checkpoint and current fence. Define host-issued stream ID/cursor authority and replay semantics. Preserve original R028 and identity obligations, along with GRAPHOS-A2A/OPS streaming requirements. Hash `d89bb9c69e2fdef6a5c3fd428ede3f91868539056c2b949700867d8d8087d1e7`.
+
+### `EG-DURABLE-KERNEL-R085.9` — AU:48
+
+- Store an `active_context` memory snapshot with a stable search-run document ID. Require exact UTF-8 JSON fields: nonempty `search_run_id`, positive `state_revision` equal to the snapshot revision, and four array-valued state fields. Arrays may be empty. EG validates the envelope and hashes exact bytes; AU defines item schemas and source identities.
+- Reuse R085 digest, one-MiB bound, graph-incarnation binding, authorization-before-lookup, expected-head CAS, durable mutation gateway, conflict retention. R039 remains the authority. AU must save complete state before eviction and resume using the exact document ID/revision read back by `ReadMemorySnapshot`.
+- Refuse malformed/missing required fields, oversize content, wrong authority, stale graph, digest mismatch, or unavailable storage without head change. Stale write returns R085 conflict behavior.
+- Required tests: restart/context eviction then independent exact readback. Negatives for each refusal and a stale conflict with the accepted head unchanged. Preserve AU R013.13/R020.1 and EG R085.1/.4/.7. Hash `8c76fa1637e0cc2082a1cce16b9d637f12b310ae96d1fe9a50ec9c64f8e23944`.
+- **AU hold:** AU has not defined per-entry schemas/source identity for the four fields. AU also has not defined the continuation request/receipt binding to the exact stored revision. Do not claim consumer completion.
+
+### `EG-DURABLE-KERNEL-R085.10` — AU:49
+
+- Persist each authorized session note through R085 with stable note ID and source run/task references. Bind source revision, canonical UTF-8 content/digest, provenance, graph incarnation and parent/current revision. Serve through existing R085 read/list and sync methods only.
+- EG returns authorized revision and sync/conflict state. Stale submissions are retained without replacing the head. EG does not perform automatic capture, prompt injection, relevance ranking, or conflict selection.
+- Required EG tests: exact source revision/digest/provenance readback after restart. Also test tenant/revocation redaction, stale conflict retention and capacity refusal before effects. Preserve AU R022.3 and EG R085.2/.5/.7. Hash `2362fd76bf40223aeb813866392670b65eae13d02a725b1af9a2e6711542dd12`.
+- **AU hold:** AU has not defined trigger, note-kind mapping, relevance score/threshold or stale rule. AU must define conflict presentation/selection before automatic capture and transparent reuse acceptance.
+
+### `EG-DURABLE-KERNEL-R084.7` — EG:28
+
+- **Definition hold:** keep writes scoped to one graph via `ApplyMutation`, expected-version arbitration. And R039’s sole redb authority. R024.1 is read-only and R036 mirror replay cursors do not supply a distributed coordinator. Preserve R084.1-.6. Do not promise cross-backend order or add writes to read-only sources.
+- Before specifying a positive cross-backend test, owners must decide allowed writable backend kinds and registry owner. They must also choose coordinator owner, tenant- versus graph-order key, and atomic versus eventual semantics. They must define partial-failure/idempotency/retry/receipt behavior. Until then this child remains SPECIFIED and held. Hash `96c3079859b0e63ec3e1174e25e7a4ab107b23ef6863ae9b54ff0e921a88e4b0`.
+<!-- /spec-definition-patch -->
+
+<!-- spec-definition-patch:final-mappings-20261012 -->
+## Final mapping implementation plan — 2026-10-12
+
+### `EG-DURABLE-KERNEL-R038.100` / EG:60
+
+- Preserve parent `EG-DURABLE-KERNEL-R038` and its existing clauses.
+- Define: Define an explicit deployment profile with `embedded` (in-process operation requiring no external service) and `served` (configured service endpoint) modes. Profile selection controls transport/startup only. It does not silently change the existing persistent-namespace durability default or sync/redb acknowledgment authority. Ephemeral in-memory namespaces require an explicit `ephemeral` declaration and retain no durable log. Persistent namespaces retain their declared `sync` or `async` class. Do not adopt the source request’s universal in-memory default.
+- Producer/consumer: EG owns profile and storage selection. Transport mode is separate from namespace DurabilityClass. Preserve R038 durability classes, sync default, redb authority and authorization/HMAC isolation.
+- Source record SHA-256: `b36ed0f40742d2f455b4eae67f2fb64edfb7a6ea87b93cbb8ac0046970728458`.
+- Keep status SPECIFIED until each named producer and consumer is separately implemented, served-tested and independently read back.
+<!-- /spec-definition-patch -->
+
+
+<!-- spec-definition-patch:owner-dispatch-20261012-plan -->
+## Cross-owner graph feed implementation plan — 2026-10-12
+
+- **`EG-DURABLE-KERNEL-R043.100` / WEBUI:5:** Add snapshot/high-water and cursor-read operations over the committed `ApplyChangeEnvelope` path. Include graph incarnation/revision, stable `(commit_id,event_ordinal)` identity, ordering and tombstones. Also include current authorization revision, 24-hour retention, a 256-event page limit and explicit expired-cursor/revocation outcomes. Emit versioned commit-to-visible latency fields and target p95 ≤1000 ms. GraphOS and WebUI own the served adapter and readable concurrent layout. Consumer id is `WEBUI-APPS-R030.8`. Source SHA-256 `0b416b47d85530fb35cf44bf5dc79e04e1b9746481027d0b0687b66579dc9844`.
+- The read feed must reuse the existing durable mutation authority. Do not create an alternate write envelope or count reload/local optimistic state as feed evidence.
+- Keep SPECIFIED until two authenticated served clients demonstrate concurrent commits and cursor reconnect. Also verify tombstone authorization, no-refresh visibility, measured latency and independent graph readback.
+<!-- /spec-definition-patch -->
+
+## Benchmark measurement plan — 2026-10-12
+
+- **`EG-DURABLE-KERNEL-R042.100` / EG:63:** Extend existing `BenchmarkClaim.measured_result` with `BenchmarkMeasurementV1`. Bind full tokenizer input-token count, release/model/profile/workload identities, post-ready inference elapsed time and pinned price table/currency. Exclude startup from throughput. Refuse missing measurements, invalid denominators and incomparable profiles. Source SHA-256 `78016644588199c94f30e549cda44e35667f0447e1ae15a2524a4710bdf92e00`.

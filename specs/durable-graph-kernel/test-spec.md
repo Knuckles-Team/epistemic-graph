@@ -209,3 +209,87 @@ Retention exhaustion must refuse before partial retention or an accepted-head ch
 Inject failure before and after durable commit. Recovery must expose one complete outcome or none.
 Record source SHA, binary digest, generated contract digest and authenticated operation receipts.
 Client mocks and producer unit tests cannot close R085.8.
+
+## R086 planned safe-eviction acceptance
+
+All names below are proposed tests, not completed tests or new bindings to existing receipts.
+Implement them in tests/safe_eviction_read_through.rs using existing production helpers.
+Each child is focused; the rollup waits for all children and the complete served journey.
+
+| Requirement | Planned proving test |
+|---|---|
+| EG-DURABLE-KERNEL-R086 | `served_safe_eviction_read_through_journey` |
+| EG-DURABLE-KERNEL-R086.1 | `read_through_model_outcomes` |
+| EG-DURABLE-KERNEL-R086.2 | `selected_residents_leave_durable_rows_unchanged` |
+| EG-DURABLE-KERNEL-R086.3 | `evicted_blob_reads_without_resident_growth` |
+| EG-DURABLE-KERNEL-R086.4 | `startup_attaches_graph_scoped_read_through` |
+| EG-DURABLE-KERNEL-R086.5 | `served_evicted_reads_preserve_scope` |
+| EG-DURABLE-KERNEL-R086.6 | `production_eviction_retains_unconfirmed_candidates` |
+| EG-DURABLE-KERNEL-R086.7 | `backend_failure_is_not_absence_evidence` |
+| EG-DURABLE-KERNEL-R086.8 | `restarted_engine_reads_an_evicted_node` |
+| EG-DURABLE-KERNEL-R086.9 | `served_safe_eviction_read_through_journey` |
+
+The served journey uses a real authenticated engine, disposable durable directory and independent clients.
+Acknowledge distinct node-property writes before requesting EvictLRU with a small cap.
+Record selected identities and resident counts before and after the call.
+Prove the target is absent from raw-core resident properties and topology before GetNodeProperties.
+Observe the actual core seam, facade adapter and scoped redb lookup without replacing their results.
+Assert exact committed bytes, unchanged durable node rows and no read-driven resident growth.
+Also read a resident node and observe that it avoids the durable read-through seam.
+Capture the served admission receipt separately from memory-only projection removal.
+
+Exercise periodic-cap and tenant-budget callers as separate focused wiring cases.
+At each eviction caller, test absent persistence, failed presence, wrong vector length and false entries.
+A narrowly injected presence fault can exercise that branch but cannot replace the real-store journey.
+Check retained residents and unchanged durable node rows after each refusal.
+For read failure, use an unavailable real backend or an unreadable durable row.
+Record the backend error, adapter warning and missing bytes; do not label this successful absence.
+For genuine absence, separately establish a successful scoped backend lookup returning no row.
+
+Use the same node ID with distinct properties in two authorized graphs.
+Read each after eviction, then repeat with a principal denied access to one graph or row.
+No hidden property may escape through the raw-core fallback or diagnostic evidence.
+Include an incomplete Bloom filter whose missing resident node is nevertheless durable.
+Test a complete-filter negative separately from unavailable storage.
+
+Restart the process on the same directory through normal startup wiring.
+Use a fresh authorized client. If eager load makes the target resident, evict it again first.
+Prove a new cache miss and durable read after restart; compare the acknowledged properties.
+Opening an index or serving an eagerly restored resident does not prove this path.
+Record source SHA, binary digest, enabled features, exact command, graph/node scope,
+request correlation, commit acknowledgment, residency observations and terminal result.
+Preserve all existing owner receipts. New results must identify the exact source exercised.
+This specification batch makes no runtime execution or implementation-complete claim.
+
+<!-- spec-definition-patch:owner-batch-20261012-durable-graph-kernel -->
+## Durable-kernel owner acceptance targets — 2026-10-12
+
+Planned cases only. None have run. EG producer acceptance stops at its authenticated durable memory contract. Cross-owner cases remain blocked where called out.
+
+- **`EG-DURABLE-KERNEL-R028.1` / AU:21:** Write a checkpoint and both referenced memory revisions through R085. Restart and read back the same revision and digests. Refuse wrong tenant/graph, stale head or stale WorkItem fence. Also refuse a crash/race between snapshot write and WorkItem pointer update. Refuse digest mismatch, changed-body replay identity or unavailable storage without advancing the head. AU must resume the same run and fence. GraphOS must continue from the exact existing host-issued stream cursor without duplicate or skipped output. Those cases remain blocked on the atomic snapshot/pointer transaction or crash-recovery contract. Short-/long-term kind and retention decisions, AU resume-binding and host cursor/replay semantics also remain open. Preserve `EG-DURABLE-KERNEL-R028`, `EG-IDENTITY-R006`, `GRAPHOS-A2A-R001`, `GRAPHOS-A2A-R001.1`, `GRAPHOS-OPS-R001`. Source hash `d89bb9c69e2fdef6a5c3fd428ede3f91868539056c2b949700867d8d8087d1e7`.
+- **`EG-DURABLE-KERNEL-R085.9` / AU:48:** Store all required search-state fields and evict context. Restart or use an independent client. Read back byte-identical exact UTF-8 JSON content at its bound revision. Validate the envelope field types and the equality of state revision and snapshot revision. Refuse missing/malformed fields, oversize content, wrong authority, stale graph, digest mismatch, and unavailable storage without changing the head. Stale expected revision preserves the accepted head and retains the candidate conflict. AU continuation must restore all four fields using the exact returned document ID/revision before compacted context is used. That last case is blocked on AU’s per-entry schema/source identity and continuation receipt decision. Preserve AU R013.13/R020.1 and EG R085.1/.4/.7. Source hash `8c76fa1637e0cc2082a1cce16b9d637f12b310ae96d1fe9a50ec9c64f8e23944`.
+- **`EG-DURABLE-KERNEL-R085.10` / AU:49:** Write/read an authorized note across restart with source revision, digest, and provenance intact. Ensure cross-tenant/revoked reads are redacted. Stale writes must retain conflict without replacing the accepted head. Capacity exhaustion must refuse before effects. AU must separately test the decided capture trigger, relevance/staleness rule, and conflict presentation without using unresolved content. That acceptance is blocked on AU defining those semantics. Preserve AU R022.3 and EG R085.2/.5/.7. Source hash `2362fd76bf40223aeb813866392670b65eae13d02a725b1af9a2e6711542dd12`.
+- **`EG-DURABLE-KERNEL-R084.7` / EG:28:** Existing one-graph two-client acceptance continues to prove one commit and one typed stale-writer conflict. No cross-backend positive case is valid until owners define the writable target set, ordering key and coordinator. They must also define atomic/eventual semantics and the partial failure/retry/receipt contract. Once defined, cover two tenants, multiple targets, concurrent writes, failure/replay, and assert R039 remains sole durability authority. This child remains explicitly held. Do not use R084.6 as cross-backend evidence. Preserve all R084.1-.6 clauses. Source hash `96c3079859b0e63ec3e1174e25e7a4ab107b23ef6863ae9b54ff0e921a88e4b0`.
+<!-- /spec-definition-patch -->
+
+<!-- spec-definition-patch:final-mappings-20261012 -->
+## Final mapped planned acceptance — 2026-10-12
+
+No cases listed here have run. They describe required future acceptance, not evidence.
+
+- **`EG-DURABLE-KERNEL-R038.100` / EG:60. Source `b36ed0f40742d2f455b4eae67f2fb64edfb7a6ea87b93cbb8ac0046970728458`:** Start a fresh embedded profile without an external service and read/write an explicitly ephemeral namespace. Confirm no persistent namespace is silently downgraded. Start served mode against its configured endpoint and confirm its declared sync/async class and acknowledgment boundary. Refuse an unknown profile and an ephemeral-to-durable class mismatch. Read back profile and namespace declarations. Producer/consumer: EG owns profile and storage selection. Transport mode is separate from namespace DurabilityClass. Preserve R038 durability classes, sync default, redb authority and authorization/HMAC isolation. Parent `EG-DURABLE-KERNEL-R038` remains intact.
+<!-- /spec-definition-patch -->
+
+
+<!-- spec-definition-patch:owner-dispatch-20261012-tests -->
+## Planned served acceptance — graph change feed
+
+No test in this section has run. It is a future contract.
+
+- `EG-DURABLE-KERNEL-R043.100`: Use two authenticated served GraphView clients to take a consistent snapshot. Commit concurrent `ApplyChangeEnvelope` mutations and consume ordered events without refresh. Reconnect from the opaque cursor and independently read back committed state. Exercise stable dedup ids, tombstones, expired cursor recovery, stale graph incarnation and revoked permissions without denied counts/edges. Measure EG commit-to-visible p95 only through first authorized feed read. GraphOS/WebUI acceptance must separately set and confirm a versioned browser commit-to-visible p95. It must also set explicit numeric readable-layout limits for visible node/edge budget, interaction and label bounds. EG feed latency is not end-to-end evidence.
+- Exercise tombstones, expired cursor recovery, graph-incarnation mismatch and authorization revocation. Denied edges/counts remain invisible. Measure p95 commit acknowledgement to first authorized read ≤1000 ms using the recorded latency-profile revision. WebUI R030.8 separately proves concurrent layout remains readable.
+<!-- /spec-definition-patch -->
+
+## Planned served acceptance — benchmark measurement
+
+- `EG-DURABLE-KERNEL-R042.100`: read back benchmark input and measured-result bindings for at least two releases. Independently recompute input-token TPS and currency-rounded per-query cost, proving startup is excluded. Refuse missing full input-token count/tokenizer/price, zero or invalid inference time, invalid currency exponent and different workload/profile settings. This does not assert that any performance comparison passes.

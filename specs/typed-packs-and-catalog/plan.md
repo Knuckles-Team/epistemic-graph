@@ -11,7 +11,7 @@ The order below minimizes incompatible intermediate states. A step may be a veri
 3. **Admission and atomicity proof.** Audit G1–G21, tenant/importer checks, reserved IDs, preflight size checks and stable codes. Ensure the import planner resolves staged pins, stages engine bodies with holder/refcount invariants, and commits all owner rows plus N outbox intents atomically. Test all crash windows and replay identities.
 4. **Lifecycle and catalog proof.** Verify carry-forward, changed pin cascade, reversible withdrawal, permanent retirement, content reads, no-op import and mass-withdrawal override. Confirm typed ServerRegistry owns liveness and component/pack owner owns content; remove any shadow catalog after consumer migration.
 5. **Schema and projection proof.** Reuse one G13–G16/K1–K7 validator for operator, pack and ingestion sources. Attach current pack schema in one graph commit. Mark visibility only after attach; use durable failure/retry and least-privilege row-scoped graph grant. Verify static `AttachPack` staleness and `GraphSchemaClasses` output. Preserve exact `IcvConfigure` behavior.
-6. **Consumer and release proof.** Run an end-to-end connector fixture from SDK package creation through Import, projection, GraphOS typed read and an authorized body read. Run Go/JS/Python/Rust contract vectors and full integration suites on the exact commit. Include scanner and architecture gates, release workflow parity, and a crash/restart restore check. Publish exact evidence before setting a requirement to `ACCEPTED`.
+6. **Consumer and release proof.** Run an end-to-end connector fixture from SDK package creation through Import, projection, GraphOS typed read and an authorized body read. Run Go/JS/Python/Rust contract vectors and full integration suites on the exact commit. Include scanner and architecture gates, release workflow parity, and a crash/restart restore check. Record exact evidence for each required outcome.
 
 ## Interfaces and ownership
 
@@ -41,7 +41,7 @@ The current connector pack schema is version 2. Compatible additions keep existi
 
 ## Completion evidence
 
-For each PACK requirement, attach a PR/merged commit link, contract receipt digest, focused test output, full release workflow run and, for runtime behavior, served fixture result. `evidence.md` can be added when a tested implementation is available; this proposed spec makes no passing claim. The acceptance matrix in `test-spec.md` is the authoritative proof list.
+For each PACK requirement, attach a PR/merged commit link and contract receipt digest. Attach focused test output and the full release workflow run. For runtime behavior, include a served fixture result. Add `evidence.md` when a tested implementation is available. This proposed spec makes no passing claim. The acceptance matrix in `test-spec.md` is the authoritative proof list.
 
 ### Turtle parse identity repair
 
@@ -129,7 +129,7 @@ R002, R003 and R007 retain their runtime contracts. The import fixture must use
 the deterministic connector/digest/expected-binding key before testing index
 validation. Validation refusals, including `RETIRED_ENTRY_RETURNED`, are typed
 `PackImportResult::Rejected` violations. Compare catalog state after retirement
-with state after the refused reimport, so the retirement itself is not mistaken
+with state after the refused reimport. This ensures retirement is not mistaken
 for a rejected-import mutation. Reconciliation preserves every historical
 revision holder. Revised and withdrawn bodies remain readable by pinned revision
 (PACK-05). Only unheld bodies are orphans. The served regression
@@ -328,3 +328,247 @@ They cover absent values, booleans, incorrect datatypes and competing values.
 The reference validator passed nine cases. Five malformed cases passed the baseline but fail the updated shape.
 Native execution remains pending. Reference validation does not establish native acceptance.
 Run `cargo test --locked -p eg-shacl --test swarm_topology_shapes --offline` on an admitted build lane.
+
+
+## Native prompt identity, rendering and blueprint round trips
+
+This definition extends R001, R002 and R094 without changing their original acceptance cells.
+Each child names one producer, transition or proving journey.
+No runtime scenario receipt accompanies these definitions.
+Existing source names establish reuse boundaries, not implementation of the new prompt operations.
+
+### Original acceptance crosswalk
+
+| Original obligation | Required residual children |
+|---|---|
+| ConnectorPackIndex and entry types | R001.1 |
+| Section and annotation types | R001.2 |
+| ConnectorPackOp and AgentComponent.Content shapes | R001.3 |
+| Published framed SHA-256 sample vectors, byte-for-byte | R001.4 |
+| All generated clients share one wire contract | R001.5 |
+| SHA-256 engine body staging | R002.1 |
+| Guarded holder/refcount updates for unchanged components | R002.2 |
+| Revised components and historical holders | R002.3 |
+| Withdrawn components and historical holders | R002.4 |
+| Orphan fault recovery and grace-window reclamation | R002.5 |
+| Verified body serving | R002.6 and R094.1 |
+| Stable Python-visible content method, never a refusal-only success | R094.1 |
+
+Prompt-specific tests cannot substitute for these original obligations.
+Every prior landing receipt and test binding remains evidence at its original scope.
+
+### Existing code and reachability
+
+Inspection base: `38cae80eb37eba97a273e2a6259e2eb0dfe46b02`.
+
+| Source | Observed role and required extension |
+|---|---|
+| `crates/eg-types/src/agent_component.rs:130` | Existing SystemPrompt/McpPrompt kinds, component identity, revisions and dependency pins. Reuse these types. |
+| `crates/eg-types/src/agent_component/facts.rs:395` | Existing static/dynamic variable validation. This does not establish full blueprint validation or rendering. |
+| `src/server/handlers/admin/agent.rs:142` | Authenticated component dispatch. Publish binds verified scope before the owner write at line 184. |
+| `src/server/persistence/agent_component/write.rs:39` | Existing component publication authority. Extend it for validated native prompt bodies and replay. |
+| `src/server/handlers/admin/component_content.rs:55` | Tenant-scoped content lookup uses connector_pack_content_pointer and verifies engine-owned body bytes. |
+| `src/server/blob/engine_bodies.rs:202` | Existing verified engine-body reader. Reuse its digest and holder authority. |
+| `src/server/connector_pack_projection.rs` | Existing pack projection machinery. Native prompt projection requires an explicit admitted extension. |
+
+The inspected dispatch has Publish, Retire, Current, History, Status, Search and Content branches.
+It does not establish a prompt render or blueprint import/export method.
+R001.9 must declare and generate those operations before served acceptance.
+Native SystemPrompt bodies require R002.7; a connector-pack content pointer alone does not establish that capability.
+The intended renderer path in R001.8 is a work target, not an existing implementation.
+Do not copy prompt content into component metadata or introduce a second registry.
+Graph nodes retain typed identity, revisions, schema and body dependencies; engine-owned bodies retain the complete payload.
+
+### Typed payload and render policy
+
+A blueprint envelope carries format revision, component identity, exact base revision, schema pin, payload and provenance.
+The server derives tenant, actor and permitted scope from verified context.
+A schema pin contains component ID, entry revision and definition digest.
+The payload requires a nonempty task string.
+Optional topic, tone, style, audience, goal, input and format fields follow the pinned schema.
+The task remains required when other fields are absent.
+The qualification schema identifies itself as prompt-blueprint/v1.
+Task contains 1 through 4096 UTF-8 bytes. Optional text fields accept strings or explicit null.
+Constraints and deliverables accept arrays of at most 1024 strings; structure accepts a bounded JSON object.
+Custom fields preserve bounded JSON values without overriding the declared types of core fields.
+The envelope keeps identity and authority fields separate from the custom payload.
+Nested structure, constraints, deliverables and custom extension values remain typed JSON data.
+The supported schema profile must declare field types, required fields, extension policy and limits.
+Unsupported schema rules refuse; no validator silently ignores them.
+Schema references resolve only to admitted pinned graph objects, without network access.
+Reject duplicate keys, nonfinite numbers, invalid Unicode and exceeded byte, depth or node limits.
+Use the existing pack limits as ceilings: body 2 MiB, schema 1 MiB and depth 64.
+The qualification profile limits payload and variable trees to 65536 JSON nodes each and rendered output to 2 MiB.
+A node is one scalar, array or object; object keys do not add nodes.
+The root has depth one; each nested array or object adds one level.
+These limits are admission maxima, not performance claims. Test each exact limit and limit-plus-one.
+
+Rendering resolves declared variables from the request or explicitly pinned graph context.
+Each binding names one variable and an existing payload path represented by string keys or nonnegative array indices.
+Reject duplicate variable names, duplicate target paths and overlapping ancestor/descendant targets.
+Bindings replace whole typed values; they never interpolate text or create missing paths.
+The binding declaration and variable schema belong to the pinned blueprint revision.
+Missing or unknown variables refuse; strings never become executable templates, code, files or network requests.
+A variable is inserted as a typed JSON value, with JSON escaping for strings.
+Revalidate the completed object against its exact schema before serialization.
+The qualification renderer sorts object keys by Unicode scalar value and emits compact UTF-8 JSON without a trailing newline.
+It uses required JSON escapes, preserves other Unicode, and normalizes exact decimals without binary floating-point conversion.
+Equivalent decimal spellings normalize to the same exact decimal value; zero uses 0 and insignificant fraction zeros are removed.
+The rendering revision fixes this serialization policy.
+It must preserve numeric values beyond binary64 precision without rounding; unsupported representations refuse.
+No host clock, ambient environment or unpinned latest revision may affect rendering.
+Return rendered bytes, body and schema pins, variable digest, renderer revision and render digest.
+The result is data, not an approval or an authority token.
+
+Lossless export/import means equality of every admitted JSON value, including custom fields, array order and null-versus-absence.
+Whitespace and object-key order may differ under the declared serialization policy.
+Exact numeric values and Unicode strings must not change.
+An export reads a single exact component revision and all dependencies pinned by that revision.
+A modified import names that identity and expected base; an admitted change creates a new revision.
+An unchanged import follows existing no-op semantics, and a lost-reply retry returns the same operation receipt.
+Reserved pack identities still use pack admission; native import cannot bypass importer binding or retirement rules.
+
+### Producer dependencies and authority
+
+| Consumer obligation | Required producer or boundary | Evidence still required |
+|---|---|---|
+| R001.6-R001.9 | Existing component authority and generated contract; EG-CONTRACT-R005 remains a referenced producer. | New schema, supported rules, operations and rendered-result contract. |
+| R002.7-R002.9 | Existing owner write, body store and projection admission. | Native prompt holders, graph readiness and authenticated render dispatch. |
+| R002.10 | R002.9 render result and the actual AU model-dispatch consumer. | Name its owning requirement and production call site before delivery; observe zero invalid model requests. |
+| R094.7 | SDK-GOVERNED-WRITEBACK-R004.5 through R004.12 and GRAPHOS-FLEET-R003.4 through R003.10. | Actual served composition, approved conditional effect, independent readback and durable replay remain required. |
+
+R002.10 must bind the dispatched bytes and variable digest to the rendered result and authorized source revision.
+A production consumer must reject a substituted body, schema, scope or revision before model transport.
+The integration fixture must traverse the real consumer; a helper counter cannot establish absence of dispatch.
+Missing consumer wiring remains an explicit prerequisite, not inferred implementation.
+This batch does not edit decision, codec, query or harness sources.
+Any related prompt-evolution overlap is a dependency note only, not another absorbed input.
+
+R094.7 retains the original repository-source persistence obligation.
+A graph write or exported JSON file does not complete that obligation.
+The SDK producer must accept repository identity, allowed path, exact base revision, proposed bytes and their digest.
+GraphOS must bind human approval to that exact effect, actor and scope before execution.
+The producer must refuse absent approval, changed base revision, path traversal and a mismatched payload.
+R094.7 is a retained dependency acceptance obligation, not an assignment to implement another repository.
+Its receipt must bind the approved request, actual repository revision and written-content digest.
+EG may retain that receipt as evidence; it must not grant approval or write repository files.
+The source-effect definitions now have exact merged producers:
+
+- [SDK governed write-back](https://github.com/Knuckles-Team/agent-connector-sdk/tree/0c6c53dd63fe2a8f9b2ac3568b6d0e8f2c602734/specs/SDK-GOVERNED-WRITEBACK) at `0c6c53dd63fe2a8f9b2ac3568b6d0e8f2c602734`.
+- [GraphOS fleet composition](https://github.com/Knuckles-Team/graph-os/tree/86737b45aaceb2eebe29b3a98ada5a55f8b71955/specs/fleet-catalog-and-tools) at `86737b45aaceb2eebe29b3a98ada5a55f8b71955`.
+
+SDK-GOVERNED-WRITEBACK-R004.1 through R004.4 retain generic approval, replay, audit reservation and business-rule routing.
+R004.5 through R004.8 bind the typed request, trusted path scope, exact approval and provider conditional mutation.
+R004.9 and R004.10 bind actual immutable revision, durable attempt and independent readback; R004.11 and R004.12 require recovery and served composition.
+GraphOS GRAPHOS-FLEET-R003.4 retains original fleet-wide acceptance. R003.5 through R003.7 bind the full request, trusted configuration and commit confirmation.
+R003.8 through R003.10 require real effect/readback evidence, zero-effect refusal parity and durable replay after restart.
+GRAPHOS-OPS-R009 remains that producer's existing invoke authority, not a new EG approval boundary.
+
+R094.7 consumes SDK RepositorySourceEffectIntent, RepositorySourceEffectRequest and RepositorySourceEffectReceipt through GraphOS RepositoryWriteBackParams.
+The existing operation IDs are fleet.write_back.preview and fleet.write_back.commit.
+GraphOS RepositoryWriteBackPreview carries the actual SDK DryRunObservation; RepositoryWriteBackResult carries the SDK receipt and its digest.
+These are defined producer contracts; their names and merge commits do not prove runtime availability.
+Their published definitions identify missing exports, provider adapters, registry composition and qualified replay wiring as implementation prerequisites.
+
+Use the exact exported blueprint bytes as SDK payload_base64, with matching SHA-256 and byte count.
+Bind the immutable repository base, relative path, mode, actor, scope, canonical change-set digest, approval and SDK effect key.
+Require request.intent to equal durable.desired_patch["repository_effect"], preserving the SDK's sole-field patch, scope and provenance constraints.
+GraphOS binds the complete RepositoryWriteBackParams projection and trusted configuration digest to the COMMIT operation and existing confirmation.
+A preview-operation lease cannot authorize commit. A GraphOS plan reference cannot replace SDK approval or its effect key.
+Accept source persistence evidence only from the actual immutable provider revision and independent readback, joined to the durable SDK attempt.
+Unknown outcomes require producer reconciliation; an echoed key, applied flag or matching current bytes cannot establish this request's effect.
+EG retains its original graph identity, revision, complete payload and body authority throughout that journey.
+It may store the bound producer receipt as evidence; it neither approves nor performs the repository write.
+
+This resolves the previously unnamed producer-definition dependency for EG:71 without establishing runtime acceptance.
+R002.10 still lacks the exact AU owning requirement and production model-dispatch call site.
+Those must consume the render receipt before transport and prove one valid request versus zero invalid requests.
+The source-effect producers do not fill that boundary. No other prompt-evolution or AU audit input is absorbed by these references.
+
+### Source provenance and limitations
+
+The two original field-array hashes were checked against the coordinator recipe before writing.
+EG:15 hash: `e58f10a2b4e4daa2525f90a8ac283d43a43bb695c635305900acd420fac669ba`.
+EG:71 hash: `6aeae9e1b05f52baa200ab74a9ddca6feb76bbc068a9a92be43802ecedf392a5`.
+Both original text sources were available and read in full.
+The structured-prompt source motivates schema validation, graph storage, rendering and native typed consumption.
+Its performance claims and historical backend descriptions do not establish current implementation or measured quality.
+The blueprint source requests complete custom-field preservation across load, modification and persistence.
+Its earlier direct-file-write proposal does not override the separate approved-effect boundary.
+Neither accepted input supplies a research paper or arXiv identifier; no research result is claimed here.
+
+<!-- spec-definition-patch:owner-batch-20261012-typed-packs-and-catalog -->
+## Owner implementation plan — 2026-10-12
+
+### `EG-TYPED-PACKS-R100.7` — AU:31
+
+- Gate the existing `render_skill_package`/fleet `skill_row` output on `RecordedRunValidationV1`. Bind tenant, skill, candidate revision, exact package digest, graph revision and validation policy. Each sorted unique run ref carries its id, package digest, graph revision, policy revision, outcome and evidence digest. `run_set_digest` hashes this canonical list. `run_set_complete` must be true. Missing or non-passing/mismatched evidence refuses before publishable output. Preserve current R100 render/version behavior.
+- Producer/consumer: AU `record_outcome`/`SkillGraphPipeline` supplies candidates and must supply validation evidence; EG binds the receipt at `skill_row`. Preserve AU-HARNESS-R022.2/.5/.6, R004.1, EG-TYPED-PACKS-R100.1/.5/.6. Source hash `96ff38761f9e21d52f608ba593c902aff4c93ca7b1ed13088ad39efd3e968a3a`.
+- **Hold:** AU has not defined exact receipt fields/operation, run-set selection, or pass criterion. No positive served path until the AU owner publishes it.
+
+### `EG-TYPED-PACKS-R097.2.7` — EG:35
+
+- Define the closed external term set: class, object/datatype/annotation property, and named individual. Define enum as class plus individuals. Define directional source-to-platform mapping records. Bind each record to schema, source and map revisions. Require kind-compatible targets and a server-stamped importer binding. Return revision-bound coverage for every term. Use `Mapped{platform_iri, provenance_digest}` or `Unmapped{reason: NoDeclaredMapping}`. Sort by source IRI and kind.
+- Wire precommit validation at `ConnectorPack.Import::validate_and_commit`, revalidate at `apply_pack_source`, and independently serve the report from `OntologyInspect`/`GraphSchemaClasses`. Unmapped terms remain visible in coverage but are not adopted; partial coverage can commit per R097.2. Invalid, stale, duplicate, unsupported or incompatible entries refuse atomically.
+- Keep R071.1 as EG-to-external vocabulary alignment. Preserve all R097.2 prior children and R051/UDF source requirements. Source hash `318723aee15c476039eca669a3230b206532c0c704b37efad5a7c49690bbb9c2`.
+
+### `EG-TYPED-PACKS-R100.8` — EG:56
+
+- Define `ExportWorkflowRdfV1` and `ImportWorkflowRdfV1`. Bind their receipt to the workflow, committed workflow/graph revisions, byte/dataset digests and importer. Export canonical N-Quads workflow data. Return a byte/dataset-digest and revision-bound `WorkflowRdfDocumentV1` with `workflow_version` and `stored_version_ref`. Import the inverse document and restore an isomorphic dataset. Preserve unknown predicates, named graphs, typed/language-tagged literals and ontology refs. Keep the strict-newer comparison at export.
+- Attach to the existing R100 render/package owner and existing graph write boundary; preserve R051/R090/R100.1-.6. Source hash `620b1ae05d8e35696c7522f207672ef6f374525004d5488fe62fb4b27fc6cf5a`.
+- **Hold:** exact stored workflow version record/order grammar and the existing consumer import operation are absent in reviewed evidence. Resolve those before declaring the comparator or positive end-to-end path complete.
+<!-- /spec-definition-patch -->
+
+<!-- spec-definition-patch:reviewed-mapped-subsets-20261012 -->
+## Mapped definition implementation plan — 2026-10-12
+
+### `EG-TYPED-PACKS-R069.100` / AU:69
+
+- Extend existing parent `R069` without removing its existing behavior.
+- Specify `FingerprintIdentityV1`. Include repository, branch/ref, normalized path and commit/source revision. Also include blob/raw digest, language, parser implementation/version, normalization-policy revision and grammar digest. An identical full identity/profile is idempotent. The same blob at another branch/path/source revision always writes the new binding and provenance. Reuse parsed output only under an identical parser/profile key. Parser/profile changes force reparse and fingerprint recomputation before semantic graph effects are decided. Cosmetic or profile-only changes with identical canonical semantics update source binding/provenance without semantic graph mutation. Structural changes update both source binding and semantic graph. Unsupported languages compare raw digests only and are never called cosmetic. SDK transports source identity and raw digest. EG classifies semantic changes.
+- Producer/consumer boundary: RepositorySnapshotProvider -> SDK transport -> generated IndexRepository -> EG parser/index mutation; R079 embedding dedupe is not structural-mutation suppression.
+- Source record SHA-256: `8ca81dc16448fefc73440f2eb9ea07b2e433f7e38075563f86800071029846e9`.
+- Keep status SPECIFIED until the EG served producer and each separately owned consumer are implemented, served-tested and independently read back.
+
+### `EG-TYPED-PACKS-R100.100` / AU:90
+
+- Extend existing parent `R100` without removing its existing behavior.
+- Specify: Define an edit representation bound to the original SKILL.md byte digest and source revision. Bind it to frontmatter field spans, step spans, line endings and unknown/custom-field spans. Apply edits as bounded source-range patches. Do not parse and reserialize the entire document. Preserve all untouched bytes, ordering, spacing, comments, line endings and unknown frontmatter fields. Emit a new content digest and source provenance. Continue to enforce R019 SKILL.md-only import and R029 restricted YAML validation.
+- Producer/consumer boundary: EG owns skill parse/admission and R100 rendering; SDK owns source transport/edit write-back edge. No prompt blueprint or whole-document normalization path is substituted.
+- Source record SHA-256: `1b717c4a284896dbf8c7b4fb1f00ebba80fa6a75e930a020c5bc01706634f582`.
+- Keep status SPECIFIED until the EG served producer and each separately owned consumer are implemented, served-tested and independently read back.
+
+### `EG-TYPED-PACKS-R100.101` / AU:98
+
+- Extend existing parent `R100` without removing its existing behavior.
+- Specify: Define an admission record bound to prior/new skill content digests and consumer-declared input/output behavior contract revisions. Include the observed consumer cohort, compatibility verdict, migration id/digest and admission revision. Check compatibility against consuming-code behavior. Package version equality, contract-pin equality, endpoint certification or dependency digest alone do not establish compatibility. Refuse breaking changes before publication or invocation unless a declared migration binds the exact old/new digests and consumer contract. Require the migration receipt to pass.
+- Producer/consumer boundary: EG skill package read/admission -> GraphOS invoke certification and consumer code; GraphOS owns its invocation gate. Do not equate existing version/dependency pins with compatibility.
+- Source record SHA-256: `531cb0ba1accd9e88833249fb253a9f5f7a3c1a911f653b3c9a5bfc42341f978`.
+- Keep status SPECIFIED until the EG served producer and each separately owned consumer are implemented, served-tested and independently read back.
+
+### `EG-TYPED-PACKS-R001.100` / AU:52
+
+- Extend existing parent `R001` without removing its existing behavior.
+- Specify: Extend existing ConnectorPack prompt and tool definition entries. Include explicit schema version, nested field schema, required/optional status and compatibility revision. Incremental evolution records the base digest, changed paths and compatibility verdict. Admit additive optional fields only when consumer policy says they are compatible. Removed or changed required fields refuse before publication. Pack index/entry digest rules remain canonical. SDK owns tool execution/schema compatibility authority. EG records and serves the versioned declaration and does not authorize SDK calls.
+- Producer/consumer boundary: EG ConnectorPack typed authority -> generated public pack APIs; SDK retains tool compatibility and execution authority. Preserve R001 index/entry/section/annotation and digest contract.
+- Source record SHA-256: `e03b25156a4f84d27c4afba63d0cd9e526b549b5905994a53664d193416d048c`.
+- Keep status SPECIFIED until the EG served producer and each separately owned consumer are implemented, served-tested and independently read back.
+
+### `EG-TYPED-PACKS-R072.100` / AU:97
+
+- Extend existing parent `R072` without removing its existing behavior.
+- Specify: Extend the typed fleet catalog with workflow registration identity, version/content digest, owner/tenant scope, schema and lifecycle state. Persist registration through the existing SourceIngest authority. Resolve invocation by registry id and exact admitted revision, not a caller-supplied body. Unknown, withdrawn, stale or unauthorized workflow ids refuse before execution. Keep engine/client initialization lazy at the AU first-use boundary. Do not initialize it at registration or process startup.
+- Producer/consumer boundary: EG typed registry and SourceIngest R002 own durable registration; AU owns lazy client initialization/execution; preserve GRAPHOS-HOST-R022 workflow-store semantics.
+- Owner prerequisite: AU-CONTROL-R037.5 only fills a requirement gap; it does not define lazy initialization timing, the first-use operation, or the execution receipt. No exact AU companion requirement ID is identified. Keep that consumer as an explicit hold until its owner publishes the operation and receipt; no invocation evidence is claimed.
+- Source record SHA-256: `f73767d1a3fdba29a702254ed1db2c9904158b6136f6f4b38a3c9a0d3e4fcb03`.
+- Keep status SPECIFIED until the EG served producer and each separately owned consumer are implemented, served-tested and independently read back.
+
+### `EG-TYPED-PACKS-R071.100` / EG:8
+
+- Extend existing parent `R071` without removing its existing behavior.
+- Specify: Define one versioned concept-path grammar and canonicalization rule shared by EG vocabulary producers. Include stable segment identity, parent path and canonical concept IRI. Resolve the entire path against the pinned vocabulary revision during admission. Check repository-wide uniqueness and parent/child consistency. Refuse duplicate aliases, paths that contradict an existing parent/child relationship, or two IRIs for the same canonical path. Return the conflicting ids. Keep existing published ontology IRIs unchanged and crosswalk them rather than rewriting them.
+- Producer/consumer boundary: EG vocabulary validation owns canonical identity; repository producers submit proposed paths. Preserve existing published IRIs and federated query vocabulary.
+- Owner decision hold: the canonical segment grammar is not approved for separators/escaping, Unicode normalization, case, or whitespace. Keep admission SPECIFIED until the vocabulary owner publishes one versioned grammar shared by producers; preserve existing published IRIs.
+- Source record SHA-256: `525e39d1d194ac8a820bbd741a1c261ceab0c7d564981c33c731c06c1eb641d8`.
+- Keep status SPECIFIED until the EG served producer and each separately owned consumer are implemented, served-tested and independently read back.
+<!-- /spec-definition-patch -->

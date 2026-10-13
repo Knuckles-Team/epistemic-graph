@@ -168,3 +168,12 @@ The six new children require the planned positive and negative cases in test-spe
 No helper-only test, schema declaration or generated client establishes served acceptance.
 R051 and R098 remain schema prerequisites; their typed-packs files and crosswalk work are unchanged.
 GraphOS may compose these engine results. AU applies them; clients cannot become metadata or identity authorities.
+
+
+### 2026-10-13: preserve the R008.2 construction invariant
+
+Keep `ScopeBound.policy_iri` private and expose only a borrowed `policy_iri()` accessor.
+All public construction must pass through `ScopeBound::new`.
+Reject blank policy IRIs before construction; callers cannot replace or clear the stored IRI.
+Compile-fail examples must reject external struct literals and direct field mutation.
+Existing subset checks and allowed-tool/graph fields keep their behavior.

@@ -6,7 +6,7 @@ name: Release
 # freshness, lint, scanner/census analysis, optional feature builds, and
 # benchmarks remain visible but advisory; they do not delay publication.
 #
-# Blocking path: {gates, gates-facade, gates-variants, gates-crates, python-suite,
+# Blocking path: {gates, gates-facade, gates-variants, gates-crates, gates-pyo3, python-suite,
 # security, lint-and-architecture, tts-piper-inference, language-clients}
 # -> {build, build-x86} -> {docker-image, publish-pypi} -> publish-image.
 # Quality and documentation checks run independently. GitHub Pages deploys
@@ -133,6 +133,14 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ${{ github.event_name == 'push' && fromJSON('["self-hosted", "homelab"]') || 'ubuntu-latest' }}
+    # Build and cleanup must choose the same backend if the daemon restarts.
+    # Backend settings alone do not wrap any other Cargo command.
+    env: &eg-validation-compiler-cache-backend
+      # Requests reset idle time; a long active compile does not. Keep this
+      # finite, but above these jobs' maximum 60-minute execution window.
+      SCCACHE_IDLE_TIMEOUT: '7200'
+      SCCACHE_GHA_ENABLED: 'true'
+      SCCACHE_GHA_RW_MODE: ${{ github.ref == 'refs/heads/main' && 'READ_WRITE' || 'READ_ONLY' }}
     steps:
       - &eg-gates-checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -174,12 +182,22 @@ jobs:
           workspaces: ". -> target-isolated"
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
+      # Save completed compiler outputs even if the later test link times out.
+      # Install before enabling the wrapper; leave other Cargo steps unchanged.
+      - &eg-validation-compiler-cache
+        name: Install validation compiler cache
+        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+        with:
+          version: 'v0.16.0'
       - name: Test (lower crates, all features)
+        env: &eg-validation-compiler-cache-env
+          RUSTC_WRAPPER: sccache
         run: python3 scripts/cargo_test_rescue.py cargo test -p eg-types -p eg-core -p eg-compute --all-features --no-fail-fast
       # The checked ledger is the canonical all-Method projection. The ordinary
       # feature-selected registry is intentionally smaller, so this named profile
       # is the only meaningful exact generated-artifact comparison. This step is
       - name: Test (canonical capability policy and generated ledger)
+        env: *eg-validation-compiler-cache-env
         run: python3 scripts/cargo_test_rescue.py cargo test --locked -p eg-capabilities --features contract --no-fail-fast
       # The facade's sqlite `.db` round-trip test diffs against a real sqlite3 CLI and
       # FAILS without one. Provision the pinned, sha256-verified CLI rather than
@@ -191,19 +209,22 @@ jobs:
           sqlite3_bin="$(scripts/fetch_sqlite3.sh "$RUNNER_TEMP/eg-sqlite3")"
           echo "EG_SQLITE3=$sqlite3_bin" >> "$GITHUB_ENV"
       - name: Test (SQLite format differential conformance)
+        env: *eg-validation-compiler-cache-env
         run: python3 scripts/cargo_test_rescue.py cargo test --locked -p eg-sqlite-format --test differential --no-fail-fast
       # DE7 (durable-execution-native.md): replay-determinism crash-and-reopen
       # proofs for eg-jobs/eg-statechart.
       - name: Test (replay-determinism — eg-jobs/eg-statechart crash-replay proofs, DE7)
+        env: *eg-validation-compiler-cache-env
         run: python3 scripts/cargo_test_rescue.py cargo test -p eg-jobs -p eg-statechart --test replay_determinism --no-fail-fast
       # The fuzz + concurrency-chaos proptest suite (long random valid pipelines,
       # snapshot-isolation under contention) — a correctness test, kept here
       # (release-critical) rather than moving with the rest of the former
       # optional `benchmarks` job (which reports performance feedback).
       - name: Query-pipeline fuzz + chaos (eg-plan)
+        env: *eg-validation-compiler-cache-env
         run: python3 scripts/cargo_test_rescue.py cargo test -p eg-plan --features "query,owl,text,timeseries,federation" --test fuzz_pipelines --no-fail-fast
-      - name: Install pytest
-        run: pip install pytest
+      - name: Install locked pytest for generated-client checks
+        run: uv pip install --python "$(command -v python3)" pytest==9.1.1 iniconfig==2.3.0 packaging==26.2 pluggy==1.6.0 pygments==2.20.0
       - name: Epistemic Operations manifest ⇄ Rust DTO parity
         run: python3 scripts/check_epistemic_operations_protocol.py
       - name: Engine contract parity (registry ⇄ Method enum ⇄ generated client)
@@ -354,6 +375,11 @@ jobs:
           EG_INSTALLED_WHEEL_GATE=1 PYTHONNOUSERSITE=1 "$REPO/.gates-wheel-venv/bin/python" -m pytest \
             "$REPO/tests/test_installed_wheel_decision_client_boundary.py" --noconftest -q
 
+      - name: Report lower-crate compiler cache reuse
+        if: always()
+        run: &eg-validation-compiler-cache-stats |
+          echo 'Cache statistics cover the current daemon only; a restart resets its counters.'
+          sccache --show-stats
 
   # ── STAGE 1 (continued): the release-critical cargo selections are split
   # across three parallel jobs (gates, gates-facade, gates-variants) instead of
@@ -368,14 +394,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ${{ github.event_name == 'push' && fromJSON('["self-hosted", "homelab"]') || 'ubuntu-latest' }}
-    # Build and cleanup must choose the same backend if the daemon restarts.
-    # Backend settings alone do not wrap any other Cargo command.
-    env: &eg-validation-compiler-cache-backend
-      # Requests reset idle time; a long active compile does not. Keep this
-      # finite, but above both jobs' maximum 60-minute execution window.
-      SCCACHE_IDLE_TIMEOUT: '7200'
-      SCCACHE_GHA_ENABLED: 'true'
-      SCCACHE_GHA_RW_MODE: ${{ github.ref == 'refs/heads/main' && 'READ_WRITE' || 'READ_ONLY' }}
+    env: *eg-validation-compiler-cache-backend
     steps:
       - *eg-gates-checkout
 
@@ -388,19 +407,12 @@ jobs:
 
       # sqlite3 CLI for the facade `.db` round-trip test (see `gates`).
       - *eg-gates-sqlite
-      # Save completed compiler outputs even if the later test link times out.
-      # Install before enabling the wrapper; leave other Cargo steps unchanged.
-      - &eg-validation-compiler-cache
-        name: Install validation compiler cache
-        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
-        with:
-          version: 'v0.16.0'
+      - *eg-validation-compiler-cache
       # A restored target cache must not supply a prior run's timing evidence.
       - name: Clear previous facade build timings
         run: rm -rf target-isolated/cargo-timings
       - name: Test (facade full)
-        env: &eg-validation-compiler-cache-env
-          RUSTC_WRAPPER: sccache
+        env: *eg-validation-compiler-cache-env
         run: python3 scripts/cargo_test_rescue.py cargo test -p epistemic-graph --features full --no-fail-fast --timings
       - name: Upload facade build timings
         if: always()
@@ -412,9 +424,7 @@ jobs:
           retention-days: 1
       - name: Report facade compiler cache reuse
         if: always()
-        run: &eg-validation-compiler-cache-stats |
-          echo 'Cache statistics cover the current daemon only; a restart resets its counters.'
-          sccache --show-stats
+        run: *eg-validation-compiler-cache-stats
       # These real-model tests fail loudly when their fixture is absent. Fetch the
       # pinned, sha256-verified model and WAV, export both paths, then exercise the
       # provider rather than counting an unconfigured test as a pass.
@@ -488,6 +498,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
+    env: *eg-validation-compiler-cache-backend
     steps:
       - *eg-gates-checkout
 
@@ -505,6 +516,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends libsasl2-dev libcurl4-openssl-dev
       - *eg-gates-toolchain
       - *eg-gates-cache
+      - *eg-validation-compiler-cache
 
       - *eg-gates-sqlite
       - *eg-gates-whisper
@@ -512,6 +524,7 @@ jobs:
       # read-only redb locks. Isolate this crate's full suite, not just the
       # crash-test module: no sleeps, lock-error retries, or skipped assertions.
       - name: Test (storage crate, isolated crash-process lifecycle)
+        env: *eg-validation-compiler-cache-env
         run: python3 scripts/cargo_test_rescue.py cargo test --locked -p eg-storage --all-features --no-fail-fast -- --test-threads=1
 
       # Operator decision (2026-10-09): on a pull request this broad
@@ -542,11 +555,13 @@ jobs:
             echo "PR_TEST_SCOPE_EOF"
           } >> "$GITHUB_OUTPUT"
       - name: Test (every other workspace crate, all features; push to main / release tag)
+        env: *eg-validation-compiler-cache-env
         if: github.event_name != 'pull_request'
         run: python3 scripts/cargo_test_rescue.py cargo test --locked --workspace --exclude epistemic-graph --exclude eg-types --exclude eg-core --exclude eg-compute --exclude eg-storage --exclude eg-tts-piper --exclude eg-numeric --exclude eg-pyengine --all-features --no-fail-fast
       - name: Test (every other workspace crate -- pull request fast subset)
         if: github.event_name == 'pull_request'
         env:
+          RUSTC_WRAPPER: sccache
           SCOPE: ${{ steps.pr-test-scope.outputs.scope }}
         run: |
           set -euo pipefail
@@ -582,8 +597,37 @@ jobs:
           echo "pr-test-scope: running only the changed crates this diff affects:"
           printf '%s\n' "${args[@]}"
           python3 scripts/cargo_test_rescue.py cargo test --locked "${args[@]}" --all-features --no-fail-fast
+
+      - name: Report workspace-crate compiler cache reuse
+        if: always()
+        run: *eg-validation-compiler-cache-stats
+
+  # Keep pyo3 validation independent of storage and the workspace sweep.
+  # Main warms the same profile; pull requests retain read-only caches.
+  gates-pyo3:
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
+    name: gates (pyo3 crates)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    env: *eg-validation-compiler-cache-backend
+    steps:
+      - *eg-gates-checkout
+      - *eg-gates-python
+      - *eg-gates-pydeps
+      - *eg-gates-sasl
+      - *eg-gates-toolchain
+      - *eg-gates-cache
+      - *eg-validation-compiler-cache
+      - *eg-gates-sqlite
+      - *eg-gates-whisper
       - name: Test (pyo3 crates, every feature except python)
+        env: *eg-validation-compiler-cache-env
         run: python3 scripts/cargo_test_rescue.py cargo test --locked -p eg-numeric -p eg-pyengine --features eg-numeric/analytics,eg-numeric/contract,eg-numeric/complex,eg-numeric/decision,eg-numeric/motif,eg-pyengine/security,eg-pyengine/ml-pipeline,eg-pyengine/reasoning,eg-pyengine/query,eg-pyengine/cypher,eg-pyengine/tsdb,eg-pyengine/streaming,eg-pyengine/wasm-udf,eg-pyengine/rdf,eg-pyengine/blob,eg-pyengine/jobs,eg-pyengine/statechart,eg-pyengine/finance --no-fail-fast
+
+      - name: Report pyo3 compiler cache reuse
+        if: always()
+        run: *eg-validation-compiler-cache-stats
 
   # ── EH-468: the root Python suite (`tests/*.py`, 2,800+ cases) previously had
   # NO release step at all. `gates` above only runs `crates/eg-numeric/tests/*`
@@ -651,8 +695,7 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - &eg-python-interpreter
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version-file: '.python-version'
       - *eg-gates-toolchain
@@ -1259,7 +1302,7 @@ jobs:
   build:
     timeout-minutes: 360
     name: wheel ${{ matrix.name }}
-    needs: [gates, gates-facade, gates-variants, gates-crates, python-suite, security, lint-and-architecture, tts-piper-inference, language-clients]
+    needs: [gates, gates-facade, gates-variants, gates-crates, gates-pyo3, python-suite, security, lint-and-architecture, tts-piper-inference, language-clients]
     # Hosted platform legs; x86 is isolated in the immutable reusable job below.
     if: >-
       github.repository == 'Knuckles-Team/epistemic-graph'
@@ -1478,7 +1521,7 @@ jobs:
 
   build-x86:
     name: wheel linux-x86_64
-    needs: [gates, gates-facade, gates-variants, gates-crates, python-suite, security, lint-and-architecture, tts-piper-inference, language-clients]
+    needs: [gates, gates-facade, gates-variants, gates-crates, gates-pyo3, python-suite, security, lint-and-architecture, tts-piper-inference, language-clients]
     if: >-
       github.repository == 'Knuckles-Team/epistemic-graph'
       && ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || github.event_name == 'workflow_dispatch')
@@ -1530,10 +1573,34 @@ jobs:
   # `build` needs the product tests, runtime-contract checks, security, and
   # real-inference tests. Optional feature builds and benchmarks are not
   # prerequisites and cannot hold up publication.
+  build-sdist:
+    name: Build and validate source distribution
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version-file: '.python-version'
+      - name: Build source archive without native compilation
+        run: |
+          python -m pip install 'maturin==1.14.1'
+          maturin sdist --out dist-sdist
+          python scripts/check_sdist_completeness.py dist-sdist/*.tar.gz
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: source-distribution
+          path: dist-sdist/*.tar.gz
+          if-no-files-found: error
+
   publish-pypi:
     timeout-minutes: 360
-    name: Publish wheels to PyPI (release only)
-    needs: [build, build-x86]
+    name: Publish distributions to PyPI (release only)
+    needs: [build, build-x86, build-sdist]
     runs-on: ubuntu-latest
     if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
     permissions:
@@ -1549,6 +1616,10 @@ jobs:
         with:
           pattern: wheel-*
           merge-multiple: true
+          path: dist
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: source-distribution
           path: dist
       # The supported install targets. Publishing without one of these would
       # silently ship a release that cannot be installed on a platform we claim
@@ -1581,6 +1652,7 @@ jobs:
           echo "Distributions staged for upload:"
           ls -1 dist/
           python scripts/check_wheel_completeness.py --require-engine-kernel dist/*.whl
+          python scripts/check_sdist_completeness.py dist/*.tar.gz
 
       - name: Checkout immutable publication contract
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -1769,7 +1841,7 @@ jobs:
   engine-main-wheel:
     timeout-minutes: 360
     name: engine-main wheel (linux-x86_64)
-    needs: [gates, gates-facade, gates-variants, gates-crates, python-suite, security, lint-and-architecture]
+    needs: [gates, gates-facade, gates-variants, gates-crates, gates-pyo3, python-suite, security, lint-and-architecture]
     if: >-
       github.repository == 'Knuckles-Team/epistemic-graph'
       && github.event_name == 'push' && github.ref == 'refs/heads/main'

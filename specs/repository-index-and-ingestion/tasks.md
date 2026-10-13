@@ -28,3 +28,30 @@ Task completion requires code and test evidence at an exact commit. The presence
 - [ ] **T1k — EG-REPO-INGEST-R003.11:** Confirm the migrated placement-mining research capability is reachable only through its EG typed interface and add the consumer test proving the retiring source module no longer performs the same computation.
 
 Parallel implementation is allowed only where interfaces and file ownership are explicit. Merge the native engine contract before dependent SDK or application consumers cut over. Retire obsolete graph writers after their callers are migrated and parity tests pass.
+
+<!-- spec-definition-patch:owner-batch-20261012-repository-index-and-ingestion -->
+## Reviewed residual definition tasks — owner batch 2026-10-12
+
+The linked requirement rows retain normative contracts, source hashes, refusal semantics, and acceptance.
+Every task extends its listed parent. Existing obligations remain active.
+
+| Requirement | Source SHA-256 | Task | Open dependency |
+|---|---|---|---|
+| `EG-REPO-INGEST-R002.1` | `3f7e133169a76ce2680ec667c28ea2c5543354ed8874d258c432e65346f2e529` | Compile pinned skill documents into typed plans through the existing SourceIngest and AU path. | Grammar, capability/type lookup, and AU-CONTROL-R037.30 remain prerequisites. |
+| `EG-REPO-INGEST-R006.1` | `902f964dd909186f3a31d1f8a84d146b715446e64dfeec62480c8151baa06996` | Measure complete papers over 24 hours and gate maintenance allocation. | Stage roster, freshness, allocation policy, and GraphOS operation remain prerequisites. |
+| `EG-REPO-INGEST-R006.2` | `771acc731a6e25746641adf30cde9ec91f4eb56edd6597f2d308a42947a3abb3` | Queue importance-aware re-embedding outside routing and gate promotion. | Importance producer, compatible space policy, and R040.3 production caller remain prerequisites. |
+| `EG-REPO-INGEST-R006.3` | `e69e6fa3a5c26ae763809d600cb7d264d028b9ce0d80f8ca6141e1a40cf0638e` | Serve revision-bound code maps through UnifiedQuery; refuse stale queries for changed and unchanged symbols until full reindex. | Authoritative inventory producer and code-entity IDs remain prerequisites. |
+| `EG-REPO-INGEST-R006.4` | `340c1817f2a52dc6da4c9c13d93d215debbeb9fefd8b84b8d2400b86541d4d81` | Apply revision-scoped deltas under host-granted working-memory limits. | Semantic support matrix and host resource-grant binding remain prerequisites. |
+| `EG-REPO-INGEST-R002.100` | `e8ad0c2417b7fa6ce53c46899f1adf8e925977becd0bd1813db6b62d3786af11` | Require independent authorized readback before ingestion success. | AU success-transition consumer ID remains unassigned. |
+| `EG-REPO-INGEST-R002.101` | `e0c431512565acb1a8ae00e09b63ec6fb7c8f9e81ef9c786a0fd7b26b2239455` | Gate graph-loaded workflow completion on durable hydration readback. | AU execution-success consumer ID remains unassigned. Pipelines is not the runtime producer. |
+
+All seven definitions remain SPECIFIED. Tasks remain open pending owner review and served evidence.
+
+
+### Proposed producer work for EG-REPO-INGEST-R006.3
+
+- [ ] Implement the exact typed authority and producer contracts in plan.md.
+- [ ] Wire existing authorization, ChangeEnvelope admission and generated UnifiedQuery.
+- [ ] Run `test_inventory_advance_fences_map_and_rebinds_symbols` with restart and independent durable readback.
+
+Status remains SPECIFIED. `landed_in` and `verified_by` remain empty.

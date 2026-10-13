@@ -52,3 +52,22 @@ At every merge, compare the source SHA in this table to the public default branc
 
 - [x] EG-CONTRACT-R031.1: Install manifest-selected Rust and rustfmt before lint formatting; 38 focused Python regressions pass. Existing-toolchain execution confirms manifest resolution, not a clean-host download.
 - [ ] EG-CONTRACT-R031.2: Publish complete same-tree zero-backlog census and independent clippy/formatting results. Earlier C-10 implementation checkmarks do not establish this complete acceptance.
+
+## Current architecture documentation units
+
+Each child is a separate documentation review unit of at most five minutes.
+
+- [ ] **EG-CONTRACT-R052:** Complete all four child checks without replacing existing acceptance or receipts.
+- [ ] **EG-CONTRACT-R052.1:** Compare the module inventory and dependency claims with source using EG-T-12.1.
+- [ ] **EG-CONTRACT-R052.2:** Compare build, package, and runtime boundaries using EG-T-12.2.
+- [ ] **EG-CONTRACT-R052.3:** Resolve shared-contract ownership and call sites using EG-T-12.3.
+- [ ] **EG-CONTRACT-R052.4:** Check evidence boundaries and the diagram coverage map using EG-T-12.4.
+
+<!-- spec-definition-patch:owner-batch-20261012-public-engine-contract-and-release -->
+## Reviewed residual definition tasks — 2026-10-12
+
+The linked requirement rows retain the full contract, hashes, acceptance, and owner holds.
+
+- [ ] `EG-CONTRACT-R001.1`: Extend the EG generator and manifest. Wire exports into AU `HarnessRequest` and `run_agent`. Keep AU lifecycle ownership.
+- [ ] `EG-CONTRACT-R001.2`: Use R094 export/import and governed filesystem effects. Pin the canonical number encoder. Do not add an EG filesystem writer.
+- [ ] Keep both definitions SPECIFIED until implementation and served evidence receive separate review.

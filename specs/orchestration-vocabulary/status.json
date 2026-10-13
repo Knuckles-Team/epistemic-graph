@@ -101,7 +101,18 @@
     "EG-ORCH-VOCAB-R013.3",
     "EG-ORCH-VOCAB-R013.4",
     "EG-ORCH-VOCAB-R013.5",
-    "EG-ORCH-VOCAB-R013.6"
+    "EG-ORCH-VOCAB-R013.6",
+    "EG-ORCH-VOCAB-R009.18",
+    "EG-ORCH-VOCAB-R013.7",
+    "EG-ORCH-VOCAB-R003.8",
+    "EG-ORCH-VOCAB-R012.7",
+    "EG-ORCH-VOCAB-R004.6",
+    "EG-ORCH-VOCAB-R012.8",
+    "EG-ORCH-VOCAB-R005.100",
+    "EG-ORCH-VOCAB-R009.100",
+    "EG-ORCH-VOCAB-R009.101",
+    "EG-ORCH-VOCAB-R010.100",
+    "EG-ORCH-VOCAB-R010.101"
   ],
   "requirements": [
     {
@@ -213,7 +224,8 @@
         "EG-ORCH-VOCAB-R003.4",
         "EG-ORCH-VOCAB-R003.5",
         "EG-ORCH-VOCAB-R003.6",
-        "EG-ORCH-VOCAB-R003.7"
+        "EG-ORCH-VOCAB-R003.7",
+        "EG-ORCH-VOCAB-R003.8"
       ]
     },
     {
@@ -276,7 +288,8 @@
         "EG-ORCH-VOCAB-R004.2",
         "EG-ORCH-VOCAB-R004.3",
         "EG-ORCH-VOCAB-R004.4",
-        "EG-ORCH-VOCAB-R004.5"
+        "EG-ORCH-VOCAB-R004.5",
+        "EG-ORCH-VOCAB-R004.6"
       ]
     },
     {
@@ -332,7 +345,8 @@
         "EG-ORCH-VOCAB-R005.3",
         "EG-ORCH-VOCAB-R005.4",
         "EG-ORCH-VOCAB-R005.5",
-        "EG-ORCH-VOCAB-R005.6"
+        "EG-ORCH-VOCAB-R005.6",
+        "EG-ORCH-VOCAB-R005.100"
       ]
     },
     {
@@ -523,7 +537,10 @@
         "EG-ORCH-VOCAB-R009.14",
         "EG-ORCH-VOCAB-R009.15",
         "EG-ORCH-VOCAB-R009.16",
-        "EG-ORCH-VOCAB-R009.17"
+        "EG-ORCH-VOCAB-R009.17",
+        "EG-ORCH-VOCAB-R009.18",
+        "EG-ORCH-VOCAB-R009.100",
+        "EG-ORCH-VOCAB-R009.101"
       ]
     },
     {
@@ -657,7 +674,9 @@
         "EG-ORCH-VOCAB-R010.3",
         "EG-ORCH-VOCAB-R010.4",
         "EG-ORCH-VOCAB-R010.5",
-        "EG-ORCH-VOCAB-R010.6"
+        "EG-ORCH-VOCAB-R010.6",
+        "EG-ORCH-VOCAB-R010.100",
+        "EG-ORCH-VOCAB-R010.101"
       ]
     },
     {
@@ -811,7 +830,9 @@
         "EG-ORCH-VOCAB-R012.3",
         "EG-ORCH-VOCAB-R012.4",
         "EG-ORCH-VOCAB-R012.5",
-        "EG-ORCH-VOCAB-R012.6"
+        "EG-ORCH-VOCAB-R012.6",
+        "EG-ORCH-VOCAB-R012.7",
+        "EG-ORCH-VOCAB-R012.8"
       ]
     },
     {
@@ -868,7 +889,8 @@
         "EG-ORCH-VOCAB-R013.3",
         "EG-ORCH-VOCAB-R013.4",
         "EG-ORCH-VOCAB-R013.5",
-        "EG-ORCH-VOCAB-R013.6"
+        "EG-ORCH-VOCAB-R013.6",
+        "EG-ORCH-VOCAB-R013.7"
       ]
     },
     {
@@ -909,6 +931,83 @@
     {
       "id": "EG-ORCH-VOCAB-R013.6",
       "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R009.18",
+      "title": "Use one run observation window for model and width adjustments",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R013.7",
+      "title": "Source-pinned walkthrough artifact and graph-bound execution notes",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R003.8",
+      "title": "Successful-team promotion, safe similarity reuse, and typed handlers",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R012.7",
+      "title": "Synthesize reviewed repository policy with invariant-guarded activation",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R004.6",
+      "title": "Persist and query capability gaps and enhancements by task class",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R012.8",
+      "title": "Bind active policy to reviewed normative files without graph writes",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R005.100",
+      "title": "Nested inputs use declared projection and shielding",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R009.100",
+      "title": "Correlate trace records and export reads",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R009.101",
+      "title": "Index, browse, and search harness sessions by tenant and full manifest",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R010.100",
+      "title": "Join evolution proposals to measured source traces",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R010.101",
+      "title": "Index project/agent token and cost totals with finite latency",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

@@ -31,7 +31,7 @@ def _crates_step(workflow):
     # Select executable cargo-test arguments, not a step label or a comment
     # elsewhere in the workflow. Fail if the job loses or duplicates this gate.
     matches = []
-    for step in workflow["jobs"]["gates-crates"]["steps"]:
+    for step in workflow["jobs"]["gates-pyo3"]["steps"]:
         tokens = shlex.split(step.get("run", ""), comments=True)
         if "cargo" in tokens and tokens[tokens.index("cargo") + 1 :][:1] == ["test"]:
             packages = {
@@ -168,7 +168,7 @@ def test_transitive_feature_drift_fails(release_matrix):
 def test_crates_gate_cannot_disappear(release_matrix, mutation):
     workflow, manifests = release_matrix
     step = _crates_step(workflow)
-    steps = workflow["jobs"]["gates-crates"]["steps"]
+    steps = workflow["jobs"]["gates-pyo3"]["steps"]
     if mutation == "remove":
         steps.remove(step)
     elif mutation == "duplicate":
@@ -216,6 +216,7 @@ def _assert_required_clippy_declarations(workflow):
 # This is partial parent declaration coverage, not native execution evidence.
 @pytest.mark.spec("EG-DURABLE-KERNEL-R011")
 @pytest.mark.spec("EG-DURABLE-KERNEL-R011.5")
+@pytest.mark.spec("EG-CONTRACT-R037")
 def test_required_clippy_profiles_and_command_are_declared(release_matrix):
     workflow, _ = release_matrix
     _assert_required_clippy_declarations(workflow)
@@ -244,3 +245,73 @@ def test_required_clippy_declaration_drift_is_refused(release_matrix, mutation):
         ]
     with pytest.raises(AssertionError):
         _assert_required_clippy_declarations(workflow)
+
+
+# spec: EG-CONTRACT-R018
+def test_pyo3_gate_is_independent_required_and_keeps_trusted_cache_policy(
+    release_matrix,
+):
+    workflow, _ = release_matrix
+    jobs = workflow["jobs"]
+    job = jobs["gates-pyo3"]
+    assert job["needs"] == "changes"
+    assert job["if"] == "needs.changes.outputs.code == 'true'"
+    assert (
+        job["timeout-minutes"]
+        == "${{ github.event_name == 'pull_request' && 10 || 60 }}"
+    )
+    assert job["runs-on"] == "ubuntu-latest"
+    assert job["env"] == jobs["gates-crates"]["env"]
+    assert (
+        job["env"]["SCCACHE_GHA_RW_MODE"]
+        == "${{ github.ref == 'refs/heads/main' && 'READ_WRITE' || 'READ_ONLY' }}"
+    )
+    caches = [
+        step
+        for step in job["steps"]
+        if step.get("uses", "").startswith("Swatinem/rust-cache@")
+    ]
+    assert len(caches) == 1
+    assert caches[0]["with"]["save-if"] == "${{ github.ref == 'refs/heads/main' }}"
+    names = {step.get("name") for step in job["steps"]}
+    assert "Test (storage crate, isolated crash-process lifecycle)" not in names
+    assert "Test (pyo3 crates, every feature except python)" not in {
+        step.get("name") for step in jobs["gates-crates"]["steps"]
+    }
+    for consumer in ("build", "build-x86", "engine-main-wheel"):
+        assert "gates-pyo3" in jobs[consumer]["needs"]
+
+
+# Partial declaration coverage, not native execution evidence: the slim
+# profile's compile-and-lint evidence remains owned by the CI legs.
+@pytest.mark.spec("EG-CONTRACT-R046")
+def test_release_workflow_checks_the_slim_server_profile(release_matrix):
+    workflow, _ = release_matrix
+    profiles = workflow["jobs"]["quality-advisory"]["strategy"]["matrix"]["profile"]
+    matches = [profile for profile in profiles if profile["name"] == "slim-server"]
+    assert len(matches) == 1, "slim-server Clippy profile must occur once"
+    assert shlex.split(matches[0]["flags"]) == shlex.split(
+        "--no-default-features --features server"
+    )
+    runs = [
+        str(step.get("run", "")) for step in workflow["jobs"]["gates-variants"]["steps"]
+    ]
+    assert any("--no-default-features --features server" in run for run in runs), (
+        "no gate compiles the slim server profile"
+    )
+
+
+def test_engine_main_wheel_publishes_a_prerelease_on_main_push_only(release_matrix):
+    workflow, _ = release_matrix
+    job = workflow["jobs"]["engine-main-wheel"]
+    assert "push" in job["if"] and "refs/heads/main" in job["if"]
+    assert "gates-variants" in job["needs"]
+    assert job["env"]["EG_WHEEL_TARGET"] == "x86_64-unknown-linux-gnu"
+    names = [str(step.get("name", "")) for step in job["steps"]]
+    assert any("Smoke test" in name for name in names)
+    assert any("SHA256SUMS" in str(step.get("run", "")) for step in job["steps"])
+    publish = next(
+        step for step in job["steps"] if str(step.get("name", "")).startswith("Publish")
+    )
+    assert "gh release create engine-main" in publish["run"]
+    assert "--prerelease" in publish["run"]

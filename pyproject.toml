@@ -244,6 +244,8 @@ exclude = ["**/__pycache__/**", "**/*.pyc", "**/*.pyo"]
 # The generator projects the canonical catalogs and schemas into the package;
 # the receipt binds their exact bytes. Scope classification is not yet declared.
 include = [
+    # Maturin omits workspace members outside the root dependency graph.
+    { path = "crates/**/*", format = "sdist" },
     "epistemic_graph/contract/receipt.json",
     "epistemic_graph/contract/errors.json",
     "epistemic_graph/contract/methods.json",
