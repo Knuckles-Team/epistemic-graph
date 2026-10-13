@@ -388,3 +388,30 @@ R006 needs two independent source builds and measured size-budget evidence; synt
 R030 needs observed CPU-affinity and timed execution logs; shell-text assertions cannot supply them.
 R047 needs successful wheel publication and download evidence; workflow declarations cannot supply them.
 Leave their acceptance open until that evidence exists. Retain the independently reviewed bindings for the other rows.
+
+
+### 2026-10-13: retain server workspace outputs and budget cache misses
+
+EG-CONTRACT-R009 keeps the unconditional locked build with full features.
+The required Python suite receives artifacts with verified revisions and digests.
+PR555 run 38452892633 attempt 2 restored dependencies.
+It recorded 22 compiler-cache hits, 16 misses and zero read errors.
+Workspace compilation then exceeded the ten-minute job limit.
+Main had already seeded its cache.
+Another unchanged retry cannot reliably fix this failure.
+
+The server Cargo cache now retains workspace crates under a dedicated key.
+Only main writes this cache.
+Cargo checks restored inputs before packaging.
+Cache presence never skips the build.
+
+Server preparation now has a 45-minute cold-build safety budget, matching the existing full-engine gates.
+This does not establish the sub-ten-minute goal.
+Main's warm server build took 6m37s, or 7m09s including setup.
+It recorded 38 hits and one miss.
+The PR555 retry compiled for 9m33s before cancellation.
+A completed cold-build measurement is unavailable.
+Other split jobs retain ten minutes.
+Features, profiles, native assertions, Python tests and artifact identity checks remain unchanged.
+Hosted completion and cache timing remain required evidence.
+Scoped workflow tests cannot establish native acceptance.

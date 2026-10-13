@@ -288,7 +288,7 @@ def _assert_cache_job_settings(job_name: str, job: dict) -> None:
     """Preserve the main-only writer policy and the existing time budget."""
     assert job["env"] == CACHE_BACKEND
     assert int(CACHE_BACKEND["SCCACHE_IDLE_TIMEOUT"]) > 60 * 60
-    budget = 45 if job_name in {"gates", "gates-facade"} else 10
+    budget = 45 if job_name in {"gates", "gates-facade", "python-server"} else 10
     assert job["timeout-minutes"] == (
         "${{ github.event_name == 'pull_request' && " + str(budget) + " || 60 }}"
     )
@@ -692,3 +692,24 @@ def test_compiler_cache_keeps_global_settings_and_server_artifact_boundary() -> 
     assert build["env"] is facade["env"]
     assert server.index(build) < server.index(pack)
     assert "if" not in pack
+
+
+def test_server_workspace_cache_is_main_written_and_build_remains_required() -> None:
+    job = _workflow()["jobs"]["python-server"]
+    steps = job["steps"]
+    cache = next(
+        s for s in steps if s.get("uses", "").startswith("Swatinem/rust-cache@")
+    )
+    assert cache["with"] == {
+        "workspaces": ". -> target-isolated",
+        "key": "python-server-workspace-v1",
+        "cache-workspace-crates": True,
+        "save-if": "${{ github.ref == 'refs/heads/main' }}",
+    }
+    build = _cache_step(steps, "Build the full-featured engine binary once")
+    assert steps.index(cache) < steps.index(build)
+    assert "if" not in build
+    assert (
+        build["run"]
+        == "cargo build --locked --features full --bin epistemic-graph-server"
+    )

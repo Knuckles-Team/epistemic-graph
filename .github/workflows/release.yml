@@ -758,7 +758,7 @@ jobs:
           compression-level: 0
 
   python-server:
-    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
     name: Python full server preparation
     needs: changes
     if: needs.changes.outputs.code == 'true'
@@ -767,9 +767,16 @@ jobs:
     steps:
       - *eg-python-checkout
       - *eg-gates-toolchain
-      - *eg-gates-cache
-      # Dependency caching alone drops workspace outputs. Cache compiler inputs
-      # instead of bypassing Cargo or restoring an older server binary. Install
+      # A seeded main cache still missed 16 workspace compilations and exceeded
+      # ten minutes in PR555 attempt 2. Retain workspace outputs on trusted main;
+      # Cargo validates restored inputs, and the full-engine budget covers misses.
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          workspaces: ". -> target-isolated"
+          key: python-server-workspace-v1
+          cache-workspace-crates: true
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      # Also cache individual compiler outputs without bypassing Cargo. Install
       # before setting the wrapper: a missing global wrapper broke CI previously.
       - *eg-validation-compiler-cache
       - name: Build the full-featured engine binary once
