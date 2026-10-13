@@ -308,6 +308,7 @@
       "title": "Ingestion community detection uses pure Leiden",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "69411a23a248",
         "b5fe3c140c21"
       ],
       "verified_by": [
