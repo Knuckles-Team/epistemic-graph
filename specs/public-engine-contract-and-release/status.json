@@ -405,7 +405,7 @@
         "d556e4d0895e"
       ],
       "verified_by": [
-        "tests/test_release_feature_matrix.py:249",
+        "tests/test_release_feature_matrix.py:250",
         "tests/test_release_feature_matrix.py:87"
       ]
     },
@@ -747,7 +747,7 @@
         "5bf5b719de7e"
       ],
       "verified_by": [
-        "tests/test_release_feature_matrix.py:252"
+        "tests/test_release_feature_matrix.py:287"
       ]
     },
     {
