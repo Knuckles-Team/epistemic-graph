@@ -387,3 +387,46 @@ References
 - **`EG-ORCH-VOCAB-R010.101` / WEBUI:4:** Extend RunTrace with project/agent IDs and four disjoint token counters. `RunTraceUsageQueryV1` returns grouped totals/costs with accounting, price, currency revisions, watermark, and unknown semantics. Aggregate exact rational rates. Round once per output group/category using pinned currency exponent and half-even. Preserve p95 ≤500 ms for the 1,000,000-row/32-reader dataset through GraphOS `handle_runs_metrics`. Preserve cost-per-solved-task semantics.
 - Keep all three requirements SPECIFIED until EG operations, GraphOS adapters, and WebUI consumers pass contract checks. Require independent readbacks for each owner.
 <!-- /spec-definition-patch -->
+
+
+### Proposed authority and admission binding for R004.6
+
+These types are proposed EG contracts, not implemented APIs. They extend R004.6
+and EG-DECISION-ENGINE-R010/R127.2.1. All fields are required unless stated.
+Text IDs are nonempty UTF-8; revisions are unsigned 64-bit integers; digests
+are lowercase `sha256:<64 hex>`. Tenant comes from authenticated request authority.
+Unknown fields, missing references and digest mismatches refuse before writes.
+
+`TaxonomyAuthorityV1` = `{tenant, binding_id, binding_revision, taxonomy_ref, taxonomy_revision, taxonomy_digest, extension_policy, extension_refs, provenance_ref, provenance_digest}`. Each extension ref has `{ref, revision, digest}`. Extension policy is `none` or `listed`; `none` requires an empty list.
+`listed` permits only the listed admitted ontology snapshots, never replacement
+of native terms. No unlisted term or conflicting definition is accepted.
+The binding is admitted through existing governed AddNode/ChangeEnvelope and
+existing graph write authorization, with expected binding revision. Admission
+checks referenced snapshots and provenance in the same tenant. Configuration
+does not grant authority. No taxonomy, publisher or policy value is preselected.
+
+`ResolveGapTermsV1` = `{binding_id, binding_revision, taxonomy_digest, capability_iri, candidate_task_class_iri, requested_task_class_iri, domain_iri, match_mode}`; match mode is `exact`
+or `descendant`. Output = `{binding_id, binding_revision, taxonomy_digest, capability_iri, candidate_task_class_iri, requested_task_class_iri, domain_iri, match_mode, membership_proofs, ancestry_edges}`.
+Each proof is `{iri, snapshot_ref, snapshot_revision, snapshot_digest}`;
+each edge is `{child_iri, parent_iri, snapshot_digest}`. Resolve membership
+before equality. The candidate is the record task class; the requested class is the query selector. Both require membership proofs. Exact mode requires equal candidate and requested IRIs. Descendant mode accepts equality or a contiguous path from candidate child to requested ancestor within the pinned snapshots. Native matching calls `broader_chain(candidate_task_class_iri, requested_task_class_iri)` only after membership checks. Refuse reversed, disconnected or mismatched proof endpoints. Bind both endpoints and match mode in output and durable admission receipt.
+Refuse missing membership, wrong term kinds, conflicting extensions, cycles and stale bindings. Refuse unauthorized snapshots before rows, counts or cursors.
+
+Native implementation primitives are `agent_ontology::{term,is_task, is_capability,ontology_digest,broader_chain}` in `crates/eg-types/src/agent_ontology.rs`.
+`broader_chain` equality alone is not membership. A proposed adapter resolves domains/extensions over admitted snapshots. This is not an existing resolver claim. `guardrail::guardrail_entailment_query` is advisory rule lookup;
+R127.2.1 does not make it domain authority.
+
+`AdmitGapOrEnhancementV1` = `{kind, node_id, expected_node_revision, resolution, source_event_id, source_ref, source_digest, owner, disposition}`.
+Kind is `CapabilityGap` or `DesiredEnhancement`; resolution is the result above.
+For a gap, source must independently resolve to a served decision containing
+`AbstainReason::UncoveredCapability { iri }` matching capability_iri. Other
+abstention reasons do not prove absence. An enhancement instead requires a
+separate reviewed request whose immutable digest and owner are checked.
+Output = `{node_id, node_revision, graph_revision, source_event_id, source_digest, binding_id, binding_revision, taxonomy_digest, candidate_task_class_iri, requested_task_class_iri, match_mode}`.
+The proposed producer validates and lowers to the existing governed AddNode /
+ChangeEnvelope path at `src/server/handlers/graph_ops/gateway_graph.rs`.
+It does not run during decision abstention. Atomic event deduplication uses
+(tenant, kind, source_event_id): identical payload returns the original receipt;
+a different payload conflicts. Stale revisions, mismatched capability, missing
+review and denied authority store nothing. UnifiedQuery independently reads
+fields, edges and receipt revision after restart. No capability status changes.

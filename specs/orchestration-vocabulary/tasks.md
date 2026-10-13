@@ -146,3 +146,12 @@ Producer first: terms, then shapes, then projection call sites, then query tests
 - [ ] `EG-ORCH-VOCAB-R010.101`: Add disjoint token accounting and grouped indexed queries. Aggregate exact rational cost and round once per group/category. Measure the specified 1,000,000-row p95 through the served path.
 - [ ] For each row, implement positive, refusal, stale-revision, and cross-tenant cases from its requirement. Preserve R009/R010 children and metric meanings.
 <!-- /spec-definition-patch -->
+
+
+### Proposed producer work for EG-ORCH-VOCAB-R004.6
+
+- [ ] Implement the exact typed authority and producer contracts in plan.md.
+- [ ] Wire existing authorization, ChangeEnvelope admission and generated UnifiedQuery.
+- [ ] Run `test_authority_bound_gap_admission_and_restart` with restart and independent durable readback.
+
+Status remains SPECIFIED. `landed_in` and `verified_by` remain empty.

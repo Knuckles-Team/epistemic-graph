@@ -54,3 +54,11 @@ No test in this section has run; these are future acceptance requirements.
 - `EG-ORCH-VOCAB-R010.100`: Serve `EvolutionTraceMetricsV1` joining two revisioned traces and outcome metrics to proposal/prompt/progress revision. Independently read metric/progress digests and window. Missing traces are partial/unknown. Refuse stale, mismatched, and cross-tenant refs. AU producer and GraphOS adapter evidence are separate.
 - `EG-ORCH-VOCAB-R010.101`: Reconcile four token categories and grouped costs against an independent ledger. Test split-trace invariance, half-even boundaries, unknown prices, mixed currencies, and final FX rounding. Measure p95 ≤500 ms on 1,000,000 indexed traces and 32 readers through GraphOS `handle_runs_metrics`.
 <!-- /spec-definition-patch -->
+
+
+### Additional future acceptance for EG-ORCH-VOCAB-R004.6
+
+`tests/orchestration-vocabulary/test_authority_binding_served.py::test_authority_bound_gap_admission_and_restart` is a planned test, not an existing receipt. Exercise every schema and refusal rule in plan.md through generated served clients. Independently read admitted authority, producer receipts, exact revisions and output after restart. Test identical replay and conflicting source events, stale expected revisions, missing/changed authority, denied tenant and unknown references. Verify refusal stores nothing. Preserve every existing acceptance clause above verbatim.
+Test unknown-equal IRIs, forbidden/unlisted extensions and descendant proof pinning. Request-local abstention must create no durable gap; separately admit and read the gap and reviewed enhancement.
+
+Test equal admitted endpoints in exact and descendant modes. Test distinct candidate-child/requested-ancestor endpoints only in descendant mode. Refuse reversed, disconnected, mismatched and unknown-equal endpoints. Independently read both endpoints and match mode from resolver output and durable admission receipt after restart.
