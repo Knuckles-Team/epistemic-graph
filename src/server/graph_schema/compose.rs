@@ -721,7 +721,9 @@ ex:parent a owl:AsymmetricProperty .
         // properties (EG-FINANCE-PRIMITIVES-R004.2.1/R004.2.2). The asset-class
         // comment replacement changes content, not the triple count.
         // +8: TaskStep and BestPractice (EG-ORCH-VOCAB-R001.1/R004.1).
-        assert_eq!(composed.ontology.len(), 13_759);
+        // +4: the shell-centric task vocabulary -- `swarm:shellCentric`'s
+        // declaration, domain, range and comment (EG-TYPED-PACKS-R066.2).
+        assert_eq!(composed.ontology.len(), 13_763);
 
         let ontology_subjects: BTreeSet<String> = composed
             .ontology
@@ -768,7 +770,9 @@ ex:parent a owl:AsymmetricProperty .
         // +95: the portfolio-accounting declarations above are semantic axioms;
         // the ontology headers and import edges are unchanged.
         // +8: the two orchestration vocabulary class declarations.
-        assert_eq!(semantic_axioms, 13_573);
+        // +4: the shell-centric task vocabulary -- `swarm:shellCentric`'s
+        // declaration, domain, range and comment (EG-TYPED-PACKS-R066.2).
+        assert_eq!(semantic_axioms, 13_577);
 
         let count_type = |object: &str| {
             composed
