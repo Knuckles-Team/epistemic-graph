@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 import pytest
+import tomllib
 import yaml
 
 from scripts import ci_change_scope as scope
@@ -446,3 +447,32 @@ def test_frozen_commit_stage_entry_uses_complete_range(local_gate_repo, monkeypa
         assert result.returncode == 0, result.stderr
         assert "scan unnecessary" in result.stdout
     assert not git("status", "--porcelain")
+
+
+# spec: EG-CONTRACT-R035
+def test_generated_contract_pytest_uses_test_interpreter_and_lock() -> None:
+    jobs = yaml.safe_load((ROOT / ".github/workflows/release.yml").read_text())["jobs"]
+    steps = jobs["gates"]["steps"]
+    install = next(
+        step
+        for step in steps
+        if step.get("name") == "Install locked pytest for generated-client checks"
+    )
+    command = install["run"]
+    assert command.startswith('uv pip install --python "$(command -v python3)" ')
+    packages = tomllib.loads((ROOT / "uv.lock").read_text())["package"]
+    versions = {
+        package["name"]: package["version"]
+        for package in packages
+        if "version" in package
+    }
+    expected = {
+        f"{name}=={versions[name]}"
+        for name in ("pytest", "iniconfig", "packaging", "pluggy", "pygments")
+    }
+    assert set(command.split('" ', 1)[1].split()) == expected
+    consumer = next(
+        step for step in steps if step.get("name") == "Generated Python client contract"
+    )
+    assert consumer["run"] == "python3 tests/test_generated_client_contract.py"
+    assert steps.index(install) < steps.index(consumer)
