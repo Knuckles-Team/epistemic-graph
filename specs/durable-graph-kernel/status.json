@@ -388,7 +388,7 @@
       ],
       "verified_by": [
         "tests/test_release_feature_matrix.py:218",
-        "tests/test_release_feature_matrix.py:224"
+        "tests/test_release_feature_matrix.py:225"
       ]
     },
     {

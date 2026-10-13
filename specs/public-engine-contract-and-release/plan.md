@@ -356,3 +356,24 @@ Both requirements remain SPECIFIED until separately reviewed implementation and 
 The gates job must install pytest into the Python interpreter that runs generated-client contract checks.
 Use the existing uv-managed environment and pin its Linux/Python 3.12 pytest dependencies to uv.lock.
 Keep the ten-minute PR timeout policy. Do not install the project or build native code for this provisioning step.
+
+
+### 2026-10-13: limit PR543 acceptance evidence to what its tests prove
+
+R027 remains without acceptance evidence. The classifier-exemption test does not prove extraction without a classifier special case.
+R038 remains without acceptance evidence. Receipt counts and format identities do not prove regeneration or refusal of a changed digest.
+R039 remains without acceptance evidence. A declared base-ref flag does not prove scanning the complete combined tree against origin/main.
+Keep those tests under their original bindings only. Do not add R027, R038 or R039 markers to them.
+Future R027 acceptance must measure the affected extracted dispatch functions and retain functional coverage.
+Future R038 acceptance must run the blocking generator check and reject a changed receipt digest.
+Future R039 acceptance must run the actual duplication gate against origin/main across the combined changes.
+No runtime, scanner result or new acceptance receipt is claimed for these three rows.
+
+
+### 2026-10-13: withdraw incomplete R006, R030 and R047 verification bindings
+
+Keep their supplementary regression tests, but remove the full-row spec markers.
+R006 needs two independent source builds and measured size-budget evidence; synthetic bytes prove only the comparison helper.
+R030 needs observed CPU-affinity and timed execution logs; shell-text assertions cannot supply them.
+R047 needs successful wheel publication and download evidence; workflow declarations cannot supply them.
+Leave their acceptance open until that evidence exists. Retain the independently reviewed bindings for the other rows.
