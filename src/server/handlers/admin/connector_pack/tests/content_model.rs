@@ -674,7 +674,12 @@ async fn supporting_files_are_never_stored_as_skill_body_content() {
         }],
     };
     // A supporting-file reference does not fail the import.
-    imported(&served, &build_pack(CONNECTOR, &[deploy.clone(), file]), None).await;
+    imported(
+        &served,
+        &build_pack(CONNECTOR, &[deploy.clone(), file]),
+        None,
+    )
+    .await;
     // The skill's stored body content is exactly its SKILL.md.
     let skill_body: eg_types::agent_component::AgentComponentContentResult = ok(
         "skill content",
@@ -697,7 +702,10 @@ async fn supporting_files_are_never_stored_as_skill_body_content() {
             )
             .await,
     );
-    assert_eq!(skill_body.body, deploy.body, "only SKILL.md is stored as skill content");
+    assert_eq!(
+        skill_body.body, deploy.body,
+        "only SKILL.md is stored as skill content"
+    );
     // The supporting file's bytes are not stored as the skill's body content:
     // they exist only under the file's own bounded component.
     let file_body: eg_types::agent_component::AgentComponentContentResult = ok(
@@ -721,6 +729,9 @@ async fn supporting_files_are_never_stored_as_skill_body_content() {
             )
             .await,
     );
-    assert_eq!(file_body.body, script, "the supporting file keeps its own bounded body");
+    assert_eq!(
+        file_body.body, script,
+        "the supporting file keeps its own bounded body"
+    );
     assert_ne!(file_body.body, skill_body.body);
 }
