@@ -760,3 +760,15 @@ def test_plan_fuzz_remains_independent_required_acceptance() -> None:
     assert "continue-on-error" not in step
     for consumer in ("build", "build-x86", "engine-main-wheel"):
         assert "gates-plan-fuzz" in jobs[consumer]["needs"]
+
+
+@pytest.mark.parametrize(
+    "job_name",
+    ["gates", "gates-plan-fuzz", "gates-wheel", "gates-facade", "gates-whisper"],
+)
+def test_native_acceptance_uses_hosted_runners_for_every_event(job_name: str) -> None:
+    job = _workflow()["jobs"][job_name]
+    assert job["runs-on"] == "ubuntu-latest"
+    assert job["needs"] == "changes"
+    assert job["if"] == "needs.changes.outputs.code == 'true'"
+    assert "continue-on-error" not in job

@@ -447,3 +447,12 @@ Preserve its features, assertions, compiler-cache trust and setup prerequisites.
 All three release consumers require the new job.
 Other job budgets remain unchanged.
 Scoped workflow tests establish routing; hosted execution must establish native acceptance.
+
+### 2026-10-14: keep ordinary native acceptance on hosted runners
+
+Main pushes previously routed five native acceptance jobs to self-hosted runners.
+Pull-request evidence used GitHub-hosted runners.
+Keep both events on ubuntu-latest to avoid additional native work on constrained user hosts.
+This covers lower crates, plan fuzz, installed wheels, facade and Whisper.
+Preserve every command, feature, assertion, artifact identity check and job budget.
+Main-only cache writes remain unchanged.
