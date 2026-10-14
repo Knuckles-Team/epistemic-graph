@@ -133,13 +133,11 @@ def test_workflow_keeps_security_and_spec_checks_and_full_publication() -> None:
 
 
 def test_pr_runtime_gates_do_not_wait_for_self_hosted_runners() -> None:
+    # 2026-10-14 policy (plan.md): ordinary native acceptance stays on hosted
+    # runners for every event so constrained user hosts carry no native load.
     jobs = yaml.safe_load((ROOT / ".github/workflows/release.yml").read_text())["jobs"]
-    selector = (
-        "${{ github.event_name == 'push' && "
-        "fromJSON('[\"self-hosted\", \"homelab\"]') || 'ubuntu-latest' }}"
-    )
-    for name in ("gates", "gates-facade"):
-        assert jobs[name]["runs-on"] == selector
+    for name in ("gates", "gates-plan-fuzz", "gates-wheel", "gates-facade", "gates-whisper"):
+        assert jobs[name]["runs-on"] == "ubuntu-latest"
         assert jobs[name]["if"] == "needs.changes.outputs.code == 'true'"
 
 
