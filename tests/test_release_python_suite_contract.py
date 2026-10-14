@@ -288,7 +288,7 @@ def _assert_cache_job_settings(job_name: str, job: dict) -> None:
     """Preserve the main-only writer policy and the existing time budget."""
     assert job["env"] == CACHE_BACKEND
     assert int(CACHE_BACKEND["SCCACHE_IDLE_TIMEOUT"]) > 60 * 60
-    budget = 45 if job_name in {"gates", "gates-facade", "python-server"} else 10
+    budget = 45 if job_name in {"gates", "gates-facade", "python-server", "gates-pyo3"} else 10
     assert job["timeout-minutes"] == (
         "${{ github.event_name == 'pull_request' && " + str(budget) + " || 60 }}"
     )
