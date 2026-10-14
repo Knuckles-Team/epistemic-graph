@@ -2306,6 +2306,7 @@ fn two_topics_retry_exhaustion_preserves_other_topic_attempts_and_progress() {
 }
 
 // spec: EG-DURABLE-KERNEL-R052
+// spec: EG-DURABLE-KERNEL-R002
 #[test]
 fn two_topics_reject_restart_and_rewind_preserve_independent_replay() {
     let dir = tempfile::tempdir().unwrap();

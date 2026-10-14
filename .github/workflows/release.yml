@@ -783,6 +783,9 @@ jobs:
           compression-level: 0
 
   python-server:
+    # The full-featured server build alone exceeds the short PR budget:
+    # run 38519919307 compiled it in 9m34s, then the 10m cap killed the job
+    # and cancelled the whole Python suite leg. Align with the full engine jobs.
     timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
     name: Python full server preparation
     needs: changes
@@ -821,7 +824,9 @@ jobs:
           compression-level: 0
 
   python-suite:
-    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
+    # The full root pytest suite leaves no headroom under the short PR budget
+    # (9m29s suite leg on run 38500023697); align with the full engine jobs.
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
     name: Python suite (tests/)
     needs: [changes, python-kernels, python-server]
     if: always() && needs.changes.outputs.code == 'true'

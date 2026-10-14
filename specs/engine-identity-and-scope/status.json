@@ -36,29 +36,39 @@
     {
       "id": "EG-IDENTITY-R001",
       "title": "Multi-issuer OIDC trust list with per-issuer kind limits",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "bb5db1746a16"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/issuer_trust.rs:112",
+        "src/server/issuer_trust.rs:120",
+        "src/server/issuer_trust.rs:128"
+      ]
     },
     {
       "id": "EG-IDENTITY-R002",
       "title": "Identity and RBAC writes recompute roles and audit atomically",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "f9a69bfe8a9c"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-core/src/isolation/identity_store_tests/tenant_and_audit.rs:139",
+        "crates/eg-core/src/isolation/identity_store_tests/tenant_and_audit.rs:190"
+      ]
     },
     {
       "id": "EG-IDENTITY-R003",
       "title": "Identity mode is a durable singleton with CAS transition",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "f9a69bfe8a9c"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/identity/tests/modes.rs:111",
+        "crates/eg-types/src/identity/tests/modes.rs:182"
+      ]
     },
     {
       "id": "EG-IDENTITY-R004",
