@@ -522,7 +522,7 @@
         "ac5638477288"
       ],
       "verified_by": [
-        "src/server/handlers/admin/connector_pack/tests/content_model.rs:548"
+        "src/server/handlers/admin/connector_pack/tests/content_model.rs:549"
       ]
     },
     {
@@ -577,12 +577,15 @@
     {
       "id": "EG-TYPED-PACKS-R019",
       "title": "Only SKILL.md is imported as skill content",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "a1bb9fb9503e",
-        "dc9d269c4bc6"
+        "dc9d269c4bc6",
+        "f4bead1ae2ee"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/handlers/admin/connector_pack/tests/content_model.rs:656"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R020",
@@ -881,7 +884,7 @@
       ],
       "verified_by": [
         "src/server/handlers/admin/connector_pack/tests/admin.rs:441",
-        "src/server/handlers/admin/connector_pack/tests/content_model.rs:598"
+        "src/server/handlers/admin/connector_pack/tests/content_model.rs:599"
       ]
     },
     {
@@ -1108,8 +1111,8 @@
         "db863f1e2afd"
       ],
       "verified_by": [
-        "src/server/handlers/admin/connector_pack/tests/content_model.rs:102",
-        "src/server/handlers/admin/connector_pack/tests/content_model.rs:264"
+        "src/server/handlers/admin/connector_pack/tests/content_model.rs:103",
+        "src/server/handlers/admin/connector_pack/tests/content_model.rs:265"
       ]
     },
     {
