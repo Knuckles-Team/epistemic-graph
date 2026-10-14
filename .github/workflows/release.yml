@@ -6,7 +6,7 @@ name: Release
 # freshness, lint, scanner/census analysis, optional feature builds, and
 # benchmarks remain visible but advisory; they do not delay publication.
 #
-# Blocking path: {gates, gates-facade, gates-variants, gates-crates, gates-pyo3, python-suite,
+# Blocking path: {gates, gates-wheel, gates-facade, gates-whisper, gates-variants, gates-crates, gates-pyo3, python-suite,
 # security, lint-and-architecture, tts-piper-inference, language-clients}
 # -> {build, build-x86} -> {docker-image, publish-pypi} -> publish-image.
 # Quality and documentation checks run independently. GitHub Pages deploys
@@ -56,7 +56,7 @@ jobs:
   # Documentation-only PRs avoid unrelated builds; main, tags and manual
   # runs retain exhaustive validation. Unknown files/history run everything.
   changes:
-    timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
     name: Change scope
     runs-on: ubuntu-latest
     outputs:
@@ -75,7 +75,7 @@ jobs:
 
   # ── Dependency and source-history security checks. ─────────────────────
   security:
-    timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
     name: Security checks
     needs: changes
     if: always()
@@ -128,6 +128,8 @@ jobs:
 
   # ── STAGE 1: release-critical checks only. Nothing else may live here. ──
   gates:
+    # Full engine compilation/test execution exceeds the short PR budget.
+    # Run 38392685303 exhausted even 45m; retain this cap pending build profiling.
     timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
     name: gates
     needs: changes
@@ -223,7 +225,8 @@ jobs:
       - name: Query-pipeline fuzz + chaos (eg-plan)
         env: *eg-validation-compiler-cache-env
         run: python3 scripts/cargo_test_rescue.py cargo test -p eg-plan --features "query,owl,text,timeseries,federation" --test fuzz_pipelines --no-fail-fast
-      - name: Install locked pytest for generated-client checks
+      - &eg-locked-pytest
+        name: Install locked pytest for generated-client checks
         run: uv pip install --python "$(command -v python3)" pytest==9.1.1 iniconfig==2.3.0 packaging==26.2 pluggy==1.6.0 pygments==2.20.0
       - name: Epistemic Operations manifest ⇄ Rust DTO parity
         run: python3 scripts/check_epistemic_operations_protocol.py
@@ -231,6 +234,32 @@ jobs:
         run: cargo run -q --locked -p eg-capabilities --features contract --bin gen_contract -- --check
       - name: Generated Python client contract
         run: python3 tests/test_generated_client_contract.py
+
+      - name: Report lower-crate compiler cache reuse
+        if: always()
+        run: &eg-validation-compiler-cache-stats |
+          echo 'Cache statistics cover the current daemon only; a restart resets its counters.'
+          sccache --show-stats
+
+  # Independent required acceptance; retain the original native-job cap.
+  gates-wheel:
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
+    name: gates (installed wheel)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ${{ github.event_name == 'push' && fromJSON('["self-hosted", "homelab"]') || 'ubuntu-latest' }}
+    steps:
+      - *eg-gates-checkout
+      - *eg-gates-python
+      - *eg-gates-pydeps
+      - *eg-gates-toolchain
+      - *eg-gates-cache
+
+      # Preserve the locked test environment inherited before the job split.
+      - *eg-locked-pytest
+
+      - name: Initialize external wheel virtualenv path
+        run: echo "EG_GATES_WHEEL_VENV=${RUNNER_TEMP:?}/.gates-wheel-venv" >> "$GITHUB_ENV"
 
       # numeric-parity + NE-249: the developer-only reference gate proves EVERY
       # kernel op matches its NumPy reference, AND that the kernel still imports
@@ -316,9 +345,9 @@ jobs:
         run: python scripts/check_wheel_completeness.py --require-engine-kernel dist-gates/*.whl
       - name: Install the folded epistemic-graph wheel into a clean throwaway venv
         run: |
-          python -m venv .gates-wheel-venv
-          .gates-wheel-venv/bin/pip install --upgrade pip
-          .gates-wheel-venv/bin/pip install numpy pytest "$(ls dist-gates/epistemic_graph-*.whl)"
+          python -m venv "$EG_GATES_WHEEL_VENV"
+          "$EG_GATES_WHEEL_VENV/bin/pip" install --upgrade pip
+          "$EG_GATES_WHEEL_VENV/bin/pip" install numpy pytest "$(ls dist-gates/epistemic_graph-*.whl)"
       # Run from a scratch directory, NOT the repo root. `python -m pytest` puts
       # CWD first on sys.path, so from the root `import epistemic_graph.numeric`
       # resolves the SOURCE TREE's `epistemic_graph/numeric.abi3.so` — a
@@ -336,7 +365,7 @@ jobs:
         run: |
           REPO="$PWD"
           cd "$(mktemp -d)"
-          PYTHONNOUSERSITE=1 "$REPO/.gates-wheel-venv/bin/python" -m pytest \
+          PYTHONNOUSERSITE=1 "$EG_GATES_WHEEL_VENV/bin/python" -m pytest \
             "$REPO/crates/eg-numeric/tests/test_kernel_parity.py" --noconftest -q
       # NE-249: the boundary contract, which nothing ran until now. This file
       # holds the single most load-bearing property of the NumPy retirement --
@@ -351,7 +380,7 @@ jobs:
         run: |
           REPO="$PWD"
           cd "$(mktemp -d)"
-          PYTHONNOUSERSITE=1 "$REPO/.gates-wheel-venv/bin/python" -m pytest \
+          PYTHONNOUSERSITE=1 "$EG_GATES_WHEEL_VENV/bin/python" -m pytest \
             "$REPO/crates/eg-numeric/tests/test_builtin_boundary.py" --noconftest -q
       # BUG-PE-002: `import epistemic_graph.engine` must succeed from the INSTALLED
       # wheel, exactly the same shadowing-avoidance discipline as the numeric smoke
@@ -361,7 +390,7 @@ jobs:
         run: |
           REPO="$PWD"
           cd "$(mktemp -d)"
-          PYTHONNOUSERSITE=1 "$REPO/.gates-wheel-venv/bin/python" -c \
+          PYTHONNOUSERSITE=1 "$EG_GATES_WHEEL_VENV/bin/python" -c \
             "import epistemic_graph.engine as e; print('engine kernel OK:', e.__file__, '| __engine__=', getattr(e, '__engine__', None))"
       # EG-CONTRACT-R002.3: the Decide/pack-import client surface that the
       # EG-CONTRACT-R002.1/.2 served tests exercise must itself resolve from this
@@ -372,14 +401,9 @@ jobs:
         run: |
           REPO="$PWD"
           cd "$(mktemp -d)"
-          EG_INSTALLED_WHEEL_GATE=1 PYTHONNOUSERSITE=1 "$REPO/.gates-wheel-venv/bin/python" -m pytest \
+          EG_INSTALLED_WHEEL_GATE=1 PYTHONNOUSERSITE=1 "$EG_GATES_WHEEL_VENV/bin/python" -m pytest \
             "$REPO/tests/test_installed_wheel_decision_client_boundary.py" --noconftest -q
 
-      - name: Report lower-crate compiler cache reuse
-        if: always()
-        run: &eg-validation-compiler-cache-stats |
-          echo 'Cache statistics cover the current daemon only; a restart resets its counters.'
-          sccache --show-stats
 
   # ── STAGE 1 (continued): the release-critical cargo selections are split
   # across three parallel jobs (gates, gates-facade, gates-variants) instead of
@@ -389,6 +413,8 @@ jobs:
   # failure, with nine selections still to go). Every step is carried over
   # verbatim; `build` needs all three.
   gates-facade:
+    # Full engine compilation/test execution exceeds the short PR budget.
+    # Run 38392685303 exhausted even 45m; retain this cap pending build profiling.
     timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
     name: gates (facade full)
     needs: changes
@@ -425,6 +451,27 @@ jobs:
       - name: Report facade compiler cache reuse
         if: always()
         run: *eg-validation-compiler-cache-stats
+      # The blob RSS-bound tests read WHOLE-PROCESS RSS, so they are #[ignore]d out
+      # of the parallel run above (a concurrent sibling's 256MB blob inflates the
+      # shared RSS past the cap). Run them here in isolation — serial + ignored — so
+      # the memory-regression coverage stays in CI without the parallel pollution.
+      - name: Test (memory-regression — RSS bounds, isolated)
+        run: python3 scripts/cargo_test_rescue.py cargo test -p epistemic-graph --features full --no-fail-fast bounded_memory -- --ignored --test-threads=1
+
+  # Independent required acceptance; retain the original native-job cap.
+  gates-whisper:
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
+    name: gates (Whisper real model)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ${{ github.event_name == 'push' && fromJSON('["self-hosted", "homelab"]') || 'ubuntu-latest' }}
+    steps:
+      - *eg-gates-checkout
+      - *eg-gates-python
+      - *eg-gates-pydeps
+      - *eg-gates-toolchain
+      - *eg-gates-cache
+
       # These real-model tests fail loudly when their fixture is absent. Fetch the
       # pinned, sha256-verified model and WAV, export both paths, then exercise the
       # provider rather than counting an unconfigured test as a pass.
@@ -433,12 +480,6 @@ jobs:
         run: scripts/fetch_whisper_test_fixture.sh "$RUNNER_TEMP/eg-whisper-test" >> "$GITHUB_ENV"
       - name: Test (Whisper real-model transcription and cancellation)
         run: python3 scripts/cargo_test_rescue.py cargo test --locked -p eg-asr-whisper --test real_transcription --no-fail-fast
-      # The blob RSS-bound tests read WHOLE-PROCESS RSS, so they are #[ignore]d out
-      # of the parallel run above (a concurrent sibling's 256MB blob inflates the
-      # shared RSS past the cap). Run them here in isolation — serial + ignored — so
-      # the memory-regression coverage stays in CI without the parallel pollution.
-      - name: Test (memory-regression — RSS bounds, isolated)
-        run: python3 scripts/cargo_test_rescue.py cargo test -p epistemic-graph --features full --no-fail-fast bounded_memory -- --ignored --test-threads=1
 
   # Slim-server and raft-cluster variants run after merge (main, tags), not on
   # pull requests: each is a separate cold compile of the whole engine, slim's
@@ -493,7 +534,7 @@ jobs:
   # pyo3 crates get every feature except `python` (pyo3 extension-module cannot
   # link a test binary).
   gates-crates:
-    timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
     name: gates (workspace crates)
     needs: changes
     if: needs.changes.outputs.code == 'true'
@@ -605,7 +646,7 @@ jobs:
   # Keep pyo3 validation independent of storage and the workspace sweep.
   # Main warms the same profile; pull requests retain read-only caches.
   gates-pyo3:
-    timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
     name: gates (pyo3 crates)
     needs: changes
     if: needs.changes.outputs.code == 'true'
@@ -679,7 +720,7 @@ jobs:
   # job's "Build gates pyengine kernel wheel" step runs for the WHEEL path.
   # Prepare native inputs independently; the required python-suite job joins both.
   python-kernels:
-    timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
     name: Python native kernels
     needs: changes
     if: needs.changes.outputs.code == 'true'
@@ -717,7 +758,7 @@ jobs:
           compression-level: 0
 
   python-server:
-    timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
     name: Python full server preparation
     needs: changes
     if: needs.changes.outputs.code == 'true'
@@ -748,7 +789,7 @@ jobs:
           compression-level: 0
 
   python-suite:
-    timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
     name: Python suite (tests/)
     needs: [changes, python-kernels, python-server]
     if: always() && needs.changes.outputs.code == 'true'
@@ -843,7 +884,7 @@ jobs:
   #     runner image. Installed so bindgen's libclang lookup does not depend on
   #     which clang packages the image happens to ship.
   tts-piper-inference:
-    timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
     name: eg-tts-piper real-inference tests
     needs: changes
     if: needs.changes.outputs.code == 'true'
@@ -880,7 +921,7 @@ jobs:
   # byte-for-byte, then replays every contract method-body vector (body digest and
   # envelope MAC) through each client's signer, plus the clients' own unit tests.
   language-clients:
-    timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
     name: Go and JavaScript clients
     needs: changes
     if: needs.changes.outputs.code == 'true'
@@ -922,7 +963,7 @@ jobs:
   # modality, reasoning, release-campaign, and persisted-schema behavior.
   # They remain blocking alongside the executable test suites.
   lint-and-architecture:
-    timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
     name: Lint, format and architecture (pre-commit)
     runs-on: ubuntu-latest
     steps:
@@ -1009,7 +1050,7 @@ jobs:
   # published build (`full,ast-extended` = MATURIN_FEATURES, which has no raft) or
   # the slim `server` build; each profile is its own leg.
   quality-advisory:
-    timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
     name: Clippy ${{ matrix.profile.name }}
     needs: changes
     if: needs.changes.outputs.code == 'true'
@@ -1050,7 +1091,7 @@ jobs:
   # jscpd step left CCCC, KISS, import-linter, depcruise and arch-lint unrun.
   # The job still fails at the end if any step failed.
   scanner-quality:
-    timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
     name: Scanner + architecture quality (advisory)
     needs: changes
     if: needs.changes.outputs.code == 'true'
@@ -1302,7 +1343,7 @@ jobs:
   build:
     timeout-minutes: 360
     name: wheel ${{ matrix.name }}
-    needs: [gates, gates-facade, gates-variants, gates-crates, gates-pyo3, python-suite, security, lint-and-architecture, tts-piper-inference, language-clients]
+    needs: [gates, gates-wheel, gates-facade, gates-whisper, gates-variants, gates-crates, gates-pyo3, python-suite, security, lint-and-architecture, tts-piper-inference, language-clients]
     # Hosted platform legs; x86 is isolated in the immutable reusable job below.
     if: >-
       github.repository == 'Knuckles-Team/epistemic-graph'
@@ -1521,7 +1562,7 @@ jobs:
 
   build-x86:
     name: wheel linux-x86_64
-    needs: [gates, gates-facade, gates-variants, gates-crates, gates-pyo3, python-suite, security, lint-and-architecture, tts-piper-inference, language-clients]
+    needs: [gates, gates-wheel, gates-facade, gates-whisper, gates-variants, gates-crates, gates-pyo3, python-suite, security, lint-and-architecture, tts-piper-inference, language-clients]
     if: >-
       github.repository == 'Knuckles-Team/epistemic-graph'
       && ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || github.event_name == 'workflow_dispatch')
@@ -1841,7 +1882,7 @@ jobs:
   engine-main-wheel:
     timeout-minutes: 360
     name: engine-main wheel (linux-x86_64)
-    needs: [gates, gates-facade, gates-variants, gates-crates, gates-pyo3, python-suite, security, lint-and-architecture]
+    needs: [gates, gates-wheel, gates-facade, gates-whisper, gates-variants, gates-crates, gates-pyo3, python-suite, security, lint-and-architecture]
     if: >-
       github.repository == 'Knuckles-Team/epistemic-graph'
       && github.event_name == 'push' && github.ref == 'refs/heads/main'

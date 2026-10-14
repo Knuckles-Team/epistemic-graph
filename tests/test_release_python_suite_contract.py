@@ -284,12 +284,13 @@ def _assert_job_cache_scope(job_name: str, job: dict, reference: dict) -> None:
         _assert_step_cache_scope(job_name, step)
 
 
-def _assert_cache_job_settings(job: dict) -> None:
+def _assert_cache_job_settings(job_name: str, job: dict) -> None:
     """Preserve the main-only writer policy and the existing time budget."""
     assert job["env"] == CACHE_BACKEND
     assert int(CACHE_BACKEND["SCCACHE_IDLE_TIMEOUT"]) > 60 * 60
+    budget = 45 if job_name in {"gates", "gates-facade"} else 10
     assert job["timeout-minutes"] == (
-        "${{ github.event_name == 'pull_request' && 45 || 60 }}"
+        "${{ github.event_name == 'pull_request' && " + str(budget) + " || 60 }}"
     )
 
 
@@ -639,7 +640,7 @@ CACHE_STEP_CONDITIONS = {
 def test_compiler_cache_job_policy_and_reporting(job_name: str) -> None:
     workflow = _workflow()
     job = workflow["jobs"][job_name]
-    _assert_cache_job_settings(job)
+    _assert_cache_job_settings(job_name, job)
     _, setup, stats = _cache_job_steps(job)
     for step in (setup, stats):
         _assert_cache_backend(workflow, job, step)

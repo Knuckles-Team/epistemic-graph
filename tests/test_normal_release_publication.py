@@ -47,7 +47,9 @@ class ReleasePublication(unittest.TestCase):
             set(jobs["build-x86"]["needs"]),
             {
                 "gates",
+                "gates-wheel",
                 "gates-facade",
+                "gates-whisper",
                 "gates-variants",
                 "gates-crates",
                 "gates-pyo3",
