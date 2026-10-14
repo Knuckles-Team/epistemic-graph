@@ -134,7 +134,7 @@ jobs:
     name: gates
     needs: changes
     if: needs.changes.outputs.code == 'true'
-    runs-on: ${{ github.event_name == 'push' && fromJSON('["self-hosted", "homelab"]') || 'ubuntu-latest' }}
+    runs-on: &eg-native-validation-runner ${{ github.event_name == 'push' && fromJSON('["self-hosted", "homelab"]') || 'ubuntu-latest' }}
     # Build and cleanup must choose the same backend if the daemon restarts.
     # Backend settings alone do not wrap any other Cargo command.
     env: &eg-validation-compiler-cache-backend
@@ -240,7 +240,7 @@ jobs:
     name: gates (plan fuzz and chaos)
     needs: changes
     if: needs.changes.outputs.code == 'true'
-    runs-on: ${{ github.event_name == 'push' && fromJSON('["self-hosted", "homelab"]') || 'ubuntu-latest' }}
+    runs-on: *eg-native-validation-runner
     env: *eg-validation-compiler-cache-backend
     steps:
       - *eg-gates-checkout
