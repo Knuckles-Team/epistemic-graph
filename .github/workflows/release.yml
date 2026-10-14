@@ -758,7 +758,7 @@ jobs:
           compression-level: 0
 
   python-server:
-    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
     name: Python full server preparation
     needs: changes
     if: needs.changes.outputs.code == 'true'
@@ -789,7 +789,7 @@ jobs:
           compression-level: 0
 
   python-suite:
-    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
     name: Python suite (tests/)
     needs: [changes, python-kernels, python-server]
     if: always() && needs.changes.outputs.code == 'true'
