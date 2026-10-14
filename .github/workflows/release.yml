@@ -646,7 +646,7 @@ jobs:
   # Keep pyo3 validation independent of storage and the workspace sweep.
   # Main warms the same profile; pull requests retain read-only caches.
   gates-pyo3:
-    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
     name: gates (pyo3 crates)
     needs: changes
     if: needs.changes.outputs.code == 'true'
