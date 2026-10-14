@@ -2567,6 +2567,7 @@ async fn kg_delegate_public_dispatch_replicates_and_replays_after_failover_scena
 /// the crash, then deliberately leaves the reopened ServerState's in-memory
 /// `agent_library` handle unset until this public route is dispatched.
 #[cfg(feature = "redb")]
+// spec: EG-DURABLE-KERNEL-R006
 #[test]
 fn kg_delegate_public_dispatch_first_request_after_restart() {
     run_cluster_acceptance(
