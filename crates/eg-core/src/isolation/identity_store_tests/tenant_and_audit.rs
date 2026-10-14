@@ -136,6 +136,7 @@ fn conflicting_tenant_role_cannot_smuggle_scopes_into_a_creator() {
     assert!(!tenant_access(&layer));
 }
 
+// spec: EG-IDENTITY-R002
 #[test]
 fn failed_managed_tenant_save_rolls_back_binding_and_projection() {
     let mut layer = seeded();
@@ -186,6 +187,7 @@ fn no_op_grant_removal_saves_its_audit_entry() {
     );
 }
 
+// spec: EG-IDENTITY-R002
 #[test]
 fn failed_no_op_grant_audit_save_rolls_back_the_audit_entry() {
     let mut layer = seeded();
