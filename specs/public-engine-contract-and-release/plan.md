@@ -432,3 +432,18 @@ Cargo still validates current inputs before running the full tests and isolated 
 The 45-minute budget remains unchanged.
 A new main cache seed and subsequent warm run must measure the benefit.
 This cache change alone does not prove that cold compilation meets the budget.
+
+### 2026-10-14: separate required plan-fuzz compilation
+
+Run 38492560051 passed the full facade, isolated RSS checks and all ten visualization dispatch tests.
+The Python suite passed 3836 tests and skipped 47.
+The server build took 16m14s; facade compilation took 39m36s.
+These measurements do not establish a warm-cache improvement.
+
+Lower-crate compilation consumed 20m16s, capability compilation 8m32s and replay compilation 5m36s.
+The final plan-fuzz target was still compiling when the 45-minute job expired.
+Move its unchanged command into independent required acceptance with the same 45-minute cap.
+Preserve its features, assertions, compiler-cache trust and setup prerequisites.
+All three release consumers require the new job.
+Other job budgets remain unchanged.
+Scoped workflow tests establish routing; hosted execution must establish native acceptance.

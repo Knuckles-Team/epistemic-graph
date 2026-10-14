@@ -350,6 +350,7 @@ def _assert_runner_budget(workflow: Path, name: str, job: dict) -> None:
             "gates-wheel",
             "gates-facade",
             "gates-whisper",
+            "gates-plan-fuzz",
             "python-server",
         }:
             expected = "${{ github.event_name == 'pull_request' && 45 || 60 }}"

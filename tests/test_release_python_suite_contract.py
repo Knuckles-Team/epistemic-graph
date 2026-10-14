@@ -288,7 +288,11 @@ def _assert_cache_job_settings(job_name: str, job: dict) -> None:
     """Preserve the main-only writer policy and the existing time budget."""
     assert job["env"] == CACHE_BACKEND
     assert int(CACHE_BACKEND["SCCACHE_IDLE_TIMEOUT"]) > 60 * 60
-    budget = 45 if job_name in {"gates", "gates-facade", "python-server"} else 10
+    budget = (
+        45
+        if job_name in {"gates", "gates-plan-fuzz", "gates-facade", "python-server"}
+        else 10
+    )
     assert job["timeout-minutes"] == (
         "${{ github.event_name == 'pull_request' && " + str(budget) + " || 60 }}"
     )
@@ -560,6 +564,8 @@ COMPILER_CACHE_COMMANDS: dict[str, dict[str, tuple[str, ...]]] = {
                 "eg-statechart --test replay_determinism --no-fail-fast"
             ),
         ),
+    },
+    "gates-plan-fuzz": {
         ("Query-pipeline fuzz + chaos (eg-plan)"): (
             (
                 "python3 scripts/cargo_test_rescue.py cargo test -p eg-plan "
@@ -730,3 +736,27 @@ def test_workspace_cache_is_main_written_and_build_remains_required(
     assert steps.index(cache) < steps.index(build)
     assert "if" not in build
     assert build["run"] == command
+
+
+def test_plan_fuzz_remains_independent_required_acceptance() -> None:
+    jobs = _workflow()["jobs"]
+    job = jobs["gates-plan-fuzz"]
+    assert job["needs"] == "changes"
+    assert job["if"] == "needs.changes.outputs.code == 'true'"
+    assert "continue-on-error" not in job
+    command = COMPILER_CACHE_COMMANDS["gates-plan-fuzz"][
+        "Query-pipeline fuzz + chaos (eg-plan)"
+    ][0]
+    matches = [
+        (name, step)
+        for name, candidate in jobs.items()
+        for step in candidate.get("steps", [])
+        if step.get("run") == command
+    ]
+    assert len(matches) == 1
+    name, step = matches[0]
+    assert name == "gates-plan-fuzz"
+    assert "if" not in step
+    assert "continue-on-error" not in step
+    for consumer in ("build", "build-x86", "engine-main-wheel"):
+        assert "gates-plan-fuzz" in jobs[consumer]["needs"]
