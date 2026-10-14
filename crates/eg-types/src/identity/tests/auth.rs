@@ -252,6 +252,180 @@ fn external_mode_signs_in_only_the_break_glass_administrator_locally() {
     );
 }
 
+// spec: EG-DURABLE-KERNEL-R026
+#[test]
+fn all_auth_modes_resolve_to_one_principal_and_rbac_evaluation_path() {
+    // ── Local mode: one user, one group-granted role, native user store.
+    let mut local = store_in(AuthMode::Local);
+    let ann = with_password(&mut local, "ann");
+    let role = IdentityOp::Access(AccessOp::UpsertRole {
+        request: RoleUpsert {
+            role_id: "kg:write".to_string(),
+            name: "kg:write".to_string(),
+            description: None,
+            scopes: BTreeSet::from(["kg:write".to_string()]),
+            graph_grants: Vec::new(),
+        },
+    });
+    apply_kept(&mut local, &role, &admin(), NOW).unwrap();
+    let group = IdentityOp::Access(AccessOp::UpsertGroup {
+        request: GroupUpsert {
+            group_id: "writers".to_string(),
+            name: "writers".to_string(),
+            roles: BTreeSet::from(["kg:write".to_string()]),
+            mfa_required: false,
+        },
+    });
+    apply_kept(&mut local, &group, &admin(), NOW).unwrap();
+    let join = IdentityOp::Access(AccessOp::ChangeMembership {
+        request: GroupMembershipChange {
+            group_id: "writers".to_string(),
+            principal_id: ann.clone(),
+            change: BindingChange::Add,
+        },
+    });
+    apply_kept(&mut local, &join, &admin(), NOW).unwrap();
+
+    // Local password sign-in resolves `ann` through the shared path.
+    let good = apply_verdict(
+        &mut local,
+        &sign_in("ann"),
+        (Some(&ann), true, "l1"),
+        NOW,
+    );
+    let good = outcome(good.unwrap());
+    assert_eq!(good.outcome, AuthenticateOutcome::Ok);
+    assert_eq!(good.principal_id.as_deref(), Some(ann.as_str()));
+    assert_eq!(local.session_principal("l1", NOW), Some(ann.as_str()));
+    let local_resolution = local.resolve(&ann, &TestRegistry).unwrap();
+    assert!(
+        local_resolution.scopes.contains("kg:write"),
+        "the group role must flow into the principal resolution"
+    );
+
+    // ── External mode: the SAME store flips its mode; an IdP subject links to the
+    // SAME principal and resolves identically through the SAME resolution path.
+    let mut json = serde_json::to_value(&local).unwrap();
+    json["config"]["mode"] = serde_json::json!("external");
+    let mut external: IdentityStore = serde_json::from_value(json).unwrap();
+    let idp = IdentityOp::Idp(IdpOp::Upsert {
+        request: IdpConfig {
+            idp_id: "directory".to_string(),
+            kind: IdpKind::Oidc,
+            display_name: "directory".to_string(),
+            enabled: true,
+            config_json: "{}".to_string(),
+            secret_ref: None,
+            jit_policy: JitPolicy::Deny,
+            email_domains: Vec::new(),
+            order: 0,
+            rules: Vec::new(),
+        },
+    });
+    apply_kept(&mut external, &idp, &admin(), NOW).unwrap();
+    let link = IdentityOp::Idp(IdpOp::Link {
+        request: LinkRequest {
+            idp_id: "directory".to_string(),
+            subject: "ann-ext".to_string(),
+            principal_id: ann.clone(),
+        },
+    });
+    apply_kept(&mut external, &link, &admin(), NOW).unwrap();
+
+    let mut stamp = broker();
+    stamp.token_hashes = vec!["e1".to_string()];
+    let ext_op = IdentityOp::Credential(CredentialOp::ExternalLogin {
+        request: ExternalLogin {
+            idp_id: "directory".to_string(),
+            subject: "ann-ext".to_string(),
+            claims: std::collections::BTreeMap::new(),
+            username_hint: Some("ann".to_string()),
+            session_token: Secret::default(),
+            ip_prefix: None,
+        },
+    });
+    let ext = outcome(apply_kept(&mut external, &ext_op, &stamp, NOW).unwrap());
+    assert_eq!(ext.outcome, AuthenticateOutcome::Ok);
+    assert_eq!(
+        ext.principal_id.as_deref(),
+        Some(ann.as_str()),
+        "external sign-in must resolve to the SAME internal principal as local sign-in"
+    );
+    let external_resolution = external.resolve(&ann, &TestRegistry).unwrap();
+    assert_eq!(
+        (
+            external_resolution.roles,
+            external_resolution.scopes,
+            external_resolution.groups
+        ),
+        (
+            local_resolution.roles,
+            local_resolution.scopes,
+            local_resolution.groups
+        ),
+        "one principal, one RBAC evaluation path: the resolution is mode-independent"
+    );
+
+    // ── Mode-specific negative cases, denied by that same shared path.
+    // External mode refuses a plain local password for a NON-administrator.
+    let denied_local = apply_verdict(
+        &mut external,
+        &sign_in("ann"),
+        (Some(&ann), true, "x1"),
+        NOW,
+    );
+    assert_eq!(outcome(denied_local.unwrap()).outcome, AuthenticateOutcome::Bad);
+    assert!(external.session_principal("x1", NOW).is_none());
+    // External mode refuses a subject the IdP does not manage (JIT deny).
+    let mut denied_stamp = stamp;
+    denied_stamp.token_hashes = vec!["x2".to_string()];
+    let denied_ext = IdentityOp::Credential(CredentialOp::ExternalLogin {
+        request: ExternalLogin {
+            idp_id: "directory".to_string(),
+            subject: "stranger".to_string(),
+            claims: std::collections::BTreeMap::new(),
+            username_hint: None,
+            session_token: Secret::default(),
+            ip_prefix: None,
+        },
+    });
+    assert_eq!(
+        outcome(apply_kept(&mut external, &denied_ext, &denied_stamp, NOW).unwrap())
+            .outcome,
+        AuthenticateOutcome::Bad
+    );
+    assert!(external.session_principal("x2", NOW).is_none());
+
+    // ── None mode: a local password is refused even when it would match, and the
+    // credential-less bootstrap session still resolves through the SAME path.
+    let mut none = store_in(AuthMode::None);
+    let none_ann = with_password(&mut none, "ann");
+    let denied_none = apply_verdict(
+        &mut none,
+        &sign_in("ann"),
+        (Some(&none_ann), true, "n1"),
+        NOW,
+    );
+    assert_eq!(outcome(denied_none.unwrap()).outcome, AuthenticateOutcome::Bad);
+    assert!(none.session_principal("n1", NOW).is_none());
+
+    let mut boot = broker();
+    boot.token_hashes = vec!["demo-session".to_string()];
+    let boot_op = IdentityOp::Credential(CredentialOp::BootstrapSession {
+        request: SessionTouch {
+            session_token: Secret::default(),
+            code: Secret::default(),
+        },
+    });
+    let boot = outcome(apply_kept(&mut none, &boot_op, &boot, NOW).unwrap());
+    assert_eq!(boot.outcome, AuthenticateOutcome::Ok);
+    assert_eq!(boot.principal_id.as_deref(), Some(BOOTSTRAP_PRINCIPAL));
+    assert!(
+        none.resolve(BOOTSTRAP_PRINCIPAL, &TestRegistry).is_ok(),
+        "the none-mode principal resolves through the same RBAC evaluation path"
+    );
+}
+
 #[test]
 fn a_forced_change_opens_no_session_until_a_new_password_is_supplied() {
     let mut store = store_in(AuthMode::Local);
