@@ -418,8 +418,10 @@ Scoped workflow tests cannot establish native acceptance.
 
 ### 2026-10-14: initialize visualization authority before server creation
 
-The visualization fixture created server state before configuring its request authority.
-State captured tenant-test, while subsequent requests carried integration-test-tenant.
+The visualization fixture mixed default policy initialization with the shared request authority.
+The defaults use tenant-test, while signed requests carry integration-test-tenant.
+Concurrent fixture initialization can interleave these environment writes.
+The authentication policy caches its values on first use.
 Nine dispatch tests failed with AUTH_TENANT_MISMATCH in run 38486393509.
 The fixture now calls the existing authority initializer before creating state.
 Production tenant checks remain unchanged.
