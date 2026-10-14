@@ -204,12 +204,14 @@
     {
       "id": "EG-DURABLE-KERNEL-R002",
       "title": "Outbox consumers get per-class topics and reject-driven rebuild",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "a1bb9fb9503e",
         "a676823d2b54"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-transaction/src/tests/outbox.rs:2309"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R003",
@@ -241,22 +243,26 @@
     {
       "id": "EG-DURABLE-KERNEL-R005",
       "title": "Outbox delivery state remains local to the owning node",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "48abc77ce72e",
         "a676823d2b54"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-transaction/src/outbox/rows.rs:325"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R006",
       "title": "Engine startup does not block on one store's lazy open",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "8dbb5bd9de53",
         "a676823d2b54"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/raft/harness/resource_acceptance_test.rs:2570"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R007",
