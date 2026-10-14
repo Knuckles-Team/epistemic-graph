@@ -3,7 +3,8 @@
 use eg_types::agent_component::AgentComponentEntry;
 use eg_types::agent_library::AgentLibraryLifecycle;
 use eg_types::connector_pack::{
-    PackDispositionCounts, PackImportResult, PackViolationCode, PackWarningCode,
+    PackAnnotations, PackDispositionCounts, PackEntryKind, PackImportResult, PackRef,
+    PackViolationCode, PackWarningCode,
 };
 
 use super::{
@@ -645,4 +646,81 @@ async fn capability_annotations_remain_declared_after_import() {
         ["https://example.org/cap/search"]
     );
     assert_eq!(entry.declared_required_capabilities, ["urn:vendor:execute"]);
+}
+
+/// EG-TYPED-PACKS-R019: only SKILL.md is imported as skill content. A
+/// supporting file may reference its skill without failing the import, but
+/// its bytes never enter the skill's stored body content: the skill component
+/// reads back exactly its SKILL.md, and the file's bytes live only under the
+/// file's own bounded component.
+// spec: EG-TYPED-PACKS-R019
+#[tokio::test]
+async fn supporting_files_are_never_stored_as_skill_body_content() {
+    let served = Served::new();
+    bind(&served, CONNECTOR, ADMIN).await;
+    let deploy = skill(CONNECTOR, "deploy", &[]);
+    let script = b"#!/bin/sh\necho deploy\n";
+    let file = Content {
+        kind: PackEntryKind::SkillFile,
+        uri: "skill-file://deploy/scripts/run.sh".to_string(),
+        name: "deploy/scripts/run.sh".to_string(),
+        media_type: "text/x-shellscript",
+        body: script.to_vec(),
+        input_schema: None,
+        annotations: PackAnnotations::default(),
+        references: vec![PackRef {
+            uri: "skill://deploy/SKILL.md".to_string(),
+            kind: PackEntryKind::Skill,
+        }],
+    };
+    // A supporting-file reference does not fail the import.
+    imported(&served, &build_pack(CONNECTOR, &[deploy.clone(), file]), None).await;
+    // The skill's stored body content is exactly its SKILL.md.
+    let skill_body: eg_types::agent_component::AgentComponentContentResult = ok(
+        "skill content",
+        served
+            .call(
+                "content:content-model:skill:deploy",
+                crate::protocol::Method::AgentComponent {
+                    op: eg_types::agent_component::AgentComponentOp::Content {
+                        request: eg_types::agent_component::AgentComponentContentRequest {
+                            tenant_id: TENANT.to_string(),
+                            component_id: eg_types::connector_pack::pack_component_id(
+                                CONNECTOR,
+                                PackEntryKind::Skill,
+                                "deploy",
+                            ),
+                            entry_revision: None,
+                        },
+                    },
+                },
+            )
+            .await,
+    );
+    assert_eq!(skill_body.body, deploy.body, "only SKILL.md is stored as skill content");
+    // The supporting file's bytes are not stored as the skill's body content:
+    // they exist only under the file's own bounded component.
+    let file_body: eg_types::agent_component::AgentComponentContentResult = ok(
+        "skill file content",
+        served
+            .call(
+                "content:content-model:skill-file:deploy",
+                crate::protocol::Method::AgentComponent {
+                    op: eg_types::agent_component::AgentComponentOp::Content {
+                        request: eg_types::agent_component::AgentComponentContentRequest {
+                            tenant_id: TENANT.to_string(),
+                            component_id: eg_types::connector_pack::pack_component_id(
+                                CONNECTOR,
+                                PackEntryKind::SkillFile,
+                                "deploy/scripts/run.sh",
+                            ),
+                            entry_revision: None,
+                        },
+                    },
+                },
+            )
+            .await,
+    );
+    assert_eq!(file_body.body, script, "the supporting file keeps its own bounded body");
+    assert_ne!(file_body.body, skill_body.body);
 }
