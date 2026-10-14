@@ -325,6 +325,6 @@ mod r005_node_local_delivery {
     // spec: EG-DURABLE-KERNEL-R005
     #[test]
     fn delivery_rows_are_node_local_not_raft_replicated() {
-        assert!(!OutboxDelivery::REPLICATED_BY_RAFT);
+        const { assert!(!OutboxDelivery::REPLICATED_BY_RAFT); }
     }
 }
