@@ -108,6 +108,7 @@ fn none_to_local_needs_an_administrator_with_a_credential() {
     assert_eq!(config.issuer_kid_current.as_deref(), Some("kid-1"));
 }
 
+// spec: EG-IDENTITY-R003
 #[test]
 fn a_stale_epoch_and_an_illegal_edge_are_refused() {
     let mut store = store_in(AuthMode::Local);
@@ -178,6 +179,7 @@ fn a_delegated_administrator_cannot_transition() {
     );
 }
 
+// spec: EG-IDENTITY-R003
 #[test]
 fn every_transition_revokes_every_session_and_keeps_every_account() {
     let mut store = store_in(AuthMode::Local);
