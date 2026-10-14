@@ -248,7 +248,8 @@
       "landed_in": [
         "03670fc1f33c",
         "48abc77ce72e",
-        "a676823d2b54"
+        "a676823d2b54",
+        "e2e2514203b7"
       ],
       "verified_by": [
         "crates/eg-transaction/src/outbox/rows.rs:325"
