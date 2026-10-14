@@ -415,3 +415,18 @@ Other split jobs retain ten minutes.
 Features, profiles, native assertions, Python tests and artifact identity checks remain unchanged.
 Hosted completion and cache timing remain required evidence.
 Scoped workflow tests cannot establish native acceptance.
+
+### 2026-10-14: initialize visualization authority before server creation
+
+The visualization fixture created server state before configuring its request authority.
+State captured tenant-test, while subsequent requests carried integration-test-tenant.
+Nine dispatch tests failed with AUTH_TENANT_MISMATCH in run 38486393509.
+The fixture now calls the existing authority initializer before creating state.
+Production tenant checks remain unchanged.
+
+Facade compilation took 41m13s without a restored Cargo target cache.
+The facade cache now retains trusted-main workspace outputs under a dedicated key.
+Cargo still validates current inputs before running the full tests and isolated RSS checks.
+The 45-minute budget remains unchanged.
+A new main cache seed and subsequent warm run must measure the benefit.
+This cache change alone does not prove that cold compilation meets the budget.

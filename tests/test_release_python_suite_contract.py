@@ -694,22 +694,39 @@ def test_compiler_cache_keeps_global_settings_and_server_artifact_boundary() -> 
     assert "if" not in pack
 
 
-def test_server_workspace_cache_is_main_written_and_build_remains_required() -> None:
-    job = _workflow()["jobs"]["python-server"]
+@pytest.mark.parametrize(
+    "job_name,cache_key,build_name,command",
+    [
+        (
+            "python-server",
+            "python-server-workspace-v1",
+            "Build the full-featured engine binary once",
+            "cargo build --locked --features full --bin epistemic-graph-server",
+        ),
+        (
+            "gates-facade",
+            "facade-workspace-v1",
+            "Test (facade full)",
+            "python3 scripts/cargo_test_rescue.py cargo test -p epistemic-graph "
+            "--features full --no-fail-fast --timings",
+        ),
+    ],
+)
+def test_workspace_cache_is_main_written_and_build_remains_required(
+    job_name: str, cache_key: str, build_name: str, command: str
+) -> None:
+    job = _workflow()["jobs"][job_name]
     steps = job["steps"]
     cache = next(
         s for s in steps if s.get("uses", "").startswith("Swatinem/rust-cache@")
     )
     assert cache["with"] == {
         "workspaces": ". -> target-isolated",
-        "key": "python-server-workspace-v1",
+        "key": cache_key,
         "cache-workspace-crates": True,
         "save-if": "${{ github.ref == 'refs/heads/main' }}",
     }
-    build = _cache_step(steps, "Build the full-featured engine binary once")
+    build = _cache_step(steps, build_name)
     assert steps.index(cache) < steps.index(build)
     assert "if" not in build
-    assert (
-        build["run"]
-        == "cargo build --locked --features full --bin epistemic-graph-server"
-    )
+    assert build["run"] == command

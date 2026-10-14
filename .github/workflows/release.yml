@@ -429,7 +429,14 @@ jobs:
       - *eg-gates-pydeps
 
       - *eg-gates-toolchain
-      - *eg-gates-cache
+      # A cold target took 41m13s before tests in run 38486393509.
+      # Preserve trusted-main workspace outputs; Cargo still checks current inputs.
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          workspaces: ". -> target-isolated"
+          key: facade-workspace-v1
+          cache-workspace-crates: true
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       # sqlite3 CLI for the facade `.db` round-trip test (see `gates`).
       - *eg-gates-sqlite
