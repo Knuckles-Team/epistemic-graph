@@ -758,7 +758,10 @@ jobs:
           compression-level: 0
 
   python-server:
-    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
+    # This is a full engine compilation, not a native-job build: run
+    # 38519426292 was still compiling at the 10m PR cap, and the same
+    # build needed 15m43s on the pre-scoping 45m budget.
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
     name: Python full server preparation
     needs: changes
     if: needs.changes.outputs.code == 'true'
