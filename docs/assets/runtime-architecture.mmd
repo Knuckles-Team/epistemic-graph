@@ -8,6 +8,7 @@ flowchart LR
   GraphOS["Graph OS<br/>governed runtime gateway and composition host"]
   AU["Agent Utilities<br/>agent control plane"]
   EG["Epistemic Graph<br/>durable multimodal knowledge and reasoning engine"]
+  Server["Epistemic Graph Server<br/>native server executable, subcommands, container image"]
   Sources["Source systems"]
   SDK["Agent Connector SDK<br/>typed source integration"]
 
@@ -22,5 +23,6 @@ flowchart LR
   Messaging -->|hosted co-service| GraphOS
   GraphOS --> AU
   AU --> EG
+  EG -->|"epistemic-graph[server] installs"| Server
   Sources --> SDK
   SDK --> EG
