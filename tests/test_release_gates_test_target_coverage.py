@@ -68,7 +68,9 @@ def test_eg_compute_solve_step_enables_the_solve_feature():
     invocations = [
         inv for inv in _cargo_test_invocations(_gates_steps()) if "eg-compute" in inv[0]
     ]
-    assert invocations, "gates job must declare a cargo test invocation covering eg-compute"
+    assert invocations, (
+        "gates job must declare a cargo test invocation covering eg-compute"
+    )
     _, all_features, features = invocations[0]
     assert all_features or "solve" in features, (
         "eg-compute's gates-job cargo test step must pass --all-features or "
