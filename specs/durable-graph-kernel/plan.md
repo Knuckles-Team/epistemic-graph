@@ -160,7 +160,7 @@ Boundary cases cover ceiling support, minimum count, confidence tolerance, and z
 
 Audited revision: `2a2f9498863250c71827cf56ecbcb9307940cff0`.
 `crates/eg-types/src/pre_merge_test_module.rs` explicitly defers the concrete manifest and pre-merge gate.
-`.github/workflows/release.yml` excludes `gates-variants` from pull requests.
+`.github/workflows/ci.yml` excludes `gates-variants` from pull requests.
 The same workflow declares `published-full` and `workspace-all-features` clippy profiles with Kafka dependencies.
 Configuration presence does not supply passing exact-head CI receipts.
 `src/raft/flake_budget.rs` explicitly defers the representative-load generator and repeated-run harness.

@@ -4,7 +4,7 @@ in CI.
 Collected by the existing python-suite job. This checks parses the release
 workflow configuration; it does not replace the native raft suite's own
 compilation and test evidence, which the `gates-variants` job in
-`.github/workflows/release.yml` provides on every push to `main` and every
+`.github/workflows/ci.yml` provides on every push to `main` and every
 pull request.
 """
 
@@ -21,7 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 @pytest.fixture
 def release_workflow() -> dict:
-    return yaml.safe_load((ROOT / ".github/workflows/release.yml").read_text())
+    return yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
 
 
 def _run_tokens(step: dict) -> list[str]:

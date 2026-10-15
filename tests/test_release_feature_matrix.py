@@ -19,7 +19,7 @@ PACKAGES = ("eg-numeric", "eg-pyengine")
 
 @pytest.fixture
 def release_matrix():
-    workflow = yaml.safe_load((ROOT / ".github/workflows/release.yml").read_text())
+    workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
     manifests = {
         package: tomllib.loads((ROOT / "crates" / package / "Cargo.toml").read_text())
         for package in PACKAGES
@@ -278,7 +278,7 @@ def test_pyo3_gate_is_independent_required_and_keeps_trusted_cache_policy(
     assert "Test (pyo3 crates, every feature except python)" not in {
         step.get("name") for step in jobs["gates-crates"]["steps"]
     }
-    for consumer in ("build", "build-x86", "engine-main-wheel"):
+    for consumer in ("engine-main-wheel",):
         assert "gates-pyo3" in jobs[consumer]["needs"]
 
 

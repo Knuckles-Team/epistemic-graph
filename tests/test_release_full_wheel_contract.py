@@ -18,6 +18,7 @@ pytestmark = pytest.mark.no_engine
 
 REPO = Path(__file__).resolve().parents[1]
 WORKFLOW = REPO / ".github" / "workflows" / "release.yml"
+CI_WORKFLOW = REPO / ".github" / "workflows" / "ci.yml"
 WHEEL_PASS_ACTION = REPO / ".github" / "actions" / "folded-wheel" / "action.yml"
 NUMERIC_CONTRACT_DOCS = (
     REPO / "AGENTS.md",
@@ -181,9 +182,10 @@ def test_every_supported_release_target_uses_one_full_wheel_pipeline() -> None:
     }
     assert 'MATURIN_FEATURES: "full,ast-extended"' in raw
     assert "--no-default-features" not in _build_job_source(raw)
-    assert "scripts/inject_numeric_kernel.py" in raw
-    assert "scripts/normalize_wheel_build_paths.py" in raw
-    assert "import epistemic_graph.numeric" in raw
+    both = raw + CI_WORKFLOW.read_text(encoding="utf-8")
+    assert "scripts/inject_numeric_kernel.py" in both
+    assert "scripts/normalize_wheel_build_paths.py" in both
+    assert "import epistemic_graph.numeric" in both
     # The release smoke test must exercise the native module without importing
     # or installing NumPy; parity keeps its reference dependency isolated in the
     # separate gates job.
@@ -244,12 +246,13 @@ def test_release_wheels_are_rebuilt_and_compared_reproducibly() -> None:
     # (CONCEPT:EG-346) and normalizes/audits its numeric kernel, pyengine
     # kernel and folded wheel, rather than `pip install`ing the standalone
     # `eg-numeric` build (the 2026-08-21 stale-install incident).
-    assert raw.count("scripts/inject_numeric_kernel.py") == 1
-    assert raw.count("scripts/normalize_wheel_sbom.py") == 3
-    assert raw.count("scripts/normalize_wheel_build_paths.py") == 3
-    assert raw.count("scripts/check_wheel_privacy.py") == 3
+    both = raw + CI_WORKFLOW.read_text(encoding="utf-8")
+    assert both.count("scripts/inject_numeric_kernel.py") == 1
+    assert both.count("scripts/normalize_wheel_sbom.py") == 3
+    assert both.count("scripts/normalize_wheel_build_paths.py") == 3
+    assert both.count("scripts/check_wheel_privacy.py") == 3
     assert "Remove primary native build state" in raw
-    assert "release wheel digest mismatch" in raw
+    assert "release wheel digest mismatch" in both
 
 
 def test_incomplete_fallback_artifacts_cannot_be_published() -> None:
@@ -347,7 +350,7 @@ def _assert_runner_budget(workflow: Path, name: str, job: dict) -> None:
         # Classification, lint, security and independently split jobs stay short.
         # python-server/python-suite build/run the full engine suite and exceed
         # the short budget on cold hosted PR runners.
-        if workflow.name == "release.yml" and name in {
+        if workflow.name in {"ci.yml", "release.yml"} and name in {
             "gates",
             "gates-wheel",
             "gates-facade",
@@ -383,29 +386,23 @@ def _assert_workflow_job_budget(workflow: Path, name: str, job: dict) -> None:
         _assert_runner_budget(workflow, name, job)
 
 
-@pytest.mark.parametrize(
-    ("event", "ref", "cancel"),
-    [
-        ("push", "refs/heads/main", False),
-        ("workflow_dispatch", "refs/heads/main", False),
-        ("push", "refs/tags/v1.0.0", False),
-        ("workflow_dispatch", "refs/tags/v1.0.0", False),
-        ("pull_request", "refs/pull/1/merge", True),
-    ],
-)
-def test_release_concurrency_preserves_running_main(
-    event: str, ref: str, cancel: bool
-) -> None:
+def test_release_concurrency_never_cancels_a_publication() -> None:
     concurrency = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["concurrency"]
     assert concurrency["group"] == "release-${{ github.ref }}"
     # Keep GitHub's bounded default: one running plus the latest pending run.
     assert concurrency.get("queue", "single") == "single"
-    expression = concurrency["cancel-in-progress"]
-    assert isinstance(expression, str)
-    match = re.fullmatch(r"\$\{\{ github\.event_name == '([^']+)' \}\}", expression)
-    assert match is not None
-    assert (event == match.group(1)) is cancel
-    assert concurrency["group"].replace("${{ github.ref }}", ref) == f"release-{ref}"
+    assert concurrency["cancel-in-progress"] is False
+
+
+def test_ci_concurrency_supersedes_older_runs_per_pr_and_per_ref() -> None:
+    """spec EG-CONTRACT-R053.7: main pushes and PR pushes cancel the older run."""
+    doc = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
+    concurrency = doc["concurrency"]
+    assert concurrency["cancel-in-progress"] is True
+    group = concurrency["group"]
+    assert "github.workflow" in group
+    assert "github.event.pull_request.number" in group
+    assert "github.ref" in group
 
 
 def _source_archive(
@@ -595,3 +592,32 @@ def test_sdist_requires_engine_composition_helper(tmp_path):
             {"scripts/inject_pyengine.py"},
             "2.27.1",
         )
+
+
+@pytest.mark.spec("EG-CONTRACT-R053.7")
+def test_tag_pipeline_builds_checks_and_publishes_only() -> None:
+    """A tag publishes only a commit main CI already passed (spec R053.7)."""
+    doc = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    triggers = doc[True] if True in doc else doc["on"]
+    assert set(triggers) == {"push", "workflow_dispatch"}
+    assert triggers["push"] == {"tags": ["v*"]}
+    assert triggers["workflow_dispatch"]["inputs"]["force_untested"]["default"] is False
+    jobs = doc["jobs"]
+    assert set(jobs) == {"guard", "build", "build-x86", "build-sdist", "publish-pypi"}
+    for name in ("build", "build-x86", "build-sdist"):
+        assert jobs[name]["needs"] == "guard"
+    guard = jobs["guard"]
+    assert guard["permissions"]["actions"] == "read"
+    script = "\n".join(step.get("run", "") for step in guard["steps"])
+    assert "actions/workflows/ci.yml/runs?head_sha=${SHA}&status=success" in script
+    assert "force_untested" in str(guard["steps"])
+    assert "REFUSING to publish" in script
+    # Every gate, feature build and benchmark lives in ci.yml.
+    ci = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
+    ci_triggers = ci[True] if True in ci else ci["on"]
+    assert set(ci_triggers) == {"push", "pull_request", "workflow_dispatch"}
+    assert ci_triggers["push"] == {"branches": ["main"]}
+    assert {"gates", "feature-matrix", "benchmarks", "engine-main-wheel"} <= set(
+        ci["jobs"]
+    )
+    assert not {"build", "build-x86", "build-sdist", "publish-pypi"} & set(ci["jobs"])

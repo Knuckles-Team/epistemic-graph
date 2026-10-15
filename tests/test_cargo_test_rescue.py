@@ -194,7 +194,7 @@ def test_untranslatable_libtest_argument_fails_closed():
 def test_every_release_cargo_test_step_goes_through_the_rescue():
     import yaml
 
-    doc = yaml.safe_load((ROOT / ".github/workflows/release.yml").read_text())
+    doc = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
     bare = [
         (job_id, step.get("name"))
         for job_id, job in doc["jobs"].items()

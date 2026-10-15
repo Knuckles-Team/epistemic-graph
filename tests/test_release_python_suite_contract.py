@@ -28,7 +28,7 @@ import yaml
 from scripts import _kernel_build
 
 REPO = Path(__file__).resolve().parents[1]
-WORKFLOW = REPO / ".github" / "workflows" / "release.yml"
+WORKFLOW = REPO / ".github" / "workflows" / "ci.yml"
 # These tests inspect workflow configuration only, without building an engine.
 pytestmark = pytest.mark.no_engine
 
@@ -717,7 +717,7 @@ def test_workspace_cache_is_main_written_and_build_remains_required(
     )
     assert cache["with"] == {
         "workspaces": ". -> target-isolated",
-        "key": cache_key,
+        "shared-key": "eg-ci-gates",
         "cache-workspace-crates": True,
         "save-if": "${{ github.ref == 'refs/heads/main' }}",
     }
@@ -747,7 +747,7 @@ def test_plan_fuzz_remains_independent_required_acceptance() -> None:
     assert name == "gates-plan-fuzz"
     assert "if" not in step
     assert "continue-on-error" not in step
-    for consumer in ("build", "build-x86", "engine-main-wheel"):
+    for consumer in ("engine-main-wheel",):
         assert "gates-plan-fuzz" in jobs[consumer]["needs"]
 
 

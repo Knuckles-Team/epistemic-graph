@@ -71,10 +71,11 @@ The linked requirement rows retain the full contract, hashes, acceptance, and ow
 - [ ] `EG-CONTRACT-R001.1`: Extend the EG generator and manifest. Wire exports into AU `HarnessRequest` and `run_agent`. Keep AU lifecycle ownership.
 - [ ] `EG-CONTRACT-R001.2`: Use R094 export/import and governed filesystem effects. Pin the canonical number encoder. Do not add an EG filesystem writer.
 - [ ] Keep both definitions SPECIFIED until implementation and served evidence receive separate review.
-- [ ] **EG-CONTRACT-R053:** Complete the six children without replacing R015 or R047 acceptance.
+- [ ] **EG-CONTRACT-R053:** Complete the seven children without replacing R015 or R047 acceptance.
 - [ ] **EG-CONTRACT-R053.1:** Fold the four offline tools into `epistemic-graph-server`.
 - [ ] **EG-CONTRACT-R053.2:** Strip executables in `build_backend.py` and gate the wheel.
 - [ ] **EG-CONTRACT-R053.3:** Add the `server` extra and its bump entry.
 - [ ] **EG-CONTRACT-R053.4:** Resolve the server binary through `epistemic_graph.server_binary`.
 - [ ] **EG-CONTRACT-R053.5:** Add `[profile.release-server]` and record measured sizes.
 - [ ] **EG-CONTRACT-R053.6:** Update callers of the retired binary names.
+- [ ] **EG-CONTRACT-R053.7:** Split `ci.yml` (all gates) from `release.yml` (guard, build, check, publish) and guard tags on a passing main CI run.

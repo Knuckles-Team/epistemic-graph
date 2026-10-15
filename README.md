@@ -15,7 +15,7 @@
 [![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-526cff)](https://knuckles-team.github.io/epistemic-graph/)
 [![GitHub license](https://img.shields.io/github/license/Knuckles-Team/epistemic-graph)](LICENSE)
 [![Version](https://img.shields.io/badge/version-2.27.1-blue)](https://github.com/Knuckles-Team/epistemic-graph/releases)
-[![Build](https://github.com/Knuckles-Team/epistemic-graph/actions/workflows/release.yml/badge.svg?branch=main)](https://github.com/Knuckles-Team/epistemic-graph/actions/workflows/release.yml)
+[![Build](https://github.com/Knuckles-Team/epistemic-graph/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Knuckles-Team/epistemic-graph/actions/workflows/ci.yml)
 [![GitHub Repo stars](https://img.shields.io/github/stars/Knuckles-Team/epistemic-graph)](https://github.com/Knuckles-Team/epistemic-graph/stargazers)
 [![GitHub forks](https://img.shields.io/github/forks/Knuckles-Team/epistemic-graph)](https://github.com/Knuckles-Team/epistemic-graph/forks)
 [![GitHub contributors](https://img.shields.io/github/contributors/Knuckles-Team/epistemic-graph)](https://github.com/Knuckles-Team/epistemic-graph/graphs/contributors)

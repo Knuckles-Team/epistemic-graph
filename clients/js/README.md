@@ -115,6 +115,6 @@ A build without one returns a clear "not available in this build" error.
 ## Status
 
 Static context, signing, secret-leakage and method-body vector tests use Node's
-built-in test runner (`npm test`, run in CI by release.yml job `language-clients`).
+built-in test runner (`npm test`, run in CI by ci.yml job `language-clients`).
 The repository does not yet provide a live Node engine harness for transport-level
 integration tests.
