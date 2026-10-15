@@ -287,12 +287,7 @@ fn all_auth_modes_resolve_to_one_principal_and_rbac_evaluation_path() {
     apply_kept(&mut local, &join, &admin(), NOW).unwrap();
 
     // Local password sign-in resolves `ann` through the shared path.
-    let good = apply_verdict(
-        &mut local,
-        &sign_in("ann"),
-        (Some(&ann), true, "l1"),
-        NOW,
-    );
+    let good = apply_verdict(&mut local, &sign_in("ann"), (Some(&ann), true, "l1"), NOW);
     let good = outcome(good.unwrap());
     assert_eq!(good.outcome, AuthenticateOutcome::Ok);
     assert_eq!(good.principal_id.as_deref(), Some(ann.as_str()));
@@ -374,7 +369,10 @@ fn all_auth_modes_resolve_to_one_principal_and_rbac_evaluation_path() {
         (Some(&ann), true, "x1"),
         NOW,
     );
-    assert_eq!(outcome(denied_local.unwrap()).outcome, AuthenticateOutcome::Bad);
+    assert_eq!(
+        outcome(denied_local.unwrap()).outcome,
+        AuthenticateOutcome::Bad
+    );
     assert!(external.session_principal("x1", NOW).is_none());
     // External mode refuses a subject the IdP does not manage (JIT deny).
     let mut denied_stamp = stamp;
@@ -390,8 +388,7 @@ fn all_auth_modes_resolve_to_one_principal_and_rbac_evaluation_path() {
         },
     });
     assert_eq!(
-        outcome(apply_kept(&mut external, &denied_ext, &denied_stamp, NOW).unwrap())
-            .outcome,
+        outcome(apply_kept(&mut external, &denied_ext, &denied_stamp, NOW).unwrap()).outcome,
         AuthenticateOutcome::Bad
     );
     assert!(external.session_principal("x2", NOW).is_none());
@@ -406,7 +403,10 @@ fn all_auth_modes_resolve_to_one_principal_and_rbac_evaluation_path() {
         (Some(&none_ann), true, "n1"),
         NOW,
     );
-    assert_eq!(outcome(denied_none.unwrap()).outcome, AuthenticateOutcome::Bad);
+    assert_eq!(
+        outcome(denied_none.unwrap()).outcome,
+        AuthenticateOutcome::Bad
+    );
     assert!(none.session_principal("n1", NOW).is_none());
 
     let mut boot = broker();
