@@ -287,6 +287,10 @@
     "EG-DECISION-ENGINE-R134.6",
     "EG-DECISION-ENGINE-R134.7",
     "EG-DECISION-ENGINE-R134.8",
+    "EG-DECISION-ENGINE-R134.9",
+    "EG-DECISION-ENGINE-R134.10",
+    "EG-DECISION-ENGINE-R134.11",
+    "EG-DECISION-ENGINE-R134.12",
     "EG-DECISION-ENGINE-R135",
     "EG-DECISION-ENGINE-R135.1",
     "EG-DECISION-ENGINE-R135.2",
@@ -335,13 +339,9 @@
     "EG-DECISION-ENGINE-R106.1",
     "EG-DECISION-ENGINE-R106.2",
     "EG-DECISION-ENGINE-R137.13",
-    "EG-DECISION-ENGINE-R134.9",
     "EG-DECISION-ENGINE-R137.14",
-    "EG-DECISION-ENGINE-R134.10",
     "EG-DECISION-ENGINE-R137.15",
-    "EG-DECISION-ENGINE-R134.11",
     "EG-DECISION-ENGINE-R059.1",
-    "EG-DECISION-ENGINE-R134.12",
     "EG-DECISION-ENGINE-R134.13",
     "EG-DECISION-ENGINE-R029.1",
     "EG-DECISION-ENGINE-R134.14",
@@ -526,7 +526,35 @@
     "EG-DECISION-ENGINE-R161.3",
     "EG-DECISION-ENGINE-R161.4",
     "EG-DECISION-ENGINE-R161.5",
-    "EG-DECISION-ENGINE-R161.6"
+    "EG-DECISION-ENGINE-R161.6",
+    "EG-DECISION-ENGINE-R162",
+    "EG-DECISION-ENGINE-R162.1",
+    "EG-DECISION-ENGINE-R162.2",
+    "EG-DECISION-ENGINE-R162.3",
+    "EG-DECISION-ENGINE-R162.4",
+    "EG-DECISION-ENGINE-R162.5",
+    "EG-DECISION-ENGINE-R162.6",
+    "EG-DECISION-ENGINE-R163",
+    "EG-DECISION-ENGINE-R163.1",
+    "EG-DECISION-ENGINE-R163.2",
+    "EG-DECISION-ENGINE-R163.3",
+    "EG-DECISION-ENGINE-R163.4",
+    "EG-DECISION-ENGINE-R163.5",
+    "EG-DECISION-ENGINE-R163.6",
+    "EG-DECISION-ENGINE-R164",
+    "EG-DECISION-ENGINE-R164.1",
+    "EG-DECISION-ENGINE-R164.2",
+    "EG-DECISION-ENGINE-R164.3",
+    "EG-DECISION-ENGINE-R164.4",
+    "EG-DECISION-ENGINE-R164.5",
+    "EG-DECISION-ENGINE-R164.6",
+    "EG-DECISION-ENGINE-R165",
+    "EG-DECISION-ENGINE-R165.1",
+    "EG-DECISION-ENGINE-R165.2",
+    "EG-DECISION-ENGINE-R165.3",
+    "EG-DECISION-ENGINE-R165.4",
+    "EG-DECISION-ENGINE-R165.5",
+    "EG-DECISION-ENGINE-R165.6"
   ],
   "requirements": [
     {
@@ -3882,6 +3910,34 @@
       "verified_by": []
     },
     {
+      "id": "EG-DECISION-ENGINE-R134.9",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R134.10",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R134.11",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R134.12",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
       "id": "EG-DECISION-ENGINE-R135",
       "title": "A successful run compiles into a stored program keyed by task signature (rollup)",
       "delivery_state": "SPECIFIED",
@@ -4281,22 +4337,8 @@
       "verified_by": []
     },
     {
-      "id": "EG-DECISION-ENGINE-R134.9",
-      "title": "Reviewed residual `AU:34`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
       "id": "EG-DECISION-ENGINE-R137.14",
       "title": "Reviewed residual `AU:37`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "EG-DECISION-ENGINE-R134.10",
-      "title": "Reviewed residual `AU:39`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -4309,22 +4351,8 @@
       "verified_by": []
     },
     {
-      "id": "EG-DECISION-ENGINE-R134.11",
-      "title": "Reviewed residual `AU:45`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
       "id": "EG-DECISION-ENGINE-R059.1",
       "title": "Reviewed residual `AU:57`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "EG-DECISION-ENGINE-R134.12",
-      "title": "Reviewed residual `AU:85`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -5790,6 +5818,234 @@
     },
     {
       "id": "EG-DECISION-ENGINE-R161.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R162",
+      "title": "Workspace field shielding and declared-input projection at step boundaries (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R162.1",
+        "EG-DECISION-ENGINE-R162.2",
+        "EG-DECISION-ENGINE-R162.3",
+        "EG-DECISION-ENGINE-R162.4",
+        "EG-DECISION-ENGINE-R162.5",
+        "EG-DECISION-ENGINE-R162.6"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R162.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R162.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R162.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R162.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R162.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R162.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R163",
+      "title": "Graph-ingested papers and codebases in study intake with revision provenance (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R163.1",
+        "EG-DECISION-ENGINE-R163.2",
+        "EG-DECISION-ENGINE-R163.3",
+        "EG-DECISION-ENGINE-R163.4",
+        "EG-DECISION-ENGINE-R163.5",
+        "EG-DECISION-ENGINE-R163.6"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R163.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R163.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R163.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R163.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R163.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R163.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R164",
+      "title": "Long-horizon branches retrieve and apply prior outcome evidence for breadth adaptation (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R164.1",
+        "EG-DECISION-ENGINE-R164.2",
+        "EG-DECISION-ENGINE-R164.3",
+        "EG-DECISION-ENGINE-R164.4",
+        "EG-DECISION-ENGINE-R164.5",
+        "EG-DECISION-ENGINE-R164.6"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R164.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R164.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R164.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R164.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R164.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R164.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R165",
+      "title": "Per-model empirical tool necessity measurement and decision comparison tracing (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R165.1",
+        "EG-DECISION-ENGINE-R165.2",
+        "EG-DECISION-ENGINE-R165.3",
+        "EG-DECISION-ENGINE-R165.4",
+        "EG-DECISION-ENGINE-R165.5",
+        "EG-DECISION-ENGINE-R165.6"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R165.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R165.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R165.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R165.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R165.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R165.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],

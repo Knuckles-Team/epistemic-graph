@@ -1386,4 +1386,20 @@ EG-DECISION-ENGINE-R160.1 through R160.6: Rendered skill package validated again
 ## EG-DECISION-ENGINE-R161
 
 EG-DECISION-ENGINE-R161.1 through R161.6: Failed-run trace generates fix plus regression test. Test binds to failing before-revision and passing after-revision receipt. Mismatch refuses acceptance.
+
+## EG-DECISION-ENGINE-R162
+
+EG-DECISION-ENGINE-R162.1 through R162.6: Shared workspace field shielding and step-boundary projection. Undeclared nested fields withheld at read. Extra fields rejected at schema boundaries. AU-HARNESS-R020 slot sharing gains shielded-field support.
+
+## EG-DECISION-ENGINE-R163
+
+EG-DECISION-ENGINE-R163.1 through R163.6: Graph-ingested papers and codebases in study intake with governed references and exact revision tracking. Filesystem and graph sources coexist in intake. Authorities reused rather than copied.
+
+## EG-DECISION-ENGINE-R164
+
+EG-DECISION-ENGINE-R164.1 through R164.6: Long-horizon branches retrieve prior outcomes and adapt breadth. Earlier branch success increases later breadth. Outcome evidence recorded per branch. AU-HARNESS-R022 outcome feedback drives EG breadth decision.
+
+## EG-DECISION-ENGINE-R165
+
+EG-DECISION-ENGINE-R165.1 through R165.6: Per-model empirical tool necessity measurement and decision comparison. Tool necessity measured per model. Mismatches traced with linked model call. Unknown and stale measurements handled explicitly.
 <!-- /spec-definition-patch -->
