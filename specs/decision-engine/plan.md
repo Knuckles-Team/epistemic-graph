@@ -1346,4 +1346,24 @@ Retrieval must distinguish storage date, event date and narrative time. Define: 
 ## Grounded-answer and pre-surface safety plans — 2026-10-12
 
 - **`EG-DECISION-ENGINE-R100.101` / EG:18:** Bind the complete expected-topic set. Bind each claim's predicted unsupported probability to a pinned label-blind scorer artifact. Keep predictions separate from annotator labels. Define topic coverage with a policy threshold over supporting citation votes. Return expected/covered ids. Aggregate summed topic counts per scope. Define weighted Brier as `sum(vote_count_i * (p_i-q_i)^2) / sum(vote_count_i)` over the complete required claim set, where `q_i=unsupported_votes_i/vote_count_i`. Seal the positive denominator and rounding policy. Refuse missing topics/predictions/labels, duplicate annotators and stale digests. Source SHA-256 `d978b4b4201059c2e7bcc7a78def0d5845cf7db1e361f2f50ee57f8bcc5733ae`.
-- **`EG-DECISION-ENGINE-R001.100` / GRAPHOS:19:** Extend `Method::Decide` with `RecommendationSafetyV1` and per-bound typed evidence/result. Refuse missing, stale, non-finite, incompatible or over-limit facts with the exact violated bound. GraphOS's pre-surface invocation/validation receipt remains a separate pending prerequisite. Preserve partial AU-HARNESS-R021.4/.6/.7. Source SHA-256 `cd33b64c1d759f3c7dd0a83112b77955d25a49c69d20288fe4c917716c711ff6`.
+
+## EG-DECISION-ENGINE-R152
+
+EG-DECISION-ENGINE-R152.1 through R152.6: AU context compiler accepts retrieved KG facts and renders them as natural-language prose.
+
+## EG-DECISION-ENGINE-R153
+
+EG-DECISION-ENGINE-R153.1 through R153.6: Source ingestion produces offline line-numbered TOC keyed by document identity.
+
+## EG-DECISION-ENGINE-R154
+
+EG-DECISION-ENGINE-R154.1 through R154.6: Memory layers accept encoded facts without external configuration.
+
+## EG-DECISION-ENGINE-R155
+
+EG-DECISION-ENGINE-R155.1 through R155.6: Sessions produce episodes with temporal anchors enabling cross-session retrieval.
+
+## EG-DECISION-ENGINE-R156
+
+EG-DECISION-ENGINE-R156.1 through R156.6: Skill documents compile procedurally to AU executable plans.
+<!-- /spec-definition-patch -->

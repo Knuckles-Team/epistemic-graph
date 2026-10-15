@@ -477,4 +477,49 @@ Deliver these additive leaves in order; preserve R137.1–.6 and R128 unchanged.
 - [ ] `EG-DECISION-ENGINE-R100.101`: define complete expected/covered topic sets, per-claim label-blind probabilities with scorer provenance. Independent annotator labels, scored population, weighted Brier formula and positive denominator in `GroundedAnswerEvaluationV1`.
 - [ ] Verify topic coverage by exact topic-id sets and summed counts. Recompute the weighted Brier formula from distinct predictions and labels. Change predictions while holding labels fixed and prove only Brier changes. Refuse incomplete populations, missing provenance, duplicate annotators and zero denominators.
 - [ ] `EG-DECISION-ENGINE-R001.100`: define `RecommendationSafetyV1` on the existing Decide path with per-bound receipt and fail-closed typed verdict. Retain the separate GraphOS pre-surface validation dependency.
-- [ ] Serve in-bound/out-of-bound and absent, stale, non-finite, unit-mismatch, and policy-mismatch cases. Verify exact violated bound details and no surfacing without GraphOS's separately served receipt.
+
+## KG fact rendering and natural-language text (R152)
+
+- [ ] **EG-DECISION-ENGINE-R152.1 (Model):** Define AU context compiler contract accepting retrieved KG facts and producing natural-language prose.
+- [ ] **EG-DECISION-ENGINE-R152.2 (Behavior):** Preserve semantic meaning, source authority and exact token count in rendered output.
+- [ ] **EG-DECISION-ENGINE-R152.3 (Wiring):** Map rendered text to source fact identities and citation metadata bidirectionally.
+- [ ] **EG-DECISION-ENGINE-R152.4 (Refusal):** Refuse unrenderable facts or missing provenance without fabricated substitutions.
+- [ ] **EG-DECISION-ENGINE-R152.5 (Evidence):** Test no triple leakage, correct placement outside demonstration regions, complete citations and budget compliance.
+- [ ] **EG-DECISION-ENGINE-R152.6 (Hot-path proof):** Serve `Method::CompileContext` through AU context_compiler_serving.py with integration test.
+
+## Offline line-numbered table of contents and span-read contracts (R153)
+
+- [ ] **EG-DECISION-ENGINE-R153.1 (Model):** Source ingestion produces offline line-numbered TOC keyed by document identity and revision.
+- [ ] **EG-DECISION-ENGINE-R153.2 (Behavior):** Span-read operations use precomputed line ranges without reading whole files.
+- [ ] **EG-DECISION-ENGINE-R153.3 (Wiring):** EG document/section records link SDK source ingestion to GraphOS retrieval to AU exploration.
+- [ ] **EG-DECISION-ENGINE-R153.4 (Refusal):** Refuse span reads when requested range exceeds offline TOC bounds.
+- [ ] **EG-DECISION-ENGINE-R153.5 (Evidence):** Validate TOC construction and line-range conformance against original files.
+- [ ] **EG-DECISION-ENGINE-R153.6 (Hot-path proof):** Serve `Method::RetrievalContextSearch` with offline TOC and bounded span reads.
+
+## Parameter-free memory/retention scaling and corpus growth semantics (R154)
+
+- [ ] **EG-DECISION-ENGINE-R154.1 (Model):** Memory layers accept and retain cross-document encoded facts without external configuration.
+- [ ] **EG-DECISION-ENGINE-R154.2 (Behavior):** Corpus growth is linear in document count without scaling parameter retuning.
+- [ ] **EG-DECISION-ENGINE-R154.3 (Wiring):** Filtered-scan and lifecycle operators feed memory layers and consume retention semantics.
+- [ ] **EG-DECISION-ENGINE-R154.4 (Refusal):** Refuse memory operations under OOM or when selectivity constraints cannot be met.
+- [ ] **EG-DECISION-ENGINE-R154.5 (Evidence):** Scaling benchmarks validate linear growth under doubling corpus size.
+- [ ] **EG-DECISION-ENGINE-R154.6 (Hot-path proof):** Serve `Method::UnifiedQuery` with growing corpus and parameter-free memory.
+
+## Memory layers, episode construction and cross-session retrieval (R155)
+
+- [ ] **EG-DECISION-ENGINE-R155.1 (Model):** Sessions produce episodes: ordered, immutable fact sequences with temporal anchors.
+- [ ] **EG-DECISION-ENGINE-R155.2 (Behavior):** Episodes support cross-session retrieval with temporal validation.
+- [ ] **EG-DECISION-ENGINE-R155.3 (Wiring):** SourceIngest, episode builder and UnifiedQuery form a producer-consumer chain.
+- [ ] **EG-DECISION-ENGINE-R155.4 (Refusal):** Refuse cross-session retrieval when temporal ordering cannot be established.
+- [ ] **EG-DECISION-ENGINE-R155.5 (Evidence):** Multi-session test data validates episode formation and temporal consistency.
+- [ ] **EG-DECISION-ENGINE-R155.6 (Hot-path proof):** Serve `Method::UnifiedQuery` with multi-session episodes.
+
+## Skill document procedural compilation without separate workflow files (R156)
+
+- [ ] **EG-DECISION-ENGINE-R156.1 (Model):** Skill documents define steps, branching and error handling in natural language.
+- [ ] **EG-DECISION-ENGINE-R156.2 (Behavior):** Steps compile to executable AU workflow steps without separate .yml files.
+- [ ] **EG-DECISION-ENGINE-R156.3 (Wiring):** EG SourceIngest documents and AU graph_orchestrate form a producer-consumer pair.
+- [ ] **EG-DECISION-ENGINE-R156.4 (Refusal):** Refuse compilation when steps are ambiguous or lack input/output types.
+- [ ] **EG-DECISION-ENGINE-R156.5 (Evidence):** Golden skill documents compile to deterministic AU plan representations.
+- [ ] **EG-DECISION-ENGINE-R156.6 (Hot-path proof):** Serve `Method::CompileSkillWorkflow` with AU graph_orchestrate consumer.
+<!-- /spec-definition-patch -->

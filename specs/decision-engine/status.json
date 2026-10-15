@@ -456,7 +456,42 @@
     "EG-DECISION-ENGINE-R146.4",
     "EG-DECISION-ENGINE-R146.5",
     "EG-DECISION-ENGINE-R146.6",
-    "EG-DECISION-ENGINE-R100.100"
+    "EG-DECISION-ENGINE-R100.100",
+    "EG-DECISION-ENGINE-R152",
+    "EG-DECISION-ENGINE-R152.1",
+    "EG-DECISION-ENGINE-R152.2",
+    "EG-DECISION-ENGINE-R152.3",
+    "EG-DECISION-ENGINE-R152.4",
+    "EG-DECISION-ENGINE-R152.5",
+    "EG-DECISION-ENGINE-R152.6",
+    "EG-DECISION-ENGINE-R153",
+    "EG-DECISION-ENGINE-R153.1",
+    "EG-DECISION-ENGINE-R153.2",
+    "EG-DECISION-ENGINE-R153.3",
+    "EG-DECISION-ENGINE-R153.4",
+    "EG-DECISION-ENGINE-R153.5",
+    "EG-DECISION-ENGINE-R153.6",
+    "EG-DECISION-ENGINE-R154",
+    "EG-DECISION-ENGINE-R154.1",
+    "EG-DECISION-ENGINE-R154.2",
+    "EG-DECISION-ENGINE-R154.3",
+    "EG-DECISION-ENGINE-R154.4",
+    "EG-DECISION-ENGINE-R154.5",
+    "EG-DECISION-ENGINE-R154.6",
+    "EG-DECISION-ENGINE-R155",
+    "EG-DECISION-ENGINE-R155.1",
+    "EG-DECISION-ENGINE-R155.2",
+    "EG-DECISION-ENGINE-R155.3",
+    "EG-DECISION-ENGINE-R155.4",
+    "EG-DECISION-ENGINE-R155.5",
+    "EG-DECISION-ENGINE-R155.6",
+    "EG-DECISION-ENGINE-R156",
+    "EG-DECISION-ENGINE-R156.1",
+    "EG-DECISION-ENGINE-R156.2",
+    "EG-DECISION-ENGINE-R156.3",
+    "EG-DECISION-ENGINE-R156.4",
+    "EG-DECISION-ENGINE-R156.5",
+    "EG-DECISION-ENGINE-R156.6"
   ],
   "requirements": [
     {
@@ -5151,6 +5186,291 @@
     {
       "id": "EG-DECISION-ENGINE-R100.100",
       "title": "Pinned retrieval evaluation and authorized context spans",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R152",
+      "title": "KG fact rendering into natural-language text (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R152.1",
+        "EG-DECISION-ENGINE-R152.2",
+        "EG-DECISION-ENGINE-R152.3",
+        "EG-DECISION-ENGINE-R152.4",
+        "EG-DECISION-ENGINE-R152.5",
+        "EG-DECISION-ENGINE-R152.6"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R152.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R152.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R152.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R152.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R152.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R152.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R153",
+      "title": "Offline line-numbered table of contents and span-read contracts (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R153.1",
+        "EG-DECISION-ENGINE-R153.2",
+        "EG-DECISION-ENGINE-R153.3",
+        "EG-DECISION-ENGINE-R153.4",
+        "EG-DECISION-ENGINE-R153.5",
+        "EG-DECISION-ENGINE-R153.6"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R153.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R153.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R153.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R153.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R153.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R153.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R154",
+      "title": "Parameter-free memory/retention scaling and corpus growth semantics (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R154.1",
+        "EG-DECISION-ENGINE-R154.2",
+        "EG-DECISION-ENGINE-R154.3",
+        "EG-DECISION-ENGINE-R154.4",
+        "EG-DECISION-ENGINE-R154.5",
+        "EG-DECISION-ENGINE-R154.6"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R154.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R154.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R154.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R154.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R154.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R154.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R155",
+      "title": "Memory layers, episode construction and cross-session retrieval (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R155.1",
+        "EG-DECISION-ENGINE-R155.2",
+        "EG-DECISION-ENGINE-R155.3",
+        "EG-DECISION-ENGINE-R155.4",
+        "EG-DECISION-ENGINE-R155.5",
+        "EG-DECISION-ENGINE-R155.6"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R155.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R155.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R155.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R155.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R155.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R155.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R156",
+      "title": "Skill document procedural compilation without separate workflow files (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R156.1",
+        "EG-DECISION-ENGINE-R156.2",
+        "EG-DECISION-ENGINE-R156.3",
+        "EG-DECISION-ENGINE-R156.4",
+        "EG-DECISION-ENGINE-R156.5",
+        "EG-DECISION-ENGINE-R156.6"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R156.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R156.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R156.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R156.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R156.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R156.6",
+      "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
