@@ -19,6 +19,7 @@ from scripts.check_wheel_completeness import check_wheel
 from scripts.check_wheel_privacy import audit_wheel
 from scripts.inject_numeric_kernel import inject
 from scripts.normalize_wheel_sbom import normalize_wheel
+from scripts.strip_wheel_executables import strip_executables
 
 pytestmark = pytest.mark.no_engine
 
@@ -234,6 +235,7 @@ def _assert_release_composition_gates_pass(
 ) -> None:
     # Release composition normalizes Maturin's SBOM path references before the
     # privacy gate; this also proves the rewritten archive keeps a valid RECORD.
+    strip_executables(server_wheel)
     assert normalize_wheel(server_wheel, environ={}, checkout=fixture) >= 0
     assert check_wheel(server_wheel) == []
     assert not audit_wheel(server_wheel, environ={}).findings

@@ -103,6 +103,10 @@ runs:
       run: |
         python scripts/inject_pyengine.py "$(ls dist-${{ inputs.pass }}/epistemic_graph-*.whl)" "$(ls enginedist-${{ inputs.pass }}/*.whl)"
 
+    - name: Strip console executables (executable-free wheel)
+      shell: bash
+      run: python scripts/strip_wheel_executables.py dist-${{ inputs.pass }}/*.whl
+
     - name: Normalize and audit wheel
       shell: bash
       run: |

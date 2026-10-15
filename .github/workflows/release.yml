@@ -355,6 +355,8 @@ jobs:
       - name: Fold the pyengine kernel into the gates epistemic-graph wheel (BUG-PE-002)
         run: |
           python scripts/inject_pyengine.py "$(ls dist-gates/epistemic_graph-*.whl)" "$(ls enginedist-gates/*.whl)"
+      - name: Strip console executables from the gates wheel (executable-free wheel)
+        run: python scripts/strip_wheel_executables.py dist-gates/*.whl
       - name: Normalize and audit the folded gates wheel
         run: |
           python scripts/normalize_wheel_sbom.py dist-gates/*.whl

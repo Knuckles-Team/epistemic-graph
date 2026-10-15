@@ -32,9 +32,9 @@ os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
 
 import maturin
 
-from scripts.inject_numeric_kernel import _record_bytes
 from scripts.inject_numeric_kernel import inject as inject_numeric
 from scripts.inject_pyengine import inject as inject_engine
+from scripts.strip_wheel_executables import strip_executables
 
 ROOT = Path(__file__).resolve().parent
 NUMERIC_MANIFEST = ROOT / "crates" / "eg-numeric" / "Cargo.toml"
@@ -626,31 +626,6 @@ def _build_component(directory: Path, manifest: Path, features: str) -> Path:
     return wheels[0]
 
 
-def _drop_executables(wheel: Path) -> None:
-    """Remove every ``*.data/scripts/*`` member and regenerate RECORD."""
-
-    with zipfile.ZipFile(wheel) as archive:
-        infos = archive.infolist()
-        comment = archive.comment
-        record_infos = [i for i in infos if i.filename.endswith(".dist-info/RECORD")]
-        if len(record_infos) != 1:
-            raise RuntimeError("wheel must contain exactly one RECORD")
-        record_info = record_infos[0]
-        entries = [
-            (info, archive.read(info.filename))
-            for info in infos
-            if info is not record_info and not _is_executable_member(info.filename)
-        ]
-    record = _record_bytes(entries, record_info.filename)
-    temporary = wheel.with_suffix(".whl.tmp")
-    with zipfile.ZipFile(temporary, "w", zipfile.ZIP_DEFLATED) as out:
-        out.comment = comment
-        for info, data in entries:
-            out.writestr(info, data)
-        out.writestr(record_info, record)
-    temporary.replace(wheel)
-
-
 def _compose(
     build: Callable[[str, Mapping[str, Any] | None, str | None], str],
     wheel_directory: str,
@@ -676,7 +651,7 @@ def _compose(
                 prefix=f"epistemic-graph-{manifest.parent.name}-"
             ) as temporary:
                 inject(wheel, _build_component(Path(temporary), manifest, features))
-        _drop_executables(wheel)
+        strip_executables(wheel)
         return filename
 
 

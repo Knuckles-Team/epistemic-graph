@@ -298,4 +298,3 @@ All rows are SPECIFIED contracts only. No implementation, test execution or serv
 | `EG-DURABLE-KERNEL-R098.4` | **Refusal.** Reject hypotheses with empty argument list and non-hypothesis evidence claims. | Test proves empty arguments and asserting evidence are refused. |
 | `EG-DURABLE-KERNEL-R098.5` | **Evidence.** Hypothesis output never claims assertion and carries prediction confidence. | Readback shows hypothesis response lacks assertion flag. |
 | `EG-DURABLE-KERNEL-R098.6` | **Hot-path proof.** Prediction endpoint accepts ordered arguments and routes unseen entity to hypothesis response. | Served test calls predict with (known, unknown) arguments and observes hypothesis reply. |
-
