@@ -290,7 +290,8 @@ def _assert_cache_job_settings(job_name: str, job: dict) -> None:
     assert int(CACHE_BACKEND["SCCACHE_IDLE_TIMEOUT"]) > 60 * 60
     budget = (
         45
-        if job_name in {"gates", "gates-plan-fuzz", "gates-facade", "python-server"}
+        if job_name
+        in {"gates", "gates-plan-fuzz", "gates-facade", "python-server", "gates-pyo3"}
         else 10
     )
     assert job["timeout-minutes"] == (

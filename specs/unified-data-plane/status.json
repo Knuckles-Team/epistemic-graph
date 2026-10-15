@@ -180,11 +180,14 @@
       "landed_in": [
         "23ba8c7eab2a",
         "64f76c5b3209",
+        "7a73d3ee7e78",
         "d603182af742",
-        "dc9533466828",
-        "e8695518196e"
+        "dc9533466828"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "src/server/foreign_catalog.rs:402",
+        "src/server/foreign_catalog.rs:426"
+      ],
       "rollup_of": [
         "EG-UNIFIED-DATA-PLANE-R002.1",
         "EG-UNIFIED-DATA-PLANE-R002.2",
@@ -202,8 +205,8 @@
         "d603182af742"
       ],
       "verified_by": [
-        "src/server/foreign_catalog.rs:402",
-        "src/server/foreign_catalog.rs:425"
+        "src/server/foreign_catalog.rs:403",
+        "src/server/foreign_catalog.rs:427"
       ]
     },
     {
@@ -501,12 +504,15 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R013",
       "title": "Implement the Postgres attached-source adapter",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "3dd56fe53283",
-        "6bc4b5668ed0"
+        "6bc4b5668ed0",
+        "7a73d3ee7e78"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/postgres_adapter.rs:205"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R014",
