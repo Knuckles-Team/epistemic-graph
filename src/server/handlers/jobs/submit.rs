@@ -151,12 +151,10 @@ pub(super) fn handle_cancel_op(
     // `JobStore::request_cancel_retrying`).
     let mut compile_error = None;
     let outcome = store.request_cancel_retrying(&job_id, || {
-        compile_job_batch(store, req_id, authority, attempt_nonce.clone(), &method).map_err(
-            |error| {
-                compile_error = Some(error);
-                eg_jobs::JobError::Codec("cancel batch compile failed".into())
-            },
-        )
+        compile_job_batch(store, req_id, authority, attempt_nonce, &method).map_err(|error| {
+            compile_error = Some(error);
+            eg_jobs::JobError::Codec("cancel batch compile failed".into())
+        })
     });
     if let Some(error) = compile_error {
         return Response::err(req_id, error);
