@@ -218,6 +218,18 @@ The stash belongs to the whole repository, so it is not a lane-local backup.
 Stage reviewed paths explicitly and inspect the resulting patch before commit.
 Leave other owners' changes, build slots, and publication decisions alone.
 
+## Server executable
+
+The server and its subcommands (`restore`, `migrate-shards`, `rf019-observe`,
+`lake-fixture-export`) are engine code in this repository. The `release-server`
+Cargo profile (size-optimised, `panic = "unwind"`) is defined here. The public
+`epistemic-graph` wheel carries no executables; `pip install "epistemic-graph[server]"`
+installs the matching `epistemic-graph-server` package at the same version.
+Distribution, the server wheel and the server image belong to the
+[epistemic-graph-server](https://github.com/Knuckles-Team/epistemic-graph-server)
+repository, which builds from this source at the matching tag. Change behaviour
+here; change packaging and images there.
+
 ## Operations are separate
 
 Use `epistemic-graph-deploy` for rollout, `epistemic-graph-migrations` for store
