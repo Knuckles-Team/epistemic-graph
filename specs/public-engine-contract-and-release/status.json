@@ -71,7 +71,14 @@
     "EG-CONTRACT-R052.3",
     "EG-CONTRACT-R052.4",
     "EG-CONTRACT-R001.1",
-    "EG-CONTRACT-R001.2"
+    "EG-CONTRACT-R001.2",
+    "EG-CONTRACT-R053",
+    "EG-CONTRACT-R053.1",
+    "EG-CONTRACT-R053.2",
+    "EG-CONTRACT-R053.3",
+    "EG-CONTRACT-R053.4",
+    "EG-CONTRACT-R053.5",
+    "EG-CONTRACT-R053.6"
   ],
   "requirements": [
     {
@@ -865,6 +872,76 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
+    },
+    {
+      "id": "EG-CONTRACT-R053",
+      "title": "Split distribution: one server executable, an executable-free wheel (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CONTRACT-R053.1",
+        "EG-CONTRACT-R053.2",
+        "EG-CONTRACT-R053.3",
+        "EG-CONTRACT-R053.4",
+        "EG-CONTRACT-R053.5",
+        "EG-CONTRACT-R053.6"
+      ]
+    },
+    {
+      "id": "EG-CONTRACT-R053.1",
+      "title": "One executable with subcommands",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "tests/test_server_split.py:23"
+      ]
+    },
+    {
+      "id": "EG-CONTRACT-R053.2",
+      "title": "The wheel carries no executables",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "tests/test_build_backend.py:137",
+        "tests/test_check_wheel_completeness.py:215"
+      ]
+    },
+    {
+      "id": "EG-CONTRACT-R053.3",
+      "title": "The `server` extra pins the server package in lockstep",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "tests/test_server_split.py:38"
+      ]
+    },
+    {
+      "id": "EG-CONTRACT-R053.4",
+      "title": "Server binary lookup names the install hint",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "tests/test_server_split.py:49"
+      ]
+    },
+    {
+      "id": "EG-CONTRACT-R053.5",
+      "title": "The `release-server` profile sizes the standalone server",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "tests/test_server_split.py:66"
+      ]
+    },
+    {
+      "id": "EG-CONTRACT-R053.6",
+      "title": "Callers of the old binary names use the subcommands",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "tests/test_server_split.py:79"
+      ]
     }
   ]
 }
