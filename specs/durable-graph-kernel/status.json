@@ -526,12 +526,15 @@
     {
       "id": "EG-DURABLE-KERNEL-R015",
       "title": "Raft heartbeat flush and batch dispatch avoid head-of-line blocking",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "a595f3a182c3",
-        "a676823d2b54"
+        "a676823d2b54",
+        "f4135d1dc0db"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/raft/tests.rs:2087"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R016",
@@ -797,22 +800,28 @@
     {
       "id": "EG-DURABLE-KERNEL-R025",
       "title": "Raft admin follows the current leader and traces are leader-agnostic",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "05bf09d8eee4",
+        "842453d4e0ba",
         "a676823d2b54"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/raft/tests.rs:2790"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R026",
       "title": "Auth modes share one principal and RBAC evaluation path",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "48abc77ce72e",
-        "a676823d2b54"
+        "a676823d2b54",
+        "e2512288b49d"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/identity/tests/auth.rs:255"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R027",
