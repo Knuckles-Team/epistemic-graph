@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import tomllib
 from pathlib import Path
 
 import pytest
+import tomllib
 import yaml
 
 pytestmark = pytest.mark.no_engine
