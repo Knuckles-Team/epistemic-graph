@@ -279,8 +279,8 @@
         "tests/test_release_python_suite_contract.py:102",
         "tests/test_release_python_suite_contract.py:119",
         "tests/test_release_python_suite_contract.py:130",
-        "tests/test_release_python_suite_contract.py:311",
-        "tests/test_release_python_suite_contract.py:354"
+        "tests/test_release_python_suite_contract.py:349",
+        "tests/test_release_python_suite_contract.py:366"
       ]
     },
     {
@@ -412,7 +412,7 @@
         "d556e4d0895e"
       ],
       "verified_by": [
-        "tests/test_release_feature_matrix.py:250",
+        "tests/test_release_feature_matrix.py:266",
         "tests/test_release_feature_matrix.py:87"
       ]
     },
@@ -754,7 +754,7 @@
         "5bf5b719de7e"
       ],
       "verified_by": [
-        "tests/test_release_feature_matrix.py:287"
+        "tests/test_release_feature_matrix.py:303"
       ]
     },
     {

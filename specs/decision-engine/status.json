@@ -2075,7 +2075,7 @@
         "a4804f87c971"
       ],
       "verified_by": [
-        "tests/test_decision_static_contracts.py:135"
+        "tests/test_decision_static_contracts.py:145"
       ]
     },
     {
@@ -3234,7 +3234,7 @@
         "a4804f87c971"
       ],
       "verified_by": [
-        "tests/test_decision_static_contracts.py:77"
+        "tests/test_decision_static_contracts.py:87"
       ]
     },
     {
@@ -3524,7 +3524,7 @@
         "a565bdb085f2"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/statistical/harness_config.rs:592"
+        "crates/eg-types/src/decision/statistical/harness_config.rs:629"
       ]
     },
     {
