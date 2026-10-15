@@ -206,6 +206,7 @@
       "title": "Outbox consumers get per-class topics and reject-driven rebuild",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "03670fc1f33c",
         "a1bb9fb9503e",
         "a676823d2b54"
       ],
@@ -245,8 +246,11 @@
       "title": "Outbox delivery state remains local to the owning node",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "03670fc1f33c",
         "48abc77ce72e",
-        "a676823d2b54"
+        "87a17d4fa2a4",
+        "a676823d2b54",
+        "e2e2514203b7"
       ],
       "verified_by": [
         "crates/eg-transaction/src/outbox/rows.rs:325"
@@ -257,6 +261,7 @@
       "title": "Engine startup does not block on one store's lazy open",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "03670fc1f33c",
         "8dbb5bd9de53",
         "a676823d2b54"
       ],

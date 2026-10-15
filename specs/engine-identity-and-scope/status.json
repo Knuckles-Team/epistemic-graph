@@ -38,6 +38,7 @@
       "title": "Multi-issuer OIDC trust list with per-issuer kind limits",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "8fed7c656140",
         "bb5db1746a16"
       ],
       "verified_by": [
@@ -51,6 +52,7 @@
       "title": "Identity and RBAC writes recompute roles and audit atomically",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "8fed7c656140",
         "f9a69bfe8a9c"
       ],
       "verified_by": [
@@ -63,6 +65,7 @@
       "title": "Identity mode is a durable singleton with CAS transition",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "8fed7c656140",
         "f9a69bfe8a9c"
       ],
       "verified_by": [
