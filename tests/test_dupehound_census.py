@@ -467,7 +467,7 @@ def test_empty_production_universe_is_not_applicable_without_native_scan(
 
 
 def test_release_workflow_wires_the_adapter_without_changing_changed_gate():
-    workflow = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
+    workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
     assert "scripts/check_dupehound_census.py" in workflow
     assert "dupehound-full-tree-v1:epistemic-graph" in workflow
     assert "python -m pytest -q --noconftest tests/test_dupehound_census.py" in workflow

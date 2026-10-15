@@ -39,7 +39,7 @@ def _fake(tmp_path: Path, body: str) -> str:
 
 
 def _scanner_steps() -> dict[str, dict]:
-    workflow = yaml.safe_load((REPO / ".github/workflows/release.yml").read_text())
+    workflow = yaml.safe_load((REPO / ".github/workflows/ci.yml").read_text())
     return {
         step.get("name"): step for step in workflow["jobs"]["scanner-quality"]["steps"]
     }

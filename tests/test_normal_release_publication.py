@@ -42,24 +42,13 @@ class ReleasePublication(unittest.TestCase):
             {"linux-aarch64", "windows-x86_64", "macos-aarch64", "macos-x86_64"},
         )
         self.assertTrue(all(leg["runner"] != "self-hosted" for leg in legs))
-        self.assertEqual(jobs["build"]["needs"], jobs["build-x86"]["needs"])
-        self.assertEqual(
-            set(jobs["build-x86"]["needs"]),
-            {
-                "gates",
-                "gates-wheel",
-                "gates-facade",
-                "gates-whisper",
-                "gates-plan-fuzz",
-                "gates-variants",
-                "gates-crates",
-                "gates-pyo3",
-                "python-suite",
-                "security",
-                "lint-and-architecture",
-                "tts-piper-inference",
-                "language-clients",
-            },
+        # The tag pipeline builds only: ci.yml already ran every gate, and
+        # `guard` proves it concluded success for the tagged commit.
+        self.assertEqual(jobs["build"]["needs"], "guard")
+        self.assertEqual(jobs["build-x86"]["needs"], "guard")
+        self.assertEqual(jobs["build-sdist"]["needs"], "guard")
+        self.assertFalse(
+            [name for name in jobs if name.startswith("gates") or name == "security"]
         )
         self.assertEqual(
             jobs["build-x86"]["uses"],
@@ -118,7 +107,9 @@ class ReleasePublication(unittest.TestCase):
         self.assertLess(validate, freeze)
 
     def test_storage_crash_processes_do_not_overlap_sibling_file_tests(self):
-        steps = self.workflow["jobs"]["gates-crates"]["steps"]
+        steps = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())["jobs"][
+            "gates-crates"
+        ]["steps"]
         commands = [step.get("run", "") for step in steps]
         storage = (
             "python3 scripts/cargo_test_rescue.py cargo test --locked "

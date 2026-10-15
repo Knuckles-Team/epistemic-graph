@@ -41,7 +41,7 @@ def test_documentation_only_diff(path: str) -> None:
         "src/lib.rs",
         "Cargo.lock",
         ".config/pre-commit.yaml",
-        ".github/workflows/release.yml",
+        ".github/workflows/ci.yml",
         "docs/plugin.py",
         "specs/build.rs",
         ".specify/scripts/setup.sh",
@@ -111,7 +111,7 @@ def test_complete_git_diff_has_no_api_file_limit(
 
 
 def test_workflow_keeps_security_and_spec_checks_and_full_publication() -> None:
-    jobs = yaml.safe_load((ROOT / ".github/workflows/release.yml").read_text())["jobs"]
+    jobs = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())["jobs"]
     security = {step.get("name"): step for step in jobs["security"]["steps"]}
     for name in (
         "Secret-history scan",
@@ -127,15 +127,15 @@ def test_workflow_keeps_security_and_spec_checks_and_full_publication() -> None:
     assert '--from-ref "$BASE" --to-ref "$HEAD"' in hooks["run"]
     assert "--all-files" in hooks["run"]
     assert hooks["env"]["SKIP"] == "lane-guard,cargo-deny-advisories"
-    assert 'check_rustfmt_scope.py --base "$BASE"' in lint["rustfmt"]["run"]
-    assert "cargo fmt --all --check" in lint["rustfmt"]["run"]
+    assert lint["rustfmt"]["run"] == "cargo fmt --all -- --check"
+    assert "if" not in lint["rustfmt"]
     assert "CI change-scope regression tests" in lint
 
 
 def test_pr_runtime_gates_do_not_wait_for_self_hosted_runners() -> None:
     # 2026-10-14 policy (plan.md): ordinary native acceptance stays on hosted
     # runners for every event so constrained user hosts carry no native load.
-    jobs = yaml.safe_load((ROOT / ".github/workflows/release.yml").read_text())["jobs"]
+    jobs = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())["jobs"]
     for name in (
         "gates",
         "gates-plan-fuzz",
@@ -149,7 +149,7 @@ def test_pr_runtime_gates_do_not_wait_for_self_hosted_runners() -> None:
 
 def test_workspace_gates_use_hosted_runner_with_required_headers() -> None:
     """EG-CONTRACT-R035: prerequisite installation must work on every event."""
-    jobs = yaml.safe_load((ROOT / ".github/workflows/release.yml").read_text())["jobs"]
+    jobs = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())["jobs"]
     job = jobs["gates-crates"]
     assert job["runs-on"] == "ubuntu-latest"
     assert job["needs"] == "changes"
@@ -175,7 +175,7 @@ def test_workspace_gates_use_hosted_runner_with_required_headers() -> None:
 # spec: EG-CONTRACT-R031
 # spec: EG-CONTRACT-R031.1
 def test_lint_installs_manifest_rustfmt_before_all_formatting_steps() -> None:
-    workflow = yaml.safe_load((ROOT / ".github/workflows/release.yml").read_text())
+    workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
     steps = workflow["jobs"]["lint-and-architecture"]["steps"]
     install = next(
         index
@@ -193,8 +193,7 @@ def test_lint_installs_manifest_rustfmt_before_all_formatting_steps() -> None:
         if "pre-commit run" in command or "check_rustfmt_scope.py" in command:
             assert install < index
     rustfmt = next(step for step in steps if step.get("name") == "rustfmt")
-    assert "scripts/check_rustfmt_scope.py --base" in rustfmt["run"]
-    assert "cargo fmt --all --check" in rustfmt["run"]
+    assert rustfmt["run"] == "cargo fmt --all -- --check"
 
 
 @pytest.fixture
@@ -457,7 +456,7 @@ def test_frozen_commit_stage_entry_uses_complete_range(local_gate_repo, monkeypa
 
 # spec: EG-CONTRACT-R035
 def test_generated_contract_pytest_uses_test_interpreter_and_lock() -> None:
-    jobs = yaml.safe_load((ROOT / ".github/workflows/release.yml").read_text())["jobs"]
+    jobs = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())["jobs"]
     steps = jobs["gates"]["steps"]
     install = next(
         step
@@ -501,7 +500,7 @@ def test_split_native_acceptance_preserves_commands_and_release_dependencies(
     job_name: str,
     steps_digest: str,
 ) -> None:
-    jobs = yaml.safe_load((ROOT / ".github/workflows/release.yml").read_text())["jobs"]
+    jobs = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())["jobs"]
     job = jobs[job_name]
     assert job["needs"] == "changes"
     assert job["if"] == jobs["gates"]["if"]
@@ -512,7 +511,7 @@ def test_split_native_acceptance_preserves_commands_and_release_dependencies(
     acceptance_steps = job["steps"][7 if job_name == "gates-wheel" else 5 :]
     actual = json.dumps(acceptance_steps, sort_keys=True).encode()
     assert hashlib.sha256(actual).hexdigest() == steps_digest
-    for consumer in ("build", "build-x86", "engine-main-wheel"):
+    for consumer in ("engine-main-wheel",):
         assert job_name in jobs[consumer]["needs"]
     original = "gates" if job_name == "gates-wheel" else "gates-facade"
     original_names = {step.get("name") for step in jobs[original]["steps"]}
@@ -520,7 +519,7 @@ def test_split_native_acceptance_preserves_commands_and_release_dependencies(
 
 
 def test_wheel_gate_inherits_locked_pytest_before_parity_dependencies() -> None:
-    jobs = yaml.safe_load((ROOT / ".github/workflows/release.yml").read_text())["jobs"]
+    jobs = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())["jobs"]
     original = next(
         step
         for step in jobs["gates"]["steps"]
@@ -542,7 +541,7 @@ def test_wheel_gate_inherits_locked_pytest_before_parity_dependencies() -> None:
 
 
 def test_wheel_acceptance_uses_only_the_external_virtualenv(tmp_path: Path) -> None:
-    jobs = yaml.safe_load((ROOT / ".github/workflows/release.yml").read_text())["jobs"]
+    jobs = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())["jobs"]
     job = jobs["gates-wheel"]
     assert "EG_GATES_WHEEL_VENV" not in job.get("env", {})
     initialize = job["steps"][6]
@@ -588,7 +587,7 @@ def test_wheel_acceptance_uses_only_the_external_virtualenv(tmp_path: Path) -> N
 def test_job_environment_uses_only_allowed_expression_contexts(context: str) -> None:
     # These runtime contexts are available to steps, not job-level env.
     # actionlint validates the complete workflow expression grammar separately.
-    jobs = yaml.safe_load((ROOT / ".github/workflows/release.yml").read_text())["jobs"]
+    jobs = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())["jobs"]
     for name, job in jobs.items():
         for value in job.get("env", {}).values():
             if isinstance(value, str) and "${{" in value:

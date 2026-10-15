@@ -78,7 +78,8 @@
     "EG-CONTRACT-R053.3",
     "EG-CONTRACT-R053.4",
     "EG-CONTRACT-R053.5",
-    "EG-CONTRACT-R053.6"
+    "EG-CONTRACT-R053.6",
+    "EG-CONTRACT-R053.7"
   ],
   "requirements": [
     {
@@ -266,7 +267,7 @@
     },
     {
       "id": "EG-CONTRACT-R009",
-      "title": "Release workflow runs the full root Python test suite",
+      "title": "CI runs the full root Python test suite",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "26a77bc6a6c4",
@@ -632,7 +633,7 @@
         "69411a23a248"
       ],
       "verified_by": [
-        "tests/test_ci_change_scope.py:458",
+        "tests/test_ci_change_scope.py:457",
         "tests/test_release_gates_test_target_coverage.py:62"
       ]
     },
@@ -885,7 +886,8 @@
         "EG-CONTRACT-R053.3",
         "EG-CONTRACT-R053.4",
         "EG-CONTRACT-R053.5",
-        "EG-CONTRACT-R053.6"
+        "EG-CONTRACT-R053.6",
+        "EG-CONTRACT-R053.7"
       ]
     },
     {
@@ -941,6 +943,19 @@
       "landed_in": [],
       "verified_by": [
         "tests/test_server_split.py:79"
+      ]
+    },
+    {
+      "id": "EG-CONTRACT-R053.7",
+      "title": "A tag publishes only a commit main CI already passed",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "11b1aa61eea9",
+        "2943915ec010",
+        "cc32f2056ddd"
+      ],
+      "verified_by": [
+        "tests/test_release_full_wheel_contract.py:597"
       ]
     }
   ]

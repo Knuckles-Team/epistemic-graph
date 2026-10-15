@@ -29,7 +29,7 @@ def _hooks() -> dict[str, dict]:
     }
 
 
-def _workflow(filename: str = "release.yml") -> dict:
+def _workflow(filename: str = "ci.yml") -> dict:
     return yaml.safe_load((REPO / ".github/workflows" / filename).read_text())
 
 
@@ -127,7 +127,7 @@ def _assert_scanner_job(jobs, workflow_source):
     assert checkout["with"]["fetch-depth"] == 0
     assert checkout["with"]["persist-credentials"] is False
     assert scanner["continue-on-error"] is True
-    assert "scanner-quality" not in jobs["build"]["needs"]
+    assert "scanner-quality" not in jobs["engine-main-wheel"]["needs"]
     node_setup = next(
         step
         for step in scanner["steps"]
@@ -176,7 +176,7 @@ def _assert_scanner_job(jobs, workflow_source):
 def _assert_security_and_build_jobs(jobs):
     security = jobs["security"]
     assert "continue-on-error" not in security
-    assert "security" in jobs["build"]["needs"]
+    assert "security" in jobs["engine-main-wheel"]["needs"]
     deny_install = next(
         step
         for step in security["steps"]
@@ -190,7 +190,10 @@ def _assert_security_and_build_jobs(jobs):
     ]
     assert len(advisory_steps) == 1
     assert "continue-on-error" not in advisory_steps[0]
-    assert jobs["build"]["continue-on-error"] == "${{ matrix.optional || false }}"
+    release_jobs = _workflow("release.yml")["jobs"]
+    assert (
+        release_jobs["build"]["continue-on-error"] == "${{ matrix.optional || false }}"
+    )
 
     return security
 
@@ -229,9 +232,7 @@ def test_spec_status_gates_have_full_checkout_history(job_name: str):
 def test_release_scanner_job_is_full_history_advisory_and_pinned():
     document = _workflow()
     jobs = document["jobs"]
-    workflow_source = (REPO / ".github/workflows/release.yml").read_text(
-        encoding="utf-8"
-    )
+    workflow_source = (REPO / ".github/workflows/ci.yml").read_text(encoding="utf-8")
     _assert_scanner_job(jobs, workflow_source)
     security = _assert_security_and_build_jobs(jobs)
     _assert_runtime_contract_jobs(jobs, security)

@@ -28,7 +28,7 @@ import yaml
 from scripts import _kernel_build
 
 REPO = Path(__file__).resolve().parents[1]
-WORKFLOW = REPO / ".github" / "workflows" / "release.yml"
+WORKFLOW = REPO / ".github" / "workflows" / "ci.yml"
 # These tests inspect workflow configuration only, without building an engine.
 pytestmark = pytest.mark.no_engine
 
@@ -690,17 +690,15 @@ def test_compiler_cache_keeps_global_settings_and_server_artifact_boundary() -> 
 
 
 @pytest.mark.parametrize(
-    "job_name,cache_key,build_name,command",
+    "job_name,build_name,command",
     [
         (
             "python-server",
-            "python-server-workspace-v1",
             "Build the full-featured engine binary once",
             "cargo build --locked --features full --bin epistemic-graph-server",
         ),
         (
             "gates-facade",
-            "facade-workspace-v1",
             "Test (facade full)",
             "python3 scripts/cargo_test_rescue.py cargo test -p epistemic-graph "
             "--features full --no-fail-fast --timings",
@@ -708,7 +706,7 @@ def test_compiler_cache_keeps_global_settings_and_server_artifact_boundary() -> 
     ],
 )
 def test_workspace_cache_is_main_written_and_build_remains_required(
-    job_name: str, cache_key: str, build_name: str, command: str
+    job_name: str, build_name: str, command: str
 ) -> None:
     job = _workflow()["jobs"][job_name]
     steps = job["steps"]
@@ -717,7 +715,7 @@ def test_workspace_cache_is_main_written_and_build_remains_required(
     )
     assert cache["with"] == {
         "workspaces": ". -> target-isolated",
-        "key": cache_key,
+        "shared-key": "eg-ci-gates",
         "cache-workspace-crates": True,
         "save-if": "${{ github.ref == 'refs/heads/main' }}",
     }
@@ -747,7 +745,7 @@ def test_plan_fuzz_remains_independent_required_acceptance() -> None:
     assert name == "gates-plan-fuzz"
     assert "if" not in step
     assert "continue-on-error" not in step
-    for consumer in ("build", "build-x86", "engine-main-wheel"):
+    for consumer in ("engine-main-wheel",):
         assert "gates-plan-fuzz" in jobs[consumer]["needs"]
 
 

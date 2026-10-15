@@ -10,7 +10,7 @@ Two wiring facts prove "runs on every commit":
 
 1. The local pre-commit configuration declares the jscpd-differential hook,
    so a developer's committed tree is checked before it reaches a PR.
-2. The hosted `scanner-quality` job in `.github/workflows/release.yml` runs
+2. The hosted `scanner-quality` job in `.github/workflows/ci.yml` runs
    `check_duplication.py enforce` on every push to `main` and every pull
    request -- the actual per-commit backstop, since the local hook's
    `stages: [manual]` means it is not auto-invoked by a bare `git commit`.
@@ -39,7 +39,7 @@ def test_precommit_config_declares_the_jscpd_differential_hook() -> None:
 
 @pytest.mark.spec("EG-DURABLE-KERNEL-R010")
 def test_ci_runs_jscpd_enforce_on_every_push_and_pull_request() -> None:
-    workflow = yaml.safe_load((ROOT / ".github/workflows/release.yml").read_text())
+    workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
     triggers = workflow[True]  # YAML 1.1 parses the bare `on:` key as boolean True
     assert "push" in triggers and "main" in triggers["push"]["branches"]
     assert "pull_request" in triggers

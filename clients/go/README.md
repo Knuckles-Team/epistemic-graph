@@ -125,7 +125,7 @@ Requires a server built with the matching features: `broker`, `security` (RBAC),
 
 ## Status
 
-`go test ./...` runs in CI (release.yml job `language-clients`): the method-body vectors
+`go test ./...` runs in CI (ci.yml job `language-clients`): the method-body vectors
 prove the signed body and envelope MAC equal the engine's for every catalog method, and
 the same job rebuilds the embedded codec and byte-compares it. There is no live Go engine
 harness yet, so transport round-trips are not exercised.

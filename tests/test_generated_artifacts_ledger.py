@@ -98,7 +98,7 @@ def test_a_malformed_ledger_fails_closed(tmp_path, body):
 
 def test_every_ledger_entry_is_reproduced_by_the_ci_job_it_names():
     entries = _load("generated_artifacts").load(ROOT)
-    jobs = yaml.safe_load((ROOT / ".github/workflows/release.yml").read_text())["jobs"]
+    jobs = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())["jobs"]
     for rel, entry in entries.items():
         assert entry.proven_by in jobs, (rel, entry.proven_by)
         runs = [str(step.get("run", "")) for step in jobs[entry.proven_by]["steps"]]

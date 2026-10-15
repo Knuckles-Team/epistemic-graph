@@ -30,7 +30,7 @@ FEATURE_GATE_RE = re.compile(r'#!\[cfg\(feature\s*=\s*"([^"]+)"\)\]')
 
 
 def _gates_steps():
-    workflow = yaml.safe_load((ROOT / ".github/workflows/release.yml").read_text())
+    workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
     return workflow["jobs"]["gates"]["steps"]
 
 
