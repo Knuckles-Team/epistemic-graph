@@ -589,6 +589,43 @@ mod tests {
         }
     }
 
+    fn proficiency_fact(
+        proficiency: Option<ShellProficiency>,
+    ) -> Option<MeasuredFact<ShellProficiency>> {
+        proficiency.map(|value| MeasuredFact {
+            value,
+            evaluation_run_ref: ObservationRef {
+                evaluation_id: "eval:42".into(),
+                digest: "opaque".into(),
+            },
+        })
+    }
+
+    fn expected_action_space(
+        proficiency: Option<ShellProficiency>,
+        shell_centric: Option<bool>,
+    ) -> HarnessPart<ActionSpace> {
+        let mut missing = Vec::new();
+        if proficiency.is_none() {
+            missing.push("shellProficiency".to_string());
+        }
+        if shell_centric.is_none() {
+            missing.push("shellCentric".to_string());
+        }
+        if !missing.is_empty() {
+            return HarnessPart::Abstained {
+                missing_fact: BoundedVec::new(missing).unwrap(),
+                conservative_default: ActionSpace::ToolSet,
+            };
+        }
+        let shell_only = proficiency == Some(ShellProficiency::High) && shell_centric == Some(true);
+        decided(if shell_only {
+            ActionSpace::ShellOnly
+        } else {
+            ActionSpace::ToolSet
+        })
+    }
+
     // spec: EG-DECISION-ENGINE-R128.7
     #[test]
     fn shell_only_needs_both_facts() {
@@ -599,38 +636,9 @@ mod tests {
             Some(ShellProficiency::High),
         ] {
             for shell_centric in [None, Some(false), Some(true)] {
-                let fact = proficiency.map(|value| MeasuredFact {
-                    value,
-                    evaluation_run_ref: ObservationRef {
-                        evaluation_id: "eval:42".into(),
-                        digest: "opaque".into(),
-                    },
-                });
+                let fact = proficiency_fact(proficiency);
                 let actual = decide_action_space(fact.as_ref(), shell_centric).unwrap();
-                let mut missing = Vec::new();
-                if proficiency.is_none() {
-                    missing.push("shellProficiency".to_string());
-                }
-                if shell_centric.is_none() {
-                    missing.push("shellCentric".to_string());
-                }
-                let expected = if !missing.is_empty() {
-                    HarnessPart::Abstained {
-                        missing_fact: BoundedVec::new(missing).unwrap(),
-                        conservative_default: ActionSpace::ToolSet,
-                    }
-                } else {
-                    decided(
-                        if proficiency == Some(ShellProficiency::High)
-                            && shell_centric == Some(true)
-                        {
-                            ActionSpace::ShellOnly
-                        } else {
-                            ActionSpace::ToolSet
-                        },
-                    )
-                };
-                assert_eq!(actual, expected);
+                assert_eq!(actual, expected_action_space(proficiency, shell_centric));
             }
         }
         let malformed = MeasuredFact {

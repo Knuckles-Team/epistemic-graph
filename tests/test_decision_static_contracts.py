@@ -44,21 +44,31 @@ def _declarations(source: str) -> list[str]:
     return DECLARATION.findall(source)
 
 
-def _duplicate_dtos(sources: dict[str, str]) -> list[tuple[str, str]]:
-    names = {
+def _canonical_names(sources: dict[str, str]) -> set[str]:
+    return {
         name
         for path, source in sources.items()
         if path.startswith(CANONICAL)
         for name in re.findall(r"\bpub\s+(?:struct|enum|type)\s+(\w+)", source)
     }
-    assert {"SolveRequest", "SolveResult", "Certificate", "ModelSpec"} <= names
-    declarations = Counter(
+
+
+def _declared_outside_canonical(
+    sources: dict[str, str], names: set[str]
+) -> Counter[tuple[str, str]]:
+    return Counter(
         (name, path)
         for path, source in sources.items()
         if not path.startswith(CANONICAL)
         for name in _declarations(source)
         if name in names
     )
+
+
+def _duplicate_dtos(sources: dict[str, str]) -> list[tuple[str, str]]:
+    names = _canonical_names(sources)
+    assert {"SolveRequest", "SolveResult", "Certificate", "ModelSpec"} <= names
+    declarations = _declared_outside_canonical(sources, names)
     return [
         key
         for key, count in declarations.items()

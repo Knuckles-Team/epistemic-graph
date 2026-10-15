@@ -26,6 +26,25 @@ def documentation_path(path: str) -> bool:
     )
 
 
+def _raw_entry_is_documentation(
+    metadata_field: bytes, path_field: bytes, path_predicate: Callable[[str], bool]
+) -> bool:
+    """One raw diff entry: a plain-mode A/M/D change of a documentation path."""
+    metadata = metadata_field.split()
+    if len(metadata) != 5 or not metadata[0].startswith(b":"):
+        return False
+    modes = {metadata[0][1:], metadata[1]}
+    if not modes <= {b"100644", b"000000"} or b"100644" not in modes:
+        return False
+    if metadata[4] not in {b"A", b"M", b"D"}:
+        return False
+    try:
+        path = path_field.decode("utf-8")
+    except UnicodeDecodeError:
+        return False
+    return path_predicate(path)
+
+
 def documentation_diff(
     raw: bytes, path_predicate: Callable[[str], bool] = documentation_path
 ) -> bool:
@@ -33,22 +52,10 @@ def documentation_diff(
     fields = raw.split(b"\0")
     if fields[-1] != b"" or len(fields) < 3 or len(fields) % 2 != 1:
         return False
-    for index in range(0, len(fields) - 1, 2):
-        metadata = fields[index].split()
-        if len(metadata) != 5 or not metadata[0].startswith(b":"):
-            return False
-        modes = {metadata[0][1:], metadata[1]}
-        if not modes <= {b"100644", b"000000"} or b"100644" not in modes:
-            return False
-        if metadata[4] not in {b"A", b"M", b"D"}:
-            return False
-        try:
-            path = fields[index + 1].decode("utf-8")
-        except UnicodeDecodeError:
-            return False
-        if not path_predicate(path):
-            return False
-    return True
+    return all(
+        _raw_entry_is_documentation(fields[index], fields[index + 1], path_predicate)
+        for index in range(0, len(fields) - 1, 2)
+    )
 
 
 def requires_code(event: str, base: str, head: str) -> bool:
