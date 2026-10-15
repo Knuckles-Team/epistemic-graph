@@ -198,3 +198,15 @@ This batch defines the slices; it runs none of their runtime tests.
 - [ ] **EG-DURABLE-KERNEL-R090.1:** Route GraphOS schema-selection request through EG admission. Validate candidate and bind schema revision/digest.
 - [ ] **EG-DURABLE-KERNEL-R090.2:** Serve digest readback with mismatch detection. Test accuracy and consistency across restart.
 - [ ] **EG-DURABLE-KERNEL-R090.3:** Enforce read-only on external triple-store projections. Refuse mutations with typed error. Trace lineage to EG revision.
+- [ ] **EG-DURABLE-KERNEL-R097.1:** Model typed temporal rule semantics with fact timeline and origin linkage.
+- [ ] **EG-DURABLE-KERNEL-R097.2:** Behavior forward-chaining produces facts in time-order and chains derivations.
+- [ ] **EG-DURABLE-KERNEL-R097.3:** Wiring fact admission and readback bind origin sentence and axiom references.
+- [ ] **EG-DURABLE-KERNEL-R097.4:** Refusal reject rules with missing temporal bounds or malformed axioms.
+- [ ] **EG-DURABLE-KERNEL-R097.5:** Evidence durable fact store preserves origin chain and temporal rule instance.
+- [ ] **EG-DURABLE-KERNEL-R097.6:** Hot-path proof fact production API returns origin chain; integration test traces derived fact to source axiom.
+- [ ] **EG-DURABLE-KERNEL-R098.1:** Model typed ordered argument list and hypothesis-class evidence enum.
+- [ ] **EG-DURABLE-KERNEL-R098.2:** Behavior unseen entities route through inductive hypothesis path and bind response.
+- [ ] **EG-DURABLE-KERNEL-R098.3:** Wiring hypothesis evidence class is accepted and binds to public hyperedge predictor.
+- [ ] **EG-DURABLE-KERNEL-R098.4:** Refusal reject hypotheses with empty argument list and non-hypothesis evidence claims.
+- [ ] **EG-DURABLE-KERNEL-R098.5:** Evidence hypothesis output never claims assertion and carries prediction confidence.
+- [ ] **EG-DURABLE-KERNEL-R098.6:** Hot-path proof prediction endpoint accepts ordered arguments and routes unseen entity to hypothesis response.

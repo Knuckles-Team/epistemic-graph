@@ -249,7 +249,21 @@
     "EG-DURABLE-KERNEL-R043.5",
     "EG-DURABLE-KERNEL-R043.6",
     "EG-DURABLE-KERNEL-R043.100",
-    "EG-DURABLE-KERNEL-R042.100"
+    "EG-DURABLE-KERNEL-R042.100",
+    "EG-DURABLE-KERNEL-R097",
+    "EG-DURABLE-KERNEL-R097.1",
+    "EG-DURABLE-KERNEL-R097.2",
+    "EG-DURABLE-KERNEL-R097.3",
+    "EG-DURABLE-KERNEL-R097.4",
+    "EG-DURABLE-KERNEL-R097.5",
+    "EG-DURABLE-KERNEL-R097.6",
+    "EG-DURABLE-KERNEL-R098",
+    "EG-DURABLE-KERNEL-R098.1",
+    "EG-DURABLE-KERNEL-R098.2",
+    "EG-DURABLE-KERNEL-R098.3",
+    "EG-DURABLE-KERNEL-R098.4",
+    "EG-DURABLE-KERNEL-R098.5",
+    "EG-DURABLE-KERNEL-R098.6"
   ],
   "requirements": [
     {
@@ -2822,6 +2836,120 @@
     {
       "id": "EG-DURABLE-KERNEL-R042.100",
       "title": "Comparable full-input-token throughput and per-query cost measurements",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R097",
+      "title": "Temporal extracted-fact forward chaining and durable per-fact provenance",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DURABLE-KERNEL-R097.1",
+        "EG-DURABLE-KERNEL-R097.2",
+        "EG-DURABLE-KERNEL-R097.3",
+        "EG-DURABLE-KERNEL-R097.4",
+        "EG-DURABLE-KERNEL-R097.5",
+        "EG-DURABLE-KERNEL-R097.6"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R097.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R097.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R097.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R097.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R097.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R097.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R098",
+      "title": "Ordered n-ary prediction with unseen-entity behavior and hypothesis-only evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DURABLE-KERNEL-R098.1",
+        "EG-DURABLE-KERNEL-R098.2",
+        "EG-DURABLE-KERNEL-R098.3",
+        "EG-DURABLE-KERNEL-R098.4",
+        "EG-DURABLE-KERNEL-R098.5",
+        "EG-DURABLE-KERNEL-R098.6"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R098.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R098.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R098.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R098.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R098.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R098.6",
+      "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

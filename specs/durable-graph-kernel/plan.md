@@ -519,3 +519,11 @@ R086.9 requires the served entry points and the observations in test-spec.md.
 - `.2`: Serve digest readback with mismatch detection and typed refusal for divergence.
 - `.3`: Enforce read-only on external projections; refuse mutations; trace lineage to EG revision.
 - Tests: import selection, digest verification and accuracy, read-only refusal, lineage preservation.
+
+### EG-DURABLE-KERNEL-R097 — EG:11
+
+- R097.1, R097.2, R097.3, R097.4, R097.5, R097.6: Temporal extracted-fact forward chaining produces facts with origin-linked rule and axiom provenance. Fact production API returns origin chain per fact.
+
+### EG-DURABLE-KERNEL-R098 — EG:14
+
+- R098.1, R098.2, R098.3, R098.4, R098.5, R098.6: Public hyperedge predictor accepts ordered arguments, routes unseen entities through hypothesis paths, admits hypothesis-only evidence classes to output.
