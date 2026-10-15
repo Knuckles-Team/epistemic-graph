@@ -127,8 +127,8 @@ def test_workflow_keeps_security_and_spec_checks_and_full_publication() -> None:
     assert '--from-ref "$BASE" --to-ref "$HEAD"' in hooks["run"]
     assert "--all-files" in hooks["run"]
     assert hooks["env"]["SKIP"] == "lane-guard,cargo-deny-advisories"
-    assert 'check_rustfmt_scope.py --base "$BASE"' in lint["rustfmt"]["run"]
-    assert "cargo fmt --all --check" in lint["rustfmt"]["run"]
+    assert lint["rustfmt"]["run"] == "cargo fmt --all -- --check"
+    assert "if" not in lint["rustfmt"]
     assert "CI change-scope regression tests" in lint
 
 
@@ -193,8 +193,7 @@ def test_lint_installs_manifest_rustfmt_before_all_formatting_steps() -> None:
         if "pre-commit run" in command or "check_rustfmt_scope.py" in command:
             assert install < index
     rustfmt = next(step for step in steps if step.get("name") == "rustfmt")
-    assert "scripts/check_rustfmt_scope.py --base" in rustfmt["run"]
-    assert "cargo fmt --all --check" in rustfmt["run"]
+    assert rustfmt["run"] == "cargo fmt --all -- --check"
 
 
 @pytest.fixture

@@ -1038,16 +1038,10 @@ jobs:
           else
             pre-commit run --config .config/pre-commit.yaml --all-files --show-diff-on-failure
           fi
+      # Whole repository on every event (no compile, seconds): a formatting
+      # problem must never first appear in the tag pipeline.
       - name: rustfmt
-        env:
-          EVENT: ${{ github.event_name }}
-          BASE: ${{ github.event.pull_request.base.sha }}
-        run: |
-          if [ "$EVENT" = pull_request ]; then
-            python3 scripts/check_rustfmt_scope.py --base "$BASE"
-          else
-            cargo fmt --all --check
-          fi
+        run: cargo fmt --all -- --check
       - name: CI change-scope regression tests
         run: |
           python -m pip install --disable-pip-version-check pytest==9.1.1
