@@ -690,17 +690,15 @@ def test_compiler_cache_keeps_global_settings_and_server_artifact_boundary() -> 
 
 
 @pytest.mark.parametrize(
-    "job_name,cache_key,build_name,command",
+    "job_name,build_name,command",
     [
         (
             "python-server",
-            "python-server-workspace-v1",
             "Build the full-featured engine binary once",
             "cargo build --locked --features full --bin epistemic-graph-server",
         ),
         (
             "gates-facade",
-            "facade-workspace-v1",
             "Test (facade full)",
             "python3 scripts/cargo_test_rescue.py cargo test -p epistemic-graph "
             "--features full --no-fail-fast --timings",
@@ -708,7 +706,7 @@ def test_compiler_cache_keeps_global_settings_and_server_artifact_boundary() -> 
     ],
 )
 def test_workspace_cache_is_main_written_and_build_remains_required(
-    job_name: str, cache_key: str, build_name: str, command: str
+    job_name: str, build_name: str, command: str
 ) -> None:
     job = _workflow()["jobs"][job_name]
     steps = job["steps"]

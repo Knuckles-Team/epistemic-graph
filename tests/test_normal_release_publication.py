@@ -107,9 +107,9 @@ class ReleasePublication(unittest.TestCase):
         self.assertLess(validate, freeze)
 
     def test_storage_crash_processes_do_not_overlap_sibling_file_tests(self):
-        steps = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())[
-            "jobs"
-        ]["gates-crates"]["steps"]
+        steps = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())["jobs"][
+            "gates-crates"
+        ]["steps"]
         commands = [step.get("run", "") for step in steps]
         storage = (
             "python3 scripts/cargo_test_rescue.py cargo test --locked "

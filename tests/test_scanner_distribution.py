@@ -191,7 +191,9 @@ def _assert_security_and_build_jobs(jobs):
     assert len(advisory_steps) == 1
     assert "continue-on-error" not in advisory_steps[0]
     release_jobs = _workflow("release.yml")["jobs"]
-    assert release_jobs["build"]["continue-on-error"] == "${{ matrix.optional || false }}"
+    assert (
+        release_jobs["build"]["continue-on-error"] == "${{ matrix.optional || false }}"
+    )
 
     return security
 
@@ -230,9 +232,7 @@ def test_spec_status_gates_have_full_checkout_history(job_name: str):
 def test_release_scanner_job_is_full_history_advisory_and_pinned():
     document = _workflow()
     jobs = document["jobs"]
-    workflow_source = (REPO / ".github/workflows/ci.yml").read_text(
-        encoding="utf-8"
-    )
+    workflow_source = (REPO / ".github/workflows/ci.yml").read_text(encoding="utf-8")
     _assert_scanner_job(jobs, workflow_source)
     security = _assert_security_and_build_jobs(jobs)
     _assert_runtime_contract_jobs(jobs, security)
