@@ -1,4 +1,4 @@
-//! `migrate-shards` — OFFLINE K-shard migration CLI (CONCEPT:EG-KG.sharding.atomic-shard-swap, M3).
+//! `epistemic-graph-server migrate-shards` — OFFLINE K-shard migration CLI (CONCEPT:EG-KG.sharding.atomic-shard-swap, M3).
 //!
 //! Rewrites an existing durable redb store into the canonical `graph-<n>.redb`
 //! layout, routing every graph with the SAME EG-026 `FNV-1a(name) % K`. It is the
@@ -7,13 +7,13 @@
 //!
 //! ```text
 //! # In-place (default): swap shard files, leave a recoverable backup.
-//! migrate-shards --persist-dir /var/lib/epistemic-graph --shards 4
+//! epistemic-graph-server migrate-shards --persist-dir /var/lib/epistemic-graph --shards 4
 //!
 //! # Retired K=1 filename -> current K=1 filename.
-//! migrate-shards --persist-dir /var/lib/epistemic-graph --shards 1
+//! epistemic-graph-server migrate-shards --persist-dir /var/lib/epistemic-graph --shards 1
 //!
 //! # Out-of-place: write the new K into a fresh dir, swap manually after verifying.
-//! migrate-shards --persist-dir /var/lib/eg --shards 4 --dest-dir /var/lib/eg-k4
+//! epistemic-graph-server migrate-shards --persist-dir /var/lib/eg --shards 4 --dest-dir /var/lib/eg-k4
 //! ```
 
 use std::path::Path;
@@ -23,7 +23,7 @@ use clap::Parser;
 use epistemic_graph::server::persistence::shard_migrate;
 
 #[derive(Parser, Debug)]
-#[command(name = "migrate-shards")]
+#[command(name = "epistemic-graph-server migrate-shards")]
 #[command(
     about = "Offline K-shard migration for the epistemic-graph durable store (CONCEPT:EG-KG.sharding.atomic-shard-swap)"
 )]
@@ -43,8 +43,8 @@ struct Args {
     dest_dir: Option<String>,
 }
 
-fn main() {
-    let args = Args::parse();
+pub(crate) fn run(argv: Vec<std::ffi::OsString>) {
+    let args = Args::parse_from(argv);
 
     let report = if let Some(dest) = args.dest_dir.as_deref() {
         shard_migrate::migrate_shards(Path::new(&args.persist_dir), Path::new(dest), args.shards)

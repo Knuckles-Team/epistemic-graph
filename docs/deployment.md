@@ -464,9 +464,9 @@ restore — every graph re-routed by the same EG-KG.backend.sharded-k-way-durabl
 
 ```bash
 # Restore at the bundle's own K (state K explicitly).
-restore --bundle "${BACKUP_BUNDLE:?}" --persist-dir "${GRAPH_SERVICE_PERSIST_DIR:?}" --shards 1
+epistemic-graph-server restore --bundle "${BACKUP_BUNDLE:?}" --persist-dir "${GRAPH_SERVICE_PERSIST_DIR:?}" --shards 1
 # Re-shard on restore.
-restore --bundle "${BACKUP_BUNDLE:?}" --persist-dir "${TARGET_PERSIST_DIR:?}" --shards 8
+epistemic-graph-server restore --bundle "${BACKUP_BUNDLE:?}" --persist-dir "${TARGET_PERSIST_DIR:?}" --shards 8
 ```
 
 Both paths are redb-only; a non-redb build returns a clean "not available" error.

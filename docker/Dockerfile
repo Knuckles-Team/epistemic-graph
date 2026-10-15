@@ -1,3 +1,9 @@
+# SUPERSEDED: the engine image now ships from the Knuckles-Team/epistemic-graph-server
+# repository (it installs the `epistemic-graph-server` package built from this source
+# at the same version tag). This file is no longer built or published by this
+# repository's release workflow and is retained for local reference only. The public
+# `epistemic-graph` wheel carries no server executable.
+#
 # Production server image for the epistemic-graph DB engine (CONCEPT:OS-5.64).
 #
 # The normal ``runtime`` target installs the exact published full wheel, preferring a
@@ -44,7 +50,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
       uv pip install --system --break-system-packages "${wheel}"; \
     else \
       echo "No local wheel for arch '${TARGETARCH:-?}' in /wheels; installing the exact published release"; \
-      uv pip install --system --break-system-packages "epistemic-graph[full]==${EG_VERSION}"; \
+      uv pip install --system --break-system-packages "epistemic-graph[full,server]==${EG_VERSION}"; \
     fi; \
     python -c 'import sys; assert sys.version_info[:2] == (3, 14)'; \
     epistemic-graph-server --help >/dev/null

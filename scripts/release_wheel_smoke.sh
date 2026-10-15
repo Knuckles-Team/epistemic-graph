@@ -6,9 +6,12 @@ python -m pip install --upgrade pip
 # base and extra-gated NumPy metadata. Keep this smoke test independent from the
 # developer-only parity environment below.
 pip install --force-reinstall "$(ls dist/epistemic_graph-*.whl)"
-# (1) The binary must be executable (inject must preserve 0755) — fails loud
-#     with "Permission denied" otherwise.
-epistemic-graph-server --help
+# (1) The public wheel carries NO executable; the server ships in the separate
+#     epistemic-graph-server package (extra `server`).
+if command -v epistemic-graph-server >/dev/null 2>&1; then
+  echo "unexpected epistemic-graph-server executable from the bare wheel" >&2
+  exit 1
+fi
 # (2) Import + compute the kernel FROM THE INSTALLED WHEEL. Run from a neutral
 #     dir ($RUNNER_TEMP) — the repo checkout root holds the `epistemic_graph/`
 #     SOURCE package (no compiled `.so`), and cwd is on sys.path for `python -c`,

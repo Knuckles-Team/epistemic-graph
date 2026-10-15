@@ -26,6 +26,7 @@ use epistemic_graph::server::ServerState;
 mod operator_command;
 #[cfg(feature = "full")]
 mod performance_probe;
+mod offline_tools;
 mod server_startup;
 use server_startup::run_fuseki_startup_health_check;
 
@@ -357,6 +358,7 @@ fn resolve_listener_addr(value: Option<&str>, default_addr: &str) -> Option<Stri
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    offline_tools::run_if_requested();
     #[cfg(feature = "security")]
     operator_command::exit_if_requested(Args::parse().command);
     // Explicit, hardware-sized multi-thread runtime (CONCEPT:EG-KG.storage.nonblocking-checkpoint — A4). The

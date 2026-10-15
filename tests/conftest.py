@@ -175,7 +175,15 @@ def find_server_binary() -> str | None:
     for candidate in candidates:
         if os.path.isfile(candidate):
             return candidate
-    return None
+    from epistemic_graph.server_binary import (
+        ServerBinaryNotFoundError,
+        resolve_server_binary,
+    )
+
+    try:
+        return resolve_server_binary()
+    except ServerBinaryNotFoundError:
+        return None
 
 
 def _prebuilt_test_binary() -> str | None:

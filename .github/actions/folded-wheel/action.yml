@@ -116,6 +116,6 @@ runs:
     # is silent when it fails. Running the gate on the build leg localizes such a
     # regression to the platform that produced it; `publish-pypi` re-runs it on the
     # downloaded artifacts as the actual publish boundary.
-    - name: Require a complete wheel (numeric + engine kernels + executable binary + RECORD)
+    - name: Require a complete wheel (numeric + engine kernels + no executables + RECORD)
       shell: bash
       run: python scripts/check_wheel_completeness.py --require-engine-kernel dist-${{ inputs.pass }}/*.whl

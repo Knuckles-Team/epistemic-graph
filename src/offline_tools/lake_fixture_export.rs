@@ -1,4 +1,4 @@
-//! `lake-fixture-export` — write a small, deterministic fixture table's REAL Delta +
+//! `epistemic-graph-server lake-fixture-export` — write a small, deterministic fixture table's REAL Delta +
 //! Iceberg artifacts (Parquet data files, `_delta_log`, `metadata.json`, Avro
 //! manifests) straight to a plain local directory, via the SAME `eg-lake` production
 //! write calls `src/server/lake::LakeManager::materialize_batch` makes against the
@@ -15,7 +15,7 @@
 //! generation.
 //!
 //! ```text
-//! lake-fixture-export <output-dir>
+//! epistemic-graph-server lake-fixture-export <output-dir>
 //! ```
 //! Prints one line of JSON to stdout: the table's real filesystem `location`, the
 //! CURRENT `metadata_location`, and the exact row values written — the single source
@@ -202,11 +202,14 @@ fn row_json((id, price, symbol, active, ts): &FixtureRow) -> serde_json::Value {
     })
 }
 
-fn main() {
-    let out_dir = std::env::args().nth(1).unwrap_or_else(|| {
-        eprintln!("usage: lake-fixture-export <output-dir>");
-        std::process::exit(2);
-    });
+pub(crate) fn run(argv: Vec<std::ffi::OsString>) {
+    let out_dir = argv
+        .get(1)
+        .map(|a| a.to_string_lossy().into_owned())
+        .unwrap_or_else(|| {
+            eprintln!("usage: epistemic-graph-server lake-fixture-export <output-dir>");
+            std::process::exit(2);
+        });
     let location = Path::new(&out_dir)
         .join(NAMESPACE)
         .join(TABLE)

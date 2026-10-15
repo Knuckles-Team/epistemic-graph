@@ -352,29 +352,17 @@ def test_facade_timings_are_current_run_evidence_without_replacing_tests() -> No
 
 
 @pytest.mark.spec("EG-CONTRACT-R009")
-def test_only_verified_empty_helper_bins_disable_default_test_harnesses() -> None:
+def test_offline_tools_are_subcommands_not_separate_executables() -> None:
     manifest = tomllib.loads((REPO / "Cargo.toml").read_text())
-    disabled = {
-        target["name"]: target["path"]
-        for target in manifest["bin"]
-        if target.get("test") is False
-    }
-    assert disabled == {
-        "epistemic-graph-rf019-observe": "src/bin/rf019_observe.rs",
-        "migrate-shards": "src/bin/migrate_shards.rs",
-        "restore": "src/bin/restore.rs",
-        "lake-fixture-export": "src/bin/lake_fixture_export.rs",
-    }
+    names = {target["name"] for target in manifest["bin"]}
+    assert names == {"epistemic-graph-server", "nemesis"}
     assert manifest["package"].get("autotests", True) is True
     assert manifest.get("lib", {}).get("test", True) is True
     assert all(target.get("test", True) for target in manifest.get("test", []))
-    for path in disabled.values():
-        # Fail closed if a helper gains test attributes or includes other source.
-        # Re-enable its harness before adding tests or a module with possible tests.
-        source = (REPO / path).read_text()
-        assert not re.search(
-            r"#\s*\[[^\]]*\btest\b|\bmod\s+\w+|\binclude\s*!", source
-        ), path
+    for path in sorted((REPO / "src/offline_tools").glob("*.rs")):
+        # Fail closed if a folded tool gains test attributes or includes other source.
+        source = path.read_text()
+        assert not re.search(r"#\s*\[[^\]]*\btest\b|\binclude\s*!", source), path
 
 
 @pytest.mark.parametrize("kind", ["kernels", "server"])

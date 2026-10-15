@@ -128,7 +128,6 @@ def _complete_members(metadata: str = METADATA_COMPLETE) -> dict[str, bytes]:
         "epistemic_graph/numeric.abi3.so": b"\x7fELF-kernel",
         "epistemic_graph/kvcache/__init__.py": b"",
         "epistemic_graph/skills/kg-modality-sql/SKILL.md": b"# skill",
-        f"{DATA_SCRIPTS}/epistemic-graph-server": b"\x7fELF-server",
         f"{DIST_INFO}/METADATA": metadata.encode(),
         f"{DIST_INFO}/WHEEL": b"Wheel-Version: 1.0\n",
     }
@@ -139,7 +138,7 @@ def complete_wheel(tmp_path: Path) -> Path:
     return _build_wheel(
         tmp_path / f"epistemic_graph-{VERSION}-py3-none-linux_x86_64.whl",
         members=_complete_members(),
-        executable={f"{DATA_SCRIPTS}/epistemic-graph-server"},
+        executable=set(),
     )
 
 
@@ -155,7 +154,7 @@ def test_a_wheel_without_the_numeric_kernel_is_rejected(tmp_path: Path) -> None:
     wheel = _build_wheel(
         tmp_path / "kernel-less.whl",
         members=members,
-        executable={f"{DATA_SCRIPTS}/epistemic-graph-server"},
+        executable=set(),
     )
     failures = check_wheel(wheel)
     assert any("no numeric kernel" in failure for failure in failures)
@@ -167,7 +166,7 @@ def test_a_wheel_without_the_engine_kernel_passes_by_default(tmp_path: Path) -> 
     wheel = _build_wheel(
         tmp_path / "engine-less.whl",
         members=_complete_members(),
-        executable={f"{DATA_SCRIPTS}/epistemic-graph-server"},
+        executable=set(),
     )
     assert "epistemic_graph/engine.abi3.so" not in _complete_members()
     assert check_wheel(wheel) == []
@@ -181,7 +180,7 @@ def test_a_wheel_without_the_engine_kernel_is_rejected_when_required(
     wheel = _build_wheel(
         tmp_path / "engine-less-required.whl",
         members=_complete_members(),
-        executable={f"{DATA_SCRIPTS}/epistemic-graph-server"},
+        executable=set(),
     )
     failures = check_wheel(wheel, require_engine_kernel=True)
     assert any("no engine kernel" in failure for failure in failures)
@@ -197,34 +196,35 @@ def test_a_wheel_with_the_engine_kernel_passes_when_required(tmp_path: Path) -> 
     wheel = _build_wheel(
         tmp_path / "with-engine.whl",
         members=members,
-        executable={f"{DATA_SCRIPTS}/epistemic-graph-server"},
+        executable=set(),
     )
     assert check_wheel(wheel, require_engine_kernel=True) == []
     assert main(["--require-engine-kernel", str(wheel)]) == 0
 
 
 def test_a_windows_wheel_is_accepted(tmp_path: Path) -> None:
-    """`.pyd` kernel + `.exe` binary + no POSIX mode bits is a valid wheel."""
+    """`.pyd` kernel + no POSIX mode bits is a valid wheel."""
     members = _complete_members()
     members["epistemic_graph/numeric.pyd"] = members.pop(
         "epistemic_graph/numeric.abi3.so"
-    )
-    members[f"{DATA_SCRIPTS}/epistemic-graph-server.exe"] = members.pop(
-        f"{DATA_SCRIPTS}/epistemic-graph-server"
     )
     wheel = _build_wheel(tmp_path / "windows.whl", members=members)
     assert check_wheel(wheel) == []
 
 
-def test_a_non_executable_server_binary_is_rejected(tmp_path: Path) -> None:
-    """Re-zipping the wheel to inject the kernel once dropped mode 0755."""
+@pytest.mark.spec("EG-CONTRACT-R053.2")
+def test_a_wheel_carrying_the_server_binary_is_rejected(tmp_path: Path) -> None:
+    """The server binary ships in epistemic-graph-server, not in this wheel."""
+    members = _complete_members()
+    members[f"{DATA_SCRIPTS}/epistemic-graph-server"] = b"\x7fELF-server"
     wheel = _build_wheel(
-        tmp_path / "not-executable.whl",
-        members=_complete_members(),
-        executable=set(),
+        tmp_path / "with-server.whl",
+        members=members,
+        executable={f"{DATA_SCRIPTS}/epistemic-graph-server"},
     )
     failures = check_wheel(wheel)
-    assert any("is not executable" in failure for failure in failures)
+    assert any("is an executable" in failure for failure in failures)
+    assert main([str(wheel)]) == 1
 
 
 def test_numpy_base_dependency_is_rejected(tmp_path: Path) -> None:
@@ -232,7 +232,7 @@ def test_numpy_base_dependency_is_rejected(tmp_path: Path) -> None:
     wheel = _build_wheel(
         tmp_path / "numpy-base.whl",
         members=_complete_members(METADATA_NUMPY_BASE),
-        executable={f"{DATA_SCRIPTS}/epistemic-graph-server"},
+        executable=set(),
     )
     failures = check_wheel(wheel)
     assert any("forbidden wheel dependency" in failure for failure in failures)
@@ -243,7 +243,7 @@ def test_numpy_behind_an_extra_is_rejected(tmp_path: Path) -> None:
     wheel = _build_wheel(
         tmp_path / "numpy-extra.whl",
         members=_complete_members(METADATA_NUMPY_BEHIND_EXTRA),
-        executable={f"{DATA_SCRIPTS}/epistemic-graph-server"},
+        executable=set(),
     )
     failures = check_wheel(wheel)
     assert any("forbidden wheel dependency" in failure for failure in failures)
@@ -255,7 +255,7 @@ def test_missing_package_data_is_rejected(tmp_path: Path) -> None:
     wheel = _build_wheel(
         tmp_path / "no-kvcache.whl",
         members=members,
-        executable={f"{DATA_SCRIPTS}/epistemic-graph-server"},
+        executable=set(),
     )
     assert any("kvcache" in failure for failure in check_wheel(wheel))
 
@@ -265,7 +265,7 @@ def test_an_inconsistent_record_is_rejected(tmp_path: Path) -> None:
     wheel = _build_wheel(
         tmp_path / "bad-record.whl",
         members=_complete_members(),
-        executable={f"{DATA_SCRIPTS}/epistemic-graph-server"},
+        executable=set(),
         corrupt_record=True,
     )
     failures = check_wheel(wheel)
@@ -303,7 +303,7 @@ def test_release_invariant_violation_is_the_only_failure(
     wheel = _build_wheel(
         tmp_path / "one-violation.whl",
         members=_complete_members(metadata),
-        executable={f"{DATA_SCRIPTS}/epistemic-graph-server"},
+        executable=set(),
         misreported_size=misreported_size,
     )
     failures = check_wheel(wheel)
@@ -316,14 +316,14 @@ def test_main_reports_every_incomplete_wheel(tmp_path: Path, capsys) -> None:
     good = _build_wheel(
         tmp_path / "good.whl",
         members=_complete_members(),
-        executable={f"{DATA_SCRIPTS}/epistemic-graph-server"},
+        executable=set(),
     )
     members = _complete_members()
     del members["epistemic_graph/numeric.abi3.so"]
     bad = _build_wheel(
         tmp_path / "bad.whl",
         members=members,
-        executable={f"{DATA_SCRIPTS}/epistemic-graph-server"},
+        executable=set(),
     )
     assert main([str(good), str(bad)]) == 1
     out = capsys.readouterr().out

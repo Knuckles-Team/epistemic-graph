@@ -59,8 +59,8 @@ repository-scoped and does not assert a live deployment or 1M certification.
   `src/server/persistence/shard_migrate/`: `payload.rs` (graph-scoped payload
   replacement), `inplace.rs` (immutable snapshots and in-place migration), `readiness.rs`
   (digest-bound readiness manifests) and `swap.rs` (preflight and resumable installation).
-- `src/bin/migrate_shards.rs` — the `migrate-shards` CLI (`[[bin]]` gated
-  `required-features = ["redb", "server"]` in `Cargo.toml`).
+- `src/offline_tools/migrate_shards.rs` — the `epistemic-graph-server migrate-shards` subcommand (gated
+  by the `redb` feature).
 - Shared layout helpers live in server-independent `src/redb_layout.rs`; routing and
   Raft metadata stay in `src/server/persistence/redb_backend.rs`.
 
@@ -91,13 +91,13 @@ in. Rows are copied **verbatim** (no decode/unseal/re-derive):
 **How to run.** Engine STOPPED, then:
 ```text
 # In-place (default): swap shard files, leave a recoverable backup.
-migrate-shards --persist-dir "${GRAPH_SERVICE_PERSIST_DIR:?}" --shards 4
+epistemic-graph-server migrate-shards --persist-dir "${GRAPH_SERVICE_PERSIST_DIR:?}" --shards 4
 
 # One-time retired K=1 filename migration; normal startup rejects graph.redb.
-migrate-shards --persist-dir "${GRAPH_SERVICE_PERSIST_DIR:?}" --shards 1
+epistemic-graph-server migrate-shards --persist-dir "${GRAPH_SERVICE_PERSIST_DIR:?}" --shards 1
 
 # Out-of-place: write the new K into a fresh dir, swap manually after verifying.
-migrate-shards --persist-dir "${GRAPH_SERVICE_PERSIST_DIR:?}" --shards 4 --dest-dir "${TARGET_PERSIST_DIR:?}"
+epistemic-graph-server migrate-shards --persist-dir "${GRAPH_SERVICE_PERSIST_DIR:?}" --shards 4 --dest-dir "${TARGET_PERSIST_DIR:?}"
 ```
 (`--persist-dir` also reads `GRAPH_SERVICE_PERSIST_DIR`.) On success prints per-table counts.
 
