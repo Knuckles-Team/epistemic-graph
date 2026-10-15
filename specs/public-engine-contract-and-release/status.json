@@ -633,7 +633,7 @@
         "69411a23a248"
       ],
       "verified_by": [
-        "tests/test_ci_change_scope.py:458",
+        "tests/test_ci_change_scope.py:457",
         "tests/test_release_gates_test_target_coverage.py:62"
       ]
     },
@@ -950,8 +950,9 @@
       "title": "A tag publishes only a commit main CI already passed",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "afaee33d4dc3",
-        "cc303d0d8f75"
+        "11b1aa61eea9",
+        "2943915ec010",
+        "cc32f2056ddd"
       ],
       "verified_by": [
         "tests/test_release_full_wheel_contract.py:597"
