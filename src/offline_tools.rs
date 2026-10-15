@@ -7,14 +7,14 @@
 
 use std::ffi::OsString;
 
+#[cfg(feature = "lake")]
+mod lake_fixture_export;
 #[cfg(feature = "redb")]
 mod migrate_shards;
 #[cfg(feature = "redb")]
 mod restore;
 #[cfg(feature = "ann-redb")]
 mod rf019_observe;
-#[cfg(feature = "lake")]
-mod lake_fixture_export;
 
 /// Names of the offline tools, whether or not this build compiled them in.
 const TOOLS: &[&str] = &[
@@ -60,5 +60,8 @@ pub(crate) fn run_if_requested() {
         "lake-fixture-export" => missing_feature("lake-fixture-export", "lake"),
         _ => return,
     }
+    // Slim builds route every tool to `missing_feature` (diverges), so this is
+    // unreachable there but live whenever a tool's feature is enabled.
+    #[allow(unreachable_code)]
     std::process::exit(0);
 }

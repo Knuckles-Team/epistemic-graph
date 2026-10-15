@@ -203,10 +203,13 @@ fn row_json((id, price, symbol, active, ts): &FixtureRow) -> serde_json::Value {
 }
 
 pub(crate) fn run(argv: Vec<std::ffi::OsString>) {
-    let out_dir = argv.get(1).map(|a| a.to_string_lossy().into_owned()).unwrap_or_else(|| {
-        eprintln!("usage: epistemic-graph-server lake-fixture-export <output-dir>");
-        std::process::exit(2);
-    });
+    let out_dir = argv
+        .get(1)
+        .map(|a| a.to_string_lossy().into_owned())
+        .unwrap_or_else(|| {
+            eprintln!("usage: epistemic-graph-server lake-fixture-export <output-dir>");
+            std::process::exit(2);
+        });
     let location = Path::new(&out_dir)
         .join(NAMESPACE)
         .join(TABLE)
