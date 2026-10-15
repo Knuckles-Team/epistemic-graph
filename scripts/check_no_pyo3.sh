@@ -11,7 +11,7 @@
 #   (a) Out-of-process (the horizontal-scale default, what THIS gate covers) —
 #       Python talks to the engine over a socket. No pyo3 anywhere: `src/`,
 #       `epistemic_graph/` (the pure-Python client package), and the top-level
-#       `Cargo.toml`/`pyproject.toml` (the `bindings = "bin"` server wheel).
+#       `Cargo.toml`/`pyproject.toml` (the server is not a maturin target).
 #   (b) Unified single binary (opt-in, the self-contained shape) — the engine
 #       is embedded in-process via pyo3, in `crates/eg-pyengine` (its OWN
 #       Cargo.toml + pyproject.toml — a SEPARATE maturin target, exactly like
@@ -68,9 +68,12 @@ if compgen -G "epistemic_graph/_epistemic_graph*.so" > /dev/null \
   fail=1
 fi
 
-# 3. maturin must ship the binary, not a python extension.
-if ! grep -q 'bindings *= *"bin"' pyproject.toml; then
-  echo "FAIL: pyproject.toml [tool.maturin] bindings must be \"bin\"." >&2
+# 3. The public wheel is built from the eg-pyengine extension crate, never from the
+#    server binary: no `bindings = "bin"`, and maturin's manifest-path is the
+#    extension crate (EG-CONTRACT-R053.8).
+if grep -q 'bindings *= *"bin"' pyproject.toml \
+   || ! grep -q 'manifest-path *= *"crates/eg-pyengine/Cargo.toml"' pyproject.toml; then
+  echo "FAIL: pyproject.toml [tool.maturin] must build crates/eg-pyengine, not a bin." >&2
   fail=1
 fi
 

@@ -107,7 +107,7 @@ def test_all_three_maturin_containers_select_linker_after_setup():
         for step in action["runs"]["steps"]
         if step.get("uses", "") == "./.github/actions/release-maturin"
     ]
-    assert len(builds) == 3
+    assert len(builds) == 2
     shared = yaml.safe_load(
         (ROOT / ".github/actions/release-maturin/action.yml").read_text()
     )["runs"]["steps"][0]
@@ -157,7 +157,14 @@ def test_pass_target_is_mounted_and_reproduction_starts_clean(tmp_path):
         "GITHUB_ENV": str(env_file),
     }
     # Execute the actual selector twice: a primary artifact must not survive
-    # the reproduction pass, while the directory/path stays consistent.
+    # the reproduction pass, while the directory/path stays consistent. The primary
+    # pass keeps the target so the restored compile cache is not discarded.
+    environment["EG_PASS"] = "primary"
+    target.mkdir()
+    (target / "restored-cache").write_text("kept")
+    subprocess.run(["bash", "-eu", "-c", steps[0]["run"]], env=environment, check=True)
+    assert (target / "restored-cache").exists()
+    environment["EG_PASS"] = "reproduction"
     for _ in range(2):
         target.mkdir(parents=True, exist_ok=True)
         marker = target / "previous-pass-artifact"
@@ -166,13 +173,13 @@ def test_pass_target_is_mounted_and_reproduction_starts_clean(tmp_path):
             ["bash", "-eu", "-c", steps[0]["run"]], env=environment, check=True
         )
         assert target.is_dir() and not marker.exists()
-    assert env_file.read_text().splitlines() == [f"CARGO_TARGET_DIR={target}"] * 2
+    assert env_file.read_text().splitlines() == [f"CARGO_TARGET_DIR={target}"] * 3
     builds = [
         step
         for step in steps
         if step.get("uses", "") == "./.github/actions/release-maturin"
     ]
-    assert len(builds) == 3
+    assert len(builds) == 2
     shared = yaml.safe_load(
         (ROOT / ".github/actions/release-maturin/action.yml").read_text()
     )["runs"]["steps"][0]
@@ -198,6 +205,7 @@ def test_platform_overrides_preserve_exact_probed_environments(tmp_path, target)
         "GITHUB_ENV": str(tmp_path / "env"),
         "GITHUB_OUTPUT": str(outputs),
         "EG_WHEEL_TARGET": target,
+        "EG_PASS": "primary",
     }
     subprocess.run(["bash", "-eu", "-c", steps[0]["run"]], env=environment, check=True)
     if target == "aarch64-unknown-linux-gnu":
@@ -208,7 +216,6 @@ def test_platform_overrides_preserve_exact_probed_environments(tmp_path, target)
     elif target.endswith("-apple-darwin"):
         assert outputs.read_text().splitlines() == [
             "maturin-version=1.15.0",
-            "server-packaging-args=--strip=false",
         ]
     else:
         assert outputs.read_text() == ""
@@ -243,5 +250,5 @@ def test_preparation_is_optional_and_cannot_replace_linker_preflight():
         for step in release["runs"]["steps"]
         if step.get("uses") == "./.github/actions/release-maturin"
     ]
-    assert len(builds) == 3
+    assert len(builds) == 2
     assert all("prepare-script" not in step["with"] for step in builds)

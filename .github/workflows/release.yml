@@ -7,11 +7,15 @@ name: Release
 # concluded `success` for this exact commit on main, so a tag publishes only
 # a commit main CI has passed.
 #
-#   guard -> {build, build-x86, build-sdist} -> publish-pypi
+#   guard -> build (matrix leg)  -> uploads its own wheel to PyPI
+#         -> build-x86           -> publish-x86 uploads the Linux x86_64 wheel
+#         -> build-sdist         -> uploads the source distribution
+#   every uploader -> verify-pypi (checks every expected file reached PyPI)
 #
-# The wheel build/determinism logic is unchanged: `build` produces the release
-# artifacts, then `publish-pypi` repeats completeness checks on the downloaded
-# wheels at the upload boundary. The engine container image ships from the
+# The public wheel compiles ONLY the two PyO3 extension modules (spec
+# EG-CONTRACT-R053.8). Each platform publishes the moment its own completeness
+# and smoke checks pass, so a slow or failed platform never blocks the others.
+# `twine upload --skip-existing` makes every upload idempotent. The engine container image ships from the
 # epistemic-graph-server repository. The rolling `engine-main` prerelease
 # asset is published by ci.yml on every main push.
 # ─────────────────────────────────────────────────────────────────────────
@@ -50,11 +54,6 @@ env:
   CARGO_INCREMENTAL: "0"
   CARGO_PROFILE_DEV_DEBUG: "0"
   CARGO_PROFILE_TEST_DEBUG: "0"
-  # The ONE main build (CONCEPT:EG-371): `full` = all MAIN features that build without an
-  # external GPU/robotics toolchain, plus `ast-extended` for the complete code-parsing
-  # grammar tier. `cluster` (raft HA) and `full-extras` (GPU/ROS2) are opt-in build layers,
-  # NOT published wheels.
-  MATURIN_FEATURES: "full,ast-extended"
 
 jobs:
   # A tag publishes only a commit main CI already passed.
@@ -214,9 +213,10 @@ jobs:
                   output.write(f"{key}={os.environ[key]}\n")
           PYENV
 
-      # Each pass builds the server wheel plus the eg-numeric and eg-pyengine
-      # kernels, folds them in, then normalizes, privacy-audits and checks the
-      # result (.github/actions/folded-wheel). Tag releases publish the primary
+      # Each pass builds the eg-pyengine wheel (engine module + Python package)
+      # and the eg-numeric module, folds the latter in, then normalizes,
+      # privacy-audits and checks the result (.github/actions/folded-wheel).
+      # The per-platform compile cache is restored here, saved by ci.yml on main. Tag releases publish the primary
       # pass; a manual (workflow_dispatch) run adds a second pass from empty
       # Cargo state at the same neutral path and requires byte-identical wheels.
       - name: Build primary wheel (${{ matrix.name }})
@@ -275,14 +275,14 @@ jobs:
           name: wheel-${{ matrix.name }}
           path: dist/*.whl
 
-      - name: Retain Mac prebuild measurements
-        if: ${{ always() && endsWith(matrix.target, '-apple-darwin') }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      # Publish this platform now: folded-wheel already required a complete wheel
+      # and the smoke test above passed. No other platform is awaited.
+      - name: Publish ${{ matrix.name }} to PyPI
+        if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
+        uses: ./.github/actions/publish-distribution
         with:
-          name: macos-build-metrics-${{ matrix.name }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/eg-macos-build-metrics
-          if-no-files-found: warn
-          retention-days: 7
+          pattern: dist/*.whl
+          pypi-token: ${{ secrets.PYPI_API_TOKEN }}
 
   # NOTE (CONCEPT:EG-371): the old pi/pi-max tier wheels (`wheels-pi`) and the
   # size-optimized "contains-all" tier wheels (`wheels-full-tiny`) are GONE. Those legs
@@ -319,7 +319,7 @@ jobs:
     needs: guard
     if: github.repository == 'Knuckles-Team/epistemic-graph'
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 360
     permissions:
       contents: read
     steps:
@@ -339,11 +339,20 @@ jobs:
           name: source-distribution
           path: dist-sdist/*.tar.gz
           if-no-files-found: error
+      - name: Publish the source distribution to PyPI
+        if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
+        uses: ./.github/actions/publish-distribution
+        with:
+          pattern: dist-sdist/*.tar.gz
+          pypi-token: ${{ secrets.PYPI_API_TOKEN }}
 
-  publish-pypi:
+  # The Linux x86_64 wheel is built by the immutable reusable workflow above (it
+  # cannot hold the PyPI token), so it is published by this job the moment that
+  # workflow finishes. It depends on no other platform.
+  publish-x86:
     timeout-minutes: 360
-    name: Publish distributions to PyPI (release only)
-    needs: [build, build-x86, build-sdist]
+    name: Publish linux-x86_64 wheel to PyPI
+    needs: build-x86
     runs-on: ubuntu-latest
     if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
     permissions:
@@ -352,9 +361,36 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           persist-credentials: false
-      # Collect every wheel the matrix produced. A pattern download means an
-      # optional platform that did not build is simply absent rather than a
-      # hard failure, while the required set is asserted explicitly below.
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version-file: '.python-version'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: wheel-linux-x86_64
+          path: dist
+      - name: Require a complete wheel before upload
+        run: python scripts/check_wheel_completeness.py --require-engine-kernel dist/*.whl
+      - name: Publish linux-x86_64 to PyPI
+        uses: ./.github/actions/publish-distribution
+        with:
+          pattern: dist/*.whl
+          pypi-token: ${{ secrets.PYPI_API_TOKEN }}
+
+  # Verification only: every upload above is independent and already done. This
+  # job proves each expected file reached PyPI with the exact built bytes, and
+  # fails (without undoing any upload) when a platform is missing.
+  verify-pypi:
+    timeout-minutes: 360
+    name: Verify every distribution reached PyPI
+    needs: [build, publish-x86, build-sdist]
+    runs-on: ubuntu-latest
+    if: ${{ always() && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: wheel-*
@@ -364,9 +400,7 @@ jobs:
         with:
           name: source-distribution
           path: dist
-      # The supported install targets. Publishing without one of these would
-      # silently ship a release that cannot be installed on a platform we claim
-      # to support, so it fails loudly instead.
+      # The supported install targets: a release missing one fails loudly.
       - name: Require the Linux and Windows wheels
         shell: bash
         run: |
@@ -376,7 +410,7 @@ jobs:
             ls dist/*"$tag"*.whl >/dev/null 2>&1 || missing+=("$tag")
           done
           if [ ${#missing[@]} -gt 0 ]; then
-            echo "REFUSING to publish: no wheel for ${missing[*]}" >&2
+            echo "MISSING: no wheel for ${missing[*]}" >&2
             ls -1 dist/ >&2
             exit 1
           fi
@@ -384,19 +418,6 @@ jobs:
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version-file: '.python-version'
-      # ── THE PUBLISH BOUNDARY GATE. Every wheel about to be uploaded must carry the
-      #    folded numeric AND engine kernels (BUG-PE-002 — the `build` job above now
-      #    always folds both), an EXECUTABLE server binary, the full python surface,
-      #    and a self-consistent RECORD. This runs on the DOWNLOADED artifacts, so it
-      #    catches an incomplete wheel no matter which upstream step regressed.
-      - name: Require every distribution to be complete before upload
-        run: |
-          python -m pip install --upgrade pip
-          echo "Distributions staged for upload:"
-          ls -1 dist/
-          python scripts/check_wheel_completeness.py --require-engine-kernel dist/*.whl
-          python scripts/check_sdist_completeness.py dist/*.tar.gz
-
       - name: Checkout immutable publication contract
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
@@ -413,25 +434,6 @@ jobs:
           python -I .pipeline-contract/.github/actions/wheel-readiness/publication.py preflight \
             --directory dist --package epistemic-graph --version "${GITHUB_REF_NAME#v}" \
             --manifest "$RUNNER_TEMP/publication.json"
-      - name: Publish only missing exact files to PyPI
-        env:
-          TWINE_USERNAME: __token__
-          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
-          SOURCE_COMMIT: ${{ github.sha }}
-        run: |
-          python -m pip install --upgrade twine
-          python scripts/verify_release_tag.py
-          python -I .pipeline-contract/.github/actions/wheel-readiness/publication.py missing \
-            --directory dist --package epistemic-graph --version "${GITHUB_REF_NAME#v}" \
-            --manifest "$RUNNER_TEMP/publication.json" > "$RUNNER_TEMP/publication-missing.json"
-          python - <<'PYTHON'
-          import json, os, pathlib, subprocess, sys
-          missing = json.loads((pathlib.Path(os.environ['RUNNER_TEMP']) / 'publication-missing.json').read_text())
-          if missing:
-              subprocess.run([sys.executable, '-m', 'twine', 'upload', *[str(pathlib.Path('dist') / name) for name in missing]], check=True)
-          else:
-              print('Every staged filename already exists with identical bytes.')
-          PYTHON
       - name: Verify every published filename and digest
         env:
           SOURCE_COMMIT: ${{ github.sha }}

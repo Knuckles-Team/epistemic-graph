@@ -1,10 +1,12 @@
 """PEP 517 composition backend for the complete epistemic-graph artifact.
 
-Maturin builds the wheel skeleton and the numeric and engine PyO3 modules from
-separate Cargo targets. Every PEP 517 and editable build folds both modules
-into the public package using the same injectors as the release pipeline, then
-removes every executable: the server binary ships in the separate
-``epistemic-graph-server`` package (extra ``server``).
+Maturin builds the wheel from the ``eg-pyengine`` PyO3 crate (the
+``epistemic_graph.engine`` module plus the pure-Python package, selected by
+``[tool.maturin] manifest-path``); the numeric PyO3 module is built from its own
+crate. Every PEP 517 and editable build folds the numeric module into that wheel
+using the same injector as the release pipeline. No server crate or bin target is
+compiled; the strip step is a safety net that removes any executable, because the
+server ships in the separate ``epistemic-graph-server`` package (extra ``server``).
 """
 
 from __future__ import annotations
@@ -33,12 +35,10 @@ os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
 import maturin
 
 from scripts.inject_numeric_kernel import inject as inject_numeric
-from scripts.inject_pyengine import inject as inject_engine
 from scripts.strip_wheel_executables import strip_executables
 
 ROOT = Path(__file__).resolve().parent
 NUMERIC_MANIFEST = ROOT / "crates" / "eg-numeric" / "Cargo.toml"
-ENGINE_MANIFEST = ROOT / "crates" / "eg-pyengine" / "Cargo.toml"
 _CACHE_SCHEMA = 3
 _CACHE_ENV = "EPISTEMIC_GRAPH_NATIVE_ARTIFACT_CACHE"
 _BUILD_ENV = (
@@ -77,7 +77,6 @@ _NATIVE_FILES = {
     "build_backend.py",
     "pyproject.toml",
     "scripts/inject_numeric_kernel.py",
-    "scripts/inject_pyengine.py",
     "scripts/normalize_wheel_build_paths.py",
 }
 
@@ -283,8 +282,8 @@ def _cargo_target_dir() -> Path:
 def _maturin_staging_lock():
     """Serialize all Maturin staging that mutates one Cargo target directory.
 
-    Cargo's internal lock only covers compilation.  Maturin subsequently moves the
-    fixed server binary through ``<target>/release/maturin`` without holding that
+    Cargo's internal lock only covers compilation.  Maturin subsequently stages
+    the compiled artifact through ``<target>/release`` without holding that
     lock, so regular and editable PEP 517 builds can otherwise steal one another's
     staging input.  Keep this lock adjacent to the target rather than inside it:
     ``cargo clean`` may remove the target directory while a build is in progress.
@@ -632,9 +631,9 @@ def _compose(
     config_settings: Mapping[str, Any] | None,
     metadata_directory: str | None,
 ) -> str:
-    """Build the wheel, fold in both native modules and drop the executables.
+    """Build the engine wheel, fold in the numeric module, drop any executable.
 
-    The lock spans all Maturin invocations and both injections, which share the
+    The lock spans all Maturin invocations and the injection, which share the
     Cargo target and must finish before another wheel can use its staging area.
     """
 
@@ -642,15 +641,13 @@ def _compose(
         filename = build(wheel_directory, config_settings, metadata_directory)
         wheel = Path(wheel_directory) / filename
         if not wheel.is_file():
-            raise RuntimeError("maturin did not produce the declared server wheel")
-        for manifest, features, inject in (
-            (NUMERIC_MANIFEST, "python", inject_numeric),
-            (ENGINE_MANIFEST, "python,security", inject_engine),
-        ):
-            with tempfile.TemporaryDirectory(
-                prefix=f"epistemic-graph-{manifest.parent.name}-"
-            ) as temporary:
-                inject(wheel, _build_component(Path(temporary), manifest, features))
+            raise RuntimeError("maturin did not produce the declared engine wheel")
+        with tempfile.TemporaryDirectory(
+            prefix=f"epistemic-graph-{NUMERIC_MANIFEST.parent.name}-"
+        ) as temporary:
+            inject_numeric(
+                wheel, _build_component(Path(temporary), NUMERIC_MANIFEST, "python")
+            )
         strip_executables(wheel)
         return filename
 
