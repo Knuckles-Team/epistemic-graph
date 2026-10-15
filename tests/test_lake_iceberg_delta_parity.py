@@ -174,7 +174,8 @@ def _require_strict_parity_prerequisites() -> None:
 
 # --------------------------------------------------------------------------------- #
 # Fixture-scale expected data — mirrors src/offline_tools/lake_fixture_export.rs's
-# BATCH_1/BATCH_2 constants exactly (two commits: CREATE 3 rows, APPEND 2 rows). The binary's
+# BATCH_1/BATCH_2 constants exactly (two commits: CREATE 3 rows, APPEND 2 rows).
+# The binary's
 # own stdout JSON is the actual source of truth used in assertions below; this literal
 # copy exists only for a human reading this file to see the fixture at a glance.
 # --------------------------------------------------------------------------------- #
