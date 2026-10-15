@@ -959,10 +959,8 @@
     {
       "id": "EG-CONTRACT-R053.8",
       "title": "The public wheel compiles only the extension modules; each platform publishes independently",
-      "delivery_state": "VERIFIED",
-      "landed_in": [
-        "9d15abb9de35"
-      ],
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": [
         "tests/test_wheel_extensions_only.py:23",
         "tests/test_wheel_extensions_only.py:41",
