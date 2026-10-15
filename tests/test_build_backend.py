@@ -135,34 +135,35 @@ def _test_cache_inputs(label: str) -> dict[str, object]:
 @pytest.mark.parametrize("entrypoint", ["build_wheel", "build_editable"])
 @pytest.mark.parametrize("suffix", ["abi3.so", "pyd"])
 @pytest.mark.spec("EG-CONTRACT-R053.2")
-def test_build_backend_folds_both_components(
+def test_build_backend_folds_numeric_into_engine_base(
     monkeypatch, editable_cache: Path, tmp_path: Path, entrypoint: str, suffix: str
 ) -> None:
     output = tmp_path / "output"
     output.mkdir()
     server = output / "epistemic_graph-0-py3-none-any.whl"
+    # The base wheel is the engine extension wheel (engine module already in it);
+    # a stray console executable proves the strip safety net still runs.
     _editable_wheel(
         server,
         native_payloads={
+            f"epistemic_graph/engine.{suffix}": b"engine",
             "epistemic_graph-0.data/scripts/epistemic-graph-server": b"server",
         },
     )
     calls = []
 
     def component(directory, manifest, features):
-        module = "engine" if manifest == build_backend.ENGINE_MANIFEST else "numeric"
         calls.append((manifest, features))
-        wheel = directory / f"{module}.whl"
-        _wheel(wheel, f"{module}/{module}.{suffix}", module.encode())
+        wheel = directory / "numeric.whl"
+        _wheel(wheel, f"numeric/numeric.{suffix}", b"numeric")
         return wheel
 
     monkeypatch.setattr(build_backend, "_build_component", component)
     monkeypatch.setattr(build_backend.maturin, entrypoint, lambda *_: server.name)
     assert getattr(build_backend, entrypoint)(str(output)) == server.name
-    assert calls == [
-        (build_backend.NUMERIC_MANIFEST, "python"),
-        (build_backend.ENGINE_MANIFEST, "python,security"),
-    ]
+    # Only the numeric extension is built separately: no server crate, no bin.
+    assert calls == [(build_backend.NUMERIC_MANIFEST, "python")]
+    assert not hasattr(build_backend, "ENGINE_MANIFEST")
     with zipfile.ZipFile(server) as archive:
         assert archive.read(f"epistemic_graph/numeric.{suffix}") == b"numeric"
         assert archive.read(f"epistemic_graph/engine.{suffix}") == b"engine"
@@ -173,11 +174,11 @@ def test_build_backend_folds_both_components(
 def test_regular_and_editable_builds_serialize_complete_maturin_staging(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """A shared Cargo target has one staging owner through engine injection."""
+    """A shared Cargo target has one staging owner through numeric injection."""
 
     monkeypatch.setenv("CARGO_TARGET_DIR", str(tmp_path / "shared-target"))
-    first_engine_started = threading.Event()
-    release_first_engine = threading.Event()
+    first_numeric_started = threading.Event()
+    release_first_numeric = threading.Event()
     second_lock_attempted = threading.Event()
     second_server_started = threading.Event()
     calls_lock = threading.Lock()
@@ -217,24 +218,23 @@ def test_regular_and_editable_builds_serialize_complete_maturin_staging(
     def build_component(directory: Path, manifest: Path, _features: str) -> Path:
         with calls_lock:
             component_calls.append(manifest)
-        module = "engine" if manifest == build_backend.ENGINE_MANIFEST else "numeric"
-        wheel = directory / f"{module}.whl"
-        _wheel(wheel, f"{module}/{module}.abi3.so", b"native-kernel")
+        wheel = directory / "numeric.whl"
+        _wheel(wheel, "numeric/numeric.abi3.so", b"native-kernel")
         return wheel
 
-    engine_calls = 0
-    original_inject_engine = build_backend.inject_engine
+    numeric_calls = 0
+    original_inject_numeric = build_backend.inject_numeric
 
-    def inject_engine(server: Path, engine: Path) -> None:
-        nonlocal engine_calls
-        engine_calls += 1
-        if engine_calls == 1:
-            first_engine_started.set()
-            assert release_first_engine.wait(timeout=5)
-        original_inject_engine(server, engine)
+    def inject_numeric(server: Path, numeric: Path) -> None:
+        nonlocal numeric_calls
+        numeric_calls += 1
+        if numeric_calls == 1:
+            first_numeric_started.set()
+            assert release_first_numeric.wait(timeout=5)
+        original_inject_numeric(server, numeric)
 
     monkeypatch.setattr(build_backend, "_build_component", build_component)
-    monkeypatch.setattr(build_backend, "inject_engine", inject_engine)
+    monkeypatch.setattr(build_backend, "inject_numeric", inject_numeric)
     monkeypatch.setattr(build_backend, "_exclusive_file_lock", observed_file_lock)
 
     def compose(label: str, output: Path) -> None:
@@ -250,14 +250,14 @@ def test_regular_and_editable_builds_serialize_complete_maturin_staging(
         name="editable-builder",
     )
     regular.start()
-    assert first_engine_started.wait(timeout=5)
+    assert first_numeric_started.wait(timeout=5)
     editable.start()
     assert second_lock_attempted.wait(timeout=5)
 
     # The editable server build must remain outside Maturin while the regular
-    # composition is still injecting the engine.
+    # composition is still injecting the numeric module.
     assert not second_server_started.is_set()
-    release_first_engine.set()
+    release_first_numeric.set()
     regular.join(timeout=5)
     editable.join(timeout=5)
 
@@ -265,11 +265,8 @@ def test_regular_and_editable_builds_serialize_complete_maturin_staging(
     assert not editable.is_alive()
     assert failures == []
     assert second_server_started.is_set()
-    assert (
-        component_calls
-        == [build_backend.NUMERIC_MANIFEST, build_backend.ENGINE_MANIFEST] * 2
-    )
-    assert engine_calls == 2
+    assert component_calls == [build_backend.NUMERIC_MANIFEST] * 2
+    assert numeric_calls == 2
     assert len(set(staging_lock_paths)) == 1
 
 
@@ -541,10 +538,7 @@ def test_publish_cached_wheel_rejects_invalid_source_pointer(
 
 @pytest.mark.parametrize(
     "manifest_name,features",
-    [
-        ("NUMERIC_MANIFEST", "python"),
-        ("ENGINE_MANIFEST", "python,security"),
-    ],
+    [("NUMERIC_MANIFEST", "python")],
 )
 def test_component_build_uses_same_interpreter_and_release_features(
     monkeypatch, tmp_path, manifest_name, features
@@ -588,31 +582,30 @@ def test_component_build_rejects_ambiguous_output(monkeypatch, tmp_path, count):
     monkeypatch.setattr(build_backend.subprocess, "run", lambda *_, **__: None)
     for index in range(count):
         (tmp_path / f"{index}.whl").write_bytes(b"wheel")
-    with pytest.raises(RuntimeError, match="eg-pyengine component build"):
+    with pytest.raises(RuntimeError, match="eg-numeric component build"):
         build_backend._build_component(
-            tmp_path, build_backend.ENGINE_MANIFEST, "python,security"
+            tmp_path, build_backend.NUMERIC_MANIFEST, "python"
         )
 
 
 @pytest.mark.parametrize("entrypoint", ["build_wheel", "build_editable"])
 @pytest.mark.parametrize("failure", ["build", "payload"])
-def test_engine_failure_never_returns_or_caches_incomplete_wheel(
+def test_numeric_failure_never_returns_or_caches_incomplete_wheel(
     monkeypatch, editable_cache, tmp_path, entrypoint, failure
 ):
     output = tmp_path / "failed"
     output.mkdir()
     filename = "epistemic_graph-0-py3-none-any.whl"
-    _editable_wheel(output / filename, native_payloads={})
+    _editable_wheel(
+        output / filename, native_payloads={"epistemic_graph/engine.abi3.so": b"engine"}
+    )
     monkeypatch.setattr(build_backend.maturin, entrypoint, lambda *_: filename)
 
     def component(directory, manifest, _features):
         wheel = directory / "component.whl"
-        if manifest == build_backend.ENGINE_MANIFEST:
-            if failure == "build":
-                raise subprocess.CalledProcessError(1, ["maturin"])
-            _wheel(wheel, "engine/__init__.py", b"")
-        else:
-            _wheel(wheel, "numeric/numeric.abi3.so", b"numeric")
+        if failure == "build":
+            raise subprocess.CalledProcessError(1, ["maturin"])
+        _wheel(wheel, "numeric/__init__.py", b"")
         return wheel
 
     monkeypatch.setattr(build_backend, "_build_component", component)
@@ -658,10 +651,10 @@ def test_cache_rebuilds_incomplete_engine_with_valid_record_and_digest(
     build_backend._validate_editable_wheel(tmp_path / "second" / result)
 
 
-def test_engine_injector_changes_invalidate_native_source_digest(tmp_path):
+def test_numeric_injector_changes_invalidate_native_source_digest(tmp_path):
     scripts = tmp_path / "scripts"
     scripts.mkdir()
-    injector = scripts / "inject_pyengine.py"
+    injector = scripts / "inject_numeric_kernel.py"
     injector.write_text("# first")
     first = build_backend.native_source_digest(tmp_path)
     injector.write_text("# changed")

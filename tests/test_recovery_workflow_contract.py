@@ -107,10 +107,10 @@ class RecoveryBoundary(unittest.TestCase):
         self.assertTrue(required)
         self.assertLessEqual(required, set(self.job["env"]))
         original = yaml.safe_load((ROOT / ".github/workflows/release.yml").read_text())
-        self.assertEqual(
-            self.job["env"]["MATURIN_FEATURES"], original["env"]["MATURIN_FEATURES"]
-        )
-        self.assertEqual(self.job["env"]["MATURIN_FEATURES"], "full,ast-extended")
+        # The wheel builds only the extension modules; their features live in
+        # pyproject.toml / the component commands, not in a workflow variable.
+        self.assertNotIn("MATURIN_FEATURES", original["env"])
+        self.assertNotIn("MATURIN_FEATURES", composite)
 
     def test_active_caller_pins_reviewed_workflow(self):
         template = (

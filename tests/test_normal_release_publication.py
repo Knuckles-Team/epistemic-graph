@@ -56,8 +56,10 @@ class ReleasePublication(unittest.TestCase):
         )
         self.assertNotIn("docker-image", jobs)
         self.assertNotIn("publish-image", jobs)
+        self.assertNotIn("publish-pypi", jobs)
+        self.assertEqual(jobs["publish-x86"]["needs"], "build-x86")
         self.assertEqual(
-            jobs["publish-pypi"]["needs"], ["build", "build-x86", "build-sdist"]
+            jobs["verify-pypi"]["needs"], ["build", "publish-x86", "build-sdist"]
         )
 
     def test_source_archive_is_validated_before_upload(self):
@@ -87,24 +89,19 @@ class ReleasePublication(unittest.TestCase):
         self.assertFalse(any(step.get("continue-on-error") for step in source_steps))
 
     def test_source_archive_is_validated_before_publication(self):
-        publish = self.workflow["jobs"]["publish-pypi"]["steps"]
-        download = next(
-            index
-            for index, step in enumerate(publish)
-            if step.get("with", {}).get("name") == "source-distribution"
-        )
+        steps = self.workflow["jobs"]["build-sdist"]["steps"]
         validate = next(
             index
-            for index, step in enumerate(publish)
+            for index, step in enumerate(steps)
             if "scripts/check_sdist_completeness.py" in step.get("run", "")
         )
-        freeze = next(
+        publish = next(
             index
-            for index, step in enumerate(publish)
-            if "publication.py preflight" in step.get("run", "")
+            for index, step in enumerate(steps)
+            if step.get("uses") == "./.github/actions/publish-distribution"
         )
-        self.assertLess(download, validate)
-        self.assertLess(validate, freeze)
+        self.assertLess(validate, publish)
+        self.assertEqual(steps[publish]["with"]["pattern"], "dist-sdist/*.tar.gz")
 
     def test_storage_crash_processes_do_not_overlap_sibling_file_tests(self):
         steps = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())["jobs"][
@@ -125,26 +122,35 @@ class ReleasePublication(unittest.TestCase):
 
     def test_same_run_artifacts_and_no_blind_skip(self):
         jobs = self.workflow["jobs"]
-        for name in ("publish-pypi",):
+        for name in ("publish-x86", "verify-pypi"):
             self.assertIn("github.event_name == 'push'", jobs[name]["if"])
             for step in jobs[name]["steps"]:
                 if step.get("uses", "").startswith("actions/download-artifact@"):
                     self.assertNotIn("run-id", step.get("with", {}))
                     self.assertNotIn("github-token", step.get("with", {}))
-        steps = jobs["publish-pypi"]["steps"]
-        scripts = "\n".join(step.get("run", "") for step in steps)
+        verify = "\n".join(step.get("run", "") for step in jobs["verify-pypi"]["steps"])
         for required in (
             "manylinux_2_28_x86_64",
             "manylinux_2_28_aarch64",
             "win_amd64",
-            "--require-engine-kernel",
             "publication.py preflight",
-            "publication.py missing",
             "publication.py postverify",
-            "scripts/verify_release_tag.py",
         ):
-            self.assertIn(required, scripts)
-        self.assertNotIn("--skip-existing", scripts)
+            self.assertIn(required, verify)
+        # Every uploader goes through the one publish action, after its own checks.
+        x86 = jobs["publish-x86"]["steps"]
+        self.assertIn(
+            "--require-engine-kernel", "\n".join(s.get("run", "") for s in x86)
+        )
+        self.assertEqual(x86[-1]["uses"], "./.github/actions/publish-distribution")
+        leg = jobs["build"]["steps"]
+        names = [step.get("name", "") for step in leg]
+        smoke = next(i for i, n in enumerate(names) if n.startswith("Smoke test"))
+        publish = next(i for i, n in enumerate(names) if n.startswith("Publish "))
+        self.assertLess(smoke, publish)
+        action = (ROOT / ".github/actions/publish-distribution/action.yml").read_text()
+        self.assertIn("--skip-existing", action)
+        self.assertIn("scripts/verify_release_tag.py", action)
 
     def test_release_metadata_and_staging(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -1,0 +1,26 @@
+name: Publish distribution to PyPI
+description: >-
+  Upload the matching distribution files to PyPI right after their own platform
+  checks passed. `--skip-existing` makes the upload idempotent for a re-run.
+inputs:
+  pattern:
+    description: Glob of the distribution files to upload.
+    required: true
+  pypi-token:
+    description: PyPI API token.
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Upload to PyPI
+      shell: bash
+      env:
+        TWINE_USERNAME: __token__
+        TWINE_PASSWORD: ${{ inputs.pypi-token }}
+        PUBLISH_PATTERN: ${{ inputs.pattern }}
+      run: |
+        set -euo pipefail
+        python scripts/verify_release_tag.py
+        python -m pip install --upgrade twine
+        # shellcheck disable=SC2086
+        python -m twine upload --skip-existing $PUBLISH_PATTERN

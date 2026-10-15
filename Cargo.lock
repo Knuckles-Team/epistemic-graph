@@ -3062,7 +3062,7 @@ dependencies = [
 
 [[package]]
 name = "eg-pyengine"
-version = "0.1.0"
+version = "2.27.1"
 dependencies = [
  "eg-compute",
  "eg-core",

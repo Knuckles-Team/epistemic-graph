@@ -79,7 +79,8 @@
     "EG-CONTRACT-R053.4",
     "EG-CONTRACT-R053.5",
     "EG-CONTRACT-R053.6",
-    "EG-CONTRACT-R053.7"
+    "EG-CONTRACT-R053.7",
+    "EG-CONTRACT-R053.8"
   ],
   "requirements": [
     {
@@ -887,7 +888,8 @@
         "EG-CONTRACT-R053.4",
         "EG-CONTRACT-R053.5",
         "EG-CONTRACT-R053.6",
-        "EG-CONTRACT-R053.7"
+        "EG-CONTRACT-R053.7",
+        "EG-CONTRACT-R053.8"
       ]
     },
     {
@@ -948,14 +950,24 @@
     {
       "id": "EG-CONTRACT-R053.7",
       "title": "A tag publishes only a commit main CI already passed",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "tests/test_release_full_wheel_contract.py:607"
+      ]
+    },
+    {
+      "id": "EG-CONTRACT-R053.8",
+      "title": "The public wheel compiles only the extension modules; each platform publishes independently",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "11b1aa61eea9",
-        "2943915ec010",
-        "cc32f2056ddd"
+        "9d15abb9de35"
       ],
       "verified_by": [
-        "tests/test_release_full_wheel_contract.py:597"
+        "tests/test_wheel_extensions_only.py:23",
+        "tests/test_wheel_extensions_only.py:41",
+        "tests/test_wheel_extensions_only.py:63",
+        "tests/test_wheel_extensions_only.py:85"
       ]
     }
   ]

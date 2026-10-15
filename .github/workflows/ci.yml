@@ -315,41 +315,17 @@ jobs:
         run: python scripts/normalize_wheel_build_paths.py numdist-gates/*.whl
       - name: Audit numeric kernel wheel for retained build identity
         run: python scripts/check_wheel_privacy.py numdist-gates/*.whl
-      # ── Fold the eg-pyengine in-process engine binding INTO this same gates wheel,
-      #    the identical pattern as the numeric kernel just above (CONCEPT:BUG-PE-002).
-      #    A separate maturin target (`crates/eg-pyengine --features python,security`), a
-      #    separate pyo3 cdylib, folded in by `scripts/inject_pyengine.py`.
-      - name: Build gates pyengine kernel wheel (features python,security)
-        run: maturin build --release -m crates/eg-pyengine/Cargo.toml --features python,security --out enginedist-gates
-      - name: Normalize build-local SBOM references (pyengine kernel wheel)
-        run: python scripts/normalize_wheel_sbom.py enginedist-gates/*.whl
-      - name: Normalize retained native build paths (pyengine kernel wheel)
-        run: python scripts/normalize_wheel_build_paths.py enginedist-gates/*.whl
-      - name: Audit pyengine kernel wheel for retained build identity
-        run: python scripts/check_wheel_privacy.py enginedist-gates/*.whl
-      # Deliberately NOT `--release --features "$MATURIN_FEATURES"`. This wheel is a
-      # FOLD TARGET: everything asserted about it downstream — that the numeric
-      # kernel injects, that RECORD stays valid, that the console script keeps its
-      # 0755 bit, that no build identity is retained, that
-      # `epistemic_graph.numeric` imports and computes from the INSTALLED wheel —
-      # is a property of wheel PACKAGING, not of which engine features were
-      # compiled in or at what optimisation level. The `build` job below still
-      # produces the real `full,ast-extended` release artifacts for every target.
-      #
-      # Measured 2026-08-21: `--release --features full,ast-extended` takes ~40
-      # minutes (DataFusion, Polars, Wasmtime, 15 tree-sitter grammars, LTO), and
-      # under a 3600s per-step ceiling it TIMED OUT, cascading into five dependent steps that then reported their own
-      # failures. A slim server build produces a byte-identically-shaped wheel for
-      # these purposes in ~2.5 minutes, and was verified end to end: all four wheel
-      # audits pass and the NE-249 boundary contract is 17/17 against it.
-      - name: Build gates epistemic-graph server wheel (fold target)
-        run: maturin build --no-default-features --features server --out dist-gates
+      # The base wheel is the eg-pyengine PyO3 crate plus the pure-Python package
+      # (`[tool.maturin] manifest-path`), the SAME build the release folds the numeric
+      # module into. It compiles only extension modules -- no server crate or bin
+      # target -- so this is the release wheel configuration, not a slim stand-in
+      # (EG-CONTRACT-R053.8). A warm per-platform cache (saved from main pushes only)
+      # keeps it fast.
+      - name: Build gates engine extension wheel (fold target)
+        run: maturin build --release --out dist-gates
       - name: Fold the numeric kernel into the gates epistemic-graph wheel (EG-346)
         run: |
           python scripts/inject_numeric_kernel.py "$(ls dist-gates/epistemic_graph-*.whl)" "$(ls numdist-gates/*.whl)"
-      - name: Fold the pyengine kernel into the gates epistemic-graph wheel (BUG-PE-002)
-        run: |
-          python scripts/inject_pyengine.py "$(ls dist-gates/epistemic_graph-*.whl)" "$(ls enginedist-gates/*.whl)"
       - name: Strip console executables from the gates wheel (executable-free wheel)
         run: python scripts/strip_wheel_executables.py dist-gates/*.whl
       - name: Normalize and audit the folded gates wheel
@@ -1453,6 +1429,82 @@ jobs:
       # Gate on the committed thresholds (recall floor + generous per-bench p50 ceilings).
       - name: Perf/recall regression gate
         run: python3 scripts/bench_gate.py
+
+  # ── Warm compile cache for tag releases (EG-CONTRACT-R053.8). Builds the EXACT
+  # release wheel configuration (.github/actions/folded-wheel: the eg-pyengine
+  # wheel plus the numeric module, extension modules only) for each published
+  # platform on main pushes and SAVES the Swatinem/rust-cache entry under the
+  # stable key `eg-wheel-<target>`. Tag builds restore that default-branch cache
+  # and never save; pull requests neither restore nor save it.
+  wheel-cache:
+    timeout-minutes: 360
+    name: wheel cache ${{ matrix.name }}
+    if: >-
+      github.repository == 'Knuckles-Team/epistemic-graph'
+      && github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ${{ matrix.runner }}
+    continue-on-error: true
+    env:
+      EG_WHEEL_TARGET: ${{ matrix.target }}
+      EG_WHEEL_MATURIN_ARGS: ""
+      EG_WHEEL_JOBS_ARG: ${{ matrix.jobs && format('--jobs {0}', matrix.jobs) || '' }}
+      EG_WHEEL_MANYLINUX: ${{ startsWith(matrix.target, 'x86_64-unknown-linux') && '2_28' || (startsWith(matrix.target, 'aarch64-unknown-linux') && '2_28' || 'auto') }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {name: linux-x86_64, runner: ubuntu-latest, target: x86_64-unknown-linux-gnu, jobs: 4}
+          - {name: linux-aarch64, runner: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu, jobs: 2}
+          - {name: windows-x86_64, runner: windows-latest, target: x86_64-pc-windows-msvc, jobs: 4}
+          - {name: macos-aarch64, runner: macos-14, target: aarch64-apple-darwin, jobs: 2}
+          - {name: macos-x86_64, runner: macos-15-intel, target: x86_64-apple-darwin, jobs: 2}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version-file: '.python-version'
+      - name: Read tracked Rust toolchain pin
+        id: rust-toolchain
+        shell: bash
+        run: >-
+          python -c "import os,re,tomllib;
+          channel=tomllib.load(open('rust-toolchain.toml','rb'))['toolchain']['channel'];
+          assert re.fullmatch(r'[0-9]+[.][0-9]+[.][0-9]+', channel);
+          open(os.environ['GITHUB_OUTPUT'],'a',encoding='utf-8').write(f'channel={channel}\n')"
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
+        with:
+          toolchain: ${{ steps.rust-toolchain.outputs.channel }}
+          targets: ${{ matrix.target }}
+      - name: Bind build time and neutral source paths
+        shell: bash
+        run: |
+          echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "$GITHUB_ENV"
+          python scripts/configure_rust_path_remap.py --github-env "$GITHUB_ENV" --target "$EG_WHEEL_TARGET"
+      - name: Select the verified native Mach-O linker
+        if: ${{ endsWith(matrix.target, '-apple-darwin') }}
+        shell: bash
+        env:
+          RUSTUP_TOOLCHAIN: ${{ steps.rust-toolchain.outputs.channel }}
+        run: |
+          case "$EG_WHEEL_TARGET" in
+            aarch64-apple-darwin) export MACOSX_DEPLOYMENT_TARGET=11.0 ;;
+            x86_64-apple-darwin) export MACOSX_DEPLOYMENT_TARGET=10.12 ;;
+          esac
+          source scripts/configure_macos_linker.sh "$EG_WHEEL_TARGET"
+          python - <<'PYENV'
+          import os
+          with open(os.environ["GITHUB_ENV"], "a") as output:
+              for key in ("SDKROOT", "MACOSX_DEPLOYMENT_TARGET", "RUSTUP_TOOLCHAIN", "CARGO_ENCODED_RUSTFLAGS"):
+                  output.write(f"{key}={os.environ[key]}\n")
+          PYENV
+      - name: Build the release wheel configuration and save the compile cache
+        uses: ./.github/actions/folded-wheel
+        with:
+          pass: primary
+          cache-save: 'true'
 
   # ── Rolling engine wheel for consumer CI (spec public-engine-contract-and-release). The wheel
   # exceeds the PyPI size limit, so each main push publishes its Linux x86

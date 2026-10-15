@@ -238,7 +238,13 @@ jscpd_exclusions = [
 
 [tool.maturin]
 python-source = "."
-bindings = "bin"
+# The public wheel compiles ONLY the extension modules (EG-CONTRACT-R053.8):
+# the base is the in-process engine binding `epistemic_graph.engine`, built from the
+# `eg-pyengine` crate with the pure-Python package; `build_backend.py` and the
+# release `folded-wheel` action fold `epistemic_graph.numeric` in. No server crate
+# or bin target is built here -- the server ships in `epistemic-graph-server`.
+manifest-path = "crates/eg-pyengine/Cargo.toml"
+module-name = "epistemic_graph.engine"
 strip = true
 # Never carry interpreter caches from a reused checkout into a wheel or sdist.
 # These are source-level Maturin globs, so the checkout itself remains untouched.
@@ -253,46 +259,15 @@ include = [
     "epistemic_graph/contract/methods.json",
     "epistemic_graph/contract/schemas/**/*.json",
 ]
-# THE ONE PUBLISHED WHEEL = the main full-featured build (CONCEPT:EG-371 — tiers
-# collapsed). `full` = every MAIN feature that builds without an external GPU/robotics
-# toolchain: durable redb-authoritative store + cypher + SQL (query/DataFusion) + graphql
-# + ann + tsdb + blob + the full compute domains (finance/datascience/reasoning/ast) +
-# the security stack + the whole hand-rolled wire family (pgwire/mysql/mssql/sqlite/bolt/
-# redis/amqp/mqtt/stomp) + native visualization (viz/viz-columnstore/viz-static-export/
-# viz-interactive/viz-graph-tiles — the ColumnStore + LOD kernels + static PNG/SVG/PDF
-# export + loopback interactive/graph-tile HTTP listeners; the listeners themselves stay
-# off at runtime unless an operator passes their own `--*-addr` flag). It also adds
-# `ast-extended` so the `ParseFiles`/`ParseFile` ops
-# compile the full grammar tier (python/js/ts/go/rust/java/c/cpp/c#/ruby/php/bash/scala/
-# lua) — making the engine the ONE code-parsing implementation (agent-utilities delegates
-# and ships no Python tree-sitter wheels). This is `default`, so `cargo build` and this
-# wheel are the SAME build. It targets Raspberry Pi 4+ (NOT Pi 3). There is no longer a
-# pi/pi-max/node tier distinction, so there is exactly ONE wheel filename per platform —
-# the old collision (every tier shared the same filename) is gone.
-features = ["full", "ast-extended"]
+# The engine binding's feature set (`security` = engine-level row-level security). The
+# server's `full` feature set belongs to the separate epistemic-graph-server package.
+features = ["python", "security"]
 
 [tool.pipelines_hooks.public_surface]
 repository = "Knuckles-Team/epistemic-graph"
 distribution = "epistemic-graph"
 pages_url = "https://knuckles-team.github.io/epistemic-graph/"
 mcp_server = false
-
-# ── Opt-in build LAYERS (not published as separate wheels) ──
-# The two heavier layers stack ON TOP of the main build and are built explicitly:
-#
-#   # HA / multi-node (adds openraft replication + distributed compute):
-#   maturin build --release --no-default-features --features cluster,ast-extended
-#
-#   # GPU / robotics (adds the real CUDA + ROS2 bridge/DDS backends):
-#   maturin build --release --no-default-features --features full-extras,ast-extended
-#
-# `--no-default-features` keeps the selected layer as the exact feature set (the
-# `[tool.maturin] features` default above is not unioned on top). Both layers are a
-# strict superset of `full`, so they remain full-featured single-node DBs plus their
-# extra capability. Neither is published to PyPI — PyPI ships the one main wheel + sdist.
-#
-# `--profile release-tiny` (opt-level z + fat LTO + strip) still works for a smaller
-# binary if wanted; the release CI builds the standard `--release` main wheel.
 
 [tool.pipelines_hooks.ste]
 paths = ["README.md", "AGENTS.md", "CLAUDE.md", "CONTRIBUTING.md", "CHANGELOG.md", "docs", "specs"]

@@ -47,7 +47,12 @@ def _build_job_source(raw: str) -> str:
 
 def test_maturin_default_and_python_extra_are_full() -> None:
     project = tomllib.loads((REPO / "pyproject.toml").read_text(encoding="utf-8"))
-    assert project["tool"]["maturin"]["features"] == ["full", "ast-extended"]
+    maturin = project["tool"]["maturin"]
+    # The public wheel is the eg-pyengine extension crate, not the server bin.
+    assert maturin["features"] == ["python", "security"]
+    assert maturin["manifest-path"] == "crates/eg-pyengine/Cargo.toml"
+    assert maturin["module-name"] == "epistemic_graph.engine"
+    assert maturin.get("bindings") != "bin"
     dependencies = project["project"]["dependencies"]
     assert not any(
         re.split(r"[\[<>=!~;]", dependency, maxsplit=1)[0].lower() == "numpy"
@@ -180,7 +185,7 @@ def test_every_supported_release_target_uses_one_full_wheel_pipeline() -> None:
         "macos-x86_64": "x86_64-apple-darwin",
         "windows-x86_64": "x86_64-pc-windows-msvc",
     }
-    assert 'MATURIN_FEATURES: "full,ast-extended"' in raw
+    assert "MATURIN_FEATURES" not in raw
     assert "--no-default-features" not in _build_job_source(raw)
     both = raw + CI_WORKFLOW.read_text(encoding="utf-8")
     assert "scripts/inject_numeric_kernel.py" in both
@@ -215,13 +220,15 @@ def test_release_wheels_are_rebuilt_and_compared_reproducibly() -> None:
     assert 'CARGO_INCREMENTAL: "0"' in raw
     assert "max-parallel: 1" in raw
     assert "SOURCE_DATE_EPOCH=" in raw
-    # One pass (.github/actions/folded-wheel) builds the server wheel, the
-    # numeric kernel and the pyengine kernel into one shared target directory,
-    # folds both kernels in, then normalizes, audits and checks the result.
+    # One pass (.github/actions/folded-wheel) builds the engine extension wheel
+    # and the numeric module into one shared target directory, folds the numeric
+    # module in, then normalizes, audits and checks the result. No server crate.
     wheel_pass = WHEEL_PASS_ACTION.read_text(encoding="utf-8")
-    for output in ("dist", "numdist", "enginedist"):
+    for output in ("dist", "numdist"):
         assert f"--out {output}-${{{{ inputs.pass }}}}" in wheel_pass
-    assert wheel_pass.count("uses: ./.github/actions/release-maturin") == 3
+    assert "enginedist" not in wheel_pass
+    assert "full,ast-extended" not in wheel_pass
+    assert wheel_pass.count("uses: ./.github/actions/release-maturin") == 2
     shared = yaml.safe_load(
         (REPO / ".github/actions/release-maturin/action.yml").read_text()
     )["runs"]["steps"]
@@ -235,7 +242,6 @@ def test_release_wheels_are_rebuilt_and_compared_reproducibly() -> None:
     ) in wheel_pass
     for script in (
         "scripts/inject_numeric_kernel.py",
-        "scripts/inject_pyengine.py",
         "scripts/normalize_wheel_sbom.py",
         "scripts/normalize_wheel_build_paths.py",
         "scripts/check_wheel_privacy.py",
@@ -248,9 +254,9 @@ def test_release_wheels_are_rebuilt_and_compared_reproducibly() -> None:
     # `eg-numeric` build (the 2026-08-21 stale-install incident).
     both = raw + CI_WORKFLOW.read_text(encoding="utf-8")
     assert both.count("scripts/inject_numeric_kernel.py") == 1
-    assert both.count("scripts/normalize_wheel_sbom.py") == 3
-    assert both.count("scripts/normalize_wheel_build_paths.py") == 3
-    assert both.count("scripts/check_wheel_privacy.py") == 3
+    assert both.count("scripts/normalize_wheel_sbom.py") == 2
+    assert both.count("scripts/normalize_wheel_build_paths.py") == 2
+    assert both.count("scripts/check_wheel_privacy.py") == 2
     assert "Remove primary native build state" in raw
     assert "release wheel digest mismatch" in both
 
@@ -259,18 +265,22 @@ def test_incomplete_fallback_artifacts_cannot_be_published() -> None:
     raw = WORKFLOW.read_text(encoding="utf-8")
     assert "command: sdist" not in raw
     jobs = yaml.safe_load(raw)["jobs"]
-    publish = jobs["publish-pypi"]
-    assert set(publish["needs"]) == {"build", "build-x86", "build-sdist"}
+    assert "publish-pypi" not in jobs
+    publish = jobs["publish-x86"]
+    assert publish["needs"] == "build-x86"
     assert publish["permissions"] == {"contents": "read"}
     steps = publish["steps"]
-    gate_name = "Require every distribution to be complete before upload"
-    gate = next(step["run"] for step in steps if step.get("name") == gate_name)
-    assert "check_wheel_completeness.py --require-engine-kernel dist/*.whl" in gate
-    assert "check_sdist_completeness.py dist/*.tar.gz" in gate
-    names = [step.get("name", "") for step in steps]
-    assert names.index(gate_name) < names.index(
-        "Freeze exact staged publication identity"
+    gate = next(
+        step["run"]
+        for step in steps
+        if step.get("name") == "Require a complete wheel before upload"
     )
+    assert "check_wheel_completeness.py --require-engine-kernel dist/*.whl" in gate
+    names = [step.get("name", "") for step in steps]
+    assert names.index("Require a complete wheel before upload") < names.index(
+        "Publish linux-x86_64 to PyPI"
+    )
+    assert set(jobs["verify-pypi"]["needs"]) == {"build", "publish-x86", "build-sdist"}
     source_steps = jobs["build-sdist"]["steps"]
     assert any(
         "check_sdist_completeness.py" in step.get("run", "") for step in source_steps
@@ -603,7 +613,14 @@ def test_tag_pipeline_builds_checks_and_publishes_only() -> None:
     assert triggers["push"] == {"tags": ["v*"]}
     assert triggers["workflow_dispatch"]["inputs"]["force_untested"]["default"] is False
     jobs = doc["jobs"]
-    assert set(jobs) == {"guard", "build", "build-x86", "build-sdist", "publish-pypi"}
+    assert set(jobs) == {
+        "guard",
+        "build",
+        "build-x86",
+        "build-sdist",
+        "publish-x86",
+        "verify-pypi",
+    }
     for name in ("build", "build-x86", "build-sdist"):
         assert jobs[name]["needs"] == "guard"
     guard = jobs["guard"]
