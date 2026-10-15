@@ -2084,6 +2084,126 @@ async fn coalesced_batch_round_trips_on_one_connection() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+// spec: EG-DURABLE-KERNEL-R015
+/// EH-288: heartbeat flushing is INDEPENDENT PER PEER, not one shared flush pass —
+/// one slow peer's round trip must not stall the others' scheduled flush. With two
+/// heartbeats offered within the same coalescing window, the fast peer's heartbeat
+/// completes before the slow peer's round trip even finishes: under the old
+/// head-of-line behaviour (one shared `flush_pending` awaiting every peer), the fast
+/// peer would have been withheld behind the slow one.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn heartbeat_flush_is_independent_per_peer_a_slow_peer_cannot_stall_the_others() {
+    use super::network::{
+        decode_wire, read_frame, write_frame, GroupRpc, GroupRpcReply, HeartbeatCoalescer,
+        PeerPool, RaftFrame, RaftFrameReply,
+    };
+    use openraft::raft::AppendEntriesResponse;
+
+    /// A raw-TCP "peer": answers each heartbeat batch after `delay`.
+    async fn heartbeat_peer(port: u16, delay: std::time::Duration) {
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", port))
+            .await
+            .expect("bind heartbeat peer");
+        while let Ok((mut stream, _)) = listener.accept().await {
+            tokio::spawn(async move {
+                loop {
+                    let Ok(body) = read_frame(&mut stream).await else {
+                        return;
+                    };
+                    tokio::time::sleep(delay).await;
+                    let reply = match decode_wire::<RaftFrame>(&body) {
+                        Ok(RaftFrame::Batch(rpcs)) => RaftFrameReply::Batch(
+                            (0..rpcs.len())
+                                .map(|_| GroupRpcReply::Append(Ok(AppendEntriesResponse::Success)))
+                                .collect(),
+                        ),
+                        Ok(RaftFrame::One(_)) => RaftFrameReply::One(GroupRpcReply::Append(Ok(
+                            AppendEntriesResponse::Success,
+                        ))),
+                        Err(_) => return,
+                    };
+                    let Ok(wire) = rmp_serde::to_vec_named(&reply) else {
+                        return;
+                    };
+                    if write_frame(&mut stream, &wire).await.is_err() {
+                        return;
+                    }
+                }
+            });
+        }
+    }
+
+    let ports = free_ports(2);
+    let fast = format!("127.0.0.1:{}", ports[0]);
+    let slow = format!("127.0.0.1:{}", ports[1]);
+    let fast_task = tokio::spawn(heartbeat_peer(
+        ports[0],
+        std::time::Duration::from_millis(0),
+    ));
+    let slow_task = tokio::spawn(heartbeat_peer(
+        ports[1],
+        std::time::Duration::from_millis(500),
+    ));
+
+    let coalescer = std::sync::Arc::new(HeartbeatCoalescer::new());
+    let pool = PeerPool::with_capacity(2);
+    let worker = tokio::spawn(coalescer.clone().run(pool.clone()));
+    // Let the flush worker park on its wake notification, so BOTH heartbeats below
+    // are queued before its next coalescing window starts (one shared window).
+    tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+
+    let t0 = std::time::Instant::now();
+    let c_fast = coalescer.clone();
+    let fast_rt = tokio::spawn(async move {
+        let reply = c_fast
+            .heartbeat_round_trip(&fast, GroupRpc::Append(101, heartbeat_req()))
+            .await;
+        (t0.elapsed(), reply)
+    });
+    let c_slow = coalescer.clone();
+    let slow_rt = tokio::spawn(async move {
+        let reply = c_slow
+            .heartbeat_round_trip(&slow, GroupRpc::Append(102, heartbeat_req()))
+            .await;
+        (t0.elapsed(), reply)
+    });
+    let (fast_elapsed, fast_reply) = fast_rt.await.expect("fast heartbeat task");
+    let (slow_elapsed, slow_reply) = slow_rt.await.expect("slow heartbeat task");
+
+    assert!(
+        matches!(
+            fast_reply.expect("the fast peer's heartbeat must complete"),
+            GroupRpcReply::Append(Ok(AppendEntriesResponse::Success))
+        ),
+        "fast peer reply"
+    );
+    assert!(
+        matches!(
+            slow_reply.expect("the slow peer's heartbeat must complete"),
+            GroupRpcReply::Append(Ok(AppendEntriesResponse::Success))
+        ),
+        "slow peer reply"
+    );
+    // The slow peer was genuinely slow, so the ordering below is meaningful.
+    assert!(
+        slow_elapsed > std::time::Duration::from_millis(400),
+        "the slow peer must have been slow (round trip {slow_elapsed:?})"
+    );
+    // And yet its in-flight round trip must NOT stall the other peer's scheduled
+    // flush: the fast peer's heartbeat completed while the slow one was still
+    // outstanding — no head-of-line blocking.
+    assert!(
+        fast_elapsed < slow_elapsed,
+        "head-of-line: the fast peer's heartbeat ({fast_elapsed:?}) must finish \
+         before the slow peer's round trip ({slow_elapsed:?})"
+    );
+
+    coalescer.stop();
+    let _ = worker.await;
+    fast_task.abort();
+    slow_task.abort();
+}
+
 /// Every listed member's local Raft reports `leader` as the current leader of `gid`.
 async fn all_members_observe_leader(
     members: &[&Arc<super::multi::MultiRaft>],
