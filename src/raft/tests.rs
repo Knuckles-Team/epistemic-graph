@@ -2084,6 +2084,126 @@ async fn coalesced_batch_round_trips_on_one_connection() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+// spec: EG-DURABLE-KERNEL-R015
+/// EH-288: heartbeat flushing is INDEPENDENT PER PEER, not one shared flush pass —
+/// one slow peer's round trip must not stall the others' scheduled flush. With two
+/// heartbeats offered within the same coalescing window, the fast peer's heartbeat
+/// completes before the slow peer's round trip even finishes: under the old
+/// head-of-line behaviour (one shared `flush_pending` awaiting every peer), the fast
+/// peer would have been withheld behind the slow one.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn heartbeat_flush_is_independent_per_peer_a_slow_peer_cannot_stall_the_others() {
+    use super::network::{
+        decode_wire, read_frame, write_frame, GroupRpc, GroupRpcReply, HeartbeatCoalescer,
+        PeerPool, RaftFrame, RaftFrameReply,
+    };
+    use openraft::raft::AppendEntriesResponse;
+
+    /// A raw-TCP "peer": answers each heartbeat batch after `delay`.
+    async fn heartbeat_peer(port: u16, delay: std::time::Duration) {
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", port))
+            .await
+            .expect("bind heartbeat peer");
+        while let Ok((mut stream, _)) = listener.accept().await {
+            tokio::spawn(async move {
+                loop {
+                    let Ok(body) = read_frame(&mut stream).await else {
+                        return;
+                    };
+                    tokio::time::sleep(delay).await;
+                    let reply = match decode_wire::<RaftFrame>(&body) {
+                        Ok(RaftFrame::Batch(rpcs)) => RaftFrameReply::Batch(
+                            (0..rpcs.len())
+                                .map(|_| GroupRpcReply::Append(Ok(AppendEntriesResponse::Success)))
+                                .collect(),
+                        ),
+                        Ok(RaftFrame::One(_)) => RaftFrameReply::One(GroupRpcReply::Append(Ok(
+                            AppendEntriesResponse::Success,
+                        ))),
+                        Err(_) => return,
+                    };
+                    let Ok(wire) = rmp_serde::to_vec_named(&reply) else {
+                        return;
+                    };
+                    if write_frame(&mut stream, &wire).await.is_err() {
+                        return;
+                    }
+                }
+            });
+        }
+    }
+
+    let ports = free_ports(2);
+    let fast = format!("127.0.0.1:{}", ports[0]);
+    let slow = format!("127.0.0.1:{}", ports[1]);
+    let fast_task = tokio::spawn(heartbeat_peer(
+        ports[0],
+        std::time::Duration::from_millis(0),
+    ));
+    let slow_task = tokio::spawn(heartbeat_peer(
+        ports[1],
+        std::time::Duration::from_millis(500),
+    ));
+
+    let coalescer = std::sync::Arc::new(HeartbeatCoalescer::new());
+    let pool = PeerPool::with_capacity(2);
+    let worker = tokio::spawn(coalescer.clone().run(pool.clone()));
+    // Let the flush worker park on its wake notification, so BOTH heartbeats below
+    // are queued before its next coalescing window starts (one shared window).
+    tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+
+    let t0 = std::time::Instant::now();
+    let c_fast = coalescer.clone();
+    let fast_rt = tokio::spawn(async move {
+        let reply = c_fast
+            .heartbeat_round_trip(&fast, GroupRpc::Append(101, heartbeat_req()))
+            .await;
+        (t0.elapsed(), reply)
+    });
+    let c_slow = coalescer.clone();
+    let slow_rt = tokio::spawn(async move {
+        let reply = c_slow
+            .heartbeat_round_trip(&slow, GroupRpc::Append(102, heartbeat_req()))
+            .await;
+        (t0.elapsed(), reply)
+    });
+    let (fast_elapsed, fast_reply) = fast_rt.await.expect("fast heartbeat task");
+    let (slow_elapsed, slow_reply) = slow_rt.await.expect("slow heartbeat task");
+
+    assert!(
+        matches!(
+            fast_reply.expect("the fast peer's heartbeat must complete"),
+            GroupRpcReply::Append(Ok(AppendEntriesResponse::Success))
+        ),
+        "fast peer reply"
+    );
+    assert!(
+        matches!(
+            slow_reply.expect("the slow peer's heartbeat must complete"),
+            GroupRpcReply::Append(Ok(AppendEntriesResponse::Success))
+        ),
+        "slow peer reply"
+    );
+    // The slow peer was genuinely slow, so the ordering below is meaningful.
+    assert!(
+        slow_elapsed > std::time::Duration::from_millis(400),
+        "the slow peer must have been slow (round trip {slow_elapsed:?})"
+    );
+    // And yet its in-flight round trip must NOT stall the other peer's scheduled
+    // flush: the fast peer's heartbeat completed while the slow one was still
+    // outstanding — no head-of-line blocking.
+    assert!(
+        fast_elapsed < slow_elapsed,
+        "head-of-line: the fast peer's heartbeat ({fast_elapsed:?}) must finish \
+         before the slow peer's round trip ({slow_elapsed:?})"
+    );
+
+    coalescer.stop();
+    let _ = worker.await;
+    fast_task.abort();
+    slow_task.abort();
+}
+
 /// Every listed member's local Raft reports `leader` as the current leader of `gid`.
 async fn all_members_observe_leader(
     members: &[&Arc<super::multi::MultiRaft>],
@@ -2662,6 +2782,144 @@ async fn wire_raft_add_learner_and_change_membership_resolve_through_dispatch() 
 
     // ── Cleanup.
     for (_, multi, _) in &multis {
+        multi.stop_listener();
+    }
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+// spec: EG-DURABLE-KERNEL-R025
+/// EH-534, leader-agnostic cluster test: a member-add administrative request follows
+/// the CURRENT leader to completion after a LEGAL leadership change — no
+/// forward-to-leader response is ever surfaced, and the tests never assume a fixed
+/// leader. Grow a group to three voters, hand leadership to node 2 (the balancer's
+/// native round-robin transfer — a legal handoff, not an assumed one), then:
+/// (a) add node 4 as a VOTER through the NEW leader (node 2), and
+/// (b) attach node 5 as a LEARNER against the DEPOSED node 1 (a follower now) —
+/// it must follow the current leader instead of redirecting. Every member's
+/// replicated view must agree, whoever held leadership.
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn member_add_follows_the_current_leader_after_a_leader_change() {
+    // Opens a durable store, so the ambient encryption env must hold still for
+    // this whole body. READ guard: it excludes only a key MUTATOR, never another
+    // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    use super::multi::MultiRaft;
+
+    let root = std::env::temp_dir().join(format!("eg-memadd-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let ports = free_ports(5);
+    let addr = |i: usize| format!("127.0.0.1:{}", ports[i - 1]);
+    let gid = 7u64; // 7 % 3 == 1 → the round-robin target over [1,2,3] is node 2
+
+    // ── Five nodes; node 1 bootstraps group 7 alone, the rest join EMPTY.
+    let mut multis: Vec<(NodeId, Arc<MultiRaft>)> = Vec::new();
+    for i in 1..=5u64 {
+        let dir = root.join(format!("node{i}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        let dir = dir.to_string_lossy().to_string();
+        let backend: Arc<dyn PersistenceBackend> =
+            Arc::new(RedbBackend::open(dir.clone(), 4096).expect("open redb"));
+        let state = make_state_with_backend(&dir, backend.clone()).await;
+        let ctx = super::AppCtx {
+            state,
+            router: None,
+        };
+        let multi = start_multi(i, addr(i as usize), backend, ctx)
+            .await
+            .expect("start multi");
+        if i == 1 {
+            let peers: BTreeMap<NodeId, BasicNode> = [(1u64, BasicNode::new(addr(1)))].into();
+            multi.create_group(gid, peers, true).await.unwrap();
+        } else {
+            multi.join_group(gid, BTreeMap::new()).await.unwrap();
+        }
+        multis.push((i, multi));
+    }
+
+    wait_for_expected_group_leader(
+        &multis[0].1,
+        gid,
+        1,
+        "node 1 must lead the single-member group 7",
+    )
+    .await;
+
+    // ── Grow to three voters (from the original leader, node 1).
+    multis[0]
+        .1
+        .add_group_member(gid, 2, addr(2))
+        .await
+        .expect("add voter 2");
+    multis[0]
+        .1
+        .add_group_member(gid, 3, addr(3))
+        .await
+        .expect("add voter 3");
+    for (id, multi) in &multis {
+        if *id > 3 {
+            continue;
+        }
+        wait_until(Duration::from_secs(15), || {
+            let multi = multi.clone();
+            async move { multi.group_membership(gid).await == Some(vec![1, 2, 3]) }
+        })
+        .await
+        .unwrap_or_else(|_| panic!("node {id} must see the three-voter membership"));
+    }
+
+    // ── A LEGAL leadership change: the balancer moves group 7 to its round-robin
+    //    target (node 2) via the native transfer_leader. Drive periodic passes
+    //    until EVERY member observes the new leader — no fixed-leader assumption.
+    let start = std::time::Instant::now();
+    let mut converged = false;
+    while start.elapsed() < Duration::from_secs(30) {
+        if all_members_observe_leader(&[&multis[0].1, &multis[1].1, &multis[2].1], gid, 2).await {
+            converged = true;
+            break;
+        }
+        multis[0].1.rebalance_leaders().await;
+        multis[1].1.rebalance_leaders().await;
+        multis[2].1.rebalance_leaders().await;
+        tokio::time::sleep(Duration::from_millis(800)).await;
+    }
+    assert!(
+        converged,
+        "leadership must converge to the round-robin target (node 2) via transfer_leader"
+    );
+
+    // ── (a) member-add through the NEW leader (node 2), not the deposed node 1.
+    multis[1]
+        .1
+        .add_group_member(gid, 4, addr(4))
+        .await
+        .expect("member-add must complete against the CURRENT leader");
+
+    // ── (b) a LEARNER add issued against the DEPOSED node 1 (a follower now)
+    //    follows the current leader instead of answering with a redirect.
+    multis[0]
+        .1
+        .add_group_learner(gid, 5, addr(5))
+        .await
+        .expect("a follower must follow the current leader, never redirect");
+
+    // ── Every member's replicated view agrees, whoever held leadership:
+    //    node 4 is a voter, node 5 a non-voting learner.
+    for (id, multi) in &multis {
+        wait_until(Duration::from_secs(15), || {
+            let multi = multi.clone();
+            async move {
+                multi.group_membership(gid).await == Some(vec![1, 2, 3, 4])
+                    && multi.group_learners(gid).await == Some(vec![5])
+            }
+        })
+        .await
+        .unwrap_or_else(|_| {
+            panic!("node {id} must observe the member-add applied by the current leader")
+        });
+    }
+
+    // ── Cleanup.
+    for (_, multi) in &multis {
         multi.stop_listener();
     }
     let _ = std::fs::remove_dir_all(&root);
