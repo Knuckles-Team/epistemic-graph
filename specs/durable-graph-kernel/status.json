@@ -222,6 +222,20 @@
     "EG-DURABLE-KERNEL-R094.4",
     "EG-DURABLE-KERNEL-R094.5",
     "EG-DURABLE-KERNEL-R094.6",
+    "EG-DURABLE-KERNEL-R095",
+    "EG-DURABLE-KERNEL-R095.1",
+    "EG-DURABLE-KERNEL-R095.2",
+    "EG-DURABLE-KERNEL-R095.3",
+    "EG-DURABLE-KERNEL-R095.4",
+    "EG-DURABLE-KERNEL-R095.5",
+    "EG-DURABLE-KERNEL-R095.6",
+    "EG-DURABLE-KERNEL-R096",
+    "EG-DURABLE-KERNEL-R096.1",
+    "EG-DURABLE-KERNEL-R096.2",
+    "EG-DURABLE-KERNEL-R096.3",
+    "EG-DURABLE-KERNEL-R096.4",
+    "EG-DURABLE-KERNEL-R096.5",
+    "EG-DURABLE-KERNEL-R096.6",
     "EG-DURABLE-KERNEL-R028.1",
     "EG-DURABLE-KERNEL-R085.9",
     "EG-DURABLE-KERNEL-R085.10",
@@ -2595,6 +2609,120 @@
     },
     {
       "id": "EG-DURABLE-KERNEL-R094.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R095",
+      "title": "GraphOS inter-session inbox operation with sender/recipient authorization",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DURABLE-KERNEL-R095.1",
+        "EG-DURABLE-KERNEL-R095.2",
+        "EG-DURABLE-KERNEL-R095.3",
+        "EG-DURABLE-KERNEL-R095.4",
+        "EG-DURABLE-KERNEL-R095.5",
+        "EG-DURABLE-KERNEL-R095.6"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R095.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R095.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R095.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R095.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R095.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R095.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R096",
+      "title": "AU search-result persistence with authorized readback completion gate",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DURABLE-KERNEL-R096.1",
+        "EG-DURABLE-KERNEL-R096.2",
+        "EG-DURABLE-KERNEL-R096.3",
+        "EG-DURABLE-KERNEL-R096.4",
+        "EG-DURABLE-KERNEL-R096.5",
+        "EG-DURABLE-KERNEL-R096.6"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R096.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R096.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R096.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R096.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R096.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R096.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],

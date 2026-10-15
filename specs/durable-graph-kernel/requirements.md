@@ -222,6 +222,21 @@
 | `EG-DURABLE-KERNEL-R094.5` | **Evidence.** Accepted ID includes repository source and admission timestamp. | Readback confirms authoritative source and acceptance record. |
 | `EG-DURABLE-KERNEL-R094.6` | **Hot-path proof.** Repository producers submit IDs through EG validation; cross-repository path collision is refused. | Integration test submits concept IDs from two repositories, proves collision detection and authority isolation. |
 
+| `EG-DURABLE-KERNEL-R095` | **GraphOS inter-session inbox operation with sender/recipient authorization.** Authenticated inbox operation binds and authenticates sender/recipient before durable enqueue. Read isolation and delivery authorization establish binding. | Child tests cover sender/recipient bindings, authorization refusal and durable delivery. |
+| `EG-DURABLE-KERNEL-R095.1` | **Model.** Define inter-session inbox operation with sender/recipient identity binding. | Unit test shows operation round-trips and binds both identities. |
+| `EG-DURABLE-KERNEL-R095.2` | **Behavior.** Authenticate sender and recipient session. | Served test confirms both sessions are verified before enqueue. |
+| `EG-DURABLE-KERNEL-R095.3` | **Wiring.** Route inbox operation through session-authenticated gateway. | Served test receives operation through verified request context. |
+| `EG-DURABLE-KERNEL-R095.4` | **Refusal.** Refuse unknown/unauthorized target session before durable enqueue. | Test proves unknown session and unauthorized recipient are refused. |
+| `EG-DURABLE-KERNEL-R095.5` | **Evidence.** Durable append includes sender/recipient with delivery binding. | Readback confirms both identities in durable record. |
+| `EG-DURABLE-KERNEL-R095.6` | **Hot-path proof.** GraphOS session port sends inbox operation; authorization validates before enqueue; scoped inbox read succeeds. | Integration test proves authenticated sender sends to authenticated recipient, durable append occurs, recipient reads inbox without authorization bypass. |
+| `EG-DURABLE-KERNEL-R096` | **AU search-result persistence with authorized readback completion gate.** EG durable write/read service owned by AU. Search-result receipt and AU readback success gate complete run. Failed/mismatched readback refuses completion. | Child tests cover write binding, readback receipt and completion refusal. |
+| `EG-DURABLE-KERNEL-R096.1` | **Model.** Define search-result write/readback receipt and completion gate. | Unit test shows receipt structure and refusal conditions. |
+| `EG-DURABLE-KERNEL-R096.2` | **Behavior.** Accept search result and store durably. | Served test writes search result through EG durable path. |
+| `EG-DURABLE-KERNEL-R096.3` | **Wiring.** EG stores result; AU triggers readback and verifies match. | Served test AU component writes, then reads back and confirms identity. |
+| `EG-DURABLE-KERNEL-R096.4` | **Refusal.** Refuse completion when readback fails or mismatches write. | Test proves mismatched readback leaves completion gate open. |
+| `EG-DURABLE-KERNEL-R096.5` | **Evidence.** Completion record includes write receipt and readback verification. | Trace confirms both operations and match. |
+| `EG-DURABLE-KERNEL-R096.6` | **Hot-path proof.** AU execution writes search result to EG; readback gate blocks until match verified. | Integration test submits search result, proves readback succeeds only on match, completion gate fires. |
+
 <!-- spec-definition-patch:owner-batch-20261012-durable-graph-kernel -->
 ## Durable-kernel definitions and explicit owner holds — 2026-10-12
 
