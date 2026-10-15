@@ -50,6 +50,7 @@ class ReleasePublication(unittest.TestCase):
                 "gates-wheel",
                 "gates-facade",
                 "gates-whisper",
+                "gates-plan-fuzz",
                 "gates-variants",
                 "gates-crates",
                 "gates-pyo3",

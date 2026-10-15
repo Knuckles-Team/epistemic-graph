@@ -306,6 +306,7 @@ fn json_doc(keep: bool) -> Vec<u8> {
 /// with many higher-scoring non-members, `[Scan, Filter category, RankText]` returns
 /// EXACTLY the brute-force answer — the full-corpus BM25 ranking restricted to the
 /// category (same ids, same scores, same order) — never a truncated subset.
+// spec: EG-FEDERATED-QUERY-R035
 #[test]
 fn filtered_rank_text_equals_the_brute_force_restricted_ranking() {
     const CATEGORIES: [&str; 5] = ["a", "b", "c", "d", "e"];

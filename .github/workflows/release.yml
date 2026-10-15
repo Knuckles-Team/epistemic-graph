@@ -6,7 +6,7 @@ name: Release
 # freshness, lint, scanner/census analysis, optional feature builds, and
 # benchmarks remain visible but advisory; they do not delay publication.
 #
-# Blocking path: {gates, gates-wheel, gates-facade, gates-whisper, gates-variants, gates-crates, gates-pyo3, python-suite,
+# Blocking path: {gates, gates-plan-fuzz, gates-wheel, gates-facade, gates-whisper, gates-variants, gates-crates, gates-pyo3, python-suite,
 # security, lint-and-architecture, tts-piper-inference, language-clients}
 # -> {build, build-x86} -> {docker-image, publish-pypi} -> publish-image.
 # Quality and documentation checks run independently. GitHub Pages deploys
@@ -134,7 +134,7 @@ jobs:
     name: gates
     needs: changes
     if: needs.changes.outputs.code == 'true'
-    runs-on: ${{ github.event_name == 'push' && fromJSON('["self-hosted", "homelab"]') || 'ubuntu-latest' }}
+    runs-on: &eg-native-validation-runner ubuntu-latest
     # Build and cleanup must choose the same backend if the daemon restarts.
     # Backend settings alone do not wrap any other Cargo command.
     env: &eg-validation-compiler-cache-backend
@@ -218,13 +218,6 @@ jobs:
       - name: Test (replay-determinism — eg-jobs/eg-statechart crash-replay proofs, DE7)
         env: *eg-validation-compiler-cache-env
         run: python3 scripts/cargo_test_rescue.py cargo test -p eg-jobs -p eg-statechart --test replay_determinism --no-fail-fast
-      # The fuzz + concurrency-chaos proptest suite (long random valid pipelines,
-      # snapshot-isolation under contention) — a correctness test, kept here
-      # (release-critical) rather than moving with the rest of the former
-      # optional `benchmarks` job (which reports performance feedback).
-      - name: Query-pipeline fuzz + chaos (eg-plan)
-        env: *eg-validation-compiler-cache-env
-        run: python3 scripts/cargo_test_rescue.py cargo test -p eg-plan --features "query,owl,text,timeseries,federation" --test fuzz_pipelines --no-fail-fast
       - &eg-locked-pytest
         name: Install locked pytest for generated-client checks
         run: uv pip install --python "$(command -v python3)" pytest==9.1.1 iniconfig==2.3.0 packaging==26.2 pluggy==1.6.0 pygments==2.20.0
@@ -241,13 +234,38 @@ jobs:
           echo 'Cache statistics cover the current daemon only; a restart resets its counters.'
           sccache --show-stats
 
+  # Independent required fuzz acceptance avoids serial lower-crate compilation.
+  gates-plan-fuzz:
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
+    name: gates (plan fuzz and chaos)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: *eg-native-validation-runner
+    env: *eg-validation-compiler-cache-backend
+    steps:
+      - *eg-gates-checkout
+      - *eg-gates-python
+      - *eg-gates-pydeps
+      - *eg-gates-toolchain
+      - *eg-gates-cache
+      - *eg-gates-sqlite
+      - *eg-validation-compiler-cache
+      # Preserve the original correctness suite, features and assertions.
+      - name: Query-pipeline fuzz + chaos (eg-plan)
+        env: *eg-validation-compiler-cache-env
+        run: python3 scripts/cargo_test_rescue.py cargo test -p eg-plan --features "query,owl,text,timeseries,federation" --test fuzz_pipelines --no-fail-fast
+
+      - name: Report plan-fuzz compiler cache reuse
+        if: always()
+        run: *eg-validation-compiler-cache-stats
+
   # Independent required acceptance; retain the original native-job cap.
   gates-wheel:
     timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
     name: gates (installed wheel)
     needs: changes
     if: needs.changes.outputs.code == 'true'
-    runs-on: ${{ github.event_name == 'push' && fromJSON('["self-hosted", "homelab"]') || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     steps:
       - *eg-gates-checkout
       - *eg-gates-python
@@ -419,7 +437,7 @@ jobs:
     name: gates (facade full)
     needs: changes
     if: needs.changes.outputs.code == 'true'
-    runs-on: ${{ github.event_name == 'push' && fromJSON('["self-hosted", "homelab"]') || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     env: *eg-validation-compiler-cache-backend
     steps:
       - *eg-gates-checkout
@@ -429,7 +447,14 @@ jobs:
       - *eg-gates-pydeps
 
       - *eg-gates-toolchain
-      - *eg-gates-cache
+      # A cold target took 41m13s before tests in run 38486393509.
+      # Preserve trusted-main workspace outputs; Cargo still checks current inputs.
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          workspaces: ". -> target-isolated"
+          key: facade-workspace-v1
+          cache-workspace-crates: true
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       # sqlite3 CLI for the facade `.db` round-trip test (see `gates`).
       - *eg-gates-sqlite
@@ -464,7 +489,7 @@ jobs:
     name: gates (Whisper real model)
     needs: changes
     if: needs.changes.outputs.code == 'true'
-    runs-on: ${{ github.event_name == 'push' && fromJSON('["self-hosted", "homelab"]') || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     steps:
       - *eg-gates-checkout
       - *eg-gates-python
@@ -770,9 +795,16 @@ jobs:
     steps:
       - *eg-python-checkout
       - *eg-gates-toolchain
-      - *eg-gates-cache
-      # Dependency caching alone drops workspace outputs. Cache compiler inputs
-      # instead of bypassing Cargo or restoring an older server binary. Install
+      # A seeded main cache still missed 16 workspace compilations and exceeded
+      # ten minutes in PR555 attempt 2. Retain workspace outputs on trusted main;
+      # Cargo validates restored inputs, and the full-engine budget covers misses.
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          workspaces: ". -> target-isolated"
+          key: python-server-workspace-v1
+          cache-workspace-crates: true
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      # Also cache individual compiler outputs without bypassing Cargo. Install
       # before setting the wrapper: a missing global wrapper broke CI previously.
       - *eg-validation-compiler-cache
       - name: Build the full-featured engine binary once
@@ -1348,7 +1380,7 @@ jobs:
   build:
     timeout-minutes: 360
     name: wheel ${{ matrix.name }}
-    needs: [gates, gates-wheel, gates-facade, gates-whisper, gates-variants, gates-crates, gates-pyo3, python-suite, security, lint-and-architecture, tts-piper-inference, language-clients]
+    needs: [gates, gates-plan-fuzz, gates-wheel, gates-facade, gates-whisper, gates-variants, gates-crates, gates-pyo3, python-suite, security, lint-and-architecture, tts-piper-inference, language-clients]
     # Hosted platform legs; x86 is isolated in the immutable reusable job below.
     if: >-
       github.repository == 'Knuckles-Team/epistemic-graph'
@@ -1567,7 +1599,7 @@ jobs:
 
   build-x86:
     name: wheel linux-x86_64
-    needs: [gates, gates-wheel, gates-facade, gates-whisper, gates-variants, gates-crates, gates-pyo3, python-suite, security, lint-and-architecture, tts-piper-inference, language-clients]
+    needs: [gates, gates-plan-fuzz, gates-wheel, gates-facade, gates-whisper, gates-variants, gates-crates, gates-pyo3, python-suite, security, lint-and-architecture, tts-piper-inference, language-clients]
     if: >-
       github.repository == 'Knuckles-Team/epistemic-graph'
       && ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || github.event_name == 'workflow_dispatch')
@@ -1887,7 +1919,7 @@ jobs:
   engine-main-wheel:
     timeout-minutes: 360
     name: engine-main wheel (linux-x86_64)
-    needs: [gates, gates-wheel, gates-facade, gates-whisper, gates-variants, gates-crates, gates-pyo3, python-suite, security, lint-and-architecture]
+    needs: [gates, gates-plan-fuzz, gates-wheel, gates-facade, gates-whisper, gates-variants, gates-crates, gates-pyo3, python-suite, security, lint-and-architecture]
     if: >-
       github.repository == 'Knuckles-Team/epistemic-graph'
       && github.event_name == 'push' && github.ref == 'refs/heads/main'

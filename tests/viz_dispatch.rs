@@ -37,6 +37,8 @@ const SECRET: &str = "served-viz-dispatch-secret";
 const PNG_SIGNATURE: [u8; 4] = [137, 80, 78, 71];
 
 fn state() -> test_support::SharedState {
+    // Bind the server tenant before construction, using the request signer authority.
+    common::configure_authority();
     test_support::durable_state(SECRET, common::current_isolation())
 }
 

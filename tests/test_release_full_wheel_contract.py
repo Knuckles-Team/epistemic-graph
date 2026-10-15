@@ -352,6 +352,7 @@ def _assert_runner_budget(workflow: Path, name: str, job: dict) -> None:
             "gates-wheel",
             "gates-facade",
             "gates-whisper",
+            "gates-plan-fuzz",
             "python-server",
             "python-suite",
             "gates-pyo3",

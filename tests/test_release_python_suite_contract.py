@@ -290,7 +290,8 @@ def _assert_cache_job_settings(job_name: str, job: dict) -> None:
     assert int(CACHE_BACKEND["SCCACHE_IDLE_TIMEOUT"]) > 60 * 60
     budget = (
         45
-        if job_name in {"gates", "gates-facade", "python-server", "gates-pyo3"}
+        if job_name
+        in {"gates", "gates-plan-fuzz", "gates-facade", "python-server", "gates-pyo3"}
         else 10
     )
     assert job["timeout-minutes"] == (
@@ -564,6 +565,8 @@ COMPILER_CACHE_COMMANDS: dict[str, dict[str, tuple[str, ...]]] = {
                 "eg-statechart --test replay_determinism --no-fail-fast"
             ),
         ),
+    },
+    "gates-plan-fuzz": {
         ("Query-pipeline fuzz + chaos (eg-plan)"): (
             (
                 "python3 scripts/cargo_test_rescue.py cargo test -p eg-plan "
@@ -696,3 +699,77 @@ def test_compiler_cache_keeps_global_settings_and_server_artifact_boundary() -> 
     assert build["env"] is facade["env"]
     assert server.index(build) < server.index(pack)
     assert "if" not in pack
+
+
+@pytest.mark.parametrize(
+    "job_name,cache_key,build_name,command",
+    [
+        (
+            "python-server",
+            "python-server-workspace-v1",
+            "Build the full-featured engine binary once",
+            "cargo build --locked --features full --bin epistemic-graph-server",
+        ),
+        (
+            "gates-facade",
+            "facade-workspace-v1",
+            "Test (facade full)",
+            "python3 scripts/cargo_test_rescue.py cargo test -p epistemic-graph "
+            "--features full --no-fail-fast --timings",
+        ),
+    ],
+)
+def test_workspace_cache_is_main_written_and_build_remains_required(
+    job_name: str, cache_key: str, build_name: str, command: str
+) -> None:
+    job = _workflow()["jobs"][job_name]
+    steps = job["steps"]
+    cache = next(
+        s for s in steps if s.get("uses", "").startswith("Swatinem/rust-cache@")
+    )
+    assert cache["with"] == {
+        "workspaces": ". -> target-isolated",
+        "key": cache_key,
+        "cache-workspace-crates": True,
+        "save-if": "${{ github.ref == 'refs/heads/main' }}",
+    }
+    build = _cache_step(steps, build_name)
+    assert steps.index(cache) < steps.index(build)
+    assert "if" not in build
+    assert build["run"] == command
+
+
+def test_plan_fuzz_remains_independent_required_acceptance() -> None:
+    jobs = _workflow()["jobs"]
+    job = jobs["gates-plan-fuzz"]
+    assert job["needs"] == "changes"
+    assert job["if"] == "needs.changes.outputs.code == 'true'"
+    assert "continue-on-error" not in job
+    command = COMPILER_CACHE_COMMANDS["gates-plan-fuzz"][
+        "Query-pipeline fuzz + chaos (eg-plan)"
+    ][0]
+    matches = [
+        (name, step)
+        for name, candidate in jobs.items()
+        for step in candidate.get("steps", [])
+        if step.get("run") == command
+    ]
+    assert len(matches) == 1
+    name, step = matches[0]
+    assert name == "gates-plan-fuzz"
+    assert "if" not in step
+    assert "continue-on-error" not in step
+    for consumer in ("build", "build-x86", "engine-main-wheel"):
+        assert "gates-plan-fuzz" in jobs[consumer]["needs"]
+
+
+@pytest.mark.parametrize(
+    "job_name",
+    ["gates", "gates-plan-fuzz", "gates-wheel", "gates-facade", "gates-whisper"],
+)
+def test_native_acceptance_uses_hosted_runners_for_every_event(job_name: str) -> None:
+    job = _workflow()["jobs"][job_name]
+    assert job["runs-on"] == "ubuntu-latest"
+    assert job["needs"] == "changes"
+    assert job["if"] == "needs.changes.outputs.code == 'true'"
+    assert "continue-on-error" not in job
