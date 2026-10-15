@@ -274,3 +274,28 @@ All rows are SPECIFIED contracts only. No implementation, test execution or serv
 <!-- /spec-definition-patch -->
 
 | `EG-DURABLE-KERNEL-R042.100` | **Comparable full-input-token throughput and per-query cost measurements.** Extend the existing `BenchmarkClaim.measured_result` with `BenchmarkMeasurementV1`. Bind benchmark case/configuration and dataset/query digests, plus release commit. Bind model, provider and tokenizer revisions. Bind hardware/profile/settings digest. Record request start/end and model-ready timestamps. Record full input-token count from the named tokenizer and inference elapsed milliseconds measured after readiness. Pin the price-table revision. Compute input-token throughput as `full_input_tokens * 1000 / inference_elapsed_ms`. Compute per-query cost using the bound token quantities, price-table currency and currency minor-unit exponent, with explicit rounding. Startup time is reported separately and excluded from both inference elapsed time and throughput. Claims are comparable only when the named benchmark/workload/profile fields match. Missing full input tokens, tokenizer or price revision refuses claim admission. Nonpositive elapsed time, zero denominator, invalid currency exponent or incomparable profile also refuses admission. Preserve existing superiority pass/fail and publication requirements. Producer/consumer: benchmark runner returns measurements; EG binds and validates them in the existing typed claim. No new benchmark executor is introduced. Source objective EG:63 SHA-256 `78016644588199c94f30e549cda44e35667f0447e1ae15a2524a4710bdf92e00`. | Served acceptance recomputes throughput and currency-rounded per-query cost from read-back measurements for multiple releases. It must prove startup is excluded and complete tokenizer input tokens are used. Refuse zero/negative inference elapsed time or missing tokenizer/input-token count/price table. Refuse invalid currency exponent, stale profile or mismatched benchmark inputs. Existing benchmark superiority acceptance remains required. No performance result is claimed by this definition. |
+
+## Temporal extracted-fact forward chaining and durable provenance
+
+| ID | Requirement | Verification |
+|---|---|---|
+| `EG-DURABLE-KERNEL-R097` | **Temporal extracted-fact forward chaining and durable per-fact provenance.** A forward-chaining reasoner produces and persists extracted facts with linked temporal rule semantics and durable sentence/axiom origin. Rollup: LANDED only once every child is landed. | Verified by each child requirement's own verification. |
+| `EG-DURABLE-KERNEL-R097.1` | **Model.** Define temporal rule semantics with fact timeline and origin linkage. | Typed test round-trips temporal rule and origin bindings through wire. |
+| `EG-DURABLE-KERNEL-R097.2` | **Behavior.** Forward chaining produces facts in time-order and chains derivations. | Served test applies rules sequentially and confirms fact derivation order. |
+| `EG-DURABLE-KERNEL-R097.3` | **Wiring.** Fact admission and readback bind origin sentence and axiom references. | Served test retrieves fact with linked provenance from persistence. |
+| `EG-DURABLE-KERNEL-R097.4` | **Refusal.** Reject rules with missing temporal bounds or malformed axioms. | Test proves invalid temporal range and unknown axiom are refused. |
+| `EG-DURABLE-KERNEL-R097.5` | **Evidence.** Durable fact store preserves origin chain and temporal rule instance. | Durability test shows fact origin persists across restart. |
+| `EG-DURABLE-KERNEL-R097.6` | **Hot-path proof.** Fact production API returns origin chain; integration test traces derived fact to source axiom. | Served API call shows temporal rule fired and returned origin. |
+
+## Ordered n-ary prediction with hypothesis-only evidence
+
+| ID | Requirement | Verification |
+|---|---|---|
+| `EG-DURABLE-KERNEL-R098` | **Ordered n-ary prediction with unseen-entity behavior and hypothesis-only evidence.** A public hyperedge predictor accepts ordered arguments, routes unseen entities through hypothesis paths, and admits hypothesis-only evidence classes to output. Rollup: LANDED only once every child is landed. | Verified by each child requirement's own verification. |
+| `EG-DURABLE-KERNEL-R098.1` | **Model.** Define ordered argument list and hypothesis-class evidence enum. | Typed test round-trips ordered arguments and hypothesis class through wire. |
+| `EG-DURABLE-KERNEL-R098.2` | **Behavior.** Unseen entities route through inductive hypothesis path and bind response. | Served test invokes predict with unknown entity and observes hypothesis response. |
+| `EG-DURABLE-KERNEL-R098.3` | **Wiring.** Hypothesis evidence class is accepted and binds to public hyperedge predictor. | Served test configures predictor with hypothesis class and invokes it. |
+| `EG-DURABLE-KERNEL-R098.4` | **Refusal.** Reject hypotheses with empty argument list and non-hypothesis evidence claims. | Test proves empty arguments and asserting evidence are refused. |
+| `EG-DURABLE-KERNEL-R098.5` | **Evidence.** Hypothesis output never claims assertion and carries prediction confidence. | Readback shows hypothesis response lacks assertion flag. |
+| `EG-DURABLE-KERNEL-R098.6` | **Hot-path proof.** Prediction endpoint accepts ordered arguments and routes unseen entity to hypothesis response. | Served test calls predict with (known, unknown) arguments and observes hypothesis reply. |
+
