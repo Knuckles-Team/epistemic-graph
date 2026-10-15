@@ -567,4 +567,40 @@ Deliver these additive leaves in order; preserve R137.1–.6 and R128 unchanged.
 - [ ] **EG-DECISION-ENGINE-R161.4 (Refusal):** Absent trace or mismatched receipt refuse admission.
 - [ ] **EG-DECISION-ENGINE-R161.5 (Evidence):** Bind trace, test, revision digests and outcome.
 - [ ] **EG-DECISION-ENGINE-R161.6 (Hot-path proof):** Serve correction proposal with trace-test binding.
+
+## Workspace field shielding and declared-input projection (R162)
+
+- [ ] **EG-DECISION-ENGINE-R162.1 (Model):** Define shielding, projection and nesting depth types.
+- [ ] **EG-DECISION-ENGINE-R162.2 (Behavior):** Remove shielded fields recursively; project declared inputs.
+- [ ] **EG-DECISION-ENGINE-R162.3 (Wiring):** Attach shielding before workspace construction at dispatch.
+- [ ] **EG-DECISION-ENGINE-R162.4 (Refusal):** Undeclared fields refuse projection; withheld at read.
+- [ ] **EG-DECISION-ENGINE-R162.5 (Evidence):** Record withheld fields, depth and shielding per step.
+- [ ] **EG-DECISION-ENGINE-R162.6 (Hot-path proof):** Serve decision with shielding and field rejection.
+
+## Graph-ingested papers and codebases in study intake (R163)
+
+- [ ] **EG-DECISION-ENGINE-R163.1 (Model):** Define graph sources, references and revision provenance.
+- [ ] **EG-DECISION-ENGINE-R163.2 (Behavior):** Resolve graph references and record source revision.
+- [ ] **EG-DECISION-ENGINE-R163.3 (Wiring):** Bind graph resolution to study comparison path.
+- [ ] **EG-DECISION-ENGINE-R163.4 (Refusal):** Missing authority or revision refuse intake.
+- [ ] **EG-DECISION-ENGINE-R163.5 (Evidence):** Record source type, authority, revision and digest.
+- [ ] **EG-DECISION-ENGINE-R163.6 (Hot-path proof):** Serve study comparison with mixed graph/filesystem sources.
+
+## Long-horizon branches retrieve prior outcomes for breadth adaptation (R164)
+
+- [ ] **EG-DECISION-ENGINE-R164.1 (Model):** Define branch outcomes, evidence and breadth adaptation.
+- [ ] **EG-DECISION-ENGINE-R164.2 (Behavior):** Retrieve prior outcomes and adapt breadth by success.
+- [ ] **EG-DECISION-ENGINE-R164.3 (Wiring):** Integrate outcome retrieval and breadth at branch start.
+- [ ] **EG-DECISION-ENGINE-R164.4 (Refusal):** Missing outcomes or stale evidence refuse planning.
+- [ ] **EG-DECISION-ENGINE-R164.5 (Evidence):** Record prior outcomes and breadth adaptation trigger.
+- [ ] **EG-DECISION-ENGINE-R164.6 (Hot-path proof):** Serve task plan with outcome-driven breadth.
+
+## Per-model tool necessity measurement and decision comparison (R165)
+
+- [ ] **EG-DECISION-ENGINE-R165.1 (Model):** Define tool necessity, comparison and trace mismatch.
+- [ ] **EG-DECISION-ENGINE-R165.2 (Behavior):** Measure necessity per model; compare with decision.
+- [ ] **EG-DECISION-ENGINE-R165.3 (Wiring):** Integrate measurement and comparison at tool span path.
+- [ ] **EG-DECISION-ENGINE-R165.4 (Refusal):** Unknown and stale measurements refuse tool decision.
+- [ ] **EG-DECISION-ENGINE-R165.5 (Evidence):** Record necessity score, comparison and mismatch trace.
+- [ ] **EG-DECISION-ENGINE-R165.6 (Hot-path proof):** Serve tool decision with necessity and comparison.
 <!-- /spec-definition-patch -->
