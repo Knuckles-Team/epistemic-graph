@@ -388,3 +388,71 @@ R006 needs two independent source builds and measured size-budget evidence; synt
 R030 needs observed CPU-affinity and timed execution logs; shell-text assertions cannot supply them.
 R047 needs successful wheel publication and download evidence; workflow declarations cannot supply them.
 Leave their acceptance open until that evidence exists. Retain the independently reviewed bindings for the other rows.
+
+
+### 2026-10-13: retain server workspace outputs and budget cache misses
+
+EG-CONTRACT-R009 keeps the unconditional locked build with full features.
+The required Python suite receives artifacts with verified revisions and digests.
+PR555 run 38452892633 attempt 2 restored dependencies.
+It recorded 22 compiler-cache hits, 16 misses and zero read errors.
+Workspace compilation then exceeded the ten-minute job limit.
+Main had already seeded its cache.
+Another unchanged retry cannot reliably fix this failure.
+
+The server Cargo cache now retains workspace crates under a dedicated key.
+Only main writes this cache.
+Cargo checks restored inputs before packaging.
+Cache presence never skips the build.
+
+Server preparation now has a 45-minute cold-build safety budget, matching the existing full-engine gates.
+This does not establish the sub-ten-minute goal.
+Main's warm server build took 6m37s, or 7m09s including setup.
+It recorded 38 hits and one miss.
+The PR555 retry compiled for 9m33s before cancellation.
+A completed cold-build measurement is unavailable.
+Other split jobs retain ten minutes.
+Features, profiles, native assertions, Python tests and artifact identity checks remain unchanged.
+Hosted completion and cache timing remain required evidence.
+Scoped workflow tests cannot establish native acceptance.
+
+### 2026-10-14: initialize visualization authority before server creation
+
+The visualization fixture mixed default policy initialization with the shared request authority.
+The defaults use tenant-test, while signed requests carry integration-test-tenant.
+Concurrent fixture initialization can interleave these environment writes.
+The authentication policy caches its values on first use.
+Nine dispatch tests failed with AUTH_TENANT_MISMATCH in run 38486393509.
+The fixture now calls the existing authority initializer before creating state.
+Production tenant checks remain unchanged.
+
+Facade compilation took 41m13s without a restored Cargo target cache.
+The facade cache now retains trusted-main workspace outputs under a dedicated key.
+Cargo still validates current inputs before running the full tests and isolated RSS checks.
+The 45-minute budget remains unchanged.
+A new main cache seed and subsequent warm run must measure the benefit.
+This cache change alone does not prove that cold compilation meets the budget.
+
+### 2026-10-14: separate required plan-fuzz compilation
+
+Run 38492560051 passed the full facade, isolated RSS checks and all ten visualization dispatch tests.
+The Python suite passed 3836 tests and skipped 47.
+The server build took 16m14s; facade compilation took 39m36s.
+These measurements do not establish a warm-cache improvement.
+
+Lower-crate compilation consumed 20m16s, capability compilation 8m32s and replay compilation 5m36s.
+The final plan-fuzz target was still compiling when the 45-minute job expired.
+Move its unchanged command into independent required acceptance with the same 45-minute cap.
+Preserve its features, assertions, compiler-cache trust and setup prerequisites.
+All three release consumers require the new job.
+Other job budgets remain unchanged.
+Scoped workflow tests establish routing; hosted execution must establish native acceptance.
+
+### 2026-10-14: keep ordinary native acceptance on hosted runners
+
+Main pushes previously routed five native acceptance jobs to self-hosted runners.
+Pull-request evidence used GitHub-hosted runners.
+Keep both events on ubuntu-latest to avoid additional native work on constrained user hosts.
+This covers lower crates, plan fuzz, installed wheels, facade and Whisper.
+Preserve every command, feature, assertion, artifact identity check and job budget.
+Main-only cache writes remain unchanged.

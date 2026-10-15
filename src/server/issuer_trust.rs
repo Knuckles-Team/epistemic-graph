@@ -109,6 +109,7 @@ mod tests {
         }
     }
 
+    // spec: EG-IDENTITY-R001
     #[test]
     fn unknown_issuer_is_refused_before_dispatch() {
         let list = IssuerTrustList::new(vec![keycloak_service_only()]).unwrap();
@@ -116,6 +117,7 @@ mod tests {
         assert_eq!(outcome, Err(IssuerTrustRefusal::UnknownIssuer));
     }
 
+    // spec: EG-IDENTITY-R001
     #[test]
     fn disallowed_principal_kind_is_refused() {
         let list = IssuerTrustList::new(vec![keycloak_service_only()]).unwrap();
@@ -123,6 +125,7 @@ mod tests {
         assert_eq!(outcome, Err(IssuerTrustRefusal::DisallowedKind));
     }
 
+    // spec: EG-IDENTITY-R001
     #[test]
     fn ambiguous_duplicate_issuer_is_refused_at_construction() {
         let dup = keycloak_service_only();
