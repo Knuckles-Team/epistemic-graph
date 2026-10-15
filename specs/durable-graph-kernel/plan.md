@@ -479,3 +479,43 @@ R086.9 requires the served entry points and the observations in test-spec.md.
 ## Benchmark measurement plan — 2026-10-12
 
 - **`EG-DURABLE-KERNEL-R042.100` / EG:63:** Extend existing `BenchmarkClaim.measured_result` with `BenchmarkMeasurementV1`. Bind full tokenizer input-token count, release/model/profile/workload identities, post-ready inference elapsed time and pinned price table/currency. Exclude startup from throughput. Refuse missing measurements, invalid denominators and incomparable profiles. Source SHA-256 `78016644588199c94f30e549cda44e35667f0447e1ae15a2524a4710bdf92e00`.
+
+## Spec-audit closure plan — 2026-10-15
+
+### EG-DURABLE-KERNEL-R084.8 — EG:28
+
+- Owners decide writable backend kinds and registry/coordinator ownership. Choose per-graph or tenant-scoped ordering. Define atomic-versus-eventual semantics. Specify partial failure, retry and receipt behavior.
+- Attach point: extend existing conflict-resolution paths in `crates/eg-jobs/src/store.rs` and `src/server/mutation_batch/commit/`.
+- Tests: two tenants, two backends, concurrent writes with backend failure and replay verification.
+
+### EG-DURABLE-KERNEL-R057.1 — EG:43
+
+- Define order-snapshot structure with immutable-history marker and derivation-link binding.
+- Reuse sealed-record guard and transactional authority from R057 for atomic promotion.
+- Route provider submission through SDK governed writeback; host confirmation through GraphOS.
+- Tests: snapshot creation, promotion with history immutability, derivation binding, veto on refusal.
+
+### EG-DURABLE-KERNEL-R087 — EG:46
+
+- `.1`: Define five changeset-review flaw classes (injection, auth, exposure, crypto, logic) with impact policy and finding-to-code evidence in `crates/eg-types/src/changeset_review.rs`.
+- `.2`: Serve `ChangesetReview` endpoint routed from GraphOS producer through EG review logic. Regenerate public contracts.
+- Tests: all flaw classes, positive/negative acceptance, evidence-to-location tracing.
+
+### EG-DURABLE-KERNEL-R088 — AU:38
+
+- `.1`: Model correction with original output, approved version and replacement/revocation binding. Require two distinct approval principals.
+- `.2`: Serve through existing rule authority. Check both principals before mutation. Keep invariant checking separate from approval.
+- Tests: two-principal requirement, replacement application, revocation refusal, audit trail.
+
+### EG-DURABLE-KERNEL-R089 — AU:54
+
+- `.1`: Typed `VerificationVerdict` with success/failure, uncertainty bound and proof reference per step.
+- `.2`: AU consumer path refuses forward-chained conclusions from failed steps. Preserve existing AU-EG integration.
+- Tests: failed step, dependent refusal, proof binding round-trip.
+
+### EG-DURABLE-KERNEL-R090 — EG:57
+
+- `.1`: Route GraphOS deployment selection through EG schema admission with typed refusal for unknown candidates.
+- `.2`: Serve digest readback with mismatch detection and typed refusal for divergence.
+- `.3`: Enforce read-only on external projections; refuse mutations; trace lineage to EG revision.
+- Tests: import selection, digest verification and accuracy, read-only refusal, lineage preservation.

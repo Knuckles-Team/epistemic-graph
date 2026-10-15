@@ -100,6 +100,7 @@
     "EG-DURABLE-KERNEL-R055",
     "EG-DURABLE-KERNEL-R056",
     "EG-DURABLE-KERNEL-R057",
+    "EG-DURABLE-KERNEL-R057.1",
     "EG-DURABLE-KERNEL-R058",
     "EG-DURABLE-KERNEL-R059",
     "EG-DURABLE-KERNEL-R060",
@@ -175,10 +176,24 @@
     "EG-DURABLE-KERNEL-R086.7",
     "EG-DURABLE-KERNEL-R086.8",
     "EG-DURABLE-KERNEL-R086.9",
+    "EG-DURABLE-KERNEL-R087",
+    "EG-DURABLE-KERNEL-R087.1",
+    "EG-DURABLE-KERNEL-R087.2",
+    "EG-DURABLE-KERNEL-R088",
+    "EG-DURABLE-KERNEL-R088.1",
+    "EG-DURABLE-KERNEL-R088.2",
+    "EG-DURABLE-KERNEL-R089",
+    "EG-DURABLE-KERNEL-R089.1",
+    "EG-DURABLE-KERNEL-R089.2",
+    "EG-DURABLE-KERNEL-R090",
+    "EG-DURABLE-KERNEL-R090.1",
+    "EG-DURABLE-KERNEL-R090.2",
+    "EG-DURABLE-KERNEL-R090.3",
     "EG-DURABLE-KERNEL-R028.1",
     "EG-DURABLE-KERNEL-R085.9",
     "EG-DURABLE-KERNEL-R085.10",
     "EG-DURABLE-KERNEL-R084.7",
+    "EG-DURABLE-KERNEL-R084.8",
     "EG-DURABLE-KERNEL-R038.100",
     "EG-DURABLE-KERNEL-R043.100",
     "EG-DURABLE-KERNEL-R042.100"
@@ -1465,7 +1480,7 @@
     {
       "id": "EG-DURABLE-KERNEL-R057",
       "title": "Sealed record classes are protected by a create-only write guard",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "00a38629d214",
         "1ef84395fa69",
@@ -1474,7 +1489,17 @@
       "verified_by": [
         "src/sealed_guard/tests.rs:56",
         "tests/sealed_record_guard.rs:210"
+      ],
+      "rollup_of": [
+        "EG-DURABLE-KERNEL-R057.1"
       ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R057.1",
+      "title": "Order-snapshot lifecycle with immutable-history and derivation-link acceptance",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R058",
@@ -1952,7 +1977,8 @@
         "EG-DURABLE-KERNEL-R084.4",
         "EG-DURABLE-KERNEL-R084.5",
         "EG-DURABLE-KERNEL-R084.6",
-        "EG-DURABLE-KERNEL-R084.7"
+        "EG-DURABLE-KERNEL-R084.7",
+        "EG-DURABLE-KERNEL-R084.8"
       ]
     },
     {
@@ -2154,6 +2180,114 @@
       "verified_by": []
     },
     {
+      "id": "EG-DURABLE-KERNEL-R087",
+      "title": "Semantic changeset review with evidence-backed findings",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DURABLE-KERNEL-R087.1",
+        "EG-DURABLE-KERNEL-R087.2"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R087.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R087.2",
+      "title": "Served integration",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R088",
+      "title": "Behavioral rule correction lifecycle with versioned approval",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DURABLE-KERNEL-R088.1",
+        "EG-DURABLE-KERNEL-R088.2"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R088.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R088.2",
+      "title": "Served integration",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R089",
+      "title": "Step verification verdict with proof binding",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DURABLE-KERNEL-R089.1",
+        "EG-DURABLE-KERNEL-R089.2"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R089.1",
+      "title": "Typed verdict",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R089.2",
+      "title": "Consumer refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R090",
+      "title": "Operator-selected schema import with digest provenance",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DURABLE-KERNEL-R090.1",
+        "EG-DURABLE-KERNEL-R090.2",
+        "EG-DURABLE-KERNEL-R090.3"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R090.1",
+      "title": "Import path",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R090.2",
+      "title": "Digest readback",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R090.3",
+      "title": "Read-only projection",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
       "id": "EG-DURABLE-KERNEL-R028.1",
       "title": "Run checkpoint and memory binding. Owner decisions remain open",
       "delivery_state": "SPECIFIED",
@@ -2177,6 +2311,13 @@
     {
       "id": "EG-DURABLE-KERNEL-R084.7",
       "title": "Definition hold: no cross-backend transaction contract is authorized",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R084.8",
+      "title": "Deterministic tenant-scoped ordering across backends",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
