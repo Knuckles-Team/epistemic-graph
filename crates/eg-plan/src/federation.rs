@@ -700,10 +700,27 @@ impl ForeignSource for HttpJsonSource<'_> {
     }
 
     fn fetch_columns(&self) -> Result<crate::federation_opt::ForeignRows, String> {
-        use std::io::Read;
-
         validate_http_column_mapping(self.field_map)?;
+        self.validate_projection()?;
+        let body = self.fetch_body()?;
+        validate_json_shape(&body)?;
+        let json: serde_json::Value = serde_json::from_slice(&body)
+            .map_err(|_| "federation: invalid HTTP JSON response".to_string())?;
+        let array = walk_json_path(&json, self.json_path)
+            .ok_or_else(|| "federation: HTTP JSON projection did not resolve".to_string())?;
+        let elems = array
+            .as_array()
+            .ok_or_else(|| "federation: HTTP JSON projection is not an array".to_string())?;
+        if elems.len() > MAX_HTTP_JSON_ROWS {
+            return Err("federation: HTTP JSON row count exceeds limit".to_string());
+        }
+        self.project_rows(elems)
+    }
+}
 
+impl HttpJsonSource<'_> {
+    /// Bound the declared projection (path and field names) before any I/O.
+    fn validate_projection(&self) -> Result<(), String> {
         if self.json_path.len() > MAX_HTTP_JSON_PATH_BYTES
             || self.field_map.id.is_empty()
             || self.field_map.id.len() > MAX_HTTP_JSON_FIELD_BYTES
@@ -715,6 +732,12 @@ impl ForeignSource for HttpJsonSource<'_> {
         {
             return Err("federation: invalid HTTP JSON projection".to_string());
         }
+        Ok(())
+    }
+
+    /// Issue the pinned request and read the size-capped response body.
+    fn fetch_body(&self) -> Result<Vec<u8>, String> {
+        use std::io::Read;
 
         // Resolve exactly once, vet every answer, then pin the resulting socket list in
         // ureq's per-call resolver via the shared federation gate. This closes the usual
@@ -754,18 +777,14 @@ impl ForeignSource for HttpJsonSource<'_> {
         if body.len() > MAX_HTTP_JSON_BODY_BYTES {
             return Err("federation: HTTP JSON response exceeds limit".to_string());
         }
-        validate_json_shape(&body)?;
-        let json: serde_json::Value = serde_json::from_slice(&body)
-            .map_err(|_| "federation: invalid HTTP JSON response".to_string())?;
-        let array = walk_json_path(&json, self.json_path)
-            .ok_or_else(|| "federation: HTTP JSON projection did not resolve".to_string())?;
-        let elems = array
-            .as_array()
-            .ok_or_else(|| "federation: HTTP JSON projection is not an array".to_string())?;
-        if elems.len() > MAX_HTTP_JSON_ROWS {
-            return Err("federation: HTTP JSON row count exceeds limit".to_string());
-        }
+        Ok(body)
+    }
 
+    /// Project each array element into a row, bounding the projected bytes.
+    fn project_rows(
+        &self,
+        elems: &[serde_json::Value],
+    ) -> Result<crate::federation_opt::ForeignRows, String> {
         let mut rows = Vec::with_capacity(elems.len());
         let mut projected_bytes = 0usize;
         for element in elems {
@@ -788,11 +807,8 @@ impl ForeignSource for HttpJsonSource<'_> {
                 let Some(value) = element.get(field) else {
                     continue;
                 };
-                let value_bytes = match value {
-                    serde_json::Value::String(text) => text.len(),
-                    serde_json::Value::Number(number) => number.to_string().len(),
-                    serde_json::Value::Bool(_) | serde_json::Value::Null => 5,
-                    _ => continue,
+                let Some(value_bytes) = scalar_projection_bytes(value) else {
+                    continue;
                 };
                 projected_bytes = projected_bytes
                     .saturating_add(alias.len())
@@ -805,6 +821,17 @@ impl ForeignSource for HttpJsonSource<'_> {
             rows.push(crate::federation_opt::ForeignRow { id, score, columns });
         }
         Ok(crate::federation_opt::ForeignRows::from_rows(rows))
+    }
+}
+
+/// Byte weight of a scalar JSON value for the projection budget; `None` for
+/// containers, which are never projected as columns.
+fn scalar_projection_bytes(value: &serde_json::Value) -> Option<usize> {
+    match value {
+        serde_json::Value::String(text) => Some(text.len()),
+        serde_json::Value::Number(number) => Some(number.to_string().len()),
+        serde_json::Value::Bool(_) | serde_json::Value::Null => Some(5),
+        serde_json::Value::Array(_) | serde_json::Value::Object(_) => None,
     }
 }
 

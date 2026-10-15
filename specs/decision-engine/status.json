@@ -2075,7 +2075,7 @@
         "a4804f87c971"
       ],
       "verified_by": [
-        "tests/test_decision_static_contracts.py:135"
+        "tests/test_decision_static_contracts.py:145"
       ]
     },
     {
@@ -3234,7 +3234,7 @@
         "a4804f87c971"
       ],
       "verified_by": [
-        "tests/test_decision_static_contracts.py:77"
+        "tests/test_decision_static_contracts.py:87"
       ]
     },
     {
@@ -3462,9 +3462,9 @@
         "5b6086e4075d"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/statistical/harness_config.rs:385",
-        "crates/eg-types/src/decision/statistical/harness_config.rs:412",
-        "crates/eg-types/src/decision/statistical/harness_config.rs:431"
+        "crates/eg-types/src/decision/statistical/harness_config.rs:394",
+        "crates/eg-types/src/decision/statistical/harness_config.rs:421",
+        "crates/eg-types/src/decision/statistical/harness_config.rs:440"
       ]
     },
     {
@@ -3476,9 +3476,9 @@
         "c0466b57ce04"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/statistical/harness_config.rs:514",
-        "crates/eg-types/src/decision/statistical/harness_config.rs:544",
-        "crates/eg-types/src/decision/statistical/harness_config.rs:571"
+        "crates/eg-types/src/decision/statistical/harness_config.rs:523",
+        "crates/eg-types/src/decision/statistical/harness_config.rs:553",
+        "crates/eg-types/src/decision/statistical/harness_config.rs:580"
       ]
     },
     {
@@ -3511,9 +3511,9 @@
         "4cd26ef35745"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/statistical/harness_config.rs:280",
-        "crates/eg-types/src/decision/statistical/harness_config.rs:323",
-        "crates/eg-types/src/decision/statistical/harness_config.rs:352"
+        "crates/eg-types/src/decision/statistical/harness_config.rs:289",
+        "crates/eg-types/src/decision/statistical/harness_config.rs:332",
+        "crates/eg-types/src/decision/statistical/harness_config.rs:361"
       ]
     },
     {
@@ -3524,7 +3524,7 @@
         "a565bdb085f2"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/statistical/harness_config.rs:592"
+        "crates/eg-types/src/decision/statistical/harness_config.rs:626"
       ]
     },
     {

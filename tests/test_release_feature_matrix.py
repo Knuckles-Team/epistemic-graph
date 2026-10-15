@@ -222,27 +222,43 @@ def test_required_clippy_profiles_and_command_are_declared(release_matrix):
     _assert_required_clippy_declarations(workflow)
 
 
+def _drop_published_full_profile(job):
+    profiles = job["strategy"]["matrix"]["profile"]
+    profiles[:] = [p for p in profiles if p["name"] != "published-full"]
+
+
+def _break_profile_flags(job):
+    job["strategy"]["matrix"]["profile"][0]["flags"] = "--workspace"
+
+
+def _comment_out_clippy_command(job):
+    command = next(
+        s for s in job["steps"] if s.get("run", "").startswith("cargo clippy ")
+    )
+    command["run"] = "# " + command["run"]
+
+
+def _drop_header_install_step(job):
+    job["steps"] = [
+        s
+        for s in job["steps"]
+        if s.get("name") != "Install librdkafka/Cyrus-SASL build headers"
+    ]
+
+
+CLIPPY_DECLARATION_MUTATIONS = {
+    "profile": _drop_published_full_profile,
+    "flags": _break_profile_flags,
+    "command": _comment_out_clippy_command,
+    "headers": _drop_header_install_step,
+}
+
+
 @pytest.mark.spec("EG-DURABLE-KERNEL-R011.5")
-@pytest.mark.parametrize("mutation", ["profile", "flags", "command", "headers"])
+@pytest.mark.parametrize("mutation", list(CLIPPY_DECLARATION_MUTATIONS))
 def test_required_clippy_declaration_drift_is_refused(release_matrix, mutation):
     workflow, _ = release_matrix
-    job = workflow["jobs"]["quality-advisory"]
-    profiles = job["strategy"]["matrix"]["profile"]
-    if mutation == "profile":
-        profiles[:] = [p for p in profiles if p["name"] != "published-full"]
-    elif mutation == "flags":
-        profiles[0]["flags"] = "--workspace"
-    elif mutation == "command":
-        command = next(
-            s for s in job["steps"] if s.get("run", "").startswith("cargo clippy ")
-        )
-        command["run"] = "# " + command["run"]
-    else:
-        job["steps"] = [
-            s
-            for s in job["steps"]
-            if s.get("name") != "Install librdkafka/Cyrus-SASL build headers"
-        ]
+    CLIPPY_DECLARATION_MUTATIONS[mutation](workflow["jobs"]["quality-advisory"])
     with pytest.raises(AssertionError):
         _assert_required_clippy_declarations(workflow)
 

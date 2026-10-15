@@ -155,24 +155,7 @@ pub fn apply_activities(
     let mut last_sequence: Option<u64> = None;
 
     for activity in activities {
-        if let Some(last) = last_sequence {
-            if activity.sequence <= last {
-                return Err(LotError::OutOfOrderSequence {
-                    sequence: activity.sequence,
-                    last_sequence: last,
-                });
-            }
-        }
-        if activity.price_ticks <= 0 {
-            return Err(LotError::NonPositivePrice {
-                sequence: activity.sequence,
-            });
-        }
-        if activity.quantity_ticks == 0 {
-            return Err(LotError::NonPositiveQuantity {
-                sequence: activity.sequence,
-            });
-        }
+        validate_activity(activity, last_sequence)?;
         last_sequence = Some(activity.sequence);
 
         if activity.quantity_ticks > 0 {
@@ -181,66 +164,108 @@ pub fn apply_activities(
                 remaining_ticks: activity.quantity_ticks,
                 unit_cost_ticks: activity.price_ticks,
             });
-            continue;
+        } else {
+            close_lots(activity, method, &mut open, &mut closed)?;
         }
-
-        let mut to_close = -activity.quantity_ticks;
-        let available: i64 = open.iter().map(|lot| lot.remaining_ticks).sum();
-        if to_close > available {
-            return Err(LotError::Oversold {
-                sequence: activity.sequence,
-                requested_ticks: to_close,
-                available_ticks: available,
-            });
-        }
-
-        let order: Vec<usize> = match method {
-            LotMethod::Fifo => (0..open.len()).collect(),
-            LotMethod::Lifo => (0..open.len()).rev().collect(),
-            LotMethod::Specific(requested_lot) => {
-                let idx = open
-                    .iter()
-                    .position(|lot| lot.opened_by == requested_lot)
-                    .ok_or(LotError::SpecificLotNotFound {
-                        sequence: activity.sequence,
-                        requested_lot,
-                    })?;
-                if open[idx].remaining_ticks < to_close {
-                    return Err(LotError::SpecificLotInsufficient {
-                        sequence: activity.sequence,
-                        requested_lot,
-                        requested_ticks: to_close,
-                        available_ticks: open[idx].remaining_ticks,
-                    });
-                }
-                vec![idx]
-            }
-        };
-        for idx in order {
-            if to_close == 0 {
-                break;
-            }
-            let take = to_close.min(open[idx].remaining_ticks);
-            if take == 0 {
-                continue;
-            }
-            open[idx].remaining_ticks -= take;
-            to_close -= take;
-            let gain = (take as i128 * (activity.price_ticks - open[idx].unit_cost_ticks) as i128
-                / SCALE as i128) as i64;
-            closed.push(ClosedLot {
-                opened_by: open[idx].opened_by,
-                closing_sequence: activity.sequence,
-                closed_ticks: take,
-                unit_cost_ticks: open[idx].unit_cost_ticks,
-                unit_proceeds_ticks: activity.price_ticks,
-                realized_gain_ticks: gain,
-            });
-        }
-        open.retain(|lot| lot.remaining_ticks > 0);
     }
 
     Ok(LotLedger { open, closed })
+}
+
+/// Reject out-of-order, non-positive-price and zero-quantity activities.
+fn validate_activity(activity: &LotActivity, last_sequence: Option<u64>) -> Result<(), LotError> {
+    if let Some(last) = last_sequence {
+        if activity.sequence <= last {
+            return Err(LotError::OutOfOrderSequence {
+                sequence: activity.sequence,
+                last_sequence: last,
+            });
+        }
+    }
+    if activity.price_ticks <= 0 {
+        return Err(LotError::NonPositivePrice {
+            sequence: activity.sequence,
+        });
+    }
+    if activity.quantity_ticks == 0 {
+        return Err(LotError::NonPositiveQuantity {
+            sequence: activity.sequence,
+        });
+    }
+    Ok(())
+}
+
+/// The order in which open lots are consumed by a sale under `method`.
+fn closing_order(
+    method: LotMethod,
+    open: &[Lot],
+    activity: &LotActivity,
+    to_close: i64,
+) -> Result<Vec<usize>, LotError> {
+    match method {
+        LotMethod::Fifo => Ok((0..open.len()).collect()),
+        LotMethod::Lifo => Ok((0..open.len()).rev().collect()),
+        LotMethod::Specific(requested_lot) => {
+            let idx = open
+                .iter()
+                .position(|lot| lot.opened_by == requested_lot)
+                .ok_or(LotError::SpecificLotNotFound {
+                    sequence: activity.sequence,
+                    requested_lot,
+                })?;
+            if open[idx].remaining_ticks < to_close {
+                return Err(LotError::SpecificLotInsufficient {
+                    sequence: activity.sequence,
+                    requested_lot,
+                    requested_ticks: to_close,
+                    available_ticks: open[idx].remaining_ticks,
+                });
+            }
+            Ok(vec![idx])
+        }
+    }
+}
+
+/// Apply one sale to the open lots, recording each closing.
+fn close_lots(
+    activity: &LotActivity,
+    method: LotMethod,
+    open: &mut Vec<Lot>,
+    closed: &mut Vec<ClosedLot>,
+) -> Result<(), LotError> {
+    let mut to_close = -activity.quantity_ticks;
+    let available: i64 = open.iter().map(|lot| lot.remaining_ticks).sum();
+    if to_close > available {
+        return Err(LotError::Oversold {
+            sequence: activity.sequence,
+            requested_ticks: to_close,
+            available_ticks: available,
+        });
+    }
+
+    for idx in closing_order(method, open, activity, to_close)? {
+        if to_close == 0 {
+            break;
+        }
+        let take = to_close.min(open[idx].remaining_ticks);
+        if take == 0 {
+            continue;
+        }
+        open[idx].remaining_ticks -= take;
+        to_close -= take;
+        let gain = (take as i128 * (activity.price_ticks - open[idx].unit_cost_ticks) as i128
+            / SCALE as i128) as i64;
+        closed.push(ClosedLot {
+            opened_by: open[idx].opened_by,
+            closing_sequence: activity.sequence,
+            closed_ticks: take,
+            unit_cost_ticks: open[idx].unit_cost_ticks,
+            unit_proceeds_ticks: activity.price_ticks,
+            realized_gain_ticks: gain,
+        });
+    }
+    open.retain(|lot| lot.remaining_ticks > 0);
+    Ok(())
 }
 
 #[cfg(test)]

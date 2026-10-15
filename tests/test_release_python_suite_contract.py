@@ -308,21 +308,15 @@ def _cargo_commands(script: str) -> tuple[str, ...]:
     )
 
 
-@pytest.mark.spec("EG-CONTRACT-R009")
-def test_facade_timings_are_current_run_evidence_without_replacing_tests() -> None:
-    workflow = _workflow()
-    job = workflow["jobs"]["gates-facade"]
-    steps = job["steps"]
-    config = tomllib.loads((REPO / ".cargo/config.toml").read_text())
-    assert config["build"]["target-dir"] == "target-isolated"
-    assert "CARGO_TARGET_DIR" not in workflow["env"]
-    assert "CARGO_TARGET_DIR" not in job["env"]
-    assert all("CARGO_TARGET_DIR" not in s.get("env", {}) for s in steps)
-    clear = next(
-        s for s in steps if s.get("name") == "Clear previous facade build timings"
-    )
-    build = next(s for s in steps if s.get("name") == "Test (facade full)")
-    upload = next(s for s in steps if s.get("name") == "Upload facade build timings")
+def _step_named(steps: list[dict], name: str) -> dict:
+    return next(s for s in steps if s.get("name") == name)
+
+
+def _assert_facade_timing_step_order(steps: list[dict]) -> tuple[dict, dict, dict]:
+    """Clear, build, upload run in order after the rust cache; return them."""
+    clear = _step_named(steps, "Clear previous facade build timings")
+    build = _step_named(steps, "Test (facade full)")
+    upload = _step_named(steps, "Upload facade build timings")
     cache = next(
         s for s in steps if s.get("uses", "").startswith("Swatinem/rust-cache@")
     )
@@ -332,9 +326,10 @@ def test_facade_timings_are_current_run_evidence_without_replacing_tests() -> No
         < steps.index(build)
         < steps.index(upload)
     )
-    assert clear["run"] == "rm -rf target-isolated/cargo-timings"
-    assert "if" not in clear and "continue-on-error" not in build
-    assert "--timings" in build["run"] and "--no-run" not in build["run"]
+    return clear, build, upload
+
+
+def _assert_facade_upload_contract(upload: dict) -> None:
     assert upload["if"] == "always()"
     assert (
         upload["uses"]
@@ -352,6 +347,23 @@ def test_facade_timings_are_current_run_evidence_without_replacing_tests() -> No
 
 
 @pytest.mark.spec("EG-CONTRACT-R009")
+def test_facade_timings_are_current_run_evidence_without_replacing_tests() -> None:
+    workflow = _workflow()
+    job = workflow["jobs"]["gates-facade"]
+    steps = job["steps"]
+    config = tomllib.loads((REPO / ".cargo/config.toml").read_text())
+    assert config["build"]["target-dir"] == "target-isolated"
+    assert "CARGO_TARGET_DIR" not in workflow["env"]
+    assert "CARGO_TARGET_DIR" not in job["env"]
+    assert all("CARGO_TARGET_DIR" not in s.get("env", {}) for s in steps)
+    clear, build, upload = _assert_facade_timing_step_order(steps)
+    assert clear["run"] == "rm -rf target-isolated/cargo-timings"
+    assert "if" not in clear and "continue-on-error" not in build
+    assert "--timings" in build["run"] and "--no-run" not in build["run"]
+    _assert_facade_upload_contract(upload)
+
+
+@pytest.mark.spec("EG-CONTRACT-R009")
 def test_offline_tools_are_subcommands_not_separate_executables() -> None:
     manifest = tomllib.loads((REPO / "Cargo.toml").read_text())
     names = {target["name"] for target in manifest["bin"]}
@@ -365,13 +377,8 @@ def test_offline_tools_are_subcommands_not_separate_executables() -> None:
         assert not re.search(r"#\s*\[[^\]]*\btest\b|\binclude\s*!", source), path
 
 
-@pytest.mark.parametrize("kind", ["kernels", "server"])
-@pytest.mark.parametrize("damage", [None, "digest", "revision", "source", "missing"])
-def test_native_artifact_roundtrip_fails_closed(
-    tmp_path: Path, kind: str, damage: str | None
-) -> None:
-    script = REPO / "scripts/python_suite_artifact.sh"
-    root = tmp_path / "checkout"
+def _init_fixture_checkout(root: Path) -> str:
+    """An empty one-commit git checkout; returns its HEAD sha."""
     root.mkdir()
     subprocess.run(["git", "init", "-q", str(root)], check=True)
     subprocess.run(
@@ -390,24 +397,13 @@ def test_native_artifact_roundtrip_fails_closed(
         ],
         check=True,
     )
-    sha = subprocess.check_output(
+    return subprocess.check_output(
         ["git", "-C", str(root), "rev-parse", "HEAD"], text=True
     ).strip()
-    env = {**os.environ, "RUNNER_TEMP": str(tmp_path / "artifacts"), "GITHUB_SHA": sha}
-    paths = (
-        ["epistemic_graph/numeric.test.so", "epistemic_graph/engine.test.so"]
-        if kind == "kernels"
-        else ["target-isolated/debug/epistemic-graph-server"]
-    )
-    for name in paths:
-        path = root / name
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(b"native fixture")
-        path.chmod(0o755)
-    subprocess.run(["bash", str(script), "pack", kind], cwd=root, env=env, check=True)
-    bundle = Path(env["RUNNER_TEMP"]) / f"python-{kind}"
-    for name in paths:
-        (root / name).unlink()
+
+
+def _damage_bundle(bundle: Path, env: dict, damage: str | None) -> None:
+    """Corrupt the packed bundle (or the environment) as `damage` describes."""
     if damage == "digest":
         (bundle / "payload.tar").write_bytes(b"corrupt")
     elif damage == "revision":
@@ -423,6 +419,32 @@ def test_native_artifact_roundtrip_fails_closed(
             )
     elif damage == "missing":
         (bundle / "payload.tar").unlink()
+
+
+@pytest.mark.parametrize("kind", ["kernels", "server"])
+@pytest.mark.parametrize("damage", [None, "digest", "revision", "source", "missing"])
+def test_native_artifact_roundtrip_fails_closed(
+    tmp_path: Path, kind: str, damage: str | None
+) -> None:
+    script = REPO / "scripts/python_suite_artifact.sh"
+    root = tmp_path / "checkout"
+    sha = _init_fixture_checkout(root)
+    env = {**os.environ, "RUNNER_TEMP": str(tmp_path / "artifacts"), "GITHUB_SHA": sha}
+    paths = (
+        ["epistemic_graph/numeric.test.so", "epistemic_graph/engine.test.so"]
+        if kind == "kernels"
+        else ["target-isolated/debug/epistemic-graph-server"]
+    )
+    for name in paths:
+        path = root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"native fixture")
+        path.chmod(0o755)
+    subprocess.run(["bash", str(script), "pack", kind], cwd=root, env=env, check=True)
+    bundle = Path(env["RUNNER_TEMP"]) / f"python-{kind}"
+    for name in paths:
+        (root / name).unlink()
+    _damage_bundle(bundle, env, damage)
     result = subprocess.run(
         ["bash", str(script), "unpack", kind], cwd=root, env=env, check=False
     )

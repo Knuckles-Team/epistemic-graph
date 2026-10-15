@@ -63,39 +63,20 @@ impl TrinoSource {
         else {
             return Err("federation: expected a Trino source".into());
         };
-        // Exactly one origin; a URL path/query could change statement routing.
-        let rest = endpoint
-            .strip_prefix("https://")
-            .ok_or_else(|| "federation: Trino bearer transport requires HTTPS".to_string())?;
-        if rest.is_empty()
-            || rest.bytes().any(|b| matches!(b, b'/' | b'?' | b'#' | b'@'))
-            || endpoint.len() > 1024
-        {
-            return Err("federation: invalid Trino endpoint".into());
-        }
-        validate_http_json_target(endpoint)?;
+        validate_endpoint(endpoint)?;
         for value in [&catalog[..], &schema[..], &id_field[..]] {
-            if value.is_empty()
-                || value.len() > MAX_FIELD_BYTES
-                || !value
-                    .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || b == b'_')
-            {
+            if !is_valid_identifier(value) {
                 return Err("federation: invalid Trino identifier".into());
             }
         }
-        if score_field.as_ref().is_some_and(|s| {
-            s.is_empty()
-                || s.len() > MAX_FIELD_BYTES
-                || !s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
-        }) {
+        if score_field
+            .as_ref()
+            .is_some_and(|s| !is_valid_identifier(s))
+        {
             return Err("federation: invalid Trino score field".into());
         }
         for value in [&user[..], &bearer[..]] {
-            if value.is_empty()
-                || value.len() > 4096
-                || !value.bytes().all(|b| (0x21..=0x7e).contains(&b))
-            {
+            if !is_valid_credential(value) {
                 return Err("federation: invalid Trino service identity".into());
             }
         }
@@ -145,64 +126,12 @@ impl TrinoSource {
             if json.get("error").is_some_and(|v| !v.is_null()) {
                 return Err("federation: Trino query failed".into());
             }
-            if let Some(cols) = json.get("columns") {
-                let found = cols
-                    .as_array()
-                    .ok_or("federation: invalid Trino columns")?
-                    .iter()
-                    .map(|v| v.get("name").and_then(Value::as_str).map(str::to_string))
-                    .collect::<Option<Vec<_>>>()
-                    .ok_or("federation: invalid Trino columns")?;
-                if let Some(prior) = &columns {
-                    if prior != &found {
-                        return Err("federation: Trino columns changed between pages".into());
-                    }
-                } else {
-                    columns = Some(found);
-                }
-            }
+            absorb_columns(&json, &mut columns)?;
             if let Some(data) = json.get("data") {
-                let data = data.as_array().ok_or("federation: invalid Trino data")?;
                 let cols = columns
                     .as_ref()
                     .ok_or("federation: Trino data has no columns")?;
-                let id_index = cols
-                    .iter()
-                    .position(|c| c == id_field)
-                    .ok_or("federation: Trino result lacks id column")?;
-                let score_index = score_field
-                    .map(|f| {
-                        cols.iter()
-                            .position(|c| c == f)
-                            .ok_or("federation: Trino result lacks score column")
-                    })
-                    .transpose()?;
-                if rows.len().saturating_add(data.len()) > MAX_ROWS {
-                    return Err("federation: Trino result exceeds row limit".into());
-                }
-                for item in data {
-                    let cells = item.as_array().ok_or("federation: invalid Trino row")?;
-                    if cells.len() != cols.len() {
-                        return Err("federation: invalid Trino row width".into());
-                    }
-                    let value = cells.get(id_index).ok_or("federation: missing Trino id")?;
-                    let id = match value {
-                        Value::String(s) => s.clone(),
-                        Value::Number(n) => n.to_string(),
-                        _ => return Err("federation: unsupported Trino id type".into()),
-                    };
-                    if id.is_empty() || id.len() > MAX_ID_BYTES {
-                        return Err("federation: invalid Trino id".into());
-                    }
-                    let score = score_index
-                        .and_then(|i| cells.get(i))
-                        .and_then(Value::as_f64)
-                        .map(|n| n as f32);
-                    if score.is_some_and(|n| !n.is_finite()) {
-                        return Err("federation: invalid Trino score".into());
-                    }
-                    rows.push((id, score));
-                }
+                collect_rows(data, cols, id_field, score_field, &mut rows)?;
             }
             match json.get("nextUri").and_then(Value::as_str) {
                 None => return Ok(RowSet::from_rows(rows)),
@@ -212,6 +141,113 @@ impl TrinoSource {
         }
         Err("federation: Trino result exceeds page limit".into())
     }
+}
+
+/// Exactly one origin; a URL path/query could change statement routing.
+fn validate_endpoint(endpoint: &str) -> Result<(), String> {
+    let rest = endpoint
+        .strip_prefix("https://")
+        .ok_or_else(|| "federation: Trino bearer transport requires HTTPS".to_string())?;
+    if rest.is_empty()
+        || rest.bytes().any(|b| matches!(b, b'/' | b'?' | b'#' | b'@'))
+        || endpoint.len() > 1024
+    {
+        return Err("federation: invalid Trino endpoint".into());
+    }
+    validate_http_json_target(endpoint)?;
+    Ok(())
+}
+
+fn is_valid_identifier(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= MAX_FIELD_BYTES
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_')
+}
+
+fn is_valid_credential(value: &str) -> bool {
+    !value.is_empty() && value.len() <= 4096 && value.bytes().all(|b| (0x21..=0x7e).contains(&b))
+}
+
+/// Record the page's column names, refusing a change from a prior page.
+fn absorb_columns(json: &Value, columns: &mut Option<Vec<String>>) -> Result<(), String> {
+    let Some(cols) = json.get("columns") else {
+        return Ok(());
+    };
+    let found = cols
+        .as_array()
+        .ok_or("federation: invalid Trino columns")?
+        .iter()
+        .map(|v| v.get("name").and_then(Value::as_str).map(str::to_string))
+        .collect::<Option<Vec<_>>>()
+        .ok_or("federation: invalid Trino columns")?;
+    match columns {
+        Some(prior) if prior != &found => {
+            Err("federation: Trino columns changed between pages".into())
+        }
+        Some(_) => Ok(()),
+        None => {
+            *columns = Some(found);
+            Ok(())
+        }
+    }
+}
+
+/// Append one page of data rows as `(id, score)` pairs.
+fn collect_rows(
+    data: &Value,
+    cols: &[String],
+    id_field: &str,
+    score_field: Option<&str>,
+    rows: &mut Vec<(String, Option<f32>)>,
+) -> Result<(), String> {
+    let data = data.as_array().ok_or("federation: invalid Trino data")?;
+    let id_index = cols
+        .iter()
+        .position(|c| c == id_field)
+        .ok_or("federation: Trino result lacks id column")?;
+    let score_index = score_field
+        .map(|f| {
+            cols.iter()
+                .position(|c| c == f)
+                .ok_or("federation: Trino result lacks score column")
+        })
+        .transpose()?;
+    if rows.len().saturating_add(data.len()) > MAX_ROWS {
+        return Err("federation: Trino result exceeds row limit".into());
+    }
+    for item in data {
+        let cells = item.as_array().ok_or("federation: invalid Trino row")?;
+        if cells.len() != cols.len() {
+            return Err("federation: invalid Trino row width".into());
+        }
+        let value = cells.get(id_index).ok_or("federation: missing Trino id")?;
+        let id = trino_id(value)?;
+        let score = score_index
+            .and_then(|i| cells.get(i))
+            .and_then(Value::as_f64)
+            .map(|n| n as f32);
+        if score.is_some_and(|n| !n.is_finite()) {
+            return Err("federation: invalid Trino score".into());
+        }
+        rows.push((id, score));
+    }
+    Ok(())
+}
+
+fn trino_id(value: &Value) -> Result<String, String> {
+    let id = match value {
+        Value::String(s) => s.clone(),
+        Value::Number(n) => n.to_string(),
+        Value::Null | Value::Bool(_) | Value::Array(_) | Value::Object(_) => {
+            return Err("federation: unsupported Trino id type".into())
+        }
+    };
+    if id.is_empty() || id.len() > MAX_ID_BYTES {
+        return Err("federation: invalid Trino id".into());
+    }
+    Ok(id)
 }
 
 impl ForeignSource for TrinoSource {

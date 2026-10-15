@@ -179,23 +179,35 @@ fn identifier(value: &str, max_len: usize, name: &str) -> Result<(), String> {
     Ok(())
 }
 
+fn is_postgres_scheme(scheme: &str) -> bool {
+    matches!(scheme, "postgres" | "postgresql")
+}
+
+/// The declared endpoint must be a bare postgres URL (no credentials, query
+/// or fragment) with a host.
+fn endpoint_is_bare_postgres(expected: &url::Url) -> bool {
+    is_postgres_scheme(expected.scheme())
+        && expected.username().is_empty()
+        && expected.password().is_none()
+        && expected.query().is_none()
+        && expected.fragment().is_none()
+        && expected.host_str().is_some()
+}
+
+/// The binding must target the same host, port and database path.
+fn binding_targets_endpoint(expected: &url::Url, bound: &url::Url) -> bool {
+    is_postgres_scheme(bound.scheme())
+        && expected.host_str() == bound.host_str()
+        && expected.port_or_known_default().unwrap_or(5432)
+            == bound.port_or_known_default().unwrap_or(5432)
+        && expected.path() == bound.path()
+}
+
 fn same_postgres_endpoint(endpoint: &str, dsn: &str) -> Result<(), String> {
     let expected =
         url::Url::parse(endpoint).map_err(|_| "federation: invalid AGE endpoint".to_string())?;
     let bound = url::Url::parse(dsn).map_err(|_| "federation: invalid AGE binding".to_string())?;
-    let pg = |scheme: &str| matches!(scheme, "postgres" | "postgresql");
-    if !pg(expected.scheme())
-        || !pg(bound.scheme())
-        || !expected.username().is_empty()
-        || expected.password().is_some()
-        || expected.query().is_some()
-        || expected.fragment().is_some()
-        || expected.host_str().is_none()
-        || expected.host_str() != bound.host_str()
-        || expected.port_or_known_default().unwrap_or(5432)
-            != bound.port_or_known_default().unwrap_or(5432)
-        || expected.path() != bound.path()
-    {
+    if !endpoint_is_bare_postgres(&expected) || !binding_targets_endpoint(&expected, &bound) {
         return Err("federation: AGE binding does not match declared endpoint".into());
     }
     Ok(())

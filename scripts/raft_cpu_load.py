@@ -69,26 +69,77 @@ def interrupt(signum: int, _frame: object) -> None:
     STOP_SIGNAL = signum
 
 
+def start_workers(
+    workers: list[multiprocessing.Process], count: int, seconds: int, started: float
+) -> int | None:
+    """Start the CPU workers; return an exit code if startup must abort."""
+    for _ in range(count):
+        ready = multiprocessing.Event()
+        worker = multiprocessing.Process(target=cpu_worker, args=(seconds, ready))
+        worker.start()
+        workers.append(worker)
+        remaining = seconds - (time.monotonic() - started)
+        if not ready.wait(timeout=max(0, min(remaining, 5))):
+            return 124 if time.monotonic() - started >= seconds else 125
+        if STOP_SIGNAL:
+            return 128 + STOP_SIGNAL
+    return None
+
+
+def abort_code(
+    workers: list[multiprocessing.Process], started: float, seconds: int
+) -> int | None:
+    """Exit code if the running command must be aborted, else None."""
+    if STOP_SIGNAL:
+        return 128 + STOP_SIGNAL
+    if time.monotonic() - started >= seconds:
+        print("CPU load duration exhausted; cluster command aborted", flush=True)
+        return 124
+    if not all(worker.is_alive() for worker in workers):
+        print("CPU load worker exited; cluster command aborted", flush=True)
+        return 125
+    return None
+
+
+def command_exit_code(
+    command: subprocess.Popen[bytes], workers: list[multiprocessing.Process]
+) -> int:
+    """Map the finished command's status, failing if a load worker died."""
+    if STOP_SIGNAL:
+        return 128 + STOP_SIGNAL
+    rc = command.returncode
+    if rc == 0 and not all(worker.is_alive() for worker in workers):
+        rc = 125
+    return rc if rc >= 0 else 128 - rc
+
+
+def watch_command(
+    command: subprocess.Popen[bytes],
+    workers: list[multiprocessing.Process],
+    started: float,
+    seconds: int,
+) -> int:
+    """Wait for the cluster command while the load workers stay healthy."""
+    while command.poll() is None:
+        aborted = abort_code(workers, started, seconds)
+        if aborted is not None:
+            return aborted
+        time.sleep(0.02)
+    return command_exit_code(command, workers)
+
+
 def supervise(
     argv: list[str], count: int, seconds: int, output: IO[str] | None = None
 ) -> int:
     workers: list[multiprocessing.Process] = []
     command = None
     started = time.monotonic()
-    rc = 125
     for signum in (signal.SIGINT, signal.SIGTERM):
         signal.signal(signum, interrupt)
     try:
-        for _ in range(count):
-            ready = multiprocessing.Event()
-            worker = multiprocessing.Process(target=cpu_worker, args=(seconds, ready))
-            worker.start()
-            workers.append(worker)
-            remaining = seconds - (time.monotonic() - started)
-            if not ready.wait(timeout=max(0, min(remaining, 5))):
-                return 124 if time.monotonic() - started >= seconds else 125
-            if STOP_SIGNAL:
-                return 128 + STOP_SIGNAL
+        early = start_workers(workers, count, seconds, started)
+        if early is not None:
+            return early
         pids = ",".join(str(worker.pid) for worker in workers)
         print(
             f"CPU load started: workers={count} limit_seconds={seconds} pids={pids}",
@@ -101,24 +152,7 @@ def supervise(
             stdout=output,
             stderr=subprocess.STDOUT if output else None,
         )
-        while command.poll() is None:
-            if STOP_SIGNAL:
-                return 128 + STOP_SIGNAL
-            if time.monotonic() - started >= seconds:
-                print(
-                    "CPU load duration exhausted; cluster command aborted", flush=True
-                )
-                return 124
-            if not all(worker.is_alive() for worker in workers):
-                print("CPU load worker exited; cluster command aborted", flush=True)
-                return 125
-            time.sleep(0.02)
-        if STOP_SIGNAL:
-            return 128 + STOP_SIGNAL
-        rc = command.returncode
-        if rc == 0 and not all(worker.is_alive() for worker in workers):
-            rc = 125
-        return rc if rc >= 0 else 128 - rc
+        return watch_command(command, workers, started, seconds)
     finally:
         # Cleanup itself must not be interrupted before every child is reaped.
         for signum in (signal.SIGINT, signal.SIGTERM):

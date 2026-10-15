@@ -1271,11 +1271,11 @@
         "f948211fb8c7"
       ],
       "verified_by": [
-        "crates/eg-rdf/src/source_selection.rs:302",
-        "crates/eg-rdf/src/source_selection.rs:324",
-        "crates/eg-rdf/src/source_selection.rs:350",
-        "crates/eg-rdf/src/source_selection.rs:359",
-        "crates/eg-rdf/src/source_selection.rs:369"
+        "crates/eg-rdf/src/source_selection.rs:321",
+        "crates/eg-rdf/src/source_selection.rs:343",
+        "crates/eg-rdf/src/source_selection.rs:369",
+        "crates/eg-rdf/src/source_selection.rs:378",
+        "crates/eg-rdf/src/source_selection.rs:388"
       ]
     },
     {

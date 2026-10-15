@@ -174,35 +174,57 @@ pub fn select_sources(
     roots: &[String],
     hop_budget: usize,
 ) -> Vec<CoverageResult> {
-    // The queried universe: every class the fixture mentions anywhere.
+    let universe = query_universe(fixture, roots);
+    let reached = reach_from_roots(fixture, roots, hop_budget);
+    universe
+        .into_iter()
+        .map(|class| classify_class(fixture, &reached, class))
+        .collect()
+}
+
+/// The queried universe: every class the fixture mentions anywhere, plus the roots.
+fn query_universe(fixture: &CoverageFixture, roots: &[String]) -> Vec<String> {
     let mut universe: Vec<String> = Vec::new();
-    for (a, _, b) in &fixture.object_properties {
-        for c in [a, b] {
-            if !universe.contains(c) {
-                universe.push(c.clone());
-            }
+    let mut add = |class: &String| {
+        if !universe.contains(class) {
+            universe.push(class.clone());
         }
+    };
+    for (a, _, b) in &fixture.object_properties {
+        add(a);
+        add(b);
     }
     for (a, b) in &fixture.subclass_of {
-        for c in [a, b] {
-            if !universe.contains(c) {
-                universe.push(c.clone());
-            }
-        }
+        add(a);
+        add(b);
     }
     for c in fixture.mappings.keys() {
-        if !universe.contains(c) {
-            universe.push(c.clone());
-        }
+        add(c);
     }
     for c in roots {
-        if !universe.contains(c) {
-            universe.push(c.clone());
-        }
+        add(c);
     }
+    universe
+}
 
-    // BFS from every root over the (undirected) object-property graph, up to
-    // hop_budget hops, recording the hop path premises per reached class.
+/// The other end of an object property touching `class`, if any.
+fn property_neighbor<'a>(class: &str, from_class: &'a str, to_class: &'a str) -> Option<&'a str> {
+    if from_class == class {
+        Some(to_class)
+    } else if to_class == class {
+        Some(from_class)
+    } else {
+        None
+    }
+}
+
+/// BFS from every root over the (undirected) object-property graph, up to
+/// `hop_budget` hops, recording the hop path premises per reached class.
+fn reach_from_roots(
+    fixture: &CoverageFixture,
+    roots: &[String],
+    hop_budget: usize,
+) -> BTreeMap<String, Vec<SourceSelectionHop>> {
     let mut reached: BTreeMap<String, Vec<SourceSelectionHop>> = BTreeMap::new();
     let mut frontier: Vec<(String, Vec<SourceSelectionHop>)> =
         roots.iter().map(|r| (r.clone(), Vec::new())).collect();
@@ -213,29 +235,24 @@ pub fn select_sources(
         let mut next_frontier = Vec::new();
         for (class, path_so_far) in &frontier {
             for (from_class, property, to_class) in &fixture.object_properties {
-                let neighbor = if from_class == class {
-                    Some(to_class.clone())
-                } else if to_class == class {
-                    Some(from_class.clone())
-                } else {
-                    None
+                let Some(neighbor) = property_neighbor(class, from_class, to_class) else {
+                    continue;
                 };
-                let Some(neighbor) = neighbor else { continue };
-                if reached.contains_key(&neighbor) {
+                if reached.contains_key(neighbor) {
                     continue;
                 }
                 let mut path = path_so_far.clone();
                 path.push(SourceSelectionHop {
                     from_class: class.clone(),
-                    to_class: neighbor.clone(),
+                    to_class: neighbor.to_string(),
                     premises: vec![Premise::Relation {
                         from_class: from_class.clone(),
                         property: property.clone(),
                         to_class: to_class.clone(),
                     }],
                 });
-                reached.insert(neighbor.clone(), path.clone());
-                next_frontier.push((neighbor, path));
+                reached.insert(neighbor.to_string(), path.clone());
+                next_frontier.push((neighbor.to_string(), path));
             }
         }
         if next_frontier.is_empty() {
@@ -243,42 +260,44 @@ pub fn select_sources(
         }
         frontier = next_frontier;
     }
+    reached
+}
 
-    universe
-        .into_iter()
-        .map(|class| {
-            let Some(path) = reached.get(&class) else {
-                return CoverageResult::Disconnected { class };
+/// Classify one class: disconnected, covered by a mapping on it or an
+/// ancestor in its subclass closure, or uncovered.
+fn classify_class(
+    fixture: &CoverageFixture,
+    reached: &BTreeMap<String, Vec<SourceSelectionHop>>,
+    class: String,
+) -> CoverageResult {
+    let Some(path) = reached.get(&class) else {
+        return CoverageResult::Disconnected { class };
+    };
+    for ancestor in fixture.superclasses_closure(&class) {
+        if let Some(source_mapping) = fixture.mappings.get(&ancestor) {
+            let mut premises = fixture.mapping_premises(source_mapping);
+            if ancestor != class {
+                premises.push(Premise::Subclass {
+                    sub_class: class.clone(),
+                    super_class: ancestor.clone(),
+                });
+            }
+            premises.push(Premise::Mapping {
+                served_class: ancestor.clone(),
+                mapping_name: source_mapping.0.clone(),
+            });
+            return CoverageResult::Covered {
+                class,
+                mapping_name: source_mapping.0.clone(),
+                path: path.clone(),
+                premises,
             };
-            // Subclass entailment: a mapping on any superclass in the closure
-            // (including the class itself) covers this class.
-            for ancestor in fixture.superclasses_closure(&class) {
-                if let Some(source_mapping) = fixture.mappings.get(&ancestor) {
-                    let mut premises = fixture.mapping_premises(source_mapping);
-                    if ancestor != class {
-                        premises.push(Premise::Subclass {
-                            sub_class: class.clone(),
-                            super_class: ancestor.clone(),
-                        });
-                    }
-                    premises.push(Premise::Mapping {
-                        served_class: ancestor.clone(),
-                        mapping_name: source_mapping.0.clone(),
-                    });
-                    return CoverageResult::Covered {
-                        class: class.clone(),
-                        mapping_name: source_mapping.0.clone(),
-                        path: path.clone(),
-                        premises,
-                    };
-                }
-            }
-            CoverageResult::Uncovered {
-                class: class.clone(),
-                premises: Vec::new(),
-            }
-        })
-        .collect()
+        }
+    }
+    CoverageResult::Uncovered {
+        class,
+        premises: Vec::new(),
+    }
 }
 
 #[cfg(test)]
