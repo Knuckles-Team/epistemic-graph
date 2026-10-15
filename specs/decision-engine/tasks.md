@@ -508,7 +508,7 @@ Deliver these additive leaves in order; preserve R137.1–.6 and R128 unchanged.
 ## Memory layers, episode construction and cross-session retrieval (R155)
 
 - [ ] **EG-DECISION-ENGINE-R155.1 (Model):** Sessions produce episodes: ordered, immutable fact sequences with temporal anchors.
-- [ ] **EG-DECISION-ENGINE-R155.2 (Behavior):** Episodes enable cross-session retrieval with temporal validation.
+- [ ] **EG-DECISION-ENGINE-R155.2 (Behavior):** Episodes support cross-session retrieval with temporal validation.
 - [ ] **EG-DECISION-ENGINE-R155.3 (Wiring):** SourceIngest, episode builder and UnifiedQuery form a producer-consumer chain.
 - [ ] **EG-DECISION-ENGINE-R155.4 (Refusal):** Refuse cross-session retrieval when temporal ordering cannot be established.
 - [ ] **EG-DECISION-ENGINE-R155.5 (Evidence):** Multi-session test data validates episode formation and temporal consistency.
