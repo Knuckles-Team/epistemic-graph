@@ -65,12 +65,10 @@ class ReleasePublication(unittest.TestCase):
             jobs["build-x86"]["uses"],
             "Knuckles-Team/epistemic-graph/.github/workflows/eg-release-x86.yml@bc4448160e8d16deb8210ce8aeb058b2da293d93",
         )
-        self.assertEqual(jobs["docker-image"]["needs"], ["build", "build-x86"])
+        self.assertNotIn("docker-image", jobs)
+        self.assertNotIn("publish-image", jobs)
         self.assertEqual(
             jobs["publish-pypi"]["needs"], ["build", "build-x86", "build-sdist"]
-        )
-        self.assertEqual(
-            jobs["publish-image"]["needs"], ["docker-image", "publish-pypi"]
         )
 
     def test_source_archive_is_validated_before_upload(self):
@@ -136,7 +134,7 @@ class ReleasePublication(unittest.TestCase):
 
     def test_same_run_artifacts_and_no_blind_skip(self):
         jobs = self.workflow["jobs"]
-        for name in ("docker-image", "publish-pypi", "publish-image"):
+        for name in ("publish-pypi",):
             self.assertIn("github.event_name == 'push'", jobs[name]["if"])
             for step in jobs[name]["steps"]:
                 if step.get("uses", "").startswith("actions/download-artifact@"):
@@ -156,18 +154,6 @@ class ReleasePublication(unittest.TestCase):
         ):
             self.assertIn(required, scripts)
         self.assertNotIn("--skip-existing", scripts)
-        image = jobs["publish-image"]["steps"]
-        check = next(
-            i
-            for i, step in enumerate(image)
-            if "verify_release_tag.py" in step.get("run", "")
-        )
-        push = next(
-            i
-            for i, step in enumerate(image)
-            if step.get("with", {}).get("push") is True
-        )
-        self.assertLess(check, push)
 
     def test_release_metadata_and_staging(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -228,7 +214,7 @@ class ReleasePublication(unittest.TestCase):
         for proof in (
             "set -euo pipefail",
             "--force-reinstall",
-            "epistemic-graph-server --help",
+            "unexpected epistemic-graph-server executable",
             "metadata.requires",
             "numpy",
             "n.sum(values)==10.0",

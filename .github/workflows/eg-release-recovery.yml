@@ -125,7 +125,7 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         python -m pip install --force-reinstall "$(ls dist/epistemic_graph-*.whl)"
-        epistemic-graph-server --help
+        if command -v epistemic-graph-server >/dev/null 2>&1; then echo 'wheel must not ship the server executable' >&2; exit 1; fi
         cd "$RUNNER_TEMP"
         python - <<'PYTHON'
         import importlib.metadata

@@ -8,7 +8,8 @@ name: Release
 #
 # Blocking path: {gates, gates-plan-fuzz, gates-wheel, gates-facade, gates-whisper, gates-variants, gates-crates, gates-pyo3, python-suite,
 # security, lint-and-architecture, tts-piper-inference, language-clients}
-# -> {build, build-x86} -> {docker-image, publish-pypi} -> publish-image.
+# -> {build, build-x86} -> publish-pypi. The engine container image is no longer
+# built here: it ships from the epistemic-graph-server repository.
 # Quality and documentation checks run independently. GitHub Pages deploys
 # in pages.yml so the release concurrency queue cannot delay documentation.
 #
@@ -359,7 +360,7 @@ jobs:
           python scripts/normalize_wheel_sbom.py dist-gates/*.whl
           python scripts/normalize_wheel_build_paths.py dist-gates/*.whl
           python scripts/check_wheel_privacy.py dist-gates/*.whl
-      - name: Require a complete gates wheel (numeric + engine kernels + executable binary + RECORD)
+      - name: Require a complete gates wheel (numeric + engine kernels + no executables + RECORD)
         run: python scripts/check_wheel_completeness.py --require-engine-kernel dist-gates/*.whl
       - name: Install the folded epistemic-graph wheel into a clean throwaway venv
         run: |
@@ -1546,20 +1547,11 @@ jobs:
           mkdir dist
           cp dist-primary/epistemic_graph-*.whl dist/
 
-      # Smoke test: install the wheel, run the server `--help`, AND prove the folded-in
-      # kernels import (`epistemic_graph.numeric`, computing; `epistemic_graph.engine`,
-      # BUG-PE-002). Skipped for the cross-only leg (linux-aarch64 on an x86 host) where
-      # the binary can't execute on the runner. Three independent regressions this
-      # asserts (the first two were real, shipped regressions; the third is BUG-PE-002 —
-      # `import epistemic_graph.engine` failing in the live shipped image because
-      # nothing built and folded this extension before this lane):
-      #   1) the server console binary must stay EXECUTABLE — the numeric inject repacks
-      #      the wheel zip and MUST preserve the 0755 mode on
-      #      `*.data/scripts/epistemic-graph-server`; dropping the exec bit made pip
-      #      install a non-runnable binary that died with "Permission denied".
-      #   2) the numeric kernel must import AND compute from the INSTALLED wheel.
-      #   3) the engine kernel must import from the INSTALLED wheel.
-      - name: Smoke test (server --help + import epistemic_graph.{numeric,engine})
+      # Smoke test: install the wheel and assert it carries NO executables (the
+      # server ships in epistemic-graph-server), then prove the extension modules
+      # `epistemic_graph.numeric` (computing) and `epistemic_graph.engine`
+      # (BUG-PE-002) import from the INSTALLED wheel.
+      - name: Smoke test (no executables + import epistemic_graph.{numeric,engine})
         shell: bash
         run: bash scripts/release_wheel_smoke.sh
 
@@ -1592,10 +1584,8 @@ jobs:
   # `epistemic-graph[numeric]` still resolves for old pins, but is a no-op alias —
   # it is not what makes the kernel present.
 
-  # ── Multi-arch Docker DB image (BUILD + in-image `--help` smoke; no push).
-  #    Installs the wheel BUILT IN THIS SAME RUN — no PyPI round-trip.
-  #    Tag-gated: optional feature and benchmark feedback runs independently
-  #    and cannot delay this image build.
+  # The engine container image is built and published by the
+  # epistemic-graph-server repository (docker/Dockerfile here is superseded).
 
   build-x86:
     name: wheel linux-x86_64
@@ -1606,45 +1596,6 @@ jobs:
     permissions:
       contents: read
     uses: Knuckles-Team/epistemic-graph/.github/workflows/eg-release-x86.yml@bc4448160e8d16deb8210ce8aeb058b2da293d93
-
-  docker-image:
-    timeout-minutes: 360
-    needs: [build, build-x86]
-    runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          persist-credentials: false
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
-      - name: Derive package version from tag
-        run: echo "EG_VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
-      - name: Download wheel (amd64)
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: wheel-linux-x86_64
-          path: docker/wheels
-      - name: Download wheel (arm64)
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: wheel-linux-aarch64
-          path: docker/wheels
-      - name: Build multi-arch image (install CI-built wheel; no PyPI)
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
-        with:
-          context: .
-          file: docker/Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: false
-          build-args: |
-            EG_VERSION=${{ env.EG_VERSION }}
-          tags: epistemic-graph:ci
 
   # ─────────────────────────────────────────────────────────────────────────
   # PUBLISH — gated to a `v*` tag and the required release wheel matrix.
@@ -1775,55 +1726,6 @@ jobs:
           python -I .pipeline-contract/.github/actions/wheel-readiness/publication.py postverify \
             --directory dist --package epistemic-graph --version "${GITHUB_REF_NAME#v}" \
             --manifest "$RUNNER_TEMP/publication.json"
-
-  publish-image:
-    timeout-minutes: 360
-    name: Push multi-arch image (release only)
-    needs: [docker-image, publish-pypi]
-    runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
-    environment: release
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          persist-credentials: false
-      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
-      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
-      - name: Derive package version from tag
-        run: echo "EG_VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
-      - name: Download main wheel (amd64)
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: wheel-linux-x86_64
-          path: docker/wheels
-      - name: Download main wheel (arm64)
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: wheel-linux-aarch64
-          path: docker/wheels
-      - name: Log in to registry
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
-        with:
-          registry: ${{ secrets.DOCKER_REGISTRY }}
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
-      - name: Recheck canonical release source before image publication
-        run: python3 scripts/verify_release_tag.py
-      - name: Build & push multi-arch image
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
-        with:
-          context: .
-          file: docker/Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: true
-          build-args: |
-            EG_VERSION=${{ env.EG_VERSION }}
-          tags: |
-            ${{ secrets.DOCKER_USERNAME }}/epistemic-graph:latest
-            ${{ secrets.DOCKER_USERNAME }}/epistemic-graph:${{ github.ref_name }}
 
   # ── Optional feature-combination build analysis. Failures stay visible in
   # Actions but cannot delay a release.
@@ -1964,7 +1866,7 @@ jobs:
           cp dist-primary/epistemic_graph-*.whl dist/
           (cd dist && sha256sum epistemic_graph-*.whl > SHA256SUMS)
 
-      - name: Smoke test (server --help + import epistemic_graph.{numeric,engine})
+      - name: Smoke test (no executables + import epistemic_graph.{numeric,engine})
         shell: bash
         run: bash scripts/release_wheel_smoke.sh
 

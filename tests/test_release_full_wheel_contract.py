@@ -40,7 +40,7 @@ def _build_job_source(raw: str) -> str:
     they'll trip on the unrelated `gates` job content.
     """
     start = raw.index("\n  build:\n")
-    end = raw.index("\n  docker-image:\n", start)
+    end = raw.index("\n  build-x86:\n", start)
     return raw[start:end]
 
 

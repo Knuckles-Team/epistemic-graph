@@ -311,7 +311,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             for failure in failures:
                 print(f"  - {failure}")
         else:
-            print(f"OK: {path.name} is complete (kernel + executable binary + RECORD).")
+            print(f"OK: {path.name} is complete (kernels + no executables + RECORD).")
 
     if incomplete:
         print(
