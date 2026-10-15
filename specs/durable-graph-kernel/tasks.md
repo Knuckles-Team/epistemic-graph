@@ -184,3 +184,17 @@ This batch defines the slices; it runs none of their runtime tests.
 
 - [ ] `EG-DURABLE-KERNEL-R042.100`: extend the existing typed `BenchmarkClaim.measured_result` with complete, revision-bound `BenchmarkMeasurementV1` fields and deterministic TPS/cost formulas. Preserve existing superiority gate.
 - [ ] Serve and replay exact arithmetic across releases. Exclude startup. Refuse missing token/price data, invalid elapsed time/currency and incomparable profiles.
+
+## Spec-audit closure tasks — 2026-10-15
+
+- [ ] **EG-DURABLE-KERNEL-R084.8:** Define tenant-scoped ordering and backend atomicity semantics. Extend conflict resolution paths and add integration tests covering two tenants, multiple backends, concurrent writes and failure/replay.
+- [ ] **EG-DURABLE-KERNEL-R057.1:** Model order-snapshot lifecycle with immutable-history and derivation-link binding. Integrate with sealed-record guard. Test snapshot creation, atomic promotion, history preservation and veto refusal.
+- [ ] **EG-DURABLE-KERNEL-R087.1:** Define typed changeset-review schema with five flaw classes, impact policy and finding-to-code evidence in `crates/eg-types/src/changeset_review.rs`.
+- [ ] **EG-DURABLE-KERNEL-R087.2:** Serve `ChangesetReview` RPC endpoint. Integrate with GraphOS producer and AU consumer. Regenerate contracts.
+- [ ] **EG-DURABLE-KERNEL-R088.1:** Model rule correction with lineage, versioned approval and replacement/revocation. Enforce two-principal requirement at type level.
+- [ ] **EG-DURABLE-KERNEL-R088.2:** Serve correction submission, approval and application through existing rule authority. Test two-principal validation, replacement flow and revocation refusal.
+- [ ] **EG-DURABLE-KERNEL-R089.1:** Typed step verification verdict with uncertainty bound and proof binding. Round-trip over wire.
+- [ ] **EG-DURABLE-KERNEL-R089.2:** AU consumer path refuses forward-chained conclusions from failed steps. Preserve AU-EG harness integration.
+- [ ] **EG-DURABLE-KERNEL-R090.1:** Route GraphOS schema-selection request through EG admission. Validate candidate and bind schema revision/digest.
+- [ ] **EG-DURABLE-KERNEL-R090.2:** Serve digest readback with mismatch detection. Test accuracy and consistency across restart.
+- [ ] **EG-DURABLE-KERNEL-R090.3:** Enforce read-only on external triple-store projections. Refuse mutations with typed error. Trace lineage to EG revision.
