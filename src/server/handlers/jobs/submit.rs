@@ -146,11 +146,22 @@ pub(super) fn handle_cancel_op(
             job_id: job_id.clone(),
         },
     };
-    let (batch, now) = match compile_job_batch(store, req_id, authority, attempt_nonce, &method) {
-        Ok(value) => value,
-        Err(error) => return Response::err(req_id, error),
-    };
-    match store.request_cancel_batch(&job_id, &batch, now) {
+    // Another job transition between the version read and the versioned write
+    // is a benign race: the store re-reads the version and re-evaluates (see
+    // `JobStore::request_cancel_retrying`).
+    let mut compile_error = None;
+    let outcome = store.request_cancel_retrying(&job_id, || {
+        compile_job_batch(store, req_id, authority, attempt_nonce.clone(), &method).map_err(
+            |error| {
+                compile_error = Some(error);
+                eg_jobs::JobError::Codec("cancel batch compile failed".into())
+            },
+        )
+    });
+    if let Some(error) = compile_error {
+        return Response::err(req_id, error);
+    }
+    match outcome {
         Ok((job, _)) => {
             job_response::<eg_types::result_contract::coordination::JobCancel>(req_id, &job)
         }

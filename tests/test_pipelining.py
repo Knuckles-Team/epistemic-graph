@@ -312,7 +312,7 @@ async def test_real_engine_single_connection_pipelines(start_epistemic_graph_ser
         await client.graph.clear()
         # A connected graph big enough that one betweenness pass (O(V*E)) takes long
         # enough (~tens of ms) to dwarf a Ping.
-        size = 180
+        size = 400
         for i in range(size):
             await client.nodes.add(f"n{i}", {"i": i})
         for i in range(size):
@@ -327,23 +327,25 @@ async def test_real_engine_single_connection_pipelines(start_epistemic_graph_ser
         # serialized implementation would force the Ping to wait behind the
         # heavy op in the connection's queue — completion would be ["heavy", "cheap"].
         # This proof does not depend on having spare cores for a wall-clock speedup.
-        completion: list[str] = []
-
-        async def heavy():
-            await client.analytics.betweenness_centrality()
-            completion.append("heavy")
-
-        async def cheap():
-            # Let the heavy op's frame get written + dispatched first.
-            await asyncio.sleep(0.01)
-            await client.ping()
-            completion.append("cheap")
-
-        await asyncio.gather(heavy(), cheap())
-        assert completion == ["cheap", "heavy"], (
-            "the cheap op blocked behind the heavy one on the same connection — the "
-            f"read loop is still serializing dispatch (saw {completion})"
+        # No wall-clock ordering is asserted. Several heavy ops are put in flight
+        # first (each frame is flushed before the Ping is sent), then one Ping is
+        # awaited. The proof is structural: when the Ping reply arrives, at least
+        # one heavy request is still outstanding -- the read loop answered the
+        # cheap op without waiting for the heavy dispatches ahead of it.
+        heavies = [
+            asyncio.ensure_future(client.analytics.betweenness_centrality())
+            for _ in range(8)
+        ]
+        for _ in range(20):  # let every heavy frame be written + dispatched
+            await asyncio.sleep(0)
+        await client.ping()
+        outstanding = [task for task in heavies if not task.done()]
+        assert outstanding, (
+            "every heavy op had already completed when the cheap Ping returned — "
+            "the cheap op did not overtake in-flight heavy dispatch, so the read "
+            "loop is serializing (or the heavy ops were not heavy enough)"
         )
+        await asyncio.gather(*heavies)
 
         # ── PROOF B: N concurrent in-flight calls on ONE connection stay correct ──
         # Fire N heavy ops all in flight on the SAME connection; every response is
