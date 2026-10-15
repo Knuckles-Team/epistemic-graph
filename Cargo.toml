@@ -101,13 +101,6 @@ name = "epistemic-graph-server"
 path = "src/main.rs"
 required-features = ["server"]
 
-[[bin]]
-name = "epistemic-graph-rf019-observe"
-path = "src/bin/rf019_observe.rs"
-# No unit tests; integration tests still build the ordinary binary.
-test = false
-required-features = ["server", "ann-redb"]
-
 # Longer fault-injection soak for the correctness harness (CONCEPT:KG-2.212). Only
 # builds under `--features harness` (which pulls `raft`); a default/server/full build
 # does not compile it. `cargo test --features raft harness::` runs the bounded
@@ -117,39 +110,9 @@ name = "nemesis"
 path = "src/bin/nemesis.rs"
 required-features = ["harness"]
 
-# Offline K-shard migration tool (CONCEPT:EG-030, M3). Rewrites an existing durable
-# store into a NEW shard count K using EG-026 routing. Needs the redb backend.
-[[bin]]
-name = "migrate-shards"
-path = "src/bin/migrate_shards.rs"
-# No unit tests; integration tests still build the ordinary binary.
-test = false
-required-features = ["redb", "server"]
-
-# Restore a durable persist-dir from an EG-090 backup bundle (CONCEPT:EG-090). Verbatim
-# import via the EG-030 engine; supports re-shard-on-restore. Needs the redb backend.
-[[bin]]
-name = "restore"
-path = "src/bin/restore.rs"
-# No unit tests; integration tests still build the ordinary binary.
-test = false
-required-features = ["redb", "server"]
-
-# Fixture-scale Delta/Iceberg write-format export tool (W4.8, CONCEPT:EG-317). Drives
-# the REAL `eg-lake` production write path (`LakeTable::materialize`/`delta_log`/
-# `iceberg`/`iceberg_manifests` — the identical calls `src/server/lake::LakeManager`
-# makes) directly against a plain local directory (bypassing the server/blob-CAS/
-# network entirely), so the Python test suite's read-parity tests
-# (`tests/test_lake_iceberg_delta_parity.py`) can point a REAL, unmodified pyiceberg/
-# deltalake reader at genuinely engine-written files with no HTTP/catalog plumbing
-# in between. Needs only the `lake` feature (no `server`/`blob`/`tsdb` — it writes
-# straight to disk with `std::fs`).
-[[bin]]
-name = "lake-fixture-export"
-path = "src/bin/lake_fixture_export.rs"
-# No unit tests; integration tests still build the ordinary binary.
-test = false
-required-features = ["lake"]
+# The offline tools (`restore`, `migrate-shards`, `epistemic-graph-rf019-observe`,
+# `lake-fixture-export`) are subcommands of `epistemic-graph-server`
+# (`src/offline_tools/`); they are not separate executables.
 
 # SQLite-style embedded usage (CONCEPT:KG-2.216). Needs the in-process library API.
 [[example]]
@@ -2044,6 +2007,17 @@ panic = "abort"
 # DATABASE — unwind keeps a panic recoverable at the dispatch boundary instead of
 # aborting the whole process and masking a recoverable error. Normal `release` builds
 # are unaffected (this is a separate named profile).
+# Size profile for the standalone `epistemic-graph-server` package (built natively on
+# x86_64 by the epistemic-graph-server repository, so fat LTO has no cross-build memory
+# limit). panic = "unwind": the multi-tenant server must not abort every tenant on one panic.
+[profile.release-server]
+inherits = "release"
+opt-level = "s"
+lto = "fat"
+codegen-units = 1
+panic = "unwind"
+strip = true
+
 [profile.release-tiny]
 inherits = "release"
 opt-level = "z"

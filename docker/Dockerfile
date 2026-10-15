@@ -44,7 +44,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
       uv pip install --system --break-system-packages "${wheel}"; \
     else \
       echo "No local wheel for arch '${TARGETARCH:-?}' in /wheels; installing the exact published release"; \
-      uv pip install --system --break-system-packages "epistemic-graph[full]==${EG_VERSION}"; \
+      uv pip install --system --break-system-packages "epistemic-graph[full,server]==${EG_VERSION}"; \
     fi; \
     python -c 'import sys; assert sys.version_info[:2] == (3, 14)'; \
     epistemic-graph-server --help >/dev/null

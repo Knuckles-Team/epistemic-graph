@@ -1,7 +1,8 @@
 """Read-parity tests for the eg-lake Delta + Iceberg write path (W4.8, CONCEPT:EG-317).
 
 Drives the REAL `eg-lake` production write path directly via the `lake-fixture-export`
-Rust binary (`src/bin/lake_fixture_export.rs`) — the identical `LakeTable::materialize`/
+subcommand of the server binary (`src/offline_tools/lake_fixture_export.rs`) — the
+identical `LakeTable::materialize`/
 `delta_log`/`iceberg`/`iceberg_manifests` calls `src/server/lake::LakeManager` makes
 against the blob CAS in the live server, here written straight to a local directory —
 and asserts a REAL, unmodified `pyiceberg` reads the Iceberg table back correctly and a
@@ -22,7 +23,6 @@ Run standalone with already-built artifacts (bypass the slow shared-engine
 conftest fixture, matching `test_kvcache_connector.py`'s documented pattern)::
 
     EPISTEMIC_GRAPH_TEST_BINARY=target-isolated/debug/epistemic-graph-server \
-    EPISTEMIC_GRAPH_LAKE_FIXTURE_BINARY=target-isolated/debug/lake-fixture-export \
       python3 -m pytest tests/test_lake_iceberg_delta_parity.py --noconftest -q
 
 Without those artifacts an ordinary developer run skips the corresponding
@@ -163,10 +163,6 @@ def _require_strict_parity_prerequisites() -> None:
         missing.append("pyjwt + cryptography")
     if _configured_executable("EPISTEMIC_GRAPH_TEST_BINARY") is None:
         missing.append("EPISTEMIC_GRAPH_TEST_BINARY (executable full server)")
-    if _configured_executable("EPISTEMIC_GRAPH_LAKE_FIXTURE_BINARY") is None:
-        missing.append(
-            "EPISTEMIC_GRAPH_LAKE_FIXTURE_BINARY (executable lake-fixture-export)"
-        )
     if missing:
         raise RuntimeError(
             "strict lake parity prerequisites are missing: "
@@ -177,8 +173,8 @@ def _require_strict_parity_prerequisites() -> None:
 
 
 # --------------------------------------------------------------------------------- #
-# Fixture-scale expected data — mirrors src/bin/lake_fixture_export.rs's BATCH_1/
-# BATCH_2 constants exactly (two commits: CREATE 3 rows, APPEND 2 rows). The binary's
+# Fixture-scale expected data — mirrors src/offline_tools/lake_fixture_export.rs's
+# BATCH_1/BATCH_2 constants exactly (two commits: CREATE 3 rows, APPEND 2 rows). The binary's
 # own stdout JSON is the actual source of truth used in assertions below; this literal
 # copy exists only for a human reading this file to see the fixture at a glance.
 # --------------------------------------------------------------------------------- #
@@ -195,12 +191,12 @@ def _run_lake_fixture_export(out_dir: Path) -> dict:
     """
 
     prebuilt = _required_executable(
-        _configured_executable("EPISTEMIC_GRAPH_LAKE_FIXTURE_BINARY"),
-        "EPISTEMIC_GRAPH_LAKE_FIXTURE_BINARY",
+        _configured_executable("EPISTEMIC_GRAPH_TEST_BINARY"),
+        "EPISTEMIC_GRAPH_TEST_BINARY",
         "lake read parity",
     )
     proc = subprocess.run(
-        [prebuilt, str(out_dir)],
+        [prebuilt, "lake-fixture-export", str(out_dir)],
         cwd=str(REPO_ROOT),
         capture_output=True,
         text=True,

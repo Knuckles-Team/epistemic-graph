@@ -68,12 +68,16 @@ def _find_server_binary() -> str | None:
             os.path.dirname(__file__), "..", "target", "debug", "epistemic-graph-server"
         ),
     ]
-    # Also check PATH.
-    import shutil
+    # The installed `epistemic-graph-server` package, else PATH.
+    from epistemic_graph.server_binary import (
+        ServerBinaryNotFoundError,
+        resolve_server_binary,
+    )
 
-    path_bin = shutil.which("epistemic-graph-server")
-    if path_bin:
-        candidates.insert(0, path_bin)
+    try:
+        candidates.insert(0, resolve_server_binary())
+    except ServerBinaryNotFoundError:
+        pass
 
     for candidate in candidates:
         if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
@@ -86,7 +90,11 @@ def cmd_start(args: argparse.Namespace) -> None:
     binary = _find_server_binary()
     if not binary:
         print("Error: epistemic-graph-server binary not found.", file=sys.stderr)
-        print("Build it with: cargo build --release", file=sys.stderr)
+        print(
+            'Install it with: pip install "epistemic-graph[server]" '
+            "(or cargo build --release)",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     cmd = [binary, "--socket-path", args.socket_path]

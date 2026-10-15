@@ -142,7 +142,7 @@ the retired unindexed `graph.redb`. With the engine stopped, convert that one-ti
 persisted layout in place (leaving a timestamped backup) with:
 
 ```bash
-migrate-shards --persist-dir "${GRAPH_SERVICE_PERSIST_DIR:?}" --shards 1
+epistemic-graph-server migrate-shards --persist-dir "${GRAPH_SERVICE_PERSIST_DIR:?}" --shards 1
 ```
 
 A store written by an earlier build in a layout that has a registered offline upgrade
@@ -189,8 +189,8 @@ closed. Backup publication is staged and renamed atomically inside that root.
 
 ```bash
 # Offline in-place restore CLI (engine stopped). The target K is always explicit.
-restore --bundle "${BACKUP_BUNDLE:?}" --persist-dir "${GRAPH_SERVICE_PERSIST_DIR:?}" --shards 1
-restore --bundle "${BACKUP_BUNDLE:?}" --persist-dir "${TARGET_PERSIST_DIR:?}" --shards 8
+epistemic-graph-server restore --bundle "${BACKUP_BUNDLE:?}" --persist-dir "${GRAPH_SERVICE_PERSIST_DIR:?}" --shards 1
+epistemic-graph-server restore --bundle "${BACKUP_BUNDLE:?}" --persist-dir "${TARGET_PERSIST_DIR:?}" --shards 8
 ```
 
 The wire request always states `target_shards`; restoring at the bundle's own K is a

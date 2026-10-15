@@ -1,4 +1,4 @@
-//! `restore` — rebuild a durable persist-dir from an EG-090 backup bundle (CONCEPT:EG-KG.sharding.reshard-on-restore).
+//! `epistemic-graph-server restore` — rebuild a durable persist-dir from an EG-090 backup bundle (CONCEPT:EG-KG.sharding.reshard-on-restore).
 //!
 //! Reads a backup bundle produced by the online backup path (`Method::Backup` /
 //! `RedbBackend::backup`) — a directory of verbatim `graph-<n>.redb` shard
@@ -12,10 +12,10 @@
 //!
 //! ```text
 //! # Restore at the bundle's own shard count K (state K explicitly).
-//! restore --bundle /backups/eg-2026-07-01 --persist-dir /var/lib/epistemic-graph --shards 1
+//! epistemic-graph-server restore --bundle /backups/eg-2026-07-01 --persist-dir /var/lib/epistemic-graph --shards 1
 //!
 //! # Re-shard on restore: rebuild at a DIFFERENT K (each graph re-routed by EG-026).
-//! restore --bundle /backups/eg-2026-07-01 --persist-dir /var/lib/eg-k8 --shards 8
+//! epistemic-graph-server restore --bundle /backups/eg-2026-07-01 --persist-dir /var/lib/eg-k8 --shards 8
 //! ```
 
 use std::path::Path;
@@ -25,7 +25,7 @@ use clap::Parser;
 use epistemic_graph::server::persistence::backup;
 
 #[derive(Parser, Debug)]
-#[command(name = "restore")]
+#[command(name = "epistemic-graph-server restore")]
 #[command(
     about = "Rebuild a durable persist-dir from an EG-090 backup bundle (CONCEPT:EG-KG.sharding.reshard-on-restore)"
 )]
@@ -44,8 +44,8 @@ struct Args {
     shards: usize,
 }
 
-fn main() {
-    let args = Args::parse();
+pub(crate) fn run(argv: Vec<std::ffi::OsString>) {
+    let args = Args::parse_from(argv);
 
     match backup::restore_bundle(
         Path::new(&args.bundle),

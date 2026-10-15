@@ -11,10 +11,8 @@ Cargo build or certify a different artifact.
 
 Typical invocation (after one bounded build in this checkout)::
 
-    cargo build --features full --bin epistemic-graph-server \
-      --bin lake-fixture-export
+    cargo build --features full --bin epistemic-graph-server
     EPISTEMIC_GRAPH_TEST_BINARY=target-isolated/debug/epistemic-graph-server \
-    EPISTEMIC_GRAPH_LAKE_FIXTURE_BINARY=target-isolated/debug/lake-fixture-export \
       python3 tests/run_lake_parity.py
 
 ``uv`` is preferred for environment creation and installation when present;
@@ -36,10 +34,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 REQUIREMENTS = REPO_ROOT / "tests" / "lake-parity-requirements.txt"
 PARITY_TEST = REPO_ROOT / "tests" / "test_lake_iceberg_delta_parity.py"
 DEFAULT_VENV = Path("/tmp/epistemic-graph-lake-parity")
-REQUIRED_ARTIFACTS = (
-    "EPISTEMIC_GRAPH_TEST_BINARY",
-    "EPISTEMIC_GRAPH_LAKE_FIXTURE_BINARY",
-)
+REQUIRED_ARTIFACTS = ("EPISTEMIC_GRAPH_TEST_BINARY",)
 
 
 def _venv_python(venv: Path) -> Path:

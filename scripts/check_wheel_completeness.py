@@ -26,10 +26,9 @@ The invariants, each one a regression that actually shipped:
 
 1. **Numeric kernel present** — ``epistemic_graph/numeric*.{so,pyd}``. The
    2.14.0-2.23.0 regression.
-2. **Server binary present and EXECUTABLE** — ``*.data/scripts/epistemic-graph-server``
-   with the owner-execute bit. Re-zipping the wheel to inject the kernel dropped
-   mode 0755 once already, producing a wheel that installed a non-runnable binary
-   (``Permission denied``).
+2. **No executables** — nothing under ``*.data/scripts/``. The native server
+   ships in the separate ``epistemic-graph-server`` package (extra ``server``);
+   the public wheel stays under the PyPI per-file limit.
 3. **Python surface complete** — the ``epistemic_graph`` package plus its
    ``kvcache`` and ``skills`` subpackages, so a wheel that silently loses package
    data fails here rather than at a consumer's import.
@@ -82,7 +81,6 @@ from pathlib import Path
 
 TARGET_PACKAGE = "epistemic_graph"
 KERNEL_SUFFIXES = (".so", ".pyd")
-SERVER_BINARY = "epistemic-graph-server"
 REQUIRED_SUBPACKAGES = ("kvcache", "skills")
 # PEP 503 normalized names that must be unconditional runtime requirements.
 REQUIRED_BASE_DEPENDENCIES = ("msgpack",)
@@ -113,16 +111,6 @@ def _engine_kernel_members(names: Sequence[str]) -> list[str]:
         for name in names
         if name.startswith(prefix) and name.endswith(KERNEL_SUFFIXES)
     ]
-
-
-def _server_entries(archive: zipfile.ZipFile) -> list[zipfile.ZipInfo]:
-    """Console-binary members, accepting the Windows ``.exe`` spelling."""
-    entries = []
-    for info in archive.infolist():
-        match = _SCRIPTS_RE.match(info.filename)
-        if match and match.group("name") in (SERVER_BINARY, f"{SERVER_BINARY}.exe"):
-            entries.append(info)
-    return entries
 
 
 def _metadata_requirements(archive: zipfile.ZipFile) -> list[tuple[str, bool]]:
@@ -225,21 +213,13 @@ def _check_engine_kernel(
 
 
 def _check_server_entries(archive: zipfile.ZipFile) -> list[str]:
-    server_entries = _server_entries(archive)
-    if not server_entries:
-        return [f"no console binary: expected *.data/scripts/{SERVER_BINARY}"]
-    failures = []
-    for info in server_entries:
-        # A Windows `.exe` carries no POSIX mode bits and needs none.
-        if info.filename.endswith(".exe"):
-            continue
-        mode = (info.external_attr >> 16) & 0o7777
-        if not mode & 0o100:
-            failures.append(
-                f"{info.filename} is not executable (mode {mode:o}); "
-                "re-zipping must preserve 0755"
-            )
-    return failures
+    """The public wheel ships no executables; the server is its own package."""
+    return [
+        f"{info.filename} is an executable — the server binary ships in the "
+        "epistemic-graph-server package (extra `server`), never in this wheel"
+        for info in archive.infolist()
+        if _SCRIPTS_RE.match(info.filename)
+    ]
 
 
 def _check_python_surface(names: Sequence[str]) -> list[str]:

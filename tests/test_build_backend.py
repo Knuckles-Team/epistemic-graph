@@ -75,13 +75,12 @@ def _editable_wheel(
         native_payloads = {
             "epistemic_graph/numeric.abi3.so": b"numeric",
             "epistemic_graph/engine.abi3.so": b"engine",
-            "epistemic_graph-0.data/scripts/epistemic-graph-server": b"server",
         }
     entries.update(native_payloads)
     with zipfile.ZipFile(path, "w") as archive:
         for name, payload in entries.items():
             info = zipfile.ZipInfo(name)
-            if name.endswith((".so", "epistemic-graph-server")):
+            if name.endswith(".so"):
                 info.external_attr = 0o100755 << 16
             archive.writestr(info, payload)
         archive.writestr("epistemic_graph-0.dist-info/RECORD", _record(entries))
@@ -135,6 +134,7 @@ def _test_cache_inputs(label: str) -> dict[str, object]:
 
 @pytest.mark.parametrize("entrypoint", ["build_wheel", "build_editable"])
 @pytest.mark.parametrize("suffix", ["abi3.so", "pyd"])
+@pytest.mark.spec("EG-CONTRACT-R053.2")
 def test_build_backend_folds_both_components(
     monkeypatch, editable_cache: Path, tmp_path: Path, entrypoint: str, suffix: str
 ) -> None:
@@ -167,13 +167,7 @@ def test_build_backend_folds_both_components(
         assert archive.read(f"epistemic_graph/numeric.{suffix}") == b"numeric"
         assert archive.read(f"epistemic_graph/engine.{suffix}") == b"engine"
         assert build_backend._record_valid(archive)
-        assert (
-            archive.getinfo(
-                "epistemic_graph-0.data/scripts/epistemic-graph-server"
-            ).external_attr
-            >> 16
-            & 0o111
-        )
+        assert not [n for n in archive.namelist() if ".data/scripts/" in n]
 
 
 def test_regular_and_editable_builds_serialize_complete_maturin_staging(
@@ -477,13 +471,7 @@ def test_cached_editable_payload_preserves_source_and_permissions(
             archive.getinfo("epistemic_graph/numeric.abi3.so").external_attr >> 16
             & 0o111
         )
-        assert (
-            archive.getinfo(
-                "epistemic_graph-0.data/scripts/epistemic-graph-server"
-            ).external_attr
-            >> 16
-            & 0o111
-        )
+        assert not [n for n in archive.namelist() if ".data/scripts/" in n]
 
 
 @pytest.mark.parametrize("trailing_newline", [False, True])
@@ -655,7 +643,6 @@ def test_cache_rebuilds_incomplete_engine_with_valid_record_and_digest(
     wheel.chmod(0o600)
     payloads = {
         "epistemic_graph/numeric.abi3.so": b"numeric",
-        "epistemic_graph-0.data/scripts/epistemic-graph-server": b"server",
     }
     payloads.update({f"epistemic_graph/{name}": b"engine" for name in engine_names})
     _editable_wheel(wheel, native_payloads=payloads)
@@ -681,14 +668,13 @@ def test_engine_injector_changes_invalidate_native_source_digest(tmp_path):
     assert first != build_backend.native_source_digest(tmp_path)
 
 
-def test_windows_editable_native_payloads_accept_pyd_and_exe(tmp_path):
+def test_windows_editable_native_payloads_accept_pyd(tmp_path):
     wheel = tmp_path / "windows.whl"
     _editable_wheel(
         wheel,
         native_payloads={
             "epistemic_graph/numeric.pyd": b"numeric",
             "epistemic_graph/engine.pyd": b"engine",
-            "epistemic_graph-0.data/scripts/epistemic-graph-server.exe": b"server",
         },
     )
     build_backend._validate_editable_wheel(wheel)
@@ -705,4 +691,18 @@ def test_editable_cache_rejects_non_executable_unix_engine(tmp_path):
                 info.external_attr = 0o100644 << 16
             archive.writestr(info, payload)
     with pytest.raises(RuntimeError, match="non-executable native payload"):
+        build_backend._validate_editable_wheel(wheel)
+
+
+def test_editable_cache_rejects_wheel_carrying_an_executable(tmp_path):
+    wheel = tmp_path / "with-exe.whl"
+    _editable_wheel(
+        wheel,
+        native_payloads={
+            "epistemic_graph/numeric.abi3.so": b"numeric",
+            "epistemic_graph/engine.abi3.so": b"engine",
+            "epistemic_graph-0.data/scripts/epistemic-graph-server": b"server",
+        },
+    )
+    with pytest.raises(RuntimeError, match="executable"):
         build_backend._validate_editable_wheel(wheel)
