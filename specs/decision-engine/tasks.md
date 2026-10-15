@@ -604,3 +604,15 @@ Deliver these additive leaves in order; preserve R137.1–.6 and R128 unchanged.
 - [ ] **EG-DECISION-ENGINE-R165.5 (Evidence):** Record necessity score, comparison and mismatch trace.
 - [ ] **EG-DECISION-ENGINE-R165.6 (Hot-path proof):** Serve tool decision with necessity and comparison.
 <!-- /spec-definition-patch -->
+- [ ] **EG-DECISION-ENGINE-R134.104 (Model):** Define AnswerCandidateRankingV1 under the decide contract.
+- [ ] **EG-DECISION-ENGINE-R134.105 (Behavior):** The engine must compare answer candidates pairwise without a verifier.
+- [ ] **EG-DECISION-ENGINE-R134.106 (Wiring):** The ranking attaches in handle_decide beside the existing task-plan decisions.
+- [ ] **EG-DECISION-ENGINE-R134.107 (Refusal):** The engine must refuse a ranking request that names a verifier, has fewer than two candidates, or exceeds the revision bound.
+- [ ] **EG-DECISION-ENGINE-R134.108 (Evidence):** The engine must emit one premise per pairwise comparison and one for the global order.
+- [ ] **EG-DECISION-ENGINE-R134.109 (Hot-path proof):** The entry point is the served Decide wire method.
+- [ ] **EG-DECISION-ENGINE-R135.10 (Model):** Define InsightRecordV1 in the program store.
+- [ ] **EG-DECISION-ENGINE-R135.11 (Behavior):** The engine must consolidate submitted insights and rank them by context match and success.
+- [ ] **EG-DECISION-ENGINE-R135.12 (Wiring):** The Harness observes outcomes and submits them to the engine.
+- [ ] **EG-DECISION-ENGINE-R135.13 (Refusal):** The engine must refuse a submission that has no source run.
+- [ ] **EG-DECISION-ENGINE-R135.14 (Evidence):** The engine must emit premises for the selected insights, their source runs and the selection revision.
+- [ ] **EG-DECISION-ENGINE-R135.15 (Hot-path proof):** The entry point is the served Decide wire method.

@@ -287,10 +287,6 @@
     "EG-DECISION-ENGINE-R134.6",
     "EG-DECISION-ENGINE-R134.7",
     "EG-DECISION-ENGINE-R134.8",
-    "EG-DECISION-ENGINE-R134.9",
-    "EG-DECISION-ENGINE-R134.10",
-    "EG-DECISION-ENGINE-R134.11",
-    "EG-DECISION-ENGINE-R134.12",
     "EG-DECISION-ENGINE-R135",
     "EG-DECISION-ENGINE-R135.1",
     "EG-DECISION-ENGINE-R135.2",
@@ -339,9 +335,13 @@
     "EG-DECISION-ENGINE-R106.1",
     "EG-DECISION-ENGINE-R106.2",
     "EG-DECISION-ENGINE-R137.13",
+    "EG-DECISION-ENGINE-R134.9",
     "EG-DECISION-ENGINE-R137.14",
+    "EG-DECISION-ENGINE-R134.10",
     "EG-DECISION-ENGINE-R137.15",
+    "EG-DECISION-ENGINE-R134.11",
     "EG-DECISION-ENGINE-R059.1",
+    "EG-DECISION-ENGINE-R134.12",
     "EG-DECISION-ENGINE-R134.13",
     "EG-DECISION-ENGINE-R029.1",
     "EG-DECISION-ENGINE-R134.14",
@@ -354,6 +354,12 @@
     "EG-DECISION-ENGINE-R134.15",
     "EG-DECISION-ENGINE-R135.8",
     "EG-DECISION-ENGINE-R135.9",
+    "EG-DECISION-ENGINE-R135.10",
+    "EG-DECISION-ENGINE-R135.11",
+    "EG-DECISION-ENGINE-R135.12",
+    "EG-DECISION-ENGINE-R135.13",
+    "EG-DECISION-ENGINE-R135.14",
+    "EG-DECISION-ENGINE-R135.15",
     "EG-DECISION-ENGINE-R042.100",
     "EG-DECISION-ENGINE-R042.101",
     "EG-DECISION-ENGINE-R129.100",
@@ -364,6 +370,12 @@
     "EG-DECISION-ENGINE-R137.102",
     "EG-DECISION-ENGINE-R134.102",
     "EG-DECISION-ENGINE-R134.103",
+    "EG-DECISION-ENGINE-R134.104",
+    "EG-DECISION-ENGINE-R134.105",
+    "EG-DECISION-ENGINE-R134.106",
+    "EG-DECISION-ENGINE-R134.107",
+    "EG-DECISION-ENGINE-R134.108",
+    "EG-DECISION-ENGINE-R134.109",
     "EG-DECISION-ENGINE-R136.100",
     "EG-DECISION-ENGINE-R031.100",
     "EG-DECISION-ENGINE-R036.100",
@@ -3850,7 +3862,13 @@
         "EG-DECISION-ENGINE-R134.100",
         "EG-DECISION-ENGINE-R134.101",
         "EG-DECISION-ENGINE-R134.102",
-        "EG-DECISION-ENGINE-R134.103"
+        "EG-DECISION-ENGINE-R134.103",
+        "EG-DECISION-ENGINE-R134.104",
+        "EG-DECISION-ENGINE-R134.105",
+        "EG-DECISION-ENGINE-R134.106",
+        "EG-DECISION-ENGINE-R134.107",
+        "EG-DECISION-ENGINE-R134.108",
+        "EG-DECISION-ENGINE-R134.109"
       ]
     },
     {
@@ -3910,34 +3928,6 @@
       "verified_by": []
     },
     {
-      "id": "EG-DECISION-ENGINE-R134.9",
-      "title": "Behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "EG-DECISION-ENGINE-R134.10",
-      "title": "Wiring",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "EG-DECISION-ENGINE-R134.11",
-      "title": "Evidence",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "EG-DECISION-ENGINE-R134.12",
-      "title": "Hot-path proof",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
       "id": "EG-DECISION-ENGINE-R135",
       "title": "A successful run compiles into a stored program keyed by task signature (rollup)",
       "delivery_state": "SPECIFIED",
@@ -3952,7 +3942,13 @@
         "EG-DECISION-ENGINE-R135.6",
         "EG-DECISION-ENGINE-R135.7",
         "EG-DECISION-ENGINE-R135.8",
-        "EG-DECISION-ENGINE-R135.9"
+        "EG-DECISION-ENGINE-R135.9",
+        "EG-DECISION-ENGINE-R135.10",
+        "EG-DECISION-ENGINE-R135.11",
+        "EG-DECISION-ENGINE-R135.12",
+        "EG-DECISION-ENGINE-R135.13",
+        "EG-DECISION-ENGINE-R135.14",
+        "EG-DECISION-ENGINE-R135.15"
       ]
     },
     {
@@ -4337,8 +4333,22 @@
       "verified_by": []
     },
     {
+      "id": "EG-DECISION-ENGINE-R134.9",
+      "title": "Reviewed residual `AU:34`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
       "id": "EG-DECISION-ENGINE-R137.14",
       "title": "Reviewed residual `AU:37`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R134.10",
+      "title": "Reviewed residual `AU:39`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -4351,8 +4361,22 @@
       "verified_by": []
     },
     {
+      "id": "EG-DECISION-ENGINE-R134.11",
+      "title": "Reviewed residual `AU:45`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
       "id": "EG-DECISION-ENGINE-R059.1",
       "title": "Reviewed residual `AU:57`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R134.12",
+      "title": "Reviewed residual `AU:85`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -4442,6 +4466,48 @@
       "verified_by": []
     },
     {
+      "id": "EG-DECISION-ENGINE-R135.10",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R135.11",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R135.12",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R135.13",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R135.14",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R135.15",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
       "id": "EG-DECISION-ENGINE-R042.100",
       "title": "Tool-path outcome history and repeated-failure skip rule",
       "delivery_state": "SPECIFIED",
@@ -4507,6 +4573,48 @@
     {
       "id": "EG-DECISION-ENGINE-R134.103",
       "title": "Summary-only sub-run return schema and parent-remaining context",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R134.104",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R134.105",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R134.106",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R134.107",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R134.108",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R134.109",
+      "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

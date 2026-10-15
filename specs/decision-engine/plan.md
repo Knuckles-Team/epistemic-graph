@@ -1403,3 +1403,11 @@ EG-DECISION-ENGINE-R164.1 through R164.6: Long-horizon branches retrieve prior o
 
 EG-DECISION-ENGINE-R165.1 through R165.6: Per-model empirical tool necessity measurement and decision comparison. Tool necessity measured per model. Mismatches traced with linked model call. Unknown and stale measurements handled explicitly.
 <!-- /spec-definition-patch -->
+
+## EG-DECISION-ENGINE-R134.104
+
+EG-DECISION-ENGINE-R134.104 through R134.109: the answer-candidate ranking producer in the decision engine feeds revision consumers through the served Decide response.
+
+## EG-DECISION-ENGINE-R135.10
+
+EG-DECISION-ENGINE-R135.10 through R135.15: the Harness submits run outcomes to the engine insight store; the engine selection feeds Harness context compilation.
