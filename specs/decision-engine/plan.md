@@ -1419,3 +1419,19 @@ EG-DECISION-ENGINE-R166.1 through R166.6: workflow registry -> orchestrate invoc
 ## EG-DECISION-ENGINE-R167
 
 EG-DECISION-ENGINE-R167.1 through R167.6: skill admission upgrade receipt -> invoke certification before dispatch.
+
+## EG-DECISION-ENGINE-R168
+
+EG-DECISION-ENGINE-R168.1 through EG-DECISION-ENGINE-R168.6: typed agent lifecycle model across construction, transition, persistence and serialization, producer to consumer through the served path.
+
+## EG-DECISION-ENGINE-R169
+
+EG-DECISION-ENGINE-R169.1 through EG-DECISION-ENGINE-R169.6: every-output checker feedback loop with durable continuation and explicit stop, producer to consumer through the served path.
+
+## EG-DECISION-ENGINE-R170
+
+EG-DECISION-ENGINE-R170.1 through EG-DECISION-ENGINE-R170.6: team coordination fallback and graph-discoverable team records, producer to consumer through the served path.
+
+## EG-DECISION-ENGINE-R171
+
+EG-DECISION-ENGINE-R171.1 through EG-DECISION-ENGINE-R171.6: planning admission requires an architecture and wiring gap comparison, producer to consumer through the served path.
