@@ -295,4 +295,5 @@ Preserve all previous acceptance and receipts. Deliver producer leaves before th
 - [ ] `EG-FEDERATED-QUERY-R081.103`: define and wire the closed `ViewportQueryV1` and `ResolveViewportSelectionV1` union through existing UnifiedQuery/run_unified_with. Serve billion-point scatter/line, pan/zoom, exact/bin selection and stale/denied/cap refusal cases. Verify effective encoded ceiling is the minimum of the caller request and formula cap. Refuse missing, invalid and envelope-too-small requests before scanning.
 - [ ] Implement separate scatter/line aggregation rules, continuity gaps, exact/aggregate selection and fixed viewport/variant bin plus serialized-byte formula.
 - [ ] Serve pan/zoom/selection at billion-point cardinality. Verify no full-source transfer and typed stale-index, authorization and cap refusals.
+- [ ] `EG-FEDERATED-QUERY-R087`: add served-path tests for SVG and PDF export through `Method::Viz`. Verify content type, non-empty body and unknown-dataset refusal for each format. Confirm which production caller reaches the method.
 <!-- /spec-definition-patch -->

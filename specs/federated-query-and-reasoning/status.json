@@ -246,7 +246,14 @@
     "EG-FEDERATED-QUERY-R081.101",
     "EG-FEDERATED-QUERY-R081.102",
     "EG-FEDERATED-QUERY-R081.100",
-    "EG-FEDERATED-QUERY-R081.103"
+    "EG-FEDERATED-QUERY-R081.103",
+    "EG-FEDERATED-QUERY-R087",
+    "EG-FEDERATED-QUERY-R087.1",
+    "EG-FEDERATED-QUERY-R087.2",
+    "EG-FEDERATED-QUERY-R087.3",
+    "EG-FEDERATED-QUERY-R087.4",
+    "EG-FEDERATED-QUERY-R087.5",
+    "EG-FEDERATED-QUERY-R087.6"
   ],
   "requirements": [
     {
@@ -2577,6 +2584,63 @@
     {
       "id": "EG-FEDERATED-QUERY-R081.103",
       "title": "Viewport-bounded scatter and line queries over billion-point indexed sources",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R087",
+      "title": "Native visualization static export (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-FEDERATED-QUERY-R087.1",
+        "EG-FEDERATED-QUERY-R087.2",
+        "EG-FEDERATED-QUERY-R087.3",
+        "EG-FEDERATED-QUERY-R087.4",
+        "EG-FEDERATED-QUERY-R087.5",
+        "EG-FEDERATED-QUERY-R087.6"
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R087.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R087.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R087.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R087.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R087.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R087.6",
+      "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

@@ -783,3 +783,7 @@ Preserve `EG-FEDERATED-QUERY-R040.2.1-.3, R040.2.6`. Source record `GRAPHOS:28` 
 Preserve `EG-FEDERATED-QUERY-R086; existing binary `GraphLearnPredict` and graph-write authorities`. Source record `EG:14` SHA-256 `7223250e7f899a187aad0b152e597c6174b772c49779ca2bdd12d3ba68f4f5ef`. Status remains SPECIFIED until implementation and independently read-back evidence exist.
 
 <!-- /fqr-source-backed-definition-dispositions-20261012 -->
+
+### `EG-FEDERATED-QUERY-R087`
+
+Extend this spec with native visualization static export. The engine already implements it: `crates/eg-viz-core`, `crates/eg-viz-export` and the served `Method::Viz` handler. The formats are PNG, SVG and PDF. This work adds requirements, served-path tests for SVG and PDF, and a caller check. It adds no new export format.
