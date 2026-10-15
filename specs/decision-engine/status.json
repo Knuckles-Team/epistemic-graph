@@ -333,6 +333,7 @@
     "EG-DECISION-ENGINE-R001.100",
     "EG-DECISION-ENGINE-R135.7",
     "EG-DECISION-ENGINE-R106.1",
+    "EG-DECISION-ENGINE-R106.2",
     "EG-DECISION-ENGINE-R137.13",
     "EG-DECISION-ENGINE-R134.9",
     "EG-DECISION-ENGINE-R137.14",
@@ -352,6 +353,7 @@
     "EG-DECISION-ENGINE-R029.2",
     "EG-DECISION-ENGINE-R134.15",
     "EG-DECISION-ENGINE-R135.8",
+    "EG-DECISION-ENGINE-R135.9",
     "EG-DECISION-ENGINE-R042.100",
     "EG-DECISION-ENGINE-R042.101",
     "EG-DECISION-ENGINE-R129.100",
@@ -2647,7 +2649,8 @@
         "src/server/graph_schema/swarm_topology_tests.rs:128"
       ],
       "rollup_of": [
-        "EG-DECISION-ENGINE-R106.1"
+        "EG-DECISION-ENGINE-R106.1",
+        "EG-DECISION-ENGINE-R106.2"
       ]
     },
     {
@@ -3822,7 +3825,8 @@
         "EG-DECISION-ENGINE-R135.5",
         "EG-DECISION-ENGINE-R135.6",
         "EG-DECISION-ENGINE-R135.7",
-        "EG-DECISION-ENGINE-R135.8"
+        "EG-DECISION-ENGINE-R135.8",
+        "EG-DECISION-ENGINE-R135.9"
       ]
     },
     {
@@ -4193,6 +4197,13 @@
       "verified_by": []
     },
     {
+      "id": "EG-DECISION-ENGINE-R106.2",
+      "title": "AU position producer identity and execution-to-decision linkage",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
       "id": "EG-DECISION-ENGINE-R137.13",
       "title": "Measured tool-output and graph-size signals select recursive mode in the decision ladder",
       "delivery_state": "SPECIFIED",
@@ -4321,6 +4332,13 @@
     {
       "id": "EG-DECISION-ENGINE-R135.8",
       "title": "Reviewed residual `EG:52`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R135.9",
+      "title": "Producer/consumer identity and receipt binding for pre-plan test results",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
