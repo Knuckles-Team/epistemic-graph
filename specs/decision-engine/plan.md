@@ -1366,4 +1366,24 @@ EG-DECISION-ENGINE-R155.1 through R155.6: Sessions produce episodes with tempora
 ## EG-DECISION-ENGINE-R156
 
 EG-DECISION-ENGINE-R156.1 through R156.6: Skill documents compile procedurally to AU executable plans.
+
+## EG-DECISION-ENGINE-R157
+
+EG-DECISION-ENGINE-R157.1 through R157.6: EG defines measured output quality, delegation threshold and observation window. AU executes only admitted delegation. Quality gate refuses delegation below threshold.
+
+## EG-DECISION-ENGINE-R158
+
+EG-DECISION-ENGINE-R158.1 through R158.6: Per-run error frequency drives joint model and width adjustment. AU continuation consumes adjustment receipt. Host ceiling and narrow-only enforced.
+
+## EG-DECISION-ENGINE-R159
+
+EG-DECISION-ENGINE-R159.1 through R159.6: EG routing applies historical tool-path success-rate preference. Connector and harness observations feed path-success tracking. SDK ordered fallback remains transport contract.
+
+## EG-DECISION-ENGINE-R160
+
+EG-DECISION-ENGINE-R160.1 through R160.6: Rendered skill package validated against recorded runs before publication. Publication refuses invalid packages. Identity evidence persisted.
+
+## EG-DECISION-ENGINE-R161
+
+EG-DECISION-ENGINE-R161.1 through R161.6: Failed-run trace generates fix plus regression test. Test binds to failing before-revision and passing after-revision receipt. Mismatch refuses acceptance.
 <!-- /spec-definition-patch -->

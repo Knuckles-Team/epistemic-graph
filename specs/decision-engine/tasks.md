@@ -522,4 +522,49 @@ Deliver these additive leaves in order; preserve R137.1–.6 and R128 unchanged.
 - [ ] **EG-DECISION-ENGINE-R156.4 (Refusal):** Refuse compilation when steps are ambiguous or lack input/output types.
 - [ ] **EG-DECISION-ENGINE-R156.5 (Evidence):** Golden skill documents compile to deterministic AU plan representations.
 - [ ] **EG-DECISION-ENGINE-R156.6 (Hot-path proof):** Serve `Method::CompileSkillWorkflow` with AU graph_orchestrate consumer.
+
+## Delegation quality gate and observation window (R157)
+
+- [ ] **EG-DECISION-ENGINE-R157.1 (Model):** Define quality window, threshold and admission decision types.
+- [ ] **EG-DECISION-ENGINE-R157.2 (Behavior):** Measure quality over stable window and gate on threshold.
+- [ ] **EG-DECISION-ENGINE-R157.3 (Wiring):** Route quality measurement through decision authority.
+- [ ] **EG-DECISION-ENGINE-R157.4 (Refusal):** Stale window or undefined threshold refuse admission.
+- [ ] **EG-DECISION-ENGINE-R157.5 (Evidence):** Bind quality metrics, threshold and admission decision.
+- [ ] **EG-DECISION-ENGINE-R157.6 (Hot-path proof):** Serve quality gate with delegation admission and refusal paths.
+
+## Per-run error frequency and joint model-width adjustment (R158)
+
+- [ ] **EG-DECISION-ENGINE-R158.1 (Model):** Define per-run window, adjustment record and before/after values.
+- [ ] **EG-DECISION-ENGINE-R158.2 (Behavior):** Compute per-run error frequency and drive adjustment decision.
+- [ ] **EG-DECISION-ENGINE-R158.3 (Wiring):** Extend routing/continuation with adjustment observation window.
+- [ ] **EG-DECISION-ENGINE-R158.4 (Refusal):** Unpartitioned errors or violated ceiling refuse adjustment.
+- [ ] **EG-DECISION-ENGINE-R158.5 (Evidence):** Bind run, window, before/after model/width/budget and decision.
+- [ ] **EG-DECISION-ENGINE-R158.6 (Hot-path proof):** Serve per-run adjustment with AU consumption.
+
+## Tool-routing path success history and preference (R159)
+
+- [ ] **EG-DECISION-ENGINE-R159.1 (Model):** Define path identity, success rate and preference rule types.
+- [ ] **EG-DECISION-ENGINE-R159.2 (Behavior):** Measure success rates and prefer higher-rate paths.
+- [ ] **EG-DECISION-ENGINE-R159.3 (Wiring):** Bind connector/harness observations to path-success tracking.
+- [ ] **EG-DECISION-ENGINE-R159.4 (Refusal):** Unmeasured paths or stale data refuse routing decision.
+- [ ] **EG-DECISION-ENGINE-R159.5 (Evidence):** Bind path identity, success rate and preference applied.
+- [ ] **EG-DECISION-ENGINE-R159.6 (Hot-path proof):** Serve routing with path-success preference.
+
+## Package identity validation and publication refusal (R160)
+
+- [ ] **EG-DECISION-ENGINE-R160.1 (Model):** Define package identity, validation and publication receipt types.
+- [ ] **EG-DECISION-ENGINE-R160.2 (Behavior):** Validate rendered package against recorded runs before publication.
+- [ ] **EG-DECISION-ENGINE-R160.3 (Wiring):** Link identity contracts to validation and publication authority.
+- [ ] **EG-DECISION-ENGINE-R160.4 (Refusal):** Mismatched or failed validation refuses publication.
+- [ ] **EG-DECISION-ENGINE-R160.5 (Evidence):** Bind identity, validation result and publication receipt.
+- [ ] **EG-DECISION-ENGINE-R160.6 (Hot-path proof):** Serve skill package with validation and publication refusal.
+
+## Failed-run trace to fix and test binding with revision receipts (R161)
+
+- [ ] **EG-DECISION-ENGINE-R161.1 (Model):** Define trace, fix, test and revision receipt binding types.
+- [ ] **EG-DECISION-ENGINE-R161.2 (Behavior):** Extract fix from trace and bind test to before/after receipts.
+- [ ] **EG-DECISION-ENGINE-R161.3 (Wiring):** Extend correction/admission with trace and test contracts.
+- [ ] **EG-DECISION-ENGINE-R161.4 (Refusal):** Absent trace or mismatched receipt refuse admission.
+- [ ] **EG-DECISION-ENGINE-R161.5 (Evidence):** Bind trace, test, revision digests and outcome.
+- [ ] **EG-DECISION-ENGINE-R161.6 (Hot-path proof):** Serve correction proposal with trace-test binding.
 <!-- /spec-definition-patch -->
