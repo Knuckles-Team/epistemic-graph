@@ -21,12 +21,12 @@ use tracing::info;
 
 use epistemic_graph::server;
 use epistemic_graph::server::ServerState;
+mod offline_tools;
 
 #[cfg(feature = "security")]
 mod operator_command;
 #[cfg(feature = "full")]
 mod performance_probe;
-mod offline_tools;
 mod server_startup;
 use server_startup::run_fuseki_startup_health_check;
 
