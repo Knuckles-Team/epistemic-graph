@@ -713,6 +713,10 @@ Cross-repository: `AU-CONTEXT-R004` assembles context from the plan; `AU-HARNESS
 References
 - arXiv:2512.24601 — Zhang et al., "Recursive Language Models" (2026)
 
+### R137.13–R137.16: Consumer binding and cross-package constraints
+
+R137.13 binds the AU-CONTEXT-R004 consumer: AU applies exact selected package ids/resolutions without reranking or substitution. R137.14 extends tool-output and recursive-mode signals to package-selection dispatch. R137.16 integrates task-complexity pressure and remaining-budget derivation with harness_config dependency. All three preserve R137.7–.12 package semantics and whole-prompt-fit/recursive-decomposition distinctions.
+
 ## Red-team records and probe verdict (R138)
 
 Consumers: AU-QUAL-R009.
@@ -1315,6 +1319,22 @@ Dependency order: typed request/plan/refusal/evidence round trip; deterministic 
 - Planned proving integration test. tests/decide/test_local_skill_certification_served.py::test_current_attestation_is_checked_before_graphos_workflow_run.
 - Enter the real evaluation/normal-invocation path. Refuse missing or stale attestations before effects. Accept only the exact current attestation.
 - Explicit owner holds: AU must serve the receipt; GraphOS must serve the R034 invocation check. No end-to-end evidence is claimed.
+
+## Instruction-set disclosure policy (R143)
+
+EG context authority emits disclosure events. AU harness applies disclosed instructions without substitution. Define initial disclosure, runtime-refinement triggers, per-event versioning and trace evidence. Preserve decision authority and harness application precedence. Cross-owner: AU must bind received disclosure version to applied instruction-set hash.
+
+## Indexless retrieval and cost budgeting (R144)
+
+GraphOS retrieval serves GovernedRetriever. EG federated-query returns row-visit budget and cost reports. Define: indexless raw-file-read and corpus-scan primitives, per-query cost reporting and budget refusal. Extend existing EG retrieval/source-access contracts. Cross-owner: AU exploration consumer obeys budget.
+
+## Fidelity-gated memory rewrite decision (R145)
+
+EG evaluates memory-rewrite candidates by fidelity metric, signal-per-token ratio and degradation history. Define: original preservation, failed-candidate discard, verified-optimal admission. Store/harness consumers bind rewrite-admission receipts. Separate from R128 context elision and R059 outcome aggregates. Explicit hold: authoritative memory store and atomic write/CAS gate are not identified. Do not claim the evaluation handler universally gates writes.
+
+## Temporal context queries and confusion detection (R146)
+
+Retrieval must distinguish storage date, event date and narrative time. Define: temporal-confusion detection when dates disagree, fallback-query construction on insufficient first-pass coverage, bounded time-basis selection. Preserve existing follow-up-query coverage in R081. Add fixture covering three-date mismatch. Extend federated-query handler with confusion detection and fallback routing.
 
 ## Cross-owner retrieval evaluation plan — 2026-10-12
 
