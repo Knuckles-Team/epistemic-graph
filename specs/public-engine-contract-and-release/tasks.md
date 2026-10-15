@@ -1,6 +1,6 @@
 # EG-CONTRACT — Delivery tasks and evidence
 
-**State:** PARTIAL source baseline; ACCEPTED evidence pending. A checked box means only its named task is proven, with an exact commit and test result recorded in the evidence table below.
+**State:** PARTIAL source baseline; ACCEPTED evidence pending. A checked box means only its named task is proven. The evidence table below records its exact commit and test result.
 
 - [x] **C-01 — EG-CONTRACT-R001, EG-CONTRACT-R005:** Audit and converge all Python method DTOs on generated strict models; verify with EG-T-04.
 - [x] **C-02 — EG-CONTRACT-R014, EG-CONTRACT-R015:** Complete catalog error sets, conflict mapping, scope projection and wheel contents; verify with EG-T-01/EG-T-02/EG-T-03.
