@@ -78,7 +78,8 @@
     "EG-CONTRACT-R053.3",
     "EG-CONTRACT-R053.4",
     "EG-CONTRACT-R053.5",
-    "EG-CONTRACT-R053.6"
+    "EG-CONTRACT-R053.6",
+    "EG-CONTRACT-R053.7"
   ],
   "requirements": [
     {
@@ -885,7 +886,8 @@
         "EG-CONTRACT-R053.3",
         "EG-CONTRACT-R053.4",
         "EG-CONTRACT-R053.5",
-        "EG-CONTRACT-R053.6"
+        "EG-CONTRACT-R053.6",
+        "EG-CONTRACT-R053.7"
       ]
     },
     {
@@ -941,6 +943,18 @@
       "landed_in": [],
       "verified_by": [
         "tests/test_server_split.py:79"
+      ]
+    },
+    {
+      "id": "EG-CONTRACT-R053.7",
+      "title": "A tag publishes only a commit main CI already passed",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "afaee33d4dc3",
+        "cc303d0d8f75"
+      ],
+      "verified_by": [
+        "tests/test_release_full_wheel_contract.py:597"
       ]
     }
   ]
