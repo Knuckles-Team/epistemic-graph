@@ -1208,6 +1208,39 @@ impl JobStore {
         })
     }
 
+    /// [`Self::request_cancel_batch`] that survives a concurrent version bump.
+    ///
+    /// The batch's expected version is read BEFORE the versioned write, and the
+    /// scope version is store-wide, so any other job transition (a job finishing,
+    /// a lease renewal) between the read and the write makes the write fail with
+    /// `STALE_VERSION`. That is a benign race, not a fault: `rebatch` is called
+    /// again to re-read the version, and the cancel is re-evaluated against the
+    /// job's current state -- so a job that meanwhile became terminal yields the
+    /// typed terminal-state refusal rather than an internal error. Retries are
+    /// bounded; only a persistently stale scope surfaces the error.
+    pub fn request_cancel_retrying<F>(
+        &self,
+        job_id: &str,
+        mut rebatch: F,
+    ) -> Result<(AnalyticsJob, bool)>
+    where
+        F: FnMut() -> Result<(MutationBatch, u64)>,
+    {
+        const MAX_ATTEMPTS: usize = 4;
+        let mut attempt = 1;
+        loop {
+            let (batch, committed_at_ms) = rebatch()?;
+            match self.request_cancel_batch(job_id, &batch, committed_at_ms) {
+                Err(JobError::Redb(ref m))
+                    if m.contains("STALE_VERSION") && attempt < MAX_ATTEMPTS =>
+                {
+                    attempt += 1;
+                }
+                other => return other,
+            }
+        }
+    }
+
     /// Resume a job from its last checkpoint (CONCEPT:INT-P2-1): valid from
     /// `Failed` (a deliberate retry — requires retries remaining) or from `Running`
     /// (an ORPHANED job — the record says "running" but the process that was running
@@ -3080,6 +3113,38 @@ mod tests {
             )
             .unwrap();
         assert!(matches!(cancelled.state, JobState::Cancelled { .. }));
+    }
+
+    #[test]
+    fn cancel_racing_a_completion_returns_the_typed_terminal_refusal() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = open_dev_store_in_dir(dir.path()).unwrap();
+        let job = store.submit(spec("g1", 1)).unwrap();
+        let mut calls = 0;
+        let outcome = store.request_cancel_retrying(&job.job_id, || {
+            calls += 1;
+            let stale = request_batch(&job, "cancel-race", store.live_version().unwrap());
+            if calls == 1 {
+                // The job reaches a terminal state AFTER the cancel read the
+                // version and BEFORE its versioned write: the interleaving.
+                let winner = request_batch(&job, "winner", store.live_version().unwrap());
+                let (done, _) = store
+                    .request_cancel_batch(&job.job_id, &winner, now_ms() as u64)
+                    .unwrap();
+                assert!(done.state.is_terminal());
+            }
+            Ok((stale, now_ms() as u64))
+        });
+        assert_eq!(
+            calls, 2,
+            "a stale write must re-read and retry exactly once"
+        );
+        match outcome {
+            Err(JobError::InvalidTransition { reason, .. }) => {
+                assert!(reason.contains("terminal state"), "{reason}");
+            }
+            other => panic!("expected the typed terminal-state refusal, got {other:?}"),
+        }
     }
 
     #[test]

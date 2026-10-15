@@ -130,6 +130,8 @@ pub(super) fn job_refusal(error: &eg_jobs::JobError) -> String {
     let code = match error {
         eg_jobs::JobError::InvalidTransition { .. } => "CONFLICT",
         eg_jobs::JobError::NotFound(_) => "INVALID_ARGUMENT",
+        // A lost optimistic-concurrency race is a retryable conflict, not a fault.
+        eg_jobs::JobError::Redb(message) if message.contains("STALE_VERSION") => "CONFLICT",
         eg_jobs::JobError::Redb(_) | eg_jobs::JobError::Codec(_) => "INTERNAL",
     };
     format!("{code}: {error}")
