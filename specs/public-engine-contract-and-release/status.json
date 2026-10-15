@@ -267,7 +267,7 @@
     },
     {
       "id": "EG-CONTRACT-R009",
-      "title": "Release workflow runs the full root Python test suite",
+      "title": "CI runs the full root Python test suite",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "26a77bc6a6c4",
