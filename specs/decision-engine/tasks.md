@@ -634,3 +634,27 @@ Deliver these additive leaves in order; preserve R137.1–.6 and R128 unchanged.
 - [ ] **EG-DECISION-ENGINE-R167.4 (Refusal):** Refuse breaking upgrade without migration.
 - [ ] **EG-DECISION-ENGINE-R167.5 (Evidence):** Emit comparison and migration premises.
 - [ ] **EG-DECISION-ENGINE-R167.6 (Hot-path proof):** Serve upgrade admission cases.
+- [ ] **EG-DECISION-ENGINE-R168.1 (Model):** Define the agent state type and its lifecycle states.
+- [ ] **EG-DECISION-ENGINE-R168.2 (Behavior):** The engine must validate state at construction and on every transition.
+- [ ] **EG-DECISION-ENGINE-R168.3 (Wiring):** The harness port and run contract must construct and advance the agent through this model.
+- [ ] **EG-DECISION-ENGINE-R168.4 (Refusal):** The engine must refuse malformed state at construction, on transition and on read from storage.
+- [ ] **EG-DECISION-ENGINE-R168.5 (Evidence):** The engine must emit one premise per transition naming the prior state, the next state and the state digest.
+- [ ] **EG-DECISION-ENGINE-R168.6 (Hot-path proof):** The entry point is the served agent run path.
+- [ ] **EG-DECISION-ENGINE-R169.1 (Model):** Define a feedback record with the output digest, the checker report digest, the findings and the next instruction.
+- [ ] **EG-DECISION-ENGINE-R169.2 (Behavior):** The harness must grade every output, not one output per evaluation round.
+- [ ] **EG-DECISION-ENGINE-R169.3 (Wiring):** The engine must hold the continuation in durable state.
+- [ ] **EG-DECISION-ENGINE-R169.4 (Refusal):** The loop must refuse a missing bound, an ungraded output and a replayed idempotency key.
+- [ ] **EG-DECISION-ENGINE-R169.5 (Evidence):** The engine must emit one premise per round with the findings digest and the instruction digest.
+- [ ] **EG-DECISION-ENGINE-R169.6 (Hot-path proof):** The entry point is the served loop run path.
+- [ ] **EG-DECISION-ENGINE-R170.1 (Model):** Define a team record with team id, members, and the persisted task status of each task.
+- [ ] **EG-DECISION-ENGINE-R170.2 (Behavior):** The coordinator must start team coordination when the primary channel is unavailable.
+- [ ] **EG-DECISION-ENGINE-R170.3 (Wiring):** The host agent-to-agent endpoint and task store must write the record.
+- [ ] **EG-DECISION-ENGINE-R170.4 (Refusal):** The coordinator must refuse to treat a library member as a team member without an explicit team binding.
+- [ ] **EG-DECISION-ENGINE-R170.5 (Evidence):** The engine must emit one premise for the channel signal and one for the team membership.
+- [ ] **EG-DECISION-ENGINE-R170.6 (Hot-path proof):** The entry point is the served team coordination path.
+- [ ] **EG-DECISION-ENGINE-R171.1 (Model):** Define a planning admission request with the architecture view digest, the gap proposal digests and the plan features.
+- [ ] **EG-DECISION-ENGINE-R171.2 (Behavior):** The engine must run the comparison before admission and not after.
+- [ ] **EG-DECISION-ENGINE-R171.3 (Wiring):** The study consumer must submit gap proposals to this admission.
+- [ ] **EG-DECISION-ENGINE-R171.4 (Refusal):** The engine must refuse a plan with no comparison, a stale view, or a feature without an attach point.
+- [ ] **EG-DECISION-ENGINE-R171.5 (Evidence):** The engine must emit one premise for the comparison and one per feature attach point.
+- [ ] **EG-DECISION-ENGINE-R171.6 (Hot-path proof):** The entry point is the served planning admission path.
