@@ -136,7 +136,13 @@ def test_pr_runtime_gates_do_not_wait_for_self_hosted_runners() -> None:
     # 2026-10-14 policy (plan.md): ordinary native acceptance stays on hosted
     # runners for every event so constrained user hosts carry no native load.
     jobs = yaml.safe_load((ROOT / ".github/workflows/release.yml").read_text())["jobs"]
-    for name in ("gates", "gates-plan-fuzz", "gates-wheel", "gates-facade", "gates-whisper"):
+    for name in (
+        "gates",
+        "gates-plan-fuzz",
+        "gates-wheel",
+        "gates-facade",
+        "gates-whisper",
+    ):
         assert jobs[name]["runs-on"] == "ubuntu-latest"
         assert jobs[name]["if"] == "needs.changes.outputs.code == 'true'"
 
