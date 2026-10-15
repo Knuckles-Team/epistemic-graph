@@ -22,7 +22,7 @@
 - [x] D13b **EG-DECISION-ENGINE-R126.2 (consumer):** Add the served read-only query beside `AgentAssemble` that resolves a tenant's visible library candidates and registered A2A cards and calls `EG-DECISION-ENGINE-R126.1`'s `capability_coverage`; generate its client method; run test D2 (visibility filtering, absence of invisible components).
 - [x] D13 **EG-DECISION-ENGINE-R126, EG-DECISION-ENGINE-R127:** Add the coverage and guardrail read queries beside `AgentAssemble`, generate their client methods, and run test D2. The agent-utilities planner (AU-CONTROL-R027) consumes them through its capability-search and guardrail ports. Split per the sizing rule: R126 into D13a/D13b, R127 into D13c/D13d, below.
 
-- [x] D13c **EG-DECISION-ENGINE-R127.1 (producer):** Add `decision::guardrail::entailed_guardrails` (`crates/eg-types/src/decision/guardrail.rs`), deciding which `GuardrailRule`s apply to a task IRI by task-class subsumption (reusing `agent_ontology::broader_chain`, the same primitive `coverage_chain` uses for capability coverage). No server surface. Test: `crates/eg-types/src/decision/guardrail.rs::tests`.
+- [x] D13c **EG-DECISION-ENGINE-R127.1 (producer):** Add `decision::guardrail::entailed_guardrails` (`crates/eg-types/src/decision/guardrail.rs`). It decides which `GuardrailRule`s apply to a task IRI by task-class subsumption (reusing `agent_ontology::broader_chain`, the same primitive `coverage_chain` uses for capability coverage). No server surface. Test: `crates/eg-types/src/decision/guardrail.rs::tests`.
 
 - [x] D13d **EG-DECISION-ENGINE-R127.2 (consumer):** Design and add a `GuardrailRule` storage/publish path, then the served read-only query beside `AgentAssemble` that reads a tenant's published rules and calls `EG-DECISION-ENGINE-R127.1`'s `entailed_guardrails`; generate its client method; run the fixture (entailed rules for a subclassed task, no rule for an unrelated task, stable premises after restart).
 - [x] D15a **EG-DECISION-ENGINE-R045.1:** Add the typed tool-subset request body and the greedy covering-set selection (`crates/eg-types/src/decision/statistical/tool_subset.rs`), with unit tests proving minimality, coverage and the two refusal reasons. No server wiring yet.
@@ -604,3 +604,15 @@ Deliver these additive leaves in order; preserve R137.1–.6 and R128 unchanged.
 - [ ] **EG-DECISION-ENGINE-R165.5 (Evidence):** Record necessity score, comparison and mismatch trace.
 - [ ] **EG-DECISION-ENGINE-R165.6 (Hot-path proof):** Serve tool decision with necessity and comparison.
 <!-- /spec-definition-patch -->
+- [ ] **EG-DECISION-ENGINE-R134.104 (Model):** Define AnswerCandidateRankingV1 under the decide contract.
+- [ ] **EG-DECISION-ENGINE-R134.105 (Behavior):** The engine must compare answer candidates pairwise without a verifier.
+- [ ] **EG-DECISION-ENGINE-R134.106 (Wiring):** The ranking attaches in handle_decide beside the existing task-plan decisions.
+- [ ] **EG-DECISION-ENGINE-R134.107 (Refusal):** The engine must refuse a ranking request that names a verifier, has fewer than two candidates, or exceeds the revision bound.
+- [ ] **EG-DECISION-ENGINE-R134.108 (Evidence):** The engine must emit one premise per pairwise comparison and one for the global order.
+- [ ] **EG-DECISION-ENGINE-R134.109 (Hot-path proof):** The entry point is the served Decide wire method.
+- [ ] **EG-DECISION-ENGINE-R135.10 (Model):** Define InsightRecordV1 in the program store.
+- [ ] **EG-DECISION-ENGINE-R135.11 (Behavior):** The engine must consolidate submitted insights and rank them by context match and success.
+- [ ] **EG-DECISION-ENGINE-R135.12 (Wiring):** The Harness observes outcomes and submits them to the engine.
+- [ ] **EG-DECISION-ENGINE-R135.13 (Refusal):** The engine must refuse a submission that has no source run.
+- [ ] **EG-DECISION-ENGINE-R135.14 (Evidence):** The engine must emit premises for the selected insights, their source runs and the selection revision.
+- [ ] **EG-DECISION-ENGINE-R135.15 (Hot-path proof):** The entry point is the served Decide wire method.
