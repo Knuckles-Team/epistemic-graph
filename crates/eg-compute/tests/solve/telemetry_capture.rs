@@ -1,7 +1,7 @@
 //! Minimal thread-local tracing capture shared by helper and solver regressions.
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
-use tracing::{field::Visit, span, Event, Metadata, Subscriber};
+use tracing::{field::Visit, span, subscriber::Interest, Event, Metadata, Subscriber};
 
 type Fields = BTreeMap<String, String>;
 
@@ -25,6 +25,15 @@ impl Visit for Visitor {
 }
 
 impl Subscriber for Capture {
+    /// Never let the process-wide callsite cache decide for this thread.
+    ///
+    /// The default registration answers `never` for a callsite first hit by a
+    /// parallel test with no subscriber, and the cached answer can outlive the
+    /// scoped dispatcher installed afterwards. `sometimes` forces every event to
+    /// be filtered by this subscriber's own `enabled`, so capture is exact.
+    fn register_callsite(&self, _: &'static Metadata<'static>) -> Interest {
+        Interest::sometimes()
+    }
     fn enabled(&self, metadata: &Metadata<'_>) -> bool {
         metadata.target() == "eg_compute::solve"
     }
