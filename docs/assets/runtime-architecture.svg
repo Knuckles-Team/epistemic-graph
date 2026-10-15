@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1320 700" role="img" aria-labelledby="diagram-title diagram-description">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1320 840" role="img" aria-labelledby="diagram-title diagram-description">
   <title id="diagram-title">Knuckles-Team agent ecosystem runtime architecture</title>
-  <desc id="diagram-description">People use Graph OS web UI, Agent Terminal UI, Geniusbot, or messaging channels. MCP, REST, and A2A clients also enter through Graph OS. Graph OS is the governed gateway and composition host, Agent Utilities is the agent control plane, and Epistemic Graph is the durable multimodal knowledge and reasoning engine. Source systems connect through Agent Connector SDK.</desc>
+  <desc id="diagram-description">People use Graph OS web UI, Agent Terminal UI, Geniusbot, or messaging channels. MCP, REST, and A2A clients also enter through Graph OS. Graph OS is the governed gateway and composition host, Agent Utilities is the agent control plane, and Epistemic Graph is the durable multimodal knowledge and reasoning engine. Source systems connect through Agent Connector SDK. The epistemic-graph package holds the Python client, contract, engine and numeric extension modules. The separate epistemic-graph-server package ships the one native server executable with its subcommands, and its container image. Installing epistemic-graph[server] installs the matching server.</desc>
   <defs>
     <linearGradient id="gateway-light" x1="0" x2="1"><stop stop-color="#e5f4ff"/><stop offset="1" stop-color="#e7fff5"/></linearGradient>
     <linearGradient id="core-light" x1="0" x2="1"><stop stop-color="#eef0ff"/><stop offset="1" stop-color="#f3eaff"/></linearGradient>
@@ -13,7 +13,7 @@
       @media (prefers-color-scheme: dark){.bg{fill:none}.box{fill:#172338;stroke:#778ca9}.entry{fill:#192b43;stroke:#76aee9}.gateway{fill:url(#gateway-dark);stroke:#63d8b5}.core{fill:url(#core-dark);stroke:#b5a5ff}.label{fill:#f3f7ff}.role{fill:#d1dced}.small{fill:#b7c6dc}.arrow,.bus{stroke:#c2cee2}.arrowhead{fill:#d8e2f1}}
     </style>
   </defs>
-  <rect class="bg" width="1320" height="700" rx="24" fill="none"/>
+  <rect class="bg" width="1320" height="840" rx="24" fill="none"/>
   <g>
     <rect class="box" x="35" y="35" width="170" height="55" rx="14"/><text class="label" x="120" y="69">People</text>
     <rect class="entry" x="35" y="135" width="170" height="90" rx="16"/><text class="label" x="120" y="172">Graph OS web UI</text><text class="role" x="120" y="198">browser experience</text>
@@ -23,15 +23,17 @@
     <rect class="box" x="415" y="245" width="365" height="80" rx="16"/><text class="label" x="597.5" y="280">MCP / REST / A2A clients</text><text class="role" x="597.5" y="305">external agents and applications</text>
     <rect class="gateway" x="825" y="135" width="450" height="170" rx="22"/><text class="label" x="1050" y="198">Graph OS</text><text class="role" x="1050" y="230">governed runtime gateway</text><text class="role" x="1050" y="255">and composition host</text>
     <rect class="core" x="825" y="335" width="450" height="100" rx="18"/><text class="label" x="1050" y="376">Agent Utilities</text><text class="role" x="1050" y="405">agent control plane</text>
-    <rect class="core" x="825" y="485" width="450" height="125" rx="18"/><text class="label" x="1050" y="528">Epistemic Graph</text><text class="role" x="1050" y="558">durable multimodal knowledge, evidence,</text><text class="role" x="1050" y="582">provenance, and reasoning engine</text>
+    <rect class="core" x="825" y="485" width="450" height="160" rx="18"/><text class="label" x="1050" y="528">Epistemic Graph</text><text class="role" x="1050" y="558">durable multimodal knowledge, evidence,</text><text class="role" x="1050" y="582">provenance, and reasoning engine</text><text class="small" x="1050" y="612">package epistemic-graph: Python client, contract,</text><text class="small" x="1050" y="632">engine and numeric extension modules</text>
     <rect class="box" x="35" y="520" width="220" height="90" rx="16"/><text class="label" x="145" y="557">Source systems</text><text class="role" x="145" y="583">governed external data</text>
     <rect class="box" x="445" y="520" width="260" height="90" rx="16"/><text class="label" x="575" y="557">Agent Connector SDK</text><text class="role" x="575" y="583">typed source integration</text>
+    <rect class="core" x="825" y="705" width="450" height="110" rx="18"/><text class="label" x="1050" y="743">Epistemic Graph Server</text><text class="role" x="1050" y="771">package epistemic-graph-server: the one native</text><text class="role" x="1050" y="793">server executable, its subcommands, and its container image</text>
+    <text class="small" x="1120" y="680">epistemic-graph[server] installs the matching server</text>
   </g>
   <g class="connections">
     <path class="bus" d="M120 90V100H692"/>
     <path class="arrow" d="M120 100V135"/><path class="arrow" d="M310 100V135"/><path class="arrow" d="M500 100V135"/><path class="arrow" d="M692 100V135"/>
     <path class="arrow" d="M780 180H825"/><path class="arrow" d="M780 285H825"/>
     <path class="arrow" d="M1050 305V335"/><path class="arrow" d="M1050 435V485"/>
-    <path class="arrow" d="M255 565H445"/><path class="arrow" d="M705 565H825"/>
+    <path class="arrow" d="M255 565H445"/><path class="arrow" d="M705 565H825"/><path class="arrow" d="M960 645V705"/>
   </g>
 </svg>
