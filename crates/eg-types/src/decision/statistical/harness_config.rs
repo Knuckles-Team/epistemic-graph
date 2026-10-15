@@ -229,6 +229,21 @@ fn scaffold_abstention(
     }
 }
 
+/// Names of the facts the action-space rule still lacks, in reporting order.
+fn missing_action_space_facts(
+    proficiency_missing: bool,
+    shell_centric_missing: bool,
+) -> Vec<String> {
+    let mut missing = Vec::new();
+    if proficiency_missing {
+        missing.push("shellProficiency".to_string());
+    }
+    if shell_centric_missing {
+        missing.push("shellCentric".to_string());
+    }
+    missing
+}
+
 /// Resolve only from the supplied measured proficiency and resolved task fact.
 /// Invalid evaluation references are refused, using the measured-fact owner.
 pub fn decide_action_space(
@@ -238,13 +253,7 @@ pub fn decide_action_space(
     if let Some(fact) = proficiency {
         fact.validate()?;
     }
-    let mut missing = Vec::new();
-    if proficiency.is_none() {
-        missing.push("shellProficiency".to_string());
-    }
-    if shell_centric.is_none() {
-        missing.push("shellCentric".to_string());
-    }
+    let missing = missing_action_space_facts(proficiency.is_none(), shell_centric.is_none());
     if !missing.is_empty() {
         return Ok(HarnessPart::Abstained {
             missing_fact: BoundedVec::new(missing).expect("at most two missing facts"),
@@ -592,26 +601,14 @@ mod tests {
     fn proficiency_fact(
         proficiency: Option<ShellProficiency>,
     ) -> Option<MeasuredFact<ShellProficiency>> {
-        proficiency.map(|value| MeasuredFact {
-            value,
-            evaluation_run_ref: ObservationRef {
-                evaluation_id: "eval:42".into(),
-                digest: "opaque".into(),
-            },
-        })
+        proficiency.map(|value| measured(value, "eval:42"))
     }
 
     fn expected_action_space(
         proficiency: Option<ShellProficiency>,
         shell_centric: Option<bool>,
     ) -> HarnessPart<ActionSpace> {
-        let mut missing = Vec::new();
-        if proficiency.is_none() {
-            missing.push("shellProficiency".to_string());
-        }
-        if shell_centric.is_none() {
-            missing.push("shellCentric".to_string());
-        }
+        let missing = missing_action_space_facts(proficiency.is_none(), shell_centric.is_none());
         if !missing.is_empty() {
             return HarnessPart::Abstained {
                 missing_fact: BoundedVec::new(missing).unwrap(),
@@ -641,13 +638,7 @@ mod tests {
                 assert_eq!(actual, expected_action_space(proficiency, shell_centric));
             }
         }
-        let malformed = MeasuredFact {
-            value: ShellProficiency::High,
-            evaluation_run_ref: ObservationRef {
-                evaluation_id: String::new(),
-                digest: "opaque".into(),
-            },
-        };
+        let malformed = measured(ShellProficiency::High, "");
         assert!(decide_action_space(Some(&malformed), Some(true)).is_err());
     }
 }
