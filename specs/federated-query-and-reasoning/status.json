@@ -703,22 +703,29 @@
     {
       "id": "EG-FEDERATED-QUERY-R034",
       "title": "Motif and discord search over time series, batch and streaming",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "0265d3a41baf",
-        "1625e507f6fc"
+        "1625e507f6fc",
+        "fa64a5de6cda"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-numeric/src/series/motif_tests.rs:152",
+        "crates/eg-numeric/src/series/motif_tests.rs:84"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R035",
       "title": "Filtered text search evaluates within the filtered candidate set",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "0265d3a41baf",
-        "4dfe7beb589b"
+        "4dfe7beb589b",
+        "fa64a5de6cda"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-plan/src/text_tests.rs:309"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R036",

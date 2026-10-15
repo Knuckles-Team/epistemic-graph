@@ -81,6 +81,7 @@ fn mass_equals_the_naive_distance_profile() {
     }
 }
 
+// spec: EG-FEDERATED-QUERY-R034
 #[test]
 fn the_matrix_profile_equals_brute_force() {
     for (n, m, seed) in [(160, 8, 3), (220, 17, 5), (90, 4, 9)] {
@@ -148,6 +149,7 @@ fn a_planted_motif_is_the_top_motif_and_query_match() {
     );
 }
 
+// spec: EG-FEDERATED-QUERY-R034
 #[test]
 fn a_planted_discord_is_the_top_discord() {
     let (m, period) = (25, 25);

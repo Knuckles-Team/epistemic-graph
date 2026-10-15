@@ -272,8 +272,8 @@
         "tests/test_release_python_suite_contract.py:102",
         "tests/test_release_python_suite_contract.py:119",
         "tests/test_release_python_suite_contract.py:130",
-        "tests/test_release_python_suite_contract.py:306",
-        "tests/test_release_python_suite_contract.py:349"
+        "tests/test_release_python_suite_contract.py:310",
+        "tests/test_release_python_suite_contract.py:353"
       ]
     },
     {
@@ -559,7 +559,7 @@
         "e729dc1650b6"
       ],
       "verified_by": [
-        "tests/test_ci_change_scope.py:171"
+        "tests/test_ci_change_scope.py:175"
       ],
       "rollup_of": [
         "EG-CONTRACT-R031.1",
@@ -574,7 +574,7 @@
         "733e1766936b"
       ],
       "verified_by": [
-        "tests/test_ci_change_scope.py:172"
+        "tests/test_ci_change_scope.py:176"
       ]
     },
     {
@@ -625,7 +625,7 @@
         "69411a23a248"
       ],
       "verified_by": [
-        "tests/test_ci_change_scope.py:454",
+        "tests/test_ci_change_scope.py:458",
         "tests/test_release_gates_test_target_coverage.py:62"
       ]
     },
