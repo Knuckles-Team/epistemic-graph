@@ -1411,3 +1411,11 @@ EG-DECISION-ENGINE-R134.104 through R134.109: the answer-candidate ranking produ
 ## EG-DECISION-ENGINE-R135.10
 
 EG-DECISION-ENGINE-R135.10 through R135.15: the Harness submits run outcomes to the engine insight store; the engine selection feeds Harness context compilation.
+
+## EG-DECISION-ENGINE-R166
+
+EG-DECISION-ENGINE-R166.1 through R166.6: workflow registry -> orchestrate invocation with lazy engine start.
+
+## EG-DECISION-ENGINE-R167
+
+EG-DECISION-ENGINE-R167.1 through R167.6: skill admission upgrade receipt -> invoke certification before dispatch.

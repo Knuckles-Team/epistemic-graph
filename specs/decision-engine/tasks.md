@@ -616,3 +616,21 @@ Deliver these additive leaves in order; preserve R137.1–.6 and R128 unchanged.
 - [ ] **EG-DECISION-ENGINE-R135.13 (Refusal):** The engine must refuse a submission that has no source run.
 - [ ] **EG-DECISION-ENGINE-R135.14 (Evidence):** The engine must emit premises for the selected insights, their source runs and the selection revision.
 - [ ] **EG-DECISION-ENGINE-R135.15 (Hot-path proof):** The entry point is the served Decide wire method.
+
+## Workflow registration and lazy engine initialization (R166)
+
+- [ ] **EG-DECISION-ENGINE-R166.1 (Model):** Define registration record and read identity.
+- [ ] **EG-DECISION-ENGINE-R166.2 (Behavior):** Start the engine lazily on first use.
+- [ ] **EG-DECISION-ENGINE-R166.3 (Wiring):** Resolve invocation through the registry.
+- [ ] **EG-DECISION-ENGINE-R166.4 (Refusal):** Refuse unknown workflow before any start.
+- [ ] **EG-DECISION-ENGINE-R166.5 (Evidence):** Record identity and start event on receipts.
+- [ ] **EG-DECISION-ENGINE-R166.6 (Hot-path proof):** Serve registered invocation with lazy start and refusal.
+
+## Skill upgrade compatibility and declared migration (R167)
+
+- [ ] **EG-DECISION-ENGINE-R167.1 (Model):** Define the upgrade receipt.
+- [ ] **EG-DECISION-ENGINE-R167.2 (Behavior):** Admit compatible and migrated upgrades.
+- [ ] **EG-DECISION-ENGINE-R167.3 (Wiring):** Run the check before invoke dispatch.
+- [ ] **EG-DECISION-ENGINE-R167.4 (Refusal):** Refuse breaking upgrade without migration.
+- [ ] **EG-DECISION-ENGINE-R167.5 (Evidence):** Emit comparison and migration premises.
+- [ ] **EG-DECISION-ENGINE-R167.6 (Hot-path proof):** Serve upgrade admission cases.
