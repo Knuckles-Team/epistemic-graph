@@ -238,6 +238,7 @@ async fn the_reconciler_releases_an_orphan_body_and_keeps_every_held_one() {
     );
 }
 
+// spec: EG-TYPED-PACKS-R018
 // spec: EG-TYPED-PACKS-R002
 #[tokio::test]
 async fn holder_refcounts_transition_across_unchanged_revised_and_withdrawn_entries() {
