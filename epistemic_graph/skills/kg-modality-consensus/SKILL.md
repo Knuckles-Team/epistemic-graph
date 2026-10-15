@@ -21,7 +21,7 @@ metadata:
 
 # kg-modality-consensus — distributed consensus, resharding & tenants
 
-The engine's durability/distribution layer makes the AI-native database horizontally
+The engine's durability/distribution layer makes the SI-native database horizontally
 scalable and crash-safe. It runs **openraft** replication with automatic failover
 (`raft`/`cluster` features, `src/raft/`), **multi-Raft groups** (an N-group ring with a
 `GroupRouter`, KG-2.266/267/268), **online resharding** (`reshard.rs` moves ownership live,

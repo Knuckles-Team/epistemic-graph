@@ -18,7 +18,7 @@
 //!
 //! Every one of them is a graph query over components and their dependencies,
 //! and every one is unanswerable over opaque references. That is the whole
-//! point of an AI *context* engine: the context has to be queryable, not just
+//! point of an SI *context* engine: the context has to be queryable, not just
 //! attested.
 //!
 //! # What this module deliberately does NOT store

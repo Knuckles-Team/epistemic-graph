@@ -1,6 +1,6 @@
 //! The agent ontology EG ships with (RF-ADR-008).
 //!
-//! An AI context engine has to be able to answer *"what does an agent trying to
+//! An SI context engine has to be able to answer *"what does an agent trying to
 //! do XYZ need?"* — and that question is only answerable natively if the
 //! vocabulary is native. A component tagged with an arbitrary string can be
 //! matched by exact equality and nothing else: `web-search` would not satisfy a

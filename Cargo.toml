@@ -89,7 +89,7 @@ name = "epistemic-graph"
 version = "2.27.1"
 edition = "2021"
 authors = ["Repository Maintainers <maintainers@example.invalid>"]
-description = "Rust-native durable multimodal and epistemic database for governed AI systems"
+description = "Rust-native durable multimodal and epistemic database for governed SI systems"
 license = "MIT"
 
 [lib]

@@ -77,7 +77,7 @@ GITIGNORE_PATH = REPO_ROOT / ".gitignore"
 #                                 ratchet that installs itself the moment it
 #                                 is NOT gitignored, twin to
 #                                 check_root_hygiene.py's FORBIDDEN_ANYWHERE
-#   reports/, scratch/          -- generated analysis output / AI-agent
+#   reports/, scratch/          -- generated analysis output / SI-agent
 #                                 scratch space; belongs in the workspace-level
 #                                 reports/, never in a package's commit history
 REQUIRED: frozenset[str] = frozenset(

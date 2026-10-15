@@ -2,7 +2,7 @@
 name: epistemic-graph-troubleshooting
 skill_type: skill
 description: >
-  Diagnose and recover a live epistemic-graph engine (the AI-native database):
+  Diagnose and recover a live epistemic-graph engine (the SI-native database):
   engine down / socket refused, host-daemon crash-loop, circuit-breaker open,
   backend-type errors, zombie containers, duplicate Swarm tasks, slow first boot.
   Use when the KG is unreachable, ingestion stalls, go__ tools error, or a deploy
@@ -17,7 +17,7 @@ metadata:
 
 # epistemic-graph troubleshooting
 
-A runbook for an AI agent operating the engine natively. The engine is a Rust service
+A runbook for an SI agent operating the engine natively. The engine is a Rust service
 on a Unix socket, run as a Docker Swarm service; Python `graph-os` (MCP) + `graph-os-host`
 (daemon) + `messaging` are **clients** of it. Diagnose top-down: engine → socket → clients.
 
