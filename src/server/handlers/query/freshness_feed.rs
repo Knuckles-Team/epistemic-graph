@@ -112,6 +112,7 @@ mod tests {
         }
     }
 
+    // spec: EG-FEDERATED-QUERY-R018
     #[test]
     fn the_feed_names_each_commits_classes_and_resends_the_policy_only_when_it_moves() {
         let core = GraphCore::new();
