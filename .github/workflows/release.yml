@@ -423,6 +423,12 @@ jobs:
         shell: bash
     env:
       PYTHONUTF8: '1'
+      # The hosted macOS arm64 runner (3 CPUs, 7 GB) cannot finish the fat-LTO,
+      # one-codegen-unit link of the server (it swaps past the 6-hour job limit);
+      # it links with thin LTO and parallel codegen. Every other leg keeps the
+      # release-server profile unchanged.
+      CARGO_PROFILE_RELEASE_SERVER_LTO: ${{ matrix.arch == 'macos-arm64' && 'thin' || 'fat' }}
+      CARGO_PROFILE_RELEASE_SERVER_CODEGEN_UNITS: ${{ matrix.arch == 'macos-arm64' && '16' || '1' }}
     strategy:
       fail-fast: false
       matrix:
