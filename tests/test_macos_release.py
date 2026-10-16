@@ -83,7 +83,6 @@ def test_mac_probe_has_only_bounded_hosted_native_targets():
     assert job["timeout-minutes"] == 15
     assert {row["runner"] for row in job["strategy"]["matrix"]["include"]} == {
         "macos-14",
-        "macos-15-intel",
     }
     assert workflow["permissions"] == {"contents": "read"}
     assert job["env"]["RUSTUP_TOOLCHAIN"] == "1.96.0"

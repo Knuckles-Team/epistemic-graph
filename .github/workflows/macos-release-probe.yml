@@ -19,8 +19,6 @@ jobs:
         include:
           - runner: macos-14
             target: aarch64-apple-darwin
-          - runner: macos-15-intel
-            target: x86_64-apple-darwin
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 15
     env:
@@ -45,10 +43,6 @@ jobs:
       - name: Probe native Mach-O linking and five-binary packaging
         shell: bash
         run: |
-          if [ "$EG_WHEEL_TARGET" = aarch64-apple-darwin ]; then
-            export MACOSX_DEPLOYMENT_TARGET=11.0
-          else
-            export MACOSX_DEPLOYMENT_TARGET=10.12
-          fi
+          export MACOSX_DEPLOYMENT_TARGET=11.0
           source scripts/configure_macos_linker.sh "$EG_WHEEL_TARGET"
           python scripts/probe_macos_release.py
