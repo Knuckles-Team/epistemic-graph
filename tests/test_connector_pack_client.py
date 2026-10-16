@@ -455,6 +455,7 @@ def test_public_wheel_surface_exports_the_connector_pack_client() -> None:
     assert epistemic_graph.PackWriteErrorCode is PackWriteErrorCode
 
 
+@pytest.mark.spec("EG-TYPED-PACKS-R043")
 def test_modality_annotations_replay_golden_vector_and_affect_identity() -> None:
     """R043 digest scope; served acceptance remains open in the owning spec."""
     from epistemic_graph.connector_pack import _annotations_digest
