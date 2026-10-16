@@ -689,11 +689,15 @@
     {
       "id": "EG-CONTRACT-R040",
       "title": "Privacy scanner excludes its own documented example patterns",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
-        "137b6e3a7898"
+        "137b6e3a7898",
+        "c27abf3e6425"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_documentation_privacy.py:128",
+        "tests/test_documentation_privacy.py:144"
+      ]
     },
     {
       "id": "EG-CONTRACT-R041",
@@ -720,11 +724,14 @@
     {
       "id": "EG-CONTRACT-R043",
       "title": "Test fixtures carry no credential-shaped literals",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "5dfcc96174bf",
         "e63a9e5ff1f2"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_secret_history_full_range.py:66"
+      ]
     },
     {
       "id": "EG-CONTRACT-R044",
