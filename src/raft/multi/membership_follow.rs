@@ -23,6 +23,10 @@ use super::{EgRaft, GroupId, MultiRaft, NodeId};
 
 /// How long one membership change keeps following a moving leader.
 const FOLLOW_BUDGET: Duration = Duration::from_secs(60);
+/// Default deadline for the group's current membership entry to commit before
+/// the next membership change starts (openraft refuses a change while the
+/// previous config entry is uncommitted).
+pub(crate) const MEMBERSHIP_COMMIT_WAIT: Duration = Duration::from_secs(10);
 /// Pause before re-resolving a leader an election has not settled yet.
 const SETTLE_PAUSE: Duration = Duration::from_millis(200);
 
@@ -144,6 +148,7 @@ impl MultiRaft {
         gid: GroupId,
         change: MembershipChange,
     ) -> Result<MembershipOutcome, String> {
+        Self::wait_membership_committed(raft, gid, MEMBERSHIP_COMMIT_WAIT).await?;
         let committed = match change {
             MembershipChange::AddLearner { node, addr } => {
                 self.register_member_peer(node, &addr)?;
@@ -161,6 +166,34 @@ impl MultiRaft {
             Err(error) if error.forward_to_leader().is_some() => Ok(MembershipOutcome::LeaderMoved),
             Err(error) => Err(format!("membership change on group {gid}: {error}")),
         }
+    }
+
+    /// Block until the group's current membership config entry is applied (its log
+    /// index is at or below `last_applied`), so a fresh bootstrap or a previous
+    /// change cannot make openraft refuse the next one as "already undergoing a
+    /// configuration change". Errors when `deadline` passes first.
+    async fn wait_membership_committed(
+        raft: &EgRaft,
+        gid: GroupId,
+        deadline: Duration,
+    ) -> Result<(), String> {
+        raft.wait(Some(deadline))
+            .metrics(
+                |m| match m.membership_config.log_id().as_ref() {
+                    None => true,
+                    Some(id) => m.last_applied.as_ref().is_some_and(|a| a.index >= id.index),
+                },
+                "membership config committed",
+            )
+            .await
+            .map(|_| ())
+            .map_err(|error| {
+                format!(
+                    "membership change on group {gid}: the current membership config was not \
+                     committed within {}s ({error}); retry",
+                    deadline.as_secs()
+                )
+            })
     }
 
     /// Make a new member reachable from this node before replicating to it.

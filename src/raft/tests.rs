@@ -2221,6 +2221,51 @@ async fn all_members_observe_leader(
     true
 }
 
+/// A membership change issued straight after the bootstrap must wait for the
+/// bootstrap membership entry to commit instead of failing with openraft's
+/// "already undergoing a configuration change".
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn add_group_member_right_after_create_group_succeeds() {
+    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    use super::multi::MultiRaft;
+
+    let root = std::env::temp_dir().join(format!("eg-mnimmediate-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let ports = free_ports(2);
+    let addr = |i: usize| format!("127.0.0.1:{}", ports[i - 1]);
+    let gid = 9u64;
+
+    let mut multis: Vec<(NodeId, Arc<MultiRaft>, Arc<RwLock<ServerState>>)> = Vec::new();
+    for i in 1..=2u64 {
+        let dir = root.join(format!("node{i}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        let dir = dir.to_string_lossy().to_string();
+        let backend: Arc<dyn PersistenceBackend> =
+            Arc::new(RedbBackend::open(dir.clone(), 4096).expect("open redb"));
+        let state = make_state_with_backend(&dir, backend.clone()).await;
+        let ctx = AppCtx {
+            state: state.clone(),
+            router: None,
+        };
+        let multi = start_multi(i, addr(i as usize), backend, ctx)
+            .await
+            .expect("start multi");
+        if i == 1 {
+            let peers: BTreeMap<NodeId, BasicNode> = [(1u64, BasicNode::new(addr(1)))].into();
+            multi.create_group(gid, peers, true).await.unwrap();
+        } else {
+            multi.join_group(gid, BTreeMap::new()).await.unwrap();
+        }
+        multis.push((i, multi, state));
+    }
+
+    // No leader wait: the change must itself wait for the committed membership.
+    multis[0].1.add_group_member(gid, 2, addr(2)).await.unwrap();
+    assert_eq!(multis[0].1.group_membership(gid).await, Some(vec![1, 2]));
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// KG-2.268 + KG-2.270: a group is grown from a single-node bootstrap to a 3-VOTER group
 /// spanning three nodes (add_learner → change_membership), a write replicates to the new
 /// voters, and the leader balancer then MOVES leadership to the round-robin target node.
