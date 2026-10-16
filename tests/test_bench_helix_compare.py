@@ -7,6 +7,7 @@ correctness gate honest between runs.
 
 from __future__ import annotations
 
+import gzip
 import json
 from pathlib import Path
 
@@ -52,6 +53,7 @@ def _workloads() -> dict[str, query_set.WorkloadSpec]:
     }
 
 
+@pytest.mark.spec("EG-DURABLE-KERNEL-R017")
 def test_the_pinned_corpus_and_query_set_reproduce() -> None:
     data = corpus.generate(corpus.DatasetSpec.from_json(SPEC["dataset"]))
     assert data.digest() == SPEC["dataset_sha256"]
@@ -108,6 +110,7 @@ def test_ranked_answers_are_scored_by_recall_and_refused_outside_the_prefilter()
     assert "expected 3" in check_ranked(candidates, 3, ranked[:2])
 
 
+@pytest.mark.spec("EG-DURABLE-KERNEL-R017")
 def test_a_ranked_gate_fails_on_mean_recall_below_the_floor() -> None:
     from helix_compare.runner import _gate_report
 
@@ -138,6 +141,7 @@ def test_result_shape_adapters() -> None:
     assert parse_cpus("0-2,5") == {0, 1, 2, 5}
 
 
+@pytest.mark.spec("EG-DURABLE-KERNEL-R017")
 def test_the_report_renders_gates_timings_and_footprint() -> None:
     summary = {
         "ops": 10,
@@ -168,3 +172,44 @@ def test_the_report_renders_gates_timings_and_footprint() -> None:
     assert "| point_get | e | yes | 5 | 0 |" in markdown
     assert markdown.count("| point_get | e | 1 | 10 | 0 | 1.0 |") == 2
     assert "| txn_batch | e | 1 | 10 |" in markdown
+
+
+@pytest.mark.spec("EG-DURABLE-KERNEL-R017")
+def test_the_reference_report_records_configuration_hardware_revision_and_results() -> (
+    None
+):
+    report_path = (
+        Path(__file__).resolve().parents[1]
+        / "benches/helix_compare/results/2026-09-24-reference.json.gz"
+    )
+    report = json.loads(gzip.open(report_path).read())
+    # Exact configuration: the pinned spec embedded verbatim plus its digests.
+    assert report["spec"] == SPEC
+    assert report["inputs"] == {
+        "dataset_sha256": SPEC["dataset_sha256"],
+        "queries_sha256": SPEC["queries_sha256"],
+    }
+    # Hardware class: both engines on one host window under a 4-CPU cgroup.
+    assert report["host_start"]["hostname"] == report["host_end"]["hostname"]
+    assert report["host_start"]["at_unix"] < report["host_end"]["at_unix"]
+    assert report["host_start"]["cpu_model"]
+    assert report["host_start"]["cgroup"]["cpu.max"] == "400000 100000"
+    assert report["host_end"]["cgroup"]["cpu.max"] == "400000 100000"
+    # Code revision for both engines.
+    assert report["eg"]["commit"] and report["eg"]["server_sha256"]
+    assert report["helix"]["commit"] == SPEC["helix"]["commit"]
+    assert report["helix"]["server_sha256"]
+    # Measured results: both engines, a correctness-gate record for every
+    # pinned workload, footprint and warm point-get timings.
+    assert [engine["engine"] for engine in report["engines"]] == [
+        "epistemic-graph",
+        "helixdb",
+    ]
+    for engine in report["engines"]:
+        assert set(engine["gate"]) | {"txn_batch"} == set(SPEC["workloads"])
+        assert engine["txn_batch"]["gate"]["checked"] > 0
+        assert engine["load"]["storage_amplification"] > 0
+        assert engine["peak_rss_kb"] > 0
+        point_get = engine["warm"]["point_get"]["c1"]
+        assert point_get["ops"] > 0
+        assert point_get["p99_ms"] > 0
