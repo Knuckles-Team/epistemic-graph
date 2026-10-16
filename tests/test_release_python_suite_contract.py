@@ -171,10 +171,7 @@ def test_parallel_preparation_is_exact_revision_and_same_run() -> None:
         assert upload["with"]["name"] == name + "-${{ github.sha }}"
     consumer = jobs["python-suite"]
     assert consumer["if"] == "always() && needs.changes.outputs.code == 'true'"
-    assert (
-        consumer["steps"][0]["run"]
-        == 'test "$KERNELS_RESULT" = success && test "$SERVER_RESULT" = success'
-    )
+    _assert_gate_requires_both_upstreams(consumer["steps"][0]["run"])
     assert consumer["steps"][1]["with"]["ref"] == "${{ github.sha }}"
     downloads = [
         s
@@ -781,3 +778,25 @@ def test_native_acceptance_uses_hosted_runners_for_every_event(job_name: str) ->
     assert job["needs"] == "changes"
     assert job["if"] == "needs.changes.outputs.code == 'true'"
     assert "continue-on-error" not in job
+
+
+def _assert_gate_requires_both_upstreams(script: str) -> None:
+    """The gate passes only when both preparation jobs succeeded."""
+    import itertools
+    import os
+    import subprocess
+
+    results = ("success", "failure", "cancelled", "skipped")
+    for kernels, server in itertools.product(results, repeat=2):
+        env = {**os.environ, "KERNELS_RESULT": kernels, "SERVER_RESULT": server}
+        proc = subprocess.run(
+            ["bash", "-e", "-c", script], env=env, capture_output=True, text=True
+        )
+        passed = proc.returncode == 0
+        assert passed == (kernels == server == "success"), (
+            kernels,
+            server,
+            proc.stdout,
+        )
+        if not passed:
+            assert "not a test failure" in proc.stdout
