@@ -133,9 +133,8 @@ At PR #605 head `4f172cb5259fe471d32e74080a74c7581243d283`, refusal tests
 were bound as verification for EG-DURABLE-KERNEL-R024, EG-DURABLE-KERNEL-R024.3,
 and EG-DURABLE-KERNEL-R024.4. Retain these tests as partial safety coverage,
 but remove their acceptance bindings and reopen the three task checkboxes.
-The canonical status generator reports LANDED for the existing implementation
-commits, with no verification evidence for these rows; this does not establish
-completion of their successful-operation acceptance criteria.
+The canonical status generator reports LANDED for existing implementation commits.
+These rows have no verification evidence. Their successful-operation acceptance remains incomplete.
 R024.3 still needs successful non-AGE Cypher registration and a representative
 query. R024.4 still needs mirror registration and a successful representative
 mirror operation. R024 still needs representative operations for every named
