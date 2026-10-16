@@ -116,6 +116,7 @@ mod tests {
         }
     }
 
+    // spec: EG-DURABLE-KERNEL-R024.3
     #[test]
     fn neo4j_well_formed_spec_is_refused_not_silently_accepted() {
         let mut registry = ForeignSourceRegistry::default();
@@ -128,6 +129,7 @@ mod tests {
         assert!(err.contains("not yet bound"), "unexpected error: {err}");
     }
 
+    // spec: EG-DURABLE-KERNEL-R024.3
     #[test]
     fn falkordb_well_formed_spec_is_refused_not_silently_accepted() {
         let mut registry = ForeignSourceRegistry::default();
@@ -140,6 +142,7 @@ mod tests {
         assert!(err.contains("not yet bound"), "unexpected error: {err}");
     }
 
+    // spec: EG-DURABLE-KERNEL-R024.3
     #[test]
     fn neo4j_rejects_an_empty_graph_before_reaching_the_refusal() {
         let mut registry = ForeignSourceRegistry::default();
@@ -154,6 +157,7 @@ mod tests {
         );
     }
 
+    // spec: EG-DURABLE-KERNEL-R024.3
     #[test]
     fn falkordb_rejects_the_wrong_backend_variant() {
         let mut registry = ForeignSourceRegistry::default();
