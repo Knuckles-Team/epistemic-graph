@@ -1435,3 +1435,7 @@ EG-DECISION-ENGINE-R170.1 through EG-DECISION-ENGINE-R170.6: team coordination f
 ## EG-DECISION-ENGINE-R171
 
 EG-DECISION-ENGINE-R171.1 through EG-DECISION-ENGINE-R171.6: planning admission requires an architecture and wiring gap comparison, producer to consumer through the served path.
+
+## EG-DECISION-ENGINE-R172
+
+EG-DECISION-ENGINE-R172.1 through EG-DECISION-ENGINE-R172.11: capability designation moves from agent-utilities into a native Rust index in `eg-compute`. `Decide` and `DecisionLog` serve it. Deliver `.1`, then `.2` to `.6`, then `.7` to `.9`, then `.10` and `.11`.
