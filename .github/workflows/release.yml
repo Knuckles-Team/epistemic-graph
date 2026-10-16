@@ -178,12 +178,6 @@ jobs:
             maturin_args: ""
             jobs: 2
             optional: true
-          - name: macos-x86_64
-            runner: macos-15-intel
-            target: x86_64-apple-darwin
-            maturin_args: ""
-            jobs: 2
-            optional: true
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
@@ -237,7 +231,6 @@ jobs:
         run: |
           case "$EG_WHEEL_TARGET" in
             aarch64-apple-darwin) export MACOSX_DEPLOYMENT_TARGET=11.0 ;;
-            x86_64-apple-darwin) export MACOSX_DEPLOYMENT_TARGET=10.12 ;;
           esac
           source scripts/configure_macos_linker.sh "$EG_WHEEL_TARGET"
           python - <<'PYENV'

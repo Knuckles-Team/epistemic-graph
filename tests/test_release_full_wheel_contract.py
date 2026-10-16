@@ -164,7 +164,7 @@ def test_every_supported_release_target_uses_one_full_wheel_pipeline() -> None:
     workflow = yaml.safe_load(raw)
     matrix = workflow["jobs"]["build"]["strategy"]["matrix"]["include"]
     targets = {entry["name"]: entry["target"] for entry in matrix}
-    assert len(matrix) == len(targets) == 4
+    assert len(matrix) == len(targets) == 3
     arm = next(entry for entry in matrix if entry["name"] == "linux-aarch64")
     assert arm["runner"] == "ubuntu-24.04-arm"
     assert arm["jobs"] == 1
@@ -182,7 +182,6 @@ def test_every_supported_release_target_uses_one_full_wheel_pipeline() -> None:
         "linux-aarch64": "aarch64-unknown-linux-gnu",
         "linux-x86_64": "x86_64-unknown-linux-gnu",
         "macos-aarch64": "aarch64-apple-darwin",
-        "macos-x86_64": "x86_64-apple-darwin",
         "windows-x86_64": "x86_64-pc-windows-msvc",
     }
     assert "MATURIN_FEATURES" not in raw
@@ -358,7 +357,6 @@ def _assert_runner_budget(workflow: Path, name: str, job: dict) -> None:
         assert job.get("timeout-minutes") == 15
         assert {row["runner"] for row in job["strategy"]["matrix"]["include"]} == {
             "macos-14",
-            "macos-15-intel",
         }
     else:
         # Only full-engine jobs retain the longer PR compilation budget.
