@@ -630,18 +630,18 @@ No test in this section has run.
 - `EG-DECISION-ENGINE-R100.101`: use a complete pinned expected-topic set and separately labeled coverage/support records. Verify exact expected/covered topic ids and summed per-scope counts. Supply one label-blind prediction per scored claim and independent non-unanimous votes. Independently recompute `sum(n_i*(p_i-q_i)^2)/sum(n_i)` and verify the denominator is positive. Hold labels fixed and vary `p_i`; Brier changes exactly while coverage does not. Refuse missing/extra predictions, claims, labels or topics, duplicate annotators, empty denominator, out-of-range probabilities and stale source/scorer/policy digests.
 - `EG-DECISION-ENGINE-R001.100`: pass an in-bound recommendation and withhold one for each out-of-bound metric. Assert metric units, bound id, limit and measured value. Refuse absent/stale/non-finite/unit-incompatible facts and invalid comparator. The GraphOS pre-surface served receipt is separately required and is not claimed by this EG test.
 
-## EG-DECISION-ENGINE-R172 acceptance
+## EG-DECISION-ENGINE-R175 acceptance
 
 | Case | Row | Proving test and observation |
 |---|---|---|
-| Model | `EG-DECISION-ENGINE-R172.1` | A serde round trip keeps every field and rejects `pause_steps = 9`. |
-| Behavior | `EG-DECISION-ENGINE-R172.2` | A seeded fixture returns the same ranking on two runs. |
-| Wiring | `EG-DECISION-ENGINE-R172.3` | A dispatch test routes the new kind and reads the stored encoder. |
-| Refusal | `EG-DECISION-ENGINE-R172.4` | Each case returns its typed reason and no ranking. |
-| Evidence | `EG-DECISION-ENGINE-R172.5` | A record readback lists the premises and the claim. |
-| Hot-path proof | `EG-DECISION-ENGINE-R172.6` | The served test passes, and the benchmark receipt meets the budget. |
+| Model | `EG-DECISION-ENGINE-R175.1` | A serde round trip keeps every field and rejects `pause_steps = 9`. |
+| Behavior | `EG-DECISION-ENGINE-R175.2` | A seeded fixture returns the same ranking on two runs. |
+| Wiring | `EG-DECISION-ENGINE-R175.3` | A dispatch test routes the new kind and reads the stored encoder. |
+| Refusal | `EG-DECISION-ENGINE-R175.4` | Each case returns its typed reason and no ranking. |
+| Evidence | `EG-DECISION-ENGINE-R175.5` | A record readback lists the premises and the claim. |
+| Hot-path proof | `EG-DECISION-ENGINE-R175.6` | The served test passes, and the benchmark receipt meets the budget. |
 
-Hot-path proof for `EG-DECISION-ENGINE-R172`: `tests/decide/test_recommend_served.py::test_pause_steps_lift_ndcg`.
+Hot-path proof for `EG-DECISION-ENGINE-R175`: `tests/decide/test_recommend_served.py::test_pause_steps_lift_ndcg`.
 
 ## EG-DECISION-ENGINE-R173 acceptance
 

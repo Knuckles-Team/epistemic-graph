@@ -658,13 +658,13 @@ Deliver these additive leaves in order; preserve R137.1–.6 and R128 unchanged.
 - [ ] **EG-DECISION-ENGINE-R171.4 (Refusal):** The engine must refuse a plan with no comparison, a stale view, or a feature without an attach point.
 - [ ] **EG-DECISION-ENGINE-R171.5 (Evidence):** The engine must emit one premise for the comparison and one per feature attach point.
 - [ ] **EG-DECISION-ENGINE-R171.6 (Hot-path proof):** The entry point is the served planning admission path.
-- [ ] **EG-DECISION-ENGINE-R172 (rollup):** Implicit-reasoning recommendation over temporal semantic ids.
-- [ ] **EG-DECISION-ENGINE-R172.1 (Model):** Add the recommendation types and question kind.
-- [ ] **EG-DECISION-ENGINE-R172.2 (Behavior):** Implement the encoder and the refinement ranker.
-- [ ] **EG-DECISION-ENGINE-R172.3 (Wiring):** Add the match arm and the encoder artifact.
-- [ ] **EG-DECISION-ENGINE-R172.4 (Refusal):** Add the typed refusals.
-- [ ] **EG-DECISION-ENGINE-R172.5 (Evidence):** Emit premises and the benchmark claim.
-- [ ] **EG-DECISION-ENGINE-R172.6 (Hot-path proof):** Add the served NDCG test and the benchmark.
+- [ ] **EG-DECISION-ENGINE-R175 (rollup):** Implicit-reasoning recommendation over temporal semantic ids.
+- [ ] **EG-DECISION-ENGINE-R175.1 (Model):** Add the recommendation types and question kind.
+- [ ] **EG-DECISION-ENGINE-R175.2 (Behavior):** Implement the encoder and the refinement ranker.
+- [ ] **EG-DECISION-ENGINE-R175.3 (Wiring):** Add the match arm and the encoder artifact.
+- [ ] **EG-DECISION-ENGINE-R175.4 (Refusal):** Add the typed refusals.
+- [ ] **EG-DECISION-ENGINE-R175.5 (Evidence):** Emit premises and the benchmark claim.
+- [ ] **EG-DECISION-ENGINE-R175.6 (Hot-path proof):** Add the served NDCG test and the benchmark.
 - [ ] **EG-DECISION-ENGINE-R173 (rollup):** Cross-round edit concentration cap.
 - [ ] **EG-DECISION-ENGINE-R173.1 (Model):** Add the concentration types and question kind.
 - [ ] **EG-DECISION-ENGINE-R173.2 (Behavior):** Implement the windowed verdict.
