@@ -1,4 +1,4 @@
-//! EG-DURABLE-KERNEL-R024 — rollup proof: every named external backend is
+//! EG-DURABLE-KERNEL-R024 — partial refusal coverage: every named external backend is
 //! present in this repository as a `ForeignSourceSpec` federation source or a
 //! `MirrorTargetSpec` mirror target, and each entry point is exercised with a
 //! representative OFFLINE operation: the typed explicit refusal the unbound
@@ -9,7 +9,8 @@
 //! The representative QUERY operations of the live-probing bindings (the AGE
 //! graph probe, the Trino statement pages) are proved by the per-backend
 //! children (R024.1 / R024.7); this rollup test covers exactly what can be
-//! exercised without a live backend, offline.
+//! exercised without a live backend, offline. These refusals do not satisfy
+//! the rollup requirement for successful representative query/mirror operations.
 
 use eg_plan::federation::ForeignSourceRegistry;
 use eg_plan::federation_brain_guarded::register_brain_guarded;
@@ -29,7 +30,7 @@ fn rollup_cypher_spec(backend: ForeignCypherBackend) -> ForeignSourceSpec {
     }
 }
 
-// spec: EG-DURABLE-KERNEL-R024
+// Partial refusal coverage for EG-DURABLE-KERNEL-R024; successful-operation acceptance remains open.
 #[test]
 fn unbound_cypher_backends_refuse_typed_and_keep_the_registry_empty() {
     let mut registry = ForeignSourceRegistry::new();
@@ -53,7 +54,7 @@ fn unbound_cypher_backends_refuse_typed_and_keep_the_registry_empty() {
     );
 }
 
-// spec: EG-DURABLE-KERNEL-R024
+// Partial refusal coverage for EG-DURABLE-KERNEL-R024; successful-operation acceptance remains open.
 #[test]
 fn unbound_spark_and_brain_guarded_backends_refuse_typed() {
     let mut registry = ForeignSourceRegistry::new();
@@ -86,7 +87,7 @@ fn unbound_spark_and_brain_guarded_backends_refuse_typed() {
     );
 }
 
-// spec: EG-DURABLE-KERNEL-R024
+// Partial refusal coverage for EG-DURABLE-KERNEL-R024; successful-operation acceptance remains open.
 #[test]
 fn mirror_targets_fail_closed_and_unknown_names_error_cleanly() {
     let mut targets = MirrorTargetRegistry::new();
@@ -140,7 +141,7 @@ fn rollup_age_spec() -> ForeignSourceSpec {
     }
 }
 
-// spec: EG-DURABLE-KERNEL-R024
+// Partial refusal coverage for EG-DURABLE-KERNEL-R024; successful-operation acceptance remains open.
 #[cfg(feature = "federation-sql")]
 #[test]
 fn age_binding_with_a_mismatched_dsn_is_refused_offline() {

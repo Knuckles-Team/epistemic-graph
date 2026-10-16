@@ -33,13 +33,13 @@ Status key: `[ ]` queued, `[-]` in progress, `[x]` verified at cited main revisi
 - [ ] **EG-DURABLE-KERNEL-R014.3.2:** Rust FlakeBudget-driven diagnostic retries.
 - [ ] **EG-DURABLE-KERNEL-R014.4:** Loaded leader-rebalance acceptance. See the exact paths and proving tests in `requirements.md`.
 - [ ] **EG-DURABLE-KERNEL-R014.5:** Loaded three-node placement acceptance. See the exact paths and proving tests in `requirements.md`.
-- [x] **EG-DURABLE-KERNEL-R024:** External graph and database backends become EG federation sources
+- [ ] **EG-DURABLE-KERNEL-R024:** External graph and database backends become EG federation sources
 - [x] **EG-DURABLE-KERNEL-R024.1:** PostgreSQL/AGE backend becomes a ForeignSourceSpec source
 - [x] **EG-DURABLE-KERNEL-R024.2:** Fan-out backend becomes a MirrorTargetSpec federation mirror target
 - [x] **EG-DURABLE-KERNEL-R024.2.1:** MirrorTargetSpec::FanOut typed spec, validation, and registration refusal
 - [x] **EG-DURABLE-KERNEL-R024.2.2:** MirrorTargetRegistry registration and name-resolution entry point
-- [x] **EG-DURABLE-KERNEL-R024.3:** Cypher transpiler becomes a ForeignSourceSpec source
-- [x] **EG-DURABLE-KERNEL-R024.4:** Mirror target becomes a ForeignSourceSpec mirror target
+- [ ] **EG-DURABLE-KERNEL-R024.3:** Cypher transpiler becomes a ForeignSourceSpec source
+- [ ] **EG-DURABLE-KERNEL-R024.4:** Mirror target becomes a ForeignSourceSpec mirror target
 - [x] **EG-DURABLE-KERNEL-R024.5:** Outbox-based mirror becomes a ForeignSourceSpec mirror target
 - [x] **EG-DURABLE-KERNEL-R024.6:** Brain-guarded backend becomes a ForeignSourceSpec source
 - [x] **EG-DURABLE-KERNEL-R024.7:** Trino backend becomes a ForeignSourceSpec source
