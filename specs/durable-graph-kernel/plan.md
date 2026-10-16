@@ -543,7 +543,7 @@ R086.9 requires the served entry points and the observations in test-spec.md.
 
 - R098.1, R098.2, R098.3, R098.4, R098.5, R098.6: Public hyperedge predictor accepts ordered arguments, routes unseen entities through hypothesis paths, admits hypothesis-only evidence classes to output.
 
-### 2026-10-17: explicit evidence withdrawal
+### 2026-10-16: explicit evidence withdrawal
 
 EG-DURABLE-KERNEL-R024, EG-DURABLE-KERNEL-R024.3 and EG-DURABLE-KERNEL-R024.4 retain their original acceptance requirements.
 Withdrawal reason: Refusal-only tests do not establish successful backend queries or mirror operations.
