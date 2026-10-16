@@ -29,7 +29,7 @@ fn rollup_cypher_spec(backend: ForeignCypherBackend) -> ForeignSourceSpec {
     }
 }
 
-// spec: EG-DURABLE-KERNEL-R024
+// Partial refusal coverage for EG-DURABLE-KERNEL-R024; successful-operation acceptance remains open.
 #[test]
 fn unbound_cypher_backends_refuse_typed_and_keep_the_registry_empty() {
     let mut registry = ForeignSourceRegistry::new();
@@ -53,7 +53,7 @@ fn unbound_cypher_backends_refuse_typed_and_keep_the_registry_empty() {
     );
 }
 
-// spec: EG-DURABLE-KERNEL-R024
+// Partial refusal coverage for EG-DURABLE-KERNEL-R024; successful-operation acceptance remains open.
 #[test]
 fn unbound_spark_and_brain_guarded_backends_refuse_typed() {
     let mut registry = ForeignSourceRegistry::new();
@@ -86,7 +86,7 @@ fn unbound_spark_and_brain_guarded_backends_refuse_typed() {
     );
 }
 
-// spec: EG-DURABLE-KERNEL-R024
+// Partial refusal coverage for EG-DURABLE-KERNEL-R024; successful-operation acceptance remains open.
 #[test]
 fn mirror_targets_fail_closed_and_unknown_names_error_cleanly() {
     let mut targets = MirrorTargetRegistry::new();
@@ -140,7 +140,7 @@ fn rollup_age_spec() -> ForeignSourceSpec {
     }
 }
 
-// spec: EG-DURABLE-KERNEL-R024
+// Partial refusal coverage for EG-DURABLE-KERNEL-R024; successful-operation acceptance remains open.
 #[cfg(feature = "federation-sql")]
 #[test]
 fn age_binding_with_a_mismatched_dsn_is_refused_offline() {

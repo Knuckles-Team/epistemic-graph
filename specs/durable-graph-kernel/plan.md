@@ -127,6 +127,21 @@ The generator must keep these three rows SPECIFIED until their own evidence exis
 
 ## Amendments
 
+### 2026-10-16: R024 acceptance evidence correction
+
+At PR #605 head `4f172cb5259fe471d32e74080a74c7581243d283`, refusal tests
+were bound as verification for EG-DURABLE-KERNEL-R024, EG-DURABLE-KERNEL-R024.3,
+and EG-DURABLE-KERNEL-R024.4. Retain these tests as partial safety coverage,
+but remove their acceptance bindings and reopen the three task checkboxes.
+The canonical status generator reports LANDED for existing implementation commits.
+These rows have no verification evidence. Their successful-operation acceptance remains incomplete.
+R024.3 still needs successful non-AGE Cypher registration and a representative
+query. R024.4 still needs mirror registration and a successful representative
+mirror operation. R024 still needs representative operations for every named
+backend, not merely refusal at the entry points. Requirements remain unchanged.
+R024.5, R024.6 and R024.8 explicitly accept refusal tests and retain their
+verification bindings. R017 and all other rows are unchanged.
+
 ### 2026-10-11: R082.6 historical ordering
 
 EG-DURABLE-KERNEL-R082.6 previously left ascending tie keys ambiguous.
@@ -527,3 +542,9 @@ R086.9 requires the served entry points and the observations in test-spec.md.
 ### EG-DURABLE-KERNEL-R098 — EG:14
 
 - R098.1, R098.2, R098.3, R098.4, R098.5, R098.6: Public hyperedge predictor accepts ordered arguments, routes unseen entities through hypothesis paths, admits hypothesis-only evidence classes to output.
+
+### 2026-10-16: explicit evidence withdrawal
+
+EG-DURABLE-KERNEL-R024, EG-DURABLE-KERNEL-R024.3 and EG-DURABLE-KERNEL-R024.4 retain their original acceptance requirements.
+Withdrawal reason: Refusal-only tests do not establish successful backend queries or mirror operations.
+This declaration records the evidence correction without changing test behavior or rewriting earlier commits.
