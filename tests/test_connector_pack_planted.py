@@ -214,6 +214,7 @@ def _case_id(mutation: object) -> str:
     ids=[_case_id(mutation) for mutation in MUTATIONS],
 )
 @pytest.mark.spec("EG-TYPED-PACKS-R020")
+@pytest.mark.spec("EG-TYPED-PACKS-R021")
 @pytest.mark.spec("EG-TYPED-PACKS-R022")
 @pytest.mark.spec("EG-TYPED-PACKS-R023")
 @pytest.mark.spec("EG-TYPED-PACKS-R024")
