@@ -227,6 +227,149 @@ mod tests {
         assert_eq!(holds(&r, &is_null), Some(true));
     }
 
+    /// R021 differential proof: the SAME relational predicate set, run through the real SQL
+    /// leg (`where_clause`'s WHERE fragment on DataFusion via `eg_query::exec_sql`) and through
+    /// the per-row evaluator above, must keep the IDENTICAL rows on null and non-null
+    /// fixtures — including every UNKNOWN (missing / explicit-null / cross-type) outcome.
+    #[cfg(feature = "query")]
+    mod sql_differential {
+        use super::*;
+        use crate::exec::where_clause;
+        use eg_core::graph::{GraphCore, GraphView};
+
+        fn blob(v: Value) -> Vec<u8> {
+            rmp_serde::to_vec_named(&v).unwrap()
+        }
+
+        type PredProps = Map<String, Value>;
+        type Fixture = (GraphView, Vec<(String, PredProps)>);
+
+        /// Fixture rows: typed values, an explicit JSON null, and a missing property.
+        fn fixture() -> Fixture {
+            let rows: Vec<(String, Value)> = vec![
+                ("n1".into(), json!({"n": 3, "s": "x", "b": true})),
+                ("n2".into(), json!({"n": 7, "s": "y"})),
+                ("n3".into(), json!({"n": null, "s": "x", "b": false})),
+                ("n4".into(), json!({"n": 3.5, "s": null, "b": true})),
+            ];
+            let core = GraphCore::new();
+            for (id, props) in &rows {
+                core.add_node(id.clone(), blob(props.clone()));
+            }
+            (
+                core.analysis_snapshot(),
+                rows.into_iter()
+                    .map(|(id, props)| (id, props.as_object().cloned().unwrap()))
+                    .collect(),
+            )
+        }
+
+        /// The rows the real SQL leg keeps (the shared `where_clause` fragment on DataFusion).
+        fn sql_kept(view: &GraphView, pred: &Pred) -> Vec<String> {
+            let sql = format!(
+                "SELECT id FROM nodes WHERE {}",
+                where_clause(std::slice::from_ref(pred)).unwrap()
+            );
+            let result =
+                eg_query::exec_sql(view, &sql, &eg_query::CancellationToken::new()).unwrap();
+            result
+                .rows
+                .iter()
+                .map(|row| {
+                    let cells: Vec<Value> = eg_types::msgpack::decode_bounded(
+                        row,
+                        eg_types::msgpack::MsgpackLimits::new(
+                            eg_types::msgpack::MAX_PROPERTY_BYTES,
+                            eg_types::msgpack::MAX_PROPERTY_ITEMS,
+                            eg_types::msgpack::DEFAULT_MAX_DEPTH,
+                        ),
+                    )
+                    .unwrap();
+                    cells.first().and_then(|v| v.as_str()).unwrap().to_string()
+                })
+                .collect()
+        }
+
+        /// The rows the per-row evaluator keeps: a row survives only a definite `true`.
+        fn uql_kept(rows: &[(String, PredProps)], pred: &Pred) -> Vec<String> {
+            rows.iter()
+                .filter(|(_, props)| holds(props, pred) == Some(true))
+                .map(|(id, _)| id.clone())
+                .collect()
+        }
+
+        fn assert_same_rows(view: &GraphView, rows: &[(String, Map<String, Value>)], pred: &Pred) {
+            let mut sql = sql_kept(view, pred);
+            sql.sort();
+            let mut uql = uql_kept(rows, pred);
+            uql.sort();
+            assert_eq!(sql, uql, "SQL and the row evaluator disagree on {pred:?}");
+        }
+
+        // spec: EG-FEDERATED-QUERY-R021
+        #[test]
+        fn the_sql_leg_and_the_row_evaluator_keep_identical_rows() {
+            let (view, rows) = fixture();
+            let cmp = |prop: &str, op: CmpOp, value: PredLiteral| Pred::Cmp {
+                prop: prop.into(),
+                op,
+                value,
+            };
+            let preds = [
+                cmp("n", CmpOp::Gt, PredLiteral::Num(5.0)),
+                cmp("n", CmpOp::Ge, PredLiteral::Num(3.5)),
+                cmp("n", CmpOp::Le, PredLiteral::Num(3.0)),
+                cmp("n", CmpOp::Ne, PredLiteral::Num(3.0)),
+                cmp("n", CmpOp::Eq, PredLiteral::Num(3.5)),
+                cmp("s", CmpOp::Eq, PredLiteral::Str("x".into())),
+                cmp("b", CmpOp::Ne, PredLiteral::Bool(false)),
+                Pred::In {
+                    prop: "n".into(),
+                    values: vec![PredLiteral::Num(3.0), PredLiteral::Num(7.0)],
+                },
+                Pred::Between {
+                    prop: "n".into(),
+                    lo: PredLiteral::Num(3.0),
+                    hi: PredLiteral::Num(5.0),
+                },
+                Pred::IsNull { prop: "n".into() },
+                Pred::Not {
+                    pred: Box::new(Pred::IsNull { prop: "s".into() }),
+                },
+                Pred::And {
+                    preds: vec![
+                        cmp("n", CmpOp::Gt, PredLiteral::Num(0.0)),
+                        Pred::IsNull { prop: "s".into() },
+                    ],
+                },
+                Pred::Or {
+                    preds: vec![
+                        Pred::IsNull { prop: "n".into() },
+                        cmp("s", CmpOp::Eq, PredLiteral::Str("y".into())),
+                    ],
+                },
+                Pred::Not {
+                    pred: Box::new(cmp("b", CmpOp::Eq, PredLiteral::Bool(true))),
+                },
+                Pred::GtNum {
+                    prop: "n".into(),
+                    n: 5.0,
+                },
+                Pred::LtNum {
+                    prop: "n".into(),
+                    n: 4.0,
+                },
+                Pred::Eq {
+                    prop: "s".into(),
+                    value: "x".into(),
+                },
+            ];
+            for pred in &preds {
+                assert_same_rows(&view, &rows, pred);
+            }
+        }
+    }
+
     #[test]
     fn relational_comparison_uses_shared_ordering_semantics() {
         let props = row(json!({"n": 3}));
