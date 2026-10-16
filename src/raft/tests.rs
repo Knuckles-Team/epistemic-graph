@@ -2222,10 +2222,10 @@ async fn all_members_observe_leader(
 }
 
 /// A `System`-role identity with no teams or extra roles.
-fn system_agent(agent_id: &str) -> AgentIdentity {
-    AgentIdentity {
+fn system_agent(agent_id: &str) -> crate::acl::AgentIdentity {
+    crate::acl::AgentIdentity {
         agent_id: agent_id.to_string(),
-        role: AgentRole::System,
+        role: crate::acl::AgentRole::System,
         teams: Vec::new(),
         roles: Vec::new(),
     }
@@ -2278,7 +2278,6 @@ async fn start_group_cluster(
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn add_group_member_right_after_create_group_succeeds() {
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-    use super::multi::MultiRaft;
 
     let root = std::env::temp_dir().join(format!("eg-mnimmediate-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
@@ -2304,7 +2303,7 @@ async fn multi_node_group_join_then_leader_rebalance() {
     // this whole body. READ guard: it excludes only a key MUTATOR, never another
     // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-    use super::multi::{desired_leader, MultiRaft};
+    use super::multi::desired_leader;
     use super::xread::{ReadPageRequest, RouteToken};
 
     let root = std::env::temp_dir().join(format!("eg-mnjoin-{}", std::process::id()));
@@ -2622,7 +2621,6 @@ async fn wire_raft_add_learner_and_change_membership_resolve_through_dispatch() 
     // this whole body. READ guard: it excludes only a key MUTATOR, never another
     // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-    use super::multi::MultiRaft;
     use crate::acl::{AgentIdentity, AgentRole};
     use crate::protocol::ResultPayload;
 
