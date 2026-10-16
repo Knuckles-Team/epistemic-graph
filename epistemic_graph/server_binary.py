@@ -23,8 +23,8 @@ def resolve_server_binary() -> str:
     try:
         from epistemic_graph_server import binary_path
     except ImportError:
-        binary_path = None
-    if binary_path is not None:
+        pass
+    else:
         return str(binary_path())
     found = shutil.which(SERVER_BINARY_NAME)
     if found:
