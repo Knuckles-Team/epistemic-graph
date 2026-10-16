@@ -85,10 +85,10 @@
       ],
       "verified_by": [
         "crates/eg-capabilities/src/scopes/tests.rs:125",
+        "crates/eg-capabilities/src/scopes/tests.rs:185",
         "crates/eg-capabilities/src/scopes/tests.rs:38",
         "crates/eg-capabilities/src/scopes/tests.rs:51",
-        "crates/eg-capabilities/src/scopes/tests.rs:65",
-        "crates/eg-capabilities/src/scopes/tests.rs:73"
+        "crates/eg-capabilities/src/scopes/tests.rs:65"
       ]
     },
     {

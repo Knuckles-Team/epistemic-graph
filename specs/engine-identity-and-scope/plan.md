@@ -177,3 +177,17 @@ All public construction must pass through `ScopeBound::new`.
 Reject blank policy IRIs before construction; callers cannot replace or clear the stored IRI.
 Compile-fail examples must reject external struct literals and direct field mutation.
 Existing subset checks and allowed-tool/graph fields keep their behavior.
+
+## Amendments
+
+### 2026-10-16 — GraphOS curated operation scopes (R004)
+
+GraphOS owns `decide:commit`, `policy:read`, `security:read`, `swarm:read`,
+`telemetry:read` and `usage:read`. Register `decide:commit` as service-only;
+register the five read scopes as user class, eligible for explicitly authorized
+humans, services and API keys. Registration grants nothing automatically.
+GraphOS must still require the exact scope and bind reads to the verified caller's
+tenant; decision commits remain service-only. This decision permits authorized
+automated policy/security inspection without conferring administrative authority.
+Regenerate both contract catalogs and their receipt using `gen_contract`.
+Installed-wheel GraphOS acceptance remains separate consumer evidence.

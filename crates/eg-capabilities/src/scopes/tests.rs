@@ -181,3 +181,35 @@ fn the_rulings_hold_in_the_registry() {
         );
     }
 }
+
+// spec: EG-IDENTITY-R004
+#[test]
+fn graph_os_curated_scopes_preserve_principal_and_key_boundaries() {
+    use eg_types::identity::UserKind;
+    for scope in [
+        "decide:commit",
+        "policy:read",
+        "security:read",
+        "swarm:read",
+        "telemetry:read",
+        "usage:read",
+    ] {
+        let entry = scope_entry(scope).expect("curated GraphOS scope");
+        let service_only = scope == "decide:commit";
+        assert_eq!(entry.owner, "graph-os");
+        assert_eq!(
+            entry.class,
+            if service_only {
+                ScopeClass::ServiceOnly
+            } else {
+                ScopeClass::User
+            }
+        );
+        assert_eq!(entry.class.allows_kind(UserKind::Human), !service_only);
+        assert!(entry.class.allows_kind(UserKind::Service));
+        assert!(entry.class.allows_api_key());
+        assert_eq!(ScopeRegistry.approver_group_of(scope), None);
+        let wildcard = format!("{}:*", scope.split(':').next().unwrap());
+        assert_eq!(ScopeRegistry.class_of(&wildcard), None);
+    }
+}
