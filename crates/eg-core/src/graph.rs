@@ -779,6 +779,27 @@ fn decode_property_value(
     eg_types::msgpack::decode_property_value(bytes)
 }
 
+/// The singular property fields a node blob carries its label under. Writers
+/// store `node_type` (the AU/connector and Cypher `CREATE` convention) or
+/// `type` (engine-internal rows); the label index, Cypher and GraphQL match
+/// all three, so every label reader must use this one list.
+pub const NODE_LABEL_KEYS: [&str; 3] = ["type", "node_type", "label"];
+
+/// True when the decoded node property object carries `label` under any of
+/// [`NODE_LABEL_KEYS`] or in its multi-valued `labels` array — the SAME label
+/// set [`labels_of`] files into the label index, without allocating. The plan
+/// executor's label `Scan` uses this so a Scan sees exactly the nodes a label
+/// index lookup sees (spec: EG-FEDERATED-QUERY-R022.1).
+pub fn node_carries_label(val: &serde_json::Value, label: &str) -> bool {
+    NODE_LABEL_KEYS
+        .iter()
+        .any(|key| val.get(*key).and_then(|v| v.as_str()) == Some(label))
+        || val
+            .get("labels")
+            .and_then(|v| v.as_array())
+            .is_some_and(|labels| labels.iter().any(|x| x.as_str() == Some(label)))
+}
+
 /// The label set a node carries, read from EXACTLY the fields `build_label_index` /
 /// `get_nodes_by_label` match — `type` / `node_type` / `label` (scalar) plus every entry of the
 /// multi-valued `labels` array — so the incremental label-index maintainers (W1.6/P7,
@@ -787,7 +808,7 @@ fn decode_property_value(
 /// by the sorted-set posting invariant `insert_sorted` keeps.
 fn labels_of(val: &serde_json::Value) -> Vec<String> {
     let mut out = Vec::new();
-    for key in ["type", "node_type", "label"] {
+    for key in NODE_LABEL_KEYS {
         if let Some(label) = val.get(key).and_then(|v| v.as_str()) {
             out.push(label.to_string());
         }
