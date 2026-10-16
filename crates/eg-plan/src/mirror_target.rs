@@ -221,6 +221,7 @@ mod tests {
         }
     }
 
+    // spec: EG-DURABLE-KERNEL-R024.4
     #[test]
     fn named_spec_round_trips_and_validates() {
         let spec = named("warehouse");
@@ -230,6 +231,7 @@ mod tests {
         assert_eq!(round_trip, spec);
     }
 
+    // spec: EG-DURABLE-KERNEL-R024.4
     #[test]
     fn empty_named_target_is_refused() {
         let spec = named("");
@@ -240,6 +242,7 @@ mod tests {
         assert!(error.contains("no downstream target"), "{error}");
     }
 
+    // spec: EG-DURABLE-KERNEL-R024.4
     #[test]
     fn unbound_named_target_fails_closed_without_reaching_any_target() {
         let spec = named("warehouse");
