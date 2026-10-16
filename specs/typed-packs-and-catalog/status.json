@@ -595,11 +595,14 @@
     {
       "id": "EG-TYPED-PACKS-R021",
       "title": "Cross-cutting import-safety defects are release-gate obligations",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
-        "96a4c42888e7"
+        "96a4c42888e7",
+        "f121d03dab8c"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_connector_pack_planted.py:217"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R022",
@@ -610,7 +613,7 @@
         "db863f1e2afd"
       ],
       "verified_by": [
-        "tests/test_connector_pack_planted.py:217"
+        "tests/test_connector_pack_planted.py:218"
       ]
     },
     {
@@ -622,7 +625,7 @@
         "db863f1e2afd"
       ],
       "verified_by": [
-        "tests/test_connector_pack_planted.py:218"
+        "tests/test_connector_pack_planted.py:219"
       ]
     },
     {
@@ -634,7 +637,7 @@
         "db863f1e2afd"
       ],
       "verified_by": [
-        "tests/test_connector_pack_planted.py:219"
+        "tests/test_connector_pack_planted.py:220"
       ]
     },
     {
@@ -646,7 +649,7 @@
         "db863f1e2afd"
       ],
       "verified_by": [
-        "tests/test_connector_pack_planted.py:220"
+        "tests/test_connector_pack_planted.py:221"
       ]
     },
     {
@@ -658,7 +661,7 @@
         "db863f1e2afd"
       ],
       "verified_by": [
-        "tests/test_connector_pack_planted.py:221"
+        "tests/test_connector_pack_planted.py:222"
       ]
     },
     {
@@ -670,7 +673,7 @@
         "db863f1e2afd"
       ],
       "verified_by": [
-        "tests/test_connector_pack_planted.py:222"
+        "tests/test_connector_pack_planted.py:223"
       ]
     },
     {
@@ -682,7 +685,7 @@
         "d116b7dbfd27"
       ],
       "verified_by": [
-        "tests/test_connector_pack_planted.py:223"
+        "tests/test_connector_pack_planted.py:224"
       ]
     },
     {
@@ -694,7 +697,7 @@
         "d116b7dbfd27"
       ],
       "verified_by": [
-        "tests/test_connector_pack_planted.py:224"
+        "tests/test_connector_pack_planted.py:225"
       ]
     },
     {
@@ -706,7 +709,7 @@
         "db863f1e2afd"
       ],
       "verified_by": [
-        "tests/test_connector_pack_planted.py:225"
+        "tests/test_connector_pack_planted.py:226"
       ]
     },
     {
@@ -718,7 +721,7 @@
         "db863f1e2afd"
       ],
       "verified_by": [
-        "tests/test_connector_pack_planted.py:226"
+        "tests/test_connector_pack_planted.py:227"
       ]
     },
     {
@@ -730,7 +733,7 @@
         "db863f1e2afd"
       ],
       "verified_by": [
-        "tests/test_connector_pack_planted.py:227"
+        "tests/test_connector_pack_planted.py:228"
       ]
     },
     {
@@ -742,7 +745,7 @@
         "d116b7dbfd27"
       ],
       "verified_by": [
-        "tests/test_connector_pack_planted.py:228"
+        "tests/test_connector_pack_planted.py:229"
       ]
     },
     {
@@ -754,7 +757,7 @@
         "db863f1e2afd"
       ],
       "verified_by": [
-        "tests/test_connector_pack_planted.py:229"
+        "tests/test_connector_pack_planted.py:230"
       ]
     },
     {
@@ -766,7 +769,7 @@
         "db863f1e2afd"
       ],
       "verified_by": [
-        "tests/test_connector_pack_planted.py:230"
+        "tests/test_connector_pack_planted.py:231"
       ]
     },
     {
@@ -778,7 +781,7 @@
         "db863f1e2afd"
       ],
       "verified_by": [
-        "tests/test_connector_pack_planted.py:231"
+        "tests/test_connector_pack_planted.py:232"
       ]
     },
     {
@@ -802,7 +805,7 @@
         "db863f1e2afd"
       ],
       "verified_by": [
-        "tests/test_connector_pack_planted.py:232"
+        "tests/test_connector_pack_planted.py:233"
       ]
     },
     {
@@ -814,7 +817,7 @@
         "d116b7dbfd27"
       ],
       "verified_by": [
-        "tests/test_connector_pack_planted.py:233"
+        "tests/test_connector_pack_planted.py:234"
       ]
     },
     {
@@ -826,7 +829,7 @@
         "db863f1e2afd"
       ],
       "verified_by": [
-        "tests/test_connector_pack_planted.py:234"
+        "tests/test_connector_pack_planted.py:235"
       ]
     },
     {
