@@ -1022,6 +1022,9 @@ jobs:
         run: |
           python -m pip install --disable-pip-version-check pytest==9.1.1
           python -m pytest --noconftest -o addopts='' tests/test_ci_change_scope.py
+      - name: Server package tests
+        working-directory: packaging/epistemic-graph-server
+        run: python -m pytest -o addopts='' -p no:cacheprovider tests
 
   # ── Spec-status lifecycle gates (SPEC-STATUS-LIFECYCLE.md): the generated
   # specs/*/status.json schema, requirement decomposition, and (PRs only) the
@@ -1502,6 +1505,32 @@ jobs:
         uses: ./.github/actions/folded-wheel
         with:
           pass: primary
+          cache-save: 'true'
+
+  # ── Warm compile cache for the epistemic-graph-server wheel (EG-CONTRACT-R053.9).
+  # Builds the exact release server wheel natively for each Linux architecture on
+  # main pushes and SAVES the Swatinem/rust-cache entry under `egs-<arch>`; release.yml
+  # restores it and never saves.
+  server-wheel-cache:
+    timeout-minutes: 360
+    name: server wheel cache linux-${{ matrix.arch }}
+    if: >-
+      github.repository == 'Knuckles-Team/epistemic-graph'
+      && github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ${{ matrix.arch == 'aarch64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x86_64, aarch64]
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Build the server wheel and save the compile cache
+        uses: ./.github/actions/build-server-wheel
+        with:
           cache-save: 'true'
 
   # ── Rolling engine wheel for consumer CI (spec public-engine-contract-and-release). The wheel

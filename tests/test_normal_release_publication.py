@@ -59,7 +59,8 @@ class ReleasePublication(unittest.TestCase):
         self.assertNotIn("publish-pypi", jobs)
         self.assertEqual(jobs["publish-x86"]["needs"], "build-x86")
         self.assertEqual(
-            jobs["verify-pypi"]["needs"], ["build", "publish-x86", "build-sdist"]
+            jobs["verify-pypi"]["needs"],
+            ["build", "publish-x86", "build-sdist", "build-server"],
         )
 
     def test_source_archive_is_validated_before_upload(self):
