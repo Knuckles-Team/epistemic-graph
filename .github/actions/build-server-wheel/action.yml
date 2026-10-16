@@ -1,7 +1,8 @@
 name: Build the epistemic-graph-server wheel
 description: >-
-  Native manylinux_2_28 build of the `epistemic-graph-server` wheel (maturin
-  `bindings = "bin"`, `release-server` profile) for the runner's own architecture.
+  Native build of the `epistemic-graph-server` wheel (maturin `bindings = "bin"`,
+  `release-server` profile) for the runner's own platform: manylinux_2_28 in a
+  container on Linux, plain maturin on macOS arm64 and Windows x64.
   Shared by release.yml (publish) and ci.yml (main-push warm compile cache) so the
   cache key `egs-<arch>` and the build cannot drift apart.
 inputs:
@@ -16,7 +17,7 @@ inputs:
 outputs:
   wheel-dir:
     description: Directory holding the built wheel.
-    value: ${{ steps.build.outputs.wheel-dir }}
+    value: ${{ steps.build.outputs.wheel-dir || steps.native.outputs.wheel-dir }}
 runs:
   using: composite
   steps:
@@ -27,12 +28,15 @@ runs:
         SOURCE_DIR: ${{ inputs.source-dir }}
       run: |
         python3 - <<'PY' >> "$GITHUB_OUTPUT"
-        import os, platform, re, tomllib
+        import os, platform, re, sys, tomllib
         channel = tomllib.load(open(os.path.join(os.environ["SOURCE_DIR"], "rust-toolchain.toml"), "rb"))["toolchain"]["channel"]
         assert re.fullmatch(r"[0-9]+[.][0-9]+[.][0-9]+", channel)
-        arch = {"x86_64": "x86_64", "aarch64": "aarch64", "arm64": "aarch64"}[platform.machine()]
+        arch = {"x86_64": "x86_64", "amd64": "x86_64", "aarch64": "aarch64", "arm64": "aarch64"}[platform.machine().lower()]
+        # The Linux keys stay `egs-<arch>`; other platforms add the OS so caches never mix.
+        key = arch if sys.platform.startswith("linux") else f"{sys.platform}-{arch}"
         print(f"channel={channel}")
         print(f"arch={arch}")
+        print(f"key={key}")
         PY
     - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
       with:
@@ -40,11 +44,12 @@ runs:
     - name: Restore the per-architecture compile cache
       uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       with:
-        shared-key: egs-${{ steps.env.outputs.arch }}
+        shared-key: egs-${{ steps.env.outputs.key }}
         workspaces: ${{ inputs.source-dir }} -> target
         save-if: ${{ inputs.cache-save == 'true' }}
     - name: Build the wheel in the manylinux_2_28 container
       id: build
+      if: runner.os == 'Linux'
       shell: bash
       env:
         SOURCE_DIR: ${{ inputs.source-dir }}
@@ -82,3 +87,22 @@ runs:
           -w "$src/packaging/epistemic-graph-server" "$image" bash /egs-build.sh
         ls -l "$src/dist-server"
         echo "wheel-dir=$src/dist-server" >> "$GITHUB_OUTPUT"
+    # macOS arm64 and Windows x64 build natively: no manylinux container applies.
+    - name: Build the wheel natively
+      id: native
+      if: runner.os != 'Linux'
+      shell: bash
+      env:
+        SOURCE_DIR: ${{ inputs.source-dir }}
+        MACOSX_DEPLOYMENT_TARGET: '11.0'
+        CARGO_INCREMENTAL: '0'
+        CARGO_TERM_COLOR: always
+      run: |
+        set -euo pipefail
+        python -m pip install --quiet "maturin==1.15.0"
+        rm -rf -- "$SOURCE_DIR/dist-server"
+        mkdir -p "$SOURCE_DIR/dist-server"
+        out="$(cd "$SOURCE_DIR/dist-server" && if [ "$RUNNER_OS" = Windows ]; then pwd -W; else pwd; fi)"
+        (cd "$SOURCE_DIR/packaging/epistemic-graph-server" && maturin build --profile release-server --jobs 2 --out "$out")
+        ls -l "$SOURCE_DIR/dist-server"
+        echo "wheel-dir=$out" >> "$GITHUB_OUTPUT"

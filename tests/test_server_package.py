@@ -45,14 +45,24 @@ def test_package_wraps_the_root_server_bin_with_the_full_feature_set() -> None:
 
 
 @pytest.mark.spec("EG-CONTRACT-R053.9")
-def test_release_builds_both_linux_architectures_natively_and_uploads_each() -> None:
+def test_release_builds_every_platform_natively_and_uploads_each() -> None:
     jobs = _yaml(RELEASE)["jobs"]
     job = jobs["build-server"]
     assert job["needs"] == "guard"
     legs = {leg["arch"]: leg["runner"] for leg in job["strategy"]["matrix"]["include"]}
-    assert legs == {"x86_64": "ubuntu-latest", "aarch64": "ubuntu-24.04-arm"}
+    assert legs == {
+        "x86_64": "ubuntu-latest",
+        "aarch64": "ubuntu-24.04-arm",
+        "macos-arm64": "macos-14",
+        "windows-x64": "windows-latest",
+    }
+    assert job["name"] == "server wheel ${{ matrix.label }}"
+    assert job["defaults"]["run"]["shell"] == "bash"
+    swap = next(s for s in job["steps"] if "swap" in s.get("name", ""))
+    assert swap["if"] == "runner.os == 'Linux'"
     script = _script(job)
-    assert 'bin/epistemic-graph-server" --help' in script
+    assert '"$smoke/$exe" --help' in script
+    assert "Scripts" in script and "epistemic-graph-server.exe" in script
     assert "binary_path" in script
     upload = next(s for s in job["steps"] if s.get("name", "").startswith("Publish"))
     assert "twine upload --skip-existing" in upload["run"]
@@ -63,12 +73,19 @@ def test_release_builds_both_linux_architectures_natively_and_uploads_each() -> 
     verify = _script(jobs["verify-pypi"])
     assert "--package epistemic-graph-server" in verify
     assert "build-server" in jobs["verify-pypi"]["needs"]
+    for tag in (
+        "manylinux_2_28_x86_64",
+        "manylinux_2_28_aarch64",
+        "macosx_11_0_arm64",
+        "win_amd64",
+    ):
+        assert tag in verify
 
 
 @pytest.mark.spec("EG-CONTRACT-R053.9")
 def test_compile_cache_is_saved_by_main_ci_and_only_restored_by_release() -> None:
     action = ACTION.read_text()
-    assert "shared-key: egs-${{ steps.env.outputs.arch }}" in action
+    assert "shared-key: egs-${{ steps.env.outputs.key }}" in action
     assert "save-if: ${{ inputs.cache-save == 'true' }}" in action
     cache_job = _yaml(CI)["jobs"]["server-wheel-cache"]
     assert "github.ref == 'refs/heads/main'" in cache_job["if"]

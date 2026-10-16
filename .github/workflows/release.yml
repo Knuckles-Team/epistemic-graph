@@ -10,7 +10,7 @@ name: Release
 #   guard -> build (matrix leg)  -> uploads its own wheel to PyPI
 #         -> build-x86           -> publish-x86 uploads the Linux x86_64 wheel
 #         -> build-sdist         -> uploads the source distribution
-#         -> build-server        -> uploads the epistemic-graph-server wheel (x86_64, aarch64)
+#         -> build-server        -> uploads the epistemic-graph-server wheel (linux x86_64/aarch64, macOS arm64, Windows x64)
 #         -> server-image        -> per-arch image from that wheel, one multi-arch manifest
 #   every uploader -> verify-pypi (checks every expected file reached PyPI)
 #
@@ -403,13 +403,13 @@ jobs:
           pattern: dist/*.whl
           pypi-token: ${{ secrets.PYPI_API_TOKEN }}
 
-  # ── epistemic-graph-server: the native executable wheel, one per Linux architecture,
+  # ── epistemic-graph-server: the native executable wheel, one per supported platform,
   # built natively (no emulation) from the source at the tagged commit. Each leg
   # uploads its wheel to PyPI right after its own smoke test. A manual dispatch with
   # `source_ref` builds and publishes the server package of an already tagged version
   # from that tag's source; the packaging directory comes from the dispatched ref.
   build-server:
-    name: server wheel linux-${{ matrix.arch }}
+    name: server wheel ${{ matrix.label }}
     needs: guard
     if: >-
       github.repository == 'Knuckles-Team/epistemic-graph'
@@ -418,12 +418,17 @@ jobs:
     timeout-minutes: 360
     permissions:
       contents: read
+    defaults:
+      run:
+        shell: bash
     strategy:
       fail-fast: false
       matrix:
         include:
-          - {arch: x86_64, runner: ubuntu-latest}
-          - {arch: aarch64, runner: ubuntu-24.04-arm}
+          - {arch: x86_64, label: linux-x86_64, runner: ubuntu-latest}
+          - {arch: aarch64, label: linux-aarch64, runner: ubuntu-24.04-arm}
+          - {arch: macos-arm64, label: macos-arm64, runner: macos-14}
+          - {arch: windows-x64, label: windows-x64, runner: windows-latest}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
@@ -447,7 +452,7 @@ jobs:
           mkdir -p source/packaging
           rm -rf source/packaging/epistemic-graph-server
           cp -r packaging/epistemic-graph-server source/packaging/epistemic-graph-server
-          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          python - <<'PY' >> "$GITHUB_OUTPUT"
           import os, re, tomllib
           from pathlib import Path
 
@@ -473,6 +478,7 @@ jobs:
       # hosted runner (rustc SIGKILLed by the OOM killer on aarch64, v2.27.1). Swap
       # lets the same `release-server` profile build on every architecture.
       - name: Add swap for the fat-LTO server link
+        if: runner.os == 'Linux'
         run: |
           set -euo pipefail
           df -h /
@@ -493,13 +499,20 @@ jobs:
       - name: Smoke test the built wheel
         run: |
           set -euo pipefail
-          python3 -m venv "$RUNNER_TEMP/smoke"
-          "$RUNNER_TEMP/smoke/bin/pip" install source/dist-server/*.whl
-          "$RUNNER_TEMP/smoke/bin/epistemic-graph-server" --help >/dev/null
-          "$RUNNER_TEMP/smoke/bin/python" -c "from epistemic_graph_server import binary_path; print(binary_path())"
-          ls -l "$RUNNER_TEMP/smoke/bin/epistemic-graph-server" source/dist-server/*.whl
-          scripts="$(unzip -Z1 source/dist-server/*.whl | grep -c '\.data/scripts/' || true)"
-          test "$scripts" = 1 || { echo "expected exactly one script, found $scripts" >&2; exit 1; }
+          python -m venv "$RUNNER_TEMP/smoke"
+          if [ "$RUNNER_OS" = Windows ]; then bindir=Scripts; exe=epistemic-graph-server.exe; else bindir=bin; exe=epistemic-graph-server; fi
+          smoke="$RUNNER_TEMP/smoke/$bindir"
+          "$smoke/python" -m pip install source/dist-server/*.whl
+          "$smoke/$exe" --help >/dev/null
+          "$smoke/python" -c "from epistemic_graph_server import binary_path; print(binary_path())"
+          ls -l "$smoke/$exe" source/dist-server/*.whl
+          python - source/dist-server/*.whl <<'PY'
+          import sys, zipfile
+          names = [n for n in zipfile.ZipFile(sys.argv[1]).namelist() if ".data/scripts/" in n]
+          if len(names) != 1 or not names[0].endswith(("epistemic-graph-server", "epistemic-graph-server.exe")):
+              raise SystemExit(f"expected exactly one server script, found {names}")
+          print("wheel script:", names[0])
+          PY
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: server-wheel-${{ matrix.arch }}
@@ -582,7 +595,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          pattern: server-wheel-*
+          pattern: server-wheel-*x86_64
           merge-multiple: true
           path: wheels
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
@@ -676,10 +689,10 @@ jobs:
           pattern: server-wheel-*
           merge-multiple: true
           path: dist-server
-      - name: Require both Linux server wheels
+      - name: Require the four server wheels
         run: |
           set -euo pipefail
-          for tag in manylinux_2_28_x86_64 manylinux_2_28_aarch64; do
+          for tag in manylinux_2_28_x86_64 manylinux_2_28_aarch64 macosx_11_0_arm64 win_amd64; do
             ls dist-server/*"$tag"*.whl >/dev/null || { echo "MISSING: server wheel $tag" >&2; exit 1; }
           done
       - name: Verify every published server filename and digest
