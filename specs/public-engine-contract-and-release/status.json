@@ -979,12 +979,8 @@
     {
       "id": "EG-CONTRACT-R053.9",
       "title": "The server wheel builds and publishes from this repository",
-      "delivery_state": "VERIFIED",
-      "landed_in": [
-        "49d1e0757891",
-        "9d94b23018a3",
-        "f7c8e1645da2"
-      ],
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": [
         "tests/test_server_package.py:34",
         "tests/test_server_package.py:47",
@@ -994,10 +990,8 @@
     {
       "id": "EG-CONTRACT-R053.10",
       "title": "`binary_path()` locates the installed executable",
-      "delivery_state": "VERIFIED",
-      "landed_in": [
-        "49d1e0757891"
-      ],
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": [
         "tests/test_server_package.py:87"
       ]
@@ -1005,11 +999,8 @@
     {
       "id": "EG-CONTRACT-R053.11",
       "title": "The server image is built from the server wheel",
-      "delivery_state": "VERIFIED",
-      "landed_in": [
-        "49d1e0757891",
-        "f7c8e1645da2"
-      ],
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": [
         "tests/test_server_package.py:97"
       ]
@@ -1017,10 +1008,8 @@
     {
       "id": "EG-CONTRACT-R053.12",
       "title": "The server version moves with the engine and a tagged version can be packaged later",
-      "delivery_state": "VERIFIED",
-      "landed_in": [
-        "49d1e0757891"
-      ],
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": [
         "tests/test_server_package.py:119",
         "tests/test_server_package.py:137"
