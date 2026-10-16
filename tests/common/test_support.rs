@@ -204,18 +204,9 @@ pub fn simple_ids(msgs: Vec<tokio_postgres::SimpleQueryMessage>) -> Vec<String> 
         .collect()
 }
 
-/// The request-context policy (`EPISTEMIC_GRAPH_AUDIENCE`/`_TENANT`/`_POLICY_VERSION`)
-/// the server latches ONCE per process on its first secure request
-/// (`auth::request_context_policy`, a `OnceLock`, because the library is linked
-/// without `cfg(test)` here).
-const REQUEST_CONTEXT_POLICY: [(&str, &str); 3] = [
-    ("EPISTEMIC_GRAPH_AUDIENCE", "epistemic-graph-test"),
-    ("EPISTEMIC_GRAPH_TENANT", "tenant-test"),
-    ("EPISTEMIC_GRAPH_POLICY_VERSION", "policy-test"),
-];
-
 /// Provision the request-context policy for every server state this module builds,
-/// keeping any value the test binary set itself.
+/// through the single shared once-only configuration in `common::configure_authority`
+/// (one tenant for every thread; the signed claims use the same values).
 ///
 /// EH-376: it used to be set only as a side effect of `sql_test_persist_dir`, so a test
 /// that built its state from its own directory (pgwire's two durability tests) passed
@@ -224,11 +215,7 @@ const REQUEST_CONTEXT_POLICY: [(&str, &str); 3] = [
 /// EPISTEMIC_GRAPH_AUDIENCE". The state constructors now provision it, so no test
 /// depends on another having run.
 pub fn provision_request_context_policy() {
-    for (name, value) in REQUEST_CONTEXT_POLICY {
-        if std::env::var_os(name).is_none() {
-            std::env::set_var(name, value);
-        }
-    }
+    crate::common::configure_authority();
 }
 
 fn make_state(
@@ -355,9 +342,7 @@ pub fn sql_test_persist_dir(label: &str) -> String {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     static NEXT: AtomicU64 = AtomicU64::new(1);
-    for (name, value) in REQUEST_CONTEXT_POLICY {
-        std::env::set_var(name, value);
-    }
+    provision_request_context_policy();
     std::env::temp_dir()
         .join(format!(
             "epistemic-graph-{label}-test-{}-{}",
