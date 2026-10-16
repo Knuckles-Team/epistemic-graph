@@ -522,7 +522,7 @@
         "ac5638477288"
       ],
       "verified_by": [
-        "src/server/handlers/admin/connector_pack/tests/content_model.rs:548"
+        "src/server/handlers/admin/connector_pack/tests/content_model.rs:549"
       ]
     },
     {
@@ -575,11 +575,14 @@
     {
       "id": "EG-TYPED-PACKS-R019",
       "title": "Only SKILL.md is imported as skill content",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "0893c1c9cef2",
         "a1bb9fb9503e"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/handlers/admin/connector_pack/tests/content_model.rs:656"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R020",
@@ -881,18 +884,25 @@
       ],
       "verified_by": [
         "src/server/handlers/admin/connector_pack/tests/admin.rs:441",
-        "src/server/handlers/admin/connector_pack/tests/content_model.rs:598"
+        "src/server/handlers/admin/connector_pack/tests/content_model.rs:599"
       ]
     },
     {
       "id": "EG-TYPED-PACKS-R043",
       "title": "Modality annotations on pack entries",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "7be444b032de",
+        "88931aa3dbef",
         "c08b8d0665e4"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/handlers/admin/connector_pack/import/modality_tests.rs:10",
+        "src/server/handlers/admin/connector_pack/import/modality_tests.rs:33",
+        "src/server/handlers/admin/connector_pack/import/modality_tests.rs:62",
+        "src/server/handlers/admin/connector_pack/import/modality_tests.rs:88",
+        "tests/test_connector_pack_client.py:458"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R044",
@@ -1093,11 +1103,14 @@
     {
       "id": "EG-TYPED-PACKS-R049",
       "title": "contract_pin is carried as an opaque SDK claim",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "0b9445099b24",
         "db863f1e2afd"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/connector_pack/digest.rs:349"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R050",
@@ -1108,8 +1121,8 @@
         "db863f1e2afd"
       ],
       "verified_by": [
-        "src/server/handlers/admin/connector_pack/tests/content_model.rs:102",
-        "src/server/handlers/admin/connector_pack/tests/content_model.rs:264"
+        "src/server/handlers/admin/connector_pack/tests/content_model.rs:103",
+        "src/server/handlers/admin/connector_pack/tests/content_model.rs:265"
       ]
     },
     {
