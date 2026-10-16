@@ -72,10 +72,8 @@ def test_compile_cache_is_saved_by_main_ci_and_only_restored_by_release() -> Non
     assert "save-if: ${{ inputs.cache-save == 'true' }}" in action
     cache_job = _yaml(CI)["jobs"]["server-wheel-cache"]
     assert "github.ref == 'refs/heads/main'" in cache_job["if"]
-    legs = {
-        leg["arch"]: leg["runner"] for leg in cache_job["strategy"]["matrix"]["include"]
-    }
-    assert legs == {"x86_64": "ubuntu-latest", "aarch64": "ubuntu-24.04-arm"}
+    assert cache_job["strategy"]["matrix"]["arch"] == ["x86_64", "aarch64"]
+    assert "ubuntu-24.04-arm" in cache_job["runs-on"]
     assert "cache-save: 'true'" in yaml.safe_dump(cache_job)
     release_uses = [
         step
