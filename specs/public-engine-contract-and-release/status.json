@@ -80,7 +80,11 @@
     "EG-CONTRACT-R053.5",
     "EG-CONTRACT-R053.6",
     "EG-CONTRACT-R053.7",
-    "EG-CONTRACT-R053.8"
+    "EG-CONTRACT-R053.8",
+    "EG-CONTRACT-R053.9",
+    "EG-CONTRACT-R053.10",
+    "EG-CONTRACT-R053.11",
+    "EG-CONTRACT-R053.12"
   ],
   "requirements": [
     {
@@ -889,7 +893,11 @@
         "EG-CONTRACT-R053.5",
         "EG-CONTRACT-R053.6",
         "EG-CONTRACT-R053.7",
-        "EG-CONTRACT-R053.8"
+        "EG-CONTRACT-R053.8",
+        "EG-CONTRACT-R053.9",
+        "EG-CONTRACT-R053.10",
+        "EG-CONTRACT-R053.11",
+        "EG-CONTRACT-R053.12"
       ]
     },
     {
@@ -953,7 +961,7 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [
-        "tests/test_release_full_wheel_contract.py:607"
+        "tests/test_release_full_wheel_contract.py:612"
       ]
     },
     {
@@ -965,7 +973,54 @@
         "tests/test_wheel_extensions_only.py:23",
         "tests/test_wheel_extensions_only.py:41",
         "tests/test_wheel_extensions_only.py:63",
-        "tests/test_wheel_extensions_only.py:85"
+        "tests/test_wheel_extensions_only.py:90"
+      ]
+    },
+    {
+      "id": "EG-CONTRACT-R053.9",
+      "title": "The server wheel builds and publishes from this repository",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "49d1e0757891"
+      ],
+      "verified_by": [
+        "tests/test_server_package.py:34",
+        "tests/test_server_package.py:47",
+        "tests/test_server_package.py:68"
+      ]
+    },
+    {
+      "id": "EG-CONTRACT-R053.10",
+      "title": "`binary_path()` locates the installed executable",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "49d1e0757891"
+      ],
+      "verified_by": [
+        "tests/test_server_package.py:89"
+      ]
+    },
+    {
+      "id": "EG-CONTRACT-R053.11",
+      "title": "The server image is built from the server wheel",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "49d1e0757891"
+      ],
+      "verified_by": [
+        "tests/test_server_package.py:99"
+      ]
+    },
+    {
+      "id": "EG-CONTRACT-R053.12",
+      "title": "The server version moves with the engine and a tagged version can be packaged later",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "49d1e0757891"
+      ],
+      "verified_by": [
+        "tests/test_server_package.py:121",
+        "tests/test_server_package.py:139"
       ]
     }
   ]
