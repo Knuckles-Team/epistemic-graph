@@ -632,12 +632,18 @@
     {
       "id": "EG-DURABLE-KERNEL-R017",
       "title": "Correctness-gated benchmark compares EG against HelixDB",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "28295e96e0a3",
         "a676823d2b54",
         "d2a5aa6460df"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_bench_helix_compare.py:113",
+        "tests/test_bench_helix_compare.py:144",
+        "tests/test_bench_helix_compare.py:177",
+        "tests/test_bench_helix_compare.py:56"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R018",
@@ -722,15 +728,20 @@
     {
       "id": "EG-DURABLE-KERNEL-R024",
       "title": "External graph and database backends become EG federation sources",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "3a14159c3768",
         "3ddc77c97ef8",
         "7b7d4a0fb10f",
-        "a676823d2b54",
-        "c2dd4c98fe60"
+        "9863ef840d52",
+        "a676823d2b54"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "crates/eg-plan/tests/federation_rollup_r024.rs:143",
+        "crates/eg-plan/tests/federation_rollup_r024.rs:32",
+        "crates/eg-plan/tests/federation_rollup_r024.rs:56",
+        "crates/eg-plan/tests/federation_rollup_r024.rs:89"
+      ],
       "rollup_of": [
         "EG-DURABLE-KERNEL-R024.1",
         "EG-DURABLE-KERNEL-R024.2",
@@ -775,20 +786,31 @@
     {
       "id": "EG-DURABLE-KERNEL-R024.3",
       "title": "Cypher transpiler becomes a ForeignSourceSpec source",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "47a33ca58bb6",
         "48abc77ce72e"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-plan/src/federation_cypher_unbound.rs:119",
+        "crates/eg-plan/src/federation_cypher_unbound.rs:132",
+        "crates/eg-plan/src/federation_cypher_unbound.rs:145",
+        "crates/eg-plan/src/federation_cypher_unbound.rs:160"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R024.4",
       "title": "Mirror target becomes a ForeignSourceSpec mirror target",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
-        "48abc77ce72e"
+        "48abc77ce72e",
+        "b1310a7964f2"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-plan/src/mirror_target.rs:224",
+        "crates/eg-plan/src/mirror_target.rs:234",
+        "crates/eg-plan/src/mirror_target.rs:245"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R024.5",
@@ -799,10 +821,10 @@
         "42a0b101b111"
       ],
       "verified_by": [
-        "crates/eg-plan/src/mirror_target.rs:261",
-        "crates/eg-plan/src/mirror_target.rs:271",
-        "crates/eg-plan/src/mirror_target.rs:282",
-        "crates/eg-plan/src/mirror_target.rs:292"
+        "crates/eg-plan/src/mirror_target.rs:264",
+        "crates/eg-plan/src/mirror_target.rs:274",
+        "crates/eg-plan/src/mirror_target.rs:285",
+        "crates/eg-plan/src/mirror_target.rs:295"
       ]
     },
     {
