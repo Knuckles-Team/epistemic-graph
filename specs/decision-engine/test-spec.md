@@ -629,3 +629,68 @@ No test in this section has run.
 
 - `EG-DECISION-ENGINE-R100.101`: use a complete pinned expected-topic set and separately labeled coverage/support records. Verify exact expected/covered topic ids and summed per-scope counts. Supply one label-blind prediction per scored claim and independent non-unanimous votes. Independently recompute `sum(n_i*(p_i-q_i)^2)/sum(n_i)` and verify the denominator is positive. Hold labels fixed and vary `p_i`; Brier changes exactly while coverage does not. Refuse missing/extra predictions, claims, labels or topics, duplicate annotators, empty denominator, out-of-range probabilities and stale source/scorer/policy digests.
 - `EG-DECISION-ENGINE-R001.100`: pass an in-bound recommendation and withhold one for each out-of-bound metric. Assert metric units, bound id, limit and measured value. Refuse absent/stale/non-finite/unit-incompatible facts and invalid comparator. The GraphOS pre-surface served receipt is separately required and is not claimed by this EG test.
+
+## EG-DECISION-ENGINE-R172 acceptance
+
+| Case | Row | Proving test and observation |
+|---|---|---|
+| Model | `EG-DECISION-ENGINE-R172.1` | A serde round trip keeps every field and rejects `pause_steps = 9`. |
+| Behavior | `EG-DECISION-ENGINE-R172.2` | A seeded fixture returns the same ranking on two runs. |
+| Wiring | `EG-DECISION-ENGINE-R172.3` | A dispatch test routes the new kind and reads the stored encoder. |
+| Refusal | `EG-DECISION-ENGINE-R172.4` | Each case returns its typed reason and no ranking. |
+| Evidence | `EG-DECISION-ENGINE-R172.5` | A record readback lists the premises and the claim. |
+| Hot-path proof | `EG-DECISION-ENGINE-R172.6` | The served test passes, and the benchmark receipt meets the budget. |
+
+Hot-path proof for `EG-DECISION-ENGINE-R172`: `tests/decide/test_recommend_served.py::test_pause_steps_lift_ndcg`.
+
+## EG-DECISION-ENGINE-R173 acceptance
+
+| Case | Row | Proving test and observation |
+|---|---|---|
+| Model | `EG-DECISION-ENGINE-R173.1` | A serde round trip keeps every field and rejects `window_rounds = 0`. |
+| Behavior | `EG-DECISION-ENGINE-R173.2` | Unit tests cover the third edit in rounds 2 to 4 and two edits only. |
+| Wiring | `EG-DECISION-ENGINE-R173.3` | A test asserts the same verdict from `Decide` and from `ShaclValidate`. |
+| Refusal | `EG-DECISION-ENGINE-R173.4` | Each case returns its typed reason and no verdict. |
+| Evidence | `EG-DECISION-ENGINE-R173.5` | A record readback lists each field. |
+| Hot-path proof | `EG-DECISION-ENGINE-R173.6` | The served test passes, and the benchmark receipt meets the budget. |
+
+Hot-path proof for `EG-DECISION-ENGINE-R173`: `tests/decide/test_concentration_served.py::test_third_same_dimension_edit_reverts`.
+
+## EG-DECISION-ENGINE-R134.110 acceptance
+
+| Case | Row | Proving test and observation |
+|---|---|---|
+| Model | `EG-DECISION-ENGINE-R134.110.1` | A serde round trip keeps every field and rejects `top_k = 51`. |
+| Behavior | `EG-DECISION-ENGINE-R134.110.2` | A fixture asserts the fused order and an incremental update. |
+| Wiring | `EG-DECISION-ENGINE-R134.110.3` | A served test changes the catalog and observes the new ranking. |
+| Refusal | `EG-DECISION-ENGINE-R134.110.4` | Each case returns its typed reason and no tools. |
+| Evidence | `EG-DECISION-ENGINE-R134.110.5` | A record readback lists the premise fields. |
+| Hot-path proof | `EG-DECISION-ENGINE-R134.110.6` | The served test passes, and the benchmark receipt meets the budget. |
+
+Hot-path proof for `EG-DECISION-ENGINE-R134.110`: `tests/decide/test_tool_assignment_served.py::test_role_assignment_uses_one_ranking`.
+
+## EG-DECISION-ENGINE-R100.102 acceptance
+
+| Case | Row | Proving test and observation |
+|---|---|---|
+| Model | `EG-DECISION-ENGINE-R100.102.1` | A serde round trip keeps every field and rejects 257 steps. |
+| Behavior | `EG-DECISION-ENGINE-R100.102.2` | A unit test computes positives, negatives and advantages for a fixture. |
+| Wiring | `EG-DECISION-ENGINE-R100.102.3` | A dispatch test routes the write and reads the stored baseline. |
+| Refusal | `EG-DECISION-ENGINE-R100.102.4` | Each case returns its code and writes nothing. |
+| Evidence | `EG-DECISION-ENGINE-R100.102.5` | A test reads the receipt after one run. |
+| Hot-path proof | `EG-DECISION-ENGINE-R100.102.6` | The served test passes, and the benchmark receipt meets the budget. |
+
+Hot-path proof for `EG-DECISION-ENGINE-R100.102`: `tests/decide/test_run_credit_served.py::test_cited_rows_and_step_credit_recorded`.
+
+## EG-DECISION-ENGINE-R174 acceptance
+
+| Case | Row | Proving test and observation |
+|---|---|---|
+| Model | `EG-DECISION-ENGINE-R174.1` | A serde round trip keeps every field and rejects an unknown state. |
+| Behavior | `EG-DECISION-ENGINE-R174.2` | A unit test resumes a cycle from a checkpoint and activates once. |
+| Wiring | `EG-DECISION-ENGINE-R174.3` | A served test submits a cycle and observes the job and the lease. |
+| Refusal | `EG-DECISION-ENGINE-R174.4` | Each case returns its code and leaves the active pointer unchanged. |
+| Evidence | `EG-DECISION-ENGINE-R174.5` | A test reads the receipt after one activation. |
+| Hot-path proof | `EG-DECISION-ENGINE-R174.6` | The served test passes, and the measured overhead meets the budget. |
+
+Hot-path proof for `EG-DECISION-ENGINE-R174`: `tests/decide/test_generation_cycle_served.py::test_cycle_resumes_and_activates`.

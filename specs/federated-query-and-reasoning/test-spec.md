@@ -336,3 +336,55 @@ No test in this section has run.
 - `EG-FEDERATED-QUERY-R081.103`: serve scatter and line variants over a real indexed source of at least 1,000,000,000 points. Verify viewport-derived bin caps and `min(requested_byte_ceiling, formula_cap)` encoded-byte behavior at minimum/maximum sizes, source/cardinality/index revision and line gaps. Missing, invalid and too-small requested ceilings refuse before scanning. Pan/zoom changes query digest. Exact-point and aggregate-bin selections remain revision-bound. Stale index/source, denied selection, invalid/exceeded cap and any full-source transfer fail acceptance.
 - Pan/zoom and exact/aggregate selection prove viewport-bound tokens. Missing index, stale revision, denied point/bin and invalid/exceeded caps refuse. Verify no full-source payload or silently dropped bins.
 <!-- /spec-definition-patch -->
+
+## EG-FEDERATED-QUERY-R058.4 acceptance
+
+| Case | Row | Proving test and observation |
+|---|---|---|
+| Model | `EG-FEDERATED-QUERY-R058.4.1` | A serde round trip keeps every field and rejects `max_steps = 5`. |
+| Behavior | `EG-FEDERATED-QUERY-R058.4.2` | Unit tests cover linking, each dialect choice and one corrected step. |
+| Wiring | `EG-FEDERATED-QUERY-R058.4.3` | A dispatch test observes one schema read per request. |
+| Refusal | `EG-FEDERATED-QUERY-R058.4.4` | Each case returns its code and no rows. |
+| Evidence | `EG-FEDERATED-QUERY-R058.4.5` | A test reads the step list and the digest. |
+| Hot-path proof | `EG-FEDERATED-QUERY-R058.4.6` | The served test passes, and the measured overhead meets the budget. |
+
+Hot-path proof for `EG-FEDERATED-QUERY-R058.4`: `tests/nl_query_bounded_steps.rs::second_step_corrects_parse_error`.
+
+## EG-FEDERATED-QUERY-R088 acceptance
+
+| Case | Row | Proving test and observation |
+|---|---|---|
+| Model | `EG-FEDERATED-QUERY-R088.1` | A serde round trip keeps every field and the default row shape. |
+| Behavior | `EG-FEDERATED-QUERY-R088.2` | A unit test shows that hidden rows do not displace visible rows. |
+| Wiring | `EG-FEDERATED-QUERY-R088.3` | A dispatch test observes one snapshot for rows and summaries. |
+| Refusal | `EG-FEDERATED-QUERY-R088.4` | The test asserts the code and no partial rows. |
+| Evidence | `EG-FEDERATED-QUERY-R088.5` | A test reads the header fields. |
+| Hot-path proof | `EG-FEDERATED-QUERY-R088.6` | The served test passes, and the measured cost meets the budget. |
+
+Hot-path proof for `EG-FEDERATED-QUERY-R088`: `tests/uql_governed_summary.rs::governed_rows_carry_summary`.
+
+## EG-FEDERATED-QUERY-R089 acceptance
+
+| Case | Row | Proving test and observation |
+|---|---|---|
+| Model | `EG-FEDERATED-QUERY-R089.1` | A serde round trip keeps every field and rejects an unknown failure mode. |
+| Behavior | `EG-FEDERATED-QUERY-R089.2` | Unit tests cover each failure mode. |
+| Wiring | `EG-FEDERATED-QUERY-R089.3` | A dispatch test reads the policy node and returns the verdict. |
+| Refusal | `EG-FEDERATED-QUERY-R089.4` | Tests assert the code and a failed verdict with rows. |
+| Evidence | `EG-FEDERATED-QUERY-R089.5` | A test reads the three fields. |
+| Hot-path proof | `EG-FEDERATED-QUERY-R089.6` | The served test passes, and the measured cost meets the budget. |
+
+Hot-path proof for `EG-FEDERATED-QUERY-R089`: `tests/discover_quality_verdict.rs::sparse_index_fails_closed`.
+
+## EG-FEDERATED-QUERY-R090 acceptance
+
+| Case | Row | Proving test and observation |
+|---|---|---|
+| Model | `EG-FEDERATED-QUERY-R090.1` | A serde round trip keeps every field and rejects `hops = 3`. |
+| Behavior | `EG-FEDERATED-QUERY-R090.2` | Unit tests cover fusion, decay, the neutral date and the frontier cap. |
+| Wiring | `EG-FEDERATED-QUERY-R090.3` | A dispatch test observes one planner call and batched neighbor reads. |
+| Refusal | `EG-FEDERATED-QUERY-R090.4` | Each case returns its code and no rows. |
+| Evidence | `EG-FEDERATED-QUERY-R090.5` | A test reads each field. |
+| Hot-path proof | `EG-FEDERATED-QUERY-R090.6` | The served test passes, and the benchmark receipt meets the budget. |
+
+Hot-path proof for `EG-FEDERATED-QUERY-R090`: `tests/discover_planning_served.rs::deep_recency_multihop`.

@@ -658,3 +658,38 @@ Deliver these additive leaves in order; preserve R137.1–.6 and R128 unchanged.
 - [ ] **EG-DECISION-ENGINE-R171.4 (Refusal):** The engine must refuse a plan with no comparison, a stale view, or a feature without an attach point.
 - [ ] **EG-DECISION-ENGINE-R171.5 (Evidence):** The engine must emit one premise for the comparison and one per feature attach point.
 - [ ] **EG-DECISION-ENGINE-R171.6 (Hot-path proof):** The entry point is the served planning admission path.
+- [ ] **EG-DECISION-ENGINE-R172 (rollup):** Implicit-reasoning recommendation over temporal semantic ids.
+- [ ] **EG-DECISION-ENGINE-R172.1 (Model):** Add the recommendation types and question kind.
+- [ ] **EG-DECISION-ENGINE-R172.2 (Behavior):** Implement the encoder and the refinement ranker.
+- [ ] **EG-DECISION-ENGINE-R172.3 (Wiring):** Add the match arm and the encoder artifact.
+- [ ] **EG-DECISION-ENGINE-R172.4 (Refusal):** Add the typed refusals.
+- [ ] **EG-DECISION-ENGINE-R172.5 (Evidence):** Emit premises and the benchmark claim.
+- [ ] **EG-DECISION-ENGINE-R172.6 (Hot-path proof):** Add the served NDCG test and the benchmark.
+- [ ] **EG-DECISION-ENGINE-R173 (rollup):** Cross-round edit concentration cap.
+- [ ] **EG-DECISION-ENGINE-R173.1 (Model):** Add the concentration types and question kind.
+- [ ] **EG-DECISION-ENGINE-R173.2 (Behavior):** Implement the windowed verdict.
+- [ ] **EG-DECISION-ENGINE-R173.3 (Wiring):** Add the match arm and the shape.
+- [ ] **EG-DECISION-ENGINE-R173.4 (Refusal):** Add the typed abstentions.
+- [ ] **EG-DECISION-ENGINE-R173.5 (Evidence):** Emit the concentration premises.
+- [ ] **EG-DECISION-ENGINE-R173.6 (Hot-path proof):** Add the served concentration test and the benchmark.
+- [ ] **EG-DECISION-ENGINE-R134.110 (rollup):** Native tool relevance index and task-to-tool assignment.
+- [ ] **EG-DECISION-ENGINE-R134.110.1 (Model):** Add the tool entry and assignment types.
+- [ ] **EG-DECISION-ENGINE-R134.110.2 (Behavior):** Implement the index and the fused ranking.
+- [ ] **EG-DECISION-ENGINE-R134.110.3 (Wiring):** Wire the index into the decision arm and the catalog writes.
+- [ ] **EG-DECISION-ENGINE-R134.110.4 (Refusal):** Add the typed refusals.
+- [ ] **EG-DECISION-ENGINE-R134.110.5 (Evidence):** Emit per-tool premises.
+- [ ] **EG-DECISION-ENGINE-R134.110.6 (Hot-path proof):** Add the served assignment test and the benchmark.
+- [ ] **EG-DECISION-ENGINE-R100.102 (rollup):** Run retrieval outcomes and per-step credit.
+- [ ] **EG-DECISION-ENGINE-R100.102.1 (Model):** Add the run outcome write.
+- [ ] **EG-DECISION-ENGINE-R100.102.2 (Behavior):** Implement the join and the step credit.
+- [ ] **EG-DECISION-ENGINE-R100.102.3 (Wiring):** Wire the write into `DecisionLog.Learn`.
+- [ ] **EG-DECISION-ENGINE-R100.102.4 (Refusal):** Add the typed refusals.
+- [ ] **EG-DECISION-ENGINE-R100.102.5 (Evidence):** Emit the run credit receipt.
+- [ ] **EG-DECISION-ENGINE-R100.102.6 (Hot-path proof):** Add the served credit test and the benchmark.
+- [ ] **EG-DECISION-ENGINE-R174 (rollup):** Engine-run embedding generation swap cycle.
+- [ ] **EG-DECISION-ENGINE-R174.1 (Model):** Add the cycle record.
+- [ ] **EG-DECISION-ENGINE-R174.2 (Behavior):** Implement the cycle state machine.
+- [ ] **EG-DECISION-ENGINE-R174.3 (Wiring):** Wire the cycle into `DecisionLog.Learn` and `eg-jobs`.
+- [ ] **EG-DECISION-ENGINE-R174.4 (Refusal):** Add the typed refusals.
+- [ ] **EG-DECISION-ENGINE-R174.5 (Evidence):** Emit the cycle receipt.
+- [ ] **EG-DECISION-ENGINE-R174.6 (Hot-path proof):** Add the served cycle test and the overhead measurement.

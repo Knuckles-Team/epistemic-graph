@@ -1435,3 +1435,120 @@ EG-DECISION-ENGINE-R170.1 through EG-DECISION-ENGINE-R170.6: team coordination f
 ## EG-DECISION-ENGINE-R171
 
 EG-DECISION-ENGINE-R171.1 through EG-DECISION-ENGINE-R171.6: planning admission requires an architecture and wiring gap comparison, producer to consumer through the served path.
+
+## EG-DECISION-ENGINE-R172 — implicit-reasoning recommendation
+
+Replaces: `agent_utilities/knowledge_graph/retrieval/generative_recommender.py`, `agent_utilities/knowledge_graph/retrieval/temporal_semantic_id.py` and `bench_pauserec` in `agent_utilities/harness/assimilation_benchmark.py`.
+
+AU acceptance case: `tests/unit/harness/test_assimilation_benchmark.py::test_bench_reproduces_claim[bench_pauserec-NDCG]`.
+
+Call path: served `Decide` -> `handle_decide` -> `stat_decide.rs:137` -> `recommend_outcome` -> `eg_numeric::recommend` -> sealed answer.
+
+Crates: `eg-types` for the contract, `eg-numeric` for the kernels.
+
+Data structures: item ids are interned `u32`. Codes sit in one columnar `Vec<u8>` of n·L bytes. Codebooks are dense `f32` arrays. Memory is n·(L + 6) bytes plus L·C·d·4 bytes of codebooks.
+
+Concurrency: the fitted encoder is an immutable shared artifact behind an atomic pointer. A refit swaps the pointer. Readers take no lock.
+
+Persistence: the encoder artifact persists in the decision jobs store. Refit starts when mean quantization error grows 20% over the fitted value.
+
+Tenant isolation: a catalog reference resolves only inside the caller's tenant.
+
+Budget: p50 under 5 ms and p99 under 20 ms for 100,000 items at `top_k = 10`.
+
+References
+- arXiv:2606.14142 — He et al., "PauseRec: Implicit Reasoning for LLM-based Generative Recommendation" (2026)
+
+## EG-DECISION-ENGINE-R173 — cross-round edit concentration cap
+
+Replaces: `agent_utilities/harness/harness_gate.py` (`_link_coupling_windows` and the gate), `HarnessConcentrationShape` in `agent_utilities/knowledge_graph/shapes/harness.shapes.ttl` and `_bench_concentration` in `agent_utilities/harness/harness_foundry_benchmark.py`.
+
+AU acceptance cases: `tests/unit/harness/test_harness_gate.py::test_concentration_blocks_the_tau3_failure`, `tests/unit/harness/test_harness_gate.py::test_below_threshold_passes`, `tests/unit/harness/test_aegis_loop.py::test_loop_blocks_concentration_across_rounds` and the foundry `concentration_tau3` case.
+
+Call path: served `Decide` -> `handle_decide` -> `stat_decide.rs:137` -> `concentration_verdict` -> sealed answer. The harness applies the received `keep` or `revert`.
+
+Crates: `eg-types` for the verdict, `eg-shacl` for the shape.
+
+Data structures: a map from interned dimension id to a ring buffer of round numbers. The buffer length equals `min_shipped`. Memory is O(dimensions · min_shipped).
+
+Concurrency: the verdict is a pure function over a snapshot. No lock is taken.
+
+Persistence: edit facts and the policy node are graph nodes in the redb store.
+
+Tenant isolation: facts and the policy resolve only inside the caller's tenant.
+
+Budget: p99 under 2 ms for 10,000 edit facts.
+
+References
+- arXiv:2606.14249 — "HarnessX" (2026)
+
+## EG-DECISION-ENGINE-R134.110 — tool relevance index and task-to-tool assignment
+
+Replaces: `agent_utilities/tools/dynamic_tool_orchestrator.py` (`assign_tools_for_task`, `resolve_mcp_tools`) and `agent_utilities/capabilities/fleet_tool_search.py` (`fleet_relevance_search`).
+
+AU acceptance cases: `tests/unit/capabilities/test_fleet_tool_search.py` and `tests/unit/mcp/test_dynamic_tool_selection.py`.
+
+Call path: served `Decide` -> `handle_decide` -> `stat_decide.rs:137` -> `tool_relevance_outcome` -> `eg_text::tool_relevance` -> `rank_tools_by_relevance` -> `smallest_covering_subset` (`tool_subset.rs:59`).
+
+Crates: `eg-text` for postings, `eg-ann` for the embedding arm, `eg-types` for the contract.
+
+Data structures: interned token ids map to sorted posting lists of `u32` tool ids. Memory stays under 2 KiB per tool.
+
+Concurrency: the index is an immutable snapshot behind an atomic pointer. A catalog write builds a delta and swaps the pointer. Readers take no lock.
+
+Persistence: the index rebuilds from fleet catalog records on start. Records persist in the redb store.
+
+Tenant isolation: the index filters tools by the caller's tenant and fleet visibility before ranking.
+
+Boundary: filtered capability designation with ontology subsumption is a separate row. This row owns lexical and embedding relevance only.
+
+Budget: p50 under 1 ms and p99 under 5 ms for 10,000 tools.
+
+References
+- No paper is cited.
+
+## EG-DECISION-ENGINE-R100.102 — run retrieval outcomes and per-step credit
+
+Replaces: `agent_utilities/decide/learning/` outcome recording and `agent_utilities/orchestration/agent_runner.py:_write_step_credit`.
+
+AU acceptance cases: `tests/unit/test_orchestrate_mermaid_surfacing.py` and `tests/unit/test_step_credit_readback.py`.
+
+Call path: served `DecisionLog` -> `DecisionLogOp::Learn` (`log.rs:398`) -> `stat_run_credit.rs` (new) -> hard-negative store from `EG-DECISION-ENGINE-R100` -> capability baseline update.
+
+Crates: `eg-types` for the contract, `eg-numeric` for fixed-point advantage arithmetic.
+
+Data structures: cited and retrieved ids are sorted `u32` vectors after interning. The join is a linear merge. Baselines are a map from capability id to a Q16 value.
+
+Concurrency: baseline updates use a compare-and-set per capability key. No global lock exists.
+
+Persistence: the decision jobs store in redb holds receipts and baselines.
+
+Tenant isolation: decision ids resolve only inside the caller's tenant.
+
+Budget: p99 under 5 ms for a 256-step run.
+
+References
+- No paper is cited.
+
+## EG-DECISION-ENGINE-R174 — embedding generation swap cycle
+
+Replaces: `agent_utilities/decide/learning/generation_cycle.py` (`run_generation_cycle`, `CorpusReembedder`) and the loop stage that called it.
+
+AU acceptance case: `tests/unit/decide/test_generation_cycle.py`.
+
+Call path: served `DecisionLog` -> `DecisionLogOp::Learn` -> `stat_generation_cycle.rs` (new) -> `eg-jobs` job -> embedding endpoint -> shadow graph writes -> `stat_generation.rs` evaluation -> pointer compare-and-set.
+
+Crates: `eg-jobs` for the durable job, `eg-types` for the record, the root server package for the handlers.
+
+Data structures: one batch buffer of 256 · dimension `f32` values. The checkpoint is the last committed node key. Memory stays under batch size times dimension times 4 bytes plus 1 MiB.
+
+Concurrency: the job runs on a background lease. Interactive reads keep serving the active generation.
+
+Persistence: job state and checkpoints persist in the `eg-jobs` redb store. The pointer persists through `stat_pointer.rs`.
+
+Tenant isolation: the logical graph and the shadow graph resolve inside the caller's tenant.
+
+Budget: engine overhead under 1 ms per 256-node batch, excluding endpoint latency.
+
+References
+- No paper is cited.

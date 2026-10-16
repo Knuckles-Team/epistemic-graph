@@ -210,3 +210,17 @@ This batch defines the slices; it runs none of their runtime tests.
 - [ ] **EG-DURABLE-KERNEL-R098.4:** Refusal reject hypotheses with empty argument list and non-hypothesis evidence claims.
 - [ ] **EG-DURABLE-KERNEL-R098.5:** Evidence hypothesis output never claims assertion and carries prediction confidence.
 - [ ] **EG-DURABLE-KERNEL-R098.6:** Hot-path proof prediction endpoint accepts ordered arguments and routes unseen entity to hypothesis response.
+- [ ] **EG-DURABLE-KERNEL-R099 (rollup):** Cross-graph writes fan out across shard writers.
+- [ ] **EG-DURABLE-KERNEL-R099.1 (Model):** Add the fan-out report type.
+- [ ] **EG-DURABLE-KERNEL-R099.2 (Behavior):** Group sub-batches by shard and submit them concurrently.
+- [ ] **EG-DURABLE-KERNEL-R099.3 (Wiring):** Attach the reports in `multi_graph_batch_update`.
+- [ ] **EG-DURABLE-KERNEL-R099.4 (Refusal):** Add the size refusal and per-graph outcomes.
+- [ ] **EG-DURABLE-KERNEL-R099.5 (Evidence):** Emit reports and shard metrics.
+- [ ] **EG-DURABLE-KERNEL-R099.6 (Hot-path proof):** Add the served fan-out test and the benchmark.
+- [ ] **EG-DURABLE-KERNEL-R100 (rollup):** Native property-graph mirror sinks.
+- [ ] **EG-DURABLE-KERNEL-R100.1 (Model):** Add the three sink kinds.
+- [ ] **EG-DURABLE-KERNEL-R100.2 (Behavior):** Implement the three drivers on the mirror-target trait.
+- [ ] **EG-DURABLE-KERNEL-R100.3 (Wiring):** Wire registration into `MutationOutbox` and the outbox consumer.
+- [ ] **EG-DURABLE-KERNEL-R100.4 (Refusal):** Declare and return the two refusals.
+- [ ] **EG-DURABLE-KERNEL-R100.5 (Evidence):** Emit batch receipts and digest reconciliation.
+- [ ] **EG-DURABLE-KERNEL-R100.6 (Hot-path proof):** Add the served outage test and the benchmark.
