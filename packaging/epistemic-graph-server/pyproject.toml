@@ -1,0 +1,48 @@
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "epistemic-graph-server"
+version = "2.27.1"
+description = "The native epistemic-graph-server executable, built from the epistemic-graph source at the same version"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "License :: OSI Approved :: MIT License",
+    "Environment :: Console",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: Implementation :: CPython",
+]
+
+[[project.authors]]
+name = "Repository Maintainers"
+email = "maintainers@knuckles.team"
+
+[project.license]
+text = "MIT"
+
+[project.urls]
+Homepage = "https://github.com/Knuckles-Team/epistemic-graph"
+Documentation = "https://knuckles-team.github.io/epistemic-graph/"
+
+# The package wraps the root manifest's `epistemic-graph-server` bin. The release
+# workflow builds it with `maturin build --profile release-server` (maturin does not
+# read the profile from this table in every release); `full,ast-extended` is the same
+# feature set as the main build.
+[tool.maturin]
+bindings = "bin"
+manifest-path = "../../Cargo.toml"
+python-source = "."
+module-name = "epistemic_graph_server"
+features = ["full", "ast-extended"]
+strip = true
+exclude = ["**/__pycache__/**", "**/*.pyc", "**/*.pyo"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

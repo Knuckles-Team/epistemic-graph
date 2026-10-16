@@ -280,7 +280,12 @@ def test_incomplete_fallback_artifacts_cannot_be_published() -> None:
     assert names.index("Require a complete wheel before upload") < names.index(
         "Publish linux-x86_64 to PyPI"
     )
-    assert set(jobs["verify-pypi"]["needs"]) == {"build", "publish-x86", "build-sdist"}
+    assert set(jobs["verify-pypi"]["needs"]) == {
+        "build",
+        "publish-x86",
+        "build-sdist",
+        "build-server",
+    }
     source_steps = jobs["build-sdist"]["steps"]
     assert any(
         "check_sdist_completeness.py" in step.get("run", "") for step in source_steps
@@ -619,9 +624,12 @@ def test_tag_pipeline_builds_checks_and_publishes_only() -> None:
         "build-x86",
         "build-sdist",
         "publish-x86",
+        "build-server",
+        "server-image",
+        "server-manifest",
         "verify-pypi",
     }
-    for name in ("build", "build-x86", "build-sdist"):
+    for name in ("build", "build-x86", "build-sdist", "build-server"):
         assert jobs[name]["needs"] == "guard"
     guard = jobs["guard"]
     assert guard["permissions"]["actions"] == "read"

@@ -218,17 +218,29 @@ The stash belongs to the whole repository, so it is not a lane-local backup.
 Stage reviewed paths explicitly and inspect the resulting patch before commit.
 Leave other owners' changes, build slots, and publication decisions alone.
 
-## Server executable
+## Server package
 
 The server and its subcommands (`restore`, `migrate-shards`, `rf019-observe`,
-`lake-fixture-export`) are engine code in this repository. The `release-server`
-Cargo profile (size-optimised, `panic = "unwind"`) is defined here. The public
-`epistemic-graph` wheel carries no executables; `pip install "epistemic-graph[server]"`
+`lake-fixture-export`) are engine code in this repository, and so is its packaging. The
+public `epistemic-graph` wheel carries no executables; `pip install "epistemic-graph[server]"`
 installs the matching `epistemic-graph-server` package at the same version.
-Distribution, the server wheel and the server image belong to the
-[epistemic-graph-server](https://github.com/Knuckles-Team/epistemic-graph-server)
-repository, which builds from this source at the matching tag. Change behaviour
-here; change packaging and images there.
+
+- `packaging/epistemic-graph-server/` holds the package: a maturin `bindings = "bin"` build over
+  the root manifest's `epistemic-graph-server` binary, `epistemic_graph_server.binary_path()`
+  and `BinaryNotFoundError`, and its tests. `epistemic_graph/server_binary.py` resolves the
+  binary through that function. Build the wheel with
+  `maturin build --profile release-server` from that directory, on a build host, never on a
+  workstation. The `release-server` Cargo profile is size-optimised with `panic = "unwind"`.
+- `docker/Dockerfile` builds the server image from the server wheel staged in `docker/wheels`.
+- `.github/workflows/release.yml` job `build-server` builds one wheel per Linux architecture
+  natively and uploads each to PyPI right away; `server-image` pushes one image per
+  architecture by digest and `server-manifest` joins them into one tag. `ci.yml` job
+  `server-wheel-cache` warms the compile cache `egs-<arch>` on main pushes.
+- To publish the server package of an already tagged version, dispatch `release.yml` with
+  `packages=server` and `source_ref=v<version>`. The guard still requires a successful
+  `ci.yml` run on that tag's commit.
+- The version moves with the engine through `.config/bumpversion.cfg`, which covers the package
+  `pyproject.toml`, its `__version__`, the `server` extra and the Dockerfile.
 
 ## Operations are separate
 

@@ -71,6 +71,17 @@ Check the [capability matrix](https://knuckles-team.github.io/epistemic-graph/ca
 and [generated method ledger](https://knuckles-team.github.io/epistemic-graph/capabilities.generated/)
 for the current behavior of each operation.
 
+## Packages
+
+This repository publishes two PyPI packages and one container image, all at the same version.
+
+| Artifact | Contents | Install |
+|---|---|---|
+| `epistemic-graph` | The Python client, the in-process engine module and the numeric kernel. Carries no executable. | `pip install epistemic-graph` |
+| `epistemic-graph-server` | The native `epistemic-graph-server` executable (Linux x86_64 and aarch64) and `epistemic_graph_server.binary_path()`. Source in [`packaging/epistemic-graph-server`](packaging/epistemic-graph-server). | `pip install epistemic-graph-server` |
+| `epistemic-graph[server]` | The client plus the server package pinned to the same version. | `pip install "epistemic-graph[server]"` |
+| `epistemic-graph-server` image | The server binary on a slim base, one tag for `linux/amd64` and `linux/arm64`, built from the server wheel. | `docker pull <registry-user>/epistemic-graph-server:<version>` |
+
 ## Documentation
 
 - [Start here](https://knuckles-team.github.io/epistemic-graph/) for a guided engine tour.

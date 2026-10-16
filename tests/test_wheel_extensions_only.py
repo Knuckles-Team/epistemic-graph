@@ -74,7 +74,12 @@ def test_each_platform_publishes_on_its_own_behind_the_guard() -> None:
     sdist_uses = [s.get("uses") for s in jobs["build-sdist"]["steps"]]
     assert "./.github/actions/publish-distribution" in sdist_uses
     # No uploader waits on another platform; only the verifier joins them.
-    assert set(jobs["verify-pypi"]["needs"]) == {"build", "publish-x86", "build-sdist"}
+    assert set(jobs["verify-pypi"]["needs"]) == {
+        "build",
+        "publish-x86",
+        "build-sdist",
+        "build-server",
+    }
     assert "twine upload" not in "\n".join(
         s.get("run", "") for s in jobs["verify-pypi"]["steps"]
     )
