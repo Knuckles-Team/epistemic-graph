@@ -510,12 +510,16 @@
     {
       "id": "EG-FEDERATED-QUERY-R018",
       "title": "Class-level volatility drives invalidation and cache freshness",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "0265d3a41baf",
         "10177f908dd0"
       ],
-      "verified_by": []
+      "verified_by": [
+        "src/server/handlers/query/foreign_watermarks.rs:160",
+        "src/server/handlers/query/foreign_watermarks.rs:195",
+        "src/server/handlers/query/freshness_feed.rs:115"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R019",
@@ -547,12 +551,14 @@
     {
       "id": "EG-FEDERATED-QUERY-R021",
       "title": "Full UQL predicate algebra with SQL-consistent evaluation",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "0265d3a41baf",
         "e93f988eae07"
       ],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-plan/src/pred_eval.rs:306"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R022",
