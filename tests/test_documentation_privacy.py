@@ -123,3 +123,31 @@ def test_public_surface_allows_requirement_id_citations(tmp_path: Path) -> None:
         "machine-specific host identifier" in category
         for category in by_path.get("docs/leak.md", set())
     )
+
+
+@pytest.mark.spec("EG-CONTRACT-R040")
+def test_privacy_self_check_catches_a_planted_violation() -> None:
+    """The scanner's own --self-check proves the gate can fail: a planted
+    scratch/build-host path is caught in BOTH scan passes (public docs and
+    runtime source) while an ordinary path that merely shares a directory
+    name is not flagged -- a gate that cannot fail on planted input proves
+    nothing."""
+    rc, result = privacy._self_check()
+    assert rc == 0
+    assert result["ok"] is True
+    assert result["caughtInPublicDoc"] is True
+    assert result["caughtInRuntimeSource"] is True
+    assert result["ordinaryDocNotFlagged"] is True
+    assert result["ordinarySourceNotFlagged"] is True
+
+
+@pytest.mark.spec("EG-CONTRACT-R040")
+def test_live_scan_of_the_tracked_tree_reports_zero_findings() -> None:
+    """A live scan of every tracked artifact returns zero findings. The scan
+    universe includes the scanner's own tracked source (scripts/*.py is in
+    scope for the runtime-source pass), whose comments document the example
+    patterns it hunts (reserved home users, RFC 2606 hosts, placeholder
+    credential URIs, split-literal pattern definitions): none of those
+    documented examples or ordinary identifiers/constants may register as a
+    finding, or the gate would false-positive on its own documentation."""
+    assert privacy.scan(ROOT) == []
