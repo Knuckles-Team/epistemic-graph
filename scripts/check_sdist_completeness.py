@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 import subprocess
 import tarfile
 from email.parser import BytesParser
@@ -32,23 +33,61 @@ def _manifest_sources(manifest: Path, root: Path) -> set[str]:
 _BASE_SOURCES = (
     "Cargo.toml",
     "Cargo.lock",
-    "build.rs",
     "pyproject.toml",
-    "build_backend.py",
     "rust-toolchain.toml",
     "README.md",
-    "scripts/inject_numeric_kernel.py",
-    "scripts/inject_pyengine.py",
-    "scripts/normalize_wheel_build_paths.py",
 )
-_SOURCE_DIRECTORIES = ("src", "crates", "epistemic_graph", ".cargo")
+_SOURCE_DIRECTORIES = ("crates", "epistemic_graph")
+# The root crate (`src/`, `build.rs`, `benches/`, `.cargo/`) only belongs in the
+# archive when maturin builds it. Since the extensions-only wheel (#587) maturin
+# builds `[tool.maturin] manifest-path`, a member crate; the server binary ships
+# from its own package, so the root crate is not a build input.
+_ROOT_CRATE_DIRECTORIES = ("src", ".cargo")
+_ROOT_CRATE_FILES = ("build.rs",)
+
+
+def _builds_root_crate(root: Path) -> bool:
+    pyproject = root / "pyproject.toml"
+    if not pyproject.is_file():
+        return True
+    maturin = tomllib.loads(pyproject.read_text()).get("tool", {}).get("maturin", {})
+    manifest = maturin.get("manifest-path", "Cargo.toml")
+    return (root / manifest).resolve() == (root / "Cargo.toml").resolve()
+
+
+def _backend_sources(root: Path) -> set[str]:
+    """Follow the PEP 517 backend's own imports: an sdist must be installable."""
+    pyproject = root / "pyproject.toml"
+    if not pyproject.is_file():
+        return set()
+    build = tomllib.loads(pyproject.read_text()).get("build-system", {})
+    module = build.get("build-backend", "")
+    if not module or not (root / f"{module}.py").is_file():
+        return set()
+    found, pending = set(), [f"{module}.py"]
+    while pending:
+        name = pending.pop()
+        if name in found:
+            continue
+        found.add(name)
+        for line in (root / name).read_text().splitlines():
+            match = re.match(r"\s*from scripts\.(\w+) import", line)
+            if match and (root / "scripts" / f"{match[1]}.py").is_file():
+                pending.append(f"scripts/{match[1]}.py")
+    return found
+
+
+def _directories(root: Path) -> tuple[str, ...]:
+    if _builds_root_crate(root):
+        return (*_SOURCE_DIRECTORIES, *_ROOT_CRATE_DIRECTORIES)
+    return _SOURCE_DIRECTORIES
 
 
 def _tracked_sources(root: Path) -> set[str]:
     # The release checkout is the inventory authority. Include tracked native
     # assets of every extension without admitting local build/cache output.
     tracked = subprocess.check_output(
-        ["git", "-C", str(root), "ls-files", "-z", "--", *_SOURCE_DIRECTORIES],
+        ["git", "-C", str(root), "ls-files", "-z", "--", *_directories(root)],
         text=True,
     )
     return {path for path in tracked.split("\0") if path}
@@ -58,7 +97,7 @@ def _walked_sources(root: Path) -> set[str]:
     # Source archives and isolated fixtures have no Git metadata.
     return {
         path.relative_to(root).as_posix()
-        for directory in _SOURCE_DIRECTORIES
+        for directory in _directories(root)
         for path in (root / directory).rglob("*")
         if path.is_file()
         and "__pycache__" not in path.parts
@@ -68,12 +107,17 @@ def _walked_sources(root: Path) -> set[str]:
 
 def required_sources(root: Path) -> set[str]:
     """Include source files and manifest-declared build inputs."""
-    required = set(_BASE_SOURCES)
+    required = set(_BASE_SOURCES) | _backend_sources(root)
+    root_crate = _builds_root_crate(root)
+    if root_crate:
+        required.update(_ROOT_CRATE_FILES)
     if (root / ".git").exists():
         required |= _tracked_sources(root)
     else:
         required |= _walked_sources(root)
-    manifests = [root / "Cargo.toml", *(root / "crates").rglob("Cargo.toml")]
+    manifests = [*(root / "crates").rglob("Cargo.toml")]
+    if root_crate:
+        manifests.append(root / "Cargo.toml")
     for manifest in manifests:
         required.update(_manifest_sources(manifest, root))
     return required
@@ -121,10 +165,12 @@ def _check_metadata(
     if message["Name"] != "epistemic-graph" or message["Version"] != version:
         raise ValueError("sdist metadata identity differs")
     manifest = archive.extractfile(files[prefix + "Cargo.toml"])
-    if (
-        manifest is None
-        or tomllib.loads(manifest.read().decode())["package"]["version"] != version
-    ):
+    if manifest is None:
+        raise ValueError("sdist Cargo manifest unreadable")
+    # An extensions-only sdist carries a workspace-only manifest (the root package
+    # is not built); its identity is PKG-INFO, checked above against Cargo.toml.
+    package = tomllib.loads(manifest.read().decode()).get("package")
+    if package is not None and package.get("version") != version:
         raise ValueError("sdist Cargo version differs")
 
 

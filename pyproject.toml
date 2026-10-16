@@ -254,6 +254,12 @@ exclude = ["**/__pycache__/**", "**/*.pyc", "**/*.pyo"]
 include = [
     # Maturin omits workspace members outside the root dependency graph.
     { path = "crates/**/*", format = "sdist" },
+    # The sdist must stay installable: pyproject points `backend-path` at the
+    # in-tree PEP 517 backend and the helper it imports (scripts/inject_numeric_kernel.py).
+    { path = "build_backend.py", format = "sdist" },
+    { path = "scripts/inject_numeric_kernel.py", format = "sdist" },
+    { path = "scripts/strip_wheel_executables.py", format = "sdist" },
+    { path = "rust-toolchain.toml", format = "sdist" },
     "epistemic_graph/contract/receipt.json",
     "epistemic_graph/contract/errors.json",
     "epistemic_graph/contract/methods.json",
