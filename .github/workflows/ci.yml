@@ -1457,7 +1457,6 @@ jobs:
           - {name: linux-aarch64, runner: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu, jobs: 2}
           - {name: windows-x86_64, runner: windows-latest, target: x86_64-pc-windows-msvc, jobs: 4}
           - {name: macos-aarch64, runner: macos-14, target: aarch64-apple-darwin, jobs: 2}
-          - {name: macos-x86_64, runner: macos-15-intel, target: x86_64-apple-darwin, jobs: 2}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
@@ -1491,7 +1490,6 @@ jobs:
         run: |
           case "$EG_WHEEL_TARGET" in
             aarch64-apple-darwin) export MACOSX_DEPLOYMENT_TARGET=11.0 ;;
-            x86_64-apple-darwin) export MACOSX_DEPLOYMENT_TARGET=10.12 ;;
           esac
           source scripts/configure_macos_linker.sh "$EG_WHEEL_TARGET"
           python - <<'PYENV'

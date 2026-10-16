@@ -39,7 +39,7 @@ class ReleasePublication(unittest.TestCase):
         legs = jobs["build"]["strategy"]["matrix"]["include"]
         self.assertEqual(
             {leg["name"] for leg in legs},
-            {"linux-aarch64", "windows-x86_64", "macos-aarch64", "macos-x86_64"},
+            {"linux-aarch64", "windows-x86_64", "macos-aarch64"},
         )
         self.assertTrue(all(leg["runner"] != "self-hosted" for leg in legs))
         # The tag pipeline builds only: ci.yml already ran every gate, and
