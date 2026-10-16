@@ -26,6 +26,7 @@
     "EG-FEDERATED-QUERY-R020",
     "EG-FEDERATED-QUERY-R021",
     "EG-FEDERATED-QUERY-R022",
+    "EG-FEDERATED-QUERY-R022.1",
     "EG-FEDERATED-QUERY-R023",
     "EG-FEDERATED-QUERY-R024",
     "EG-FEDERATED-QUERY-R025",
@@ -565,12 +566,27 @@
     {
       "id": "EG-FEDERATED-QUERY-R022",
       "title": "UQL source clauses are first-class, with typed empty-result cases",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "0265d3a41baf",
         "8451d7eecf02"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "rollup_of": [
+        "EG-FEDERATED-QUERY-R022.1"
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R022.1",
+      "title": "A label Scan matches the engine's label set",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "1296792b60de"
+      ],
+      "verified_by": [
+        "crates/eg-plan/src/exec.rs:2661",
+        "src/server/mod.rs:2077"
+      ]
     },
     {
       "id": "EG-FEDERATED-QUERY-R023",
