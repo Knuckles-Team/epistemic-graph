@@ -981,7 +981,8 @@
       "title": "The server wheel builds and publishes from this repository",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "49d1e0757891"
+        "49d1e0757891",
+        "f7c8e1645da2"
       ],
       "verified_by": [
         "tests/test_server_package.py:34",
@@ -997,7 +998,7 @@
         "49d1e0757891"
       ],
       "verified_by": [
-        "tests/test_server_package.py:89"
+        "tests/test_server_package.py:87"
       ]
     },
     {
@@ -1005,10 +1006,11 @@
       "title": "The server image is built from the server wheel",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "49d1e0757891"
+        "49d1e0757891",
+        "f7c8e1645da2"
       ],
       "verified_by": [
-        "tests/test_server_package.py:99"
+        "tests/test_server_package.py:97"
       ]
     },
     {
@@ -1019,8 +1021,8 @@
         "49d1e0757891"
       ],
       "verified_by": [
-        "tests/test_server_package.py:121",
-        "tests/test_server_package.py:139"
+        "tests/test_server_package.py:119",
+        "tests/test_server_package.py:137"
       ]
     }
   ]
