@@ -9,7 +9,11 @@ from pathlib import Path, PurePosixPath, PureWindowsPath
 
 import pytest
 
-from scripts.check_wheel_privacy import audit_wheel, runtime_deny_prefixes
+from scripts.check_wheel_privacy import (
+    _address_is_neutral,
+    audit_wheel,
+    runtime_deny_prefixes,
+)
 from scripts.check_wheel_privacy import main as audit_main
 from scripts.configure_rust_path_remap import (
     UNIT_SEPARATOR,
@@ -36,7 +40,7 @@ def _neutral_metadata(*, body: str = "") -> bytes:
         "Metadata-Version: 2.4\n"
         "Name: fixture-package\n"
         "Version: 1.0.0\n"
-        "Author-email: Repository Maintainers <maintainers@example.invalid>\n"
+        "Author-email: Repository Maintainers <maintainers@knuckles.team>\n"
         "\n"
         f"{body}"
     ).encode()
@@ -973,3 +977,9 @@ def test_deterministic_link_flag_is_not_duplicated_when_already_present() -> Non
         target="x86_64-pc-windows-msvc",
     )
     assert flags.split("\x1f").count("-Clink-arg=/Brepro") == 1
+
+
+def test_role_address_is_neutral() -> None:
+    """The organizational role address names no person and PyPI accepts it."""
+    assert _address_is_neutral("Repository Maintainers", "maintainers@knuckles.team")
+    assert not _address_is_neutral("Repository Maintainers", "someone@knuckles.team")
