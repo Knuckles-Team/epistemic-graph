@@ -737,10 +737,10 @@
         "a676823d2b54"
       ],
       "verified_by": [
-        "crates/eg-plan/tests/federation_rollup_r024.rs:143",
-        "crates/eg-plan/tests/federation_rollup_r024.rs:32",
-        "crates/eg-plan/tests/federation_rollup_r024.rs:56",
-        "crates/eg-plan/tests/federation_rollup_r024.rs:89"
+        "crates/eg-plan/tests/federation_rollup_backends.rs:143",
+        "crates/eg-plan/tests/federation_rollup_backends.rs:32",
+        "crates/eg-plan/tests/federation_rollup_backends.rs:56",
+        "crates/eg-plan/tests/federation_rollup_backends.rs:89"
       ],
       "rollup_of": [
         "EG-DURABLE-KERNEL-R024.1",
