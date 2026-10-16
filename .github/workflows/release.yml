@@ -692,3 +692,45 @@ jobs:
           python -I .pipeline-contract/.github/actions/wheel-readiness/publication.py postverify \
             --directory dist-server --package epistemic-graph-server --version "${GITHUB_REF_NAME#v}" \
             --manifest "$RUNNER_TEMP/publication-server.json"
+
+  # The GitHub release for the tag, created only after every distribution is
+  # verified on PyPI, so the release always links to packages that exist.
+  github-release:
+    timeout-minutes: 10
+    name: GitHub release with PyPI links
+    needs: [verify-pypi]
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
+    permissions:
+      contents: write
+    steps:
+      - name: Create or update the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          notes="$RUNNER_TEMP/notes.md"
+          {
+            echo "## PyPI"
+            echo
+            echo "| Package | PyPI |"
+            echo "|---|---|"
+            for package in epistemic-graph epistemic-graph-server; do
+              echo "| \`$package\` $version | https://pypi.org/project/$package/$version/ |"
+            done
+            echo
+            echo '```bash'
+            echo "pip install \"epistemic-graph[server]==$version\""
+            echo '```'
+            echo
+            echo "Commit: $SHA"
+          } > "$notes"
+          if gh release view "$TAG" -R "$REPO" >/dev/null 2>&1; then
+            gh release edit "$TAG" -R "$REPO" --title "Release $TAG" --notes-file "$notes" --latest
+          else
+            gh release create "$TAG" -R "$REPO" --verify-tag --title "Release $TAG" --notes-file "$notes" --latest
+          fi
