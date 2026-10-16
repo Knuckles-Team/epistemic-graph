@@ -477,6 +477,8 @@ _SCRATCH_HOST_PATH_RE = re.compile(
 )
 _NEUTRAL_AUTHOR_NAME = "repository maintainers"
 _NEUTRAL_AUTHOR_EMAIL_SUFFIX = "@example.invalid"
+# A role address names no person; PyPI rejects the reserved .invalid domain.
+_NEUTRAL_ROLE_ADDRESS = "maintainers@knuckles.team"
 _SCAN_EXCLUDED_DIRECTORIES = frozenset(
     {
         ".acp-sessions",
@@ -1018,15 +1020,17 @@ def _is_bundled_connector_profile(path: Path) -> bool:
 def _is_non_neutral_author_line(folded: str, *, in_project_authors: bool) -> bool:
     """True if this folded, stripped line is a non-neutral author assignment."""
     if re.match(r"authors\s*=", folded):
-        return (
-            _NEUTRAL_AUTHOR_NAME not in folded
-            or _NEUTRAL_AUTHOR_EMAIL_SUFFIX not in folded
-        )
+        return _NEUTRAL_AUTHOR_NAME not in folded or not _has_neutral_email(folded)
     if in_project_authors and re.match(r"name\s*=", folded):
         return _NEUTRAL_AUTHOR_NAME not in folded
     if in_project_authors and re.match(r"email\s*=", folded):
-        return _NEUTRAL_AUTHOR_EMAIL_SUFFIX not in folded
+        return not _has_neutral_email(folded)
     return False
+
+
+def _has_neutral_email(folded: str) -> bool:
+    """True if the line carries the reserved placeholder or the role address."""
+    return _NEUTRAL_AUTHOR_EMAIL_SUFFIX in folded or _NEUTRAL_ROLE_ADDRESS in folded
 
 
 def _author_metadata_lines(path: Path, lines: list[str]) -> list[int]:

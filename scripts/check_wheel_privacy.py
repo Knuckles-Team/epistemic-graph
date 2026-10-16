@@ -75,6 +75,7 @@ _PATH_PATTERNS: tuple[tuple[str, re.Pattern[bytes]], ...] = (
 )
 
 _NEUTRAL_NAMES = frozenset({"project contributors", "repository maintainers"})
+_NEUTRAL_ROLE_ADDRESSES = frozenset({"maintainers@knuckles.team"})
 _IDENTITY_HEADERS = ("author", "maintainer", "author-email", "maintainer-email")
 _UTF16_ASCII_PATTERN = re.compile(rb"(?:[\x20-\x7e]\x00){6,}")
 
@@ -206,7 +207,9 @@ def _categories(
 def _address_is_neutral(display_name: str, address: str) -> bool:
     if display_name and display_name.casefold() not in _NEUTRAL_NAMES:
         return False
-    return address.casefold().endswith("@example.invalid")
+    folded = address.casefold()
+    # A role address names no person; PyPI rejects the reserved .invalid domain.
+    return folded.endswith("@example.invalid") or folded in _NEUTRAL_ROLE_ADDRESSES
 
 
 def _email_header_is_neutral(value: str) -> bool:

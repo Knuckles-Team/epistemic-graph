@@ -47,7 +47,7 @@ classifiers = [
 
 [[project.authors]]
 name = "Repository Maintainers"
-email = "maintainers@example.invalid"
+email = "maintainers@knuckles.team"
 
 [project.license]
 text = "MIT"
