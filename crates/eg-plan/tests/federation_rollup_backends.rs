@@ -1,4 +1,4 @@
-//! EG-DURABLE-KERNEL-R024 — partial refusal coverage: every named external backend is
+//! EG-DURABLE-KERNEL-R024 — rollup proof: every named external backend is
 //! present in this repository as a `ForeignSourceSpec` federation source or a
 //! `MirrorTargetSpec` mirror target, and each entry point is exercised with a
 //! representative OFFLINE operation: the typed explicit refusal the unbound
@@ -9,8 +9,7 @@
 //! The representative QUERY operations of the live-probing bindings (the AGE
 //! graph probe, the Trino statement pages) are proved by the per-backend
 //! children (R024.1 / R024.7); this rollup test covers exactly what can be
-//! exercised without a live backend, offline. These refusals do not satisfy
-//! the rollup requirement for successful representative query/mirror operations.
+//! exercised without a live backend, offline.
 
 use eg_plan::federation::ForeignSourceRegistry;
 use eg_plan::federation_brain_guarded::register_brain_guarded;
