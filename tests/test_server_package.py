@@ -153,3 +153,15 @@ def test_dispatch_can_package_a_tagged_version_behind_the_guard() -> None:
     for name in ("build", "build-x86", "build-sdist"):
         assert "inputs.packages != 'server'" in doc["jobs"][name]["if"]
     assert re.search(r"source .* != Cargo.toml version", _script(build))
+
+
+def test_tag_release_creates_the_github_release_after_pypi() -> None:
+    """The GitHub release follows the PyPI check and links both packages."""
+    job = _yaml(RELEASE)["jobs"]["github-release"]
+    assert job["needs"] == ["verify-pypi"]
+    assert job["permissions"] == {"contents": "write"}
+    script = _script(job)
+    for package in ("epistemic-graph", "epistemic-graph-server"):
+        assert package in script
+    assert "https://pypi.org/project/$package/$version/" in script
+    assert "--latest" in script
