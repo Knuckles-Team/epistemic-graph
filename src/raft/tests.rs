@@ -2221,6 +2221,47 @@ async fn all_members_observe_leader(
     true
 }
 
+/// Start `n` durable `MultiRaft` nodes under `root` on `ports`: node 1 single-member
+/// bootstraps `gid`, the others join it EMPTY and non-bootstrapping, ready to receive
+/// replication (the state a real node 2 reaches with `EPISTEMIC_GRAPH_RAFT_NODE_ID`/
+/// `_PEERS` set but `is_bootstrap` false; see `cluster_deployment.md` section 2b/5).
+async fn start_group_cluster(
+    root: &std::path::Path,
+    ports: &[u16],
+    gid: u64,
+    n: u64,
+) -> Vec<(
+    NodeId,
+    Arc<super::multi::MultiRaft>,
+    Arc<RwLock<ServerState>>,
+)> {
+    let addr = |i: u64| format!("127.0.0.1:{}", ports[i as usize - 1]);
+    let mut multis = Vec::new();
+    for i in 1..=n {
+        let dir = root.join(format!("node{i}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        let dir = dir.to_string_lossy().to_string();
+        let backend: Arc<dyn PersistenceBackend> =
+            Arc::new(RedbBackend::open(dir.clone(), 4096).expect("open redb"));
+        let state = make_state_with_backend(&dir, backend.clone()).await;
+        let ctx = AppCtx {
+            state: state.clone(),
+            router: None,
+        };
+        let multi = start_multi(i, addr(i), backend, ctx)
+            .await
+            .expect("start multi");
+        if i == 1 {
+            let peers: BTreeMap<NodeId, BasicNode> = [(1u64, BasicNode::new(addr(1)))].into();
+            multi.create_group(gid, peers, true).await.unwrap();
+        } else {
+            multi.join_group(gid, BTreeMap::new()).await.unwrap();
+        }
+        multis.push((i, multi, state));
+    }
+    multis
+}
+
 /// A membership change issued straight after the bootstrap must wait for the
 /// bootstrap membership entry to commit instead of failing with openraft's
 /// "already undergoing a configuration change".
@@ -2235,29 +2276,7 @@ async fn add_group_member_right_after_create_group_succeeds() {
     let addr = |i: usize| format!("127.0.0.1:{}", ports[i - 1]);
     let gid = 9u64;
 
-    let mut multis: Vec<(NodeId, Arc<MultiRaft>, Arc<RwLock<ServerState>>)> = Vec::new();
-    for i in 1..=2u64 {
-        let dir = root.join(format!("node{i}"));
-        std::fs::create_dir_all(&dir).unwrap();
-        let dir = dir.to_string_lossy().to_string();
-        let backend: Arc<dyn PersistenceBackend> =
-            Arc::new(RedbBackend::open(dir.clone(), 4096).expect("open redb"));
-        let state = make_state_with_backend(&dir, backend.clone()).await;
-        let ctx = AppCtx {
-            state: state.clone(),
-            router: None,
-        };
-        let multi = start_multi(i, addr(i as usize), backend, ctx)
-            .await
-            .expect("start multi");
-        if i == 1 {
-            let peers: BTreeMap<NodeId, BasicNode> = [(1u64, BasicNode::new(addr(1)))].into();
-            multi.create_group(gid, peers, true).await.unwrap();
-        } else {
-            multi.join_group(gid, BTreeMap::new()).await.unwrap();
-        }
-        multis.push((i, multi, state));
-    }
+    let multis = start_group_cluster(&root, &ports, gid, 2).await;
 
     // No leader wait: the change must itself wait for the committed membership.
     multis[0].1.add_group_member(gid, 2, addr(2)).await.unwrap();
@@ -2285,30 +2304,7 @@ async fn multi_node_group_join_then_leader_rebalance() {
     let gid = 7u64;
 
     // ── Start three nodes; node 1 single-member bootstraps group 7, nodes 2/3 join EMPTY.
-    let mut multis: Vec<(NodeId, Arc<MultiRaft>, Arc<RwLock<ServerState>>)> = Vec::new();
-    for i in 1..=3u64 {
-        let dir = root.join(format!("node{i}"));
-        std::fs::create_dir_all(&dir).unwrap();
-        let dir = dir.to_string_lossy().to_string();
-        let backend: Arc<dyn PersistenceBackend> =
-            Arc::new(RedbBackend::open(dir.clone(), 4096).expect("open redb"));
-        let state = make_state_with_backend(&dir, backend.clone()).await;
-        let ctx = AppCtx {
-            state: state.clone(),
-            router: None,
-        };
-        let multi = start_multi(i, addr(i as usize), backend, ctx)
-            .await
-            .expect("start multi");
-        if i == 1 {
-            let peers: BTreeMap<NodeId, BasicNode> = [(1u64, BasicNode::new(addr(1)))].into();
-            multi.create_group(gid, peers, true).await.unwrap();
-        } else {
-            // Empty, non-bootstrapping member ready to receive replication.
-            multi.join_group(gid, BTreeMap::new()).await.unwrap();
-        }
-        multis.push((i, multi, state));
-    }
+    let multis = start_group_cluster(&root, &ports, gid, 3).await;
 
     // ── Node 1 (the single-member bootstrap) becomes leader of group 7.
     let leader = multis[0].1.clone();
@@ -2508,33 +2504,9 @@ async fn multi_add_group_learner_attaches_non_voting_learner_then_promotes() {
     let addr = |i: usize| format!("127.0.0.1:{}", ports[i - 1]);
     let gid = 8u64;
 
-    let mut multis: Vec<(NodeId, Arc<MultiRaft>)> = Vec::new();
-    for i in 1..=2u64 {
-        let dir = root.join(format!("node{i}"));
-        std::fs::create_dir_all(&dir).unwrap();
-        let dir = dir.to_string_lossy().to_string();
-        let backend: Arc<dyn PersistenceBackend> =
-            Arc::new(RedbBackend::open(dir.clone(), 4096).expect("open redb"));
-        let state = make_state_with_backend(&dir, backend.clone()).await;
-        let ctx = super::AppCtx {
-            state,
-            router: None,
-        };
-        let multi = start_multi(i, addr(i as usize), backend, ctx)
-            .await
-            .expect("start multi");
-        if i == 1 {
-            let peers: BTreeMap<NodeId, BasicNode> = [(1u64, BasicNode::new(addr(1)))].into();
-            multi.create_group(gid, peers, true).await.unwrap();
-        } else {
-            // Empty, non-bootstrapping member ready to receive replication — exactly
-            // the "boots straight into learner-ready" state a real node 2 reaches
-            // with `EPISTEMIC_GRAPH_RAFT_NODE_ID`/`_PEERS` set but `is_bootstrap`
-            // false (see `cluster_deployment.md` §2b/§5).
-            multi.join_group(gid, BTreeMap::new()).await.unwrap();
-        }
-        multis.push((i, multi));
-    }
+    let multis = start_group_cluster(&root, &ports, gid, 2).await;
+    let multis: Vec<(NodeId, Arc<MultiRaft>)> =
+        multis.into_iter().map(|(i, multi, _)| (i, multi)).collect();
 
     let leader = multis[0].1.clone();
     let follower = multis[1].1.clone();
@@ -2678,42 +2650,22 @@ async fn wire_raft_add_learner_and_change_membership_resolve_through_dispatch() 
     let addr = |i: usize| format!("127.0.0.1:{}", ports[i - 1]);
     let gid = super::DEFAULT_GROUP;
 
-    let mut multis: Vec<(NodeId, Arc<MultiRaft>, Arc<RwLock<ServerState>>)> = Vec::new();
-    for i in 1..=2u64 {
-        let dir = root.join(format!("node{i}"));
-        std::fs::create_dir_all(&dir).unwrap();
-        let dir = dir.to_string_lossy().to_string();
-        let backend: Arc<dyn PersistenceBackend> =
-            Arc::new(RedbBackend::open(dir.clone(), 4096).expect("open redb"));
-        let state = make_state_with_backend(&dir, backend.clone()).await;
+    let multis = start_group_cluster(&root, &ports, gid, 2).await;
+    for (_, multi, state) in &multis {
         state.write().await.isolation.register_agent(AgentIdentity {
             agent_id: TEST_AGENT.to_string(),
             role: AgentRole::System,
             teams: Vec::new(),
             roles: Vec::new(),
         });
-        let ctx = super::AppCtx {
-            state: state.clone(),
-            router: None,
-        };
-        let multi = start_multi(i, addr(i as usize), backend, ctx)
-            .await
-            .expect("start multi");
-        if i == 1 {
-            let peers: BTreeMap<NodeId, BasicNode> = [(1u64, BasicNode::new(addr(1)))].into();
-            multi.create_group(gid, peers, true).await.unwrap();
-        } else {
-            multi.join_group(gid, BTreeMap::new()).await.unwrap();
-        }
         // The real served `Method::RaftAddLearner`/`RaftChangeMembership` handler
         // (`handlers/raft_admin.rs`) resolves `MultiRaft` off `state.multi_raft`,
-        // exactly like `handlers/placement.rs` does — wire it here so this test
+        // exactly like `handlers/placement.rs` does; wire it here so this test
         // exercises the SAME lookup a real server does.
         state
             .write()
             .await
             .install_multi_raft_placement_authority(None, multi.clone());
-        multis.push((i, multi, state));
     }
 
     let leader_multi = multis[0].1.clone();
@@ -2857,29 +2809,9 @@ async fn member_add_follows_the_current_leader_after_a_leader_change() {
     let gid = 7u64; // 7 % 3 == 1 → the round-robin target over [1,2,3] is node 2
 
     // ── Five nodes; node 1 bootstraps group 7 alone, the rest join EMPTY.
-    let mut multis: Vec<(NodeId, Arc<MultiRaft>)> = Vec::new();
-    for i in 1..=5u64 {
-        let dir = root.join(format!("node{i}"));
-        std::fs::create_dir_all(&dir).unwrap();
-        let dir = dir.to_string_lossy().to_string();
-        let backend: Arc<dyn PersistenceBackend> =
-            Arc::new(RedbBackend::open(dir.clone(), 4096).expect("open redb"));
-        let state = make_state_with_backend(&dir, backend.clone()).await;
-        let ctx = super::AppCtx {
-            state,
-            router: None,
-        };
-        let multi = start_multi(i, addr(i as usize), backend, ctx)
-            .await
-            .expect("start multi");
-        if i == 1 {
-            let peers: BTreeMap<NodeId, BasicNode> = [(1u64, BasicNode::new(addr(1)))].into();
-            multi.create_group(gid, peers, true).await.unwrap();
-        } else {
-            multi.join_group(gid, BTreeMap::new()).await.unwrap();
-        }
-        multis.push((i, multi));
-    }
+    let multis = start_group_cluster(&root, &ports, gid, 5).await;
+    let multis: Vec<(NodeId, Arc<MultiRaft>)> =
+        multis.into_iter().map(|(i, multi, _)| (i, multi)).collect();
 
     wait_for_expected_group_leader(
         &multis[0].1,
