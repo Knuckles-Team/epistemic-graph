@@ -663,6 +663,7 @@ def test_tag_pipeline_builds_checks_and_publishes_only() -> None:
         "server-image",
         "server-manifest",
         "verify-pypi",
+        "github-release",
     }
     for name in ("build", "build-x86", "build-sdist", "build-server"):
         assert jobs[name]["needs"] == "guard"

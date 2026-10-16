@@ -696,7 +696,7 @@ jobs:
   # The GitHub release for the tag, created only after every distribution is
   # verified on PyPI, so the release always links to packages that exist.
   github-release:
-    timeout-minutes: 10
+    timeout-minutes: 5
     name: GitHub release with PyPI links
     needs: [verify-pypi]
     runs-on: ubuntu-latest
