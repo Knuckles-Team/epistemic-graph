@@ -273,6 +273,9 @@ rmp-serde = "1.3"
 # across the workspace rather than introducing a second hashing/encoding stack.
 sha2 = "0.10"
 hex = "0.4"
+# `Response::err` logs the refusal text it drops behind an unclassified INTERNAL at
+# debug level, so an uncoded refusal stays diagnosable (EG-DURABLE-KERNEL-R043.8).
+tracing = "0.1"
 strum = { version = "0.28", features = ["derive"], optional = true }
 # `contract-schema` only (RF-RULING-003): emits the wire request/result JSON Schemas
 # the engine-contract generator publishes. Never linked by a default build.

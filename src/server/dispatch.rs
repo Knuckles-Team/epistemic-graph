@@ -442,6 +442,8 @@ const MAX_REGISTER_SERVER_TTL_SECS: u64 = 24 * 60 * 60;
 
 mod change_envelope;
 mod change_envelope_draft;
+#[cfg(all(test, feature = "redb"))]
+pub(crate) use change_envelope_draft::tests::draft_for as change_envelope_draft_fixture;
 mod consensus;
 mod elevation;
 mod governed;
