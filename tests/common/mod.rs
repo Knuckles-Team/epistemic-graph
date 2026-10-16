@@ -59,7 +59,19 @@ fn security_state_dir() -> &'static str {
         .as_str()
 }
 
+/// Configure the request-context policy and signer registry exactly once per process.
+///
+/// The server latches the policy once (`auth::request_context_policy`, a `OnceLock`),
+/// so every thread must see ONE set of values before it signs or dispatches; writing
+/// them repeatedly (or with different tenants) from parallel test threads races the
+/// latch and surfaces as `AUTH_TENANT_MISMATCH`. `Once::call_once` also blocks
+/// concurrent callers until the first finishes, so no thread proceeds half-configured.
 pub fn configure_authority() {
+    static CONFIGURED: std::sync::Once = std::sync::Once::new();
+    CONFIGURED.call_once(configure_authority_once);
+}
+
+fn configure_authority_once() {
     // Integration-test crates link the library without cfg(test), so they get
     // require_oidc()'s production fail-closed default instead of the library
     // unit tests' thread-local shield. These tests exercise the HMAC envelope
