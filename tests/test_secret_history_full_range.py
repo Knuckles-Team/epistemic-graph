@@ -46,20 +46,42 @@ def _ref_exists(ref: str) -> bool:
     return proc.returncode == 0
 
 
+def _fetch_origin_main() -> None:
+    """Best-effort restore of the main-side ref (D-MW-9: the gate itself
+    refuses to guess a range). PR checkouts that omit it — the python-suite
+    job's head-branch checkout is one — still carry the origin remote, so
+    an explicit fetch of main restores the gate's full-range base. It is a
+    no-op where the ref already exists (the caller only invokes it when the
+    ref is absent) and degrades to a failed attempt, checked by the caller,
+    in an offline environment."""
+    subprocess.run(
+        ["git", "fetch", "--quiet", "origin", "main"],
+        cwd=str(ROOT),
+        capture_output=True,
+        check=False,
+        timeout=300,
+    )
+
+
 def _full_range_base(gate) -> str:
-    """The gate's own default full range: origin/main, when the ref exists
-    (local checkouts, push-to-main runs). A PR merge-commit checkout
-    (actions/checkout of refs/pull/N/merge) carries no origin/main ref; there
-    the main-side parent of the merge commit is the full-range base of the
-    not-yet-pushed change set. Neither is available is an environment
-    failure, never a silently empty scan (D-MW-9)."""
-    if _ref_exists("origin/main"):
-        return "origin/main"
-    if _ref_exists("HEAD^2"):
-        return "HEAD^2"
-    pytest.fail(
-        "cannot resolve the full scan range: no origin/main ref and HEAD is "
-        "not a merge commit; refusing to guess rather than scan nothing"
+    """The gate's full commit-range base, per the row's acceptance
+    statement ("the full commit-range secret-history scan reports zero
+    credential hits"). origin/main when the ref exists (local checkouts,
+    push-to-main runs); checkouts that omit it fetch it explicitly (a
+    shallow head-branch checkout still carries the origin remote); a PR
+    merge-commit checkout (actions/checkout of refs/pull/N/merge) can fall
+    back to the main-side parent of the merge commit. If neither resolves,
+    the environment cannot honour the acceptance, so the test fails loudly
+    rather than scanning nothing or a guessed range (D-MW-9)."""
+    if not _ref_exists("origin/main"):
+        _fetch_origin_main()
+    for base in ("origin/main", "HEAD^2"):
+        if _ref_exists(base):
+            return base
+    raise RuntimeError(
+        "cannot resolve the full scan range: origin/main unavailable "
+        "(ref absent and fetch failed) and HEAD is not a merge commit; "
+        "refusing to guess rather than scan nothing (D-MW-9)"
     )
 
 
