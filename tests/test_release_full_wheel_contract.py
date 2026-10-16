@@ -427,7 +427,7 @@ def _source_archive(
         "PKG-INFO": f"Name: epistemic-graph\nVersion: {version}\n",
         "crates/leaf/src/lib.rs": "pub fn leaf() {}",
         "build.rs": "fn main() {}",
-        "src/server/viz_interactive_client.html": "<main>client</main>",
+        "crates/leaf/assets/viz_interactive_client.html": "<main>client</main>",
     }
     if unsafe:
         entries["../escape"] = "outside"
@@ -530,9 +530,38 @@ def test_sdist_accepts_canonical_directory_entries(tmp_path):
 
 
 def test_sdist_requires_root_build_script(tmp_path):
-    assert "build.rs" in required_sources(REPO)
+    # A root crate that maturin builds ships its build script ...
+    (tmp_path / "Cargo.toml").write_text(
+        '[package]\nname = "fixture"\nversion = "1.0.0"\n'
+    )
+    (tmp_path / "build.rs").write_text("fn main() {}")
+    assert "build.rs" in required_sources(tmp_path)
     with pytest.raises(ValueError, match="build.rs"):
         validate(_source_archive(tmp_path, omitted="build.rs"), {"build.rs"}, "2.27.1")
+
+
+def test_extensions_only_sdist_inputs_are_the_real_build_inputs():
+    # maturin builds crates/eg-pyengine, so the root crate is not an sdist input,
+    # but the in-tree PEP 517 backend and the helpers it imports are.
+    required = required_sources(REPO)
+    assert not {"build.rs", "src/lib.rs", "src/main.rs"} & required
+    assert not any(name.startswith(("benches/", ".cargo/")) for name in required)
+    assert {
+        "build_backend.py",
+        "scripts/inject_numeric_kernel.py",
+        "scripts/strip_wheel_executables.py",
+        "crates/eg-pyengine/Cargo.toml",
+    } <= required
+
+
+def test_server_wheel_job_adds_swap_before_building():
+    steps = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"][
+        "build-server"
+    ]["steps"]
+    names = [step.get("name", "") for step in steps]
+    assert names.index("Add swap for the fat-LTO server link") < names.index(
+        "Build the server wheel (release-server profile)"
+    )
 
 
 def test_sdist_inventory_includes_explicit_manifest_inputs(tmp_path):
@@ -578,8 +607,15 @@ path = "integration/entry.input"
 
 
 def test_sdist_requires_compiled_html_asset(tmp_path):
-    asset = "src/server/viz_interactive_client.html"
-    assert asset in required_sources(REPO)
+    asset = "crates/leaf/assets/viz_interactive_client.html"
+    leaf = tmp_path / "crates/leaf/assets"
+    leaf.mkdir(parents=True)
+    (leaf / "viz_interactive_client.html").write_text("<main>client</main>")
+    (tmp_path / "crates/leaf/Cargo.toml").write_text(
+        '[package]\nname = "leaf"\nversion = "1.0.0"\n'
+    )
+    (tmp_path / "Cargo.toml").write_text("[workspace]\n")
+    assert asset in required_sources(tmp_path)
     validate(_source_archive(tmp_path), {asset}, "2.27.1")
     with pytest.raises(ValueError, match="viz_interactive_client.html"):
         validate(_source_archive(tmp_path, omitted=asset), {asset}, "2.27.1")
@@ -598,11 +634,12 @@ def test_sdist_inventory_has_no_native_asset_suffix_filter(tmp_path, asset):
 
 def test_sdist_requires_engine_composition_helper(tmp_path):
     required = required_sources(REPO)
-    assert "scripts/inject_pyengine.py" in required
-    with pytest.raises(ValueError, match="inject_pyengine.py"):
+    assert "scripts/inject_numeric_kernel.py" in required
+    assert "scripts/inject_pyengine.py" not in required
+    with pytest.raises(ValueError, match="inject_numeric_kernel.py"):
         validate(
             _source_archive(tmp_path),
-            {"scripts/inject_pyengine.py"},
+            {"scripts/inject_numeric_kernel.py"},
             "2.27.1",
         )
 

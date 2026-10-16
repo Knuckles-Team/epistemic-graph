@@ -469,6 +469,23 @@ jobs:
               path.write_text(text)
           print(f"version={version}")
           PY
+      # The fat-LTO single-codegen-unit link of the server binary outgrows the 16 GB
+      # hosted runner (rustc SIGKILLed by the OOM killer on aarch64, v2.27.1). Swap
+      # lets the same `release-server` profile build on every architecture.
+      - name: Add swap for the fat-LTO server link
+        run: |
+          set -euo pipefail
+          df -h /
+          free -h
+          avail_gb="$(df --output=avail -BG / | tail -1 | tr -dc '0-9')"
+          size_gb=24
+          if [ "$avail_gb" -lt $((size_gb + 15)) ]; then size_gb=$((avail_gb - 15)); fi
+          test "$size_gb" -ge 8 || { echo "not enough free disk for swap: ${avail_gb}G" >&2; exit 1; }
+          sudo fallocate -l "${size_gb}G" /swapfile2
+          sudo chmod 600 /swapfile2
+          sudo mkswap /swapfile2
+          sudo swapon /swapfile2
+          free -h
       - name: Build the server wheel (release-server profile)
         uses: ./.github/actions/build-server-wheel
         with:
