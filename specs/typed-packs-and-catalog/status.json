@@ -597,8 +597,8 @@
       "title": "Cross-cutting import-safety defects are release-gate obligations",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "40b82b299db8",
-        "96a4c42888e7"
+        "96a4c42888e7",
+        "f121d03dab8c"
       ],
       "verified_by": [
         "tests/test_connector_pack_planted.py:217"
