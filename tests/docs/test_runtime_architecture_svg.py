@@ -1,4 +1,4 @@
-"""The single runtime-architecture.svg stays accessible, aligned and in step with its source."""
+"""The runtime-architecture.svg stays accessible, aligned and in step with source."""
 
 from __future__ import annotations
 
@@ -60,7 +60,9 @@ def _on_any_box_border(point: tuple[int, int]) -> bool:
     return any(_is_box_border(point, box) for box in BOXES)
 
 
-def _rect_where(rectangles: list[ElementTree.Element], **attributes: str) -> ElementTree.Element:
+def _rect_where(
+    rectangles: list[ElementTree.Element], **attributes: str
+) -> ElementTree.Element:
     return next(
         rect
         for rect in rectangles
@@ -112,10 +114,11 @@ def test_runtime_svg_box_geometry_is_aligned() -> None:
     graph_os_box = _rect_where(rectangles, x="825", width="450")
     assert graph_os_box.attrib["y"] == "135"
     assert graph_os_box.attrib["height"] == "170"
-    lower_boxes = [rect for rect in rectangles if rect.attrib.get("y") in {"485", "520"}]
+    lower_boxes = [
+        rect for rect in rectangles if rect.attrib.get("y") in {"485", "520"}
+    ]
     assert {
-        int(rect.attrib["y"]) + int(rect.attrib["height"])
-        for rect in lower_boxes
+        int(rect.attrib["y"]) + int(rect.attrib["height"]) for rect in lower_boxes
     } == {610, 645}
 
 

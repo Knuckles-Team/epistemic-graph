@@ -120,7 +120,7 @@ class ReleasePublication(unittest.TestCase):
         self.assertNotIn("--test-threads=1", workspace)
         self.assertLess(commands.index(storage), commands.index(workspace))
 
-    def test_same_run_artifacts_and_no_blind_skip(self):
+    def _assert_publish_jobs_use_same_run_artifacts(self):
         jobs = self.workflow["jobs"]
         for name in ("publish-x86", "verify-pypi"):
             self.assertIn("github.event_name == 'push'", jobs[name]["if"])
@@ -128,7 +128,10 @@ class ReleasePublication(unittest.TestCase):
                 if step.get("uses", "").startswith("actions/download-artifact@"):
                     self.assertNotIn("run-id", step.get("with", {}))
                     self.assertNotIn("github-token", step.get("with", {}))
-        verify = "\n".join(step.get("run", "") for step in jobs["verify-pypi"]["steps"])
+
+    def _assert_verify_pypi_checks_every_platform(self):
+        steps = self.workflow["jobs"]["verify-pypi"]["steps"]
+        verify = "\n".join(step.get("run", "") for step in steps)
         for required in (
             "manylinux_2_28_x86_64",
             "manylinux_2_28_aarch64",
@@ -137,20 +140,27 @@ class ReleasePublication(unittest.TestCase):
             "publication.py postverify",
         ):
             self.assertIn(required, verify)
-        # Every uploader goes through the one publish action, after its own checks.
+
+    def _assert_uploads_use_publish_action_after_checks(self):
+        jobs = self.workflow["jobs"]
         x86 = jobs["publish-x86"]["steps"]
         self.assertIn(
             "--require-engine-kernel", "\n".join(s.get("run", "") for s in x86)
         )
         self.assertEqual(x86[-1]["uses"], "./.github/actions/publish-distribution")
-        leg = jobs["build"]["steps"]
-        names = [step.get("name", "") for step in leg]
+        names = [step.get("name", "") for step in jobs["build"]["steps"]]
         smoke = next(i for i, n in enumerate(names) if n.startswith("Smoke test"))
         publish = next(i for i, n in enumerate(names) if n.startswith("Publish "))
         self.assertLess(smoke, publish)
         action = (ROOT / ".github/actions/publish-distribution/action.yml").read_text()
         self.assertIn("--skip-existing", action)
         self.assertIn("scripts/verify_release_tag.py", action)
+
+    def test_same_run_artifacts_and_no_blind_skip(self):
+        self._assert_publish_jobs_use_same_run_artifacts()
+        self._assert_verify_pypi_checks_every_platform()
+        # Every uploader goes through the one publish action, after its own checks.
+        self._assert_uploads_use_publish_action_after_checks()
 
     def test_release_metadata_and_staging(self):
         with tempfile.TemporaryDirectory() as directory:

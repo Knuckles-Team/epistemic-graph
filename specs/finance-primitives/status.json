@@ -1081,9 +1081,9 @@
         "eee78d6b3d1d"
       ],
       "verified_by": [
-        "crates/eg-compute/src/finance/lot_accounting.rs:258",
-        "crates/eg-compute/src/finance/lot_accounting.rs:279",
-        "crates/eg-compute/src/finance/lot_accounting.rs:298"
+        "crates/eg-compute/src/finance/lot_accounting.rs:283",
+        "crates/eg-compute/src/finance/lot_accounting.rs:304",
+        "crates/eg-compute/src/finance/lot_accounting.rs:323"
       ],
       "rollup_of": [
         "EG-FINANCE-PRIMITIVES-R005.1.1"
@@ -1097,8 +1097,8 @@
         "ac32740601a8"
       ],
       "verified_by": [
-        "crates/eg-compute/src/finance/lot_accounting.rs:259",
-        "crates/eg-compute/src/finance/lot_accounting.rs:280"
+        "crates/eg-compute/src/finance/lot_accounting.rs:284",
+        "crates/eg-compute/src/finance/lot_accounting.rs:305"
       ]
     },
     {
@@ -1122,9 +1122,9 @@
         "eadb412ffa03"
       ],
       "verified_by": [
-        "crates/eg-compute/src/finance/lot_accounting.rs:357",
-        "crates/eg-compute/src/finance/lot_accounting.rs:385",
-        "crates/eg-compute/src/finance/lot_accounting.rs:406"
+        "crates/eg-compute/src/finance/lot_accounting.rs:382",
+        "crates/eg-compute/src/finance/lot_accounting.rs:410",
+        "crates/eg-compute/src/finance/lot_accounting.rs:431"
       ]
     },
     {

@@ -229,6 +229,21 @@ fn scaffold_abstention(
     }
 }
 
+/// Names of the facts the action-space rule still lacks, in reporting order.
+fn missing_action_space_facts(
+    proficiency_missing: bool,
+    shell_centric_missing: bool,
+) -> Vec<String> {
+    let mut missing = Vec::new();
+    if proficiency_missing {
+        missing.push("shellProficiency".to_string());
+    }
+    if shell_centric_missing {
+        missing.push("shellCentric".to_string());
+    }
+    missing
+}
+
 /// Resolve only from the supplied measured proficiency and resolved task fact.
 /// Invalid evaluation references are refused, using the measured-fact owner.
 pub fn decide_action_space(
@@ -238,13 +253,7 @@ pub fn decide_action_space(
     if let Some(fact) = proficiency {
         fact.validate()?;
     }
-    let mut missing = Vec::new();
-    if proficiency.is_none() {
-        missing.push("shellProficiency".to_string());
-    }
-    if shell_centric.is_none() {
-        missing.push("shellCentric".to_string());
-    }
+    let missing = missing_action_space_facts(proficiency.is_none(), shell_centric.is_none());
     if !missing.is_empty() {
         return Ok(HarnessPart::Abstained {
             missing_fact: BoundedVec::new(missing).expect("at most two missing facts"),
@@ -589,6 +598,31 @@ mod tests {
         }
     }
 
+    fn proficiency_fact(
+        proficiency: Option<ShellProficiency>,
+    ) -> Option<MeasuredFact<ShellProficiency>> {
+        proficiency.map(|value| measured(value, "eval:42"))
+    }
+
+    fn expected_action_space(
+        proficiency: Option<ShellProficiency>,
+        shell_centric: Option<bool>,
+    ) -> HarnessPart<ActionSpace> {
+        let missing = missing_action_space_facts(proficiency.is_none(), shell_centric.is_none());
+        if !missing.is_empty() {
+            return HarnessPart::Abstained {
+                missing_fact: BoundedVec::new(missing).unwrap(),
+                conservative_default: ActionSpace::ToolSet,
+            };
+        }
+        let shell_only = proficiency == Some(ShellProficiency::High) && shell_centric == Some(true);
+        decided(if shell_only {
+            ActionSpace::ShellOnly
+        } else {
+            ActionSpace::ToolSet
+        })
+    }
+
     // spec: EG-DECISION-ENGINE-R128.7
     #[test]
     fn shell_only_needs_both_facts() {
@@ -599,47 +633,12 @@ mod tests {
             Some(ShellProficiency::High),
         ] {
             for shell_centric in [None, Some(false), Some(true)] {
-                let fact = proficiency.map(|value| MeasuredFact {
-                    value,
-                    evaluation_run_ref: ObservationRef {
-                        evaluation_id: "eval:42".into(),
-                        digest: "opaque".into(),
-                    },
-                });
+                let fact = proficiency_fact(proficiency);
                 let actual = decide_action_space(fact.as_ref(), shell_centric).unwrap();
-                let mut missing = Vec::new();
-                if proficiency.is_none() {
-                    missing.push("shellProficiency".to_string());
-                }
-                if shell_centric.is_none() {
-                    missing.push("shellCentric".to_string());
-                }
-                let expected = if !missing.is_empty() {
-                    HarnessPart::Abstained {
-                        missing_fact: BoundedVec::new(missing).unwrap(),
-                        conservative_default: ActionSpace::ToolSet,
-                    }
-                } else {
-                    decided(
-                        if proficiency == Some(ShellProficiency::High)
-                            && shell_centric == Some(true)
-                        {
-                            ActionSpace::ShellOnly
-                        } else {
-                            ActionSpace::ToolSet
-                        },
-                    )
-                };
-                assert_eq!(actual, expected);
+                assert_eq!(actual, expected_action_space(proficiency, shell_centric));
             }
         }
-        let malformed = MeasuredFact {
-            value: ShellProficiency::High,
-            evaluation_run_ref: ObservationRef {
-                evaluation_id: String::new(),
-                digest: "opaque".into(),
-            },
-        };
+        let malformed = measured(ShellProficiency::High, "");
         assert!(decide_action_space(Some(&malformed), Some(true)).is_err());
     }
 }

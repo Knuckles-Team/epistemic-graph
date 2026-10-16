@@ -481,7 +481,7 @@
       ],
       "verified_by": [
         "tests/test_release_feature_matrix.py:218",
-        "tests/test_release_feature_matrix.py:225"
+        "tests/test_release_feature_matrix.py:257"
       ]
     },
     {
@@ -753,9 +753,9 @@
         "c2dd4c98fe60"
       ],
       "verified_by": [
-        "crates/eg-plan/src/federation_age.rs:219",
-        "crates/eg-plan/src/federation_age.rs:249",
-        "crates/eg-plan/src/federation_age.rs:267"
+        "crates/eg-plan/src/federation_age.rs:231",
+        "crates/eg-plan/src/federation_age.rs:261",
+        "crates/eg-plan/src/federation_age.rs:279"
       ]
     },
     {
@@ -830,7 +830,7 @@
         "c2dd4c98fe60"
       ],
       "verified_by": [
-        "crates/eg-plan/src/federation_trino.rs:335"
+        "crates/eg-plan/src/federation_trino.rs:371"
       ]
     },
     {
