@@ -2060,8 +2060,8 @@
       ],
       "verified_by": [
         "crates/eg-capabilities/src/error_routing.rs:317",
-        "src/server/handlers/admin/connector_pack/tests/content_model.rs:371",
-        "src/server/handlers/admin/connector_pack/tests/content_model.rs:406",
+        "src/server/handlers/admin/connector_pack/tests/content_model.rs:372",
+        "src/server/handlers/admin/connector_pack/tests/content_model.rs:407",
         "src/server/handlers/admin/connector_pack/tests/withdrawal.rs:43"
       ]
     },

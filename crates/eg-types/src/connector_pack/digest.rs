@@ -341,3 +341,30 @@ mod measured_model_tests {
         }
     }
 }
+
+#[cfg(test)]
+mod contract_pin_tests {
+    use super::*;
+
+    // spec: EG-TYPED-PACKS-R049
+    #[test]
+    fn server_pin_digest_carries_the_declared_sdk_contract_pin_opaquely() {
+        let index = crate::test_support::contract_wave::pack::index();
+        let server = &index.server;
+        assert_eq!(
+            entry_digest(server).unwrap().to_hex(),
+            "be337c60eeea7477fe2970931c3de4ada4d30a301aa10bb6aa8d2b49827f4e6d"
+        );
+        let mut repinned = server.clone();
+        repinned.annotations.sdk_contract_pin = Some("sdk-d18-2".to_string());
+        assert_ne!(
+            entry_digest(&repinned).unwrap(),
+            entry_digest(server).unwrap()
+        );
+        repinned.annotations.sdk_contract_pin = None;
+        assert_ne!(
+            entry_digest(&repinned).unwrap(),
+            entry_digest(server).unwrap()
+        );
+    }
+}
