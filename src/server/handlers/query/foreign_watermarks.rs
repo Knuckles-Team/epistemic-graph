@@ -157,6 +157,7 @@ mod tests {
         );
     }
 
+    // spec: EG-FEDERATED-QUERY-R018
     #[test]
     fn a_foreign_plan_without_a_watermark_is_never_cached() {
         let core = GraphCore::new();
@@ -191,6 +192,7 @@ mod tests {
         assert_ne!(a, b, "a new checkpoint must mint a new key");
     }
 
+    // spec: EG-FEDERATED-QUERY-R018
     #[test]
     fn a_stale_watermark_refuses_caching() {
         let core = GraphCore::new();
