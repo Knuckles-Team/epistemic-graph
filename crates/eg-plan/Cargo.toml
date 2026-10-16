@@ -549,12 +549,14 @@ required-features = ["query"]
 # Names `eg_plan::federation::ForeignSourceRegistry` directly — `federation`
 # specifically (not just `query`), matching the module's own `#[cfg(feature =
 # "federation")]` gate in `src/lib.rs`.
-# R024 rollup proof — names `federation_age` (under `federation-sql`) plus the
-# `federation`-gated unbound source/mirror-target entry points; the AGE half
-# is cfg-gated inside the file so `federation` alone still compiles it.
+# EG-DURABLE-KERNEL-R024 rollup proof — names `federation_age` (under
+# `federation-sql`) plus the `federation`-gated unbound source/mirror-target
+# entry points; the AGE half is cfg-gated inside the file so `federation`
+# alone still compiles it. Target named without the row-id shorthand so the
+# tracked-artifact privacy gate stays clean.
 [[test]]
-name = "federation_rollup_r024"
-path = "tests/federation_rollup_r024.rs"
+name = "federation_rollup_backends"
+path = "tests/federation_rollup_backends.rs"
 required-features = ["federation"]
 
 [[test]]
