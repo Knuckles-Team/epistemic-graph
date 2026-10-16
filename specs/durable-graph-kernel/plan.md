@@ -127,6 +127,22 @@ The generator must keep these three rows SPECIFIED until their own evidence exis
 
 ## Amendments
 
+### 2026-10-16: R024 acceptance evidence correction
+
+At PR #605 head `4f172cb5259fe471d32e74080a74c7581243d283`, refusal tests
+were bound as verification for EG-DURABLE-KERNEL-R024, EG-DURABLE-KERNEL-R024.3,
+and EG-DURABLE-KERNEL-R024.4. Retain these tests as partial safety coverage,
+but remove their acceptance bindings and reopen the three task checkboxes.
+The canonical status generator reports LANDED for the existing implementation
+commits, with no verification evidence for these rows; this does not establish
+completion of their successful-operation acceptance criteria.
+R024.3 still needs successful non-AGE Cypher registration and a representative
+query. R024.4 still needs mirror registration and a successful representative
+mirror operation. R024 still needs representative operations for every named
+backend, not merely refusal at the entry points. Requirements remain unchanged.
+R024.5, R024.6 and R024.8 explicitly accept refusal tests and retain their
+verification bindings. R017 and all other rows are unchanged.
+
 ### 2026-10-11: R082.6 historical ordering
 
 EG-DURABLE-KERNEL-R082.6 previously left ascending tie keys ambiguous.
