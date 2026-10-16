@@ -81,14 +81,15 @@
         "15acf1a959e5",
         "63488a50eefc",
         "6c11520aebfc",
+        "8503b23fdddd",
         "a2cbfc473ba2"
       ],
       "verified_by": [
         "crates/eg-capabilities/src/scopes/tests.rs:125",
+        "crates/eg-capabilities/src/scopes/tests.rs:185",
         "crates/eg-capabilities/src/scopes/tests.rs:38",
         "crates/eg-capabilities/src/scopes/tests.rs:51",
-        "crates/eg-capabilities/src/scopes/tests.rs:65",
-        "crates/eg-capabilities/src/scopes/tests.rs:73"
+        "crates/eg-capabilities/src/scopes/tests.rs:65"
       ]
     },
     {

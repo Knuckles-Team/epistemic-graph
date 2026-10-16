@@ -352,6 +352,12 @@
     },
     {
       "approver_group": null,
+      "class": "service-only",
+      "owner": "graph-os",
+      "scope": "decide:commit"
+    },
+    {
+      "approver_group": null,
       "class": "user",
       "owner": "engine",
       "scope": "distcompute:read"
@@ -749,6 +755,12 @@
     {
       "approver_group": null,
       "class": "user",
+      "owner": "graph-os",
+      "scope": "policy:read"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
       "owner": "engine",
       "scope": "quantum:run"
     },
@@ -917,6 +929,12 @@
     {
       "approver_group": null,
       "class": "user",
+      "owner": "graph-os",
+      "scope": "security:read"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
       "owner": "engine",
       "scope": "semantic:binding-read"
     },
@@ -1000,9 +1018,21 @@
     },
     {
       "approver_group": null,
+      "class": "user",
+      "owner": "graph-os",
+      "scope": "swarm:read"
+    },
+    {
+      "approver_group": null,
       "class": "service-only",
       "owner": "telemetry",
       "scope": "telemetry:derive"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "graph-os",
+      "scope": "telemetry:read"
     },
     {
       "approver_group": null,
@@ -1051,6 +1081,12 @@
       "class": "user",
       "owner": "engine",
       "scope": "udf:exec"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "graph-os",
+      "scope": "usage:read"
     },
     {
       "approver_group": null,
