@@ -2221,6 +2221,16 @@ async fn all_members_observe_leader(
     true
 }
 
+/// A `System`-role identity with no teams or extra roles.
+fn system_agent(agent_id: &str) -> AgentIdentity {
+    AgentIdentity {
+        agent_id: agent_id.to_string(),
+        role: AgentRole::System,
+        teams: Vec::new(),
+        roles: Vec::new(),
+    }
+}
+
 /// Start `n` durable `MultiRaft` nodes under `root` on `ports`: node 1 single-member
 /// bootstraps `gid`, the others join it EMPTY and non-bootstrapping, ready to receive
 /// replication (the state a real node 2 reaches with `EPISTEMIC_GRAPH_RAFT_NODE_ID`/
@@ -2652,12 +2662,11 @@ async fn wire_raft_add_learner_and_change_membership_resolve_through_dispatch() 
 
     let multis = start_group_cluster(&root, &ports, gid, 2).await;
     for (_, multi, state) in &multis {
-        state.write().await.isolation.register_agent(AgentIdentity {
-            agent_id: TEST_AGENT.to_string(),
-            role: AgentRole::System,
-            teams: Vec::new(),
-            roles: Vec::new(),
-        });
+        state
+            .write()
+            .await
+            .isolation
+            .register_agent(system_agent(TEST_AGENT));
         // The real served `Method::RaftAddLearner`/`RaftChangeMembership` handler
         // (`handlers/raft_admin.rs`) resolves `MultiRaft` off `state.multi_raft`,
         // exactly like `handlers/placement.rs` does; wire it here so this test
