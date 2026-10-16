@@ -810,7 +810,25 @@ jobs:
         env:
           KERNELS_RESULT: ${{ needs.python-kernels.result }}
           SERVER_RESULT: ${{ needs.python-server.result }}
-        run: test "$KERNELS_RESULT" = success && test "$SERVER_RESULT" = success
+        run: |
+          # Report the upstream job's real state. This aggregate runs tests
+          # of its own, so an unprepared upstream is named, not left to
+          # surface as a bare failed `test` that looks like a test failure.
+          bad=0
+          for pair in "python-kernels=$KERNELS_RESULT" "python-server=$SERVER_RESULT"; do
+            job="${pair%%=*}"
+            result="${pair#*=}"
+            case "$result" in
+              success) ;;
+              cancelled)
+                echo "::error title=Upstream cancelled::$job was cancelled, so the Python suite did not run. This is not a test failure; re-run the cancelled job."
+                bad=1 ;;
+              *)
+                echo "::error title=Upstream $result::$job finished as '$result', so the Python suite did not run. This is not a test failure."
+                bad=1 ;;
+            esac
+          done
+          exit "$bad"
       - *eg-python-checkout
 
       # Unconditionally ubuntu-latest (never self-hosted), so this keeps
