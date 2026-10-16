@@ -2008,8 +2008,8 @@ panic = "abort"
 # aborting the whole process and masking a recoverable error. Normal `release` builds
 # are unaffected (this is a separate named profile).
 # Size profile for the standalone `epistemic-graph-server` package (built natively on
-# x86_64 by the epistemic-graph-server repository, so fat LTO has no cross-build memory
-# limit). panic = "unwind": the multi-tenant server must not abort every tenant on one panic.
+# x86_64 and aarch64 from packaging/epistemic-graph-server, so fat LTO has no cross-build
+# memory limit). panic = "unwind": the multi-tenant server must not abort every tenant on one panic.
 [profile.release-server]
 inherits = "release"
 opt-level = "s"

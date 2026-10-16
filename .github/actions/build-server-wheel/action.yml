@@ -1,0 +1,84 @@
+name: Build the epistemic-graph-server wheel
+description: >-
+  Native manylinux_2_28 build of the `epistemic-graph-server` wheel (maturin
+  `bindings = "bin"`, `release-server` profile) for the runner's own architecture.
+  Shared by release.yml (publish) and ci.yml (main-push warm compile cache) so the
+  cache key `egs-<arch>` and the build cannot drift apart.
+inputs:
+  source-dir:
+    description: Checkout holding the engine source and packaging/epistemic-graph-server.
+    required: false
+    default: '.'
+  cache-save:
+    description: '`true` saves the compile cache (main pushes only); otherwise it is only restored.'
+    required: false
+    default: 'false'
+outputs:
+  wheel-dir:
+    description: Directory holding the built wheel.
+    value: ${{ steps.build.outputs.wheel-dir }}
+runs:
+  using: composite
+  steps:
+    - name: Read the Rust toolchain pin and architecture
+      id: env
+      shell: bash
+      env:
+        SOURCE_DIR: ${{ inputs.source-dir }}
+      run: |
+        python3 - <<'PY' >> "$GITHUB_OUTPUT"
+        import os, platform, re, tomllib
+        channel = tomllib.load(open(os.path.join(os.environ["SOURCE_DIR"], "rust-toolchain.toml"), "rb"))["toolchain"]["channel"]
+        assert re.fullmatch(r"[0-9]+[.][0-9]+[.][0-9]+", channel)
+        arch = {"x86_64": "x86_64", "aarch64": "aarch64", "arm64": "aarch64"}[platform.machine()]
+        print(f"channel={channel}")
+        print(f"arch={arch}")
+        PY
+    - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
+      with:
+        toolchain: ${{ steps.env.outputs.channel }}
+    - name: Restore the per-architecture compile cache
+      uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      with:
+        shared-key: egs-${{ steps.env.outputs.arch }}
+        workspaces: ${{ inputs.source-dir }} -> target
+        save-if: ${{ inputs.cache-save == 'true' }}
+    - name: Build the wheel in the manylinux_2_28 container
+      id: build
+      shell: bash
+      env:
+        SOURCE_DIR: ${{ inputs.source-dir }}
+        ARCH: ${{ steps.env.outputs.arch }}
+        X86_IMAGE: quay.io/pypa/manylinux_2_28_x86_64@sha256:4131ddd7acb9c6c966af02fe7e71edc51e078c2d41f475966697676430bfa2ae
+        ARM_IMAGE: quay.io/pypa/manylinux_2_28_aarch64@sha256:acc4e63610fef1da3d687322793665205415c2b22c0d2e403f1a44eb834d63fc
+      run: |
+        set -euo pipefail
+        src="$(cd "$SOURCE_DIR" && pwd)"
+        # Hosted runners have 16 GB: the aarch64 fat-LTO link needs a single cargo job.
+        if [ "$ARCH" = aarch64 ]; then image="$ARM_IMAGE"; jobs=1; else image="$X86_IMAGE"; jobs=4; fi
+        rm -rf -- "$src/dist-server"
+        mkdir -p "$src/dist-server" "$HOME/.cargo" "$HOME/.rustup"
+        cat > "$RUNNER_TEMP/egs-build.sh" <<'INNER'
+        set -euxo pipefail
+        mkdir -p /tmp/home
+        export PATH="$CARGO_HOME/bin:$PATH"
+        /opt/python/cp312-cp312/bin/python -m venv /tmp/mv
+        /tmp/mv/bin/pip install --quiet "maturin==1.15.0"
+        if [ "$ARCH" = aarch64 ]; then
+          # GNU ld runs out of memory on the fat-LTO link: keep GCC, swap in the bundled LLD.
+          gcc_ld="$(rustc --print sysroot)/lib/rustlib/aarch64-unknown-linux-gnu/bin/gcc-ld"
+          test -x "$gcc_ld/ld.lld"
+          export CARGO_ENCODED_RUSTFLAGS="$(printf -- '-Clink-arg=-B%s\037-Clink-arg=-fuse-ld=lld' "$gcc_ld")"
+        fi
+        /tmp/mv/bin/maturin build --profile release-server --manylinux 2_28 \
+          --jobs "$JOBS" --out "$SRC/dist-server"
+        INNER
+        docker run --rm --user "$(id -u):$(id -g)" \
+          -e HOME=/tmp/home -e CARGO_HOME="$HOME/.cargo" -e RUSTUP_HOME="$HOME/.rustup" \
+          -e CARGO_TERM_COLOR=always -e CARGO_NET_RETRY=10 -e CARGO_INCREMENTAL=0 \
+          -e "ARCH=$ARCH" -e "JOBS=$jobs" -e "SRC=$src" \
+          -v "$src:$src" -v "$HOME/.cargo:$HOME/.cargo" -v "$HOME/.rustup:$HOME/.rustup" \
+          -v "$RUNNER_TEMP/egs-build.sh:/egs-build.sh:ro" \
+          -w "$src/packaging/epistemic-graph-server" "$image" bash /egs-build.sh
+        ls -l "$src/dist-server"
+        echo "wheel-dir=$src/dist-server" >> "$GITHUB_OUTPUT"

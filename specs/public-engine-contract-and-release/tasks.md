@@ -71,7 +71,7 @@ The linked requirement rows retain the full contract, hashes, acceptance, and ow
 - [ ] `EG-CONTRACT-R001.1`: Extend the EG generator and manifest. Wire exports into AU `HarnessRequest` and `run_agent`. Keep AU lifecycle ownership.
 - [ ] `EG-CONTRACT-R001.2`: Use R094 export/import and governed filesystem effects. Pin the canonical number encoder. Do not add an EG filesystem writer.
 - [ ] Keep both definitions SPECIFIED until implementation and served evidence receive separate review.
-- [ ] **EG-CONTRACT-R053:** Complete the eight children without replacing R015 or R047 acceptance.
+- [ ] **EG-CONTRACT-R053:** Complete the twelve children without replacing R015 or R047 acceptance.
 - [ ] **EG-CONTRACT-R053.1:** Fold the four offline tools into `epistemic-graph-server`.
 - [ ] **EG-CONTRACT-R053.2:** Strip executables in `build_backend.py` and gate the wheel.
 - [ ] **EG-CONTRACT-R053.3:** Add the `server` extra and its bump entry.
@@ -80,3 +80,7 @@ The linked requirement rows retain the full contract, hashes, acceptance, and ow
 - [ ] **EG-CONTRACT-R053.6:** Update callers of the retired binary names.
 - [ ] **EG-CONTRACT-R053.7:** Split `ci.yml` (all gates) from `release.yml` (guard, build, check, publish) and guard tags on a passing main CI run.
 - [ ] **EG-CONTRACT-R053.8:** Build the public wheel from the extension crates only, publish each platform as it finishes, and warm the compile cache from main.
+- [ ] **EG-CONTRACT-R053.9:** Build and publish the server wheel per Linux architecture from `packaging/epistemic-graph-server`.
+- [ ] **EG-CONTRACT-R053.10:** Keep `binary_path()` and `BinaryNotFoundError` with their tests in the package.
+- [ ] **EG-CONTRACT-R053.11:** Build the server image from the server wheel and publish one multi-architecture tag.
+- [ ] **EG-CONTRACT-R053.12:** Bump the package with the engine and add the tagged-source dispatch.
