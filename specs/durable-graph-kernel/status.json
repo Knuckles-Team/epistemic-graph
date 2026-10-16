@@ -730,11 +730,11 @@
       "title": "External graph and database backends become EG federation sources",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "35f12e9cc56f",
         "3a14159c3768",
         "3ddc77c97ef8",
         "7b7d4a0fb10f",
-        "9863ef840d52",
-        "a676823d2b54"
+        "9863ef840d52"
       ],
       "verified_by": [
         "crates/eg-plan/tests/federation_rollup_backends.rs:143",
