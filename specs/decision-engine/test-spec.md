@@ -629,3 +629,17 @@ No test in this section has run.
 
 - `EG-DECISION-ENGINE-R100.101`: use a complete pinned expected-topic set and separately labeled coverage/support records. Verify exact expected/covered topic ids and summed per-scope counts. Supply one label-blind prediction per scored claim and independent non-unanimous votes. Independently recompute `sum(n_i*(p_i-q_i)^2)/sum(n_i)` and verify the denominator is positive. Hold labels fixed and vary `p_i`; Brier changes exactly while coverage does not. Refuse missing/extra predictions, claims, labels or topics, duplicate annotators, empty denominator, out-of-range probabilities and stale source/scorer/policy digests.
 - `EG-DECISION-ENGINE-R001.100`: pass an in-bound recommendation and withhold one for each out-of-bound metric. Assert metric units, bound id, limit and measured value. Refuse absent/stale/non-finite/unit-incompatible facts and invalid comparator. The GraphOS pre-surface served receipt is separately required and is not claimed by this EG test.
+
+### EG-DECISION-ENGINE-R172 tests
+
+- `EG-DECISION-ENGINE-R172.1`: `crates/eg-types/src/decision/capability_designation.rs::tests::designation_types_round_trip`.
+- `EG-DECISION-ENGINE-R172.2`: `crates/eg-compute/src/capability_index/tests.rs::incremental_upsert_and_tombstone_match_rebuild`.
+- `EG-DECISION-ENGINE-R172.3`: `crates/eg-types/src/decision/capability_designation.rs::tests::eligibility_gates_match_au_cases`.
+- `EG-DECISION-ENGINE-R172.4`: `crates/eg-compute/src/capability_index/tests.rs::blend_order_matches_au_cases`.
+- `EG-DECISION-ENGINE-R172.5`: `crates/eg-types/src/decision/capability_designation.rs::tests::reward_ema_erasure_and_decay`.
+- `EG-DECISION-ENGINE-R172.6`: `crates/eg-compute/src/capability_index/tests.rs::version_pin_refuses_mixed_spaces`.
+- `EG-DECISION-ENGINE-R172.7`: `src/server/handlers/decide/stat_tests/capability_designation_tests.rs::decide_routes_capability_designation`.
+- `EG-DECISION-ENGINE-R172.8`: `src/server/handlers/decide/stat_tests/capability_designation_tests.rs::capability_designation_refusals`.
+- `EG-DECISION-ENGINE-R172.9`: `src/server/handlers/decide/stat_tests/capability_designation_tests.rs::premises_name_scores_and_defaults`.
+- `EG-DECISION-ENGINE-R172.10`: `benches/capability_designation_bench.rs`.
+- `EG-DECISION-ENGINE-R172.11`: `tests/decide/test_capability_designation_served.py::test_designation_end_to_end`.

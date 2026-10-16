@@ -658,3 +658,15 @@ Deliver these additive leaves in order; preserve R137.1–.6 and R128 unchanged.
 - [ ] **EG-DECISION-ENGINE-R171.4 (Refusal):** The engine must refuse a plan with no comparison, a stale view, or a feature without an attach point.
 - [ ] **EG-DECISION-ENGINE-R171.5 (Evidence):** The engine must emit one premise for the comparison and one per feature attach point.
 - [ ] **EG-DECISION-ENGINE-R171.6 (Hot-path proof):** The entry point is the served planning admission path.
+- [ ] **EG-DECISION-ENGINE-R172:** The engine owns capability designation, moved from agent-utilities.
+- [ ] **EG-DECISION-ENGINE-R172.1 (Model):** Implement in native Rust and pass the named proving test.
+- [ ] **EG-DECISION-ENGINE-R172.2 (Behavior):** Implement in native Rust and pass the named proving test.
+- [ ] **EG-DECISION-ENGINE-R172.3 (Behavior):** Implement in native Rust and pass the named proving test.
+- [ ] **EG-DECISION-ENGINE-R172.4 (Behavior):** Implement in native Rust and pass the named proving test.
+- [ ] **EG-DECISION-ENGINE-R172.5 (Behavior):** Implement in native Rust and pass the named proving test.
+- [ ] **EG-DECISION-ENGINE-R172.6 (Behavior):** Implement in native Rust and pass the named proving test.
+- [ ] **EG-DECISION-ENGINE-R172.7 (Wiring):** Implement in native Rust and pass the named proving test.
+- [ ] **EG-DECISION-ENGINE-R172.8 (Refusal):** Implement in native Rust and pass the named proving test.
+- [ ] **EG-DECISION-ENGINE-R172.9 (Evidence):** Implement in native Rust and pass the named proving test.
+- [ ] **EG-DECISION-ENGINE-R172.10 (Behavior):** Implement in native Rust and pass the named proving test.
+- [ ] **EG-DECISION-ENGINE-R172.11 (Hot-path proof):** Implement in native Rust and pass the named proving test.
