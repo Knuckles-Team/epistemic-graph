@@ -953,7 +953,7 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [
-        "tests/test_release_full_wheel_contract.py:607"
+        "tests/test_release_full_wheel_contract.py:605"
       ]
     },
     {
