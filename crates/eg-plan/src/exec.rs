@@ -922,20 +922,30 @@ fn sparql_source(view: &GraphView, query: &str, var: &str) -> Result<RowSet, Str
     Ok(RowSet::from_ids(ids))
 }
 
-/// SOURCE: all node ids whose `type` property equals `label`.
+/// Every node in `view` that carries `label` (see [`scan_label`]), paired with its
+/// decoded property object. The one label filter every label/layer source shares.
+fn labelled_nodes<'a>(
+    view: &'a GraphView,
+    label: &'a str,
+) -> impl Iterator<Item = (&'a String, serde_json::Value)> + 'a {
+    view.node_properties.iter().filter_map(move |(id, blob)| {
+        let v = eg_types::msgpack::decode_property_value(blob.as_slice()).ok()?;
+        eg_core::graph::node_carries_label(&v, label).then_some((id, v))
+    })
+}
+
+/// SOURCE: all node ids that carry `label` — under `type`, `node_type` or
+/// `label`, or in the `labels` array — exactly the set the engine's label
+/// index files them under (`eg_core::graph::node_carries_label`). Writers
+/// store `node_type`, so matching `type` alone returned no rows for them.
 ///
 /// A scan is an unranked source, so the underlying `GraphView` map's discovery order
 /// is not part of its contract.  Canonicalizing the ids here makes `Scan -> Limit`
 /// reproducible for local and distributed plans alike; the exchange wire therefore
 /// carries this same producer order instead of inventing a different remote order.
 fn scan_label(view: &GraphView, label: &str) -> RowSet {
-    let mut ids: Vec<String> = view
-        .node_properties
-        .iter()
-        .filter_map(|(id, blob)| {
-            let v = eg_types::msgpack::decode_property_value(blob.as_slice()).ok()?;
-            (v.get("type").and_then(|t| t.as_str()) == Some(label)).then(|| id.clone())
-        })
+    let mut ids: Vec<String> = labelled_nodes(view, label)
+        .map(|(id, _)| id.clone())
         .collect();
     ids.sort_unstable();
     RowSet::from_ids(ids)
@@ -1138,13 +1148,7 @@ fn sensor_fuse_op(view: &GraphView, streams: &[String], tolerance_ns: u64) -> Ro
         .iter()
         .map(|name| {
             let mut samples: Vec<Sample> = Vec::new();
-            for blob in view.node_properties.values() {
-                let Ok(v) = eg_types::msgpack::decode_property_value(blob.as_slice()) else {
-                    continue;
-                };
-                if v.get("type").and_then(|t| t.as_str()) != Some(name.as_str()) {
-                    continue;
-                }
+            for (_, v) in labelled_nodes(view, name.as_str()) {
                 let Some(ts) = v.get("valid_from").and_then(|x| x.as_i64()) else {
                     continue;
                 };
@@ -1196,13 +1200,7 @@ fn sensor_fuse_op(view: &GraphView, streams: &[String], tolerance_ns: u64) -> Ro
 #[cfg(feature = "timeseries")]
 fn scalar_stream_points(view: &GraphView, layer: &str) -> Vec<eg_tsdb::point::Point> {
     let mut points: Vec<eg_tsdb::point::Point> = Vec::new();
-    for blob in view.node_properties.values() {
-        let Ok(v) = eg_types::msgpack::decode_property_value(blob.as_slice()) else {
-            continue;
-        };
-        if v.get("type").and_then(|t| t.as_str()) != Some(layer) {
-            continue;
-        }
+    for (_, v) in labelled_nodes(view, layer) {
         let Some(ts) = v.get("valid_from").and_then(|x| x.as_i64()) else {
             continue;
         };
@@ -1658,13 +1656,7 @@ fn spatial_scan(ctx: &PlanCtx, layer: &str, bbox: [f64; 4]) -> RowSet {
     let view = ctx.view;
     let mut ids: Vec<String> = Vec::new();
     let mut boxes: Vec<(usize, eg_geo::Bbox)> = Vec::new();
-    for (id, blob) in view.node_properties.iter() {
-        let Ok(v) = eg_types::msgpack::decode_property_value(blob.as_slice()) else {
-            continue;
-        };
-        if v.get("type").and_then(|t| t.as_str()) != Some(layer) {
-            continue;
-        }
+    for (id, v) in labelled_nodes(view, layer) {
         let Some(bb) = geometry_from_value(&v).and_then(|g| g.bbox()) else {
             continue;
         };
@@ -1855,13 +1847,7 @@ fn row_geometry_srid(view: &GraphView, id: &str) -> Option<(Option<u32>, eg_geo:
 #[cfg(feature = "tensor")]
 fn tensor_scan(view: &GraphView, layer: &str) -> RowSet {
     let mut ids: Vec<String> = Vec::new();
-    for (id, blob) in view.node_properties.iter() {
-        let Ok(v) = eg_types::msgpack::decode_property_value(blob.as_slice()) else {
-            continue;
-        };
-        if v.get("type").and_then(|t| t.as_str()) != Some(layer) {
-            continue;
-        }
+    for (id, v) in labelled_nodes(view, layer) {
         if tensor_from_value(&v).is_some() {
             ids.push(id.clone());
         }
@@ -2670,5 +2656,31 @@ mod scan_order_tests {
         ]);
 
         assert_eq!(plan.execute(&ctx).unwrap().ids(), vec!["a", "b"]);
+    }
+
+    // spec: EG-FEDERATED-QUERY-R022.1
+    #[test]
+    fn scan_matches_every_label_field_writers_store() {
+        let core = GraphCore::new();
+        core.add_node("n1".into(), blob(json!({"node_type": "Doc"})));
+        core.add_node("n2".into(), blob(json!({"type": "Doc"})));
+        core.add_node("n3".into(), blob(json!({"label": "Doc"})));
+        core.add_node("n4".into(), blob(json!({"labels": ["Note", "Doc"]})));
+        core.add_node("n5".into(), blob(json!({"node_type": "Person"})));
+        core.add_node("n6".into(), blob(json!({"name": "Doc"})));
+        let view = core.analysis_snapshot();
+        let semantic = SemanticStore::new();
+        let ctx = PlanCtx::new(&view, &semantic);
+        let scan = |label: &str| {
+            Plan::new(vec![Op::Scan {
+                label: label.into(),
+            }])
+            .execute(&ctx)
+            .unwrap()
+            .ids()
+        };
+        assert_eq!(scan("Doc"), vec!["n1", "n2", "n3", "n4"]);
+        assert_eq!(scan("Person"), vec!["n5"]);
+        assert!(scan("Missing").is_empty());
     }
 }

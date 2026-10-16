@@ -2071,6 +2071,118 @@ mod tests {
         );
     }
 
+    /// A label Scan served through `Method::Uql` and `Method::UnifiedQuery` sees nodes
+    /// whose writer stored the label under `node_type` (the AU/connector convention),
+    /// not only under `type`.
+    // spec: EG-FEDERATED-QUERY-R022.1
+    #[cfg(feature = "query")]
+    #[tokio::test]
+    async fn test_served_scan_reads_node_type_labels() {
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        let state = test_state();
+        for (id, (nid, props)) in [
+            ("p1", serde_json::json!({"node_type": "Paper"})),
+            ("p2", serde_json::json!({"type": "Paper"})),
+            ("x1", serde_json::json!({"node_type": "Tool"})),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let m = Method::AddNode {
+                node_id: nid.into(),
+                properties_msgpack: rmp_serde::to_vec_named(&props).unwrap(),
+            };
+            assert_ok(
+                &dispatch_on_heap(&state, request(310 + id as u64, "__commons__", None, m)).await,
+            );
+        }
+        let textq = dispatch_on_heap(
+            &state,
+            request(
+                320,
+                "__commons__",
+                None,
+                Method::Uql {
+                    text: "MATCH (:Paper)".into(),
+                    params: Default::default(),
+                },
+            ),
+        )
+        .await;
+        assert_ok(&textq);
+        let mut text_ids = decode_uql_ids(&textq);
+        text_ids.sort();
+        assert_eq!(text_ids, vec!["p1", "p2"]);
+
+        let structured = dispatch_on_heap(
+            &state,
+            request(
+                321,
+                "__commons__",
+                None,
+                Method::UnifiedQuery {
+                    plan: eg_plan::Plan::new(vec![eg_plan::Op::Scan {
+                        label: "Paper".into(),
+                    }]),
+                },
+            ),
+        )
+        .await;
+        assert_ok(&structured);
+        let mut structured_ids = unified_ids(&structured);
+        structured_ids.sort();
+        assert_eq!(structured_ids, vec!["p1", "p2"]);
+    }
+
+    /// Served attested-text admission: an `ApplyChangeEnvelopeDraft` (compiled at the
+    /// request boundary into the `ApplyChangeEnvelope` it continues as) whose document
+    /// text carries `@` and `\\` commits, and one carrying an e-mail address is refused
+    /// with the declared `INVALID_ARGUMENT` code, a diagnostic detail, and no echo.
+    // spec: EG-DURABLE-KERNEL-R043.7, EG-DURABLE-KERNEL-R043.8
+    #[cfg(feature = "redb")]
+    #[tokio::test]
+    async fn test_served_change_envelope_admits_document_text_and_codes_refusals() {
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        let state = test_state();
+        let tenant = test_claims("system").tenant;
+        let apply = |id: u64, text: &str| {
+            let draft = crate::server::dispatch::change_envelope_draft_fixture(
+                &tenant,
+                serde_json::json!({"type": "Document", "text": text}),
+            );
+            request(
+                id,
+                "__commons__",
+                None,
+                Method::ApplyChangeEnvelopeDraft {
+                    draft: Box::new(draft),
+                },
+            )
+        };
+        // The refusal runs first: it commits nothing, so the admitted envelope
+        // below is the envelope id's first commit.
+        let address = "dev@example.com";
+        let refused = dispatch_on_heap(&state, apply(330, &format!("mail {address} now"))).await;
+        assert_eq!(
+            refused.error.as_deref(),
+            Some("INVALID_ARGUMENT"),
+            "{refused:?}"
+        );
+        let detail = refused
+            .error_detail
+            .expect("a coded refusal keeps its detail");
+        assert!(detail.contains("persistence privacy policy"), "{detail}");
+        assert!(detail.contains("e-mail address"), "{detail}");
+        assert!(!detail.contains(address), "{detail}");
+
+        let admitted = dispatch_on_heap(
+            &state,
+            apply(331, "ping @alice: \\frac{a}{b} in C:\\Program Files"),
+        )
+        .await;
+        assert_ok(&admitted);
+    }
+
     // ── Query federation / foreign sources (CONCEPT:EG-KG.query.query-federation, Lane P) ───────
 
     /// Stand up the REMOTE engine (B) the query-federation tests read from: a
