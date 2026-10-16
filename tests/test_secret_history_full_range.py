@@ -53,13 +53,31 @@ def _fetch_origin_main() -> None:
     an explicit fetch of main restores the gate's full-range base. It is a
     no-op where the ref already exists (the caller only invokes it when the
     ref is absent) and degrades to a failed attempt, checked by the caller,
-    in an offline environment."""
+    in an offline environment. Shallow checkouts need --unshallow: a plain
+    fetch of main stops at the clone's shallow boundary, which makes
+    origin/main look like a history whose only reachable commit is its tip
+    and silently widens the scanned range to most of main's history
+    (observed 2026-10-16: 1.9M added lines, 5 pre-existing main-side
+    fixture hits)."""
+    shallow = (
+        subprocess.run(
+            ["git", "rev-parse", "--is-shallow-repository"],
+            cwd=str(ROOT),
+            capture_output=True,
+            check=False,
+        ).stdout.strip()
+        == b"true"
+    )
+    args = ["git", "fetch", "--quiet"]
+    if shallow:
+        args.append("--unshallow")
+    args += ["origin", "main"]
     subprocess.run(
-        ["git", "fetch", "--quiet", "origin", "main"],
+        args,
         cwd=str(ROOT),
         capture_output=True,
         check=False,
-        timeout=300,
+        timeout=600,
     )
 
 
