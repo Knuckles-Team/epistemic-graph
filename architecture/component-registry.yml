@@ -4012,6 +4012,7 @@ components:
       - "tests/test_scanner_distribution.py"
       - "tests/test_scanner_wrappers.py"
       - "tests/test_security_sanitizer_contract.py"
+      - "tests/test_secret_history_full_range.py"
       - "tests/test_server_registry_client.py"
       - "tests/test_service_layer.py"
       - "tests/test_source_guards.py"
