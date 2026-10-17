@@ -480,7 +480,7 @@ Cross-repository rows:
 
 - The `AU-CONTROL` row for the signed dispatch envelope `harness_config` calls this decision and signs the committed answer.
 - The `AU-HARNESS` row for the evaluation runner writes the measured facts that `EG-TYPED-PACKS-R048.3` and `R048.4` store.
-- The `GRAPHOS-A2A` row for admission refuses a task without a committed `HarnessConfig` answer.
+- The `ARBORA-A2A` row for admission refuses a task without a committed `HarnessConfig` answer.
 - The `SDK-CONNECTOR-CONTROL` row for tool `read_only` and `side_effects` facts feeds the tool-subset candidates.
 
 ### Committed pack receipt binding (R073.4)
@@ -916,10 +916,10 @@ Dependency order: typed request/plan/refusal/evidence round trip; deterministic 
 - Existing EG rollup: `EG-DECISION-ENGINE-R029`. Append-only residual ID: `EG-DECISION-ENGINE-R029.1`.
 - Original objective. Search grounding is a replaceable provider selected through the committed routing decision, independent of the reasoning model. An unavailable provider is refused, not silently substituted.
 - Missing EG obligation. Replaceable search-grounding provider independently selected from reasoning model and bound to a committed route. Unavailable committed provider must refuse rather than substitute.
-- Producer/consumer route. Preserve GRAPHOS-OPS-R021.2.1 retrieval.search and its tenant-scoped retriever. EG must produce the committed provider binding and the SDK/GraphOS consumer must execute that exact provider. That edge is missing.
+- Producer/consumer route. Preserve ARBORA-OPS-R021.2.1 retrieval.search and its tenant-scoped retriever. EG must produce the committed provider binding and the SDK/GraphOS consumer must execute that exact provider. That edge is missing.
 - Proposed definition. Define RetrievalProviderBindingV1 in the committed retrieval plan. Bind provider id/revision/config digest, query/request digest and tenant scope. Identify reasoning model id/revision separately. The binding has an explicit no-substitution policy. Execution evidence records the exact provider, binding digest, request/result digests and provider revision.
-- Planned acceptance and owner hold. Case R029.1-exact-provider. independently vary provider and reasoning-model ids while verifying the committed provider is executed. If the bound provider is unavailable, stale, unauthorized or mismatched, refuse before retrieval and record zero calls to alternate providers. Preserve GRAPHOS-OPS-R021.2.1 retrieval.search and its tenant-scoped retriever. EG must commit the provider binding. The SDK/GraphOS consumer contract that executes and receipts that exact binding is not defined. No implementation, served test, or receipt is claimed by this SPECIFIED definition.
-- Preserve covered clauses: `EG-DECISION-ENGINE-R029`, `GRAPHOS-OPS-R021.2.1`.
+- Planned acceptance and owner hold. Case R029.1-exact-provider. independently vary provider and reasoning-model ids while verifying the committed provider is executed. If the bound provider is unavailable, stale, unauthorized or mismatched, refuse before retrieval and record zero calls to alternate providers. Preserve ARBORA-OPS-R021.2.1 retrieval.search and its tenant-scoped retriever. EG must commit the provider binding. The SDK/GraphOS consumer contract that executes and receipts that exact binding is not defined. No implementation, served test, or receipt is claimed by this SPECIFIED definition.
+- Preserve covered clauses: `EG-DECISION-ENGINE-R029`, `ARBORA-OPS-R021.2.1`.
 - Source review. `c9552392eb813763a83fc96fb48ad1bd18fd805ef608736f1dae5d48ab12c984`. Evidence: epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:41. Graph-os:069eebc785afb9fb26bbbcc907cf5a2a4bcab5c5:specs/hosted-api-operations/requirements.md:42.
 - Cross-owner behavior and receipts remain with the named owner. No runtime evidence is claimed.
 
@@ -1063,7 +1063,7 @@ Dependency order: typed request/plan/refusal/evidence round trip; deterministic 
 
 - Extend existing parent `R134` without removing its existing behavior.
 - Specify: Define generated `AggregateFanout/v1` request. Bind the selected `AggregationOp`, TaskPlan digest and AU `FanoutResult` identity. Include expected subtask ids and GraphOS durable instance-receipt ids/digests. Define the result with operation/version, ordered input receipts, one typed aggregate artifact/schema version, result digest and graph revision. EG applies the already-selected operator to the complete receipt set. It adds no fan-out width, concurrency policy or second aggregation authority. A served independent readback resolves the returned artifact by tenant/id/revision and compares the digest before success.
-- Producer/consumer boundary. AU owns FanoutResult production; GraphOS `agents.run` owns durable instance receipts and capacity/refusal. EG owns selected operator and public application/readback contract only. Preserve existing R134.1/.3 and GRAPHOS-FLEET-R024.5-.9.
+- Producer/consumer boundary. AU owns FanoutResult production; GraphOS `agents.run` owns durable instance receipts and capacity/refusal. EG owns selected operator and public application/readback contract only. Preserve existing R134.1/.3 and ARBORA-FLEET-R024.5-.9.
 - Source record SHA-256: `8f2ff3030a71d67b20cd19301f0ed8cef75e975403595cec4060abf9fa8952c1`.
 - Keep status SPECIFIED until the EG served producer and each separately owned consumer are implemented, served-tested and independently read back.
 
@@ -1298,7 +1298,7 @@ Dependency order: typed request/plan/refusal/evidence round trip; deterministic 
 
 - Preserve parent `EG-DECISION-ENGINE-R142` and its existing clauses.
 - Define. For each skill revision, bind its atomic/workflow classification and local model id/revision. Record evaluation-set digest, criteria/policy revision and result/attestation digest. EG emits the certification attestation only after AU executes the declared local-model evaluation. GraphOS validates the attestation before normal (non-certification) `orchestrate` or `agents.run`. A separately authorized evaluation run may produce a new attestation. Atomic skills are evaluated first. A workflow skill is certifiable only when every referenced atomic dependency has a valid current attestation. Missing, stale, failed or mismatched dependencies refuse certification/invocation before effects. EG attests evaluation outcome; AU executes; GraphOS owns invocation gate and host policy.
-- Producer/consumer: Extend existing GRAPHOS-FLEET-R034.7-.12 identity bindings. Do not add host scoring authority or infer certification from host prerequisites alone.
+- Producer/consumer: Extend existing ARBORA-FLEET-R034.7-.12 identity bindings. Do not add host scoring authority or infer certification from host prerequisites alone.
 - Source record SHA-256: `5df3f5a45d486aeba5765a31b6c6283637adf2bd8ce63a87938eddd28b90f082`.
 - Keep status SPECIFIED until each named producer and consumer is separately implemented, served-tested and independently read back.
 <!-- /spec-definition-patch -->
@@ -1310,7 +1310,7 @@ Dependency order: typed request/plan/refusal/evidence round trip; deterministic 
 ### `EG-DECISION-ENGINE-R142.101` — Wiring row
 
 - Production call sites: src/server/dispatch/router/decision_plane.rs:119 -> src/server/handlers/decide/jobs.rs:30.
-- The EG attestation must bind the AU evaluation receipt and exact skill/model/dataset/criteria revisions; GraphOS consumption is at GRAPHOS-FLEET-R034.7-.12.
+- The EG attestation must bind the AU evaluation receipt and exact skill/model/dataset/criteria revisions; GraphOS consumption is at ARBORA-FLEET-R034.7-.12.
 - Explicit owner holds: AU has not defined its per-criterion evaluation receipt. GraphOS has not defined its attestation-consumer operation. R034 identity checks do not close this dependency.
 - Planned proving test. tests/decide/test_local_skill_certification_served.py::test_decision_eval_attestation_binds_au_receipt.
 
@@ -1595,7 +1595,7 @@ Capability designation reads the surface triples that `EG-TYPED-PACKS-R102` proj
 
 ## EG-DECISION-ENGINE-R176 and R177 — job-scoped load set and usage guidance
 
-A harness asks graph-os what a job needs. graph-os asks the engine. The engine answers from the overlay of every imported connector pack. graph-os loads only the answered tools (`GRAPHOS-FLEET-R037`). graph-os holds no ranking policy.
+A harness asks graph-os what a job needs. graph-os asks the engine. The engine answers from the overlay of every imported connector pack. graph-os loads only the answered tools (`ARBORA-FLEET-R037`). graph-os holds no ranking policy.
 
 Call path: graph-os `find` with a job -> served `Decide` -> `handle_decide` (`statistical.rs:11`) -> capability designation (`EG-DECISION-ENGINE-R172`) per capability -> union and bound -> premises -> answer.
 

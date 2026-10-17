@@ -435,7 +435,7 @@ Reserved pack identities still use pack admission; native import cannot bypass i
 | R001.6-R001.9 | Existing component authority and generated contract; EG-CONTRACT-R005 remains a referenced producer. | New schema, supported rules, operations and rendered-result contract. |
 | R002.7-R002.9 | Existing owner write, body store and projection admission. | Native prompt holders, graph readiness and authenticated render dispatch. |
 | R002.10 | R002.9 render result and the actual AU model-dispatch consumer. | Name its owning requirement and production call site before delivery; observe zero invalid model requests. |
-| R094.7 | SDK-GOVERNED-WRITEBACK-R004.5 through R004.12 and GRAPHOS-FLEET-R003.4 through R003.10. | Actual served composition, approved conditional effect, independent readback and durable replay remain required. |
+| R094.7 | SDK-GOVERNED-WRITEBACK-R004.5 through R004.12 and ARBORA-FLEET-R003.4 through R003.10. | Actual served composition, approved conditional effect, independent readback and durable replay remain required. |
 
 R002.10 must bind the dispatched bytes and variable digest to the rendered result and authorized source revision.
 A production consumer must reject a substituted body, schema, scope or revision before model transport.
@@ -460,9 +460,9 @@ The source-effect definitions now have exact merged producers:
 SDK-GOVERNED-WRITEBACK-R004.1 through R004.4 retain generic approval, replay, audit reservation and business-rule routing.
 R004.5 through R004.8 bind the typed request, trusted path scope, exact approval and provider conditional mutation.
 R004.9 and R004.10 bind actual immutable revision, durable attempt and independent readback; R004.11 and R004.12 require recovery and served composition.
-GraphOS GRAPHOS-FLEET-R003.4 retains original fleet-wide acceptance. R003.5 through R003.7 bind the full request, trusted configuration and commit confirmation.
+GraphOS ARBORA-FLEET-R003.4 retains original fleet-wide acceptance. R003.5 through R003.7 bind the full request, trusted configuration and commit confirmation.
 R003.8 through R003.10 require real effect/readback evidence, zero-effect refusal parity and durable replay after restart.
-GRAPHOS-OPS-R009 remains that producer's existing invoke authority, not a new EG approval boundary.
+ARBORA-OPS-R009 remains that producer's existing invoke authority, not a new EG approval boundary.
 
 R094.7 consumes SDK RepositorySourceEffectIntent, RepositorySourceEffectRequest and RepositorySourceEffectReceipt through GraphOS RepositoryWriteBackParams.
 The existing operation IDs are fleet.write_back.preview and fleet.write_back.commit.
@@ -558,7 +558,7 @@ Neither accepted input supplies a research paper or arXiv identifier; no researc
 
 - Extend existing parent `R072` without removing its existing behavior.
 - Specify: Extend the typed fleet catalog with workflow registration identity, version/content digest, owner/tenant scope, schema and lifecycle state. Persist registration through the existing SourceIngest authority. Resolve invocation by registry id and exact admitted revision, not a caller-supplied body. Unknown, withdrawn, stale or unauthorized workflow ids refuse before execution. Keep engine/client initialization lazy at the AU first-use boundary. Do not initialize it at registration or process startup.
-- Producer/consumer boundary: EG typed registry and SourceIngest R002 own durable registration; AU owns lazy client initialization/execution; preserve GRAPHOS-HOST-R022 workflow-store semantics.
+- Producer/consumer boundary: EG typed registry and SourceIngest R002 own durable registration; AU owns lazy client initialization/execution; preserve ARBORA-HOST-R022 workflow-store semantics.
 - Owner prerequisite: AU-CONTROL-R037.5 only fills a requirement gap; it does not define lazy initialization timing, the first-use operation, or the execution receipt. No exact AU companion requirement ID is identified. Keep that consumer as an explicit hold until its owner publishes the operation and receipt; no invocation evidence is claimed.
 - Source record SHA-256: `f73767d1a3fdba29a702254ed1db2c9904158b6136f6f4b38a3c9a0d3e4fcb03`.
 - Keep status SPECIFIED until the EG served producer and each separately owned consumer are implemented, served-tested and independently read back.
@@ -602,9 +602,9 @@ A connector imports or revises its domain ontology at runtime without a full pac
 ## EG-TYPED-PACKS-R104 — connect-time seed graph import
 
 Component: Connector packs
-References: EG-TYPED-PACKS-R101, EG-TYPED-PACKS-R103, [GRAPHOS-FLEET-R036](https://github.com/Knuckles-Team/graph-os/blob/main/specs/fleet-catalog-and-tools/spec.md), [SDK-CONNECTOR-CONTROL-R068](https://github.com/Knuckles-Team/agent-connector-sdk/blob/main/specs/SDK-CONNECTOR-CONTROL/spec.md)
+References: EG-TYPED-PACKS-R101, EG-TYPED-PACKS-R103, [ARBORA-FLEET-R036](https://github.com/Knuckles-Team/graph-os/blob/main/specs/fleet-catalog-and-tools/spec.md), [SDK-CONNECTOR-CONTROL-R068](https://github.com/Knuckles-Team/agent-connector-sdk/blob/main/specs/SDK-CONNECTOR-CONTROL/spec.md)
 
-A connector establishes its contract on first connect. It serves the manifest, the ontology pack and the seed graph as MCP resources (`SDK-CONNECTOR-CONTROL-R068`). The graph-os multiplexer reads them on first connect and on `resources/list_changed` (`GRAPHOS-FLEET-R036`). The engine owns validation, storage and idempotency.
+A connector establishes its contract on first connect. It serves the manifest, the ontology pack and the seed graph as MCP resources (`SDK-CONNECTOR-CONTROL-R068`). The graph-os multiplexer reads them on first connect and on `resources/list_changed` (`ARBORA-FLEET-R036`). The engine owns validation, storage and idempotency.
 
 Call path: graph-os `onboard` -> served `ConnectorPack.Import` -> `run_import` (`import.rs:63`) -> seed validation -> `project_head` (`reproject.rs:72`) -> one commit.
 

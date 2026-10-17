@@ -714,7 +714,7 @@ The following rows either state a closed contract at an existing owner path or n
 
 **Definition hold — governed raw-corpus producer is not defined.** R070.1 requires exact lexical search, file reads, context verification, per-query cost and abstention before budget overrun. While R070 only bounds indexed UQL rows/visits and GraphOS retrieval returns a top-K boundary. Do not route this requirement through the indexed retriever or claim that its budget is a raw-source cost. The missing owner contract must identify the authorized raw-source provider and immutable source/snapshot identity. Exact search/read/verification operations and byte/line coordinate system. Finite scan/read/verification cost units and ceilings. The typed over-budget refusal. And the producer-to-EG request/response fields consumed by GovernedRetriever/AU. Until those decisions exist, this row defines no callable producer and remains held.
 
-Preserve `EG-FEDERATED-QUERY-R070; GRAPHOS-OPS-R053.2, GRAPHOS-OPS-R053.3, GRAPHOS-OPS-R053.5`. Source record `AU:71` SHA-256 `0f1b775fd66c41586bdcdf0047a9ccbc52e38aa1bc21a4e8234e9c641e45c68e`. Status remains SPECIFIED until implementation and independently read-back evidence exist.
+Preserve `EG-FEDERATED-QUERY-R070; ARBORA-OPS-R053.2, ARBORA-OPS-R053.3, ARBORA-OPS-R053.5`. Source record `AU:71` SHA-256 `0f1b775fd66c41586bdcdf0047a9ccbc52e38aa1bc21a4e8234e9c641e45c68e`. Status remains SPECIFIED until implementation and independently read-back evidence exist.
 
 ### `EG-FEDERATED-QUERY-R006.1`
 
@@ -768,11 +768,11 @@ Preserve `EG-FEDERATED-QUERY-R081.9.7.1-.6`. Source record `GRAPHOS:24` SHA-256 
 
 **Definition hold — offline TOC producer and finite span-read policy are unbound.** Preserve existing space/section mappings. Do not recreate interaction spaces. The requested producer is an offline line-numbered TOC derived from an immutable document revision. Each entry binds section id, title/path and inclusive line range to the source digest. EG needs a bounded line-span read from the pinned document. Return the exact lines with source digest and line range, never the whole document. The SDK source-ingest -> EG document/section records -> GraphOS retrieval.space -> AU path does not define who builds or refreshes the TOC. It also lacks source byte/line encoding and finite line-span/response-byte limits. Those owner decisions and their producer/consumer schema are required before this can be executable. Existing directory mappings do not fill the gap.
 
-Preserve `GRAPHOS-OPS-R053.1-.3, R053.6; EG-FEDERATED-QUERY-R081.9.7.1, R081.9.7.5`. Source record `GRAPHOS:25` SHA-256 `6797cff839c16c3b9c3877d6bbf48bf8953eae8696087abc99f2b57147daed93`. Status remains SPECIFIED until implementation and independently read-back evidence exist.
+Preserve `ARBORA-OPS-R053.1-.3, R053.6; EG-FEDERATED-QUERY-R081.9.7.1, R081.9.7.5`. Source record `GRAPHOS:25` SHA-256 `6797cff839c16c3b9c3877d6bbf48bf8953eae8696087abc99f2b57147daed93`. Status remains SPECIFIED until implementation and independently read-back evidence exist.
 
 ### `EG-FEDERATED-QUERY-R040.2.7`
 
-**Revision-bound per-document topic responsibilities.** Extend the existing `TopicBackend` result and `weighted_topic_dense` score in `run_unified_with` before final truncation. For each eligible document candidate, the backend supplies a `DocumentTopicAssignment`. Bind it to document id/content revision, corpus generation, backend identity/revision and the retriever’s `EmbeddingSpaceRef`. Each assignment identifies topic id and that document’s responsibility. Compute the topic component from each candidate’s revision-matched responsibilities and existing centroid similarity formula. Feed it into the existing weighted dense/topic fusion. Preserve hard constraints, fusion weight, deterministic ties, tenant scope and all R040.2 refusals. Missing, duplicate, stale or cross-space assignments refuse the requested topic contribution. The planner must not silently fall back to dense-only ranking. GraphOS projects reads and does not rank; GRAPHOS-FLEET-R014 is unrelated.
+**Revision-bound per-document topic responsibilities.** Extend the existing `TopicBackend` result and `weighted_topic_dense` score in `run_unified_with` before final truncation. For each eligible document candidate, the backend supplies a `DocumentTopicAssignment`. Bind it to document id/content revision, corpus generation, backend identity/revision and the retriever’s `EmbeddingSpaceRef`. Each assignment identifies topic id and that document’s responsibility. Compute the topic component from each candidate’s revision-matched responsibilities and existing centroid similarity formula. Feed it into the existing weighted dense/topic fusion. Preserve hard constraints, fusion weight, deterministic ties, tenant scope and all R040.2 refusals. Missing, duplicate, stale or cross-space assignments refuse the requested topic contribution. The planner must not silently fall back to dense-only ranking. GraphOS projects reads and does not rank; ARBORA-FLEET-R014 is unrelated.
 
 Preserve `EG-FEDERATED-QUERY-R040.2.1-.3, R040.2.6`. Source record `GRAPHOS:28` SHA-256 `f7654cd07d4d95f32f09fec742c4172b35c689749b3228aef9424830b1f7cc1b`. Status remains SPECIFIED until implementation and independently read-back evidence exist.
 
@@ -882,7 +882,7 @@ References
 
 ## EG-FEDERATED-QUERY-R073.2 — connection-protocol pushdown matrix
 
-The source-category matrix is `EG-UNIFIED-DATA-PLANE-R022.4`. This matrix is the second axis: the connection protocol. The engine owns planning and pushdown per protocol. The SDK owns the transport per protocol (`SDK-CONNECTOR-CONTROL-R069`). graph-os owns serving and the multiplexer client (`GRAPHOS-FLEET-R038`).
+The source-category matrix is `EG-UNIFIED-DATA-PLANE-R022.4`. This matrix is the second axis: the connection protocol. The engine owns planning and pushdown per protocol. The SDK owns the transport per protocol (`SDK-CONNECTOR-CONTROL-R069`). graph-os owns serving and the multiplexer client (`ARBORA-FLEET-R038`).
 
 MCP and A2A each have two roles. In this matrix the engine plans only the consuming role: an external MCP server or an external agent as a source. The serving roles belong to graph-os.
 

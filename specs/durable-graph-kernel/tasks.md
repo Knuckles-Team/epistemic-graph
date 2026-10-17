@@ -148,7 +148,7 @@ This batch defines the slices; it runs none of their runtime tests.
 <!-- spec-definition-patch:owner-batch-20261012-durable-graph-kernel -->
 ## Durable-kernel owner definition tasks — 2026-10-12
 
-- [ ] **EG-DURABLE-KERNEL-R028.1:** Implement the R085-backed checkpoint snapshot with run/work-item/fence/checkpoint identity and separate short-/long-term memory references. Enforce verified scope, digest and expected-head refusal rules. Preserve `EG-DURABLE-KERNEL-R028`, `EG-IDENTITY-R006`, and existing GRAPHOS-A2A/OPS streaming requirements.
+- [ ] **EG-DURABLE-KERNEL-R028.1:** Implement the R085-backed checkpoint snapshot with run/work-item/fence/checkpoint identity and separate short-/long-term memory references. Enforce verified scope, digest and expected-head refusal rules. Preserve `EG-DURABLE-KERNEL-R028`, `EG-IDENTITY-R006`, and existing ARBORA-A2A/OPS streaming requirements.
 - [ ] **EG-DURABLE-KERNEL-R028.1 acceptance:** Checkpoint acceptance covers restart/readback and refusal of wrong scope or stale fence/revision. Also refuse digest mismatch, changed-body replay and unavailable storage. Test recovery from interruption between snapshot and pointer update. AU resume/GraphOS stream continuation remain blocked until transaction/recovery, resume-binding and retention decisions are defined.
 - [ ] **EG-DURABLE-KERNEL-R028.1 status:** Keep SPECIFIED. No runtime or consumer receipt is claimed.
 
