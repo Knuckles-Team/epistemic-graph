@@ -589,7 +589,9 @@ def test_server_wheel_build_adds_swap_and_thin_links_aarch64():
     build = steps[names.index("Build the wheel in the manylinux_2_28 container")]["run"]
     assert 'image="$ARM_IMAGE"; jobs=1; lto=thin; cgu=16' in build
     assert '"CARGO_PROFILE_RELEASE_SERVER_LTO=$lto"' in build
-    release = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["build-server"]
+    release = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"][
+        "build-server"
+    ]
     uses = [step.get("uses", "") for step in release["steps"]]
     assert "./.github/actions/build-server-wheel" in uses
 
