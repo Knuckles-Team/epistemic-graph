@@ -10,9 +10,10 @@
 //!
 //! Run: cargo bench -p eg-compute --features solve --bench solve_cover
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
 use eg_compute::solve::model::Model;
 use eg_compute::solve::{solve, verify, SolverConfig};
+use std::hint::black_box;
 
 #[path = "../tests/solve/generators.rs"]
 mod generators;

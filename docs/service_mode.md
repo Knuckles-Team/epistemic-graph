@@ -158,10 +158,10 @@ exactly what `epistemic_graph/client.py::_send` packs):
 import msgpack
 
 request = {
-    "id": 1,                                  # u64 correlation id
-    "graph": "graph:example",                 # target graph name
-    "auth_token": "eg2.<claims>.<hmac>",       # see Authentication Protocol
-    "agent_id": "service:client",              # must match verified authority
+    "id": 1,  # u64 correlation id
+    "graph": "graph:example",  # target graph name
+    "auth_token": "eg2.<claims>.<hmac>",  # see Authentication Protocol
+    "agent_id": "service:client",  # must match verified authority
     "method": "AddNode",
     "params": {
         "node_id": "n1",
@@ -181,9 +181,12 @@ derives the effective actor from the checked envelope and rejects a conflict.
 A MessagePack map with `id` plus exactly one of `result` / `error`:
 
 ```python
-{"id": 1, "result": "ok"}                          # success
-{"id": 1, "error": "Graph 'unknown' not found"}    # failure
-{"id": 7, "error": "ACCESS_DENIED: agent 'worker2' lacks Write access to graph 'agent:worker1'"}
+{"id": 1, "result": "ok"}  # success
+{"id": 1, "error": "Graph 'unknown' not found"}  # failure
+{
+    "id": 7,
+    "error": "ACCESS_DENIED: agent 'worker2' lacks Write access to graph 'agent:worker1'",
+}
 ```
 
 ## Postgres wire transactions (CONCEPT:EG-KG.compute.kg-transaction-is-pinned)
@@ -289,7 +292,9 @@ await client.channels.create(
     creator="agent:planner",
     initial_members=["agent:researcher"],
 )
-await client.channels.send_message("channel:p2p:planner:researcher", "agent:planner", "Need data on X")
+await client.channels.send_message(
+    "channel:p2p:planner:researcher", "agent:planner", "Need data on X"
+)
 msgs = await client.channels.get_messages("channel:p2p:planner:researcher")
 ```
 

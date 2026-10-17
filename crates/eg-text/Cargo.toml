@@ -40,4 +40,4 @@ tantivy = { version = "0.26", optional = true }
 eg-modality = { path = "../eg-modality", optional = true }
 
 [dev-dependencies]
-tempfile = "3.10"
+tempfile = "3.27"

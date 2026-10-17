@@ -179,27 +179,12 @@ jobs:
             jobs: 2
             optional: true
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
-        with:
-          python-version-file: '.python-version'
-
-      - name: Read tracked Rust toolchain pin
-        id: rust-toolchain
-        shell: bash
-        run: >-
-          python -c "import os,re,tomllib;
-          channel=tomllib.load(open('rust-toolchain.toml','rb'))['toolchain']['channel'];
-          assert re.fullmatch(r'[0-9]+[.][0-9]+[.][0-9]+', channel);
-          open(os.environ['GITHUB_OUTPUT'],'a',encoding='utf-8').write(f'channel={channel}\n')"
-
-      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
-        with:
-          toolchain: ${{ steps.rust-toolchain.outputs.channel }}
-          targets: ${{ matrix.target }}
+      - id: rust-toolchain
+        uses: ./.github/actions/pinned-rust-toolchain
 
       - name: Bind build time to the source revision
         shell: bash
@@ -297,7 +282,7 @@ jobs:
         run: bash scripts/release_wheel_smoke.sh
 
       - name: Upload wheel artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: wheel-${{ matrix.name }}
           path: dist/*.whl
@@ -350,10 +335,10 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version-file: '.python-version'
       - name: Build source archive without native compilation
@@ -361,7 +346,7 @@ jobs:
           python -m pip install 'maturin==1.14.1'
           maturin sdist --out dist-sdist
           python scripts/check_sdist_completeness.py dist-sdist/*.tar.gz
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: source-distribution
           path: dist-sdist/*.tar.gz
@@ -385,13 +370,13 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version-file: '.python-version'
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: wheel-linux-x86_64
           path: dist
@@ -438,15 +423,15 @@ jobs:
           - {arch: macos-arm64, label: macos-arm64, runner: macos-14}
           - {arch: windows-x64, label: windows-x64, runner: windows-latest}
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.guard.outputs.sha }}
           path: source
           persist-credentials: false
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version-file: '.python-version'
       # The packaging directory always comes from the dispatched ref, so a tag cut
@@ -521,7 +506,7 @@ jobs:
               raise SystemExit(f"expected exactly one server script, found {names}")
           print("wheel script:", names[0])
           PY
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: server-wheel-${{ matrix.arch }}
           path: source/dist-server/*.whl
@@ -557,14 +542,14 @@ jobs:
           - {arch: x86_64, runner: ubuntu-latest, platform: linux/amd64}
           - {arch: aarch64, runner: ubuntu-24.04-arm, platform: linux/arm64}
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: server-wheel-${{ matrix.arch }}
           path: docker/wheels
-      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ${{ secrets.DOCKER_REGISTRY }}
@@ -586,7 +571,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/digests"
           echo "${digest}" > "$RUNNER_TEMP/digests/${{ matrix.arch }}"
           echo "version=${version}" >> "$GITHUB_OUTPUT"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: server-digest-${{ matrix.arch }}
           path: ${{ runner.temp }}/digests/${{ matrix.arch }}
@@ -601,12 +586,12 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: server-wheel-*x86_64
           merge-multiple: true
           path: wheels
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: server-digest-*
           merge-multiple: true
@@ -638,15 +623,15 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: wheel-*
           merge-multiple: true
           path: dist
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: source-distribution
           path: dist
@@ -665,11 +650,11 @@ jobs:
             exit 1
           fi
           echo "required wheels present:"; ls -1 dist/*.whl
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version-file: '.python-version'
       - name: Checkout immutable publication contract
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: Knuckles-Team/pipelines
           ref: main
@@ -692,7 +677,7 @@ jobs:
             --directory dist --package epistemic-graph --version "${GITHUB_REF_NAME#v}" \
             --manifest "$RUNNER_TEMP/publication.json"
       # The server package: its wheels are named server-wheel-<arch>, apart from the engine's.
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: server-wheel-*
           merge-multiple: true

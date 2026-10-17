@@ -302,7 +302,8 @@ pub async fn run_ros2_bridge(
                 topic: cfg.out_topic.clone(),
                 msg_type: ROS_STRING_TYPE.to_string(),
             }
-            .to_json(),
+            .to_json()
+            .into(),
         ))
         .await
         .map_err(|e| format!("advertise failed: {e}"))?;
@@ -313,7 +314,8 @@ pub async fn run_ros2_bridge(
                     topic: cfg.in_topic.clone(),
                     msg_type: Some(ROS_STRING_TYPE.to_string()),
                 }
-                .to_json(),
+                .to_json()
+                .into(),
             ))
             .await
             .map_err(|e| format!("subscribe failed: {e}"))?;
@@ -365,7 +367,7 @@ pub async fn run_ros2_bridge(
             outbound = rx.recv() => {
                 match outbound {
                     Some(json) => {
-                        if write.send(Message::Text(json)).await.is_err() {
+                        if write.send(Message::Text(json.into())).await.is_err() {
                             return Err("rosbridge write failed".to_string());
                         }
                     }

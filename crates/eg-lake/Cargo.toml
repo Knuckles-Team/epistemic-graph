@@ -73,7 +73,7 @@ polars-parquet = { version = "0.54.4", optional = true, default-features = false
 # snappy / zstandard / bzip / xz codecs (all C `*-sys`) — we write the Avro container
 # with the always-available NULL codec, which every Iceberg reader (Spark/Trino/DuckDB)
 # opens. Only referenced under `#[cfg(feature = "lake")]`; OUT of pi.
-apache-avro = { version = "0.21", default-features = false, optional = true }
+apache-avro = { version = "0.22", default-features = false, optional = true }
 
 # GOC-76-W01 (Ref, CA-18): the official Apache `iceberg-rust` crate family, added
 # under `lake` alongside the existing hand-written metadata/manifest writer. This

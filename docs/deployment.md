@@ -212,6 +212,7 @@ selectors.
 from epistemic_graph import EpistemicGraphClient
 import asyncio
 
+
 async def main():
     context = {
         "principal": "service:client",
@@ -227,6 +228,7 @@ async def main():
     await client.nodes.add("node:example", {"type": "Entity"})
     print(await client.nodes.has("node:example"))
     await client.close()
+
 
 asyncio.run(main())
 ```

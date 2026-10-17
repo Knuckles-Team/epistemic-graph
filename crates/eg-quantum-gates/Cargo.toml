@@ -12,7 +12,7 @@ name = "eg_quantum_gates"
 [dependencies]
 eg-quantum-core = { path = "../eg-quantum-core" }
 eg-numeric = { path = "../eg-numeric", features = ["complex"] }
-thiserror = "1.0"
+thiserror = "2.0"
 
 [features]
 default = []

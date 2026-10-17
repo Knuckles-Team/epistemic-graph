@@ -370,7 +370,7 @@ rmp-serde = "1.3"
 # Pure-Rust HTTP client with the rustls TLS backend (NOT openssl). `ureq` 2.x bundles
 # rustls + webpki-roots behind its default `tls` feature; we DON'T disable defaults so
 # https works out of the box, but it is rustls/ring — no openssl in the tree.
-ureq = { version = "2.10", optional = true }
+ureq = { version = "2.12", optional = true }
 # Per-endpoint TLS control for the `nl-query` planner (CONCEPT:EG-KG.query.nl-tls-insecure):
 # a custom PEM CA bundle or an insecure no-verify verifier for a trusted internal LLM.
 # Pinned to the SAME `ring` provider ureq already links (NO aws-lc / NO C toolchain — the
@@ -384,7 +384,7 @@ rustls = { version = "0.23", default-features = false, features = [
     "logging",
 ], optional = true }
 webpki-roots = { version = "0.26", optional = true }
-base64 = { version = "0.22", optional = true }
+base64 = { version = "0.23", optional = true }
 # HMAC-SHA256 auth token for the remote-engine source — the SAME scheme src/server/auth.rs
 # computes. Same pins as the facade.
 hmac = { version = "0.12", optional = true }
@@ -407,7 +407,7 @@ sqlx = { version = "0.9", default-features = false, features = [
 # A small current-thread tokio runtime to drive sqlx's async API from the SYNC `fetch()`
 # (which the executor already runs on the blocking pool). Minimal feature set — NOT
 # "full".
-tokio = { version = "1.38", features = ["rt", "net", "time"], optional = true }
+tokio = { version = "1.53", features = ["rt", "net", "time"], optional = true }
 # Stream rows through a hard cardinality bound instead of `fetch_all`-allocating an
 # attacker-controlled result. `sink`/`io` are unnecessary for this read-only source.
 futures-util = { version = "0.3", default-features = false, features = ["std"], optional = true }
@@ -419,18 +419,18 @@ url = { version = "2", optional = true }
 # Variable-length-hop TRAVERSE BFS over GraphView's StableDiGraph (EdgeRef). Already
 # linked transitively via eg-core; pin the same minor. NOT a new heavy dep, and the
 # graph leg is dep-free (ships in a default/Pi build).
-petgraph = { version = "0.6.4", features = ["serde-1"] }
+petgraph = { version = "0.8.3", features = ["serde-1"] }
 # The work-stealing data-parallel pool backing the `par-runtime` `ParallelDriver` (Lane B,
 # CONCEPT:EG-KG.query.parallel-runtime). Optional + only referenced under
 # #[cfg(feature = "par-runtime")]; pure-Rust (no C dep), same pin as eg-ann/eg-compute. A
 # default/Pi build links no rayon.
-rayon = { version = "1.10", optional = true }
+rayon = { version = "1.12", optional = true }
 # Arrow columnar backing for `KnowledgeBatch` (feature `knowledge-batch`,
 # CONCEPT:EG-P1-2). Same Arrow 58.3 pin as the query/TSDB surface, so this does
 # not introduce a second Apache Arrow version into the workspace lock. Optional + only
 # referenced under #[cfg(feature = "knowledge-batch")]; a default/Pi build links
 # none of it.
-arrow = { version = "58.3", optional = true }
+arrow = { version = "58.4", optional = true }
 
 [dev-dependencies]
 # The oracle/algebra tests build a fixture GraphCore + SemanticStore and run the
@@ -472,7 +472,7 @@ wat = "1"
 # default `cargo bench -p eg-plan` skips it (no execute leg) and the CI perf gate runs it
 # with the full feature set. `default-features = false` drops criterion's optional
 # `rayon`/HTML plotting deps the gate does not need.
-criterion = { version = "0.5", default-features = false }
+criterion = { version = "0.8", default-features = false }
 
 # ── Perf / recall CI benchmark (CONCEPT:EG-KG.query.hybrid-latency-benches/recall-oracle-bench/synthetic-bench-dataset) ──────────────────────────
 # Representative hybrid pipelines (MATCH→TRAVERSE→RANK, REASON→RANK→TRAVERSE,

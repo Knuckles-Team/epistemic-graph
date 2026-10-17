@@ -48,8 +48,8 @@ fn bench_parse(c: &mut Criterion) {
     group.throughput(Throughput::Bytes(total_bytes as u64));
     group.bench_function("rust_32_files", |b| {
         b.iter(|| {
-            let out = parse_files(criterion::black_box(&files));
-            criterion::black_box(out);
+            let out = parse_files(std::hint::black_box(&files));
+            std::hint::black_box(out);
         });
     });
     group.finish();
