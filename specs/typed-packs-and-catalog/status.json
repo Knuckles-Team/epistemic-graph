@@ -213,7 +213,17 @@
     "EG-TYPED-PACKS-R104.3",
     "EG-TYPED-PACKS-R104.4",
     "EG-TYPED-PACKS-R104.5",
-    "EG-TYPED-PACKS-R104.6"
+    "EG-TYPED-PACKS-R104.6",
+    "EG-TYPED-PACKS-R750",
+    "EG-TYPED-PACKS-R750.750",
+    "EG-TYPED-PACKS-R750.751",
+    "EG-TYPED-PACKS-R750.752",
+    "EG-TYPED-PACKS-R750.753",
+    "EG-TYPED-PACKS-R751",
+    "EG-TYPED-PACKS-R751.750",
+    "EG-TYPED-PACKS-R751.751",
+    "EG-TYPED-PACKS-R751.752",
+    "EG-TYPED-PACKS-R751.753"
   ],
   "requirements": [
     {
@@ -2303,6 +2313,88 @@
     {
       "id": "EG-TYPED-PACKS-R104.6",
       "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R750",
+      "title": "Domain packs for workforce, legal, medical and government vocabularies (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-TYPED-PACKS-R750.750",
+        "EG-TYPED-PACKS-R750.751",
+        "EG-TYPED-PACKS-R750.752",
+        "EG-TYPED-PACKS-R750.753"
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R750.750",
+      "title": "Model: Domain packs for workforce, legal, medical and government vocabularies",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R750.751",
+      "title": "Behavior: Domain packs for workforce, legal, medical and government vocabularies",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R750.752",
+      "title": "Refusal: Domain packs for workforce, legal, medical and government vocabularies",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R750.753",
+      "title": "Hot-path proof: Domain packs for workforce, legal, medical and government vocabularies",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R751",
+      "title": "Specialist registry, provider discovery, transactional install and capability contract (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-TYPED-PACKS-R751.750",
+        "EG-TYPED-PACKS-R751.751",
+        "EG-TYPED-PACKS-R751.752",
+        "EG-TYPED-PACKS-R751.753"
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R751.750",
+      "title": "Model: Specialist registry, provider discovery, transactional install and capability contract",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R751.751",
+      "title": "Behavior: Specialist registry, provider discovery, transactional install and capability contract",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R751.752",
+      "title": "Refusal: Specialist registry, provider discovery, transactional install and capability contract",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R751.753",
+      "title": "Hot-path proof: Specialist registry, provider discovery, transactional install and capability contract",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
