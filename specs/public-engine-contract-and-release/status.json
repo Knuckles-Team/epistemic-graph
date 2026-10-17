@@ -979,7 +979,7 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [
-        "tests/test_release_full_wheel_contract.py:669"
+        "tests/test_release_full_wheel_contract.py:679"
       ]
     },
     {
@@ -1002,7 +1002,7 @@
       "verified_by": [
         "tests/test_server_package.py:34",
         "tests/test_server_package.py:47",
-        "tests/test_server_package.py:85"
+        "tests/test_server_package.py:88"
       ]
     },
     {
@@ -1011,7 +1011,7 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [
-        "tests/test_server_package.py:104"
+        "tests/test_server_package.py:107"
       ]
     },
     {
@@ -1020,7 +1020,7 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [
-        "tests/test_server_package.py:114"
+        "tests/test_server_package.py:117"
       ]
     },
     {
@@ -1029,8 +1029,8 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [
-        "tests/test_server_package.py:136",
-        "tests/test_server_package.py:154"
+        "tests/test_server_package.py:139",
+        "tests/test_server_package.py:157"
       ]
     }
   ]

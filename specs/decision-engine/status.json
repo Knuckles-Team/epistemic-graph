@@ -2902,7 +2902,7 @@
         "be0f1acb05c6"
       ],
       "verified_by": [
-        "src/server/auth.rs:2007",
+        "src/server/auth.rs:2010",
         "src/server/blob/store/tests.rs:369"
       ]
     },

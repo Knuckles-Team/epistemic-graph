@@ -3273,10 +3273,10 @@
       "title": "The engine serves its key-value modality as the memory read and save methods (rollup)",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "2393e9bc7050",
-        "a7b99166ada5",
-        "e93b0ab360e8",
-        "faa8867b4ff7"
+        "34d9e78dbe3c",
+        "48284711e3db",
+        "70d7b722668b",
+        "b714af935390"
       ],
       "verified_by": [
         "src/server/kv/dispatch_tests.rs:158"
@@ -3295,9 +3295,9 @@
       "title": "Served contract",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "95f0d8719878",
-        "bf40f68e6f43",
-        "faa8867b4ff7"
+        "34d9e78dbe3c",
+        "5430f4d714ee",
+        "74f3436402b8"
       ],
       "verified_by": [
         "src/server/kv/dispatch_tests.rs:159"
@@ -3308,8 +3308,8 @@
       "title": "Scope and authorization",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "bf40f68e6f43",
-        "faa8867b4ff7"
+        "34d9e78dbe3c",
+        "74f3436402b8"
       ],
       "verified_by": [
         "src/server/kv/dispatch_tests.rs:261"
@@ -3320,8 +3320,8 @@
       "title": "Versioned compare-and-swap and bounded paginated scan",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "95f0d8719878",
-        "faa8867b4ff7"
+        "34d9e78dbe3c",
+        "5430f4d714ee"
       ],
       "verified_by": [
         "src/server/kv/dispatch_tests.rs:160",
@@ -3334,8 +3334,8 @@
       "title": "Durable, audited, replayable mutations",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "95f0d8719878",
-        "faa8867b4ff7"
+        "34d9e78dbe3c",
+        "5430f4d714ee"
       ],
       "verified_by": [
         "src/server/kv/dispatch_tests.rs:314"
@@ -3346,8 +3346,8 @@
       "title": "Hot-path proof",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "a7b99166ada5",
-        "faa8867b4ff7"
+        "34d9e78dbe3c",
+        "48284711e3db"
       ],
       "verified_by": [
         "src/server/kv/dispatch_tests.rs:371"
@@ -3358,7 +3358,7 @@
       "title": "Opt-in shared namespace",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "e93b0ab360e8"
+        "b714af935390"
       ],
       "verified_by": [
         "src/server/kv/dispatch_tests.rs:441"
