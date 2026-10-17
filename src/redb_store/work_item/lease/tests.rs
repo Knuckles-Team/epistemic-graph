@@ -66,10 +66,10 @@ fn fenced_metadata_cas_uses_mutation_time_and_preserves_refused_rows() {
             )
         })
         .unwrap();
-        let crate::protocol::ResultPayload::Json(value) = payload else {
-            panic!("expected JSON result")
+        let crate::protocol::ResultPayload::Raw(bytes) = payload else {
+            panic!("expected MessagePack metadata CAS result")
         };
-        let result: CasWorkItemMetadataResult = serde_json::from_value(value).unwrap();
+        let result: CasWorkItemMetadataResult = rmp_serde::from_slice(&bytes).unwrap();
         let after = with_nodes(&temp.shard, "after", |nodes| {
             Ok(nodes.get((GRAPH, "work-a"))?.unwrap().value().to_vec())
         });
