@@ -230,6 +230,12 @@
     "EG-DURABLE-KERNEL-R095.4",
     "EG-DURABLE-KERNEL-R095.5",
     "EG-DURABLE-KERNEL-R095.6",
+    "EG-DURABLE-KERNEL-R095.1000",
+    "EG-DURABLE-KERNEL-R095.1001",
+    "EG-DURABLE-KERNEL-R095.1002",
+    "EG-DURABLE-KERNEL-R095.1003",
+    "EG-DURABLE-KERNEL-R095.1004",
+    "EG-DURABLE-KERNEL-R095.1005",
     "EG-DURABLE-KERNEL-R096",
     "EG-DURABLE-KERNEL-R096.1",
     "EG-DURABLE-KERNEL-R096.2",
@@ -2775,7 +2781,13 @@
         "EG-DURABLE-KERNEL-R095.3",
         "EG-DURABLE-KERNEL-R095.4",
         "EG-DURABLE-KERNEL-R095.5",
-        "EG-DURABLE-KERNEL-R095.6"
+        "EG-DURABLE-KERNEL-R095.6",
+        "EG-DURABLE-KERNEL-R095.1000",
+        "EG-DURABLE-KERNEL-R095.1001",
+        "EG-DURABLE-KERNEL-R095.1002",
+        "EG-DURABLE-KERNEL-R095.1003",
+        "EG-DURABLE-KERNEL-R095.1004",
+        "EG-DURABLE-KERNEL-R095.1005"
       ]
     },
     {
@@ -2816,6 +2828,48 @@
     {
       "id": "EG-DURABLE-KERNEL-R095.6",
       "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R095.1000",
+      "title": "Model: served agent bus",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R095.1001",
+      "title": "Behavior: served agent bus",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R095.1002",
+      "title": "Wiring: served agent bus",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R095.1003",
+      "title": "Refusal: served agent bus",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R095.1004",
+      "title": "Evidence: served agent bus",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R095.1005",
+      "title": "Hot-path proof: served agent bus",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
