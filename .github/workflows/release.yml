@@ -425,8 +425,9 @@ jobs:
       PYTHONUTF8: '1'
       # The hosted macOS arm64 runner (3 CPUs, 7 GB) cannot finish the fat-LTO,
       # one-codegen-unit link of the server (it swaps past the 6-hour job limit);
-      # it links with thin LTO and parallel codegen. Every other leg keeps the
-      # release-server profile unchanged.
+      # it links with thin LTO and parallel codegen. linux-aarch64 does the same
+      # inside the manylinux container (build-server-wheel action); x86_64 and
+      # Windows keep the release-server profile unchanged.
       CARGO_PROFILE_RELEASE_SERVER_LTO: ${{ matrix.arch == 'macos-arm64' && 'thin' || 'fat' }}
       CARGO_PROFILE_RELEASE_SERVER_CODEGEN_UNITS: ${{ matrix.arch == 'macos-arm64' && '16' || '1' }}
     strategy:
@@ -482,24 +483,8 @@ jobs:
               path.write_text(text)
           print(f"version={version}")
           PY
-      # The fat-LTO single-codegen-unit link of the server binary outgrows the 16 GB
-      # hosted runner (rustc SIGKILLed by the OOM killer on aarch64, v2.27.1). Swap
-      # lets the same `release-server` profile build on every architecture.
-      - name: Add swap for the fat-LTO server link
-        if: runner.os == 'Linux'
-        run: |
-          set -euo pipefail
-          df -h /
-          free -h
-          avail_gb="$(df --output=avail -BG / | tail -1 | tr -dc '0-9')"
-          size_gb=24
-          if [ "$avail_gb" -lt $((size_gb + 15)) ]; then size_gb=$((avail_gb - 15)); fi
-          test "$size_gb" -ge 8 || { echo "not enough free disk for swap: ${avail_gb}G" >&2; exit 1; }
-          sudo fallocate -l "${size_gb}G" /swapfile2
-          sudo chmod 600 /swapfile2
-          sudo mkswap /swapfile2
-          sudo swapon /swapfile2
-          free -h
+      # Swap and the aarch64 thin-LTO link live in the shared build-server-wheel
+      # action, so this leg and ci.yml's warm-cache build stay identical.
       - name: Build the server wheel (release-server profile)
         uses: ./.github/actions/build-server-wheel
         with:

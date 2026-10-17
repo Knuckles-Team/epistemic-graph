@@ -47,6 +47,26 @@ runs:
         shared-key: egs-${{ steps.env.outputs.key }}
         workspaces: ${{ inputs.source-dir }} -> target
         save-if: ${{ inputs.cache-save == 'true' }}
+    # The fat-LTO, one-codegen-unit link of the server outgrows the 16 GB hosted
+    # Linux runners: rustc is SIGKILLed by the OOM killer (aarch64 on v2.27.1 and
+    # on main's warm-cache job, where no swap existed). Every caller gets the swap
+    # here, so the release and the warm-cache build cannot diverge again.
+    - name: Add swap for the server link
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        set -euo pipefail
+        df -h /
+        free -h
+        avail_gb="$(df --output=avail -BG / | tail -1 | tr -dc '0-9')"
+        size_gb=24
+        if [ "$avail_gb" -lt $((size_gb + 15)) ]; then size_gb=$((avail_gb - 15)); fi
+        test "$size_gb" -ge 8 || { echo "not enough free disk for swap: ${avail_gb}G" >&2; exit 1; }
+        sudo fallocate -l "${size_gb}G" /swapfile-egs
+        sudo chmod 600 /swapfile-egs
+        sudo mkswap /swapfile-egs
+        sudo swapon /swapfile-egs
+        free -h
     - name: Build the wheel in the manylinux_2_28 container
       id: build
       if: runner.os == 'Linux'
@@ -59,8 +79,15 @@ runs:
       run: |
         set -euo pipefail
         src="$(cd "$SOURCE_DIR" && pwd)"
-        # Hosted runners have 16 GB: the aarch64 fat-LTO link needs a single cargo job.
-        if [ "$ARCH" = aarch64 ]; then image="$ARM_IMAGE"; jobs=1; else image="$X86_IMAGE"; jobs=4; fi
+        # The aarch64 runner's fat-LTO, single-codegen-unit link of the whole engine
+        # was OOM-killed (SIGKILL) even with swap, intermittently. It links with
+        # thin LTO and parallel codegen, as the macOS arm64 leg already does; the
+        # x86_64 leg keeps the release-server profile unchanged.
+        if [ "$ARCH" = aarch64 ]; then
+          image="$ARM_IMAGE"; jobs=1; lto=thin; cgu=16
+        else
+          image="$X86_IMAGE"; jobs=4; lto=fat; cgu=1
+        fi
         rm -rf -- "$src/dist-server"
         mkdir -p "$src/dist-server" "$HOME/.cargo" "$HOME/.rustup"
         cat > "$RUNNER_TEMP/egs-build.sh" <<'INNER'
@@ -70,7 +97,7 @@ runs:
         /opt/python/cp312-cp312/bin/python -m venv /tmp/mv
         /tmp/mv/bin/pip install --quiet "maturin==1.15.0"
         if [ "$ARCH" = aarch64 ]; then
-          # GNU ld runs out of memory on the fat-LTO link: keep GCC, swap in the bundled LLD.
+          # GNU ld runs out of memory on the server link: keep GCC, swap in the bundled LLD.
           gcc_ld="$(rustc --print sysroot)/lib/rustlib/aarch64-unknown-linux-gnu/bin/gcc-ld"
           test -x "$gcc_ld/ld.lld"
           export CARGO_ENCODED_RUSTFLAGS="$(printf -- '-Clink-arg=-B%s\037-Clink-arg=-fuse-ld=lld' "$gcc_ld")"
@@ -82,6 +109,7 @@ runs:
           -e HOME=/tmp/home -e CARGO_HOME="$HOME/.cargo" -e RUSTUP_HOME="$HOME/.rustup" \
           -e CARGO_TERM_COLOR=always -e CARGO_NET_RETRY=10 -e CARGO_INCREMENTAL=0 \
           -e "ARCH=$ARCH" -e "JOBS=$jobs" -e "SRC=$src" \
+          -e "CARGO_PROFILE_RELEASE_SERVER_LTO=$lto" -e "CARGO_PROFILE_RELEASE_SERVER_CODEGEN_UNITS=$cgu" \
           -v "$src:$src" -v "$HOME/.cargo:$HOME/.cargo" -v "$HOME/.rustup:$HOME/.rustup" \
           -v "$RUNNER_TEMP/egs-build.sh:/egs-build.sh:ro" \
           -w "$src/packaging/epistemic-graph-server" "$image" bash /egs-build.sh
