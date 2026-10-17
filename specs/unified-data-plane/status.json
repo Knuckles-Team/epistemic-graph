@@ -200,7 +200,12 @@
     "EG-UNIFIED-DATA-PLANE-R612.3",
     "EG-UNIFIED-DATA-PLANE-R612.4",
     "EG-UNIFIED-DATA-PLANE-R612.5",
-    "EG-UNIFIED-DATA-PLANE-R612.6"
+    "EG-UNIFIED-DATA-PLANE-R612.6",
+    "EG-UNIFIED-DATA-PLANE-R750",
+    "EG-UNIFIED-DATA-PLANE-R750.750",
+    "EG-UNIFIED-DATA-PLANE-R750.751",
+    "EG-UNIFIED-DATA-PLANE-R750.752",
+    "EG-UNIFIED-DATA-PLANE-R750.753"
   ],
   "requirements": [
     {
@@ -2407,6 +2412,47 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R612.6",
       "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R750",
+      "title": "Conversation history source, run audit rows and step store (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-UNIFIED-DATA-PLANE-R750.750",
+        "EG-UNIFIED-DATA-PLANE-R750.751",
+        "EG-UNIFIED-DATA-PLANE-R750.752",
+        "EG-UNIFIED-DATA-PLANE-R750.753"
+      ]
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R750.750",
+      "title": "Model: Conversation history source, run audit rows and step store",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R750.751",
+      "title": "Behavior: Conversation history source, run audit rows and step store",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R750.752",
+      "title": "Refusal: Conversation history source, run audit rows and step store",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R750.753",
+      "title": "Hot-path proof: Conversation history source, run audit rows and step store",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

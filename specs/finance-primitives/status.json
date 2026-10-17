@@ -160,7 +160,17 @@
     "EG-FINANCE-PRIMITIVES-R613.3",
     "EG-FINANCE-PRIMITIVES-R613.4",
     "EG-FINANCE-PRIMITIVES-R613.5",
-    "EG-FINANCE-PRIMITIVES-R613.6"
+    "EG-FINANCE-PRIMITIVES-R613.6",
+    "EG-FINANCE-PRIMITIVES-R750",
+    "EG-FINANCE-PRIMITIVES-R750.750",
+    "EG-FINANCE-PRIMITIVES-R750.751",
+    "EG-FINANCE-PRIMITIVES-R750.752",
+    "EG-FINANCE-PRIMITIVES-R750.753",
+    "EG-FINANCE-PRIMITIVES-R751",
+    "EG-FINANCE-PRIMITIVES-R751.750",
+    "EG-FINANCE-PRIMITIVES-R751.751",
+    "EG-FINANCE-PRIMITIVES-R751.752",
+    "EG-FINANCE-PRIMITIVES-R751.753"
   ],
   "requirements": [
     {
@@ -1629,6 +1639,88 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R613.6",
       "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R750",
+      "title": "Quantitative finance research kernels: factors, portfolio, risk, regimes and microstructure (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-FINANCE-PRIMITIVES-R750.750",
+        "EG-FINANCE-PRIMITIVES-R750.751",
+        "EG-FINANCE-PRIMITIVES-R750.752",
+        "EG-FINANCE-PRIMITIVES-R750.753"
+      ]
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R750.750",
+      "title": "Model: Quantitative finance research kernels: factors, portfolio, risk, regimes and microstructure",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R750.751",
+      "title": "Behavior: Quantitative finance research kernels: factors, portfolio, risk, regimes and microstructure",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R750.752",
+      "title": "Refusal: Quantitative finance research kernels: factors, portfolio, risk, regimes and microstructure",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R750.753",
+      "title": "Hot-path proof: Quantitative finance research kernels: factors, portfolio, risk, regimes and microstructure",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R751",
+      "title": "Strategy research records: debates, journals, versioned orders, forensic screens and sentiment fusion (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-FINANCE-PRIMITIVES-R751.750",
+        "EG-FINANCE-PRIMITIVES-R751.751",
+        "EG-FINANCE-PRIMITIVES-R751.752",
+        "EG-FINANCE-PRIMITIVES-R751.753"
+      ]
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R751.750",
+      "title": "Model: Strategy research records: debates, journals, versioned orders, forensic screens and sentiment fusion",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R751.751",
+      "title": "Behavior: Strategy research records: debates, journals, versioned orders, forensic screens and sentiment fusion",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R751.752",
+      "title": "Refusal: Strategy research records: debates, journals, versioned orders, forensic screens and sentiment fusion",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R751.753",
+      "title": "Hot-path proof: Strategy research records: debates, journals, versioned orders, forensic screens and sentiment fusion",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
