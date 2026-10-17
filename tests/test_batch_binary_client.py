@@ -37,7 +37,8 @@ pytestmark = pytest.mark.no_engine
 def test_result_decoder_preserves_only_declared_opaque_binary_methods() -> None:
     opaque = b"\xc1not-inner-msgpack"
     assert _decode_send_result("RunUdf", opaque) is opaque
-    assert _decode_send_result("KvGet", opaque) is opaque
+    entry = msgpack.packb({"value": opaque, "version": 3}, use_bin_type=True)
+    assert _decode_send_result("KvGet", entry) == {"value": opaque, "version": 3}
 
     structured = msgpack.packb({"rows": [1, 2]}, use_bin_type=True)
     assert _decode_send_result("Sql", structured) == {"rows": [1, 2]}

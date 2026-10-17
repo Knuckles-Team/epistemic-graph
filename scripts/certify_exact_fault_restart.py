@@ -795,7 +795,7 @@ def _kv_present(engine: ExactEngine, _state: State) -> bool:
             "KvGet", {"namespace": "certification", "key": "atomic-key"}
         ),
     )
-    return value == b"complete"
+    return isinstance(value, dict) and value.get("value") == b"complete"
 
 
 def _timeseries_mutation(engine: ExactEngine, _state: State) -> None:

@@ -3,17 +3,16 @@ macro_rules! __eg_method_chunk_7 {
         __eg_method_chunk_8!(@acc [
 $($variants)*
 
-    /// Atomic compare-and-swap: set `(namespace, key)` to `new` (`None` ⇒ delete) iff
-    /// the current value equals `expected` (both absent ⇒ the key must not exist).
-    /// Returns whether the swap happened. `expected`/`new` are MessagePack `bin`.
+    /// Atomic compare-and-swap on the row version: set `(namespace, key)` to `new`
+    /// (`None` ⇒ delete) iff its current version equals `expected_version` (`0` ⇒ the
+    /// key must not exist). Answers whether the swap happened and the key's version
+    /// after the call. `new` is a MessagePack `bin`.
     #[cfg(feature = "kv")]
     KvCas {
         namespace: String,
         key: String,
-        #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
-        #[serde(default, with = "serde_bytes")]
-        expected: Option<Vec<u8>>,
-        #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
+        expected_version: u64,
+        #[cfg_attr(feature = "contract-schema", schemars(with = "Option<Vec<u8>>"))]
         #[serde(default, with = "serde_bytes")]
         new: Option<Vec<u8>>,
     },

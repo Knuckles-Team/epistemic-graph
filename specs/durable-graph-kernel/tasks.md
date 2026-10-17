@@ -234,3 +234,8 @@ This batch defines the slices; it runs none of their runtime tests.
 - [ ] **EG-DURABLE-KERNEL-R101.4 (Refusal):** Add the typed refusals.
 - [ ] **EG-DURABLE-KERNEL-R101.5 (Evidence):** Emit the evidence.
 - [ ] **EG-DURABLE-KERNEL-R101.6 (Hot-path proof):** Add the served hot-path test.
+- [x] **EG-DURABLE-KERNEL-R102.1 (Served contract):** Mark the five KV methods stable and Python-served; typed results; regenerate the contract and client.
+- [x] **EG-DURABLE-KERNEL-R102.2 (Scope and authorization):** Scope served keys by tenant, principal, graph and namespace; enforce `kv:read`/`kv:write`.
+- [x] **EG-DURABLE-KERNEL-R102.3 (CAS and scan):** Version-stamped rows, version CAS, bounded cursor-paginated scan.
+- [x] **EG-DURABLE-KERNEL-R102.4 (Durable mutations):** Audit lines, policy flags and replay for the KV mutations.
+- [x] **EG-DURABLE-KERNEL-R102.5 (Hot-path proof):** Served latency test with p50/p99 budgets.

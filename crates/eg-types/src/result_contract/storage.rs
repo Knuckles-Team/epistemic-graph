@@ -23,7 +23,10 @@ use crate::decision::{AssemblyResult, DecisionCommitResult};
 use crate::series_expr::DerivedSeriesReceipt;
 #[cfg(feature = "query")]
 use crate::storage_wire::SqlSourceBatchResult;
-use crate::storage_wire::{BackupReceipt, RestoreReceipt, SqliteExportReport, SqliteImportReport};
+use crate::storage_wire::{
+    BackupReceipt, KvCasOutcome, KvEntry, KvScanPage, KvWriteReceipt, RestoreReceipt,
+    SqliteExportReport, SqliteImportReport,
+};
 use crate::write_back::{
     ReconciliationReceipt, SourceChangeSet, WriteBackReceipt, WriteBackReceiptPage,
 };
@@ -84,13 +87,13 @@ method_results! {
     BlobUnref(BlobUnref) => Count<u64>;
     // `(blobs_reclaimed, chunks_reclaimed)`.
     BlobGc(BlobGc) => Raw<(u64, u64)>;
-    // The stored value bytes, served verbatim, or null when the key is absent.
-    KvGet(KvGet) => RawOrNull<Dynamic> dynamic CallerBytes;
-    KvPut(KvPut) => Text<String>;
+    // The stored value bytes and their version, or null when the key is absent.
+    KvGet(KvGet) => Raw<Option<KvEntry>>;
+    KvPut(KvPut) => Raw<KvWriteReceipt>;
     KvDelete(KvDelete) => Bool<bool>;
-    // `(key, value)` pairs; each value is the caller's stored bytes as a MessagePack `bin`.
-    KvScan(KvScan) => Raw<Dynamic> dynamic CallerBytes;
-    KvCas(KvCas) => Bool<bool>;
+    // One bounded page of `(key, value, version)` rows and the next-page cursor.
+    KvScan(KvScan) => Raw<KvScanPage>;
+    KvCas(KvCas) => Raw<KvCasOutcome>;
     #[cfg(feature = "query")]
     SqlSourceBatch(SqlSourceBatch) => Raw<SqlSourceBatchResult>;
     AgentComponentContent(AgentComponent / "content") => Raw<AgentComponentContentResult>;
