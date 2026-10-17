@@ -101,17 +101,30 @@ pub(super) fn resolve_kv_store(
 }
 
 /// One served KV call's verified context.
+#[derive(Clone, Copy)]
 pub(super) struct KvCall<'a> {
     pub(super) req_id: u64,
     pub(super) store: &'a KvStore,
     pub(super) authority: &'a CarrierAuthority,
     /// The verified request graph; part of every served key's scope.
     pub(super) graph: &'a str,
+    /// Whether the method named the tenant+graph shared namespace.
+    pub(super) shared: bool,
 }
 
 impl KvCall<'_> {
     fn namespace(&self, local: &str) -> String {
-        super::wire::wire_namespace(self.authority, self.graph, local)
+        super::wire::wire_namespace(self.authority, self.graph, local, self.shared)
+    }
+
+    /// Who owns the kernel scope (and so the version sequence) of this call's
+    /// namespace: the tenant for a shared namespace, else tenant+principal.
+    fn scope_owner(&self) -> &str {
+        if self.shared {
+            self.authority.tenant_scope()
+        } else {
+            self.authority.owner_scope()
+        }
     }
 
     /// Compile, admit and commit one served mutation, then emit its audit event.
@@ -121,8 +134,13 @@ impl KvCall<'_> {
         method: &Method,
         apply: impl FnOnce(&super::wire::WireWrite<'_>) -> Result<T, String>,
     ) -> Result<T, String> {
-        let (batch, at_ms, expected) =
-            compile_kv_batch(self.store, self.req_id, self.authority, namespace, method)?;
+        let (batch, at_ms, expected) = compile_kv_batch(
+            self.store,
+            self.req_id,
+            self.authority,
+            (self.scope_owner(), namespace),
+            method,
+        )?;
         let write = super::wire::WireWrite {
             batch: &batch,
             at_ms,
@@ -136,6 +154,7 @@ impl KvCall<'_> {
                 batch_id = %batch.batch_id,
                 tenant = %self.authority.tenant_scope(),
                 actor = %self.authority.actor_scope(),
+                shared = self.shared,
                 "kv mutation committed"
             );
         }
@@ -143,28 +162,47 @@ impl KvCall<'_> {
     }
 }
 
+/// Whether a KV method names the tenant+graph shared namespace.
+fn names_shared(method: &Method) -> bool {
+    matches!(
+        method,
+        Method::KvGet { shared: true, .. }
+            | Method::KvPut { shared: true, .. }
+            | Method::KvDelete { shared: true, .. }
+            | Method::KvScan { shared: true, .. }
+            | Method::KvCas { shared: true, .. }
+    )
+}
+
 /// Serve one `Method::Kv*` call. The caller has already checked `is_kv_method`.
 pub(super) fn handle(call: &KvCall<'_>, method: Method) -> Response {
+    let call = &KvCall {
+        shared: names_shared(&method),
+        ..*call
+    };
     let original = method.clone();
     match method {
-        Method::KvGet { namespace, key } => kv_get(call, &namespace, &key),
+        Method::KvGet { namespace, key, .. } => kv_get(call, &namespace, &key),
         Method::KvPut {
             namespace,
             key,
             value,
+            ..
         } => kv_put(call, &original, (&namespace, &key), value),
-        Method::KvDelete { namespace, key } => kv_delete(call, &original, &namespace, &key),
+        Method::KvDelete { namespace, key, .. } => kv_delete(call, &original, &namespace, &key),
         Method::KvScan {
             namespace,
             prefix,
             limit,
             cursor,
+            ..
         } => kv_scan(call, &namespace, &prefix, (cursor.as_deref(), limit)),
         Method::KvCas {
             namespace,
             key,
             expected_version,
             new,
+            ..
         } => kv_cas(call, &original, (&namespace, &key), expected_version, new),
         _ => Response::err(call.req_id, "kv dispatch routing error"),
     }

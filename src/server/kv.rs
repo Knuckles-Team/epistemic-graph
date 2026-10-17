@@ -602,6 +602,7 @@ pub(crate) async fn try_handle(
         store: &store,
         authority,
         graph,
+        shared: false,
     };
     Ok(dispatch_handlers::handle(&call, method))
 }
@@ -610,17 +611,17 @@ fn compile_kv_batch(
     store: &KvStore,
     req_id: u64,
     authority: &CarrierAuthority,
-    namespace: &str,
+    (scope_owner, namespace): (&str, &str),
     method: &Method,
 ) -> Result<(MutationBatch, u64, u64), String> {
     if namespace.trim().is_empty() {
         return Err("KV namespace must not be empty".to_string());
     }
-    let scope = crate::server::mutation_batch::opaque_coordinator_key(
-        "kv-scope",
-        authority.owner_scope(),
-        namespace,
-    );
+    // `scope_owner` is the verified owner scope for a private namespace and the
+    // verified tenant scope for a shared one, so every writer of one namespace
+    // advances ONE kernel version sequence.
+    let scope =
+        crate::server::mutation_batch::opaque_coordinator_key("kv-scope", scope_owner, namespace);
     // The batch id is part of the canonical outbox key.  It must identify the
     // verified operation across transport retries, while the request id and
     // nonce identify only this attempt.  Derive it from the same authenticated
@@ -673,7 +674,7 @@ fn compile_kv_batch(
 fn is_kv_method(method: &Method) -> bool {
     matches!(
         eg_capabilities::policy(method).authz_action,
-        "kv:read" | "kv:write"
+        "kv:read" | "kv:write" | "kv:shared:write"
     )
 }
 

@@ -9,7 +9,7 @@ pub(super) fn audit_line(method: &Method) -> Option<String> {
     use sha2::{Digest, Sha256};
     let (event, namespace, key) = match method {
         Method::KvPut { namespace, key, .. } => ("KV_PUT", namespace, key),
-        Method::KvDelete { namespace, key } => ("KV_DELETE", namespace, key),
+        Method::KvDelete { namespace, key, .. } => ("KV_DELETE", namespace, key),
         Method::KvCas { namespace, key, .. } => ("KV_CAS", namespace, key),
         _ => return None,
     };

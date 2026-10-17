@@ -642,7 +642,10 @@ def main() -> None:
                 # tenant+actor owner scope and the request graph.
                 kv.count('authority.namespace("kv-namespace", &scoped)') == 1,
                 kv.count("call.namespace(namespace)") == 5,
-                "super::wire::wire_namespace(self.authority, self.graph, local)" in kv,
+                "wire_namespace(self.authority, self.graph, local, self.shared)" in kv,
+                # The opt-in shared namespace drops only the principal: it stays
+                # bound to the verified tenant and request graph.
+                '"kv-shared-namespace",\n            authority.tenant_scope(),' in kv,
                 "authority.tenant_scope()" in kv,
                 "authority.actor_scope()" in kv,
             )

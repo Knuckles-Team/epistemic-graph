@@ -217,6 +217,9 @@ pub(crate) fn coarse_kg_admin_only(action: &str) -> bool {
         || action.starts_with("security:")
         || action.ends_with(":admin")
         || action.ends_with(":control")
+        // A shared-namespace write reaches every principal of the tenant+graph:
+        // only its own action or kg:admin grants it, never coarse kg:write.
+        || action.ends_with(":shared:write")
 }
 
 /// Deployment policy used to turn signed v2 claims into a trusted context.

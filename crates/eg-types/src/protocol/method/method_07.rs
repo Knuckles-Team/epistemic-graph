@@ -15,6 +15,11 @@ $($variants)*
         #[cfg_attr(feature = "contract-schema", schemars(with = "Option<Vec<u8>>"))]
         #[serde(default, with = "serde_bytes")]
         new: Option<Vec<u8>>,
+        /// `true` scopes the key to the verified tenant and request graph, shared by
+        /// every principal there (writes need `kv:shared:write`); `false` (the
+        /// default) keeps it private to the calling principal.
+        #[serde(default)]
+        shared: bool,
     },
 
 

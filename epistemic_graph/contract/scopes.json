@@ -576,6 +576,12 @@
       "approver_group": null,
       "class": "user",
       "owner": "engine",
+      "scope": "kv:shared:write"
+    },
+    {
+      "approver_group": null,
+      "class": "user",
+      "owner": "engine",
       "scope": "kv:write"
     },
     {

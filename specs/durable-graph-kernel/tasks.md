@@ -239,3 +239,4 @@ This batch defines the slices; it runs none of their runtime tests.
 - [x] **EG-DURABLE-KERNEL-R102.3 (CAS and scan):** Version-stamped rows, version CAS, bounded cursor-paginated scan.
 - [x] **EG-DURABLE-KERNEL-R102.4 (Durable mutations):** Audit lines, policy flags and replay for the KV mutations.
 - [x] **EG-DURABLE-KERNEL-R102.5 (Hot-path proof):** Served latency test with p50/p99 budgets.
+- [x] **EG-DURABLE-KERNEL-R102.6 (Shared namespace):** `shared` flag scoped to tenant + graph, gated by `kv:shared:write`.
