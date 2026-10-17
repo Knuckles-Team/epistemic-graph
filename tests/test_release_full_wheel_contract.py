@@ -471,6 +471,28 @@ def test_rejects_incomplete_or_misidentified_sources(tmp_path, kwargs, match):
         )
 
 
+@pytest.mark.parametrize("shipped", [False, True])
+def test_sdist_declared_license_file_must_ship(tmp_path, shipped):
+    # PyPI answers 400 to an sdist whose PKG-INFO `License-File` is absent.
+    path = tmp_path / "epistemic_graph-2.27.1.tar.gz"
+    entries = {
+        "Cargo.toml": '[package]\nversion = "2.27.1"\n',
+        "PKG-INFO": "Name: epistemic-graph\nVersion: 2.27.1\nLicense-File: LICENSE\n",
+    }
+    if shipped:
+        entries["LICENSE"] = "MIT"
+    with tarfile.open(path, "w:gz") as output:
+        for name, text in entries.items():
+            item = tarfile.TarInfo(f"epistemic_graph-2.27.1/{name}")
+            item.size = len(text.encode())
+            output.addfile(item, io.BytesIO(text.encode()))
+    if shipped:
+        validate(path, {"Cargo.toml"}, "2.27.1")
+    else:
+        with pytest.raises(ValueError, match="License-File"):
+            validate(path, {"Cargo.toml"}, "2.27.1")
+
+
 @pytest.mark.parametrize(
     "alias",
     [
