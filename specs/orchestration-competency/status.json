@@ -73,7 +73,21 @@
     "EG-CQ-ORCH-R011.3",
     "EG-CQ-ORCH-R011.4",
     "EG-CQ-ORCH-R011.5",
-    "EG-CQ-ORCH-R011.6"
+    "EG-CQ-ORCH-R011.6",
+    "EG-CQ-ORCH-R700",
+    "EG-CQ-ORCH-R700.1",
+    "EG-CQ-ORCH-R700.2",
+    "EG-CQ-ORCH-R700.3",
+    "EG-CQ-ORCH-R700.4",
+    "EG-CQ-ORCH-R700.5",
+    "EG-CQ-ORCH-R700.6",
+    "EG-CQ-ORCH-R701",
+    "EG-CQ-ORCH-R701.1",
+    "EG-CQ-ORCH-R701.2",
+    "EG-CQ-ORCH-R701.3",
+    "EG-CQ-ORCH-R701.4",
+    "EG-CQ-ORCH-R701.5",
+    "EG-CQ-ORCH-R701.6"
   ],
   "requirements": [
     {
@@ -642,6 +656,120 @@
     },
     {
       "id": "EG-CQ-ORCH-R011.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R700",
+      "title": "Business processes compile to executable workflows stored with replay (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-ORCH-R700.1",
+        "EG-CQ-ORCH-R700.2",
+        "EG-CQ-ORCH-R700.3",
+        "EG-CQ-ORCH-R700.4",
+        "EG-CQ-ORCH-R700.5",
+        "EG-CQ-ORCH-R700.6"
+      ]
+    },
+    {
+      "id": "EG-CQ-ORCH-R700.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R700.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R700.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R700.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R700.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R700.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R701",
+      "title": "External governance process models import to and export from workflows (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-ORCH-R701.1",
+        "EG-CQ-ORCH-R701.2",
+        "EG-CQ-ORCH-R701.3",
+        "EG-CQ-ORCH-R701.4",
+        "EG-CQ-ORCH-R701.5",
+        "EG-CQ-ORCH-R701.6"
+      ]
+    },
+    {
+      "id": "EG-CQ-ORCH-R701.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R701.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R701.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R701.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R701.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R701.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],

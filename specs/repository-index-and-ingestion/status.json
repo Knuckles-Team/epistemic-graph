@@ -89,7 +89,14 @@
     "EG-REPO-INGEST-R002.652",
     "EG-REPO-INGEST-R002.653",
     "EG-REPO-INGEST-R002.654",
-    "EG-REPO-INGEST-R002.655"
+    "EG-REPO-INGEST-R002.655",
+    "EG-REPO-INGEST-R700",
+    "EG-REPO-INGEST-R700.1",
+    "EG-REPO-INGEST-R700.2",
+    "EG-REPO-INGEST-R700.3",
+    "EG-REPO-INGEST-R700.4",
+    "EG-REPO-INGEST-R700.5",
+    "EG-REPO-INGEST-R700.6"
   ],
   "requirements": [
     {
@@ -862,6 +869,63 @@
     {
       "id": "EG-REPO-INGEST-R002.655",
       "title": "Hot-path proof: Hot-path contract for the migrated ingestion capabilities",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R700",
+      "title": "Periodic code-health sweep finds dead pathways (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-REPO-INGEST-R700.1",
+        "EG-REPO-INGEST-R700.2",
+        "EG-REPO-INGEST-R700.3",
+        "EG-REPO-INGEST-R700.4",
+        "EG-REPO-INGEST-R700.5",
+        "EG-REPO-INGEST-R700.6"
+      ]
+    },
+    {
+      "id": "EG-REPO-INGEST-R700.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R700.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R700.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R700.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R700.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R700.6",
+      "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

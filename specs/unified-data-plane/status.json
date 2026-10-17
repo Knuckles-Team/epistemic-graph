@@ -219,7 +219,32 @@
     "EG-UNIFIED-DATA-PLANE-R651.3",
     "EG-UNIFIED-DATA-PLANE-R651.4",
     "EG-UNIFIED-DATA-PLANE-R651.5",
-    "EG-UNIFIED-DATA-PLANE-R651.6"
+    "EG-UNIFIED-DATA-PLANE-R651.6",
+    "EG-UNIFIED-DATA-PLANE-R700",
+    "EG-UNIFIED-DATA-PLANE-R700.1",
+    "EG-UNIFIED-DATA-PLANE-R700.2",
+    "EG-UNIFIED-DATA-PLANE-R700.3",
+    "EG-UNIFIED-DATA-PLANE-R700.4",
+    "EG-UNIFIED-DATA-PLANE-R700.5",
+    "EG-UNIFIED-DATA-PLANE-R700.6",
+    "EG-UNIFIED-DATA-PLANE-R701",
+    "EG-UNIFIED-DATA-PLANE-R701.1",
+    "EG-UNIFIED-DATA-PLANE-R701.2",
+    "EG-UNIFIED-DATA-PLANE-R701.3",
+    "EG-UNIFIED-DATA-PLANE-R701.4",
+    "EG-UNIFIED-DATA-PLANE-R701.5",
+    "EG-UNIFIED-DATA-PLANE-R701.6",
+    "EG-UNIFIED-DATA-PLANE-R702",
+    "EG-UNIFIED-DATA-PLANE-R702.1",
+    "EG-UNIFIED-DATA-PLANE-R702.2",
+    "EG-UNIFIED-DATA-PLANE-R702.3",
+    "EG-UNIFIED-DATA-PLANE-R702.4",
+    "EG-UNIFIED-DATA-PLANE-R702.5",
+    "EG-UNIFIED-DATA-PLANE-R702.6",
+    "EG-UNIFIED-DATA-PLANE-R710",
+    "EG-UNIFIED-DATA-PLANE-R711",
+    "EG-UNIFIED-DATA-PLANE-R030.700",
+    "EG-UNIFIED-DATA-PLANE-R030.701"
   ],
   "requirements": [
     {
@@ -1746,7 +1771,9 @@
       "rollup_of": [
         "EG-UNIFIED-DATA-PLANE-R030.1",
         "EG-UNIFIED-DATA-PLANE-R030.2",
-        "EG-UNIFIED-DATA-PLANE-R030.3"
+        "EG-UNIFIED-DATA-PLANE-R030.3",
+        "EG-UNIFIED-DATA-PLANE-R030.700",
+        "EG-UNIFIED-DATA-PLANE-R030.701"
       ]
     },
     {
@@ -2581,6 +2608,205 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R651.6",
       "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R700",
+      "title": "Governed Actions: typed parameters, submission criteria, effects and write-back (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-UNIFIED-DATA-PLANE-R700.1",
+        "EG-UNIFIED-DATA-PLANE-R700.2",
+        "EG-UNIFIED-DATA-PLANE-R700.3",
+        "EG-UNIFIED-DATA-PLANE-R700.4",
+        "EG-UNIFIED-DATA-PLANE-R700.5",
+        "EG-UNIFIED-DATA-PLANE-R700.6"
+      ]
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R700.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R700.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R700.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R700.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R700.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R700.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R701",
+      "title": "Standards conformance: cohorts, drift scores and consolidation recommendations (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-UNIFIED-DATA-PLANE-R701.1",
+        "EG-UNIFIED-DATA-PLANE-R701.2",
+        "EG-UNIFIED-DATA-PLANE-R701.3",
+        "EG-UNIFIED-DATA-PLANE-R701.4",
+        "EG-UNIFIED-DATA-PLANE-R701.5",
+        "EG-UNIFIED-DATA-PLANE-R701.6"
+      ]
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R701.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R701.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R701.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R701.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R701.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R701.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R702",
+      "title": "ETL runs record lineage and consume OpenLineage run events (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-UNIFIED-DATA-PLANE-R702.1",
+        "EG-UNIFIED-DATA-PLANE-R702.2",
+        "EG-UNIFIED-DATA-PLANE-R702.3",
+        "EG-UNIFIED-DATA-PLANE-R702.4",
+        "EG-UNIFIED-DATA-PLANE-R702.5",
+        "EG-UNIFIED-DATA-PLANE-R702.6"
+      ]
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R702.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R702.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R702.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R702.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R702.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R702.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R710",
+      "title": "Message-stream adapters normalize into ChangeEnvelope: model and behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R711",
+      "title": "Message-stream adapters normalize into ChangeEnvelope: refusal, evidence and hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R030.700",
+      "title": "Identity evidence kinds and merge decisions for candidate links: model and behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R030.701",
+      "title": "Identity evidence kinds and merge decisions for candidate links: refusal, evidence and hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

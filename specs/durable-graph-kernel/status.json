@@ -309,7 +309,20 @@
     "EG-DURABLE-KERNEL-R752.750",
     "EG-DURABLE-KERNEL-R752.751",
     "EG-DURABLE-KERNEL-R752.752",
-    "EG-DURABLE-KERNEL-R752.753"
+    "EG-DURABLE-KERNEL-R752.753",
+    "EG-DURABLE-KERNEL-R700",
+    "EG-DURABLE-KERNEL-R700.1",
+    "EG-DURABLE-KERNEL-R700.2",
+    "EG-DURABLE-KERNEL-R700.3",
+    "EG-DURABLE-KERNEL-R700.4",
+    "EG-DURABLE-KERNEL-R700.5",
+    "EG-DURABLE-KERNEL-R700.6",
+    "EG-DURABLE-KERNEL-R710",
+    "EG-DURABLE-KERNEL-R711",
+    "EG-DURABLE-KERNEL-R100.700",
+    "EG-DURABLE-KERNEL-R100.701",
+    "EG-DURABLE-KERNEL-R094.700",
+    "EG-DURABLE-KERNEL-R094.701"
   ],
   "requirements": [
     {
@@ -2661,7 +2674,9 @@
         "EG-DURABLE-KERNEL-R094.3",
         "EG-DURABLE-KERNEL-R094.4",
         "EG-DURABLE-KERNEL-R094.5",
-        "EG-DURABLE-KERNEL-R094.6"
+        "EG-DURABLE-KERNEL-R094.6",
+        "EG-DURABLE-KERNEL-R094.700",
+        "EG-DURABLE-KERNEL-R094.701"
       ]
     },
     {
@@ -3101,7 +3116,9 @@
         "EG-DURABLE-KERNEL-R100.3",
         "EG-DURABLE-KERNEL-R100.4",
         "EG-DURABLE-KERNEL-R100.5",
-        "EG-DURABLE-KERNEL-R100.6"
+        "EG-DURABLE-KERNEL-R100.6",
+        "EG-DURABLE-KERNEL-R100.700",
+        "EG-DURABLE-KERNEL-R100.701"
       ]
     },
     {
@@ -3399,6 +3416,105 @@
     {
       "id": "EG-DURABLE-KERNEL-R752.753",
       "title": "Hot-path proof: Repository work items and operation payloads",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R700",
+      "title": "Retention cleanup removes aged documents and orphans (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DURABLE-KERNEL-R700.1",
+        "EG-DURABLE-KERNEL-R700.2",
+        "EG-DURABLE-KERNEL-R700.3",
+        "EG-DURABLE-KERNEL-R700.4",
+        "EG-DURABLE-KERNEL-R700.5",
+        "EG-DURABLE-KERNEL-R700.6"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R700.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R700.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R700.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R700.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R700.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R700.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R710",
+      "title": "Backend-agnostic graph copy and persisted-index migration catalogue: model and behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R711",
+      "title": "Backend-agnostic graph copy and persisted-index migration catalogue: refusal, evidence and hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R100.700",
+      "title": "Mirror target naming and a lossless per-mirror outbox: model and behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R100.701",
+      "title": "Mirror target naming and a lossless per-mirror outbox: refusal, evidence and hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R094.700",
+      "title": "Unified identifier registry across stores: model and behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R094.701",
+      "title": "Unified identifier registry across stores: refusal, evidence and hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
