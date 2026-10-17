@@ -419,7 +419,14 @@
     "EG-CQ-CONN-R081.8",
     "EG-CQ-CONN-R082",
     "EG-CQ-CONN-R082.1",
-    "EG-CQ-CONN-R083"
+    "EG-CQ-CONN-R083",
+    "EG-CQ-CONN-R084",
+    "EG-CQ-CONN-R084.1",
+    "EG-CQ-CONN-R084.2",
+    "EG-CQ-CONN-R084.3",
+    "EG-CQ-CONN-R084.4",
+    "EG-CQ-CONN-R084.5",
+    "EG-CQ-CONN-R084.6"
   ],
   "requirements": [
     {
@@ -3827,6 +3834,63 @@
     {
       "id": "EG-CQ-CONN-R083",
       "title": "erpnext, salesforce and twenty vocabulary (rollup, single row)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R084",
+      "title": "Connector-pack competency questions (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-CONN-R084.1",
+        "EG-CQ-CONN-R084.2",
+        "EG-CQ-CONN-R084.3",
+        "EG-CQ-CONN-R084.4",
+        "EG-CQ-CONN-R084.5",
+        "EG-CQ-CONN-R084.6"
+      ]
+    },
+    {
+      "id": "EG-CQ-CONN-R084.1",
+      "title": "Which finance algorithms apply to analysis type X for instrument or position type Y, and which connector tool performs each?",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R084.2",
+      "title": "What are my trades and positions, and which risk analyses apply to them?",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R084.3",
+      "title": "Which connector features, tools, prompts and skills can satisfy capability C, and under which ingest contract?",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R084.4",
+      "title": "Which connector ingest contracts govern record R, with their mappings, access policy and provenance requirements?",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R084.5",
+      "title": "Finance method vocabulary",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-CONN-R084.6",
+      "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
