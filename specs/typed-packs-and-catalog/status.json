@@ -2340,44 +2340,43 @@
     },
     {
       "id": "EG-TYPED-PACKS-R750",
-      "title": "Domain packs for workforce, legal, medical and government vocabularies (rollup)",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: duplicates EG-TYPED-PACKS-R097. Workforce, legal, medical and government domain packs are one capability, owned by EG-TYPED-PACKS-R097 and its children",
+      "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [],
-      "rollup_of": [
-        "EG-TYPED-PACKS-R750.750",
-        "EG-TYPED-PACKS-R750.751",
-        "EG-TYPED-PACKS-R750.752",
-        "EG-TYPED-PACKS-R750.753"
-      ]
+      "retired_reason": "duplicates EG-TYPED-PACKS-R097. Workforce, legal, medical and government domain packs are one capability, owned by EG-TYPED-PACKS-R097 and its children"
     },
     {
       "id": "EG-TYPED-PACKS-R750.750",
-      "title": "Model: Domain packs for workforce, legal, medical and government vocabularies",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: duplicates EG-TYPED-PACKS-R097. Workforce, legal, medical and government domain packs are one capability, owned by EG-TYPED-PACKS-R097 and its children",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "duplicates EG-TYPED-PACKS-R097. Workforce, legal, medical and government domain packs are one capability, owned by EG-TYPED-PACKS-R097 and its children"
     },
     {
       "id": "EG-TYPED-PACKS-R750.751",
-      "title": "Behavior: Domain packs for workforce, legal, medical and government vocabularies",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: duplicates EG-TYPED-PACKS-R097. Workforce, legal, medical and government domain packs are one capability, owned by EG-TYPED-PACKS-R097 and its children",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "duplicates EG-TYPED-PACKS-R097. Workforce, legal, medical and government domain packs are one capability, owned by EG-TYPED-PACKS-R097 and its children"
     },
     {
       "id": "EG-TYPED-PACKS-R750.752",
-      "title": "Refusal: Domain packs for workforce, legal, medical and government vocabularies",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: duplicates EG-TYPED-PACKS-R097. Workforce, legal, medical and government domain packs are one capability, owned by EG-TYPED-PACKS-R097 and its children",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "duplicates EG-TYPED-PACKS-R097. Workforce, legal, medical and government domain packs are one capability, owned by EG-TYPED-PACKS-R097 and its children"
     },
     {
       "id": "EG-TYPED-PACKS-R750.753",
-      "title": "Hot-path proof: Domain packs for workforce, legal, medical and government vocabularies",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: duplicates EG-TYPED-PACKS-R097. Workforce, legal, medical and government domain packs are one capability, owned by EG-TYPED-PACKS-R097 and its children",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "duplicates EG-TYPED-PACKS-R097. Workforce, legal, medical and government domain packs are one capability, owned by EG-TYPED-PACKS-R097 and its children"
     },
     {
       "id": "EG-TYPED-PACKS-R751",
