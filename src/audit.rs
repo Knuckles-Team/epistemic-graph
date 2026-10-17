@@ -103,6 +103,7 @@ pub fn decode_entry(blob: &[u8]) -> Option<(Hash, Hash, &[u8])> {
 /// creates that specific `event_type`/`query` shape internally as a digest-only
 /// receipt for an authoritative staged-state commit.
 mod control_lines;
+mod kv_store;
 mod sql_catalog;
 
 pub fn audit_line(method: &Method) -> Option<String> {
@@ -138,6 +139,7 @@ pub fn audit_line(method: &Method) -> Option<String> {
         .or_else(|| control_lines::broker_consume_audit_line(method))
         .or_else(|| control_lines::broker_misc_audit_line(method))
         .or_else(|| sql_catalog::audit_line(method))
+        .or_else(|| kv_store::audit_line(method))
 }
 
 /// Walk an ordered iterator of `(seq, stored_blob)` entries and verify the chain.

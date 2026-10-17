@@ -77,6 +77,11 @@ if TYPE_CHECKING:
     BlobFetchEndRequest = _models.MethodBlobFetchEndParams
     BlobRefRequest = _models.MethodBlobRefParams
     BlobUnrefRequest = _models.MethodBlobUnrefParams
+    KvGetRequest = _models.MethodKvGetParams
+    KvPutRequest = _models.MethodKvPutParams
+    KvDeleteRequest = _models.MethodKvDeleteParams
+    KvScanRequest = _models.MethodKvScanParams
+    KvCasRequest = _models.MethodKvCasParams
     SqlSourceBatchRequest = _models.MethodSqlSourceBatchParams
     ImportSqliteFileRequest = _models.MethodImportSqliteFileParams
     ExportSqliteFileRequest = _models.MethodExportSqliteFileParams
@@ -1790,6 +1795,218 @@ def decode_blob_gc(result: OpaqueResult) -> _models.BlobGcResult:
     return decode_result("BlobGc", models().BlobGcResult, result)
 
 
+async def send_kv_get(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        KvGet
+    Authorization:
+        kv:read
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.storage.json
+        #/methods/KvGet
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    models().MethodKvGetParams.model_validate(params or {})
+    payload = await client._send(
+        "KvGet",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("KvGet", payload)
+
+
+def decode_kv_get(result: OpaqueResult) -> _models.KvGetResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("KvGet", models().KvGetResult, result)
+
+
+async def send_kv_put(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        KvPut
+    Authorization:
+        kv:write
+    Durability:
+        KvRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.storage.json
+        #/methods/KvPut
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    models().MethodKvPutParams.model_validate(params or {})
+    payload = await client._send(
+        "KvPut",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("KvPut", payload)
+
+
+def decode_kv_put(result: OpaqueResult) -> _models.KvWriteReceipt:
+    """Validate this method's result against its contract model."""
+    return decode_result("KvPut", models().KvWriteReceipt, result)
+
+
+async def send_kv_delete(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> bool:
+    """Send one engine-contract request.
+
+    Method:
+        KvDelete
+    Authorization:
+        kv:write
+    Durability:
+        KvRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Bool
+    Result schema:
+        contract/schemas/result.storage.json
+        #/methods/KvDelete
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    models().MethodKvDeleteParams.model_validate(params or {})
+    payload = await client._send(
+        "KvDelete",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return expect_bool("KvDelete", payload)
+
+
+async def send_kv_scan(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        KvScan
+    Authorization:
+        kv:read
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.storage.json
+        #/methods/KvScan
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    models().MethodKvScanParams.model_validate(params or {})
+    payload = await client._send(
+        "KvScan",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("KvScan", payload)
+
+
+def decode_kv_scan(result: OpaqueResult) -> _models.KvScanPage:
+    """Validate this method's result against its contract model."""
+    return decode_result("KvScan", models().KvScanPage, result)
+
+
+async def send_kv_cas(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        KvCas
+    Authorization:
+        kv:write
+    Durability:
+        KvRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.storage.json
+        #/methods/KvCas
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    models().MethodKvCasParams.model_validate(params or {})
+    payload = await client._send(
+        "KvCas",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("KvCas", payload)
+
+
+def decode_kv_cas(result: OpaqueResult) -> _models.KvCasOutcome:
+    """Validate this method's result against its contract model."""
+    return decode_result("KvCas", models().KvCasOutcome, result)
+
+
 async def send_sql_source_batch(
     client: Any,
     params: dict[str, Any] | None = None,
@@ -1950,6 +2167,11 @@ _REQUEST_METHODS = frozenset(
         "BlobFetchEnd",
         "BlobRef",
         "BlobUnref",
+        "KvGet",
+        "KvPut",
+        "KvDelete",
+        "KvScan",
+        "KvCas",
         "SqlSourceBatch",
         "ImportSqliteFile",
         "ExportSqliteFile",

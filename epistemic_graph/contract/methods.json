@@ -28428,7 +28428,9 @@
       "stability": "stable"
     },
     {
-      "consumer_profiles": [],
+      "consumer_profiles": [
+        "python"
+      ],
       "domain": "storage",
       "error_set": [
         "ACCESS_DENIED",
@@ -28454,8 +28456,8 @@
       ],
       "format_identities": [],
       "id": "KvGet",
-      "is_wire_callable": false,
-      "note": "",
+      "is_wire_callable": true,
+      "note": "EG-DURABLE-KERNEL-R102: keys scoped by verified tenant + principal + request graph + namespace; answers the value and its commit version",
       "policy": {
         "audited": false,
         "authz_action": "kv:read",
@@ -28473,18 +28475,20 @@
       "result_schema": {
         "bodies": {
           "result": {
-            "dynamic": "caller-bytes",
-            "encoding": "RawOrNull"
+            "dynamic": null,
+            "encoding": "Raw"
           }
         },
         "kind": "declared",
         "schema": "contract/schemas/result.storage.json#/methods/KvGet",
         "selected_by": null
       },
-      "stability": "internal"
+      "stability": "stable"
     },
     {
-      "consumer_profiles": [],
+      "consumer_profiles": [
+        "python"
+      ],
       "domain": "storage",
       "error_set": [
         "ACCESS_DENIED",
@@ -28517,10 +28521,10 @@
         "STORAGE_KERNEL_SCHEMA_VERSION"
       ],
       "id": "KvPut",
-      "is_wire_callable": false,
-      "note": "durable via its own kv.redb (redb::Durability::Immediate, commit-before-ack); self-routes before graph dispatch",
+      "is_wire_callable": true,
+      "note": "native MutationBatch in kv.redb (row + ledger/fence/idempotency/outbox in one commit-before-ack WTX); each write stamps a new namespace commit version; the batch ledger is the durable audit, native outbox rows are the projection authority (no graph CDC)",
       "policy": {
-        "audited": false,
+        "audited": true,
         "authz_action": "kv:write",
         "durability_domain": "KvRedb",
         "emits_cdc": false,
@@ -28537,17 +28541,19 @@
         "bodies": {
           "result": {
             "dynamic": null,
-            "encoding": "String"
+            "encoding": "Raw"
           }
         },
         "kind": "declared",
         "schema": "contract/schemas/result.storage.json#/methods/KvPut",
         "selected_by": null
       },
-      "stability": "internal"
+      "stability": "stable"
     },
     {
-      "consumer_profiles": [],
+      "consumer_profiles": [
+        "python"
+      ],
       "domain": "storage",
       "error_set": [
         "ACCESS_DENIED",
@@ -28580,10 +28586,10 @@
         "STORAGE_KERNEL_SCHEMA_VERSION"
       ],
       "id": "KvDelete",
-      "is_wire_callable": false,
-      "note": "durable via its own kv.redb (redb::Durability::Immediate); self-routes before dispatch_graph_op",
+      "is_wire_callable": true,
+      "note": "native MutationBatch in kv.redb; re-deleting an absent key is a safe no-op answering false",
       "policy": {
-        "audited": false,
+        "audited": true,
         "authz_action": "kv:write",
         "durability_domain": "KvRedb",
         "emits_cdc": false,
@@ -28607,10 +28613,12 @@
         "schema": "contract/schemas/result.storage.json#/methods/KvDelete",
         "selected_by": null
       },
-      "stability": "internal"
+      "stability": "stable"
     },
     {
-      "consumer_profiles": [],
+      "consumer_profiles": [
+        "python"
+      ],
       "domain": "storage",
       "error_set": [
         "ACCESS_DENIED",
@@ -28636,8 +28644,8 @@
       ],
       "format_identities": [],
       "id": "KvScan",
-      "is_wire_callable": false,
-      "note": "",
+      "is_wire_callable": true,
+      "note": "bounded prefix scan: default 100, max 1000 rows and 4 MiB per page, exclusive-start cursor pagination over one snapshot",
       "policy": {
         "audited": false,
         "authz_action": "kv:read",
@@ -28655,7 +28663,7 @@
       "result_schema": {
         "bodies": {
           "result": {
-            "dynamic": "caller-bytes",
+            "dynamic": null,
             "encoding": "Raw"
           }
         },
@@ -28663,10 +28671,12 @@
         "schema": "contract/schemas/result.storage.json#/methods/KvScan",
         "selected_by": null
       },
-      "stability": "internal"
+      "stability": "stable"
     },
     {
-      "consumer_profiles": [],
+      "consumer_profiles": [
+        "python"
+      ],
       "domain": "storage",
       "error_set": [
         "ACCESS_DENIED",
@@ -28699,10 +28709,10 @@
         "STORAGE_KERNEL_SCHEMA_VERSION"
       ],
       "id": "KvCas",
-      "is_wire_callable": false,
-      "note": "durable via its own kv.redb (redb::Durability::Immediate, commit-before-ack); self-routes before graph dispatch",
+      "is_wire_callable": true,
+      "note": "compare-and-swap on the row's commit version (0 = absent) inside one admitted kv.redb WTX; a failed comparison is a terminal, replayable verdict",
       "policy": {
-        "audited": false,
+        "audited": true,
         "authz_action": "kv:write",
         "durability_domain": "KvRedb",
         "emits_cdc": false,
@@ -28719,14 +28729,14 @@
         "bodies": {
           "result": {
             "dynamic": null,
-            "encoding": "Bool"
+            "encoding": "Raw"
           }
         },
         "kind": "declared",
         "schema": "contract/schemas/result.storage.json#/methods/KvCas",
         "selected_by": null
       },
-      "stability": "internal"
+      "stability": "stable"
     },
     {
       "consumer_profiles": [

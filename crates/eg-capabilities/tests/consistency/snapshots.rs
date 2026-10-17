@@ -517,6 +517,10 @@ pub(crate) const AUDIT_RS_AUDITED: &[&str] = &[
     "WriteBack",
     #[cfg(feature = "modality-serving")]
     "ServedModality",
+    // Served KV mutations (EG-DURABLE-KERNEL-R102).
+    "KvCas",
+    "KvDelete",
+    "KvPut",
 ];
 
 /// Mirrors `src/server/cdc.rs::emit_for_method`'s explicit match (everything else falls to

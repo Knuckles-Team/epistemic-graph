@@ -8156,6 +8156,41 @@ class KnowledgeStreamRequest(BaseModel):
     schema_version: Annotated[int, Field(ge=0, le=65535)]
 
 
+class KvCasOutcome(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    swapped: bool
+    version: Annotated[int, Field(ge=0)]
+
+
+class KvEntry(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    value: bytes
+    version: Annotated[int, Field(ge=0)]
+
+
+class KvScanPage(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    entries: list[KvScanRow]
+    next_cursor: str | None = None
+
+
+class KvScanRow(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    key: str
+    value: bytes
+    version: Annotated[int, Field(ge=0)]
+
+
+class KvWriteReceipt(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    version: Annotated[int, Field(ge=0)]
+
+
 class LabelExclusions(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -14067,7 +14102,7 @@ class MethodKnowledgeStreamParams(BaseModel):
 class MethodKvCasParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
-    expected: bytes | None = None
+    expected_version: Annotated[int, Field(ge=0)]
     key: str
     namespace: str
     new: bytes | None = None
@@ -14098,6 +14133,7 @@ class MethodKvPutParams(BaseModel):
 class MethodKvScanParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
+    cursor: str | None = None
     limit: Annotated[int, Field(ge=0)]
     namespace: str
     prefix: str
@@ -24202,6 +24238,9 @@ JobState = (
 JsonPathOp = Literal["Exists"] | JsonPathOpEq | JsonPathOpContains
 
 
+KvGetResult = KvEntry | None
+
+
 LeaseState = str | Literal["expired"] | Literal["reclaimed"]
 
 
@@ -26237,6 +26276,12 @@ __all__ = [
     "KnowledgeStreamQueryTimeSeries",
     "KnowledgeStreamQueryVector",
     "KnowledgeStreamRequest",
+    "KvCasOutcome",
+    "KvEntry",
+    "KvGetResult",
+    "KvScanPage",
+    "KvScanRow",
+    "KvWriteReceipt",
     "LabelExclusions",
     "LabelRegime",
     "LabelRegimeBanditLabel",

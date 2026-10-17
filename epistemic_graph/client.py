@@ -11040,7 +11040,7 @@ def _validate_resource_stats_arrays(
         raise RuntimeError("summary ResourceStats response must omit detail arrays")
 
 
-_OPAQUE_BINARY_RESULT_METHODS = frozenset({"RunUdf", "KvGet"})
+_OPAQUE_BINARY_RESULT_METHODS = frozenset({"RunUdf"})
 
 
 def _decode_send_result(method: str, result: Any) -> Any:
@@ -11049,8 +11049,9 @@ def _decode_send_result(method: str, result: Any) -> Any:
     Heavy algorithm results and node/edge property blobs come back as a
     top-level MessagePack ``bin`` (the ``Raw`` payload) — the server skips
     building a JSON tree. Decode that second layer for structured methods.
-    ``RunUdf`` and ``KvGet`` declare opaque bytes, so their payload is returned
-    exactly and is never interpreted as another MessagePack document.
+    ``RunUdf`` declares opaque bytes, so its payload is returned exactly and is
+    never interpreted as another MessagePack document. ``KvGet`` answers a typed
+    ``{value, version}`` entry whose ``value`` rides as a MessagePack ``bin``.
     """
     if method not in _OPAQUE_BINARY_RESULT_METHODS and isinstance(
         result, (bytes, bytearray)

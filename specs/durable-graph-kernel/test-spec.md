@@ -341,3 +341,14 @@ Hot-path proof for `EG-DURABLE-KERNEL-R100`: `tests/mirror_graph_sinks_served.rs
 
 
 Hot-path proof for `EG-DURABLE-KERNEL-R101`: `tests/scheduler/test_downtime_scheduler_served.py::test_idle_window_runs_priority_jobs_and_preempts`.
+
+## EG-DURABLE-KERNEL-R102 acceptance
+
+| Case | Row | Proving test and observation |
+|---|---|---|
+| Served contract | `EG-DURABLE-KERNEL-R102.1` | `src/server/kv/dispatch_tests.rs::kv_dispatch_put_get_scan_delete_cas`: every KV method answers its typed result through the real dispatch. |
+| Scope and authorization | `EG-DURABLE-KERNEL-R102.2` | `src/server/kv/dispatch_tests.rs::kv_keys_are_scoped_by_graph_and_writes_need_kv_write`: another graph sees nothing; a `kv:read` caller is refused a write. |
+| CAS and scan | `EG-DURABLE-KERNEL-R102.3` | `src/server/kv/dispatch_tests.rs::kv_scan_pages_are_bounded_and_resume_from_the_cursor`: 25 keys arrive in bounded pages in order; a foreign cursor refuses. |
+| Durable mutations | `EG-DURABLE-KERNEL-R102.4` | `src/server/kv/dispatch_tests.rs::kv_fresh_nonce_replays_stable_operation_without_duplicate_write`: the retried CAS returns the stored verdict and writes once. |
+| Hot-path proof | `EG-DURABLE-KERNEL-R102.5` | `src/server/kv/dispatch_tests.rs::kv_served_hot_path_meets_latency_budgets`: measured p50/p99 within the budgets. |
+

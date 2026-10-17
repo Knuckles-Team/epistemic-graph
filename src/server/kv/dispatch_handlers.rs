@@ -100,65 +100,119 @@ pub(super) fn resolve_kv_store(
     }
 }
 
-pub(super) fn handle_kv_get(req_id: u64, store: &KvStore, namespace: &str, key: &str) -> Response {
-    match store.get(namespace, key) {
-        Ok(value) => Response::ok(
-            req_id,
-            ResultPayload::of_encoded_or_null::<results::KvGet>(value),
-        ),
-        Err(e) => Response::err(req_id, format!("KvGet error: {e}")),
+/// One served KV call's verified context.
+pub(super) struct KvCall<'a> {
+    pub(super) req_id: u64,
+    pub(super) store: &'a KvStore,
+    pub(super) authority: &'a CarrierAuthority,
+    /// The verified request graph; part of every served key's scope.
+    pub(super) graph: &'a str,
+}
+
+impl KvCall<'_> {
+    fn namespace(&self, local: &str) -> String {
+        super::wire::wire_namespace(self.authority, self.graph, local)
+    }
+
+    /// Compile, admit and commit one served mutation, then emit its audit event.
+    fn mutate<T>(
+        &self,
+        namespace: &str,
+        method: &Method,
+        apply: impl FnOnce(&super::wire::WireWrite<'_>) -> Result<T, String>,
+    ) -> Result<T, String> {
+        let (batch, at_ms, expected) =
+            compile_kv_batch(self.store, self.req_id, self.authority, namespace, method)?;
+        let write = super::wire::WireWrite {
+            batch: &batch,
+            at_ms,
+            stamp: expected.saturating_add(1),
+        };
+        let outcome = apply(&write)?;
+        if let Some(line) = crate::audit::audit_line(method) {
+            tracing::info!(
+                target: "eg::audit::kv",
+                line = %line,
+                batch_id = %batch.batch_id,
+                tenant = %self.authority.tenant_scope(),
+                actor = %self.authority.actor_scope(),
+                "kv mutation committed"
+            );
+        }
+        Ok(outcome)
     }
 }
 
-pub(super) fn handle_kv_put(
-    req_id: u64,
-    store: &KvStore,
-    authority: &CarrierAuthority,
-    namespace: &str,
-    key: &str,
-    value: Vec<u8>,
-    original_method: &Method,
-) -> Response {
-    match compile_kv_batch(store, req_id, authority, namespace, original_method)
-        .and_then(|(batch, now)| store.put_batch(namespace, key, value, &batch, now))
-    {
-        Ok(()) => Response::ok(
-            req_id,
-            ResultPayload::scalar::<results::KvPut>("ok".to_string()),
-        ),
-        Err(e) => Response::err(req_id, format!("KvPut error: {e}")),
-    }
-}
-
-pub(super) fn handle_kv_delete(
-    req_id: u64,
-    store: &KvStore,
-    authority: &CarrierAuthority,
-    namespace: &str,
-    key: &str,
-    original_method: &Method,
-) -> Response {
-    match compile_kv_batch(store, req_id, authority, namespace, original_method)
-        .and_then(|(batch, now)| store.delete_batch(namespace, key, &batch, now))
-    {
-        Ok(existed) => Response::ok(req_id, ResultPayload::scalar::<results::KvDelete>(existed)),
-        Err(e) => Response::err(req_id, format!("KvDelete error: {e}")),
-    }
-}
-
-pub(super) fn handle_kv_cas(
-    req_id: u64,
-    store: &KvStore,
-    authority: &CarrierAuthority,
-    namespace: &str,
-    key: &str,
-    (expected, new): (Option<Vec<u8>>, Option<Vec<u8>>),
-    original_method: &Method,
-) -> Response {
-    match compile_kv_batch(store, req_id, authority, namespace, original_method).and_then(
-        |(batch, now)| store.cas_batch(namespace, key, expected.as_deref(), new, &batch, now),
-    ) {
-        Ok(swapped) => Response::ok(req_id, ResultPayload::scalar::<results::KvCas>(swapped)),
-        Err(e) => Response::err(req_id, format!("KvCas error: {e}")),
+/// Serve one `Method::Kv*` call. The caller has already checked `is_kv_method`.
+pub(super) fn handle(call: &KvCall<'_>, method: Method) -> Response {
+    let req_id = call.req_id;
+    let original = method.clone();
+    match method {
+        Method::KvGet { namespace, key } => {
+            match call.store.get_versioned(&call.namespace(&namespace), &key) {
+                Ok(entry) => Response::ok(req_id, ResultPayload::of_ref::<results::KvGet>(&entry)),
+                Err(e) => Response::err(req_id, format!("KvGet error: {e}")),
+            }
+        }
+        Method::KvPut { namespace, key, value } => {
+            let namespace = call.namespace(&namespace);
+            let put = call.mutate(&namespace, &original, |write| {
+                call.store
+                    .write_versioned((&namespace, &key), None, Some(value), write)
+            });
+            match put {
+                Ok(outcome) => Response::ok(
+                    req_id,
+                    ResultPayload::of_ref::<results::KvPut>(&eg_types::storage_wire::KvWriteReceipt {
+                        version: outcome.version,
+                    }),
+                ),
+                Err(e) => Response::err(req_id, format!("KvPut error: {e}")),
+            }
+        }
+        Method::KvDelete { namespace, key } => {
+            let namespace = call.namespace(&namespace);
+            let deleted = call.mutate(&namespace, &original, |write| {
+                call.store.delete_batch(&namespace, &key, write.batch, write.at_ms)
+            });
+            match deleted {
+                Ok(existed) => {
+                    Response::ok(req_id, ResultPayload::scalar::<results::KvDelete>(existed))
+                }
+                Err(e) => Response::err(req_id, format!("KvDelete error: {e}")),
+            }
+        }
+        Method::KvScan {
+            namespace,
+            prefix,
+            limit,
+            cursor,
+        } => {
+            let namespace = call.namespace(&namespace);
+            match call
+                .store
+                .scan_versioned(&namespace, &prefix, cursor.as_deref(), limit)
+            {
+                Ok(page) => Response::ok(req_id, ResultPayload::of_ref::<results::KvScan>(&page)),
+                Err(e) => Response::err(req_id, format!("KvScan error: {e}")),
+            }
+        }
+        Method::KvCas {
+            namespace,
+            key,
+            expected_version,
+            new,
+        } => {
+            let namespace = call.namespace(&namespace);
+            let swapped = call.mutate(&namespace, &original, |write| {
+                call.store
+                    .write_versioned((&namespace, &key), Some(expected_version), new, write)
+            });
+            match swapped {
+                Ok(outcome) => Response::ok(req_id, ResultPayload::of_ref::<results::KvCas>(&outcome)),
+                Err(e) => Response::err(req_id, format!("KvCas error: {e}")),
+            }
+        }
+        _ => Response::err(req_id, "kv dispatch routing error"),
     }
 }

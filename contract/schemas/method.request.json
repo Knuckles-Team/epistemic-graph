@@ -31618,7 +31618,7 @@
         },
         {
           "additionalProperties": false,
-          "description": "Ordered `(key, value)` pairs in `namespace` whose key starts with `prefix`\n(empty prefix ⇒ the whole namespace). `limit == 0` ⇒ no cap.",
+          "description": "One bounded page of `(key, value, version)` rows in `namespace` whose key\nstarts with `prefix` (empty prefix ⇒ the whole namespace), in key order.\n`limit == 0` ⇒ the default page size; any `limit` is capped by the server.\n`cursor` is the previous page's `next_cursor` (exclusive start).",
           "properties": {
             "method": {
               "const": "KvScan",
@@ -31627,6 +31627,13 @@
             "params": {
               "additionalProperties": false,
               "properties": {
+                "cursor": {
+                  "default": null,
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "limit": {
                   "format": "uint",
                   "minimum": 0,
@@ -31655,7 +31662,7 @@
         },
         {
           "additionalProperties": false,
-          "description": "Atomic compare-and-swap: set `(namespace, key)` to `new` (`None` ⇒ delete) iff\nthe current value equals `expected` (both absent ⇒ the key must not exist).\nReturns whether the swap happened. `expected`/`new` are MessagePack `bin`.",
+          "description": "Atomic compare-and-swap on the row version: set `(namespace, key)` to `new`\n(`None` ⇒ delete) iff its current version equals `expected_version` (`0` ⇒ the\nkey must not exist). Answers whether the swap happened and the key's version\nafter the call. `new` is a MessagePack `bin`.",
           "properties": {
             "method": {
               "const": "KvCas",
@@ -31664,15 +31671,10 @@
             "params": {
               "additionalProperties": false,
               "properties": {
-                "expected": {
-                  "default": null,
-                  "items": {
-                    "format": "uint8",
-                    "maximum": 255,
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "type": "array"
+                "expected_version": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
                 },
                 "key": {
                   "type": "string"
@@ -31688,12 +31690,16 @@
                     "minimum": 0,
                     "type": "integer"
                   },
-                  "type": "array"
+                  "type": [
+                    "array",
+                    "null"
+                  ]
                 }
               },
               "required": [
                 "namespace",
-                "key"
+                "key",
+                "expected_version"
               ],
               "type": "object"
             }
@@ -62255,7 +62261,7 @@
     },
     "KvCas": {
       "additionalProperties": false,
-      "description": "Atomic compare-and-swap: set `(namespace, key)` to `new` (`None` ⇒ delete) iff\nthe current value equals `expected` (both absent ⇒ the key must not exist).\nReturns whether the swap happened. `expected`/`new` are MessagePack `bin`.",
+      "description": "Atomic compare-and-swap on the row version: set `(namespace, key)` to `new`\n(`None` ⇒ delete) iff its current version equals `expected_version` (`0` ⇒ the\nkey must not exist). Answers whether the swap happened and the key's version\nafter the call. `new` is a MessagePack `bin`.",
       "properties": {
         "method": {
           "const": "KvCas",
@@ -62264,15 +62270,10 @@
         "params": {
           "additionalProperties": false,
           "properties": {
-            "expected": {
-              "default": null,
-              "items": {
-                "format": "uint8",
-                "maximum": 255,
-                "minimum": 0,
-                "type": "integer"
-              },
-              "type": "array"
+            "expected_version": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
             },
             "key": {
               "type": "string"
@@ -62288,12 +62289,16 @@
                 "minimum": 0,
                 "type": "integer"
               },
-              "type": "array"
+              "type": [
+                "array",
+                "null"
+              ]
             }
           },
           "required": [
             "namespace",
-            "key"
+            "key",
+            "expected_version"
           ],
           "type": "object"
         }
@@ -62409,7 +62414,7 @@
     },
     "KvScan": {
       "additionalProperties": false,
-      "description": "Ordered `(key, value)` pairs in `namespace` whose key starts with `prefix`\n(empty prefix ⇒ the whole namespace). `limit == 0` ⇒ no cap.",
+      "description": "One bounded page of `(key, value, version)` rows in `namespace` whose key\nstarts with `prefix` (empty prefix ⇒ the whole namespace), in key order.\n`limit == 0` ⇒ the default page size; any `limit` is capped by the server.\n`cursor` is the previous page's `next_cursor` (exclusive start).",
       "properties": {
         "method": {
           "const": "KvScan",
@@ -62418,6 +62423,13 @@
         "params": {
           "additionalProperties": false,
           "properties": {
+            "cursor": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "limit": {
               "format": "uint",
               "minimum": 0,
