@@ -677,6 +677,7 @@ Deliver these additive leaves in order; preserve R137.1–.6 and R128 unchanged.
 - [ ] **EG-DECISION-ENGINE-R172.12.4:** Refusal. Pass the proving test in test-spec.md.
 - [ ] **EG-DECISION-ENGINE-R172.12.5:** Evidence. Pass the proving test in test-spec.md.
 - [ ] **EG-DECISION-ENGINE-R172.12.6:** Hot-path proof. Pass the proving test in test-spec.md.
+- [ ] **EG-DECISION-ENGINE-R172.13:** Behavior. Pass the proving test in test-spec.md.
 - [ ] **EG-DECISION-ENGINE-R175 (rollup):** Implicit-reasoning recommendation over temporal semantic ids.
 - [ ] **EG-DECISION-ENGINE-R175.1 (Model):** Add the recommendation types and question kind.
 - [ ] **EG-DECISION-ENGINE-R175.2 (Behavior):** Implement the encoder and the refinement ranker.
@@ -727,3 +728,24 @@ Deliver these additive leaves in order; preserve R137.1–.6 and R128 unchanged.
 - [ ] **EG-DECISION-ENGINE-R177.4 (Refusal):** Add the typed refusals.
 - [ ] **EG-DECISION-ENGINE-R177.5 (Evidence):** Emit the evidence.
 - [ ] **EG-DECISION-ENGINE-R177.6 (Hot-path proof):** Add the served hot-path test.
+- [ ] **EG-DECISION-ENGINE-R174.7 (rollup):** Scoped outcome-trained adapters on the frozen base embedding.
+- [ ] **EG-DECISION-ENGINE-R174.7.1 (Model):** Add the scope, side, source and pointer types.
+- [ ] **EG-DECISION-ENGINE-R174.7.2 (Behavior):** Extend the fit, the keep-or-revert rules and the monitor.
+- [ ] **EG-DECISION-ENGINE-R174.7.3 (Wiring):** Wire fit, activation and serving through the named call sites.
+- [ ] **EG-DECISION-ENGINE-R174.7.4 (Refusal):** Add the typed refusals.
+- [ ] **EG-DECISION-ENGINE-R174.7.5 (Evidence):** Emit the fit and rollback receipts.
+- [ ] **EG-DECISION-ENGINE-R174.7.6 (Hot-path proof):** Add the served adapter test and the benchmark.
+- [ ] **EG-DECISION-ENGINE-R174.8 (rollup):** Drift-driven embedding refresh with atomic per-shard versions.
+- [ ] **EG-DECISION-ENGINE-R174.8.1 (Model):** Add the drift signal and refresh plan types.
+- [ ] **EG-DECISION-ENGINE-R174.8.2 (Behavior):** Implement the per-shard monitor and region selection.
+- [ ] **EG-DECISION-ENGINE-R174.8.3 (Wiring):** Wire the monitor, the job and the per-shard swap.
+- [ ] **EG-DECISION-ENGINE-R174.8.4 (Refusal):** Add the typed refusals.
+- [ ] **EG-DECISION-ENGINE-R174.8.5 (Evidence):** Emit the signal premises and the refresh receipt.
+- [ ] **EG-DECISION-ENGINE-R174.8.6 (Hot-path proof):** Add the served drift test and the benchmark.
+- [ ] **EG-DECISION-ENGINE-R174.9 (rollup):** Fresh data through the search connector's virtual-graph source.
+- [ ] **EG-DECISION-ENGINE-R174.9.1 (Model):** Add the refresh request and result types.
+- [ ] **EG-DECISION-ENGINE-R174.9.2 (Behavior):** Implement deduplication, region marks and budgets.
+- [ ] **EG-DECISION-ENGINE-R174.9.3 (Wiring):** Wire the refresh through the virtual-graph source and the job.
+- [ ] **EG-DECISION-ENGINE-R174.9.4 (Refusal):** Add the typed refusals.
+- [ ] **EG-DECISION-ENGINE-R174.9.5 (Evidence):** Emit result provenance and the refresh receipt.
+- [ ] **EG-DECISION-ENGINE-R174.9.6 (Hot-path proof):** Add the served freshness test and the overhead measurement.

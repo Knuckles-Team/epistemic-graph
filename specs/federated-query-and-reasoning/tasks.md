@@ -318,6 +318,7 @@ Preserve all previous acceptance and receipts. Deliver producer leaves before th
 - [ ] **EG-FEDERATED-QUERY-R089.4 (Refusal):** Add the policy refusal.
 - [ ] **EG-FEDERATED-QUERY-R089.5 (Evidence):** Emit the verdict evidence.
 - [ ] **EG-FEDERATED-QUERY-R089.6 (Hot-path proof):** Add the served verdict test and the cost measurement.
+- [ ] **EG-FEDERATED-QUERY-R089.7 (Behavior):** Read the drift monitor and name the adapter in the verdict.
 - [ ] **EG-FEDERATED-QUERY-R090 (rollup):** Discover plans expansions, recency and multi-hop context.
 - [ ] **EG-FEDERATED-QUERY-R090.1 (Model):** Add the planning fields.
 - [ ] **EG-FEDERATED-QUERY-R090.2 (Behavior):** Implement expansion, decay and capped hops.
@@ -334,3 +335,4 @@ Preserve all previous acceptance and receipts. Deliver producer leaves before th
 - [ ] **EG-FEDERATED-QUERY-R091.4 (Refusal):** Add the typed refusals.
 - [ ] **EG-FEDERATED-QUERY-R091.5 (Evidence):** Emit the evidence.
 - [ ] **EG-FEDERATED-QUERY-R091.6 (Hot-path proof):** Add the served hot-path test.
+- [ ] **EG-FEDERATED-QUERY-R090.7 (Wiring):** Apply the scoped adapter to expansion arms and list refresh provenance.
