@@ -182,7 +182,31 @@
     "EG-TYPED-PACKS-R100.101",
     "EG-TYPED-PACKS-R001.100",
     "EG-TYPED-PACKS-R072.100",
-    "EG-TYPED-PACKS-R071.100"
+    "EG-TYPED-PACKS-R071.100",
+    "EG-TYPED-PACKS-R101",
+    "EG-TYPED-PACKS-R101.1",
+    "EG-TYPED-PACKS-R101.2",
+    "EG-TYPED-PACKS-R101.3",
+    "EG-TYPED-PACKS-R101.4",
+    "EG-TYPED-PACKS-R101.5",
+    "EG-TYPED-PACKS-R101.6",
+    "EG-TYPED-PACKS-R101.7",
+    "EG-TYPED-PACKS-R101.8",
+    "EG-TYPED-PACKS-R102",
+    "EG-TYPED-PACKS-R102.1",
+    "EG-TYPED-PACKS-R102.2",
+    "EG-TYPED-PACKS-R102.3",
+    "EG-TYPED-PACKS-R102.4",
+    "EG-TYPED-PACKS-R102.5",
+    "EG-TYPED-PACKS-R102.6",
+    "EG-TYPED-PACKS-R102.7",
+    "EG-TYPED-PACKS-R103",
+    "EG-TYPED-PACKS-R103.1",
+    "EG-TYPED-PACKS-R103.2",
+    "EG-TYPED-PACKS-R103.3",
+    "EG-TYPED-PACKS-R103.4",
+    "EG-TYPED-PACKS-R103.5",
+    "EG-TYPED-PACKS-R103.6"
   ],
   "requirements": [
     {
@@ -2020,6 +2044,201 @@
     {
       "id": "EG-TYPED-PACKS-R071.100",
       "title": "Canonical shared hierarchical concept paths across repositories",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R101",
+      "title": "Ingest contracts are native OWL/RDF relationships in the pack graph (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-TYPED-PACKS-R101.1",
+        "EG-TYPED-PACKS-R101.2",
+        "EG-TYPED-PACKS-R101.3",
+        "EG-TYPED-PACKS-R101.4",
+        "EG-TYPED-PACKS-R101.5",
+        "EG-TYPED-PACKS-R101.6",
+        "EG-TYPED-PACKS-R101.7",
+        "EG-TYPED-PACKS-R101.8"
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R101.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R101.2",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R101.3",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R101.4",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R101.5",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R101.6",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R101.7",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R101.8",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R102",
+      "title": "Connector surface and domain relationships are native graph relationships (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-TYPED-PACKS-R102.1",
+        "EG-TYPED-PACKS-R102.2",
+        "EG-TYPED-PACKS-R102.3",
+        "EG-TYPED-PACKS-R102.4",
+        "EG-TYPED-PACKS-R102.5",
+        "EG-TYPED-PACKS-R102.6",
+        "EG-TYPED-PACKS-R102.7"
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R102.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R102.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R102.3",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R102.4",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R102.5",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R102.6",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R102.7",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R103",
+      "title": "Served runtime ontology import, revision and withdrawal (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-TYPED-PACKS-R103.1",
+        "EG-TYPED-PACKS-R103.2",
+        "EG-TYPED-PACKS-R103.3",
+        "EG-TYPED-PACKS-R103.4",
+        "EG-TYPED-PACKS-R103.5",
+        "EG-TYPED-PACKS-R103.6"
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R103.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R103.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R103.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R103.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R103.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R103.6",
+      "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
