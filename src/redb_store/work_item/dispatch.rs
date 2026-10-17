@@ -84,7 +84,7 @@ pub(crate) fn apply_work_item_rows(
             crypto,
         }),
         Method::CasWorkItemMetadata { request } => {
-            apply_cas_work_item_metadata_row(graph, request, nodes, crypto)
+            apply_cas_work_item_metadata_row(graph, request, committed_at_ms, nodes, crypto)
         }
         Method::CommitWorkItemResult {
             tenant,
