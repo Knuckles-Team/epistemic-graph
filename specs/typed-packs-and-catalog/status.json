@@ -223,7 +223,28 @@
     "EG-TYPED-PACKS-R751.750",
     "EG-TYPED-PACKS-R751.751",
     "EG-TYPED-PACKS-R751.752",
-    "EG-TYPED-PACKS-R751.753"
+    "EG-TYPED-PACKS-R751.753",
+    "EG-TYPED-PACKS-R650",
+    "EG-TYPED-PACKS-R650.1",
+    "EG-TYPED-PACKS-R650.2",
+    "EG-TYPED-PACKS-R650.3",
+    "EG-TYPED-PACKS-R650.4",
+    "EG-TYPED-PACKS-R650.5",
+    "EG-TYPED-PACKS-R650.6",
+    "EG-TYPED-PACKS-R651",
+    "EG-TYPED-PACKS-R651.1",
+    "EG-TYPED-PACKS-R651.2",
+    "EG-TYPED-PACKS-R651.3",
+    "EG-TYPED-PACKS-R651.4",
+    "EG-TYPED-PACKS-R651.5",
+    "EG-TYPED-PACKS-R651.6",
+    "EG-TYPED-PACKS-R652",
+    "EG-TYPED-PACKS-R652.1",
+    "EG-TYPED-PACKS-R652.2",
+    "EG-TYPED-PACKS-R652.3",
+    "EG-TYPED-PACKS-R652.4",
+    "EG-TYPED-PACKS-R652.5",
+    "EG-TYPED-PACKS-R652.6"
   ],
   "requirements": [
     {
@@ -2395,6 +2416,177 @@
     {
       "id": "EG-TYPED-PACKS-R751.753",
       "title": "Hot-path proof: Specialist registry, provider discovery, transactional install and capability contract",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R650",
+      "title": "Property types, value types, links, interfaces and object sets (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-TYPED-PACKS-R650.1",
+        "EG-TYPED-PACKS-R650.2",
+        "EG-TYPED-PACKS-R650.3",
+        "EG-TYPED-PACKS-R650.4",
+        "EG-TYPED-PACKS-R650.5",
+        "EG-TYPED-PACKS-R650.6"
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R650.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R650.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R650.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R650.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R650.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R650.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R651",
+      "title": "Governed edits, reverts, write-back and sync conflict resolution (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-TYPED-PACKS-R651.1",
+        "EG-TYPED-PACKS-R651.2",
+        "EG-TYPED-PACKS-R651.3",
+        "EG-TYPED-PACKS-R651.4",
+        "EG-TYPED-PACKS-R651.5",
+        "EG-TYPED-PACKS-R651.6"
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R651.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R651.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R651.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R651.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R651.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R651.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R652",
+      "title": "Markings, classification claims and restricted views (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-TYPED-PACKS-R652.1",
+        "EG-TYPED-PACKS-R652.2",
+        "EG-TYPED-PACKS-R652.3",
+        "EG-TYPED-PACKS-R652.4",
+        "EG-TYPED-PACKS-R652.5",
+        "EG-TYPED-PACKS-R652.6"
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R652.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R652.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R652.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R652.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R652.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R652.6",
+      "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
