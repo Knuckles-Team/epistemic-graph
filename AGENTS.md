@@ -6,6 +6,14 @@ can also serve as the storage and reasoning engine beneath agent-utilities.
 Agent orchestration, connectors, and governed ingestion belong to that optional
 application layer, not to this database.
 
+## Boundaries
+
+- **Owns:** facts, records, vocabulary, durable state and storage. It also owns query (UQL and natural language), retrieval, ingest, reasoning, decisions and choices. Code is native Rust, and each spec row sets budgets and names a benchmark.
+- **Never builds:** served operations, admission or auth (route them to graph-os). Connector contracts and transports go to agent-connector-sdk. Run mechanics go to agent-utilities.
+- **Allowed dependencies:** Rust crates, and its own Python client and bindings. It imports no other ecosystem package.
+
+Route every feature with the [ecosystem boundaries standard](https://github.com/Knuckles-Team/pipelines/blob/main/reference/ecosystem-boundaries.md) before any code. A part this repository does not own goes to its owner's specs.
+
 ## What this repository owns
 
 This repository owns the durable graph database, query and compute engine,
