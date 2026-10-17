@@ -74,7 +74,7 @@ def test_capability_dependencies_bootstrap_uv_for_the_test_interpreter(
         if step.get("uses", "").startswith("astral-sh/setup-uv@")
     )
     assert setup["uses"] == (
-        "astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e"
+        "astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884"
     )
     assert setup["with"]["version"] == "0.11.7"
     assert "if" not in setup
@@ -330,7 +330,7 @@ def _assert_facade_upload_contract(upload: dict) -> None:
     assert upload["if"] == "always()"
     assert (
         upload["uses"]
-        == "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02"
+        == "actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9"
     )
     assert upload["with"] == {
         "name": (

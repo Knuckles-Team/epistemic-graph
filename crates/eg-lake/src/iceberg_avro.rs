@@ -276,7 +276,8 @@ fn write_manifest(
 ) -> Result<Vec<u8>, String> {
     let avro_schema =
         Schema::parse_str(MANIFEST_ENTRY_SCHEMA).map_err(|e| format!("manifest schema: {e}"))?;
-    let mut writer = Writer::new(&avro_schema, Vec::new());
+    let mut writer =
+        Writer::new(&avro_schema, Vec::new()).map_err(|e| format!("manifest avro writer: {e}"))?;
 
     // Required Iceberg manifest metadata (lands in the Avro file header). A reader uses
     // these to bind field-ids and inherit sequence numbers. `schema-id` is the table's
@@ -303,7 +304,7 @@ fn write_manifest(
 
     for f in live {
         writer
-            .append(manifest_entry_value(location, f, snapshot_id))
+            .append_value(manifest_entry_value(location, f, snapshot_id))
             .map_err(|e| format!("append manifest_entry: {e}"))?;
     }
     writer
@@ -322,7 +323,8 @@ fn write_manifest_list(
 ) -> Result<Vec<u8>, String> {
     let avro_schema = Schema::parse_str(MANIFEST_FILE_SCHEMA)
         .map_err(|e| format!("manifest_file schema: {e}"))?;
-    let mut writer = Writer::new(&avro_schema, Vec::new());
+    let mut writer = Writer::new(&avro_schema, Vec::new())
+        .map_err(|e| format!("manifest_list avro writer: {e}"))?;
 
     let record = AvroValue::Record(vec![
         (
@@ -357,7 +359,7 @@ fn write_manifest_list(
         ),
     ]);
     writer
-        .append(record)
+        .append_value(record)
         .map_err(|e| format!("append manifest_file: {e}"))?;
     writer
         .into_inner()

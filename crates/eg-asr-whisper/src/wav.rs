@@ -59,8 +59,10 @@ pub fn decode_wav_16k_mono(bytes: &[u8]) -> Result<DecodedAudio, AsrError> {
         });
     }
     let samples: Vec<f32> = data
-        .chunks_exact(2)
-        .map(|pair| i16::from_le_bytes([pair[0], pair[1]]) as f32 / 32_768.0)
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|pair| i16::from_le_bytes(*pair) as f32 / 32_768.0)
         .collect();
     Ok(DecodedAudio {
         samples,

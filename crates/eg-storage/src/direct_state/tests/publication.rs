@@ -1,5 +1,5 @@
 use super::{
-    super::{authority::*, contract::*, filesystem::*, journal::*, registry::*, *},
+    super::{authority::*, contract::*, filesystem::*, journal::*, *},
     support::*,
 };
 

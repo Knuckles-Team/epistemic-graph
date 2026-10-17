@@ -68,8 +68,12 @@ MCP verb + the `/api/graphlearn/{fit,predict}` REST twin.
 
 ```python
 res = await client.graphlearn.fit(
-    node_label="Person", direction="any",
-    basis="chebyshev", degree=4, epochs=200, writeback=True,
+    node_label="Person",
+    direction="any",
+    basis="chebyshev",
+    degree=4,
+    epochs=200,
+    writeback=True,
 )
 # {model, n_nodes, n_edges, train_auc,
 #  edge_functions: [{feature, coefficients}, ...], edge_functions_written}
@@ -85,7 +89,10 @@ becomes a typed **`:EdgeFunction`** node
 
 ```python
 pred = await client.graphlearn.predict(
-    model=res["model"], node_label="Person", top_k=20, writeback=True,
+    model=res["model"],
+    node_label="Person",
+    top_k=20,
+    writeback=True,
 )
 # {predicted: [{src, dst, score}, ...], n_predicted, model, written_back}
 ```

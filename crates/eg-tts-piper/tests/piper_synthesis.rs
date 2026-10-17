@@ -187,8 +187,10 @@ fn full_contract_round_trip_produces_real_audio() {
     );
 
     let samples: Vec<i16> = pcm_total
-        .chunks_exact(2)
-        .map(|b| i16::from_le_bytes([b[0], b[1]]))
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|b| i16::from_le_bytes(*b))
         .collect();
     assert!(
         samples.iter().any(|&s| s != 0),

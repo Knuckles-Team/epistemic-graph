@@ -143,14 +143,22 @@ colors = g.graph_coloring()
 
 # Lifecycle operations
 import json
+
 stats_json = g.prune_by_lifecycle(max_age_secs=86400, min_score=0.1)
 stats = json.loads(stats_json)
 
 # Batch operations (single epistemic-graph crossing)
-ops = json.dumps([
-    {"op": "add_node", "id": "concept:auth", "properties": {}},
-    {"op": "add_edge", "source": "agent:planner", "target": "concept:auth", "properties": {}},
-])
+ops = json.dumps(
+    [
+        {"op": "add_node", "id": "concept:auth", "properties": {}},
+        {
+            "op": "add_edge",
+            "source": "agent:planner",
+            "target": "concept:auth",
+            "properties": {},
+        },
+    ]
+)
 result = g.batch_update(ops)
 
 # Metrics

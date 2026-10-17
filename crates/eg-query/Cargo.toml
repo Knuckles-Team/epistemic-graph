@@ -135,8 +135,8 @@ datafusion = { version = "54", default-features = false, optional = true, featur
     "nested_expressions",
     "sql",
 ] }
-arrow = { version = "58.3", optional = true }
-arrow-schema = { version = "58.3", optional = true }
+arrow = { version = "58.4", optional = true }
+arrow-schema = { version = "58.4", optional = true }
 # CA-19 (GOC-77 W01-W04) — the official apache/iceberg-rust reader + REST-catalog client,
 # gated behind `iceberg-federation` (implied by `sql`, see that feature's comment above).
 # SAME `0.10` line eg-lake's `lake` feature already pins (CA-18); the three RUSTSEC
@@ -159,16 +159,16 @@ iceberg-storage-opendal = { version = "0.10", optional = true, default-features 
 ] }
 # Durable embedded KV for the user-defined table store (CONCEPT:EG-018). Same pin as
 # the engine's server-side durable tier so a `query`/`full` build links one redb.
-redb = { version = "4.1", optional = true }
+redb = { version = "4.4", optional = true }
 # Shared by `sql` (EdgeRef/IntoEdgeReferences edge-table topology iteration over
 # GraphView's StableDiGraph) and `cypher` (variable-length-path BFS). Already
 # linked transitively via eg-core; pin the same minor. `serde-1` is the superset
 # both features tolerate — not in a default build (CONCEPT:KG-2.184).
-petgraph = { version = "0.6.4", features = ["serde-1"], optional = true }
+petgraph = { version = "0.8.3", features = ["serde-1"], optional = true }
 # Current-thread runtime to drive DataFusion's async `collect()` inside the
 # blocking pool (the `compute_off_lock` idiom). Only the `rt` feature is needed —
 # the caller already runs us under `spawn_blocking`.
-tokio = { version = "1.38", features = ["rt"], optional = true }
+tokio = { version = "1.53", features = ["rt"], optional = true }
 # Debug-log the never-error result-cell decoder fallback (CONCEPT:KG-2.196). Gated
 # with `sql` — the only place it is used — so a default Pi build links no tracing.
 tracing = { version = "0.1", optional = true }
@@ -196,12 +196,12 @@ md-5 = { version = "0.10", optional = true }
 sha1 = { version = "0.10", optional = true }
 sha2 = { version = "0.10", optional = true }
 hex = { version = "0.4", optional = true }
-base64 = { version = "0.22", optional = true }
+base64 = { version = "0.23", optional = true }
 ipnet = { version = "2.12", optional = true }
 
 [dev-dependencies]
 # The spike's OUTER reactor mimics the server's multi-thread runtime; the inner
 # DataFusion driver uses only the current-thread runtime from the `sql` dep.
-tokio = { version = "1.38", features = ["rt", "rt-multi-thread", "macros"] }
+tokio = { version = "1.53", features = ["rt", "rt-multi-thread", "macros"] }
 # Shared SQL source batch fixture (`eg_types::test_support::sql_source`).
 eg-types = { path = "../eg-types", features = ["test-support"] }

@@ -13,7 +13,7 @@ name = "eg_quantum_hardware"
 eg-quantum-core = { path = "../eg-quantum-core" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-thiserror = "1.0"
+thiserror = "2.0"
 # Only pulled in when at least one provider feature needs an outbound HTTP client
 # (see the `reqwest-transport` feature below); NOT a dependency of the base crate.
 # Already resolved workspace-wide (root `epistemic-graph` pulls it transitively via

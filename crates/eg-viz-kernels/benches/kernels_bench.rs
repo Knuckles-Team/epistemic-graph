@@ -14,8 +14,9 @@
 //! not a fast CI-loop benchmark; GOC-70's "must pass on a 2-core runner" edict
 //! applies to `cargo test`, not `cargo bench`, which is never part of the gate).
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use eg_viz_kernels::{lttb_reduce, m4_reduce};
+use std::hint::black_box;
 
 const MAGNITUDES: [u64; 3] = [10_000, 1_000_000, 100_000_000];
 

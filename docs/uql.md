@@ -487,7 +487,9 @@ result = await client.uql(
     "MATCH (:Concept) WHERE year >= $min |> RERANK MMR 0.5 5 |> RETURN mmr |> LIMIT $k",
     params={"min": 2020, "k": 5},
 )
-rows = result["rows"]  # [{"id", "score", "channels": {"mmr": …}}]; result["kind"] == "rows"
+rows = result[
+    "rows"
+]  # [{"id", "score", "channels": {"mmr": …}}]; result["kind"] == "rows"
 ```
 
 On the wire this is `Method::Uql { text, params }` — the one query-text method — and, inside a

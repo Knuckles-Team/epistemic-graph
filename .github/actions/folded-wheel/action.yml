@@ -52,7 +52,7 @@ runs:
     # branch's caches. Pull requests never save.
     - name: Restore the per-platform compile cache
       if: ${{ inputs.pass == 'primary' }}
-      uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       with:
         shared-key: eg-wheel-${{ env.EG_WHEEL_TARGET }}
         workspaces: ". -> ${{ runner.temp }}/epistemic-graph-release-target"

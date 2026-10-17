@@ -359,22 +359,22 @@ fn invalid_index_manifest(error: impl std::fmt::Display) -> std::io::Error {
 
 /// SIMD-friendly dot product (CONCEPT:EG-KG.compute.lane-chunked-dot-product). Accumulating into a single `f32`
 /// serializes the floating-point dependency chain and defeats vectorization; instead
-/// we accumulate into 8 independent lanes over `chunks_exact(8)` slices. The fixed
+/// we accumulate into 8 independent lanes over `as_chunks::<8>()` slices. The fixed
 /// length-8 inner loop is bounds-check-free (the compiler proves `len == 8`) and maps
 /// to one packed 256-bit AVX2 multiply-add per chunk (under `-C target-cpu=x86-64-v3`,
 /// see `.cargo/config.toml`), so a 1024-dim dot product is ~128 vector ops instead of
 /// 1024 scalar ones. The tail (< 8 elems) is scalar.
 fn dot_product(a: &[f32], b: &[f32]) -> f32 {
     let mut acc = [0.0f32; 8];
-    let mut ca = a.chunks_exact(8);
-    let mut cb = b.chunks_exact(8);
-    for (x, y) in ca.by_ref().zip(cb.by_ref()) {
+    let (ca, ra) = a.as_chunks::<8>();
+    let (cb, rb) = b.as_chunks::<8>();
+    for (x, y) in ca.iter().zip(cb) {
         for l in 0..8 {
             acc[l] += x[l] * y[l];
         }
     }
     let mut s = ((acc[0] + acc[4]) + (acc[1] + acc[5])) + ((acc[2] + acc[6]) + (acc[3] + acc[7]));
-    for (x, y) in ca.remainder().iter().zip(cb.remainder()) {
+    for (x, y) in ra.iter().zip(rb) {
         s += x * y;
     }
     s
