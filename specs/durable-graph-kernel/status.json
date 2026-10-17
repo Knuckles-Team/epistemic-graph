@@ -2866,7 +2866,8 @@
       "title": "Envelope admission refusals carry a declared code and a safe diagnostic",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "1296792b60de"
+        "1296792b60de",
+        "e796203005ac"
       ],
       "verified_by": [
         "crates/eg-types/src/change_envelope/material.rs:198",
