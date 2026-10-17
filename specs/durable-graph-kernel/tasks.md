@@ -233,3 +233,5 @@ This batch defines the slices; it runs none of their runtime tests.
 - [ ] **EG-DURABLE-KERNEL-R101.4 (Refusal):** Add the typed refusals.
 - [ ] **EG-DURABLE-KERNEL-R101.5 (Evidence):** Emit the evidence.
 - [ ] **EG-DURABLE-KERNEL-R101.6 (Hot-path proof):** Add the served hot-path test.
+
+- [ ] **EG-DURABLE-KERNEL-R028.3:** Validate fenced metadata CAS expiry at the native row boundary; native tests remain pending.

@@ -221,6 +221,7 @@ pub(crate) fn validate_cas_work_item_metadata_request(
 pub(crate) fn cas_work_item_metadata_preconditions_ok(
     request: &crate::epistemic_operations_ext::CasWorkItemMetadataRequest,
     props: &serde_json::Map<String, serde_json::Value>,
+    authoritative_now_ms: u64,
 ) -> bool {
     let tenant = &request.tenant_ref;
     let status_ok = request
@@ -233,6 +234,7 @@ pub(crate) fn cas_work_item_metadata_preconditions_ok(
             property_string(props, "lease_owner") == fence.worker_ref
                 && property_u64(props, "lease_epoch") == fence.lease_epoch
                 && property_u64(props, "fencing_token") == fence.fencing_token
+                && property_f64(props, "lease_expires_at") > authoritative_now_ms as f64 / 1000.0
         }
         None => true,
     };
@@ -295,6 +297,7 @@ pub(crate) fn apply_cas_work_item_metadata_field(
 pub(crate) fn apply_cas_work_item_metadata_row(
     graph: &str,
     request: &crate::epistemic_operations_ext::CasWorkItemMetadataRequest,
+    authoritative_now_ms: u64,
     nodes: &mut ScopedOwnerTableMut<'_, (&str, &str), &[u8]>,
     crypto: DurableCrypto<'_>,
 ) -> Result<Option<crate::protocol::ResultPayload>, String> {
@@ -328,7 +331,7 @@ pub(crate) fn apply_cas_work_item_metadata_row(
     };
     let mut props: serde_json::Map<String, serde_json::Value> = decode_durable(&bytes)?;
 
-    if !cas_work_item_metadata_preconditions_ok(request, &props) {
+    if !cas_work_item_metadata_preconditions_ok(request, &props, authoritative_now_ms) {
         return respond(CasWorkItemMetadataOutcome::Conflict, vec![]);
     }
 
@@ -344,3 +347,6 @@ pub(crate) fn apply_cas_work_item_metadata_row(
         vec![work_item_id.clone()],
     )
 }
+
+#[cfg(test)]
+mod tests;
