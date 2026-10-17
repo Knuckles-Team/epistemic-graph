@@ -698,7 +698,55 @@
     "EG-DECISION-ENGINE-R174.9.3",
     "EG-DECISION-ENGINE-R174.9.4",
     "EG-DECISION-ENGINE-R174.9.5",
-    "EG-DECISION-ENGINE-R174.9.6"
+    "EG-DECISION-ENGINE-R174.9.6",
+    "EG-DECISION-ENGINE-R614",
+    "EG-DECISION-ENGINE-R614.1",
+    "EG-DECISION-ENGINE-R614.2",
+    "EG-DECISION-ENGINE-R614.3",
+    "EG-DECISION-ENGINE-R614.4",
+    "EG-DECISION-ENGINE-R614.5",
+    "EG-DECISION-ENGINE-R614.6",
+    "EG-DECISION-ENGINE-R615",
+    "EG-DECISION-ENGINE-R615.1",
+    "EG-DECISION-ENGINE-R615.2",
+    "EG-DECISION-ENGINE-R615.3",
+    "EG-DECISION-ENGINE-R615.4",
+    "EG-DECISION-ENGINE-R615.5",
+    "EG-DECISION-ENGINE-R615.6",
+    "EG-DECISION-ENGINE-R617",
+    "EG-DECISION-ENGINE-R617.1",
+    "EG-DECISION-ENGINE-R617.2",
+    "EG-DECISION-ENGINE-R617.3",
+    "EG-DECISION-ENGINE-R617.4",
+    "EG-DECISION-ENGINE-R617.5",
+    "EG-DECISION-ENGINE-R617.6",
+    "EG-DECISION-ENGINE-R043.600",
+    "EG-DECISION-ENGINE-R750",
+    "EG-DECISION-ENGINE-R750.750",
+    "EG-DECISION-ENGINE-R750.751",
+    "EG-DECISION-ENGINE-R750.752",
+    "EG-DECISION-ENGINE-R750.753",
+    "EG-DECISION-ENGINE-R751",
+    "EG-DECISION-ENGINE-R751.750",
+    "EG-DECISION-ENGINE-R751.751",
+    "EG-DECISION-ENGINE-R751.752",
+    "EG-DECISION-ENGINE-R751.753",
+    "EG-DECISION-ENGINE-R752",
+    "EG-DECISION-ENGINE-R752.750",
+    "EG-DECISION-ENGINE-R752.751",
+    "EG-DECISION-ENGINE-R752.752",
+    "EG-DECISION-ENGINE-R752.753",
+    "EG-DECISION-ENGINE-R753",
+    "EG-DECISION-ENGINE-R753.750",
+    "EG-DECISION-ENGINE-R753.751",
+    "EG-DECISION-ENGINE-R753.752",
+    "EG-DECISION-ENGINE-R753.753",
+    "EG-DECISION-ENGINE-R035.750",
+    "EG-DECISION-ENGINE-R035.751",
+    "EG-DECISION-ENGINE-R046.750",
+    "EG-DECISION-ENGINE-R046.751",
+    "EG-DECISION-ENGINE-R134.750",
+    "EG-DECISION-ENGINE-R134.751"
   ],
   "requirements": [
     {
@@ -1315,13 +1363,17 @@
     {
       "id": "EG-DECISION-ENGINE-R035",
       "title": "Decision-based routing for execution configuration",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "7db76f6142e3",
         "fa780d3e101a"
       ],
       "verified_by": [
         "src/server/handlers/decide/stat_tests/consumer_tests.rs:421"
+      ],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R035.750",
+        "EG-DECISION-ENGINE-R035.751"
       ]
     },
     {
@@ -1474,7 +1526,7 @@
     {
       "id": "EG-DECISION-ENGINE-R043",
       "title": "Write-back proposals routed through Decide",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "21f73899e76c",
         "e8eaaf916a40",
@@ -1482,6 +1534,9 @@
       ],
       "verified_by": [
         "src/server/handlers/decide/stat_tests/connector_writeback_tests.rs:25"
+      ],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R043.600"
       ]
     },
     {
@@ -1583,7 +1638,7 @@
     {
       "id": "EG-DECISION-ENGINE-R046",
       "title": "Swarm topology decisions via the decision ladder",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "2d087761c964",
         "e8eaaf916a40",
@@ -1592,6 +1647,10 @@
       "verified_by": [
         "crates/eg-compute/src/assemble/tests/topology.rs:115",
         "crates/eg-compute/src/assemble/tests/topology.rs:95"
+      ],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R046.750",
+        "EG-DECISION-ENGINE-R046.751"
       ]
     },
     {
@@ -4002,7 +4061,9 @@
         "EG-DECISION-ENGINE-R134.107",
         "EG-DECISION-ENGINE-R134.108",
         "EG-DECISION-ENGINE-R134.109",
-        "EG-DECISION-ENGINE-R134.110"
+        "EG-DECISION-ENGINE-R134.110",
+        "EG-DECISION-ENGINE-R134.750",
+        "EG-DECISION-ENGINE-R134.751"
       ]
     },
     {
@@ -7367,6 +7428,390 @@
     {
       "id": "EG-DECISION-ENGINE-R174.9.6",
       "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R614",
+      "title": "Capability cards, distilled proposals, topic classes and relation projection are engine enrichment (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R614.1",
+        "EG-DECISION-ENGINE-R614.2",
+        "EG-DECISION-ENGINE-R614.3",
+        "EG-DECISION-ENGINE-R614.4",
+        "EG-DECISION-ENGINE-R614.5",
+        "EG-DECISION-ENGINE-R614.6"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R614.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R614.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R614.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R614.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R614.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R614.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R615",
+      "title": "Write-back proposals queue for approval, then reach vendors only through the governed contract (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R615.1",
+        "EG-DECISION-ENGINE-R615.2",
+        "EG-DECISION-ENGINE-R615.3",
+        "EG-DECISION-ENGINE-R615.4",
+        "EG-DECISION-ENGINE-R615.5",
+        "EG-DECISION-ENGINE-R615.6"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R615.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R615.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R615.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R615.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R615.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R615.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R617",
+      "title": "Conversation logs, project rules and memory pruning are engine-held memory (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R617.1",
+        "EG-DECISION-ENGINE-R617.2",
+        "EG-DECISION-ENGINE-R617.3",
+        "EG-DECISION-ENGINE-R617.4",
+        "EG-DECISION-ENGINE-R617.5",
+        "EG-DECISION-ENGINE-R617.6"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R617.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R617.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R617.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R617.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R617.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R617.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R043.600",
+      "title": "Approval queue and as-of stamping for write-back proposals",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R750",
+      "title": "Bounded multi-step reasoning search with explicit budgets (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R750.750",
+        "EG-DECISION-ENGINE-R750.751",
+        "EG-DECISION-ENGINE-R750.752",
+        "EG-DECISION-ENGINE-R750.753"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R750.750",
+      "title": "Model: Bounded multi-step reasoning search with explicit budgets",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R750.751",
+      "title": "Behavior: Bounded multi-step reasoning search with explicit budgets",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R750.752",
+      "title": "Refusal: Bounded multi-step reasoning search with explicit budgets",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R750.753",
+      "title": "Hot-path proof: Bounded multi-step reasoning search with explicit budgets",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R751",
+      "title": "Horizon curriculum, step reward decomposition and hierarchical task decomposition (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R751.750",
+        "EG-DECISION-ENGINE-R751.751",
+        "EG-DECISION-ENGINE-R751.752",
+        "EG-DECISION-ENGINE-R751.753"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R751.750",
+      "title": "Model: Horizon curriculum, step reward decomposition and hierarchical task decomposition",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R751.751",
+      "title": "Behavior: Horizon curriculum, step reward decomposition and hierarchical task decomposition",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R751.752",
+      "title": "Refusal: Horizon curriculum, step reward decomposition and hierarchical task decomposition",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R751.753",
+      "title": "Hot-path proof: Horizon curriculum, step reward decomposition and hierarchical task decomposition",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R752",
+      "title": "Population drift, diversity-aware fan-out width and safe-autonomy ramp (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R752.750",
+        "EG-DECISION-ENGINE-R752.751",
+        "EG-DECISION-ENGINE-R752.752",
+        "EG-DECISION-ENGINE-R752.753"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R752.750",
+      "title": "Model: Population drift, diversity-aware fan-out width and safe-autonomy ramp",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R752.751",
+      "title": "Behavior: Population drift, diversity-aware fan-out width and safe-autonomy ramp",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R752.752",
+      "title": "Refusal: Population drift, diversity-aware fan-out width and safe-autonomy ramp",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R752.753",
+      "title": "Hot-path proof: Population drift, diversity-aware fan-out width and safe-autonomy ramp",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R753",
+      "title": "Verification, adversarial and synthesis steps over parallel trajectories (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R753.750",
+        "EG-DECISION-ENGINE-R753.751",
+        "EG-DECISION-ENGINE-R753.752",
+        "EG-DECISION-ENGINE-R753.753"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R753.750",
+      "title": "Model: Verification, adversarial and synthesis steps over parallel trajectories",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R753.751",
+      "title": "Behavior: Verification, adversarial and synthesis steps over parallel trajectories",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R753.752",
+      "title": "Refusal: Verification, adversarial and synthesis steps over parallel trajectories",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R753.753",
+      "title": "Hot-path proof: Verification, adversarial and synthesis steps over parallel trajectories",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R035.750",
+      "title": "Model and behavior: Routing strategies: fast-path, learned policy, team reuse, workflow-context shielding and fallback chain",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R035.751",
+      "title": "Hot-path proof: Routing strategies: fast-path, learned policy, team reuse, workflow-context shielding and fallback chain",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R046.750",
+      "title": "Model and behavior: Elastic topology admission with sandbox resource limits and commit-time plan admission",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R046.751",
+      "title": "Hot-path proof: Elastic topology admission with sandbox resource limits and commit-time plan admission",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R134.750",
+      "title": "Model and behavior: Tool resolution, adaptive provisioning and subagent pattern choice",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R134.751",
+      "title": "Hot-path proof: Tool resolution, adaptive provisioning and subagent pattern choice",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

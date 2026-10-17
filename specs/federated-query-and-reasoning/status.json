@@ -291,7 +291,21 @@
     "EG-FEDERATED-QUERY-R091.4",
     "EG-FEDERATED-QUERY-R091.5",
     "EG-FEDERATED-QUERY-R091.6",
-    "EG-FEDERATED-QUERY-R090.7"
+    "EG-FEDERATED-QUERY-R090.7",
+    "EG-FEDERATED-QUERY-R607",
+    "EG-FEDERATED-QUERY-R607.1",
+    "EG-FEDERATED-QUERY-R607.2",
+    "EG-FEDERATED-QUERY-R607.3",
+    "EG-FEDERATED-QUERY-R607.4",
+    "EG-FEDERATED-QUERY-R607.5",
+    "EG-FEDERATED-QUERY-R607.6",
+    "EG-FEDERATED-QUERY-R608",
+    "EG-FEDERATED-QUERY-R608.1",
+    "EG-FEDERATED-QUERY-R608.2",
+    "EG-FEDERATED-QUERY-R608.3",
+    "EG-FEDERATED-QUERY-R608.4",
+    "EG-FEDERATED-QUERY-R608.5",
+    "EG-FEDERATED-QUERY-R608.6"
   ],
   "requirements": [
     {
@@ -2997,6 +3011,120 @@
     {
       "id": "EG-FEDERATED-QUERY-R090.7",
       "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R607",
+      "title": "Topology analytics find communities, analogies and cross-domain synergy (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-FEDERATED-QUERY-R607.1",
+        "EG-FEDERATED-QUERY-R607.2",
+        "EG-FEDERATED-QUERY-R607.3",
+        "EG-FEDERATED-QUERY-R607.4",
+        "EG-FEDERATED-QUERY-R607.5",
+        "EG-FEDERATED-QUERY-R607.6"
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R607.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R607.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R607.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R607.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R607.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R607.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R608",
+      "title": "Rule inference, causal verification and paradigm routing run in the engine (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-FEDERATED-QUERY-R608.1",
+        "EG-FEDERATED-QUERY-R608.2",
+        "EG-FEDERATED-QUERY-R608.3",
+        "EG-FEDERATED-QUERY-R608.4",
+        "EG-FEDERATED-QUERY-R608.5",
+        "EG-FEDERATED-QUERY-R608.6"
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R608.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R608.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R608.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R608.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R608.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R608.6",
+      "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

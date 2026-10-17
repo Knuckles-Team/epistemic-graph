@@ -37,7 +37,15 @@
     "EG-IDENTITY-R023.13.3",
     "EG-IDENTITY-R023.13.4",
     "EG-IDENTITY-R023.13.5",
-    "EG-IDENTITY-R023.13.6"
+    "EG-IDENTITY-R023.13.6",
+    "EG-IDENTITY-R610",
+    "EG-IDENTITY-R610.1",
+    "EG-IDENTITY-R610.2",
+    "EG-IDENTITY-R610.3",
+    "EG-IDENTITY-R610.4",
+    "EG-IDENTITY-R610.5",
+    "EG-IDENTITY-R610.6",
+    "EG-IDENTITY-R023.600"
   ],
   "requirements": [
     {
@@ -219,7 +227,8 @@
         "EG-IDENTITY-R023.10",
         "EG-IDENTITY-R023.11",
         "EG-IDENTITY-R023.12",
-        "EG-IDENTITY-R023.13"
+        "EG-IDENTITY-R023.13",
+        "EG-IDENTITY-R023.600"
       ]
     },
     {
@@ -359,6 +368,70 @@
     {
       "id": "EG-IDENTITY-R023.13.6",
       "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-IDENTITY-R610",
+      "title": "Tenant sharing, parent chains, secured reads and ownership claims are enforced in the engine (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-IDENTITY-R610.1",
+        "EG-IDENTITY-R610.2",
+        "EG-IDENTITY-R610.3",
+        "EG-IDENTITY-R610.4",
+        "EG-IDENTITY-R610.5",
+        "EG-IDENTITY-R610.6"
+      ]
+    },
+    {
+      "id": "EG-IDENTITY-R610.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-IDENTITY-R610.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-IDENTITY-R610.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-IDENTITY-R610.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-IDENTITY-R610.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-IDENTITY-R610.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-IDENTITY-R023.600",
+      "title": "Hierarchical tenant chains and audited reads",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

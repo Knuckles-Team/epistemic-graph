@@ -9,9 +9,9 @@
 
 use eg_types::control_lease::{
     is_tenant_control_lease, validate_control_lease_get, ControlLeaseIssueOutcome,
-    ControlLeaseIssued, ControlLeasePage, ControlLeaseTransition, ControlLeaseTransitionOutcome,
-    ControlLeaseView, IssueControlLeaseRequest, ListControlLeasesRequest,
-    TransitionControlLeaseRequest,
+    ControlLeaseIssued, ControlLeasePage, ControlLeaseTarget, ControlLeaseTransition,
+    ControlLeaseTransitionOutcome, ControlLeaseView, IssueControlLeaseRequest,
+    ListControlLeasesRequest, TransitionControlLeaseRequest,
 };
 use eg_types::result_contract::coordination::{IssueControlLease, TransitionControlLease};
 
@@ -39,6 +39,7 @@ pub(crate) fn apply_control_lease_rows(
     graph: &str,
     method: &Method,
     nodes: &mut NativeNodeRows<'_>,
+    committed_at_ms: u64,
     crypto: DurableCrypto<'_>,
 ) -> Result<Option<crate::protocol::ResultPayload>, String> {
     match method {
@@ -46,7 +47,7 @@ pub(crate) fn apply_control_lease_rows(
             apply_issue_control_lease_row(graph, request, nodes, crypto)
         }
         Method::TransitionControlLease { request } => {
-            apply_transition_control_lease_row(graph, request, nodes, crypto)
+            apply_transition_control_lease_row(graph, request, nodes, committed_at_ms, crypto)
         }
         _ => Ok(None),
     }
@@ -85,6 +86,7 @@ pub(crate) fn apply_transition_control_lease_row(
     graph: &str,
     request: &TransitionControlLeaseRequest,
     nodes: &mut NativeNodeRows<'_>,
+    committed_at_ms: u64,
     crypto: DurableCrypto<'_>,
 ) -> Result<Option<crate::protocol::ResultPayload>, String> {
     request.validate()?;
@@ -94,7 +96,15 @@ pub(crate) fn apply_transition_control_lease_row(
         return transition_result(ControlLeaseTransitionOutcome::NotFound, None, false);
     };
     let current = ControlLeaseView::from_row(&request.lease_id, &row)?;
-    if !request.to.allowed_from(current.status) || current.revision != request.expected_revision {
+    // Use the mutation's authoritative timestamp, including on replicated replay.
+    // Refuse expiry against the engine-stamped mutation time, not caller time.
+    let expired = request.to == ControlLeaseTarget::Consumed
+        && (committed_at_ms >= current.expires_at_ms
+            || committed_at_ms >= current.hard_expires_at_ms);
+    if !request.to.allowed_from(current.status)
+        || current.revision != request.expected_revision
+        || expired
+    {
         return transition_result(
             ControlLeaseTransitionOutcome::Conflict,
             Some(current),

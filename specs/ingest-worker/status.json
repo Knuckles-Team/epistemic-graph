@@ -47,7 +47,28 @@
     "EG-INGEST-WORKER-R003.15",
     "EG-INGEST-WORKER-R003.16",
     "EG-INGEST-WORKER-R003.17",
-    "EG-INGEST-WORKER-R003.18"
+    "EG-INGEST-WORKER-R003.18",
+    "EG-INGEST-WORKER-R604",
+    "EG-INGEST-WORKER-R604.1",
+    "EG-INGEST-WORKER-R604.2",
+    "EG-INGEST-WORKER-R604.3",
+    "EG-INGEST-WORKER-R604.4",
+    "EG-INGEST-WORKER-R604.5",
+    "EG-INGEST-WORKER-R604.6",
+    "EG-INGEST-WORKER-R605",
+    "EG-INGEST-WORKER-R605.1",
+    "EG-INGEST-WORKER-R605.2",
+    "EG-INGEST-WORKER-R605.3",
+    "EG-INGEST-WORKER-R605.4",
+    "EG-INGEST-WORKER-R605.5",
+    "EG-INGEST-WORKER-R605.6",
+    "EG-INGEST-WORKER-R606",
+    "EG-INGEST-WORKER-R606.1",
+    "EG-INGEST-WORKER-R606.2",
+    "EG-INGEST-WORKER-R606.3",
+    "EG-INGEST-WORKER-R606.4",
+    "EG-INGEST-WORKER-R606.5",
+    "EG-INGEST-WORKER-R606.6"
   ],
   "requirements": [
     {
@@ -400,6 +421,177 @@
     },
     {
       "id": "EG-INGEST-WORKER-R003.18",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R604",
+      "title": "Ingest tasks run through lane-fair queues with reserved workers and stage tiers (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-INGEST-WORKER-R604.1",
+        "EG-INGEST-WORKER-R604.2",
+        "EG-INGEST-WORKER-R604.3",
+        "EG-INGEST-WORKER-R604.4",
+        "EG-INGEST-WORKER-R604.5",
+        "EG-INGEST-WORKER-R604.6"
+      ]
+    },
+    {
+      "id": "EG-INGEST-WORKER-R604.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R604.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R604.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R604.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R604.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R604.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R605",
+      "title": "Queue backends, chunked source drains and graph routing are one durable engine surface (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-INGEST-WORKER-R605.1",
+        "EG-INGEST-WORKER-R605.2",
+        "EG-INGEST-WORKER-R605.3",
+        "EG-INGEST-WORKER-R605.4",
+        "EG-INGEST-WORKER-R605.5",
+        "EG-INGEST-WORKER-R605.6"
+      ]
+    },
+    {
+      "id": "EG-INGEST-WORKER-R605.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R605.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R605.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R605.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R605.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R605.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R606",
+      "title": "One materialization path writes every connector's records with provenance, hash filtering and partition routing (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-INGEST-WORKER-R606.1",
+        "EG-INGEST-WORKER-R606.2",
+        "EG-INGEST-WORKER-R606.3",
+        "EG-INGEST-WORKER-R606.4",
+        "EG-INGEST-WORKER-R606.5",
+        "EG-INGEST-WORKER-R606.6"
+      ]
+    },
+    {
+      "id": "EG-INGEST-WORKER-R606.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R606.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R606.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R606.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R606.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R606.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
