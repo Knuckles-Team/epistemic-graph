@@ -129,7 +129,11 @@
     "EG-ORCH-VOCAB-R751.750",
     "EG-ORCH-VOCAB-R751.751",
     "EG-ORCH-VOCAB-R751.752",
-    "EG-ORCH-VOCAB-R751.753"
+    "EG-ORCH-VOCAB-R751.753",
+    "EG-ORCH-VOCAB-R004.700",
+    "EG-ORCH-VOCAB-R004.701",
+    "EG-ORCH-VOCAB-R009.700",
+    "EG-ORCH-VOCAB-R009.701"
   ],
   "requirements": [
     {
@@ -306,7 +310,9 @@
         "EG-ORCH-VOCAB-R004.3",
         "EG-ORCH-VOCAB-R004.4",
         "EG-ORCH-VOCAB-R004.5",
-        "EG-ORCH-VOCAB-R004.6"
+        "EG-ORCH-VOCAB-R004.6",
+        "EG-ORCH-VOCAB-R004.700",
+        "EG-ORCH-VOCAB-R004.701"
       ]
     },
     {
@@ -557,7 +563,9 @@
         "EG-ORCH-VOCAB-R009.17",
         "EG-ORCH-VOCAB-R009.18",
         "EG-ORCH-VOCAB-R009.100",
-        "EG-ORCH-VOCAB-R009.101"
+        "EG-ORCH-VOCAB-R009.101",
+        "EG-ORCH-VOCAB-R009.700",
+        "EG-ORCH-VOCAB-R009.701"
       ]
     },
     {
@@ -1164,6 +1172,34 @@
     {
       "id": "EG-ORCH-VOCAB-R751.753",
       "title": "Hot-path proof: Team composition, evolution, specialization discovery and social systems",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R004.700",
+      "title": "Policy and rule documents ingest as guardrail scope: model and behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R004.701",
+      "title": "Policy and rule documents ingest as guardrail scope: refusal, evidence and hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R009.700",
+      "title": "Durable execution units mirror into the run-trace vocabulary: model and behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R009.701",
+      "title": "Durable execution units mirror into the run-trace vocabulary: refusal, evidence and hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
