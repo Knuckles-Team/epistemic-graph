@@ -148,6 +148,7 @@ fn scan(prefix: &str, limit: usize, cursor: Option<String>) -> Method {
     }
 }
 
+// spec: EG-DURABLE-KERNEL-R102
 // spec: EG-DURABLE-KERNEL-R102.1
 // spec: EG-DURABLE-KERNEL-R102.3
 #[tokio::test]
