@@ -287,6 +287,12 @@
     "EG-DURABLE-KERNEL-R101.4",
     "EG-DURABLE-KERNEL-R101.5",
     "EG-DURABLE-KERNEL-R101.6",
+    "EG-DURABLE-KERNEL-R102",
+    "EG-DURABLE-KERNEL-R102.1",
+    "EG-DURABLE-KERNEL-R102.2",
+    "EG-DURABLE-KERNEL-R102.3",
+    "EG-DURABLE-KERNEL-R102.4",
+    "EG-DURABLE-KERNEL-R102.5",
     "EG-DURABLE-KERNEL-R609",
     "EG-DURABLE-KERNEL-R609.1",
     "EG-DURABLE-KERNEL-R609.2",
@@ -3260,6 +3266,85 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R102",
+      "title": "The engine serves its key-value modality as the memory read and save methods GraphOS binds (rollup)",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "2393e9bc7050",
+        "faa8867b4ff7"
+      ],
+      "verified_by": [
+        "src/server/kv/dispatch_tests.rs:151"
+      ],
+      "rollup_of": [
+        "EG-DURABLE-KERNEL-R102.1",
+        "EG-DURABLE-KERNEL-R102.2",
+        "EG-DURABLE-KERNEL-R102.3",
+        "EG-DURABLE-KERNEL-R102.4",
+        "EG-DURABLE-KERNEL-R102.5"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R102.1",
+      "title": "Served contract",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "95f0d8719878",
+        "faa8867b4ff7"
+      ],
+      "verified_by": [
+        "src/server/kv/dispatch_tests.rs:152"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R102.2",
+      "title": "Scope and authorization",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "faa8867b4ff7"
+      ],
+      "verified_by": [
+        "src/server/kv/dispatch_tests.rs:253"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R102.3",
+      "title": "Versioned compare-and-swap and bounded paginated scan",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "95f0d8719878",
+        "faa8867b4ff7"
+      ],
+      "verified_by": [
+        "src/server/kv/dispatch_tests.rs:153",
+        "src/server/kv/dispatch_tests.rs:224",
+        "src/server/kv/wire.rs:324"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R102.4",
+      "title": "Durable, audited, replayable mutations",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "95f0d8719878",
+        "faa8867b4ff7"
+      ],
+      "verified_by": [
+        "src/server/kv/dispatch_tests.rs:306"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R102.5",
+      "title": "Hot-path proof",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "faa8867b4ff7"
+      ],
+      "verified_by": [
+        "src/server/kv/dispatch_tests.rs:363"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R609",
