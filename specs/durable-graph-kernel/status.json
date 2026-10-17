@@ -293,7 +293,22 @@
     "EG-DURABLE-KERNEL-R609.4",
     "EG-DURABLE-KERNEL-R609.5",
     "EG-DURABLE-KERNEL-R609.6",
-    "EG-DURABLE-KERNEL-R071.600"
+    "EG-DURABLE-KERNEL-R071.600",
+    "EG-DURABLE-KERNEL-R750",
+    "EG-DURABLE-KERNEL-R750.750",
+    "EG-DURABLE-KERNEL-R750.751",
+    "EG-DURABLE-KERNEL-R750.752",
+    "EG-DURABLE-KERNEL-R750.753",
+    "EG-DURABLE-KERNEL-R751",
+    "EG-DURABLE-KERNEL-R751.750",
+    "EG-DURABLE-KERNEL-R751.751",
+    "EG-DURABLE-KERNEL-R751.752",
+    "EG-DURABLE-KERNEL-R751.753",
+    "EG-DURABLE-KERNEL-R752",
+    "EG-DURABLE-KERNEL-R752.750",
+    "EG-DURABLE-KERNEL-R752.751",
+    "EG-DURABLE-KERNEL-R752.752",
+    "EG-DURABLE-KERNEL-R752.753"
   ],
   "requirements": [
     {
@@ -3246,6 +3261,129 @@
     {
       "id": "EG-DURABLE-KERNEL-R071.600",
       "title": "Lane-aware claim on the durable task queue",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R750",
+      "title": "Durable agent dispatch queue, turn claims and cooperative cancellation (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DURABLE-KERNEL-R750.750",
+        "EG-DURABLE-KERNEL-R750.751",
+        "EG-DURABLE-KERNEL-R750.752",
+        "EG-DURABLE-KERNEL-R750.753"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R750.750",
+      "title": "Model: Durable agent dispatch queue, turn claims and cooperative cancellation",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R750.751",
+      "title": "Behavior: Durable agent dispatch queue, turn claims and cooperative cancellation",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R750.752",
+      "title": "Refusal: Durable agent dispatch queue, turn claims and cooperative cancellation",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R750.753",
+      "title": "Hot-path proof: Durable agent dispatch queue, turn claims and cooperative cancellation",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R751",
+      "title": "Durable execution state, session and chat persistence, shared resource leases and reactive subscriptions (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DURABLE-KERNEL-R751.750",
+        "EG-DURABLE-KERNEL-R751.751",
+        "EG-DURABLE-KERNEL-R751.752",
+        "EG-DURABLE-KERNEL-R751.753"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R751.750",
+      "title": "Model: Durable execution state, session and chat persistence, shared resource leases and reactive subscriptions",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R751.751",
+      "title": "Behavior: Durable execution state, session and chat persistence, shared resource leases and reactive subscriptions",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R751.752",
+      "title": "Refusal: Durable execution state, session and chat persistence, shared resource leases and reactive subscriptions",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R751.753",
+      "title": "Hot-path proof: Durable execution state, session and chat persistence, shared resource leases and reactive subscriptions",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R752",
+      "title": "Repository work items and operation payloads (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DURABLE-KERNEL-R752.750",
+        "EG-DURABLE-KERNEL-R752.751",
+        "EG-DURABLE-KERNEL-R752.752",
+        "EG-DURABLE-KERNEL-R752.753"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R752.750",
+      "title": "Model: Repository work items and operation payloads",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R752.751",
+      "title": "Behavior: Repository work items and operation payloads",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R752.752",
+      "title": "Refusal: Repository work items and operation payloads",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R752.753",
+      "title": "Hot-path proof: Repository work items and operation payloads",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

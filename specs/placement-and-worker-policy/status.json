@@ -57,7 +57,17 @@
     "EG-PLACEMENT-R611.4",
     "EG-PLACEMENT-R611.5",
     "EG-PLACEMENT-R611.6",
-    "EG-PLACEMENT-R002.600"
+    "EG-PLACEMENT-R002.600",
+    "EG-PLACEMENT-R750",
+    "EG-PLACEMENT-R750.750",
+    "EG-PLACEMENT-R750.751",
+    "EG-PLACEMENT-R750.752",
+    "EG-PLACEMENT-R750.753",
+    "EG-PLACEMENT-R751",
+    "EG-PLACEMENT-R751.750",
+    "EG-PLACEMENT-R751.751",
+    "EG-PLACEMENT-R751.752",
+    "EG-PLACEMENT-R751.753"
   ],
   "requirements": [
     {
@@ -544,6 +554,88 @@
     {
       "id": "EG-PLACEMENT-R002.600",
       "title": "The engine answers reserved-worker admission",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-PLACEMENT-R750",
+      "title": "Admission pacing, priority classes, cognitive scheduling and model capacity control (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-PLACEMENT-R750.750",
+        "EG-PLACEMENT-R750.751",
+        "EG-PLACEMENT-R750.752",
+        "EG-PLACEMENT-R750.753"
+      ]
+    },
+    {
+      "id": "EG-PLACEMENT-R750.750",
+      "title": "Model: Admission pacing, priority classes, cognitive scheduling and model capacity control",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-PLACEMENT-R750.751",
+      "title": "Behavior: Admission pacing, priority classes, cognitive scheduling and model capacity control",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-PLACEMENT-R750.752",
+      "title": "Refusal: Admission pacing, priority classes, cognitive scheduling and model capacity control",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-PLACEMENT-R750.753",
+      "title": "Hot-path proof: Admission pacing, priority classes, cognitive scheduling and model capacity control",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-PLACEMENT-R751",
+      "title": "Unified scheduling, leader election and cost-bounded resource allocation (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-PLACEMENT-R751.750",
+        "EG-PLACEMENT-R751.751",
+        "EG-PLACEMENT-R751.752",
+        "EG-PLACEMENT-R751.753"
+      ]
+    },
+    {
+      "id": "EG-PLACEMENT-R751.750",
+      "title": "Model: Unified scheduling, leader election and cost-bounded resource allocation",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-PLACEMENT-R751.751",
+      "title": "Behavior: Unified scheduling, leader election and cost-bounded resource allocation",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-PLACEMENT-R751.752",
+      "title": "Refusal: Unified scheduling, leader election and cost-bounded resource allocation",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-PLACEMENT-R751.753",
+      "title": "Hot-path proof: Unified scheduling, leader election and cost-bounded resource allocation",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
