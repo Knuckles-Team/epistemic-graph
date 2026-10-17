@@ -787,3 +787,95 @@ Preserve `EG-FEDERATED-QUERY-R086; existing binary `GraphLearnPredict` and graph
 ### `EG-FEDERATED-QUERY-R087`
 
 Extend this spec with native visualization static export. The engine already implements it: `crates/eg-viz-core`, `crates/eg-viz-export` and the served `Method::Viz` handler. The formats are PNG, SVG and PDF. This work adds requirements, served-path tests for SVG and PDF, and a caller check. It adds no new export format.
+
+## EG-FEDERATED-QUERY-R058.4 — natural-language planning context and bounded steps
+
+Replaces: `agent_utilities/knowledge_graph/core/nl_planner.py`, `agent_utilities/knowledge_graph/core/nl_query.py` and `agent_utilities/knowledge_graph/orchestration/data_analyst.py`. The harness calls the served `NlQuery` method.
+
+AU acceptance cases: `tests/unit/knowledge_graph/core/test_nl_planner.py`, `tests/unit/knowledge_graph/core/test_nl_query.py` and `tests/unit/knowledge_graph/orchestration/test_data_analyst.py`.
+
+Call path: served `NlQuery` -> `handle_nl_query_plan` (`src/server/handlers/query/nl.rs:48`) -> `eg_plan::nl::context` -> `NlPlanner` port -> UQL, SQL, SPARQL or Cypher read pipeline.
+
+Crate: `eg-plan` for linking and the loop.
+
+Data structures: label and table names are interned once per schema revision. The context is capped at 64 KiB of text.
+
+Concurrency: the schema context is cached per schema revision behind an atomic pointer. Readers take no lock.
+
+Persistence: none beyond the schema revision. Results are never cached on request text.
+
+Tenant isolation: linking sees only labels and tables the caller may read.
+
+Budget: engine overhead under 10 ms at p99 per step, excluding planner latency.
+
+References
+- No paper is cited.
+
+## EG-FEDERATED-QUERY-R088 — governed UQL text rows
+
+Replaces: `QueryMixin.uql` in `agent_utilities/knowledge_graph/orchestration/engine_query.py`. The harness calls the served `Uql` method through the generated client.
+
+AU acceptance cases: `tests/unit/mcp/test_graph_query_uql.py`, `tests/unit/test_engine_tools_uql_embed.py` and `tests/unit/knowledge_graph/orchestration/test_engine_query_surface_rls_fail_closed.py`.
+
+Call path: served `Uql` -> `handle_uql` (`src/server/handlers/query/uql_statement.rs:17`) -> `eg_plan::uql` -> fused executor -> `row_visibility` (`crates/eg-core/src/isolation.rs:157`) -> summary resolver.
+
+Crates: `eg-plan` for execution, `eg-core` for visibility, `eg-epistemic` for summaries.
+
+Data structures: returned ids are a bounded vector capped by `LIMIT`. Summaries are a parallel columnar array.
+
+Concurrency: one off-lock snapshot serves rows and summaries.
+
+Persistence: none. The method is read-only.
+
+Tenant isolation: visibility runs inside the engine for every caller, including service principals.
+
+Budget: summaries add under 2 ms at p99 for 100 rows.
+
+References
+- No paper is cited.
+
+## EG-FEDERATED-QUERY-R089 — Discover retrieval-quality verdict
+
+Replaces: the quality gate in `agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py` and its use of `retrieval_quality.py`.
+
+AU acceptance cases: `tests/retrieval/test_acl_context_compiler_crowd_out.py` and `tests/unit/knowledge_graph/test_hybrid_retriever_acl_before_internal_trim.py`.
+
+Call path: served `Discover` -> `try_handle_semantic_compute` -> `discover` (`src/server/handlers/graph_ops/semantic.rs:88`) -> verdict -> response.
+
+Crates: `eg-core` for the semantic store counters, `eg-types` for the verdict.
+
+Data structures: the verdict is a fixed-size record. Counters are atomic `u64` values in the semantic store.
+
+Concurrency: counters are read with relaxed atomics. No lock is taken.
+
+Persistence: the policy node persists in the graph. The verdict is not stored.
+
+Tenant isolation: candidate counts include only rows the caller may read.
+
+Budget: the verdict adds under 50 µs at p99.
+
+References
+- No paper is cited.
+
+## EG-FEDERATED-QUERY-R090 — Discover expansions, recency and multi-hop
+
+Replaces: `agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py` (`_resolve_hyde_plan`, `_recency_boost`, `_assemble_multi_hop_subgraph`, `retrieve_decomposed`), `agent_utilities/knowledge_graph/retrieval/hyde_planner.py` and `agent_utilities/knowledge_graph/retrieval/hard_negative_miner.py`.
+
+AU acceptance case: `tests/integration/knowledge_graph/test_engine_helpers.py`.
+
+Call path: served `Discover` -> `discover` (`src/server/handlers/graph_ops/semantic.rs:88`) -> planner port -> embedding endpoint -> HNSW arms -> fusion -> recency decay -> batched hop expansion.
+
+Crates: `eg-ann` for the arms, `eg-plan` for the planner port, `eg-core` for adjacency.
+
+Data structures: each arm returns a bounded top-k vector. Fusion merges at most 5 arms. The hop frontier is capped at 32 ids per hop. Memory stays under 32 · hops · k ids plus the arm vectors.
+
+Concurrency: all arms read one snapshot. Arms run in parallel on the query pool. No global lock is taken.
+
+Persistence: none. The method is read-only.
+
+Tenant isolation: every arm and every hop applies row visibility before fusion.
+
+Budget: p99 under 15 ms in `standard` mode at 1,000,000 vectors, and engine overhead under 40 ms in `deep` mode.
+
+References
+- arXiv:2508.06600 — "BrowseComp-Plus" (2025)

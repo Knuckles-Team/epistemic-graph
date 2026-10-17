@@ -548,3 +548,51 @@ R086.9 requires the served entry points and the observations in test-spec.md.
 EG-DURABLE-KERNEL-R024, EG-DURABLE-KERNEL-R024.3 and EG-DURABLE-KERNEL-R024.4 retain their original acceptance requirements.
 Withdrawal reason: Refusal-only tests do not establish successful backend queries or mirror operations.
 This declaration records the evidence correction without changing test behavior or rewriting earlier commits.
+
+## EG-DURABLE-KERNEL-R099 — cross-graph shard-writer fan-out
+
+Replaces: the harness-side proof of shard parallelism. The harness only submits one `MultiGraphBatchUpdate`.
+
+AU acceptance case: `tests/integration/knowledge_graph/test_shard_write_parallelism.py::test_cross_graph_writes_fan_across_shard_writers`.
+
+Call path: served `MultiGraphBatchUpdate` -> `src/server/dispatch/router/data_plane.rs:770` -> `multi_graph_batch_update` (`src/server/dispatch/change_envelope/multi_graph.rs:19`) -> `shard_for` (`backend_shard_routes.rs:12`) -> writer thread (`writer_thread.rs`).
+
+Crate: the root `epistemic-graph` server package and `eg-types` for the report.
+
+Data structures: a fixed array of `k` writer channels, indexed by `shard_index`. Reports form one bounded vector of at most 256 entries.
+
+Concurrency: each shard has one writer thread. No global write lock exists on the path. Readers use snapshots.
+
+Persistence: each shard is its own redb file under the existing layout.
+
+Tenant isolation: each sub-batch passes the same per-graph authorization as a single-graph write.
+
+Budget: wall time under 1.5 times the slowest single-graph commit for eight graphs on eight shards.
+
+References
+- No paper is cited.
+
+## EG-DURABLE-KERNEL-R100 — native property-graph mirror sinks
+
+Replaces: `agent_utilities/knowledge_graph/backends/contrib/` (three backend modules and their package marker).
+
+AU acceptance cases: `tests/unit/knowledge_graph/test_neo4j_transport_security.py`, `tests/unit/knowledge_graph/test_backend_contrib.py`, `tests/unit/knowledge_graph/test_falkordb_param_sanitize.py` and the three `test_ladybug_*.py` files.
+
+Call path: served `ApplyMutation` -> outbox row -> `MirrorTargetSpec::Outbox` consumer (`EG-DURABLE-KERNEL-R024.5`) -> `MirrorTargetRegistry` (`crates/eg-plan/src/mirror_target.rs`) -> sink driver -> target acknowledgement -> `MirrorCursor` advance (`crates/eg-types/src/mirror_sink.rs`).
+
+Crates: `eg-types` for the kinds, `eg-plan` for the drivers, `eg-lake` for the Parquet writer.
+
+Data structures: one bounded batch buffer of 1,000 rows per sink. Values are encoded once into the protocol frame. Memory stays under 16 MiB per sink.
+
+Concurrency: each sink runs on its own consumer task. Sinks never block the writer threads.
+
+Persistence: cursors persist in the outbox store from `EG-DURABLE-KERNEL-R036`.
+
+Tenant isolation: a sink registration is tenant-scoped. A sink receives only rows from graphs its tenant owns.
+
+Budget: at least 20,000 rows per second per sink, and p99 batch acknowledgement under 250 ms on a local network.
+
+Decision: the file sink writes Parquet tables and a load manifest. This keeps foreign engine libraries out of the engine binary.
+
+References
+- No paper is cited.

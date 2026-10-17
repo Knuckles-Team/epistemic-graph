@@ -293,3 +293,29 @@ No test in this section has run. It is a future contract.
 ## Planned served acceptance — benchmark measurement
 
 - `EG-DURABLE-KERNEL-R042.100`: read back benchmark input and measured-result bindings for at least two releases. Independently recompute input-token TPS and currency-rounded per-query cost, proving startup is excluded. Refuse missing full input-token count/tokenizer/price, zero or invalid inference time, invalid currency exponent and different workload/profile settings. This does not assert that any performance comparison passes.
+
+## EG-DURABLE-KERNEL-R099 acceptance
+
+| Case | Row | Proving test and observation |
+|---|---|---|
+| Model | `EG-DURABLE-KERNEL-R099.1` | A serde round trip keeps every field. |
+| Behavior | `EG-DURABLE-KERNEL-R099.2` | A unit test with four graphs on four shards observes overlapping commit windows. |
+| Wiring | `EG-DURABLE-KERNEL-R099.3` | A dispatch test asserts one report per sub-batch from the served arm. |
+| Refusal | `EG-DURABLE-KERNEL-R099.4` | Tests cover the size refusal and one failed sub-batch beside committed ones. |
+| Evidence | `EG-DURABLE-KERNEL-R099.5` | A test reads the reports and scrapes the two metrics. |
+| Hot-path proof | `EG-DURABLE-KERNEL-R099.6` | The served test passes, and the benchmark receipt meets the budget. |
+
+Hot-path proof for `EG-DURABLE-KERNEL-R099`: `tests/shard_write_fanout.rs::cross_graph_writes_fan_across_shard_writers`.
+
+## EG-DURABLE-KERNEL-R100 acceptance
+
+| Case | Row | Proving test and observation |
+|---|---|---|
+| Model | `EG-DURABLE-KERNEL-R100.1` | A serde round trip keeps every field. An inline credential is rejected. |
+| Behavior | `EG-DURABLE-KERNEL-R100.2` | Unit tests replay one batch twice and observe one target state. |
+| Wiring | `EG-DURABLE-KERNEL-R100.3` | A served test registers each kind and observes outbox delivery. |
+| Refusal | `EG-DURABLE-KERNEL-R100.4` | Tests cover both refusals and an unchanged cursor. |
+| Evidence | `EG-DURABLE-KERNEL-R100.5` | A test reads the receipts and one digest comparison. |
+| Hot-path proof | `EG-DURABLE-KERNEL-R100.6` | The served test passes against real targets, and the benchmark receipt meets the budget. |
+
+Hot-path proof for `EG-DURABLE-KERNEL-R100`: `tests/mirror_graph_sinks_served.rs::each_sink_replays_after_outage`.

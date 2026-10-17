@@ -40,3 +40,10 @@ For each task record public PR URL, exact merged SHA, test command and hosted ru
 - [ ] **EG-IDENTITY-R023.10:** Refusal. Implement the typed metadata contract and its planned proving test.
 - [ ] **EG-IDENTITY-R023.11:** Evidence. Implement the typed metadata contract and its planned proving test.
 - [ ] **EG-IDENTITY-R023.12:** Hot-path proof. Implement the typed metadata contract and its planned proving test.
+- [ ] **EG-IDENTITY-R023.13 (rollup):** Served share grant and revoke persist across restart.
+- [ ] **EG-IDENTITY-R023.13.1 (Model):** Add the two share operations and their bounds.
+- [ ] **EG-IDENTITY-R023.13.2 (Behavior):** Implement `share_transition` as a pure function.
+- [ ] **EG-IDENTITY-R023.13.3 (Wiring):** Route the share operations through the `RbacAdmin` arm and the gateway.
+- [ ] **EG-IDENTITY-R023.13.4 (Refusal):** Add the typed refusals with an unchanged-state readback.
+- [ ] **EG-IDENTITY-R023.13.5 (Evidence):** Append the share audit event.
+- [ ] **EG-IDENTITY-R023.13.6 (Hot-path proof):** Add the served restart test and the benchmark.
