@@ -8,7 +8,7 @@
 
 FROM python:3.14-slim@sha256:cea0e6040540fb2b965b6e7fb5ffa00871e632eef63719f0ea54bca189ce14a6 AS builder
 COPY --from=ghcr.io/astral-sh/uv:0.11.7@sha256:240fb85ab0f263ef12f492d8476aa3a2e4e1e333f7d67fbdd923d00a506a516a /uv /bin/uv
-ARG EGS_VERSION=2.27.2
+ARG EGS_VERSION=2.27.3
 COPY docker/wheels/ /wheels/
 RUN set -eu; \
     case "${EGS_VERSION}" in ''|*[!0-9.]*) echo 'EGS_VERSION must be numeric' >&2; exit 2 ;; esac; \
