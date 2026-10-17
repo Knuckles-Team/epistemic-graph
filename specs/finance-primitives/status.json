@@ -170,7 +170,21 @@
     "EG-FINANCE-PRIMITIVES-R751.750",
     "EG-FINANCE-PRIMITIVES-R751.751",
     "EG-FINANCE-PRIMITIVES-R751.752",
-    "EG-FINANCE-PRIMITIVES-R751.753"
+    "EG-FINANCE-PRIMITIVES-R751.753",
+    "EG-FINANCE-PRIMITIVES-R900",
+    "EG-FINANCE-PRIMITIVES-R900.1",
+    "EG-FINANCE-PRIMITIVES-R900.2",
+    "EG-FINANCE-PRIMITIVES-R900.3",
+    "EG-FINANCE-PRIMITIVES-R900.4",
+    "EG-FINANCE-PRIMITIVES-R900.5",
+    "EG-FINANCE-PRIMITIVES-R900.6",
+    "EG-FINANCE-PRIMITIVES-R901",
+    "EG-FINANCE-PRIMITIVES-R901.1",
+    "EG-FINANCE-PRIMITIVES-R901.2",
+    "EG-FINANCE-PRIMITIVES-R901.3",
+    "EG-FINANCE-PRIMITIVES-R901.4",
+    "EG-FINANCE-PRIMITIVES-R901.5",
+    "EG-FINANCE-PRIMITIVES-R901.6"
   ],
   "requirements": [
     {
@@ -1257,7 +1271,7 @@
     },
     {
       "id": "EG-FINANCE-PRIMITIVES-R010",
-      "title": "Leverage risk module with margin, sizing, live-order boundary",
+      "title": "Margin-trading risk module with margin, sizing, live-order boundary",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "76107c24568d"
@@ -1721,6 +1735,120 @@
     {
       "id": "EG-FINANCE-PRIMITIVES-R751.753",
       "title": "Hot-path proof: Strategy research records: debates, journals, versioned orders, forensic screens and sentiment fusion",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R900",
+      "title": "Position sizing and distribution-shift detection (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-FINANCE-PRIMITIVES-R900.1",
+        "EG-FINANCE-PRIMITIVES-R900.2",
+        "EG-FINANCE-PRIMITIVES-R900.3",
+        "EG-FINANCE-PRIMITIVES-R900.4",
+        "EG-FINANCE-PRIMITIVES-R900.5",
+        "EG-FINANCE-PRIMITIVES-R900.6"
+      ]
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R900.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R900.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R900.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R900.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R900.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R900.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R901",
+      "title": "Banking risk calculations: AML screening, capital ratios, credit loss and settlement legs (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-FINANCE-PRIMITIVES-R901.1",
+        "EG-FINANCE-PRIMITIVES-R901.2",
+        "EG-FINANCE-PRIMITIVES-R901.3",
+        "EG-FINANCE-PRIMITIVES-R901.4",
+        "EG-FINANCE-PRIMITIVES-R901.5",
+        "EG-FINANCE-PRIMITIVES-R901.6"
+      ]
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R901.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R901.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R901.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R901.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R901.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FINANCE-PRIMITIVES-R901.6",
+      "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
