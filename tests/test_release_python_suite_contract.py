@@ -687,6 +687,46 @@ def test_compiler_cache_covers_only_explicit_step_local_commands(
     _assert_cache_backend(workflow, job, build)
 
 
+def _step_by_name(steps: list[dict], name: str) -> dict:
+    for step in steps:
+        if str(step.get("name", "")) == name:
+            return step
+    raise AssertionError(f"no step named {name!r}")
+
+
+# Both differential-conformance targets are pinned to their exact CI commands:
+# the sqlite3-CLI differential test in `gates` (whose step is also tracked in
+# COMPILER_CACHE_COMMANDS) and the real-model Whisper transcription test in
+# `gates-whisper`, which carries no compiler-cache env of its own and is
+# therefore pinned here. Both jobs are required gates, and the release
+# consumer waits on both, so neither target can drop out of the matrix.
+@pytest.mark.spec("EG-CONTRACT-R028")
+def test_sqlite_and_whisper_differential_commands_are_pinned_in_ci() -> None:
+    workflow = _workflow()
+    sqlite = _step_by_name(
+        workflow["jobs"]["gates"]["steps"],
+        "Test (SQLite format differential conformance)",
+    )
+    assert sqlite["run"] == (
+        "python3 scripts/cargo_test_rescue.py cargo test --locked -p "
+        "eg-sqlite-format --test differential --no-fail-fast"
+    )
+    whisper = _step_by_name(
+        workflow["jobs"]["gates-whisper"]["steps"],
+        "Test (Whisper real-model transcription and cancellation)",
+    )
+    assert whisper["run"] == (
+        "python3 scripts/cargo_test_rescue.py cargo test --locked -p "
+        "eg-asr-whisper --test real_transcription --no-fail-fast"
+    )
+    for job_name in ("gates", "gates-whisper"):
+        job = workflow["jobs"][job_name]
+        assert job["needs"] == "changes"
+        assert job["if"] == "needs.changes.outputs.code == 'true'"
+    consumers = workflow["jobs"]["engine-main-wheel"]["needs"]
+    assert "gates" in consumers and "gates-whisper" in consumers
+
+
 @pytest.mark.parametrize("job_name", tuple(_workflow()["jobs"]))
 def test_compiler_cache_trust_and_wrapper_scope_remain_isolated(job_name: str) -> None:
     jobs = _workflow()["jobs"]

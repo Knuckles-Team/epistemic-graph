@@ -317,6 +317,33 @@ def test_release_workflow_checks_the_slim_server_profile(release_matrix):
     )
 
 
+# Declaration coverage only: the slim-server Clippy matrix leg lints
+# `--no-default-features --features server` with warnings denied (not merely
+# reported) by the single blocking Clippy command. The native execution
+# evidence remains owned by the CI leg.
+@pytest.mark.spec("EG-CONTRACT-R032")
+def test_slim_server_clippy_profile_lints_with_warnings_denied(release_matrix):
+    workflow, _ = release_matrix
+    job = workflow["jobs"]["quality-advisory"]
+    profiles = job["strategy"]["matrix"]["profile"]
+    matches = [profile for profile in profiles if profile["name"] == "slim-server"]
+    assert len(matches) == 1, "slim-server Clippy profile must occur once"
+    assert shlex.split(matches[0]["flags"]) == shlex.split(
+        "--no-default-features --features server"
+    )
+    commands = [
+        step for step in job["steps"] if step.get("run", "").startswith("cargo clippy ")
+    ]
+    assert len(commands) == 1, "expected one executable Clippy command"
+    command = commands[0]
+    # Every matrix profile's flags (the slim server's included) reach the
+    # single lint command, where warnings are denied.
+    assert "${{ matrix.profile.flags }}" in command["run"]
+    assert command["run"].endswith("--all-targets -- -D warnings")
+    assert "if" not in command and not command.get("continue-on-error", False)
+    assert not job.get("continue-on-error", False)
+
+
 def test_engine_main_wheel_publishes_a_prerelease_on_main_push_only(release_matrix):
     workflow, _ = release_matrix
     job = workflow["jobs"]["engine-main-wheel"]
