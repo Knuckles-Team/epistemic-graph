@@ -1,0 +1,35 @@
+name: Install the tracked Rust toolchain pin
+description: >-
+  Set up the tracked Python, read the exact Rust channel pinned in
+  rust-toolchain.toml, and install that channel for the requested targets. The
+  one setup shared by the release wheel build, the CI wheel cache and the
+  reproducibility diagnosis, so those legs can never drift to different pins.
+inputs:
+  targets:
+    description: >-
+      Comma-separated Rust target triples to install; empty installs the leg's
+      wheel target (EG_WHEEL_TARGET).
+    required: false
+    default: ''
+outputs:
+  channel:
+    description: The pinned Rust channel (an exact X.Y.Z release).
+    value: ${{ steps.pin.outputs.channel }}
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      with:
+        python-version-file: '.python-version'
+    - name: Read tracked Rust toolchain pin
+      id: pin
+      shell: bash
+      run: >-
+        python -c "import os,re,tomllib;
+        channel=tomllib.load(open('rust-toolchain.toml','rb'))['toolchain']['channel'];
+        assert re.fullmatch(r'[0-9]+[.][0-9]+[.][0-9]+', channel);
+        open(os.environ['GITHUB_OUTPUT'],'a',encoding='utf-8').write(f'channel={channel}\n')"
+    - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+      with:
+        toolchain: ${{ steps.pin.outputs.channel }}
+        targets: ${{ inputs.targets || env.EG_WHEEL_TARGET }}

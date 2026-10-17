@@ -18,7 +18,7 @@ name = "eg_kvcache"
 # their redb tier — so a `pi`/default build of this crate carries no redb and no zstd,
 # and the durable tier reuses the engine's existing KG-2.195 redb durability tier.
 [dependencies]
-redb = { version = "4.4", optional = true }
+redb = { workspace = true, optional = true }
 # RF-RULING-004: the durable cold tier is a kernel-owned store -- `eg-storage` is
 # its sole physical owner (declared `OwnerLayout::Kv`) and `eg-transaction` its
 # sole writer -- so both enter behind the SAME `durable` feature redb is behind.

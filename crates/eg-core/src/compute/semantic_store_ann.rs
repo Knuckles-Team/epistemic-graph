@@ -357,27 +357,12 @@ fn invalid_index_manifest(error: impl std::fmt::Display) -> std::io::Error {
     std::io::Error::new(std::io::ErrorKind::InvalidData, error.to_string())
 }
 
-/// SIMD-friendly dot product (CONCEPT:EG-KG.compute.lane-chunked-dot-product). Accumulating into a single `f32`
-/// serializes the floating-point dependency chain and defeats vectorization; instead
-/// we accumulate into 8 independent lanes over `as_chunks::<8>()` slices. The fixed
-/// length-8 inner loop is bounds-check-free (the compiler proves `len == 8`) and maps
-/// to one packed 256-bit AVX2 multiply-add per chunk (under `-C target-cpu=x86-64-v3`,
-/// see `.cargo/config.toml`), so a 1024-dim dot product is ~128 vector ops instead of
-/// 1024 scalar ones. The tail (< 8 elems) is scalar.
+/// SIMD-friendly dot product (CONCEPT:EG-KG.compute.lane-chunked-dot-product): the
+/// shared 8-lane `eg_ann::kmeans::lane_reduce` kernel, so a 1024-dim dot product is
+/// ~128 packed multiply-adds (under `-C target-cpu=x86-64-v3`, see
+/// `.cargo/config.toml`) instead of 1024 scalar ones.
 fn dot_product(a: &[f32], b: &[f32]) -> f32 {
-    let mut acc = [0.0f32; 8];
-    let (ca, ra) = a.as_chunks::<8>();
-    let (cb, rb) = b.as_chunks::<8>();
-    for (x, y) in ca.iter().zip(cb) {
-        for l in 0..8 {
-            acc[l] += x[l] * y[l];
-        }
-    }
-    let mut s = ((acc[0] + acc[4]) + (acc[1] + acc[5])) + ((acc[2] + acc[6]) + (acc[3] + acc[7]));
-    for (x, y) in ra.iter().zip(rb) {
-        s += x * y;
-    }
-    s
+    eg_ann::kmeans::lane_reduce(a, b, |x, y| x * y)
 }
 
 /// CONCEPT:EG-KG.compute.cached-row-norm — L2 norm via the SIMD dot kernel (cached per row at insert).

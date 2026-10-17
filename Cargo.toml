@@ -84,6 +84,10 @@ members = ["crates/eg-types", "crates/eg-transaction", "crates/eg-ann", "crates/
 # Runtime modules remain feature boundaries at the leaf and are enabled by the main
 # `modality-serving` facade feature.
 
+# One version for a dependency several members declare, so a bump is one edit.
+[workspace.dependencies]
+redb = "4.4"
+
 [package]
 name = "epistemic-graph"
 version = "2.27.1"
@@ -1719,7 +1723,7 @@ tracing-subscriber = { version = "0.3", optional = true }
 # matches the existing async persist.rs style without a runtime bridge.
 async-trait = { version = "0.1", optional = true }
 # Durable embedded KV for the redb write-through substrate (feature `redb`).
-redb = { version = "4.4", optional = true }
+redb = { workspace = true, optional = true }
 # RF-RULING-004: `eg-storage` is the SOLE physical authority that opens any
 # durable file this binary owns (every `OwnerLayout` its stores declare), and
 # `eg-transaction` is the SOLE mutation authority over them. The root binary is

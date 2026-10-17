@@ -18,6 +18,9 @@ use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+/// The lock file [`acquire`] holds, exclusively, for the engine's lifetime.
+const LOCK_FILE: &str = "engine.lock";
+
 /// Hold the exclusive persist-dir lock. Dropping it releases the lock, so the
 /// caller must keep it alive for the whole process lifetime.
 pub struct PersistDirLock {
@@ -28,7 +31,7 @@ pub struct PersistDirLock {
 /// another engine already owns the directory.
 pub fn acquire(persist_dir: &str) -> Result<PersistDirLock, String> {
     std::fs::create_dir_all(persist_dir).map_err(|e| e.to_string())?;
-    let path = Path::new(persist_dir).join("engine.lock");
+    let path = Path::new(persist_dir).join(LOCK_FILE);
     let file = OpenOptions::new()
         .read(true)
         .write(true)
@@ -48,6 +51,27 @@ pub fn acquire(persist_dir: &str) -> Result<PersistDirLock, String> {
              engine — refusing to start a second engine on the same persist dir \
              (they would clobber each other's snapshots). Stop the other engine first."
         )),
+    }
+}
+
+/// Whether an engine currently holds the lock of `persist_dir`, asked without
+/// creating or writing the lock file, so a read-only tool can refuse a running
+/// engine and still leave the directory byte-for-byte as it found it.
+pub fn is_held(persist_dir: &Path) -> Result<bool, String> {
+    let path = persist_dir.join(LOCK_FILE);
+    let file = match File::open(&path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(format!("cannot open {}: {error}", path.display())),
+    };
+    // A shared lock conflicts with the holder's exclusive one and is released
+    // again when `file` is dropped.
+    match File::try_lock_shared(&file) {
+        Ok(()) => Ok(false),
+        Err(std::fs::TryLockError::WouldBlock) => Ok(true),
+        Err(std::fs::TryLockError::Error(error)) => {
+            Err(format!("cannot probe {}: {error}", path.display()))
+        }
     }
 }
 
@@ -100,6 +124,26 @@ pub fn open_persist_mode(mode: PersistMode) -> Result<Option<PersistDirLock>, St
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_held_lock_is_seen_without_creating_or_writing_the_lock_file() {
+        let dir = std::env::temp_dir().join(format!(
+            "eg-core-locktest-held-{}-{}",
+            std::process::id(),
+            line!()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        assert_eq!(is_held(&dir), Ok(false));
+        assert!(!dir.join(LOCK_FILE).exists(), "the probe created it");
+        let held = acquire(dir.to_str().unwrap()).expect("acquire");
+        let stamped = std::fs::read(dir.join(LOCK_FILE)).unwrap();
+        assert_eq!(is_held(&dir), Ok(true));
+        drop(held);
+        assert_eq!(is_held(&dir), Ok(false));
+        assert_eq!(std::fs::read(dir.join(LOCK_FILE)).unwrap(), stamped);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn second_acquire_on_same_dir_fails() {
