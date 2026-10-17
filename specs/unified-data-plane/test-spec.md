@@ -178,3 +178,23 @@ Hot-path proof for `EG-UNIFIED-DATA-PLANE-R038.6`: `tests/federation/test_graph_
 | Case | Row | Proving test and observation |
 |---|---|---|
 | Evidence | `EG-UNIFIED-DATA-PLANE-R022.4` | `crates/eg-types/src/dialect_conformance.rs::tests::matrix_covers_every_source_category`: A unit test fails when a category lacks a row. It reports `unproven` for a category without a passing proof. |
+
+## EG-UNIFIED-DATA-PLANE-R038.7 acceptance
+
+| Case | Row | Proving test and observation |
+|---|---|---|
+
+| Model | `EG-UNIFIED-DATA-PLANE-R038.7.1` | `crates/eg-plan/src/federation_opt/tests.rs::web_result_round_trips`: A serde round trip keeps every field and rejects a result without a URL. |
+
+| Behavior | `EG-UNIFIED-DATA-PLANE-R038.7.2` | `crates/eg-plan/src/federation_opt/tests.rs::web_search_pushdown_and_ttl`: A repeated pattern within the time-to-live sends one connector query. |
+
+| Wiring | `EG-UNIFIED-DATA-PLANE-R038.7.3` | `crates/eg-plan/src/federation_opt/tests.rs::served_web_search_reaches_cache`: A served pattern over web results reaches the connector operation and the shared cache. |
+
+| Refusal | `EG-UNIFIED-DATA-PLANE-R038.7.4` | `crates/eg-plan/src/federation_opt/tests.rs::web_search_refusals`: Each case returns its code, and no expired row serves a read. |
+
+| Evidence | `EG-UNIFIED-DATA-PLANE-R038.7.5` | `crates/eg-plan/src/federation_opt/tests.rs::web_result_provenance`: Each row names its engine, rank and retrieval time, and a cached row says so. |
+
+| Hot-path proof | `EG-UNIFIED-DATA-PLANE-R038.7.6` | `tests/federation/test_web_metasearch_served.py::test_pattern_pushes_to_connector_with_ttl_cache`: The connector receives two queries, the rows are typed, and the graph store holds no result rows. |
+
+
+Hot-path proof for `EG-UNIFIED-DATA-PLANE-R038.7`: `tests/federation/test_web_metasearch_served.py::test_pattern_pushes_to_connector_with_ttl_cache`.

@@ -222,3 +222,11 @@ For each row, add a subentry containing its merged commit, exact-head test run, 
 - [ ] **EG-UNIFIED-DATA-PLANE-R038.6.5 (Evidence):** Emit the evidence.
 - [ ] **EG-UNIFIED-DATA-PLANE-R038.6.6 (Hot-path proof):** Add the served hot-path test.
 - [ ] **EG-UNIFIED-DATA-PLANE-R022.4:** Source-category coverage matrix.
+
+- [ ] **EG-UNIFIED-DATA-PLANE-R038.7 (rollup):** Web metasearch sources answer at query time through a cached connector query (rollup).
+- [ ] **EG-UNIFIED-DATA-PLANE-R038.7.1 (Model):** Add the typed model.
+- [ ] **EG-UNIFIED-DATA-PLANE-R038.7.2 (Behavior):** Implement the behavior.
+- [ ] **EG-UNIFIED-DATA-PLANE-R038.7.3 (Wiring):** Wire the production call site.
+- [ ] **EG-UNIFIED-DATA-PLANE-R038.7.4 (Refusal):** Add the typed refusals.
+- [ ] **EG-UNIFIED-DATA-PLANE-R038.7.5 (Evidence):** Emit the evidence.
+- [ ] **EG-UNIFIED-DATA-PLANE-R038.7.6 (Hot-path proof):** Add the served hot-path test.

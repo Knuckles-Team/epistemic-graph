@@ -173,6 +173,13 @@
     "EG-UNIFIED-DATA-PLANE-R038.6.4",
     "EG-UNIFIED-DATA-PLANE-R038.6.5",
     "EG-UNIFIED-DATA-PLANE-R038.6.6",
+    "EG-UNIFIED-DATA-PLANE-R038.7",
+    "EG-UNIFIED-DATA-PLANE-R038.7.1",
+    "EG-UNIFIED-DATA-PLANE-R038.7.2",
+    "EG-UNIFIED-DATA-PLANE-R038.7.3",
+    "EG-UNIFIED-DATA-PLANE-R038.7.4",
+    "EG-UNIFIED-DATA-PLANE-R038.7.5",
+    "EG-UNIFIED-DATA-PLANE-R038.7.6",
     "EG-UNIFIED-DATA-PLANE-R039",
     "EG-UNIFIED-DATA-PLANE-R039.1",
     "EG-UNIFIED-DATA-PLANE-R039.2",
@@ -1916,7 +1923,8 @@
         "EG-UNIFIED-DATA-PLANE-R038.3",
         "EG-UNIFIED-DATA-PLANE-R038.4",
         "EG-UNIFIED-DATA-PLANE-R038.5",
-        "EG-UNIFIED-DATA-PLANE-R038.6"
+        "EG-UNIFIED-DATA-PLANE-R038.6",
+        "EG-UNIFIED-DATA-PLANE-R038.7"
       ]
     },
     {
@@ -2164,6 +2172,63 @@
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R038.6.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R038.7",
+      "title": "Web metasearch sources answer at query time through a cached connector query (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-UNIFIED-DATA-PLANE-R038.7.1",
+        "EG-UNIFIED-DATA-PLANE-R038.7.2",
+        "EG-UNIFIED-DATA-PLANE-R038.7.3",
+        "EG-UNIFIED-DATA-PLANE-R038.7.4",
+        "EG-UNIFIED-DATA-PLANE-R038.7.5",
+        "EG-UNIFIED-DATA-PLANE-R038.7.6"
+      ]
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R038.7.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R038.7.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R038.7.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R038.7.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R038.7.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R038.7.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],

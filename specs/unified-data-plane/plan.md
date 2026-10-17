@@ -154,6 +154,7 @@ Call path: served query -> planner -> `foreign_scan` (`crates/eg-plan/src/federa
 | Time series | SQL with time-bucket aggregates | filter, projection, aggregate, limit, time range | R2RML with a time column | `EG-UNIFIED-DATA-PLANE-R022.2` matrix runner |
 | Search index | HTTP JSON search query; vector nearest-neighbour query | filter, projection, limit, relevance top-k | document-id mapping plus score channel | `EG-UNIFIED-DATA-PLANE-R038.5.6` |
 | Document store | JSON documents addressed by JSONPath | filter, projection, aggregate, limit | RML with JSONPath | `EG-UNIFIED-DATA-PLANE-R022.2` matrix runner |
+| Web metasearch | MCP tool call | category, engine, limit, time range | `cv:SearchResult` with a cache | `EG-UNIFIED-DATA-PLANE-R038.7.6` |
 | Key-value store | key lookup and batched key lookup | key filter, limit | key-template mapping | `EG-FEDERATED-QUERY-R052` |
 | Data lake tables | Apache Iceberg REST catalog; Parquet, ORC, Avro | partition pruning, projection, limit, snapshot time range | R2RML | `EG-FEDERATED-QUERY-R051`; `EG-UNIFIED-DATA-PLANE-R038.4.6` |
 | Hadoop-family catalog | Hive metastore Thrift protocol | filter by partition, projection | R2RML over the table schema | `EG-UNIFIED-DATA-PLANE-R038.4.6` |
@@ -163,3 +164,13 @@ Call path: served query -> planner -> `foreign_scan` (`crates/eg-plan/src/federa
 | Object storage | HTTP object API with range reads | prefix filter, byte-range projection | file-format mapping | `EG-UNIFIED-DATA-PLANE-R038.4.6` |
 
 Budgets: one snapshot per source per query and a 5000 ms replica lag bound. The statement timeout is 30 s, the path depth limit is 8, and catalog pages hold 1,000 tables. These are starting defaults. A measurement on this platform replaces them.
+
+## Web metasearch sources (R038.7)
+
+A web metasearch connector answers a pattern over web results at query time. The connector tools take query text, categories, engines, a time range and a language. The engine maps each result to `cv:SearchResult` with URL, title, snippet, engine, rank and retrieval time.
+
+Call path: served SPARQL or UQL -> planner -> `foreign_scan` (`run.rs:26`) -> `FragmentCacheScope` lookup (`cache.rs:27`) -> MCP operation of `EG-FEDERATED-QUERY-R073` -> typed rows.
+
+Selection: a harness that asks graph-os to search the web receives the search tools through `EG-DECISION-ENGINE-R176` and `GRAPHOS-FLEET-R037`. Online refresh of embeddings over these results belongs to the adaptive-embeddings rows. They reference `EG-UNIFIED-DATA-PLANE-R038.7`.
+
+Budget: a 900 s default time-to-live and one connector query per cache miss. These are starting defaults. A measurement on this platform replaces them.
