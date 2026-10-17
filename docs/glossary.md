@@ -1,22 +1,22 @@
 # Ecosystem glossary
 
-## Graph OS web UI
+## Arbora web UI
 
-The browser operator experience for working with agents and their runtime. Graph OS hosts it as a composed service.
+The browser operator experience for working with agents and their runtime. Arbora hosts it as a composed service.
 
 ## Agent Terminal UI
 
-The terminal and headless client for Graph OS REST operations.
+The terminal and headless client for Arbora REST operations.
 
 ## Geniusbot
 
-The desktop cockpit for chat, graph, fleet, health, and operator workflows. Its primary panels use the governed Graph OS gateway.
+The desktop cockpit for chat, graph, fleet, health, and operator workflows. Its primary panels use the governed Arbora gateway.
 
 ## Messaging channels
 
-Chat and voice entrypoints hosted and supervised by Graph OS. The adapter registry, inbound router, and orchestration bridge are implemented by Agent Utilities.
+Chat and voice entrypoints hosted and supervised by Arbora. The adapter registry, inbound router, and orchestration bridge are implemented by Agent Utilities.
 
-## Graph OS
+## Arbora
 
 The governed runtime gateway and composition host for user interfaces, messaging channels, MCP, REST, and A2A clients.
 

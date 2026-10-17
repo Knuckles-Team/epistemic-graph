@@ -9,7 +9,7 @@ control-plane consumer. It does not load a private root ontology, resolve
 
 The immutable EG catalog contains the platform root and domain modules. Each
 component may contribute versioned semantic resources through an
-`agent-connector-sdk` `ConnectorContent` provider. GraphOS captures those
+`agent-connector-sdk` `ConnectorContent` provider. Arbora captures those
 resources and attaches the resulting pack through `GraphSchema.AttachPack`.
 `GraphSchemaList` returns immutable and dynamic source sets plus the catalog and
 composed digests for the requested graph snapshot.
@@ -43,7 +43,7 @@ reports an inconsistent ontology, or uses the ad-hoc validation mode.
 1. Put the ontology or shape resource in its owning component package.
 2. Register the exact resource with that component's `ConnectorContent` provider.
 3. Add byte, digest, RDF-semantic, and package-data tests in the owning package.
-4. Provision the provider through the SDK and attach its pack through GraphOS.
+4. Provision the provider through the SDK and attach its pack through Arbora.
 5. Verify `GraphSchemaList`, reasoning receipts, and validation receipts against
    the target graph.
 

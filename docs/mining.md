@@ -48,7 +48,7 @@ algorithm", not "add a surface".
 | Protocol | `Method::Mine{Associate,Cluster,Anomaly}` in the `// ── Mining ──` section of `crates/eg-types/src/protocol.rs` (feature `mining`) |
 | Handler | `src/server/handlers/mining.rs` — graph-derived rows + write-back over the live `GraphCore` |
 | Client | `client.mining.{associate,cluster,anomaly}(...)` (`epistemic_graph/client.py`) |
-| graph-os MCP | `graph_mine action="associate\|cluster\|anomaly"` (agent-utilities `engine_surface_tools.py`) — plus the granular `engine_mining` verb |
+| arbora MCP | `graph_mine action="associate\|cluster\|anomaly"` (agent-utilities `engine_surface_tools.py`) — plus the granular `engine_mining` verb |
 | REST twin | `POST /api/mining/{associate,cluster,anomaly}` (agent-utilities `kg_server.py`, same `_execute_tool` core — surface parity is a build gate) |
 
 ## Algorithms
@@ -249,7 +249,7 @@ leg — a follow-up to wire the tsdb handle into the mining dispatch path.
 ## MCP + REST
 
 ```jsonc
-// MCP (graph-os multiplexer)
+// MCP (arbora multiplexer)
 graph_mine { "action": "associate",
              "params_json": "{\"transactions\":[[\"a\",\"b\"],[\"a\",\"c\"]],\"min_support\":0.5}" }
 

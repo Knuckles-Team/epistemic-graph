@@ -150,7 +150,7 @@ and trust configuration remains outside these protocol payloads.
 - **Framing:** a 4-byte **big-endian** length prefix + a MessagePack request
   `{ id, graph, auth_token, method, params }`.
 - **Auth:** every driver requires complete checked-context claims and signs the
-  sole `eg2.` identity/policy envelope. GraphOS binds those claims from the
+  sole `eg2.` identity/policy envelope. Arbora binds those claims from the
   immutable authenticated `GraphSession`. There is no anonymous or reduced-claim
   client mode. See [Service mode](../service_mode.md#authentication-protocol).
 - **Canonical body (JS/Go):** the MAC covers the body the engine re-derives from the
