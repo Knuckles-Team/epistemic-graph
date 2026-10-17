@@ -35,8 +35,18 @@ impl SemanticStore {
         idx.is_some() && *self.built_len.read() == self.arena.len()
     }
 
+    /// Claim the build only from `STATE_COLD`. A caller that checked
+    /// `index_ready` before another caller's build finished must not claim a
+    /// `STATE_READY` store and rebuild it: exactly one concurrent warm builds.
     fn claim_warm(&self) -> bool {
-        self.state.swap(STATE_WARMING, Ordering::AcqRel) != STATE_WARMING
+        self.state
+            .compare_exchange(
+                STATE_COLD,
+                STATE_WARMING,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            )
+            .is_ok()
     }
 
     fn build_index(&self, label: &str) {
@@ -46,6 +56,8 @@ impl SemanticStore {
         let _guard = span.enter();
         let start = std::time::Instant::now();
         *idx = AnnIndex::build(&self.arena.ids, &self.arena.data, self.arena.dim);
+        #[cfg(test)]
+        self.builds.fetch_add(1, Ordering::Relaxed);
         let built = idx.is_some();
         *self.built_len.write() = if built { n } else { 0 };
         self.state.store(
