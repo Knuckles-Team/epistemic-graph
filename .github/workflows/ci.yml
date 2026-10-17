@@ -1009,8 +1009,7 @@ jobs:
         run: rustup toolchain install --profile minimal --component rustfmt && rustup show active-toolchain
       - name: Install uv, pre-commit and the hooks' one third-party import
         run: python -m pip install --disable-pip-version-check uv==0.8.17 pre-commit==4.6.2 pyyaml==6.0.3
-      # lane-guard, check-stubs and the check-sprawl fleet scan are owned by
-      # agent-utilities and read it from a sibling checkout
+      # lane-guard is owned by agent-utilities and read from a sibling checkout
       # (scripts/sibling_gate.py). They are lint policy, so they track its main.
       - name: Check out agent-utilities gate scripts
         run: |
