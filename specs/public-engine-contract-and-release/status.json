@@ -535,11 +535,13 @@
     {
       "id": "EG-CONTRACT-R028",
       "title": "SQLite-format and speech-recognition differential tests run in CI",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "7798ab372b1e"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_release_python_suite_contract.py:703"
+      ]
     },
     {
       "id": "EG-CONTRACT-R029",
@@ -600,11 +602,13 @@
     {
       "id": "EG-CONTRACT-R032",
       "title": "Write-classifier functions compile cleanly under the slim profile",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "5bf5b719de7e"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_release_feature_matrix.py:324"
+      ]
     },
     {
       "id": "EG-CONTRACT-R033",
@@ -715,11 +719,13 @@
     {
       "id": "EG-CONTRACT-R042",
       "title": "Quantum hardware macro feature-gated to match its consumers",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "5bf5b719de7e"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_quantum_hardware_provider_feature_gates.py:44"
+      ]
     },
     {
       "id": "EG-CONTRACT-R043",
