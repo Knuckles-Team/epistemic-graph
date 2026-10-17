@@ -11,8 +11,8 @@ pub(super) fn parse_brands(bytes: &[u8]) -> Option<Vec<[u8; 4]>> {
     }
     let mut brands = Vec::new();
     brands.push(ftyp.get(0..4)?.try_into().ok()?);
-    for brand in ftyp.get(8..)?.chunks_exact(4) {
-        brands.push(brand.try_into().ok()?);
+    for brand in ftyp.get(8..)?.as_chunks::<4>().0 {
+        brands.push(*brand);
     }
     Some(brands)
 }

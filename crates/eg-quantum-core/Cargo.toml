@@ -45,7 +45,7 @@ serde_json = "1.0"
 # Circuit-hash digest. Already used the same way by eg-modality/eg-jobs (see those
 # crates' Cargo.toml) — same rationale: zero new crate in the resolved tree.
 sha2 = "0.10"
-thiserror = "1.0"
+thiserror = "2.0"
 
 [dev-dependencies]
 # Round-trip / equality assertions across enum variants and float fields in tests.

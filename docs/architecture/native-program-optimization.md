@@ -127,9 +127,7 @@ submitted = await client.jobs.submit_program_optimization(
 status = await client.jobs.status(submitted["job_id"])
 rows = (status.get("output") or {}).get("rows", [])
 candidates = [row for row in rows if row["kind"] == "program_candidate"]
-plan_steps = [
-    row for row in rows if row["kind"] == "program_optimization_plan_step"
-]
+plan_steps = [row for row in rows if row["kind"] == "program_optimization_plan_step"]
 ```
 
 Submission durably records a `Submitted` job and automatically requires the

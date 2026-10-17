@@ -14,7 +14,6 @@
 //! auto-releases when the holder dies (advisory locks are released by the kernel on
 //! process exit), so a crashed engine never leaves a stale lock blocking restart.
 
-use fs4::FileExt;
 use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -37,7 +36,7 @@ pub fn acquire(persist_dir: &str) -> Result<PersistDirLock, String> {
         .truncate(false)
         .open(&path)
         .map_err(|e| format!("cannot open {}: {e}", path.display()))?;
-    match file.try_lock_exclusive() {
+    match file.try_lock() {
         Ok(()) => {
             // Best-effort: stamp our pid so an operator can see who holds it.
             let _ = file.set_len(0);

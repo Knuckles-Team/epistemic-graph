@@ -13,7 +13,7 @@ name = "eg_quantum_sim"
 eg-quantum-core = { path = "../eg-quantum-core" }
 eg-quantum-gates = { path = "../eg-quantum-gates" }
 eg-numeric = { path = "../eg-numeric", features = ["complex"] }
-thiserror = "1.0"
+thiserror = "2.0"
 
 [features]
 default = []

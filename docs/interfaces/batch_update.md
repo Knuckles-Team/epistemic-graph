@@ -25,7 +25,11 @@ For example:
 result = await client.lifecycle.batch_update(
     [
         {"op": "upsert_node", "id": "document:1", "properties": {"text": "example"}},
-        {"op": "upsert_node", "id": "collection:1", "properties": {"type": "Collection"}},
+        {
+            "op": "upsert_node",
+            "id": "collection:1",
+            "properties": {"type": "Collection"},
+        },
         {"op": "add_embedding", "id": "document:1", "embedding": [0.25, 0.75]},
         {
             "op": "upsert_edge",

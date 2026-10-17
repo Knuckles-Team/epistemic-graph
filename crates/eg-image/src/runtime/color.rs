@@ -32,7 +32,7 @@ fn gray_to_rgba(raw: &[u8]) -> Option<Vec<u8>> {
 fn rgb_to_rgba(raw: &[u8]) -> Option<Vec<u8>> {
     let pixel_count = raw.len().checked_div(3)?;
     let mut output = Vec::with_capacity(pixel_count.checked_mul(4)?);
-    for rgb in raw.chunks_exact(3) {
+    for rgb in raw.as_chunks::<3>().0 {
         output.extend_from_slice(&[rgb[0], rgb[1], rgb[2], 255]);
     }
     Some(output)
@@ -58,7 +58,7 @@ fn indexed_to_rgba(raw: &[u8], palette: &[u8], alpha: &[u8]) -> Option<Vec<u8>> 
 fn gray_alpha_to_rgba(raw: &[u8]) -> Option<Vec<u8>> {
     let pixel_count = raw.len().checked_div(2)?;
     let mut output = Vec::with_capacity(pixel_count.checked_mul(4)?);
-    for value in raw.chunks_exact(2) {
+    for value in raw.as_chunks::<2>().0 {
         output.extend_from_slice(&[value[0], value[0], value[0], value[1]]);
     }
     Some(output)

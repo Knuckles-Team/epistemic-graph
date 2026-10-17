@@ -1640,7 +1640,7 @@ eg-tensor = { path = "crates/eg-tensor", optional = true }
 # metadata codec still carries the unmaintained `thrift` and `paste` crates. Polars
 # uses its safe native Parquet-format implementation. These edges are optional and
 # `obs`-gated; the writer explicitly chooses uncompressed pages.
-arrow = { version = "58.3", optional = true }
+arrow = { version = "58.4", optional = true }
 polars-core = { version = "0.54.4", optional = true, default-features = false }
 polars-io = { version = "0.54.4", optional = true, default-features = false, features = ["parquet"] }
 # Native RDF/SPARQL surface (features `rdf`/`sparql`, included in the main build,
@@ -1671,23 +1671,23 @@ eg-wasm = { path = "crates/eg-wasm", optional = true }
 # same 2.x, so activating it here adds a direct edge but no new crate to the tree. The
 # main build includes both federation features. Also the JWKS-fetch transport for
 # `oidc` (`src/server/oidc.rs::JwtValidator::refresh`).
-ureq = { version = "2.10", optional = true }
+ureq = { version = "2.12", optional = true }
 # Keycloak JWT validation, feature `oidc` (`src/server/oidc.rs`): verifies an OIDC
 # bearer against the realm JWKS — issuer/audience/expiry, RSA-signature-only (never
 # `none`/HMAC). Shared by the KV-cache HTTP surface's bearer guard (`kvcache-server`)
 # and the primary `eg2.` protocol's identity binding (`security`). Uses the maintained
 # aws-lc-rs JWT backend. Transport TLS remains supplied by the existing `ureq`/rustls
 # path.
-jsonwebtoken = { version = "10.4", optional = true, default-features = false, features = ["aws_lc_rs"] }
+jsonwebtoken = { version = "11.1", optional = true, default-features = false, features = ["aws_lc_rs"] }
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0"
-petgraph = { version = "0.6.4", features = ["serde-1"] }
-rayon = "1.10"
+petgraph = { version = "0.8.3", features = ["serde-1"] }
+rayon = "1.12"
 parking_lot = "0.12"
-dashmap = "6.1"
+dashmap = "6.2"
 ahash = "0.8"
-uuid = { version = "1.8", features = ["v4"] }
-thiserror = "1.0"
+uuid = { version = "1.28", features = ["v4"] }
+thiserror = "2.0"
 anyhow = "1.0"
 tracing = "0.1"
 
@@ -1697,7 +1697,7 @@ tracing = "0.1"
 # `tokio::select!` the graceful accept loop awaits on). Tests pull
 # dev-dependencies' "full" tokio, so #[tokio::test]/duplex still work. Trims
 # compile time + binary surface.
-tokio = { version = "1.38", features = [
+tokio = { version = "1.53", features = [
     "rt-multi-thread",
     "net",
     "io-util",
@@ -1713,13 +1713,13 @@ rustls = { version = "0.23", default-features = false, features = [
     "logging",
 ], optional = true }
 tokio-rustls = { version = "0.26", optional = true }
-clap = { version = "4.5", features = ["derive", "env"], optional = true }
+clap = { version = "4.6", features = ["derive", "env"], optional = true }
 tracing-subscriber = { version = "0.3", optional = true }
 # `dyn PersistenceBackend` needs object-safe async methods (CONCEPT:KG-2.177);
 # matches the existing async persist.rs style without a runtime bridge.
 async-trait = { version = "0.1", optional = true }
 # Durable embedded KV for the redb write-through substrate (feature `redb`).
-redb = { version = "4.1", optional = true }
+redb = { version = "4.4", optional = true }
 # RF-RULING-004: `eg-storage` is the SOLE physical authority that opens any
 # durable file this binary owns (every `OwnerLayout` its stores declare), and
 # `eg-transaction` is the SOLE mutation authority over them. The root binary is
@@ -1745,11 +1745,11 @@ eg-sqlite-format = { path = "crates/eg-sqlite-format", optional = true }
 # (RUSTSEC-2026-0194/0195) — the fix an earlier `git` pin to the upstream Apache
 # revision existed to obtain before 0.14.1 was published. Per the crates.io-only
 # dependency edict (AGENTS.md), do not move this back to a `git = `/`rev = ` source.
-object_store = { version = "0.14.1", optional = true, features = ["aws"] }
+object_store = { version = "0.14.2", optional = true, features = ["aws"] }
 # rosbridge-WebSocket client for the CONCEPT:EG-325 ROS2 bridge. No-TLS pure-Rust build
 # (ws:// to a local rosbridge_server); `connect`+`handshake` only — links NO native-tls/
 # openssl. This dependency is selected only by the `full-extras` source-build layer.
-tokio-tungstenite = { version = "0.24", optional = true, default-features = false, features = ["connect", "handshake"] }
+tokio-tungstenite = { version = "0.30", optional = true, default-features = false, features = ["connect", "handshake"] }
 # Native pure-Rust DDS/RTPS stack for the CONCEPT:EG-347 native ROS2 wire (feature
 # `ros2-dds`). Dust DDS is 100% Rust — it links NO
 # CycloneDDS/rmw/`ros` C toolchain, so unlike a `cyclonedds-rs` leg it builds in CI
@@ -1790,7 +1790,7 @@ pgwire = { version = "0.40", optional = true, default-features = false, features
 # Race-safe TLS material opens for pgwire. `rustix` supplies typed
 # O_NOFOLLOW|O_NONBLOCK flags on Unix; `windows-sys` supplies the typed reparse
 # attribute/flag constants used by the corresponding Windows handle open.
-rustix = { version = "1.1.4", optional = true, features = ["fs"] }
+rustix = { version = "1.1.5", optional = true, features = ["fs"] }
 windows-sys = { version = "0.61.2", optional = true, features = ["Win32_Storage_FileSystem"] }
 # Stream/sink combinators for the pgwire DataRow result stream (feature `pgwire`).
 futures = { version = "0.3", optional = true }
@@ -1810,34 +1810,34 @@ prometheus = { version = "0.14", optional = true, default-features = false }
 # OpenTelemetry OTLP span export (feature `otel`, included in the main build,
 # CONCEPT:EG-091). The batch span processor runs on the tokio runtime
 # (`opentelemetry_sdk` `rt-tokio`); `grpc-tonic` is the OTLP transport.
-opentelemetry = { version = "0.32", optional = true }
-opentelemetry_sdk = { version = "0.32.1", optional = true, features = ["rt-tokio"] }
-opentelemetry-otlp = { version = "0.32", optional = true, features = ["grpc-tonic"] }
-tracing-opentelemetry = { version = "0.33", optional = true }
+opentelemetry = { version = "0.33", optional = true }
+opentelemetry_sdk = { version = "0.33.1", optional = true, features = ["rt-tokio"] }
+opentelemetry-otlp = { version = "0.33", optional = true, features = ["grpc-tonic"] }
+tracing-opentelemetry = { version = "0.34", optional = true }
 # CONCEPT:EG-316 — protobuf codec for the Prometheus `remote_write` WriteRequest, and
 # snappy block decompression for its wire framing. BOTH are pure-Rust (NO C, NO
 # tonic/grpc, NO build.rs codegen — the WriteRequest schema is hand-declared with the
 # `prost::Message` derive). Both are selected through `otel-export`, which is included
 # in the main build.
-prost = { version = "0.13", optional = true }
+prost = { version = "0.14", optional = true }
 snap = { version = "1.1", optional = true }
 hmac = "0.12"
 hex = "0.4"
 rmp-serde = "1.3"
-lazy_static = "1.4"
+lazy_static = "1.5"
 sha2 = "0.10"
 rand = "0.8"
 # Advisory file locking for the single-writer persist-dir guard (Phase B1):
 # exactly one engine may own a persist dir, closing the split-brain/orphan class
 # at the engine level (complements the Python-side spawn guard).
-fs4 = "0.8"
+fs4 = "1.1"
 serde_bytes = "0.11.19"
 
 
 [dev-dependencies]
-tokio = { version = "1.38", features = ["full", "test-util"] }
+tokio = { version = "1.53", features = ["full", "test-util"] }
 tempfile = "3"
-clap = { version = "4.5", features = ["derive", "env"] }
+clap = { version = "4.6", features = ["derive", "env"] }
 tracing-subscriber = "0.3"
 # Real Postgres client for the pgwire wire round-trip integration test
 # (CONCEPT:KG-2.189). Only compiled for tests; never linked into the engine.
@@ -1878,7 +1878,7 @@ eg-types = { path = "crates/eg-types", features = ["test-support"] }
 # Criterion harness for the write-coalescer contention bench (CONCEPT:EG-012)
 # and the massive-scale core harness (CONCEPT:EG-096). DEV-only — never linked
 # into the engine binary; zero release-build impact.
-criterion = "0.5"
+criterion = "0.8"
 # Write-coalescer `__commons__` contention reproduction (CONCEPT:EG-012): N
 # concurrent producers fan single-op writes into ONE graph, swept across the batch
 # window so the lock-acquisition / throughput contention curve is visible. The
