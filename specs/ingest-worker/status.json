@@ -68,7 +68,21 @@
     "EG-INGEST-WORKER-R606.3",
     "EG-INGEST-WORKER-R606.4",
     "EG-INGEST-WORKER-R606.5",
-    "EG-INGEST-WORKER-R606.6"
+    "EG-INGEST-WORKER-R606.6",
+    "EG-INGEST-WORKER-R900",
+    "EG-INGEST-WORKER-R900.1",
+    "EG-INGEST-WORKER-R900.2",
+    "EG-INGEST-WORKER-R900.3",
+    "EG-INGEST-WORKER-R900.4",
+    "EG-INGEST-WORKER-R900.5",
+    "EG-INGEST-WORKER-R900.6",
+    "EG-INGEST-WORKER-R901",
+    "EG-INGEST-WORKER-R901.1",
+    "EG-INGEST-WORKER-R901.2",
+    "EG-INGEST-WORKER-R901.3",
+    "EG-INGEST-WORKER-R901.4",
+    "EG-INGEST-WORKER-R901.5",
+    "EG-INGEST-WORKER-R901.6"
   ],
   "requirements": [
     {
@@ -592,6 +606,120 @@
     },
     {
       "id": "EG-INGEST-WORKER-R606.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R900",
+      "title": "Source records enforce the governance properties that connectors send (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-INGEST-WORKER-R900.1",
+        "EG-INGEST-WORKER-R900.2",
+        "EG-INGEST-WORKER-R900.3",
+        "EG-INGEST-WORKER-R900.4",
+        "EG-INGEST-WORKER-R900.5",
+        "EG-INGEST-WORKER-R900.6"
+      ]
+    },
+    {
+      "id": "EG-INGEST-WORKER-R900.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R900.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R900.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R900.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R900.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R900.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R901",
+      "title": "Source records may carry a row-version evidence locus (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-INGEST-WORKER-R901.1",
+        "EG-INGEST-WORKER-R901.2",
+        "EG-INGEST-WORKER-R901.3",
+        "EG-INGEST-WORKER-R901.4",
+        "EG-INGEST-WORKER-R901.5",
+        "EG-INGEST-WORKER-R901.6"
+      ]
+    },
+    {
+      "id": "EG-INGEST-WORKER-R901.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R901.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R901.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R901.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R901.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R901.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
