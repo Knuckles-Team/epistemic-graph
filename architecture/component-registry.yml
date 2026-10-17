@@ -3974,6 +3974,7 @@ components:
       - "tests/test_push_gate_evidence.py"
       - "tests/test_push_gate_evidence_internals.py"
       - "tests/test_quant_kernels.py"
+      - "tests/test_quantum_hardware_provider_feature_gates.py"
       - "tests/test_query_cypher.py"
       - "tests/test_query_sql.py"
       - "tests/test_rdf_client.py"
