@@ -297,3 +297,31 @@ Preserve all previous acceptance and receipts. Deliver producer leaves before th
 - [ ] Serve pan/zoom/selection at billion-point cardinality. Verify no full-source transfer and typed stale-index, authorization and cap refusals.
 - [ ] `EG-FEDERATED-QUERY-R087`: add served-path tests for SVG and PDF export through `Method::Viz`. Verify content type, non-empty body and unknown-dataset refusal for each format. Confirm which production caller reaches the method.
 <!-- /spec-definition-patch -->
+- [ ] **EG-FEDERATED-QUERY-R058.4 (rollup):** Natural-language planning context, dialect choice and bounded steps.
+- [ ] **EG-FEDERATED-QUERY-R058.4.1 (Model):** Add the context, step and request fields.
+- [ ] **EG-FEDERATED-QUERY-R058.4.2 (Behavior):** Implement linking, dialect choice and the bounded loop.
+- [ ] **EG-FEDERATED-QUERY-R058.4.3 (Wiring):** Attach the bounded steps to the served handler.
+- [ ] **EG-FEDERATED-QUERY-R058.4.4 (Refusal):** Declare and return the two refusals.
+- [ ] **EG-FEDERATED-QUERY-R058.4.5 (Evidence):** Emit the step trace in the result.
+- [ ] **EG-FEDERATED-QUERY-R058.4.6 (Hot-path proof):** Add the served correction test and the overhead measurement.
+- [ ] **EG-FEDERATED-QUERY-R088 (rollup):** UQL text rows carry governance and an epistemic summary.
+- [ ] **EG-FEDERATED-QUERY-R088.1 (Model):** Add the flag and the row summary.
+- [ ] **EG-FEDERATED-QUERY-R088.2 (Behavior):** Apply visibility and resolve summaries in batch.
+- [ ] **EG-FEDERATED-QUERY-R088.3 (Wiring):** Attach visibility and summaries in `handle_uql`.
+- [ ] **EG-FEDERATED-QUERY-R088.4 (Refusal):** Add the build refusal.
+- [ ] **EG-FEDERATED-QUERY-R088.5 (Evidence):** Emit the result header fields.
+- [ ] **EG-FEDERATED-QUERY-R088.6 (Hot-path proof):** Add the served governance test and the cost measurement.
+- [ ] **EG-FEDERATED-QUERY-R089 (rollup):** Discover returns a retrieval-quality verdict.
+- [ ] **EG-FEDERATED-QUERY-R089.1 (Model):** Add the policy reference and the verdict.
+- [ ] **EG-FEDERATED-QUERY-R089.2 (Behavior):** Compute the verdict from existing scores and counters.
+- [ ] **EG-FEDERATED-QUERY-R089.3 (Wiring):** Attach the verdict in `discover`.
+- [ ] **EG-FEDERATED-QUERY-R089.4 (Refusal):** Add the policy refusal.
+- [ ] **EG-FEDERATED-QUERY-R089.5 (Evidence):** Emit the verdict evidence.
+- [ ] **EG-FEDERATED-QUERY-R089.6 (Hot-path proof):** Add the served verdict test and the cost measurement.
+- [ ] **EG-FEDERATED-QUERY-R090 (rollup):** Discover plans expansions, recency and multi-hop context.
+- [ ] **EG-FEDERATED-QUERY-R090.1 (Model):** Add the planning fields.
+- [ ] **EG-FEDERATED-QUERY-R090.2 (Behavior):** Implement expansion, decay and capped hops.
+- [ ] **EG-FEDERATED-QUERY-R090.3 (Wiring):** Attach planning in `discover`.
+- [ ] **EG-FEDERATED-QUERY-R090.4 (Refusal):** Declare and return the refusals.
+- [ ] **EG-FEDERATED-QUERY-R090.5 (Evidence):** Emit the planning evidence.
+- [ ] **EG-FEDERATED-QUERY-R090.6 (Hot-path proof):** Add the served planning test and the benchmark.

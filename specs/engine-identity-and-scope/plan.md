@@ -191,3 +191,26 @@ tenant; decision commits remain service-only. This decision permits authorized
 automated policy/security inspection without conferring administrative authority.
 Regenerate both contract catalogs and their receipt using `gen_contract`.
 Installed-wheel GraphOS acceptance remains separate consumer evidence.
+
+## EG-IDENTITY-R023.13 — served share grant and revoke
+
+Replaces: `agent_utilities/knowledge_graph/core/tenant_sharing.py` (`share_with_org`, `make_private`, `promote_to_commons`, `_set_scope`). The harness keeps no share logic after this row lands.
+
+AU acceptance case: `tests/integration/knowledge_graph/test_goc61_commons_sharing_live.py::test_org_share_revocation_persists_across_a_real_restart`.
+
+Call path: served `RbacAdmin` -> `src/server/dispatch/router/identity_access.rs:47` -> `share_transition` (`crates/eg-core/src/isolation/share.rs`, new) -> mutation gateway commit -> `row_visibility` (`crates/eg-core/src/isolation.rs:157`) on every read.
+
+Crate: `eg-core` for the transition, `eg-types` for the wire operations.
+
+Data structures: grantee sets are sorted vectors of interned `u32` principal ids, capped at 64. The node keeps `_owner_id`, `_shared_scope` and `_grants`. Memory per operation is O(g).
+
+Concurrency: the commit takes the graph's shard writer. Readers never take a global lock. They read the off-lock snapshot.
+
+Persistence: the redb store through the mutation gateway. A restart replays nothing extra, because the scope is a node property.
+
+Tenant isolation: the transition refuses a node outside the caller's tenant before any read of its properties.
+
+Budget: p50 under 2 ms and p99 under 10 ms per operation on a 1,000,000-node graph.
+
+References
+- No paper is cited.

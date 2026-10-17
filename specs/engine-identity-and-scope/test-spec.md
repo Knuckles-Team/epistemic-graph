@@ -117,3 +117,16 @@ GraphOS-owned scopes, service-only decision commits, user-class reads, API-key
 eligibility and wildcard refusal. `gen_contract --check` verifies regenerated
 server/package catalogs and receipt freshness. This slice does not claim an
 installed GraphOS wheel or live authorization deployment.
+
+## EG-IDENTITY-R023.13 acceptance
+
+| Case | Row | Proving test and observation |
+|---|---|---|
+| Model | `EG-IDENTITY-R023.13.1` | A serde round trip keeps every field. It rejects an unknown scope and a 65-entry grantee list. |
+| Behavior | `EG-IDENTITY-R023.13.2` | Unit tests cover grant, revoke, commons promotion and a non-owner attempt. |
+| Wiring | `EG-IDENTITY-R023.13.3` | A dispatch test asserts the gateway commit and an unchanged read path. |
+| Refusal | `EG-IDENTITY-R023.13.4` | Each case returns its code. An independent readback shows unchanged properties. |
+| Evidence | `EG-IDENTITY-R023.13.5` | A test reads the audit event after one grant and one revoke. |
+| Hot-path proof | `EG-IDENTITY-R023.13.6` | The served test passes against a restarted engine, and the benchmark receipt meets the budget. |
+
+Hot-path proof for `EG-IDENTITY-R023.13`: `tests/identity/test_share_restart_served.py::test_org_share_revocation_persists_across_restart`.
