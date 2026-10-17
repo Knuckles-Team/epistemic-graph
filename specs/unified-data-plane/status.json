@@ -141,6 +141,12 @@
     "EG-UNIFIED-DATA-PLANE-R034",
     "EG-UNIFIED-DATA-PLANE-R035",
     "EG-UNIFIED-DATA-PLANE-R036",
+    "EG-UNIFIED-DATA-PLANE-R036.1012",
+    "EG-UNIFIED-DATA-PLANE-R036.1013",
+    "EG-UNIFIED-DATA-PLANE-R036.1014",
+    "EG-UNIFIED-DATA-PLANE-R036.1015",
+    "EG-UNIFIED-DATA-PLANE-R036.1016",
+    "EG-UNIFIED-DATA-PLANE-R036.1017",
     "EG-UNIFIED-DATA-PLANE-R037",
     "EG-UNIFIED-DATA-PLANE-R038",
     "EG-UNIFIED-DATA-PLANE-R038.1",
@@ -1909,7 +1915,7 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R036",
       "title": "Derive HealthAnomaly and Incident facts with conformance checking",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "155bd9b55e81",
         "6c11520aebfc"
@@ -1920,7 +1926,57 @@
         "crates/eg-stream/src/telemetry/tests/derive.rs:139",
         "crates/eg-stream/src/telemetry/tests/derive.rs:28",
         "crates/eg-stream/src/telemetry/tests/derive.rs:48"
+      ],
+      "rollup_of": [
+        "EG-UNIFIED-DATA-PLANE-R036.1012",
+        "EG-UNIFIED-DATA-PLANE-R036.1013",
+        "EG-UNIFIED-DATA-PLANE-R036.1014",
+        "EG-UNIFIED-DATA-PLANE-R036.1015",
+        "EG-UNIFIED-DATA-PLANE-R036.1016",
+        "EG-UNIFIED-DATA-PLANE-R036.1017"
       ]
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R036.1012",
+      "title": "Model: served incident authority",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R036.1013",
+      "title": "Behavior: served incident authority",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R036.1014",
+      "title": "Wiring: served incident authority",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R036.1015",
+      "title": "Refusal: served incident authority",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R036.1016",
+      "title": "Evidence: served incident authority",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R036.1017",
+      "title": "Hot-path proof: served incident authority",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R037",
