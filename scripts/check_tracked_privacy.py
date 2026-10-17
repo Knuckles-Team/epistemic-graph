@@ -39,6 +39,7 @@ import subprocess
 import sys
 import tempfile
 from collections.abc import Callable
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
@@ -1189,21 +1190,41 @@ def _self_check() -> tuple[int, dict]:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def _scan_one(job: tuple[str, Path, Path, frozenset[str]]) -> list[Violation]:
+    """Scan one file in a worker.
+
+    The ordinal map is keyed by (path, category, hash), so it never crosses a
+    file boundary and each file can be scanned independently.
+    """
+
+    kind, path, root, identifiers = job
+    violations: list[Violation] = []
+    ordinals: dict[tuple[str, str, str], int] = {}
+    if kind == "artifact":
+        _scan_tracked_artifact(path, root, identifiers, violations, ordinals)
+    else:
+        _scan_runtime_source_artifact(path, root, identifiers, violations, ordinals)
+    return violations
+
+
 def scan(root: Path = ROOT) -> list[Violation]:
     identifiers = derive_local_identifiers(root)
-    violations: list[Violation] = []
-    # (path, category, content_hash) -> count so far, i.e. an ordinal
-    # disambiguating two genuinely-identical lines in the same file/category —
-    # never the line number, which drifts under unrelated edits and would
-    # otherwise report a moved (not new) leak as a phantom NEW finding.
-    ordinals: dict[tuple[str, str, str], int] = {}
+    jobs: list[tuple[str, Path, Path, frozenset[str]]] = []
     for path in _tracked_artifacts(root):
         if path.is_file():
-            _scan_tracked_artifact(path, root, identifiers, violations, ordinals)
+            jobs.append(("artifact", path, root, identifiers))
     for path in _runtime_source_artifacts(root):
         if path.is_file():
-            _scan_runtime_source_artifact(path, root, identifiers, violations, ordinals)
-    return violations
+            jobs.append(("runtime", path, root, identifiers))
+    # The line classifier is pure Python (about a minute serially for the whole
+    # repository), so the files are scanned in worker processes.
+    workers = min(len(jobs), os.cpu_count() or 1, 16)
+    if workers <= 1:
+        results = [_scan_one(job) for job in jobs]
+    else:
+        with ProcessPoolExecutor(max_workers=workers) as pool:
+            results = list(pool.map(_scan_one, jobs, chunksize=16))
+    return [violation for found in results for violation in found]
 
 
 # CX-RAT-09 (2026-08-27): the baseline/ratchet mechanism (frozen
