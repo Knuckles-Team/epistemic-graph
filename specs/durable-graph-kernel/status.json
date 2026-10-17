@@ -310,6 +310,13 @@
     "EG-DURABLE-KERNEL-R752.751",
     "EG-DURABLE-KERNEL-R752.752",
     "EG-DURABLE-KERNEL-R752.753",
+    "EG-DURABLE-KERNEL-R820",
+    "EG-DURABLE-KERNEL-R820.1",
+    "EG-DURABLE-KERNEL-R820.2",
+    "EG-DURABLE-KERNEL-R820.3",
+    "EG-DURABLE-KERNEL-R820.4",
+    "EG-DURABLE-KERNEL-R820.5",
+    "EG-DURABLE-KERNEL-R820.6",
     "EG-DURABLE-KERNEL-R700",
     "EG-DURABLE-KERNEL-R700.1",
     "EG-DURABLE-KERNEL-R700.2",
@@ -3423,6 +3430,63 @@
     {
       "id": "EG-DURABLE-KERNEL-R752.753",
       "title": "Hot-path proof: Repository work items and operation payloads",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R820",
+      "title": "Uncertain effects and effect receipts on work items (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DURABLE-KERNEL-R820.1",
+        "EG-DURABLE-KERNEL-R820.2",
+        "EG-DURABLE-KERNEL-R820.3",
+        "EG-DURABLE-KERNEL-R820.4",
+        "EG-DURABLE-KERNEL-R820.5",
+        "EG-DURABLE-KERNEL-R820.6"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R820.1",
+      "title": "Model: Uncertain effects and effect receipts on work items",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R820.2",
+      "title": "Behavior: Uncertain effects and effect receipts on work items",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R820.3",
+      "title": "Wiring: Uncertain effects and effect receipts on work items",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R820.4",
+      "title": "Refusal: Uncertain effects and effect receipts on work items",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R820.5",
+      "title": "Evidence: Uncertain effects and effect receipts on work items",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R820.6",
+      "title": "Hot-path proof: Uncertain effects and effect receipts on work items",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
