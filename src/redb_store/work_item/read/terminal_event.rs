@@ -22,14 +22,7 @@ pub(super) fn project(
     if events.next().is_some() || &row.identity != scope || row.batch_id != batch_id {
         return Err("committed terminal event binding mismatch".into());
     }
-    if receipt.status != MutationBatchStatus::Committed
-        || &receipt.identity != scope
-        || receipt.batch.batch_id != batch_id
-        || receipt.batch.outbox.get(row.ordinal as usize) != Some(&row.intent)
-        || receipt.committed_version != row.committed_version
-    {
-        return Err("terminal event is not bound to its committed receipt".into());
-    }
+    validate_receipt(scope, batch_id, receipt, row)?;
     if hex::encode(Sha256::digest(&row.intent.payload)) != digest {
         return Err("committed terminal event digest mismatch".into());
     }
@@ -64,4 +57,22 @@ pub(super) fn project(
             payload_digest: digest.to_string(),
         },
     )))
+}
+
+/// Verify that the outbox row is the exact member of the committed receipt.
+fn validate_receipt(
+    scope: &MutationScopeIdentity,
+    batch_id: &str,
+    receipt: &MutationBatchRecord,
+    row: &MutationOutboxRecord,
+) -> Result<(), String> {
+    if receipt.status != MutationBatchStatus::Committed
+        || &receipt.identity != scope
+        || receipt.batch.batch_id != batch_id
+        || receipt.batch.outbox.get(row.ordinal as usize) != Some(&row.intent)
+        || receipt.committed_version != row.committed_version
+    {
+        return Err("terminal event is not bound to its committed receipt".into());
+    }
+    Ok(())
 }
