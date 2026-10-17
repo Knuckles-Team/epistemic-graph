@@ -95,7 +95,7 @@ Reused: the capability anchor selection in `select_ready_for_worker`. New: capab
 
 Decision: hosts declare capabilities and the graph stores them. Rejected alternative: a fixed host list in configuration, because it drifts from the real topology.
 
-Cross-repository: `GRAPHOS-` rows that submit jobs only pass the job class.
+Cross-repository: `ARBORA-` rows that submit jobs only pass the job class.
 
 <!-- spec-definition-patch:owner-batch-20261012-placement-and-worker-policy -->
 ## Owner implementation plan — 2026-10-12
