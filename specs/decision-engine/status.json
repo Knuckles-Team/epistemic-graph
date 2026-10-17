@@ -698,7 +698,29 @@
     "EG-DECISION-ENGINE-R174.9.3",
     "EG-DECISION-ENGINE-R174.9.4",
     "EG-DECISION-ENGINE-R174.9.5",
-    "EG-DECISION-ENGINE-R174.9.6"
+    "EG-DECISION-ENGINE-R174.9.6",
+    "EG-DECISION-ENGINE-R614",
+    "EG-DECISION-ENGINE-R614.1",
+    "EG-DECISION-ENGINE-R614.2",
+    "EG-DECISION-ENGINE-R614.3",
+    "EG-DECISION-ENGINE-R614.4",
+    "EG-DECISION-ENGINE-R614.5",
+    "EG-DECISION-ENGINE-R614.6",
+    "EG-DECISION-ENGINE-R615",
+    "EG-DECISION-ENGINE-R615.1",
+    "EG-DECISION-ENGINE-R615.2",
+    "EG-DECISION-ENGINE-R615.3",
+    "EG-DECISION-ENGINE-R615.4",
+    "EG-DECISION-ENGINE-R615.5",
+    "EG-DECISION-ENGINE-R615.6",
+    "EG-DECISION-ENGINE-R617",
+    "EG-DECISION-ENGINE-R617.1",
+    "EG-DECISION-ENGINE-R617.2",
+    "EG-DECISION-ENGINE-R617.3",
+    "EG-DECISION-ENGINE-R617.4",
+    "EG-DECISION-ENGINE-R617.5",
+    "EG-DECISION-ENGINE-R617.6",
+    "EG-DECISION-ENGINE-R043.600"
   ],
   "requirements": [
     {
@@ -1474,7 +1496,7 @@
     {
       "id": "EG-DECISION-ENGINE-R043",
       "title": "Write-back proposals routed through Decide",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "21f73899e76c",
         "e8eaaf916a40",
@@ -1482,6 +1504,9 @@
       ],
       "verified_by": [
         "src/server/handlers/decide/stat_tests/connector_writeback_tests.rs:25"
+      ],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R043.600"
       ]
     },
     {
@@ -7367,6 +7392,184 @@
     {
       "id": "EG-DECISION-ENGINE-R174.9.6",
       "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R614",
+      "title": "Capability cards, distilled proposals, topic classes and relation projection are engine enrichment (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R614.1",
+        "EG-DECISION-ENGINE-R614.2",
+        "EG-DECISION-ENGINE-R614.3",
+        "EG-DECISION-ENGINE-R614.4",
+        "EG-DECISION-ENGINE-R614.5",
+        "EG-DECISION-ENGINE-R614.6"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R614.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R614.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R614.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R614.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R614.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R614.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R615",
+      "title": "Write-back proposals queue for approval, then reach vendors only through the governed contract (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R615.1",
+        "EG-DECISION-ENGINE-R615.2",
+        "EG-DECISION-ENGINE-R615.3",
+        "EG-DECISION-ENGINE-R615.4",
+        "EG-DECISION-ENGINE-R615.5",
+        "EG-DECISION-ENGINE-R615.6"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R615.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R615.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R615.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R615.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R615.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R615.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R617",
+      "title": "Conversation logs, project rules and memory pruning are engine-held memory (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R617.1",
+        "EG-DECISION-ENGINE-R617.2",
+        "EG-DECISION-ENGINE-R617.3",
+        "EG-DECISION-ENGINE-R617.4",
+        "EG-DECISION-ENGINE-R617.5",
+        "EG-DECISION-ENGINE-R617.6"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R617.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R617.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R617.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R617.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R617.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R617.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R043.600",
+      "title": "Approval queue and as-of stamping for write-back proposals",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
