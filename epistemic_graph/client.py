@@ -4339,8 +4339,10 @@ class WorkItemClient:
     ) -> dict[str, Any] | None:
         """Return a terminal WorkItem and the provenance its commit bound:
         ``{"work_item", "trace_ref", "tool_call_refs", "outcome_ref",
-        "outcome"}`` -- ``outcome`` is the OutcomeEvaluation receipt's stored
-        properties, verified by the engine against the committed digest.
+        "outcome", "terminal_event"}``. The ``outcome`` holds the stored
+        OutcomeEvaluation properties, verified against the committed digest.
+        ``terminal_event`` is safe committed readback or explicit legacy unavailability;
+        it does not provide lifecycle streaming or worker lease authority.
         ``None`` when the item is not visible to ``tenant`` or has no bundle.
         """
         value = (
@@ -4401,7 +4403,14 @@ class WorkItemClient:
 
 
 _WORK_ITEM_OUTCOME_FIELDS = frozenset(
-    {"work_item", "trace_ref", "tool_call_refs", "outcome_ref", "outcome"}
+    {
+        "work_item",
+        "trace_ref",
+        "tool_call_refs",
+        "outcome_ref",
+        "outcome",
+        "terminal_event",
+    }
 )
 _WORK_ITEM_VIEW_FIELDS = frozenset(
     {

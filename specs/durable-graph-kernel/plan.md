@@ -597,6 +597,19 @@ Decision: the file sink writes Parquet tables and a load manifest. This keeps fo
 References
 - No paper is cited.
 
+## Amendments
+
+### 2026-10-17 — R028.2 terminal event readback
+
+Extend `WorkItemOutcomeView`, the native terminal CAS and its existing snapshot
+reader. Reuse the primary mutation outbox and engine commit sequence; do not add
+a log, subscription, grant or polling cursor. Bind batch ID and SHA-256 of the
+encoded RunEvent on the native WorkItem row. Resolve both node and outbox from
+one scoped read. Compare scope, batch, work item and digest before projecting
+safe fields. Never expose fence tokens, executor lease identity, carrier digest
+or caller-filled event sequence/cursor. Missing legacy bindings remain explicit
+unavailability; invalid bindings fail closed. GraphOS A2A-R010 remains open:
+status/step producers and full replay/gap policy are separate prerequisites.
 ## EG-DURABLE-KERNEL-R101 — downtime work ontology and scheduler
 
 The scheduler owner is `SchedulerConfig` (`EG-DURABLE-KERNEL-R076`). The durable job plane is `eg-jobs`. This row adds the ontology of downtime work and the selection rule. It adds no second scheduler.

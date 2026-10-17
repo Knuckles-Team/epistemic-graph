@@ -44,8 +44,12 @@ pub const WORK_ITEM_OUTCOME_DIGEST: &str = "outcome_digest";
 pub const WORK_ITEM_TRACE_REF: &str = "trace_ref";
 pub const WORK_ITEM_TOOL_CALL_REFS: &str = "tool_call_refs";
 /// Every WorkItem-row property only the native kernel may write.
-pub const NATIVE_WORK_ITEM_ROW_KEYS: [&str; 5] = [
+pub const WORK_ITEM_EVENT_BATCH: &str = "terminal_event_batch";
+pub const WORK_ITEM_EVENT_DIGEST: &str = "terminal_event_digest";
+pub const NATIVE_WORK_ITEM_ROW_KEYS: [&str; 7] = [
     WORK_ITEM_ROW_REVISION,
+    WORK_ITEM_EVENT_BATCH,
+    WORK_ITEM_EVENT_DIGEST,
     WORK_ITEM_OUTCOME_REF,
     WORK_ITEM_OUTCOME_DIGEST,
     WORK_ITEM_TRACE_REF,
@@ -208,6 +212,49 @@ pub struct WorkItemOutcomeView {
     pub tool_call_refs: Vec<String>,
     pub outcome_ref: String,
     pub outcome: Option<Map<String, Value>>,
+    #[serde(default)]
+    pub terminal_event: TerminalEventRead,
+}
+
+/// Safe readback of one committed terminal event, never worker authority.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "status", rename_all = "snake_case", deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub enum TerminalEventRead {
+    Unavailable { reason: TerminalEventUnavailable },
+    Available(Box<CommittedTerminalEvent>),
+}
+
+/// Durable terminal event identity projected without worker authority.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct CommittedTerminalEvent {
+    pub tenant: String,
+    pub scope: crate::MutationScopeIdentity,
+    pub batch_id: String,
+    pub commit_sequence: u64,
+    pub ordinal: u32,
+    pub run_id: String,
+    pub kind: String,
+    pub outcome: String,
+    pub result_ref: Option<String>,
+    pub payload_digest: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub enum TerminalEventUnavailable {
+    LegacyUnbound,
+}
+
+impl Default for TerminalEventRead {
+    fn default() -> Self {
+        Self::Unavailable {
+            reason: TerminalEventUnavailable::LegacyUnbound,
+        }
+    }
 }
 
 /// The provenance references a native terminal commit bound to a WorkItem row.

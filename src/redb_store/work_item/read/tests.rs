@@ -127,6 +127,7 @@ fn listing_pages_resume_by_seek_and_skip_other_tenants_and_node_types() {
     assert!(error.contains("not minted for this tenant"), "{error}");
 }
 
+// spec: EG-DURABLE-KERNEL-R028.2
 #[test]
 fn an_outcome_read_returns_only_digest_verified_provenance_of_the_tenants_item() {
     use sha2::{Digest, Sha256};
@@ -157,6 +158,10 @@ fn an_outcome_read_returns_only_digest_verified_provenance_of_the_tenants_item()
     let outcome = read("tenant-a")
         .unwrap()
         .expect("committed outcome is visible");
+    assert_eq!(
+        outcome.terminal_event,
+        eg_types::work_item_read::TerminalEventRead::default()
+    );
     assert_eq!(outcome.work_item.work_item_id, "wi-o");
     assert_eq!(
         (outcome.trace_ref.as_str(), outcome.outcome_ref.as_str()),
@@ -172,4 +177,116 @@ fn an_outcome_read_returns_only_digest_verified_provenance_of_the_tenants_item()
         Ok(())
     });
     assert!(read("tenant-a").is_err(), "an altered receipt is refused");
+}
+
+// spec: EG-DURABLE-KERNEL-R028.2
+#[test]
+fn event_bindings_cannot_be_forged_and_missing_bound_event_is_not_legacy() {
+    use eg_types::work_item_read::{WORK_ITEM_EVENT_BATCH, WORK_ITEM_EVENT_DIGEST};
+    let temp = open("terminal-binding-refusal");
+    let mut item = work_item("tenant-a", "au.task", "succeeded");
+    item.insert("outcome_ref".into(), "oe".into());
+    write_rows(&temp.shard, "seed", vec![("wi", item.clone())]);
+    for key in [WORK_ITEM_EVENT_BATCH, WORK_ITEM_EVENT_DIGEST] {
+        let method = Method::CompareAndSetNodeFields {
+            node_id: "wi".into(),
+            conditions_msgpack: rmp_serde::to_vec_named(&serde_json::json!({})).unwrap(),
+            updates_msgpack: rmp_serde::to_vec_named(&serde_json::json!({key: "forged"})).unwrap(),
+        };
+        assert!(super::super::test_shard::check_guard(&temp.shard, key, method).is_err());
+    }
+    assert_eq!(
+        read_work_item_outcome(&temp.shard, GRAPH, "tenant-a", "wi", DurableCrypto::none())
+            .unwrap()
+            .unwrap()
+            .terminal_event,
+        eg_types::work_item_read::TerminalEventRead::default()
+    );
+    item.insert(WORK_ITEM_EVENT_BATCH.into(), "missing-batch".into());
+    write_rows(&temp.shard, "partial", vec![("wi", item.clone())]);
+    assert!(
+        read_work_item_outcome(&temp.shard, GRAPH, "tenant-a", "wi", DurableCrypto::none())
+            .unwrap_err()
+            .contains("incomplete terminal event binding")
+    );
+    item.insert(WORK_ITEM_EVENT_DIGEST.into(), "a".repeat(64).into());
+    write_rows(&temp.shard, "missing", vec![("wi", item)]);
+    assert!(
+        read_work_item_outcome(&temp.shard, GRAPH, "tenant-a", "wi", DurableCrypto::none())
+            .unwrap_err()
+            .contains("terminal receipt is missing")
+    );
+}
+
+// spec: EG-DURABLE-KERNEL-R028.2
+#[test]
+fn a_bound_event_read_refuses_a_committed_batch_without_its_event() {
+    use eg_types::work_item_read::{WORK_ITEM_EVENT_BATCH, WORK_ITEM_EVENT_DIGEST};
+    let temp = open("empty-terminal-event");
+    let mut item = work_item("tenant-a", "au.task", "succeeded");
+    item.insert("outcome_ref".into(), "oe".into());
+    // This is a real committed native maintenance batch, but it emitted no
+    // terminal event. A bound missing event is corruption, not legacy data.
+    write_rows(&temp.shard, "seed-event", vec![("wi", item.clone())]);
+    let batch_id = {
+        let handle = temp.shard.graph(GRAPH).unwrap();
+        let read = temp.shard.read(&handle).unwrap();
+        let batches = eg_transaction::read_batches(&read).unwrap();
+        assert_eq!(batches.len(), 1);
+        batches[0].batch.batch_id.clone()
+    };
+    item.insert(WORK_ITEM_EVENT_BATCH.into(), batch_id.into());
+    item.insert(WORK_ITEM_EVENT_DIGEST.into(), "a".repeat(64).into());
+    write_rows(&temp.shard, "bind-event", vec![("wi", item)]);
+    let error = read_work_item_outcome(&temp.shard, GRAPH, "tenant-a", "wi", DurableCrypto::none())
+        .unwrap_err();
+    assert!(error.contains("terminal event is missing"), "{error}");
+}
+
+// spec: EG-DURABLE-KERNEL-R028.2
+#[test]
+fn present_event_payload_corruption_is_refused() {
+    use eg_types::{MutationOutboxIntent, MutationOutboxRecord};
+    use sha2::{Digest, Sha256};
+    let temp = open("corrupt-terminal-event");
+    write_rows(
+        &temp.shard,
+        "seed",
+        vec![("wi", work_item("tenant-a", "au.task", "succeeded"))],
+    );
+    let handle = temp.shard.graph(GRAPH).unwrap();
+    let read = temp.shard.read(&handle).unwrap();
+    let mut receipt = eg_transaction::read_batches(&read).unwrap().remove(0);
+    let intent = MutationOutboxIntent {
+        topic: eg_types::outcome_bundle::RUN_EVENT_OUTBOX_TOPIC.into(),
+        key: "wi".into(),
+        payload: vec![0xc1], // Reserved MessagePack byte: cannot encode a RunEvent.
+        headers: Default::default(),
+    };
+    receipt.batch.outbox = vec![intent.clone()];
+    let row = MutationOutboxRecord {
+        schema_version: 1,
+        batch_id: receipt.batch.batch_id.clone(),
+        ordinal: 0,
+        identity: receipt.identity.clone(),
+        committed_version: receipt.committed_version,
+        commit_sequence: receipt.committed_version.target(),
+        intent,
+        created_at_ms: receipt.committed_at_ms,
+    };
+    let check = |digest: &str| {
+        terminal_event::project(
+            read.scope(),
+            "tenant-a",
+            "wi",
+            &receipt.batch.batch_id,
+            digest,
+            &receipt,
+            std::slice::from_ref(&row),
+        )
+        .unwrap_err()
+    };
+    assert!(check(&"0".repeat(64)).contains("digest mismatch"));
+    let actual_digest = hex::encode(Sha256::digest(&row.intent.payload));
+    assert!(check(&actual_digest).contains("event is malformed"));
 }

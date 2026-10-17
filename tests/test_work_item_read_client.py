@@ -170,6 +170,7 @@ def test_a_lease_answer_outside_the_contract_is_refused() -> None:
 # -- graph-os EG-3 committed provenance ---------------------------------------
 
 
+@pytest.mark.spec("EG-DURABLE-KERNEL-R028.2")
 def test_get_outcome_returns_the_verified_provenance_view() -> None:
     outcome = {
         "work_item": VIEW,
@@ -177,6 +178,7 @@ def test_get_outcome_returns_the_verified_provenance_view() -> None:
         "tool_call_refs": ["tc-1"],
         "outcome_ref": "oe-1",
         "outcome": {"status": "succeeded"},
+        "terminal_event": {"status": "unavailable", "reason": "legacy_unbound"},
     }
     engine = FakeEngine(outcome)
     items = _work_items(engine)
