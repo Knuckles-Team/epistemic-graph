@@ -204,7 +204,12 @@ def test_release_wheels_are_rebuilt_and_compared_reproducibly() -> None:
 
     assert re.fullmatch(r"[0-9]+[.][0-9]+[.][0-9]+", toolchain)
     build_job_raw = _build_job_source(raw)
-    assert "toolchain: ${{ steps.rust-toolchain.outputs.channel }}" in build_job_raw
+    assert "uses: ./.github/actions/pinned-rust-toolchain" in build_job_raw
+    pinned = (REPO / ".github/actions/pinned-rust-toolchain/action.yml").read_text(
+        encoding="utf-8"
+    )
+    assert "tomllib.load(open('rust-toolchain.toml','rb'))" in pinned
+    assert "toolchain: ${{ steps.pin.outputs.channel }}" in pinned
     assert "toolchain: stable" not in build_job_raw
     # Wheel legs (thin LTO, zig/qemu cross builds) keep a low job count.
     # The byte-identical reproduction pass is a manual (workflow_dispatch) check,

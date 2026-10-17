@@ -3277,13 +3277,11 @@ dependencies = [
  "eg-storage",
  "eg-transaction",
  "eg-types",
- "hex",
  "proptest",
  "redb",
  "rmp-serde",
  "serde",
  "serde_json",
- "sha2 0.10.9",
  "tempfile",
 ]
 

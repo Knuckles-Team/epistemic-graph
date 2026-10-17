@@ -30,7 +30,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
+use eg_types::contract::Digest256;
 
 use crate::action::Action;
 use crate::guard::Guard;
@@ -255,10 +255,8 @@ impl StatechartDef {
     /// nested JSON objects) in sorted key order and preserves list order, so a given
     /// `StatechartDef` value always serializes to identical bytes within a build.
     pub fn def_id(&self) -> DefId {
-        let mut hasher = Sha256::new();
-        hasher.update(b"eg-statechart.def_id.v1\0");
-        let bytes = serde_json::to_vec(self).unwrap_or_default();
-        hasher.update(bytes);
-        format!("eg:statechart:{}", hex::encode(&hasher.finalize()[..16]))
+        let mut framed = b"eg-statechart.def_id.v1\0".to_vec();
+        framed.extend(serde_json::to_vec(self).unwrap_or_default());
+        format!("eg:statechart:{}", &Digest256::sha256(&framed).to_hex()[..32])
     }
 }

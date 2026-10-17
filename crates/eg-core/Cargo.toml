@@ -92,7 +92,7 @@ rayon = { version = "1.12", optional = true }
 # the RbacPolicy + registered AgentIdentities to a redb table so roles/grants/
 # identities survive a restart. Same redb 4.1 the durable tiers link; only pulled in
 # under `security` (Pi builds do not enable eg-core/security).
-redb = { version = "4.4", optional = true }
+redb = { workspace = true, optional = true }
 # CONCEPT:EG-303 durable RBAC persistence goes through the two kernels
 # (RF-RULING-004): `eg-storage` is the sole physical authority that opens
 # `rbac.redb` under the declared `OwnerLayout::Rbac`, and `eg-transaction` is the

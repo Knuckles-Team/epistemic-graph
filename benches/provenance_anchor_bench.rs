@@ -5,7 +5,7 @@
 //!
 //! Fans `N` concurrent `record_durable` (authoritative, awaited) `AddNode`
 //! writes into ONE redb backend — the SAME `fan_in` harness
-//! `redb_group_commit_bench.rs` uses — under two arms:
+//! (`benches/common/redb_fan_in.rs`) `redb_group_commit_bench.rs` uses — under two arms:
 //!   * `anchoring_off` — BASELINE: no anchor activity at all.
 //!   * `anchoring_on`  — a background task repeatedly mutates one node in a
 //!     synthetic `:ToolCall` window (so the window's Merkle root changes EVERY
@@ -27,6 +27,9 @@
 //!
 //! Run: cargo bench --features security --bench provenance_anchor_bench
 
+#[path = "common/redb_fan_in.rs"]
+mod redb_fan_in;
+
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -36,42 +39,13 @@ use epistemic_graph::audit;
 use epistemic_graph::protocol::Method;
 use epistemic_graph::server::persistence::redb_backend::RedbBackend;
 use epistemic_graph::server::persistence::PersistenceBackend;
+use redb_fan_in::{fan_in, GRAPH};
 use tokio::runtime::Builder;
 
-const GRAPH: &str = "__commons__";
 const ANCHOR_WINDOW: usize = 500;
-
-fn node_props(k: usize) -> Vec<u8> {
-    rmp_serde::to_vec_named(&serde_json::json!({ "k": k })).unwrap()
-}
 
 fn tool_call_props(tick: u64) -> Vec<u8> {
     rmp_serde::to_vec_named(&serde_json::json!({ "node_type": "ToolCall", "tick": tick })).unwrap()
-}
-
-/// Fan `n` authoritative (commit-before-ack) writes from `producers` concurrent
-/// tasks into ONE redb backend. Identical harness to
-/// `redb_group_commit_bench.rs::fan_in` — see that file for the pipelining
-/// rationale.
-async fn fan_in(backend: &Arc<RedbBackend>, n: usize, base: usize) {
-    let mut tasks = Vec::with_capacity(n);
-    for i in 0..n {
-        let b = backend.clone();
-        let id = base + i;
-        tasks.push(tokio::spawn(async move {
-            b.record_durable(
-                GRAPH,
-                &Method::AddNode {
-                    node_id: format!("n{id}"),
-                    properties_msgpack: node_props(id),
-                },
-            )
-            .await
-        }));
-    }
-    for t in tasks {
-        t.await.unwrap().expect("durable commit ok");
-    }
 }
 
 /// Seed `ANCHOR_WINDOW` synthetic `:ToolCall` nodes for the anchor loop to

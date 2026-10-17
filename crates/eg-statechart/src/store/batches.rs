@@ -7,6 +7,7 @@
 //! share ONE totally-ordered mutation log.
 
 use super::*;
+use eg_types::contract::Digest256;
 
 /// Fixed mutation-domain scope for statechart instance writes. A single native
 /// scope gives every instance transition one totally-ordered mutation log —
@@ -54,8 +55,7 @@ pub(super) fn instance_batch(
     owner: &OwnedStoreHandle<StatechartOwner>,
     expected_version: u64,
 ) -> Result<MutationBatch> {
-    use sha2::{Digest, Sha256};
-    let digest = hex::encode(Sha256::digest(encoded));
+    let digest = Digest256::sha256(encoded).to_hex();
     // RF-RULING-004: the batch actor is the principal the storage kernel
     // authenticated THIS store's serving scope for -- one physical file serves
     // one bound scope and one principal, and the mutation kernel refuses any
@@ -64,7 +64,7 @@ pub(super) fn instance_batch(
     // on the outbox row below.
     let actor_digest = format!(
         "principal:sha256:{}",
-        hex::encode(Sha256::digest(instance.actor.as_bytes()))
+        Digest256::sha256(instance.actor.as_bytes()).to_hex()
     );
     let batch_id = format!("statechart-transition:{digest}");
     let operation = MutationOperation {
@@ -222,11 +222,9 @@ pub(super) fn definition_batch(
 /// opaque digest (e.g. of request id + method), so this only domain-separates it
 /// into an instance id shaped like the local-counter form (`sc-<hex>`).
 pub(super) fn instance_id_for_request(request_batch_id: &str) -> InstanceId {
-    use sha2::{Digest, Sha256};
-    let mut digest = Sha256::new();
-    digest.update(b"eg-statechart.consensus-instance-id.v1\0");
-    digest.update(request_batch_id.as_bytes());
-    format!("sc-{}", hex::encode(&digest.finalize()[..16]))
+    let mut framed = b"eg-statechart.consensus-instance-id.v1\0".to_vec();
+    framed.extend_from_slice(request_batch_id.as_bytes());
+    format!("sc-{}", &Digest256::sha256(&framed).to_hex()[..32])
 }
 
 /// The creation-time sibling of `instance_batch`: rather than content-addressing
@@ -242,12 +240,11 @@ pub(super) fn creation_batch(
     owner: &OwnedStoreHandle<StatechartOwner>,
     expected_version: u64,
 ) -> Result<MutationBatch> {
-    use sha2::{Digest, Sha256};
     // See `instance_batch`: the batch actor is this store's bound serving
     // principal; the instance's own actor travels server-hashed on the outbox.
     let actor_digest = format!(
         "principal:sha256:{}",
-        hex::encode(Sha256::digest(instance.actor.as_bytes()))
+        Digest256::sha256(instance.actor.as_bytes()).to_hex()
     );
     let batch_id = request_batch_id.to_string();
     let operation = MutationOperation {

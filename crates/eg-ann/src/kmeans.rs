@@ -11,28 +11,38 @@ use rand::Rng;
 use rand_chacha::ChaCha8Rng;
 use rayon::prelude::*;
 
-/// Squared Euclidean distance between two equal-length slices. CONCEPT:EG-KG.compute.lane-chunked-dot-product —
-/// SIMD-friendly: 8 independent accumulator lanes over `as_chunks::<8>()` (no FP
-/// dependency chain, no per-element bounds check) so it autovectorizes to packed
-/// AVX2 over the 1024-dim contiguous slices. Hot in the brute-force fallback, the
-/// coarse cell scan, the SQ8 refine, and the worst-fit re-seed.
-#[inline]
-pub fn sq_dist(a: &[f32], b: &[f32]) -> f32 {
+/// Lane-chunked pairwise reduction `sum(term(a[i], b[i]))` over two equal-length
+/// slices. CONCEPT:EG-KG.compute.lane-chunked-dot-product — SIMD-friendly: 8
+/// independent accumulator lanes over `as_chunks::<8>()` (no FP dependency chain,
+/// no per-element bounds check) so it autovectorizes to packed AVX2 over the
+/// 1024-dim contiguous slices; the tail (< 8 elems) is scalar. The one shared
+/// kernel behind [`sq_dist`] and the semantic store's dot product.
+#[inline(always)]
+pub fn lane_reduce(a: &[f32], b: &[f32], term: impl Fn(f32, f32) -> f32) -> f32 {
     let mut acc = [0.0f32; 8];
     let (ca, ra) = a.as_chunks::<8>();
     let (cb, rb) = b.as_chunks::<8>();
     for (x, y) in ca.iter().zip(cb) {
         for l in 0..8 {
-            let diff = x[l] - y[l];
-            acc[l] += diff * diff;
+            acc[l] += term(x[l], y[l]);
         }
     }
-    let mut d = ((acc[0] + acc[4]) + (acc[1] + acc[5])) + ((acc[2] + acc[6]) + (acc[3] + acc[7]));
-    for (x, y) in ra.iter().zip(rb) {
-        let diff = x - y;
-        d += diff * diff;
+    let mut s = ((acc[0] + acc[4]) + (acc[1] + acc[5])) + ((acc[2] + acc[6]) + (acc[3] + acc[7]));
+    for (&x, &y) in ra.iter().zip(rb) {
+        s += term(x, y);
     }
-    d
+    s
+}
+
+/// Squared Euclidean distance between two equal-length slices, via the
+/// lane-chunked [`lane_reduce`]. Hot in the brute-force fallback, the coarse cell
+/// scan, the SQ8 refine, and the worst-fit re-seed.
+#[inline]
+pub fn sq_dist(a: &[f32], b: &[f32]) -> f32 {
+    lane_reduce(a, b, |x, y| {
+        let diff = x - y;
+        diff * diff
+    })
 }
 
 /// Squared distance with an early-out once the running sum exceeds `bound`. The

@@ -159,7 +159,7 @@ iceberg-storage-opendal = { version = "0.10", optional = true, default-features 
 ] }
 # Durable embedded KV for the user-defined table store (CONCEPT:EG-018). Same pin as
 # the engine's server-side durable tier so a `query`/`full` build links one redb.
-redb = { version = "4.4", optional = true }
+redb = { workspace = true, optional = true }
 # Shared by `sql` (EdgeRef/IntoEdgeReferences edge-table topology iteration over
 # GraphView's StableDiGraph) and `cypher` (variable-length-path BFS). Already
 # linked transitively via eg-core; pin the same minor. `serde-1` is the superset
