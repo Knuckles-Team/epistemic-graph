@@ -253,7 +253,35 @@
     "EG-FEDERATED-QUERY-R087.3",
     "EG-FEDERATED-QUERY-R087.4",
     "EG-FEDERATED-QUERY-R087.5",
-    "EG-FEDERATED-QUERY-R087.6"
+    "EG-FEDERATED-QUERY-R087.6",
+    "EG-FEDERATED-QUERY-R058.4",
+    "EG-FEDERATED-QUERY-R058.4.1",
+    "EG-FEDERATED-QUERY-R058.4.2",
+    "EG-FEDERATED-QUERY-R058.4.3",
+    "EG-FEDERATED-QUERY-R058.4.4",
+    "EG-FEDERATED-QUERY-R058.4.5",
+    "EG-FEDERATED-QUERY-R058.4.6",
+    "EG-FEDERATED-QUERY-R088",
+    "EG-FEDERATED-QUERY-R088.1",
+    "EG-FEDERATED-QUERY-R088.2",
+    "EG-FEDERATED-QUERY-R088.3",
+    "EG-FEDERATED-QUERY-R088.4",
+    "EG-FEDERATED-QUERY-R088.5",
+    "EG-FEDERATED-QUERY-R088.6",
+    "EG-FEDERATED-QUERY-R089",
+    "EG-FEDERATED-QUERY-R089.1",
+    "EG-FEDERATED-QUERY-R089.2",
+    "EG-FEDERATED-QUERY-R089.3",
+    "EG-FEDERATED-QUERY-R089.4",
+    "EG-FEDERATED-QUERY-R089.5",
+    "EG-FEDERATED-QUERY-R089.6",
+    "EG-FEDERATED-QUERY-R090",
+    "EG-FEDERATED-QUERY-R090.1",
+    "EG-FEDERATED-QUERY-R090.2",
+    "EG-FEDERATED-QUERY-R090.3",
+    "EG-FEDERATED-QUERY-R090.4",
+    "EG-FEDERATED-QUERY-R090.5",
+    "EG-FEDERATED-QUERY-R090.6"
   ],
   "requirements": [
     {
@@ -1046,7 +1074,8 @@
       "rollup_of": [
         "EG-FEDERATED-QUERY-R058.1",
         "EG-FEDERATED-QUERY-R058.2",
-        "EG-FEDERATED-QUERY-R058.3"
+        "EG-FEDERATED-QUERY-R058.3",
+        "EG-FEDERATED-QUERY-R058.4"
       ]
     },
     {
@@ -2648,6 +2677,234 @@
     },
     {
       "id": "EG-FEDERATED-QUERY-R087.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R058.4",
+      "title": "Natural-language planning context, dialect choice and bounded steps (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-FEDERATED-QUERY-R058.4.1",
+        "EG-FEDERATED-QUERY-R058.4.2",
+        "EG-FEDERATED-QUERY-R058.4.3",
+        "EG-FEDERATED-QUERY-R058.4.4",
+        "EG-FEDERATED-QUERY-R058.4.5",
+        "EG-FEDERATED-QUERY-R058.4.6"
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R058.4.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R058.4.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R058.4.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R058.4.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R058.4.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R058.4.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R088",
+      "title": "UQL text rows carry governance and an epistemic summary (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-FEDERATED-QUERY-R088.1",
+        "EG-FEDERATED-QUERY-R088.2",
+        "EG-FEDERATED-QUERY-R088.3",
+        "EG-FEDERATED-QUERY-R088.4",
+        "EG-FEDERATED-QUERY-R088.5",
+        "EG-FEDERATED-QUERY-R088.6"
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R088.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R088.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R088.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R088.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R088.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R088.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R089",
+      "title": "Discover returns a retrieval-quality verdict (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-FEDERATED-QUERY-R089.1",
+        "EG-FEDERATED-QUERY-R089.2",
+        "EG-FEDERATED-QUERY-R089.3",
+        "EG-FEDERATED-QUERY-R089.4",
+        "EG-FEDERATED-QUERY-R089.5",
+        "EG-FEDERATED-QUERY-R089.6"
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R089.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R089.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R089.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R089.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R089.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R089.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R090",
+      "title": "Discover plans expansions, recency and multi-hop context (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-FEDERATED-QUERY-R090.1",
+        "EG-FEDERATED-QUERY-R090.2",
+        "EG-FEDERATED-QUERY-R090.3",
+        "EG-FEDERATED-QUERY-R090.4",
+        "EG-FEDERATED-QUERY-R090.5",
+        "EG-FEDERATED-QUERY-R090.6"
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R090.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R090.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R090.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R090.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R090.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R090.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],

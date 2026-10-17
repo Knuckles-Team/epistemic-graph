@@ -30,7 +30,14 @@
     "EG-IDENTITY-R023.9",
     "EG-IDENTITY-R023.10",
     "EG-IDENTITY-R023.11",
-    "EG-IDENTITY-R023.12"
+    "EG-IDENTITY-R023.12",
+    "EG-IDENTITY-R023.13",
+    "EG-IDENTITY-R023.13.1",
+    "EG-IDENTITY-R023.13.2",
+    "EG-IDENTITY-R023.13.3",
+    "EG-IDENTITY-R023.13.4",
+    "EG-IDENTITY-R023.13.5",
+    "EG-IDENTITY-R023.13.6"
   ],
   "requirements": [
     {
@@ -211,7 +218,8 @@
         "EG-IDENTITY-R023.9",
         "EG-IDENTITY-R023.10",
         "EG-IDENTITY-R023.11",
-        "EG-IDENTITY-R023.12"
+        "EG-IDENTITY-R023.12",
+        "EG-IDENTITY-R023.13"
       ]
     },
     {
@@ -293,6 +301,63 @@
     },
     {
       "id": "EG-IDENTITY-R023.12",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-IDENTITY-R023.13",
+      "title": "Served share grant and revoke persist across restart (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-IDENTITY-R023.13.1",
+        "EG-IDENTITY-R023.13.2",
+        "EG-IDENTITY-R023.13.3",
+        "EG-IDENTITY-R023.13.4",
+        "EG-IDENTITY-R023.13.5",
+        "EG-IDENTITY-R023.13.6"
+      ]
+    },
+    {
+      "id": "EG-IDENTITY-R023.13.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-IDENTITY-R023.13.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-IDENTITY-R023.13.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-IDENTITY-R023.13.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-IDENTITY-R023.13.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-IDENTITY-R023.13.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],

@@ -620,7 +620,42 @@
     "EG-DECISION-ENGINE-R172.8",
     "EG-DECISION-ENGINE-R172.9",
     "EG-DECISION-ENGINE-R172.10",
-    "EG-DECISION-ENGINE-R172.11"
+    "EG-DECISION-ENGINE-R172.11",
+    "EG-DECISION-ENGINE-R175",
+    "EG-DECISION-ENGINE-R175.1",
+    "EG-DECISION-ENGINE-R175.2",
+    "EG-DECISION-ENGINE-R175.3",
+    "EG-DECISION-ENGINE-R175.4",
+    "EG-DECISION-ENGINE-R175.5",
+    "EG-DECISION-ENGINE-R175.6",
+    "EG-DECISION-ENGINE-R173",
+    "EG-DECISION-ENGINE-R173.1",
+    "EG-DECISION-ENGINE-R173.2",
+    "EG-DECISION-ENGINE-R173.3",
+    "EG-DECISION-ENGINE-R173.4",
+    "EG-DECISION-ENGINE-R173.5",
+    "EG-DECISION-ENGINE-R173.6",
+    "EG-DECISION-ENGINE-R134.110",
+    "EG-DECISION-ENGINE-R134.110.1",
+    "EG-DECISION-ENGINE-R134.110.2",
+    "EG-DECISION-ENGINE-R134.110.3",
+    "EG-DECISION-ENGINE-R134.110.4",
+    "EG-DECISION-ENGINE-R134.110.5",
+    "EG-DECISION-ENGINE-R134.110.6",
+    "EG-DECISION-ENGINE-R100.102",
+    "EG-DECISION-ENGINE-R100.102.1",
+    "EG-DECISION-ENGINE-R100.102.2",
+    "EG-DECISION-ENGINE-R100.102.3",
+    "EG-DECISION-ENGINE-R100.102.4",
+    "EG-DECISION-ENGINE-R100.102.5",
+    "EG-DECISION-ENGINE-R100.102.6",
+    "EG-DECISION-ENGINE-R174",
+    "EG-DECISION-ENGINE-R174.1",
+    "EG-DECISION-ENGINE-R174.2",
+    "EG-DECISION-ENGINE-R174.3",
+    "EG-DECISION-ENGINE-R174.4",
+    "EG-DECISION-ENGINE-R174.5",
+    "EG-DECISION-ENGINE-R174.6"
   ],
   "requirements": [
     {
@@ -2712,7 +2747,8 @@
       "rollup_of": [
         "EG-DECISION-ENGINE-R100.101",
         "EG-DECISION-ENGINE-R100.1",
-        "EG-DECISION-ENGINE-R100.100"
+        "EG-DECISION-ENGINE-R100.100",
+        "EG-DECISION-ENGINE-R100.102"
       ]
     },
     {
@@ -3922,7 +3958,8 @@
         "EG-DECISION-ENGINE-R134.106",
         "EG-DECISION-ENGINE-R134.107",
         "EG-DECISION-ENGINE-R134.108",
-        "EG-DECISION-ENGINE-R134.109"
+        "EG-DECISION-ENGINE-R134.109",
+        "EG-DECISION-ENGINE-R134.110"
       ]
     },
     {
@@ -6647,6 +6684,291 @@
     },
     {
       "id": "EG-DECISION-ENGINE-R172.11",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R175",
+      "title": "Implicit-reasoning recommendation over temporal semantic ids (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R175.1",
+        "EG-DECISION-ENGINE-R175.2",
+        "EG-DECISION-ENGINE-R175.3",
+        "EG-DECISION-ENGINE-R175.4",
+        "EG-DECISION-ENGINE-R175.5",
+        "EG-DECISION-ENGINE-R175.6"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R175.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R175.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R175.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R175.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R175.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R175.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R173",
+      "title": "Cross-round edit concentration cap (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R173.1",
+        "EG-DECISION-ENGINE-R173.2",
+        "EG-DECISION-ENGINE-R173.3",
+        "EG-DECISION-ENGINE-R173.4",
+        "EG-DECISION-ENGINE-R173.5",
+        "EG-DECISION-ENGINE-R173.6"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R173.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R173.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R173.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R173.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R173.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R173.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R134.110",
+      "title": "Native tool relevance index and task-to-tool assignment (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R134.110.1",
+        "EG-DECISION-ENGINE-R134.110.2",
+        "EG-DECISION-ENGINE-R134.110.3",
+        "EG-DECISION-ENGINE-R134.110.4",
+        "EG-DECISION-ENGINE-R134.110.5",
+        "EG-DECISION-ENGINE-R134.110.6"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R134.110.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R134.110.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R134.110.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R134.110.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R134.110.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R134.110.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R100.102",
+      "title": "Run retrieval outcomes and per-step credit (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R100.102.1",
+        "EG-DECISION-ENGINE-R100.102.2",
+        "EG-DECISION-ENGINE-R100.102.3",
+        "EG-DECISION-ENGINE-R100.102.4",
+        "EG-DECISION-ENGINE-R100.102.5",
+        "EG-DECISION-ENGINE-R100.102.6"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R100.102.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R100.102.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R100.102.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R100.102.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R100.102.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R100.102.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R174",
+      "title": "Engine-run embedding generation swap cycle (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R174.1",
+        "EG-DECISION-ENGINE-R174.2",
+        "EG-DECISION-ENGINE-R174.3",
+        "EG-DECISION-ENGINE-R174.4",
+        "EG-DECISION-ENGINE-R174.5",
+        "EG-DECISION-ENGINE-R174.6"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R174.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R174.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R174.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R174.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R174.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R174.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
