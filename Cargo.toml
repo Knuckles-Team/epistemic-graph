@@ -86,7 +86,12 @@ members = ["crates/eg-types", "crates/eg-transaction", "crates/eg-ann", "crates/
 
 # One version for a dependency several members declare, so a bump is one edit.
 [workspace.dependencies]
-redb = "4.4"
+# Held on 4.1: redb 4.3+ (a) no longer locks in `FileBackend::new`, which the
+# store-upgrade exclusive-lock proof relies on, and (b) grows an existing store
+# file on a plain open/close, changing the physical census the semantic-owner
+# upgrade proves stable between inspection and restaging. Lift only together
+# with those upgrade paths.
+redb = "~4.1"
 
 [package]
 name = "epistemic-graph"

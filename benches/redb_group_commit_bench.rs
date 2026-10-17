@@ -28,6 +28,7 @@ use std::sync::Arc;
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use epistemic_graph::server::persistence::redb_backend::RedbBackend;
+use epistemic_graph::server::persistence::PersistenceBackend;
 use redb_fan_in::fan_in;
 use tokio::runtime::Builder;
 
