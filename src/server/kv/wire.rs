@@ -136,7 +136,11 @@ pub(super) struct WireWrite<'a> {
 
 impl KvStore {
     /// `KvGet`: the value and its version, or `None` when absent.
-    pub(crate) fn get_versioned(&self, namespace: &str, key: &str) -> Result<Option<KvEntry>, String> {
+    pub(crate) fn get_versioned(
+        &self,
+        namespace: &str,
+        key: &str,
+    ) -> Result<Option<KvEntry>, String> {
         self.get(namespace, key)?
             .map(|row| {
                 decode_row(&row).map(|(version, value)| KvEntry {
@@ -166,13 +170,9 @@ impl KvStore {
                 let mut table = owner_write.open_table(KV)?;
                 versioned_write(&mut table, (namespace, key), expected, new, write.stamp)
             }),
-            Backend::Memory(m) => versioned_write(
-                &mut *m.lock(),
-                (namespace, key),
-                expected,
-                new,
-                write.stamp,
-            ),
+            Backend::Memory(m) => {
+                versioned_write(&mut *m.lock(), (namespace, key), expected, new, write.stamp)
+            }
         }
     }
 
@@ -185,41 +185,69 @@ impl KvStore {
         limit: usize,
     ) -> Result<KvScanPage, String> {
         validate_key(namespace, prefix)?;
-        let start = match cursor {
-            Some(cursor) if !cursor.starts_with(prefix) || cursor.len() > MAX_KV_KEY_BYTES => {
-                return Err("KV scan cursor does not belong to this prefix".to_string())
-            }
-            Some(cursor) => cursor,
-            None => prefix,
-        };
-        let limit = match limit {
-            0 => DEFAULT_WIRE_SCAN_LIMIT,
-            n => n.min(MAX_WIRE_SCAN_LIMIT),
-        };
-        let mut page = PageBuilder::new(prefix, cursor, limit);
+        let start = scan_start(prefix, cursor)?;
+        let mut page = PageBuilder::new(prefix, cursor, page_limit(limit));
         match &self.backend {
-            Backend::Redb(store) => {
-                let read = store.read()?;
-                let table = read.open_owner_table(KV)?;
-                for entry in table.range((namespace, start)..).map_err(|e| e.to_string())? {
-                    let (k, v) = entry.map_err(|e| e.to_string())?;
-                    let (ns, key) = k.value();
-                    if ns != namespace || !page.push(key, v.value())? {
-                        break;
-                    }
-                }
-            }
-            Backend::Memory(m) => {
-                let guard = m.lock();
-                for ((ns, key), v) in guard.range((namespace.to_string(), start.to_string())..) {
-                    if ns != namespace || !page.push(key, v)? {
-                        break;
-                    }
-                }
-            }
+            Backend::Redb(store) => scan_redb_page(store, namespace, start, &mut page)?,
+            Backend::Memory(m) => scan_memory_page(&m.lock(), namespace, start, &mut page)?,
         }
         Ok(page.finish())
     }
+}
+
+/// Where a page's range starts: the cursor (which must lie inside the prefix), else
+/// the prefix itself.
+fn scan_start<'a>(prefix: &'a str, cursor: Option<&'a str>) -> Result<&'a str, String> {
+    match cursor {
+        None => Ok(prefix),
+        Some(cursor) if cursor.starts_with(prefix) && cursor.len() <= MAX_KV_KEY_BYTES => {
+            Ok(cursor)
+        }
+        Some(_) => Err("KV scan cursor does not belong to this prefix".to_string()),
+    }
+}
+
+fn page_limit(limit: usize) -> usize {
+    if limit == 0 {
+        DEFAULT_WIRE_SCAN_LIMIT
+    } else {
+        limit.min(MAX_WIRE_SCAN_LIMIT)
+    }
+}
+
+fn scan_redb_page(
+    store: &RedbBackend,
+    namespace: &str,
+    start: &str,
+    page: &mut PageBuilder<'_>,
+) -> Result<(), String> {
+    let read = store.read()?;
+    let table = read.open_owner_table(KV)?;
+    for entry in table
+        .range((namespace, start)..)
+        .map_err(|e| e.to_string())?
+    {
+        let (k, v) = entry.map_err(|e| e.to_string())?;
+        let (ns, key) = k.value();
+        if ns != namespace || !page.push(key, v.value())? {
+            break;
+        }
+    }
+    Ok(())
+}
+
+fn scan_memory_page(
+    rows: &BTreeMap<(String, String), Vec<u8>>,
+    namespace: &str,
+    start: &str,
+    page: &mut PageBuilder<'_>,
+) -> Result<(), String> {
+    for ((ns, key), v) in rows.range((namespace.to_string(), start.to_string())..) {
+        if ns != namespace || !page.push(key, v)? {
+            break;
+        }
+    }
+    Ok(())
 }
 
 /// Accumulates one scan page under its row and byte bounds.
@@ -254,7 +282,8 @@ impl<'a> PageBuilder<'a> {
         }
         let size = key.len().saturating_add(row.len());
         let full = self.entries.len() >= self.limit
-            || (!self.entries.is_empty() && self.bytes.saturating_add(size) > MAX_WIRE_SCAN_PAGE_BYTES);
+            || (!self.entries.is_empty()
+                && self.bytes.saturating_add(size) > MAX_WIRE_SCAN_PAGE_BYTES);
         if full {
             self.more = true;
             return Ok(false);
@@ -297,10 +326,18 @@ mod tests {
     fn versions_never_repeat_across_delete_and_recreate() {
         let mut rows = BTreeMap::new();
         let first = versioned_write(&mut rows, ("ns", "k"), None, Some(b"a"), 5).unwrap();
-        let deleted = versioned_write(&mut rows, ("ns", "k"), Some(first.version), None, 6).unwrap();
+        let deleted =
+            versioned_write(&mut rows, ("ns", "k"), Some(first.version), None, 6).unwrap();
         let again = versioned_write(&mut rows, ("ns", "k"), Some(0), Some(b"b"), 7).unwrap();
         assert_eq!((first.version, deleted.version, again.version), (5, 0, 7));
-        let stale = versioned_write(&mut rows, ("ns", "k"), Some(first.version), Some(b"c"), 8).unwrap();
-        assert_eq!(stale, KvCasOutcome { swapped: false, version: 7 });
+        let stale =
+            versioned_write(&mut rows, ("ns", "k"), Some(first.version), Some(b"c"), 8).unwrap();
+        assert_eq!(
+            stale,
+            KvCasOutcome {
+                swapped: false,
+                version: 7
+            }
+        );
     }
 }

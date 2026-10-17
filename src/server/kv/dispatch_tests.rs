@@ -2,7 +2,6 @@
 
 use crate::acl::RequestContextClaims;
 use crate::protocol::{Method, Request, ResultPayload};
-use eg_types::storage_wire::{KvCasOutcome, KvEntry, KvScanPage, KvWriteReceipt};
 use crate::server::{
     auth::{
         build_shared_test_request, compute_verified_envelope_token,
@@ -10,6 +9,7 @@ use crate::server::{
     },
     ServerState,
 };
+use eg_types::storage_wire::{KvCasOutcome, KvEntry, KvScanPage, KvWriteReceipt};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -187,7 +187,7 @@ async fn kv_dispatch_put_get_scan_delete_cas() {
     assert!(created.swapped);
     let again: KvCasOutcome =
         decode(&dispatch_on_heap(&state, req(7, cas("k2", 0, Some(b"dup")))).await);
-    assert_eq!(again.swapped, false);
+    assert!(!again.swapped);
 
     let page: KvScanPage = decode(&dispatch_on_heap(&state, req(8, scan("k", 0, None))).await);
     let keys: Vec<_> = page.entries.iter().map(|row| row.key.as_str()).collect();
@@ -254,20 +254,37 @@ async fn kv_scan_pages_are_bounded_and_resume_from_the_cursor() {
 #[tokio::test]
 async fn kv_keys_are_scoped_by_graph_and_writes_need_kv_write() {
     let (dir, state) = temp_state("scope");
-    let r = dispatch_on_heap(&state, signed(1, &how("__commons__", &["*"], "s1"), put("k", b"a"))).await;
+    let r = dispatch_on_heap(
+        &state,
+        signed(1, &how("__commons__", &["*"], "s1"), put("k", b"a")),
+    )
+    .await;
     assert!(r.error.is_none(), "{:?}", r.error);
     // The same tenant, principal, namespace and key in another graph is another row.
-    let other: Option<KvEntry> =
-        decode(&dispatch_on_heap(&state, signed(2, &how("kv-graph-b", &["*"], "s2"), get("k"))).await);
+    let other: Option<KvEntry> = decode(
+        &dispatch_on_heap(
+            &state,
+            signed(2, &how("kv-graph-b", &["*"], "s2"), get("k")),
+        )
+        .await,
+    );
     assert_eq!(other, None);
 
     // A read-only grant reads but cannot write.
     let read_only = &["kv:read"][..];
-    let seen: Option<KvEntry> =
-        decode(&dispatch_on_heap(&state, signed(3, &how("__commons__", read_only, "s3"), get("k"))).await);
+    let seen: Option<KvEntry> = decode(
+        &dispatch_on_heap(
+            &state,
+            signed(3, &how("__commons__", read_only, "s3"), get("k")),
+        )
+        .await,
+    );
     assert!(seen.is_some());
-    let denied =
-        dispatch_on_heap(&state, signed(4, &how("__commons__", read_only, "s4"), put("k", b"b"))).await;
+    let denied = dispatch_on_heap(
+        &state,
+        signed(4, &how("__commons__", read_only, "s4"), put("k", b"b")),
+    )
+    .await;
     assert!(denied.result.is_none(), "kv:read must not write");
     assert!(
         format!("{:?}{:?}", denied.error, denied.error_detail).contains("ACCESS_DENIED"),
@@ -275,8 +292,13 @@ async fn kv_keys_are_scoped_by_graph_and_writes_need_kv_write() {
         denied.error,
         denied.error_detail
     );
-    let unchanged: Option<KvEntry> =
-        decode(&dispatch_on_heap(&state, signed(5, &how("__commons__", &["*"], "s5"), get("k"))).await);
+    let unchanged: Option<KvEntry> = decode(
+        &dispatch_on_heap(
+            &state,
+            signed(5, &how("__commons__", &["*"], "s5"), get("k")),
+        )
+        .await,
+    );
     assert_eq!(unchanged.map(|entry| entry.value), Some(b"a".to_vec()));
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -288,7 +310,8 @@ async fn kv_fresh_nonce_replays_stable_operation_without_duplicate_write() {
     // Seed the compare-and-swap row with a separate operation. The retry pair
     // below then exercises the stored CAS verdict, rather than only replaying
     // an unconditional put.
-    let seed: KvWriteReceipt = decode(&dispatch_on_heap(&state, req(99, put("stable", b"v0"))).await);
+    let seed: KvWriteReceipt =
+        decode(&dispatch_on_heap(&state, req(99, put("stable", b"v0"))).await);
     let method = || cas("stable", seed.version, Some(b"v1"));
 
     let first: KvCasOutcome = decode(
@@ -367,9 +390,21 @@ async fn kv_served_hot_path_meets_latency_budgets() {
     );
     // Budgets (EG-DURABLE-KERNEL-R102.5), including envelope verification and the
     // durable commit; generous enough for a loaded shared CI runner.
-    assert!(get_p50 < std::time::Duration::from_millis(5), "KvGet p50 {get_p50:?}");
-    assert!(get_p99 < std::time::Duration::from_millis(20), "KvGet p99 {get_p99:?}");
-    assert!(put_p50 < std::time::Duration::from_millis(25), "KvPut p50 {put_p50:?}");
-    assert!(put_p99 < std::time::Duration::from_millis(100), "KvPut p99 {put_p99:?}");
+    assert!(
+        get_p50 < std::time::Duration::from_millis(5),
+        "KvGet p50 {get_p50:?}"
+    );
+    assert!(
+        get_p99 < std::time::Duration::from_millis(20),
+        "KvGet p99 {get_p99:?}"
+    );
+    assert!(
+        put_p50 < std::time::Duration::from_millis(25),
+        "KvPut p50 {put_p50:?}"
+    );
+    assert!(
+        put_p99 < std::time::Duration::from_millis(100),
+        "KvPut p99 {put_p99:?}"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }

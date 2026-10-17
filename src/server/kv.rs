@@ -556,7 +556,6 @@ impl KvStore {
             Backend::Memory(_) => self.delete(namespace, key),
         }
     }
-
 }
 
 fn decode_batch_result<T: serde::de::DeserializeOwned>(
@@ -723,8 +722,8 @@ impl crate::server::persistence::durable_stores::BundledStoreSource for KvStore 
 }
 
 mod dispatch_handlers;
-mod wire;
 #[cfg(test)]
 mod dispatch_tests;
 #[cfg(test)]
 mod tests;
+mod wire;
