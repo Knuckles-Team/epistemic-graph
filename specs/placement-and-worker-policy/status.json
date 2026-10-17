@@ -543,7 +543,7 @@
     },
     {
       "id": "EG-PLACEMENT-R002.600",
-      "title": "Reserved-worker admission is answered by the engine",
+      "title": "The engine answers reserved-worker admission",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
