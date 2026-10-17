@@ -177,7 +177,7 @@ fn compile_draft_batch(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use eg_types::change_envelope::{
         ChangeMutationDraft, ContentVersion, ContentVersionPosition, PrivacyAttestation,
@@ -185,6 +185,12 @@ mod tests {
     use eg_types::mutation_batch::{DurabilityDomain, MutationOperation, MutationSurface};
 
     fn draft() -> ChangeEnvelopeDraft {
+        draft_for("tenant-a", serde_json::json!({"type": "Document"}))
+    }
+
+    /// A one-node document draft for `tenant` whose node carries `properties`.
+    /// Shared with the served admission tests in `server::tests`.
+    pub(crate) fn draft_for(tenant: &str, properties: serde_json::Value) -> ChangeEnvelopeDraft {
         ChangeEnvelopeDraft {
             schema_version: crate::change_envelope::CHANGE_ENVELOPE_VERSION,
             envelope_id: "envelope:doc:1".into(),
@@ -199,10 +205,7 @@ mod tests {
                     domain: DurabilityDomain::GraphRows,
                     method: Method::AddNode {
                         node_id: "doc:1".into(),
-                        properties_msgpack: rmp_serde::to_vec_named(
-                            &serde_json::json!({"type": "Document"}),
-                        )
-                        .unwrap(),
+                        properties_msgpack: rmp_serde::to_vec_named(&properties).unwrap(),
                     },
                 }],
                 outbox: Vec::new(),
@@ -226,7 +229,7 @@ mod tests {
                 policy_id: "policy:doc:1".into(),
                 operation: eg_types::change_envelope::MaterialOperation::Upsert,
                 object_id: "doc:1".into(),
-                tenant: "tenant-a".into(),
+                tenant: tenant.into(),
                 classification: "internal".into(),
                 policy_version: "policy-v1".into(),
                 subject_set_digest: "b".repeat(64),

@@ -248,6 +248,8 @@
     "EG-DURABLE-KERNEL-R043.4",
     "EG-DURABLE-KERNEL-R043.5",
     "EG-DURABLE-KERNEL-R043.6",
+    "EG-DURABLE-KERNEL-R043.7",
+    "EG-DURABLE-KERNEL-R043.8",
     "EG-DURABLE-KERNEL-R043.100",
     "EG-DURABLE-KERNEL-R042.100",
     "EG-DURABLE-KERNEL-R097",
@@ -1452,6 +1454,8 @@
         "EG-DURABLE-KERNEL-R043.4",
         "EG-DURABLE-KERNEL-R043.5",
         "EG-DURABLE-KERNEL-R043.6",
+        "EG-DURABLE-KERNEL-R043.7",
+        "EG-DURABLE-KERNEL-R043.8",
         "EG-DURABLE-KERNEL-R043.100"
       ]
     },
@@ -2857,6 +2861,32 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R043.7",
+      "title": "Attested envelope text admits `@` and `\\` and refuses only host identity",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "1296792b60de"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/change_envelope/material.rs:161",
+        "crates/eg-types/src/change_envelope/material.rs:181",
+        "src/server/mod.rs:2141"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R043.8",
+      "title": "Envelope admission refusals carry a declared code and a safe diagnostic",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "1296792b60de",
+        "e796203005ac"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/change_envelope/material.rs:198",
+        "src/server/mod.rs:2141"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R043.100",

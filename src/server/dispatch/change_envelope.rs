@@ -689,9 +689,17 @@ async fn apply_one_change_envelope_inner(
     let committed = match committed_result {
         Ok(committed) => committed,
         Err(error) => {
+            // Keep a declared admission code (e.g. INVALID_ARGUMENT from
+            // `ChangeEnvelope::validate`) first so `Response::err` keeps it and its
+            // detail; an uncoded storage failure is reported as INTERNAL with its
+            // detail, not as an unclassified refusal (spec: EG-DURABLE-KERNEL-R043.8).
             return Response::err(
                 req_id,
-                format!("ApplyChangeEnvelope atomic commit failed: {error}"),
+                eg_types::contract::classify_refusal(
+                    "INTERNAL",
+                    "ApplyChangeEnvelope atomic commit failed: ",
+                    &error,
+                ),
             );
         }
     };
