@@ -21,46 +21,15 @@
 //! Gated to `--features full` (needs the redb backend + tokio server runtime); a
 //! default `cargo check --benches` skips it.
 
+#[path = "common/redb_fan_in.rs"]
+mod redb_fan_in;
+
 use std::sync::Arc;
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use epistemic_graph::protocol::Method;
 use epistemic_graph::server::persistence::redb_backend::RedbBackend;
-use epistemic_graph::server::persistence::PersistenceBackend;
+use redb_fan_in::fan_in;
 use tokio::runtime::Builder;
-
-const GRAPH: &str = "__commons__";
-
-fn node_props(k: usize) -> Vec<u8> {
-    rmp_serde::to_vec_named(&serde_json::json!({ "k": k })).unwrap()
-}
-
-/// Fan `n` authoritative (commit-before-ack) writes from `producers` concurrent
-/// tasks into ONE redb backend. Producers PIPELINE — each fires its own
-/// `record_durable` task and they all await together — so the writer sees concurrent
-/// in-flight barrier writes within the micro-linger window (the case the linger
-/// targets). The bench starts at offset `base` so successive criterion iterations
-/// write distinct node ids (no upsert short-circuit skewing the I/O).
-async fn fan_in(backend: &Arc<RedbBackend>, n: usize, base: usize) {
-    let mut tasks = Vec::with_capacity(n);
-    for i in 0..n {
-        let b = backend.clone();
-        let id = base + i;
-        tasks.push(tokio::spawn(async move {
-            b.record_durable(
-                GRAPH,
-                &Method::AddNode {
-                    node_id: format!("n{id}"),
-                    properties_msgpack: node_props(id),
-                },
-            )
-            .await
-        }));
-    }
-    for t in tasks {
-        t.await.unwrap().expect("durable commit ok");
-    }
-}
 
 fn bench_group_commit(c: &mut Criterion) {
     let rt = Builder::new_multi_thread()
