@@ -86,7 +86,7 @@ members = ["crates/eg-types", "crates/eg-transaction", "crates/eg-ann", "crates/
 
 [package]
 name = "epistemic-graph"
-version = "2.27.1"
+version = "2.27.2"
 edition = "2021"
 authors = ["Repository Maintainers <maintainers@example.invalid>"]
 description = "Rust-native durable multimodal and epistemic database for governed SI systems"

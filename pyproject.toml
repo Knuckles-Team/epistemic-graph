@@ -79,7 +79,7 @@ datascience = []
 reasoning = []
 # The native server executable ships in its own package, versioned in lockstep with
 # this one (bumped by .config/bumpversion.cfg). `pip install "epistemic-graph[server]"`.
-server = ["epistemic-graph-server==2.27.1"]
+server = ["epistemic-graph-server==2.27.2"]
 # `full` is now a NO-OP ALIAS (2026-07-25): the unified binary is full-by-DEFAULT, so its
 # Python deps (pyoxigraph for owl and httpx for lmcache) live in the base
 # `dependencies`. `pip install epistemic-graph` (no tag) is now the complete engine;
