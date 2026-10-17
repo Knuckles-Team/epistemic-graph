@@ -302,3 +302,7 @@ Tests must resolve full IRIs from registered modules, including cross-module pre
 Implementations must retain each producer's current representation, domain, range, and module ownership.
 Connector packages must verify source payload fields and mappings before live competency acceptance.
 Vocabulary declarations alone do not prove runtime competency.
+
+## Connector-pack competency questions (R084)
+
+Every connector ships an OWL/RDF ontology pack with its domain ontology, ingest contract and surface. The engine imports it as native relationships (`EG-TYPED-PACKS-R101`, `EG-TYPED-PACKS-R102`). R084 states the acceptance questions for that design. The engine answers each by SPARQL over imported packs. The method-selection question also runs through `Decide` (`EG-DECISION-ENGINE-R172.12`). Call path: `ConnectorPack.Import` → pack graph → `SourceIngest` → served SPARQL handler (`src/server/handlers/rdf/sparql.rs:30`) and `handle_decide` (`src/server/handlers/decide/stat_decide.rs:50`).

@@ -107,3 +107,13 @@ A documentation edit alone must not complete these tasks.
 - [ ] `EG-CQ-CONN-R052.3`: Implement `connector_audit_reassignment::repository_manager` after its producer dependencies in `requirements.md`. Prove exact cells, registered IRIs, and refusal fixtures.
 - [ ] `EG-CQ-CONN-R057.3`: Implement `connector_audit_reassignment::servicenow` after its producer dependencies in `requirements.md`. Prove exact cells, registered IRIs, and refusal fixtures.
 - [ ] `EG-CQ-CONN-R059.3`: Implement `connector_audit_reassignment::stirlingpdf` after its producer dependencies in `requirements.md`. Prove exact cells, registered IRIs, and refusal fixtures.
+
+## Connector-pack competency questions (R084)
+
+- [ ] **EG-CQ-CONN-R084:** Connector-pack competency questions. Pass the proving test in test-spec.md.
+- [ ] **EG-CQ-CONN-R084.1:** Finance algorithm and tool selection question. Pass the proving test in test-spec.md.
+- [ ] **EG-CQ-CONN-R084.2:** Positions and applicable risk analyses question. Pass the proving test in test-spec.md.
+- [ ] **EG-CQ-CONN-R084.3:** Capability to surface and contract question. Pass the proving test in test-spec.md.
+- [ ] **EG-CQ-CONN-R084.4:** Record governance question. Pass the proving test in test-spec.md.
+- [ ] **EG-CQ-CONN-R084.5:** Finance method vocabulary. Pass the proving test in test-spec.md.
+- [ ] **EG-CQ-CONN-R084.6:** Hot-path proof. Pass the proving test in test-spec.md.

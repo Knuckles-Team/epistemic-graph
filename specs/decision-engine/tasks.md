@@ -670,6 +670,13 @@ Deliver these additive leaves in order; preserve R137.1–.6 and R128 unchanged.
 - [ ] **EG-DECISION-ENGINE-R172.9 (Evidence):** Implement in native Rust and pass the named proving test.
 - [ ] **EG-DECISION-ENGINE-R172.10 (Behavior):** Implement in native Rust and pass the named proving test.
 - [ ] **EG-DECISION-ENGINE-R172.11 (Hot-path proof):** Implement in native Rust and pass the named proving test.
+- [ ] **EG-DECISION-ENGINE-R172.12:** Designation and selection read imported connector-pack relationships. Pass the proving test in test-spec.md.
+- [ ] **EG-DECISION-ENGINE-R172.12.1:** Model. Pass the proving test in test-spec.md.
+- [ ] **EG-DECISION-ENGINE-R172.12.2:** Behavior. Pass the proving test in test-spec.md.
+- [ ] **EG-DECISION-ENGINE-R172.12.3:** Wiring. Pass the proving test in test-spec.md.
+- [ ] **EG-DECISION-ENGINE-R172.12.4:** Refusal. Pass the proving test in test-spec.md.
+- [ ] **EG-DECISION-ENGINE-R172.12.5:** Evidence. Pass the proving test in test-spec.md.
+- [ ] **EG-DECISION-ENGINE-R172.12.6:** Hot-path proof. Pass the proving test in test-spec.md.
 - [ ] **EG-DECISION-ENGINE-R175 (rollup):** Implicit-reasoning recommendation over temporal semantic ids.
 - [ ] **EG-DECISION-ENGINE-R175.1 (Model):** Add the recommendation types and question kind.
 - [ ] **EG-DECISION-ENGINE-R175.2 (Behavior):** Implement the encoder and the refinement ranker.
