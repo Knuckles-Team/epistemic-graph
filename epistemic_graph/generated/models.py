@@ -7548,6 +7548,7 @@ class IssueControlLeaseRequest(BaseModel):
     issued_at_ms: Annotated[int, Field(ge=0)]
     kind: str
     lease_id: str
+    pending_call_registration: PendingCallRegistration | None = None
     tenant: str
 
 
@@ -16972,6 +16973,28 @@ class PenaltyVerdict(str, Enum):
     CRIMINAL_IS_THE_LEVER = "criminal_is_the_lever"
 
 
+class PendingCallConsumption(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    expected_grant: dict[str, Any]
+    work_item: PendingCallFence
+
+
+class PendingCallFence(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    expected_metadata: dict[str, Any]
+    expected_revision: Annotated[int, Field(ge=0)]
+    work_item_id: str
+
+
+class PendingCallRegistration(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    expected_lease: CasWorkItemMetadataLeaseFence
+    work_item: PendingCallFence
+
+
 class PipelineClassifiedRow(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -22495,6 +22518,7 @@ class TransitionControlLeaseRequest(BaseModel):
     expected_revision: Annotated[int, Field(ge=0)]
     idempotency_key: str
     lease_id: str
+    pending_call_consumption: PendingCallConsumption | None = None
     tenant: str
     to: ControlLeaseTarget
 
@@ -27522,6 +27546,9 @@ __all__ = [
     "PatternEdge",
     "PenaltyPolicy",
     "PenaltyVerdict",
+    "PendingCallConsumption",
+    "PendingCallFence",
+    "PendingCallRegistration",
     "PersonalizedPageRankResult",
     "PersonalizedPageRankResultValueItem",
     "PipelineClassifiedRow",

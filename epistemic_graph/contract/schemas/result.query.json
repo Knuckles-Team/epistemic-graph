@@ -17688,6 +17688,17 @@
         "lease_id": {
           "type": "string"
         },
+        "pending_call_registration": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PendingCallRegistration"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Required only for the reserved pending-call storage kind."
+        },
         "tenant": {
           "description": "Must equal the verified request tenant.",
           "type": "string"
@@ -40782,6 +40793,65 @@
         }
       ]
     },
+    "PendingCallConsumption": {
+      "additionalProperties": false,
+      "description": "Compare the entire immutable envelope, not caller-selected grant fields.",
+      "properties": {
+        "expected_grant": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "work_item": {
+          "$ref": "#/$defs/PendingCallFence"
+        }
+      },
+      "required": [
+        "work_item",
+        "expected_grant"
+      ],
+      "type": "object"
+    },
+    "PendingCallFence": {
+      "additionalProperties": false,
+      "description": "Compare the exact claimed WorkItem revision and scheduling metadata.",
+      "properties": {
+        "expected_metadata": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "expected_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "work_item_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "work_item_id",
+        "expected_revision",
+        "expected_metadata"
+      ],
+      "type": "object"
+    },
+    "PendingCallRegistration": {
+      "additionalProperties": false,
+      "description": "Registration additionally requires the current live worker fence.",
+      "properties": {
+        "expected_lease": {
+          "$ref": "#/$defs/CasWorkItemMetadataLeaseFence"
+        },
+        "work_item": {
+          "$ref": "#/$defs/PendingCallFence"
+        }
+      },
+      "required": [
+        "work_item",
+        "expected_lease"
+      ],
+      "type": "object"
+    },
     "PipelineSpec": {
       "description": "The full composable pipeline recipe: ordered feature steps → split → model. Stored\n(minus the split) inside the `:Model` artifact so eval/predict rebuild features\nIDENTICALLY from the same recipe without the caller re-specifying it.",
       "properties": {
@@ -52965,6 +53035,17 @@
         },
         "lease_id": {
           "type": "string"
+        },
+        "pending_call_consumption": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PendingCallConsumption"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Required when consuming a pending-call envelope."
         },
         "tenant": {
           "description": "Must equal the verified request tenant.",

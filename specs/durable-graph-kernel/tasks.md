@@ -242,3 +242,4 @@ This batch defines the slices; it runs none of their runtime tests.
 - [x] **EG-DURABLE-KERNEL-R102.6 (Shared namespace):** `shared` flag scoped to tenant + graph, gated by `kv:shared:write`.
 
 - [ ] **EG-DURABLE-KERNEL-R028.3:** Validate fenced metadata CAS expiry at the native row boundary; native tests remain pending.
+- [ ] **EG-DURABLE-KERNEL-R039.3:** Implement and qualify atomic pending envelope registration and consumption. Keep human authority and task hierarchy outside this storage proof.

@@ -4,6 +4,7 @@ fn issue() -> IssueControlLeaseRequest {
     let mut grant = Map::new();
     grant.insert("tool_ids".into(), serde_json::json!(["click"]));
     IssueControlLeaseRequest {
+        pending_call_registration: None,
         tenant: "tenant-a".into(),
         lease_id: "browserlease_1".into(),
         kind: "browser.control".into(),
@@ -78,6 +79,7 @@ fn issue_refuses_disordered_or_unbounded_timing_and_oversized_grants() {
 #[test]
 fn transition_and_get_requests_are_bounded() {
     let transition = TransitionControlLeaseRequest {
+        pending_call_consumption: None,
         tenant: "tenant-a".into(),
         lease_id: "browserlease_1".into(),
         expected_revision: 1,
@@ -118,6 +120,7 @@ fn a_lease_listing_selects_the_tenants_leases_by_kind_status_and_grant() {
         (
             "c-1",
             IssueControlLeaseRequest {
+                pending_call_registration: None,
                 tenant: "tenant-b".into(),
                 ..approval.clone()
             }
@@ -183,4 +186,49 @@ fn a_governed_kind_cannot_be_issued_as_a_generic_control_lease() {
     let mut ordinary = issue();
     ordinary.kind = "action.approval".to_string();
     assert!(ordinary.validate().is_ok());
+}
+
+// spec: EG-DURABLE-KERNEL-R039.3
+#[test]
+fn pending_registration_requires_reserved_kind_and_bounded_preimage() {
+    let mut request = issue();
+    let registration = PendingCallRegistration {
+        work_item: PendingCallFence {
+            work_item_id: "work-a".into(),
+            expected_revision: 1,
+            expected_metadata: Map::new(),
+        },
+        expected_lease: crate::epistemic_operations_ext::CasWorkItemMetadataLeaseFence {
+            worker_ref: "worker-a".into(),
+            lease_epoch: 1,
+            fencing_token: 1,
+        },
+    };
+    request.kind = PENDING_CALL_KIND.into();
+    assert!(request.validate().is_err());
+    request.pending_call_registration = Some(registration.clone());
+    assert!(request.validate().is_ok());
+    request.kind = "browser.control".into();
+    assert!(request.validate().is_err());
+    let mut invalid = registration.work_item;
+    invalid.expected_revision = 0;
+    assert!(invalid.validate().is_err());
+    invalid.expected_revision = 1;
+    invalid.expected_metadata.insert(
+        "large".into(),
+        "x".repeat(MAX_CONTROL_LEASE_GRANT_BYTES).into(),
+    );
+    assert!(invalid.validate().is_err());
+}
+
+// spec: EG-DURABLE-KERNEL-R039.3
+#[test]
+fn ordinary_lease_wire_shape_remains_compatible_without_pending_fields() {
+    let request = issue();
+    let value = serde_json::to_value(&request).unwrap();
+    assert!(value.get("pending_call_registration").is_none());
+    assert_eq!(
+        serde_json::from_value::<IssueControlLeaseRequest>(value).unwrap(),
+        request
+    );
 }

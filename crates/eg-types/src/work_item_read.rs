@@ -46,10 +46,11 @@ pub const WORK_ITEM_TOOL_CALL_REFS: &str = "tool_call_refs";
 /// Every WorkItem-row property only the native kernel may write.
 pub const WORK_ITEM_EVENT_BATCH: &str = "terminal_event_batch";
 pub const WORK_ITEM_EVENT_DIGEST: &str = "terminal_event_digest";
-pub const NATIVE_WORK_ITEM_ROW_KEYS: [&str; 7] = [
+pub const NATIVE_WORK_ITEM_ROW_KEYS: [&str; 8] = [
     WORK_ITEM_ROW_REVISION,
     WORK_ITEM_EVENT_BATCH,
     WORK_ITEM_EVENT_DIGEST,
+    "pending_call_lease_ref",
     WORK_ITEM_OUTCOME_REF,
     WORK_ITEM_OUTCOME_DIGEST,
     WORK_ITEM_TRACE_REF,
