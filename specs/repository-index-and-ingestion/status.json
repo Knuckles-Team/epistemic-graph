@@ -62,7 +62,34 @@
     "EG-REPO-INGEST-R603.3",
     "EG-REPO-INGEST-R603.4",
     "EG-REPO-INGEST-R603.5",
-    "EG-REPO-INGEST-R603.6"
+    "EG-REPO-INGEST-R603.6",
+    "EG-REPO-INGEST-R650",
+    "EG-REPO-INGEST-R650.1",
+    "EG-REPO-INGEST-R650.2",
+    "EG-REPO-INGEST-R650.3",
+    "EG-REPO-INGEST-R650.4",
+    "EG-REPO-INGEST-R650.5",
+    "EG-REPO-INGEST-R650.6",
+    "EG-REPO-INGEST-R651",
+    "EG-REPO-INGEST-R651.1",
+    "EG-REPO-INGEST-R651.2",
+    "EG-REPO-INGEST-R651.3",
+    "EG-REPO-INGEST-R651.4",
+    "EG-REPO-INGEST-R651.5",
+    "EG-REPO-INGEST-R651.6",
+    "EG-REPO-INGEST-R652",
+    "EG-REPO-INGEST-R652.1",
+    "EG-REPO-INGEST-R652.2",
+    "EG-REPO-INGEST-R652.3",
+    "EG-REPO-INGEST-R652.4",
+    "EG-REPO-INGEST-R652.5",
+    "EG-REPO-INGEST-R652.6",
+    "EG-REPO-INGEST-R002.650",
+    "EG-REPO-INGEST-R002.651",
+    "EG-REPO-INGEST-R002.652",
+    "EG-REPO-INGEST-R002.653",
+    "EG-REPO-INGEST-R002.654",
+    "EG-REPO-INGEST-R002.655"
   ],
   "requirements": [
     {
@@ -87,7 +114,13 @@
       "rollup_of": [
         "EG-REPO-INGEST-R002.1",
         "EG-REPO-INGEST-R002.100",
-        "EG-REPO-INGEST-R002.101"
+        "EG-REPO-INGEST-R002.101",
+        "EG-REPO-INGEST-R002.650",
+        "EG-REPO-INGEST-R002.651",
+        "EG-REPO-INGEST-R002.652",
+        "EG-REPO-INGEST-R002.653",
+        "EG-REPO-INGEST-R002.654",
+        "EG-REPO-INGEST-R002.655"
       ]
     },
     {
@@ -616,6 +649,219 @@
     {
       "id": "EG-REPO-INGEST-R603.6",
       "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R650",
+      "title": "Baseline hydration, delta manifests and big-repository planning (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-REPO-INGEST-R650.1",
+        "EG-REPO-INGEST-R650.2",
+        "EG-REPO-INGEST-R650.3",
+        "EG-REPO-INGEST-R650.4",
+        "EG-REPO-INGEST-R650.5",
+        "EG-REPO-INGEST-R650.6"
+      ]
+    },
+    {
+      "id": "EG-REPO-INGEST-R650.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R650.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R650.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R650.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R650.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R650.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R651",
+      "title": "External graph, event and package ingestion adapters (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-REPO-INGEST-R651.1",
+        "EG-REPO-INGEST-R651.2",
+        "EG-REPO-INGEST-R651.3",
+        "EG-REPO-INGEST-R651.4",
+        "EG-REPO-INGEST-R651.5",
+        "EG-REPO-INGEST-R651.6"
+      ]
+    },
+    {
+      "id": "EG-REPO-INGEST-R651.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R651.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R651.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R651.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R651.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R651.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R652",
+      "title": "Document chunking, section trees and processed-document records (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-REPO-INGEST-R652.1",
+        "EG-REPO-INGEST-R652.2",
+        "EG-REPO-INGEST-R652.3",
+        "EG-REPO-INGEST-R652.4",
+        "EG-REPO-INGEST-R652.5",
+        "EG-REPO-INGEST-R652.6"
+      ]
+    },
+    {
+      "id": "EG-REPO-INGEST-R652.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R652.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R652.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R652.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R652.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R652.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R002.650",
+      "title": "Model: Hot-path contract for the migrated ingestion capabilities",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R002.651",
+      "title": "Behavior: Hot-path contract for the migrated ingestion capabilities",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R002.652",
+      "title": "Wiring: Hot-path contract for the migrated ingestion capabilities",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R002.653",
+      "title": "Refusal: Hot-path contract for the migrated ingestion capabilities",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R002.654",
+      "title": "Evidence: Hot-path contract for the migrated ingestion capabilities",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R002.655",
+      "title": "Hot-path proof: Hot-path contract for the migrated ingestion capabilities",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
