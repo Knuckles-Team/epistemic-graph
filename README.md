@@ -49,9 +49,9 @@ stores and queries connected graph records, relational data, RDF/OWL knowledge,
 vectors, time-series, events, documents, and media through one engine.
 
 Claims can retain their evidence, provenance, confidence, and time of validity,
-so applications can inspect why information is present and how it changes. Use
-Epistemic Graph directly through its clients and query interfaces, or as the
-durable knowledge layer beneath [Arbora](https://knuckles-team.github.io/arbora/)
+so applications can inspect why information is present and how it changes.
+Use Epistemic Graph directly through its clients and query interfaces. It also
+serves as the durable knowledge layer beneath [Arbora](https://knuckles-team.github.io/arbora/)
 and [Agent Utilities](https://knuckles-team.github.io/agent-utilities/).
 Epistemic Graph is the database; agent execution and connector runtimes live in
 their respective ecosystem projects.
@@ -100,11 +100,12 @@ This repository publishes two PyPI packages and one container image, all at the 
   <img src="docs/assets/engine-architecture.svg" alt="Epistemic Graph architecture: authenticated interfaces feed a unified planner, which composes graph, semantic, analytical, temporal, and multimodal engines over one durable store." width="920">
 </p>
 
-People use the **Agent Web UI**, **Agent Terminal UI** (through the Arbora
-REST API), **Geniusbot**, or the messaging services hosted by **Arbora**.
+People use the **Agent Web UI**, **Agent Terminal UI**, **Geniusbot**, or the
+messaging services hosted by **Arbora**. The terminal UI reaches Arbora through
+its REST API.
 External applications and agents connect through Arbora using MCP, REST, or
-A2A. Arbora governs the runtime boundary, **Agent Utilities** coordinates
-agents and workflows, and Epistemic Graph stores and reasons over their durable
+A2A. Arbora governs the runtime boundary. **Agent Utilities** coordinates
+agents and workflows. Epistemic Graph stores and reasons over their durable
 knowledge. Source systems enter through **Agent Connector SDK**, which commits
 typed source data to the graph.
 
