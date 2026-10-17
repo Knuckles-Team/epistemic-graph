@@ -286,6 +286,7 @@
     "EG-DURABLE-KERNEL-R100.5",
     "EG-DURABLE-KERNEL-R100.6",
     "EG-DURABLE-KERNEL-R028.2",
+    "EG-DURABLE-KERNEL-R028.3",
     "EG-DURABLE-KERNEL-R101",
     "EG-DURABLE-KERNEL-R101.1",
     "EG-DURABLE-KERNEL-R101.2",
@@ -1094,7 +1095,8 @@
       "verified_by": [],
       "rollup_of": [
         "EG-DURABLE-KERNEL-R028.1",
-        "EG-DURABLE-KERNEL-R028.2"
+        "EG-DURABLE-KERNEL-R028.2",
+        "EG-DURABLE-KERNEL-R028.3"
       ]
     },
     {
@@ -3270,6 +3272,15 @@
         "src/redb_store/work_item/read/tests.rs:182",
         "src/redb_store/work_item/read/tests.rs:221",
         "src/redb_store/work_item/read/tests.rs:246"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R028.3",
+      "title": "Fenced metadata CAS requires a live worker lease",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "src/redb_store/work_item/lease/tests.rs:31"
       ]
     },
     {
