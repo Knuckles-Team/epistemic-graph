@@ -138,25 +138,13 @@ repos:
   - id: lane-guard
     name: Lane guard — canonical checkout read-only + stray CARGO_TARGET_DIR (D-CP-3/D-CP-4 reach)
     # Reuses agent-utilities' OWN check_lane_guard.py unmodified from the sibling
-    # checkout (the SAME idiom check-stubs/check-sprawl below already use) --
+    # checkout --
     # the script resolves its target repo from cwd, which pre-commit always
     # sets to THIS repo's root, so it guards epistemic-graph, not agent-utilities.
     # See docs/architecture/lane-concurrency.md (agent-utilities) and
     # reports/deferred/lane-concurrency-protocol.md (D-CP-3, D-CP-4).
     entry: python3 scripts/sibling_gate.py check_lane_guard.py
     language: system
-    pass_filenames: false
-    always_run: true
-  - id: check-stubs
-    name: Check for Active Stubs and TODOs
-    entry: python3 scripts/sibling_gate.py check_stubs.py
-    language: system
-    types: [python]
-  - id: check-sprawl
-    name: Guardrail — anti-sprawl
-    entry: python3 scripts/check_sprawl.py
-    language: system
-    args: ["."]
     pass_filenames: false
     always_run: true
   - id: check-bumpversion

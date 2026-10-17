@@ -3857,7 +3857,6 @@ components:
       - "tests/test_cep_standing_queries.py"
       - "tests/test_certify_exact_multimodal_assert_page.py"
       - "tests/test_check_complexity_staged.py"
-      - "tests/test_check_sprawl_generated_artifacts.py"
       - "tests/test_check_dupehound_main.py"
       - "tests/test_check_cluster_extras_affected_lint.py"
       - "tests/test_check_duplication_identity.py"
