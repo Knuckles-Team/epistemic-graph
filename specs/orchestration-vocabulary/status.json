@@ -112,7 +112,14 @@
     "EG-ORCH-VOCAB-R009.100",
     "EG-ORCH-VOCAB-R009.101",
     "EG-ORCH-VOCAB-R010.100",
-    "EG-ORCH-VOCAB-R010.101"
+    "EG-ORCH-VOCAB-R010.101",
+    "EG-ORCH-VOCAB-R616",
+    "EG-ORCH-VOCAB-R616.1",
+    "EG-ORCH-VOCAB-R616.2",
+    "EG-ORCH-VOCAB-R616.3",
+    "EG-ORCH-VOCAB-R616.4",
+    "EG-ORCH-VOCAB-R616.5",
+    "EG-ORCH-VOCAB-R616.6"
   ],
   "requirements": [
     {
@@ -1008,6 +1015,63 @@
     {
       "id": "EG-ORCH-VOCAB-R010.101",
       "title": "Index project/agent token and cost totals with finite latency",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R616",
+      "title": "Agent, team, prompt and workflow specs are graph facts synthesized from capability search (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-ORCH-VOCAB-R616.1",
+        "EG-ORCH-VOCAB-R616.2",
+        "EG-ORCH-VOCAB-R616.3",
+        "EG-ORCH-VOCAB-R616.4",
+        "EG-ORCH-VOCAB-R616.5",
+        "EG-ORCH-VOCAB-R616.6"
+      ]
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R616.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R616.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R616.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R616.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R616.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R616.6",
+      "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
