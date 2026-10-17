@@ -4449,6 +4449,7 @@ class ControlLeaseClient:
         expires_at_ms: int,
         hard_expires_at_ms: int,
         idempotency_key: str,
+        pending_call_registration: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Issue one active lease: ``{"outcome": "issued"|"collision", "lease":
         view|None, ...}``. An existing id is a ``collision``, never an overwrite.
@@ -4469,6 +4470,8 @@ class ControlLeaseClient:
                 "IssueControlLease.idempotency_key", idempotency_key
             ),
         }
+        if pending_call_registration is not None:
+            request["pending_call_registration"] = pending_call_registration
         value = (
             await _gen.coordination.send_issue_control_lease(
                 self._client, {"request": request}, idempotency_key=idempotency_key
@@ -4535,6 +4538,7 @@ class ControlLeaseClient:
         expected_revision: int,
         to: Literal["consumed", "revoked", "expired"],
         idempotency_key: str,
+        pending_call_consumption: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Move a lease along a legal edge -- ``active -> consumed | revoked |
         expired`` or ``consumed -> revoked | expired`` -- compare-and-set on
@@ -4557,6 +4561,8 @@ class ControlLeaseClient:
                 "TransitionControlLease.idempotency_key", idempotency_key
             ),
         }
+        if pending_call_consumption is not None:
+            request["pending_call_consumption"] = pending_call_consumption
         value = (
             await _gen.coordination.send_transition_control_lease(
                 self._client, {"request": request}, idempotency_key=idempotency_key

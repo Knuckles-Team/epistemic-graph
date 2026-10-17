@@ -180,6 +180,7 @@ pub(crate) fn apply_work_item_rows(
                 batch_id,
                 method: other,
                 nodes,
+                native_work_items,
                 edges,
                 command_sequences,
                 committed_at_ms,
