@@ -1577,7 +1577,7 @@ Persistence: adapters, receipts and pointers persist in the Agent Library store.
 
 Tenant isolation: every scope, monitor and dedupe set resolves inside the caller's tenant. A refresh needs an ACL policy and a privacy policy.
 
-Scheduling: non-urgent work takes downtime priority from the downtime work scheduling rows of the connect-time virtual-graph lane. That lane also owns the search-engine source category. Both are dependencies by name until they reach main. A job that needs fresh data runs on demand.
+Scheduling: non-urgent work takes downtime priority from the downtime work scheduling of `EG-DURABLE-KERNEL-R101`. The web metasearch source category is `EG-UNIFIED-DATA-PLANE-R038.7`, listed in the source-category matrix `EG-UNIFIED-DATA-PLANE-R022.4`. A job that needs fresh data runs on demand.
 
 Budgets:
 - Adapter fit: at most 30 s and 64 MiB.
