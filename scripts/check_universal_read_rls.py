@@ -275,7 +275,7 @@ def main() -> None:
     # above, so the owner-scope field the split moved into `store/manifest.rs`
     # is still seen.
     blob_store = read_module_tree("src/server/blob/store.rs", root_dir=ROOT)
-    kv = read("src/server/kv.rs")
+    kv = read_module_tree("src/server/kv.rs", root_dir=ROOT)
     channels = read("src/channels.rs")
     sqlite_file = read("src/server/handlers/sqlite_file.rs")
     timeseries = read("src/server/handlers/timeseries.rs")
@@ -637,7 +637,12 @@ def main() -> None:
     require(
         all(
             (
-                kv.count('authority.namespace("kv-namespace", &namespace)') == 5,
+                # Every served KV method resolves its store namespace through
+                # `KvCall::namespace` -> `wire_namespace`, which binds the verified
+                # tenant+actor owner scope and the request graph.
+                kv.count('authority.namespace("kv-namespace", &scoped)') == 1,
+                kv.count("call.namespace(namespace)") == 5,
+                "super::wire::wire_namespace(self.authority, self.graph, local)" in kv,
                 "authority.tenant_scope()" in kv,
                 "authority.actor_scope()" in kv,
             )
