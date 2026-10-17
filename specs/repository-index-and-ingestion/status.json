@@ -63,6 +63,13 @@
     "EG-REPO-INGEST-R603.4",
     "EG-REPO-INGEST-R603.5",
     "EG-REPO-INGEST-R603.6",
+    "EG-REPO-INGEST-R800",
+    "EG-REPO-INGEST-R800.1",
+    "EG-REPO-INGEST-R800.2",
+    "EG-REPO-INGEST-R800.3",
+    "EG-REPO-INGEST-R800.4",
+    "EG-REPO-INGEST-R800.5",
+    "EG-REPO-INGEST-R800.6",
     "EG-REPO-INGEST-R650",
     "EG-REPO-INGEST-R650.1",
     "EG-REPO-INGEST-R650.2",
@@ -655,6 +662,63 @@
     },
     {
       "id": "EG-REPO-INGEST-R603.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R800",
+      "title": "Agent-session transcript sources and scheduled feed intake (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-REPO-INGEST-R800.1",
+        "EG-REPO-INGEST-R800.2",
+        "EG-REPO-INGEST-R800.3",
+        "EG-REPO-INGEST-R800.4",
+        "EG-REPO-INGEST-R800.5",
+        "EG-REPO-INGEST-R800.6"
+      ]
+    },
+    {
+      "id": "EG-REPO-INGEST-R800.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R800.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R800.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R800.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R800.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R800.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],

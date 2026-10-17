@@ -130,6 +130,13 @@
     "EG-ORCH-VOCAB-R751.751",
     "EG-ORCH-VOCAB-R751.752",
     "EG-ORCH-VOCAB-R751.753",
+    "EG-ORCH-VOCAB-R800",
+    "EG-ORCH-VOCAB-R800.1",
+    "EG-ORCH-VOCAB-R800.2",
+    "EG-ORCH-VOCAB-R800.3",
+    "EG-ORCH-VOCAB-R800.4",
+    "EG-ORCH-VOCAB-R800.5",
+    "EG-ORCH-VOCAB-R800.6",
     "EG-ORCH-VOCAB-R004.700",
     "EG-ORCH-VOCAB-R004.701",
     "EG-ORCH-VOCAB-R009.700",
@@ -1172,6 +1179,63 @@
     {
       "id": "EG-ORCH-VOCAB-R751.753",
       "title": "Hot-path proof: Team composition, evolution, specialization discovery and social systems",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R800",
+      "title": "Agent definitions, prompt templates and workflow patterns as graph facts (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-ORCH-VOCAB-R800.1",
+        "EG-ORCH-VOCAB-R800.2",
+        "EG-ORCH-VOCAB-R800.3",
+        "EG-ORCH-VOCAB-R800.4",
+        "EG-ORCH-VOCAB-R800.5",
+        "EG-ORCH-VOCAB-R800.6"
+      ]
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R800.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R800.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R800.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R800.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R800.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R800.6",
+      "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
