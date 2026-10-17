@@ -712,3 +712,18 @@ Deliver these additive leaves in order; preserve R137.1–.6 and R128 unchanged.
 - [ ] **EG-DECISION-ENGINE-R174.4 (Refusal):** Add the typed refusals.
 - [ ] **EG-DECISION-ENGINE-R174.5 (Evidence):** Emit the cycle receipt.
 - [ ] **EG-DECISION-ENGINE-R174.6 (Hot-path proof):** Add the served cycle test and the overhead measurement.
+
+- [ ] **EG-DECISION-ENGINE-R176 (rollup):** Job-scoped load set from the overlay of all connector packs (rollup).
+- [ ] **EG-DECISION-ENGINE-R176.1 (Model):** Add the typed model.
+- [ ] **EG-DECISION-ENGINE-R176.2 (Behavior):** Implement the behavior.
+- [ ] **EG-DECISION-ENGINE-R176.3 (Wiring):** Wire the production call site.
+- [ ] **EG-DECISION-ENGINE-R176.4 (Refusal):** Add the typed refusals.
+- [ ] **EG-DECISION-ENGINE-R176.5 (Evidence):** Emit the evidence.
+- [ ] **EG-DECISION-ENGINE-R176.6 (Hot-path proof):** Add the served hot-path test.
+- [ ] **EG-DECISION-ENGINE-R177 (rollup):** Connector usage guidance is a graph query (rollup).
+- [ ] **EG-DECISION-ENGINE-R177.1 (Model):** Add the typed model.
+- [ ] **EG-DECISION-ENGINE-R177.2 (Behavior):** Implement the behavior.
+- [ ] **EG-DECISION-ENGINE-R177.3 (Wiring):** Wire the production call site.
+- [ ] **EG-DECISION-ENGINE-R177.4 (Refusal):** Add the typed refusals.
+- [ ] **EG-DECISION-ENGINE-R177.5 (Evidence):** Emit the evidence.
+- [ ] **EG-DECISION-ENGINE-R177.6 (Hot-path proof):** Add the served hot-path test.

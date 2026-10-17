@@ -207,3 +207,11 @@ Keep each ruled boundary and adjacent owner obligation intact.
 - [ ] **EG-TYPED-PACKS-R103.4:** Refusal. Pass the proving test in test-spec.md.
 - [ ] **EG-TYPED-PACKS-R103.5:** Evidence. Pass the proving test in test-spec.md.
 - [ ] **EG-TYPED-PACKS-R103.6:** Hot-path proof. Pass the proving test in test-spec.md.
+
+- [ ] **EG-TYPED-PACKS-R104 (rollup):** Connect-time seed graph import, idempotent by content digest (rollup).
+- [ ] **EG-TYPED-PACKS-R104.1 (Model):** Add the typed model.
+- [ ] **EG-TYPED-PACKS-R104.2 (Behavior):** Implement the behavior.
+- [ ] **EG-TYPED-PACKS-R104.3 (Wiring):** Wire the production call site.
+- [ ] **EG-TYPED-PACKS-R104.4 (Refusal):** Add the typed refusals.
+- [ ] **EG-TYPED-PACKS-R104.5 (Evidence):** Emit the evidence.
+- [ ] **EG-TYPED-PACKS-R104.6 (Hot-path proof):** Add the served hot-path test.

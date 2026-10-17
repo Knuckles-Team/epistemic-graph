@@ -879,3 +879,45 @@ Budget: p99 under 15 ms in `standard` mode at 1,000,000 vectors, and engine over
 
 References
 - arXiv:2508.06600 — "BrowseComp-Plus" (2025)
+
+## EG-FEDERATED-QUERY-R073.2 — connection-protocol pushdown matrix
+
+The source-category matrix is `EG-UNIFIED-DATA-PLANE-R022.4`. This matrix is the second axis: the connection protocol. The engine owns planning and pushdown per protocol. The SDK owns the transport per protocol (`SDK-CONNECTOR-CONTROL-R069`). graph-os owns serving and the multiplexer client (`GRAPHOS-FLEET-R038`).
+
+MCP and A2A each have two roles. In this matrix the engine plans only the consuming role: an external MCP server or an external agent as a source. The serving roles belong to graph-os.
+
+| Protocol | Paging or streaming | Pushdown the planner may use | Contract term in the pack |
+|---|---|---|---|
+| REST with OpenAPI | page or cursor parameters | declared query-parameter filters, limit | `http_endpoint` access contract |
+| GraphQL | connection cursors | filter arguments, field projection, limit | `graphql_query` access contract |
+| gRPC | server streaming | declared request-field filters, limit | operation access contract |
+| OData | `$skip` and `$top`; next links | `$filter`, `$select`, `$orderby`, `$top`, `$apply` aggregates | operation access contract |
+| SOAP with WSDL | declared page elements | declared request-element filters | operation access contract |
+| JSON-RPC | declared page parameters | declared parameter filters | operation access contract |
+| MCP, consuming | resource and tool result pages | declared tool-argument filters, limit | `mcp_tool` access contract |
+| A2A, consuming | task artifacts and streams | declared skill-input filters | `a2a_skill` access contract |
+| SPARQL endpoint | federated `SERVICE` with bind joins | filter, projection, join, limit, order | endpoint access contract |
+| openCypher or Gremlin endpoint | result pages | filter, projection, pattern join, aggregate, limit | endpoint access contract |
+| SQL through ODBC or JDBC, PostgreSQL wire, Arrow Flight SQL | cursors; Arrow record batches | filter, projection, join, aggregate, limit, time range | virtual-graph access contract |
+| AMQP, MQTT, Kafka-protocol streams | stream offsets | time range only | stream access contract |
+| Change data capture | change positions | time range only | change-capture access contract |
+| Webhooks | pushed events | none; the engine reads recorded events | event access contract |
+| WebSocket and server-sent events | stream frames | time range only | stream access contract |
+| HTTP object API, SFTP, WebDAV | listing pages; range reads | path prefix filter, byte-range projection | file access contract |
+| LDAP | paged results control | search filter, attribute projection, size limit | directory access contract |
+| IMAP and SMTP | message sequence ranges | IMAP search filter, header projection, time range | mail access contract |
+| CalDAV and CardDAV | sync tokens | time-range filter, property projection | calendar or contact access contract |
+
+Call path: served query -> planner -> `foreign_scan` (`run.rs:26`) -> the protocol capability row -> the SDK transport -> local residual.
+
+## EG-FEDERATED-QUERY-R091 — self-optimizing virtual-query plans
+
+Call path: served query -> `foreign_scan` (`run.rs:26`) -> `record` (`run.rs:102`) -> `plan_evolution` store. Downtime: `EG-DURABLE-KERNEL-R101` scheduler -> `eg-jobs` job `plan_evolution` -> replay baseline and candidate -> receipt -> kept-plan pointer.
+
+Crates: `eg-plan` for the store and the evaluation, `eg-jobs` for the durable job, `eg-types` for the receipt.
+
+Data structures: one ring buffer of 4,096 `PlanObservation` values per shape. One `HashMap` of 1,024 shapes per tenant, evicted by last-seen time. One kept-plan pointer per shape, swapped by compare-and-set.
+
+Budget: recording costs under 20 microseconds per execution. Evaluation runs only inside the downtime budget of `EG-DURABLE-KERNEL-R101`. The thresholds 10%, 20 replays and 25% are starting defaults. A measurement on this platform replaces them.
+
+Correctness: a candidate is kept only when its result multiset equals the baseline. The federation optimizer (`EG-FEDERATED-QUERY-R041`) stays the only planner. This row adds the measured choice among its plans.

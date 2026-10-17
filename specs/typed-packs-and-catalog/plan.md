@@ -598,3 +598,22 @@ All engine work is native Rust. The engine holds no YAML parser for contracts.
 ### Runtime ontology import (R103)
 
 A connector imports or revises its domain ontology at runtime without a full pack import. The served `GraphSchema` method reaches the gateway route at `src/server/handlers/graph_ops/gateway_graph_routes.rs:656`. `handle_gateway` (`src/server/graph_schema.rs:191`) matches `ImportOntology`. The engine parses and validates the body. It commits one tenant-scoped schema source revision under `ontology:<connector>/<ontology IRI>`. The content digest makes a repeated import a no-op.
+
+## EG-TYPED-PACKS-R104 — connect-time seed graph import
+
+Component: Connector packs
+References: EG-TYPED-PACKS-R101, EG-TYPED-PACKS-R103, [GRAPHOS-FLEET-R036](https://github.com/Knuckles-Team/graph-os/blob/main/specs/fleet-catalog-and-tools/spec.md), [SDK-CONNECTOR-CONTROL-R068](https://github.com/Knuckles-Team/agent-connector-sdk/blob/main/specs/SDK-CONNECTOR-CONTROL/spec.md)
+
+A connector establishes its contract on first connect. It serves the manifest, the ontology pack and the seed graph as MCP resources (`SDK-CONNECTOR-CONTROL-R068`). The graph-os multiplexer reads them on first connect and on `resources/list_changed` (`GRAPHOS-FLEET-R036`). The engine owns validation, storage and idempotency.
+
+Call path: graph-os `onboard` -> served `ConnectorPack.Import` -> `run_import` (`import.rs:63`) -> seed validation -> `project_head` (`reproject.rs:72`) -> one commit.
+
+Crates: `eg-types` for `SeedGraphImport`, `eg-core` for the seed vocabulary and shapes, `eg-shacl` for validation, the root server package for the handler.
+
+Data structures: one `BTreeMap<SeedPartKey, SeedPart>` per import. The stored part digests are keyed by tenant, connector and part. A digest compare decides each part before any parse.
+
+Budget: 50,000 triples and 8 MiB per seed graph. Engine time stays under 200 ms per 10,000 triples. These are starting defaults; a measurement on this platform replaces them.
+
+Tenant isolation: the seed graph resolves inside the importing tenant.
+
+No bulk data: the seed graph names objects and their references. Entity rows stay at the source and answer through virtual mappings (`EG-UNIFIED-DATA-PLANE-R038`).

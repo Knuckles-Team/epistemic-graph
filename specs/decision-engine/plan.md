@@ -1560,3 +1560,17 @@ References
 ## EG-DECISION-ENGINE-R172.12: designation over connector-pack relationships
 
 Capability designation reads the surface triples that `EG-TYPED-PACKS-R102` projects from each connector pack. Call path: `ConnectorPack.Import` → `project_head` (`src/server/handlers/admin/connector_pack/reproject.rs:72`) → capability index upsert (`crates/eg-compute/src/capability_index/`) → `handle_decide` (`src/server/handlers/decide/stat_decide.rs:137`) → `capability_designation_outcome`. Subclass matching over `cp:appliesTo` and `cp:executes` answers which method and which tool apply to a target class.
+
+## EG-DECISION-ENGINE-R176 and R177 — job-scoped load set and usage guidance
+
+A harness asks graph-os what a job needs. graph-os asks the engine. The engine answers from the overlay of every imported connector pack. graph-os loads only the answered tools (`GRAPHOS-FLEET-R037`). graph-os holds no ranking policy.
+
+Call path: graph-os `find` with a job -> served `Decide` -> `handle_decide` (`statistical.rs:11`) -> capability designation (`EG-DECISION-ENGINE-R172`) per capability -> union and bound -> premises -> answer.
+
+Crates: `eg-types` for the question and answer, `eg-compute` for the designation index, the root server package for the handler.
+
+Data structures: one `BTreeMap<ComponentId, Candidate>` for the union. One bounded binary heap of `max_tools` entries for the top set.
+
+Budget: p95 under 50 ms for 5,000 tools across 100 packs. This is a starting default. A measurement on this platform replaces it.
+
+Usage guidance (R177) replaces static skill instructions as the authority. A skill asks the engine how and when to use a connector. The pack surface relationships come from `EG-TYPED-PACKS-R102`; the step vocabulary comes from `EG-CQ-ORCH-R001`.

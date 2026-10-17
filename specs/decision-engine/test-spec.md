@@ -715,3 +715,43 @@ Hot-path proof for `EG-DECISION-ENGINE-R100.102`: `tests/decide/test_run_credit_
 | Hot-path proof | `EG-DECISION-ENGINE-R174.6` | The served test passes, and the measured overhead meets the budget. |
 
 Hot-path proof for `EG-DECISION-ENGINE-R174`: `tests/decide/test_generation_cycle_served.py::test_cycle_resumes_and_activates`.
+
+## EG-DECISION-ENGINE-R176 acceptance
+
+| Case | Row | Proving test and observation |
+|---|---|---|
+
+| Model | `EG-DECISION-ENGINE-R176.1` | `crates/eg-types/src/decision/load_set.rs::tests::load_set_round_trips`: A serde round trip keeps every field and rejects `max_tools` above 128. |
+
+| Behavior | `EG-DECISION-ENGINE-R176.2` | `src/server/handlers/decide/stat_tests/load_set.rs::bounded_union_in_stable_order`: A job over three packs returns a bounded, duplicate-free set in a stable order. |
+
+| Wiring | `EG-DECISION-ENGINE-R176.3` | `src/server/handlers/decide/stat_tests/load_set.rs::served_decide_reaches_load_set`: A served `Decide` with a load-set question reaches the new arm. |
+
+| Refusal | `EG-DECISION-ENGINE-R176.4` | `src/server/handlers/decide/stat_tests/load_set.rs::load_set_refusals`: Each case returns its code, and no partial set hides an abstention. |
+
+| Evidence | `EG-DECISION-ENGINE-R176.5` | `src/server/handlers/decide/stat_tests/load_set.rs::premises_per_component`: Each chosen tool has one premise with its pack digest. |
+
+| Hot-path proof | `EG-DECISION-ENGINE-R176.6` | `tests/decide/test_load_set_served.py::test_job_returns_bounded_tool_skill_agent_set`: The answer holds 32 tools or fewer, their skills and one agent start, and meets the time budget. |
+
+
+Hot-path proof for `EG-DECISION-ENGINE-R176`: `tests/decide/test_load_set_served.py::test_job_returns_bounded_tool_skill_agent_set`.
+
+## EG-DECISION-ENGINE-R177 acceptance
+
+| Case | Row | Proving test and observation |
+|---|---|---|
+
+| Model | `EG-DECISION-ENGINE-R177.1` | `crates/eg-types/src/decision/usage_guidance.rs::tests::guidance_round_trips`: A serde round trip keeps every field and rejects a step without a tool. |
+
+| Behavior | `EG-DECISION-ENGINE-R177.2` | `src/server/handlers/decide/stat_tests/usage_guidance.rs::steps_ordered_by_outcome`: A fixture connector returns ordered steps, and success rate breaks a tie. |
+
+| Wiring | `EG-DECISION-ENGINE-R177.3` | `src/server/handlers/decide/stat_tests/usage_guidance.rs::served_decide_reaches_guidance`: A served `Decide` with a guidance question reaches the new arm. |
+
+| Refusal | `EG-DECISION-ENGINE-R177.4` | `src/server/handlers/decide/stat_tests/usage_guidance.rs::guidance_refusals`: Each case returns its code. |
+
+| Evidence | `EG-DECISION-ENGINE-R177.5` | `src/server/handlers/decide/stat_tests/usage_guidance.rs::steps_cite_triples`: Each step lists its supporting triples. |
+
+| Hot-path proof | `EG-DECISION-ENGINE-R177.6` | `tests/decide/test_usage_guidance_served.py::test_how_to_use_connector_answers_from_graph`: The answer lists the steps in the order with the higher success rate, with citations. |
+
+
+Hot-path proof for `EG-DECISION-ENGINE-R177`: `tests/decide/test_usage_guidance_served.py::test_how_to_use_connector_answers_from_graph`.
