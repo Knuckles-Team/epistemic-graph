@@ -29,8 +29,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use serde::{Deserialize, Serialize};
 use eg_types::contract::Digest256;
+use serde::{Deserialize, Serialize};
 
 use crate::action::Action;
 use crate::guard::Guard;
@@ -257,6 +257,9 @@ impl StatechartDef {
     pub fn def_id(&self) -> DefId {
         let mut framed = b"eg-statechart.def_id.v1\0".to_vec();
         framed.extend(serde_json::to_vec(self).unwrap_or_default());
-        format!("eg:statechart:{}", &Digest256::sha256(&framed).to_hex()[..32])
+        format!(
+            "eg:statechart:{}",
+            &Digest256::sha256(&framed).to_hex()[..32]
+        )
     }
 }
