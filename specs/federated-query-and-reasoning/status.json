@@ -86,9 +86,18 @@
     "EG-FEDERATED-QUERY-R071",
     "EG-FEDERATED-QUERY-R072",
     "EG-FEDERATED-QUERY-R072.1",
+    "EG-FEDERATED-QUERY-R072.2",
+    "EG-FEDERATED-QUERY-R072.3",
+    "EG-FEDERATED-QUERY-R072.4",
+    "EG-FEDERATED-QUERY-R072.5",
+    "EG-FEDERATED-QUERY-R072.6",
     "EG-FEDERATED-QUERY-R073",
     "EG-FEDERATED-QUERY-R073.1",
     "EG-FEDERATED-QUERY-R073.2",
+    "EG-FEDERATED-QUERY-R073.3",
+    "EG-FEDERATED-QUERY-R073.4",
+    "EG-FEDERATED-QUERY-R073.5",
+    "EG-FEDERATED-QUERY-R073.6",
     "EG-FEDERATED-QUERY-R074",
     "EG-FEDERATED-QUERY-R075",
     "EG-FEDERATED-QUERY-R076",
@@ -1384,14 +1393,19 @@
     {
       "id": "EG-FEDERATED-QUERY-R072",
       "title": "The ontology selects the sources for a cross-source question",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "62c450561948",
         "f948211fb8c7"
       ],
       "verified_by": [],
       "rollup_of": [
-        "EG-FEDERATED-QUERY-R072.1"
+        "EG-FEDERATED-QUERY-R072.1",
+        "EG-FEDERATED-QUERY-R072.2",
+        "EG-FEDERATED-QUERY-R072.3",
+        "EG-FEDERATED-QUERY-R072.4",
+        "EG-FEDERATED-QUERY-R072.5",
+        "EG-FEDERATED-QUERY-R072.6"
       ]
     },
     {
@@ -1411,6 +1425,41 @@
       ]
     },
     {
+      "id": "EG-FEDERATED-QUERY-R072.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R072.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R072.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R072.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R072.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
       "id": "EG-FEDERATED-QUERY-R073",
       "title": "Operation-bound virtual mappings federate API, MCP, A2A and GraphQL sources",
       "delivery_state": "SPECIFIED",
@@ -1422,7 +1471,11 @@
       "verified_by": [],
       "rollup_of": [
         "EG-FEDERATED-QUERY-R073.1",
-        "EG-FEDERATED-QUERY-R073.2"
+        "EG-FEDERATED-QUERY-R073.2",
+        "EG-FEDERATED-QUERY-R073.3",
+        "EG-FEDERATED-QUERY-R073.4",
+        "EG-FEDERATED-QUERY-R073.5",
+        "EG-FEDERATED-QUERY-R073.6"
       ]
     },
     {
@@ -1443,6 +1496,34 @@
     {
       "id": "EG-FEDERATED-QUERY-R073.2",
       "title": "Connection-protocol pushdown matrix",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R073.3",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R073.4",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R073.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R073.6",
+      "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -3544,60 +3625,59 @@
     },
     {
       "id": "EG-FEDERATED-QUERY-R700",
-      "title": "Argument maps with a Dung projection (rollup)",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [],
-      "rollup_of": [
-        "EG-FEDERATED-QUERY-R700.1",
-        "EG-FEDERATED-QUERY-R700.2",
-        "EG-FEDERATED-QUERY-R700.3",
-        "EG-FEDERATED-QUERY-R700.4",
-        "EG-FEDERATED-QUERY-R700.5",
-        "EG-FEDERATED-QUERY-R700.6"
-      ]
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-FEDERATED-QUERY-R700.1",
-      "title": "Model",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-FEDERATED-QUERY-R700.2",
-      "title": "Behavior",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-FEDERATED-QUERY-R700.3",
-      "title": "Wiring",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-FEDERATED-QUERY-R700.4",
-      "title": "Refusal",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-FEDERATED-QUERY-R700.5",
-      "title": "Evidence",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-FEDERATED-QUERY-R700.6",
-      "title": "Hot-path proof",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-FEDERATED-QUERY-R701",
@@ -3658,60 +3738,59 @@
     },
     {
       "id": "EG-FEDERATED-QUERY-R702",
-      "title": "Search-task synthesis with shortcut-risk diagnostics (rollup)",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [],
-      "rollup_of": [
-        "EG-FEDERATED-QUERY-R702.1",
-        "EG-FEDERATED-QUERY-R702.2",
-        "EG-FEDERATED-QUERY-R702.3",
-        "EG-FEDERATED-QUERY-R702.4",
-        "EG-FEDERATED-QUERY-R702.5",
-        "EG-FEDERATED-QUERY-R702.6"
-      ]
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-FEDERATED-QUERY-R702.1",
-      "title": "Model",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-FEDERATED-QUERY-R702.2",
-      "title": "Behavior",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-FEDERATED-QUERY-R702.3",
-      "title": "Wiring",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-FEDERATED-QUERY-R702.4",
-      "title": "Refusal",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-FEDERATED-QUERY-R702.5",
-      "title": "Evidence",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-FEDERATED-QUERY-R702.6",
-      "title": "Hot-path proof",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-FEDERATED-QUERY-R053.700",

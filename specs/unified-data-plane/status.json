@@ -2671,60 +2671,59 @@
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R701",
-      "title": "Standards conformance: cohorts, drift scores and consolidation recommendations (rollup)",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [],
-      "rollup_of": [
-        "EG-UNIFIED-DATA-PLANE-R701.1",
-        "EG-UNIFIED-DATA-PLANE-R701.2",
-        "EG-UNIFIED-DATA-PLANE-R701.3",
-        "EG-UNIFIED-DATA-PLANE-R701.4",
-        "EG-UNIFIED-DATA-PLANE-R701.5",
-        "EG-UNIFIED-DATA-PLANE-R701.6"
-      ]
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R701.1",
-      "title": "Model",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R701.2",
-      "title": "Behavior",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R701.3",
-      "title": "Wiring",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R701.4",
-      "title": "Refusal",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R701.5",
-      "title": "Evidence",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R701.6",
-      "title": "Hot-path proof",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R702",

@@ -2685,7 +2685,7 @@
     },
     {
       "id": "EG-TYPED-PACKS-R710",
-      "title": "Schema drift classification, containment, repair proposal and activation: model and behavior",
+      "title": "Schema drift classification, containment, repair proposal and activation: model, behavior and wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -2699,7 +2699,7 @@
     },
     {
       "id": "EG-TYPED-PACKS-R711",
-      "title": "Process, lifecycle, temporal and harness shape artifacts are generated: model and behavior",
+      "title": "Process, lifecycle, temporal and harness shape artifacts are generated: model, behavior and wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

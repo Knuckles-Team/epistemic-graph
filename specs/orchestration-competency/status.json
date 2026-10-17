@@ -784,60 +784,59 @@
     },
     {
       "id": "EG-CQ-ORCH-R701",
-      "title": "External governance process models import to and export from workflows (rollup)",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [],
-      "rollup_of": [
-        "EG-CQ-ORCH-R701.1",
-        "EG-CQ-ORCH-R701.2",
-        "EG-CQ-ORCH-R701.3",
-        "EG-CQ-ORCH-R701.4",
-        "EG-CQ-ORCH-R701.5",
-        "EG-CQ-ORCH-R701.6"
-      ]
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-CQ-ORCH-R701.1",
-      "title": "Model",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-CQ-ORCH-R701.2",
-      "title": "Behavior",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-CQ-ORCH-R701.3",
-      "title": "Wiring",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-CQ-ORCH-R701.4",
-      "title": "Refusal",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-CQ-ORCH-R701.5",
-      "title": "Evidence",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-CQ-ORCH-R701.6",
-      "title": "Hot-path proof",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     }
   ]
 }

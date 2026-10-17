@@ -1103,85 +1103,83 @@
     },
     {
       "id": "EG-ORCH-VOCAB-R750",
-      "title": "Organization runtime, agent market, digital twin and lifecycle records (rollup)",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [],
-      "rollup_of": [
-        "EG-ORCH-VOCAB-R750.750",
-        "EG-ORCH-VOCAB-R750.751",
-        "EG-ORCH-VOCAB-R750.752",
-        "EG-ORCH-VOCAB-R750.753"
-      ]
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-ORCH-VOCAB-R750.750",
-      "title": "Model: Organization runtime, agent market, digital twin and lifecycle records",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-ORCH-VOCAB-R750.751",
-      "title": "Behavior: Organization runtime, agent market, digital twin and lifecycle records",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-ORCH-VOCAB-R750.752",
-      "title": "Refusal: Organization runtime, agent market, digital twin and lifecycle records",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-ORCH-VOCAB-R750.753",
-      "title": "Hot-path proof: Organization runtime, agent market, digital twin and lifecycle records",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-ORCH-VOCAB-R751",
-      "title": "Team composition, evolution, specialization discovery and social systems (rollup)",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [],
-      "rollup_of": [
-        "EG-ORCH-VOCAB-R751.750",
-        "EG-ORCH-VOCAB-R751.751",
-        "EG-ORCH-VOCAB-R751.752",
-        "EG-ORCH-VOCAB-R751.753"
-      ]
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-ORCH-VOCAB-R751.750",
-      "title": "Model: Team composition, evolution, specialization discovery and social systems",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-ORCH-VOCAB-R751.751",
-      "title": "Behavior: Team composition, evolution, specialization discovery and social systems",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-ORCH-VOCAB-R751.752",
-      "title": "Refusal: Team composition, evolution, specialization discovery and social systems",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-ORCH-VOCAB-R751.753",
-      "title": "Hot-path proof: Team composition, evolution, specialization discovery and social systems",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-ORCH-VOCAB-R800",

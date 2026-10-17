@@ -122,6 +122,12 @@
     "EG-DURABLE-KERNEL-R068",
     "EG-DURABLE-KERNEL-R069",
     "EG-DURABLE-KERNEL-R070",
+    "EG-DURABLE-KERNEL-R070.1",
+    "EG-DURABLE-KERNEL-R070.2",
+    "EG-DURABLE-KERNEL-R070.3",
+    "EG-DURABLE-KERNEL-R070.4",
+    "EG-DURABLE-KERNEL-R070.5",
+    "EG-DURABLE-KERNEL-R070.6",
     "EG-DURABLE-KERNEL-R071",
     "EG-DURABLE-KERNEL-R072",
     "EG-DURABLE-KERNEL-R073",
@@ -1883,10 +1889,60 @@
     {
       "id": "EG-DURABLE-KERNEL-R070",
       "title": "Operator command inspects and applies registered offline store upgrades",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "8dbb5bd9de53"
       ],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DURABLE-KERNEL-R070.1",
+        "EG-DURABLE-KERNEL-R070.2",
+        "EG-DURABLE-KERNEL-R070.3",
+        "EG-DURABLE-KERNEL-R070.4",
+        "EG-DURABLE-KERNEL-R070.5",
+        "EG-DURABLE-KERNEL-R070.6"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R070.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R070.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R070.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R070.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R070.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R070.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {
@@ -2692,7 +2748,7 @@
     },
     {
       "id": "EG-DURABLE-KERNEL-R094",
-      "title": "Hierarchical concept-ID syntax and cross-repository authority",
+      "title": "Hierarchical concept-ID syntax and cross-repository authority (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -3134,62 +3190,59 @@
     },
     {
       "id": "EG-DURABLE-KERNEL-R100",
-      "title": "Native property-graph mirror sinks (rollup)",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [],
-      "rollup_of": [
-        "EG-DURABLE-KERNEL-R100.1",
-        "EG-DURABLE-KERNEL-R100.2",
-        "EG-DURABLE-KERNEL-R100.3",
-        "EG-DURABLE-KERNEL-R100.4",
-        "EG-DURABLE-KERNEL-R100.5",
-        "EG-DURABLE-KERNEL-R100.6",
-        "EG-DURABLE-KERNEL-R100.700",
-        "EG-DURABLE-KERNEL-R100.701"
-      ]
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-DURABLE-KERNEL-R100.1",
-      "title": "Model",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-DURABLE-KERNEL-R100.2",
-      "title": "Behavior",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-DURABLE-KERNEL-R100.3",
-      "title": "Wiring",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-DURABLE-KERNEL-R100.4",
-      "title": "Refusal",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-DURABLE-KERNEL-R100.5",
-      "title": "Evidence",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-DURABLE-KERNEL-R100.6",
-      "title": "Hot-path proof",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-DURABLE-KERNEL-R028.2",
@@ -3507,31 +3560,35 @@
     },
     {
       "id": "EG-DURABLE-KERNEL-R710",
-      "title": "Backend-agnostic graph copy and persisted-index migration catalogue: model and behavior",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-DURABLE-KERNEL-R711",
-      "title": "Backend-agnostic graph copy and persisted-index migration catalogue: refusal, evidence and hot-path proof",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-DURABLE-KERNEL-R100.700",
-      "title": "Mirror target naming and a lossless per-mirror outbox: model and behavior",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-DURABLE-KERNEL-R100.701",
-      "title": "Mirror target naming and a lossless per-mirror outbox: refusal, evidence and hot-path proof",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-DURABLE-KERNEL-R094.700",

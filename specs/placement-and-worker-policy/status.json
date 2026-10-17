@@ -68,6 +68,8 @@
     "EG-PLACEMENT-R751.751",
     "EG-PLACEMENT-R751.752",
     "EG-PLACEMENT-R751.753",
+    "EG-PLACEMENT-R751.754",
+    "EG-PLACEMENT-R751.755",
     "EG-PLACEMENT-R700",
     "EG-PLACEMENT-R700.1",
     "EG-PLACEMENT-R700.2",
@@ -616,7 +618,9 @@
         "EG-PLACEMENT-R751.750",
         "EG-PLACEMENT-R751.751",
         "EG-PLACEMENT-R751.752",
-        "EG-PLACEMENT-R751.753"
+        "EG-PLACEMENT-R751.753",
+        "EG-PLACEMENT-R751.754",
+        "EG-PLACEMENT-R751.755"
       ]
     },
     {
@@ -643,6 +647,20 @@
     {
       "id": "EG-PLACEMENT-R751.753",
       "title": "Hot-path proof: Unified scheduling, leader election and cost-bounded resource allocation",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-PLACEMENT-R751.754",
+      "title": "Wiring: Unified scheduling, leader election and cost-bounded resource allocation",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-PLACEMENT-R751.755",
+      "title": "Evidence: Unified scheduling, leader election and cost-bounded resource allocation",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

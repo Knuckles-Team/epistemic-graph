@@ -6233,60 +6233,59 @@
     },
     {
       "id": "EG-DECISION-ENGINE-R162",
-      "title": "Workspace field shielding and declared-input projection at step boundaries (rollup)",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [],
-      "rollup_of": [
-        "EG-DECISION-ENGINE-R162.1",
-        "EG-DECISION-ENGINE-R162.2",
-        "EG-DECISION-ENGINE-R162.3",
-        "EG-DECISION-ENGINE-R162.4",
-        "EG-DECISION-ENGINE-R162.5",
-        "EG-DECISION-ENGINE-R162.6"
-      ]
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-DECISION-ENGINE-R162.1",
-      "title": "Model",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-DECISION-ENGINE-R162.2",
-      "title": "Behavior",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-DECISION-ENGINE-R162.3",
-      "title": "Wiring",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-DECISION-ENGINE-R162.4",
-      "title": "Refusal",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-DECISION-ENGINE-R162.5",
-      "title": "Evidence",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-DECISION-ENGINE-R162.6",
-      "title": "Hot-path proof",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-DECISION-ENGINE-R163",
@@ -7539,60 +7538,59 @@
     },
     {
       "id": "EG-DECISION-ENGINE-R614",
-      "title": "Capability cards, distilled proposals, topic classes and relation projection are engine enrichment (rollup)",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [],
-      "rollup_of": [
-        "EG-DECISION-ENGINE-R614.1",
-        "EG-DECISION-ENGINE-R614.2",
-        "EG-DECISION-ENGINE-R614.3",
-        "EG-DECISION-ENGINE-R614.4",
-        "EG-DECISION-ENGINE-R614.5",
-        "EG-DECISION-ENGINE-R614.6"
-      ]
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-DECISION-ENGINE-R614.1",
-      "title": "Model",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-DECISION-ENGINE-R614.2",
-      "title": "Behavior",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-DECISION-ENGINE-R614.3",
-      "title": "Wiring",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-DECISION-ENGINE-R614.4",
-      "title": "Refusal",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-DECISION-ENGINE-R614.5",
-      "title": "Evidence",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-DECISION-ENGINE-R614.6",
-      "title": "Hot-path proof",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-DECISION-ENGINE-R615",
@@ -7717,44 +7715,43 @@
     },
     {
       "id": "EG-DECISION-ENGINE-R750",
-      "title": "Bounded multi-step reasoning search with explicit budgets (rollup)",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [],
-      "rollup_of": [
-        "EG-DECISION-ENGINE-R750.750",
-        "EG-DECISION-ENGINE-R750.751",
-        "EG-DECISION-ENGINE-R750.752",
-        "EG-DECISION-ENGINE-R750.753"
-      ]
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-DECISION-ENGINE-R750.750",
-      "title": "Model: Bounded multi-step reasoning search with explicit budgets",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-DECISION-ENGINE-R750.751",
-      "title": "Behavior: Bounded multi-step reasoning search with explicit budgets",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-DECISION-ENGINE-R750.752",
-      "title": "Refusal: Bounded multi-step reasoning search with explicit budgets",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-DECISION-ENGINE-R750.753",
-      "title": "Hot-path proof: Bounded multi-step reasoning search with explicit budgets",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-DECISION-ENGINE-R751",
@@ -7799,85 +7796,83 @@
     },
     {
       "id": "EG-DECISION-ENGINE-R752",
-      "title": "Population drift, diversity-aware fan-out width and safe-autonomy ramp (rollup)",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [],
-      "rollup_of": [
-        "EG-DECISION-ENGINE-R752.750",
-        "EG-DECISION-ENGINE-R752.751",
-        "EG-DECISION-ENGINE-R752.752",
-        "EG-DECISION-ENGINE-R752.753"
-      ]
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-DECISION-ENGINE-R752.750",
-      "title": "Model: Population drift, diversity-aware fan-out width and safe-autonomy ramp",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-DECISION-ENGINE-R752.751",
-      "title": "Behavior: Population drift, diversity-aware fan-out width and safe-autonomy ramp",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-DECISION-ENGINE-R752.752",
-      "title": "Refusal: Population drift, diversity-aware fan-out width and safe-autonomy ramp",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-DECISION-ENGINE-R752.753",
-      "title": "Hot-path proof: Population drift, diversity-aware fan-out width and safe-autonomy ramp",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-DECISION-ENGINE-R753",
-      "title": "Verification, adversarial and synthesis steps over parallel trajectories (rollup)",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [],
-      "rollup_of": [
-        "EG-DECISION-ENGINE-R753.750",
-        "EG-DECISION-ENGINE-R753.751",
-        "EG-DECISION-ENGINE-R753.752",
-        "EG-DECISION-ENGINE-R753.753"
-      ]
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-DECISION-ENGINE-R753.750",
-      "title": "Model: Verification, adversarial and synthesis steps over parallel trajectories",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-DECISION-ENGINE-R753.751",
-      "title": "Behavior: Verification, adversarial and synthesis steps over parallel trajectories",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-DECISION-ENGINE-R753.752",
-      "title": "Refusal: Verification, adversarial and synthesis steps over parallel trajectories",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-DECISION-ENGINE-R753.753",
-      "title": "Hot-path proof: Verification, adversarial and synthesis steps over parallel trajectories",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-DECISION-ENGINE-R035.750",
@@ -8379,60 +8374,59 @@
     },
     {
       "id": "EG-DECISION-ENGINE-R703",
-      "title": "Skill gaps, neologisms and merge candidates are detected as proposals (rollup)",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [],
-      "rollup_of": [
-        "EG-DECISION-ENGINE-R703.1",
-        "EG-DECISION-ENGINE-R703.2",
-        "EG-DECISION-ENGINE-R703.3",
-        "EG-DECISION-ENGINE-R703.4",
-        "EG-DECISION-ENGINE-R703.5",
-        "EG-DECISION-ENGINE-R703.6"
-      ]
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-DECISION-ENGINE-R703.1",
-      "title": "Model",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-DECISION-ENGINE-R703.2",
-      "title": "Behavior",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-DECISION-ENGINE-R703.3",
-      "title": "Wiring",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-DECISION-ENGINE-R703.4",
-      "title": "Refusal",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-DECISION-ENGINE-R703.5",
-      "title": "Evidence",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-DECISION-ENGINE-R703.6",
-      "title": "Hot-path proof",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-DECISION-ENGINE-R704",
@@ -8493,60 +8487,59 @@
     },
     {
       "id": "EG-DECISION-ENGINE-R705",
-      "title": "Research orchestration is budgeted by value of information (rollup)",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [],
-      "rollup_of": [
-        "EG-DECISION-ENGINE-R705.1",
-        "EG-DECISION-ENGINE-R705.2",
-        "EG-DECISION-ENGINE-R705.3",
-        "EG-DECISION-ENGINE-R705.4",
-        "EG-DECISION-ENGINE-R705.5",
-        "EG-DECISION-ENGINE-R705.6"
-      ]
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-DECISION-ENGINE-R705.1",
-      "title": "Model",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-DECISION-ENGINE-R705.2",
-      "title": "Behavior",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-DECISION-ENGINE-R705.3",
-      "title": "Wiring",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-DECISION-ENGINE-R705.4",
-      "title": "Refusal",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-DECISION-ENGINE-R705.5",
-      "title": "Evidence",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-DECISION-ENGINE-R705.6",
-      "title": "Hot-path proof",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: no consumer remains",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "no consumer remains"
     },
     {
       "id": "EG-DECISION-ENGINE-R706",
