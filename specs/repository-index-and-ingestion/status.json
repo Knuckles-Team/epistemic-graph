@@ -34,7 +34,35 @@
     "EG-REPO-INGEST-R006.3",
     "EG-REPO-INGEST-R006.4",
     "EG-REPO-INGEST-R002.100",
-    "EG-REPO-INGEST-R002.101"
+    "EG-REPO-INGEST-R002.101",
+    "EG-REPO-INGEST-R600",
+    "EG-REPO-INGEST-R600.1",
+    "EG-REPO-INGEST-R600.2",
+    "EG-REPO-INGEST-R600.3",
+    "EG-REPO-INGEST-R600.4",
+    "EG-REPO-INGEST-R600.5",
+    "EG-REPO-INGEST-R600.6",
+    "EG-REPO-INGEST-R601",
+    "EG-REPO-INGEST-R601.1",
+    "EG-REPO-INGEST-R601.2",
+    "EG-REPO-INGEST-R601.3",
+    "EG-REPO-INGEST-R601.4",
+    "EG-REPO-INGEST-R601.5",
+    "EG-REPO-INGEST-R601.6",
+    "EG-REPO-INGEST-R602",
+    "EG-REPO-INGEST-R602.1",
+    "EG-REPO-INGEST-R602.2",
+    "EG-REPO-INGEST-R602.3",
+    "EG-REPO-INGEST-R602.4",
+    "EG-REPO-INGEST-R602.5",
+    "EG-REPO-INGEST-R602.6",
+    "EG-REPO-INGEST-R603",
+    "EG-REPO-INGEST-R603.1",
+    "EG-REPO-INGEST-R603.2",
+    "EG-REPO-INGEST-R603.3",
+    "EG-REPO-INGEST-R603.4",
+    "EG-REPO-INGEST-R603.5",
+    "EG-REPO-INGEST-R603.6"
   ],
   "requirements": [
     {
@@ -360,6 +388,234 @@
     {
       "id": "EG-REPO-INGEST-R002.101",
       "title": "Bind graph-loaded workflow execution to durable hydration readback",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R600",
+      "title": "Code enrichment turns parsed repositories into typed code, test and feature facts (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-REPO-INGEST-R600.1",
+        "EG-REPO-INGEST-R600.2",
+        "EG-REPO-INGEST-R600.3",
+        "EG-REPO-INGEST-R600.4",
+        "EG-REPO-INGEST-R600.5",
+        "EG-REPO-INGEST-R600.6"
+      ]
+    },
+    {
+      "id": "EG-REPO-INGEST-R600.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R600.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R600.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R600.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R600.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R600.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R601",
+      "title": "Commit history becomes a graph of commits, authors, files and change coupling (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-REPO-INGEST-R601.1",
+        "EG-REPO-INGEST-R601.2",
+        "EG-REPO-INGEST-R601.3",
+        "EG-REPO-INGEST-R601.4",
+        "EG-REPO-INGEST-R601.5",
+        "EG-REPO-INGEST-R601.6"
+      ]
+    },
+    {
+      "id": "EG-REPO-INGEST-R601.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R601.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R601.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R601.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R601.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R601.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R602",
+      "title": "Infrastructure definitions, HTTP routes and business capabilities link to the service that owns the code (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-REPO-INGEST-R602.1",
+        "EG-REPO-INGEST-R602.2",
+        "EG-REPO-INGEST-R602.3",
+        "EG-REPO-INGEST-R602.4",
+        "EG-REPO-INGEST-R602.5",
+        "EG-REPO-INGEST-R602.6"
+      ]
+    },
+    {
+      "id": "EG-REPO-INGEST-R602.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R602.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R602.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R602.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R602.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R602.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R603",
+      "title": "Structural fingerprints keep incremental re-indexing to real structural change (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-REPO-INGEST-R603.1",
+        "EG-REPO-INGEST-R603.2",
+        "EG-REPO-INGEST-R603.3",
+        "EG-REPO-INGEST-R603.4",
+        "EG-REPO-INGEST-R603.5",
+        "EG-REPO-INGEST-R603.6"
+      ]
+    },
+    {
+      "id": "EG-REPO-INGEST-R603.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R603.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R603.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R603.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R603.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R603.6",
+      "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

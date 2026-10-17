@@ -49,7 +49,15 @@
     "EG-PLACEMENT-R004.4",
     "EG-PLACEMENT-R004.5",
     "EG-PLACEMENT-R004.6",
-    "EG-PLACEMENT-R001.15"
+    "EG-PLACEMENT-R001.15",
+    "EG-PLACEMENT-R611",
+    "EG-PLACEMENT-R611.1",
+    "EG-PLACEMENT-R611.2",
+    "EG-PLACEMENT-R611.3",
+    "EG-PLACEMENT-R611.4",
+    "EG-PLACEMENT-R611.5",
+    "EG-PLACEMENT-R611.6",
+    "EG-PLACEMENT-R002.600"
   ],
   "requirements": [
     {
@@ -209,7 +217,8 @@
         "EG-PLACEMENT-R002.12",
         "EG-PLACEMENT-R002.13",
         "EG-PLACEMENT-R002.14",
-        "EG-PLACEMENT-R002.15"
+        "EG-PLACEMENT-R002.15",
+        "EG-PLACEMENT-R002.600"
       ]
     },
     {
@@ -471,6 +480,70 @@
     {
       "id": "EG-PLACEMENT-R001.15",
       "title": "Capacity adjustment feasibility and applied-state reconciliation boundary",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-PLACEMENT-R611",
+      "title": "Cluster discovery, placement routes and tenant client pooling follow the engine's placement authority (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-PLACEMENT-R611.1",
+        "EG-PLACEMENT-R611.2",
+        "EG-PLACEMENT-R611.3",
+        "EG-PLACEMENT-R611.4",
+        "EG-PLACEMENT-R611.5",
+        "EG-PLACEMENT-R611.6"
+      ]
+    },
+    {
+      "id": "EG-PLACEMENT-R611.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-PLACEMENT-R611.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-PLACEMENT-R611.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-PLACEMENT-R611.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-PLACEMENT-R611.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-PLACEMENT-R611.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-PLACEMENT-R002.600",
+      "title": "Reserved-worker admission is answered by the engine",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
