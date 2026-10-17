@@ -2,7 +2,7 @@
 //!
 //! The wire methods own their namespaces outright: [`wire_namespace`] maps a
 //! caller's local name to an opaque `kv-namespace:<sha256>` key derived from the
-//! verified tenant, principal and request graph, so no Redis/S3/KV-cache adapter
+//! verified tenant, principal (unless `shared`) and request graph, so no Redis/S3/KV-cache adapter
 //! namespace can ever alias one. That ownership is what lets a served row carry a
 //! version: its stored bytes are `[version: u64 BE][value]`, where `version` is the
 //! namespace's mutation-kernel commit version at the write. The kernel's version
@@ -18,13 +18,28 @@ const DEFAULT_WIRE_SCAN_LIMIT: usize = 100;
 const MAX_WIRE_SCAN_LIMIT: usize = 1_000;
 const MAX_WIRE_SCAN_PAGE_BYTES: usize = 4 * 1024 * 1024;
 
-/// The store-level namespace one served call acts on.
-pub(super) fn wire_namespace(authority: &CarrierAuthority, graph: &str, local: &str) -> String {
+/// The store-level namespace one served call acts on: private to the verified
+/// tenant+principal by default, or shared by every principal of the verified
+/// tenant and request graph.
+pub(super) fn wire_namespace(
+    authority: &CarrierAuthority,
+    graph: &str,
+    local: &str,
+    shared: bool,
+) -> String {
     let mut scoped = String::with_capacity(graph.len() + local.len() + 1);
     scoped.push_str(graph);
     scoped.push('\u{1f}');
     scoped.push_str(local);
-    authority.namespace("kv-namespace", &scoped)
+    if shared {
+        crate::server::mutation_batch::opaque_coordinator_key(
+            "kv-shared-namespace",
+            authority.tenant_scope(),
+            &scoped,
+        )
+    } else {
+        authority.namespace("kv-namespace", &scoped)
+    }
 }
 
 fn encode_row(version: u64, value: &[u8]) -> Vec<u8> {

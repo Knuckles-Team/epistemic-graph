@@ -143,6 +143,7 @@ pub const SCOPES: &[ScopeEntry] = &[
     entry("kg:read", User, "engine"),
     entry("kg:write", User, "engine"),
     entry("kv:read", User, "engine"),
+    entry("kv:shared:write", User, "engine"),
     entry("kv:write", User, "engine"),
     entry("lane:cleanup", ServiceOnly, "engine"),
     entry("lane:quota", ServiceOnly, "engine"),

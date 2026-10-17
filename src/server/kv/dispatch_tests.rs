@@ -36,6 +36,7 @@ fn req(id: u64, method: Method) -> Request {
 /// A KV request in `graph` under `scopes`, signed with an explicit attempt nonce and
 /// stable operation key.
 struct Signed<'a> {
+    agent: &'a str,
     graph: &'a str,
     scopes: &'a [&'a str],
     nonce: &'a str,
@@ -47,14 +48,14 @@ fn signed(id: u64, how: &Signed<'_>, method: Method) -> Request {
         id,
         graph: how.graph.to_string(),
         auth_token: String::new(),
-        agent_id: Some(TEST_AGENT.to_string()),
+        agent_id: Some(how.agent.to_string()),
         method,
     };
     let context = RequestContextClaims {
-        principal: TEST_AGENT.to_string(),
+        principal: how.agent.to_string(),
         tenant: "tenant-shared".to_string(),
         audience: "epistemic-graph-test".to_string(),
-        agent_id: TEST_AGENT.to_string(),
+        agent_id: how.agent.to_string(),
         roles: Vec::new(),
         scopes: how.scopes.iter().map(|scope| scope.to_string()).collect(),
         policy_version: "policy-test".to_string(),
@@ -84,6 +85,7 @@ fn signed(id: u64, how: &Signed<'_>, method: Method) -> Request {
 /// and the latter is the one-use attempt guard.
 fn stable_kv_req(id: u64, nonce: &str, idempotency_key: &str, method: Method) -> Request {
     let how = Signed {
+        agent: TEST_AGENT,
         graph: "__commons__",
         scopes: &["*"],
         nonce,
@@ -94,6 +96,7 @@ fn stable_kv_req(id: u64, nonce: &str, idempotency_key: &str, method: Method) ->
 
 fn how<'a>(graph: &'a str, scopes: &'a [&'a str], nonce: &'a str) -> Signed<'a> {
     Signed {
+        agent: TEST_AGENT,
         graph,
         scopes,
         nonce,
@@ -120,6 +123,7 @@ fn put(key: &str, value: &[u8]) -> Method {
         namespace: "cfg".into(),
         key: key.into(),
         value: value.to_vec(),
+        shared: false,
     }
 }
 
@@ -127,6 +131,7 @@ fn get(key: &str) -> Method {
     Method::KvGet {
         namespace: "cfg".into(),
         key: key.into(),
+        shared: false,
     }
 }
 
@@ -136,6 +141,7 @@ fn cas(key: &str, expected_version: u64, new: Option<&[u8]>) -> Method {
         key: key.into(),
         expected_version,
         new: new.map(<[u8]>::to_vec),
+        shared: false,
     }
 }
 
@@ -145,6 +151,7 @@ fn scan(prefix: &str, limit: usize, cursor: Option<String>) -> Method {
         prefix: prefix.into(),
         limit,
         cursor,
+        shared: false,
     }
 }
 
@@ -202,6 +209,7 @@ async fn kv_dispatch_put_get_scan_delete_cas() {
             Method::KvDelete {
                 namespace: "cfg".into(),
                 key: "k2".into(),
+                shared: false,
             },
         ),
     )
@@ -405,6 +413,102 @@ async fn kv_served_hot_path_meets_latency_budgets() {
     assert!(
         put_p99 < std::time::Duration::from_millis(100),
         "KvPut p99 {put_p99:?}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+fn shared_put(key: &str, value: &[u8]) -> Method {
+    Method::KvPut {
+        namespace: "team".into(),
+        key: key.into(),
+        value: value.to_vec(),
+        shared: true,
+    }
+}
+
+fn shared_get(key: &str, shared: bool) -> Method {
+    Method::KvGet {
+        namespace: "team".into(),
+        key: key.into(),
+        shared,
+    }
+}
+
+/// Private keys never cross principals; the opt-in shared namespace is one row per
+/// tenant+graph that every principal there reads, and writing it needs the
+/// separate `kv:shared:write` action (coarse `kg:write`/`kv:write` is refused).
+// spec: EG-DURABLE-KERNEL-R102.6
+#[cfg(feature = "security")]
+#[tokio::test]
+async fn kv_shared_namespace_spans_principals_and_needs_kv_shared_write() {
+    let dir = std::env::temp_dir().join(format!("eg-kv-shared-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let kv = Arc::new(super::KvStore::open(Some(&dir.to_string_lossy())).unwrap());
+    let mut state = ServerState::new_for_test(SECRET, crate::server::access::two_agent_isolation());
+    state.persist_dir = Some(dir.to_string_lossy().to_string());
+    state.kv = Some(kv);
+    let state = Arc::new(RwLock::new(state));
+    let as_agent =
+        |agent: &'static str, scopes: &'static [&'static str], nonce: &'static str| Signed {
+            agent,
+            graph: "__commons__",
+            scopes,
+            nonce,
+            idempotency_key: nonce,
+        };
+    let full = &["kv:read", "kv:write", "kv:shared:write"][..];
+    let coarse = &["kg:read", "kg:write", "kv:read", "kv:write"][..];
+
+    // A private key is invisible to another principal.
+    let r = dispatch_on_heap(
+        &state,
+        signed(1, &as_agent("alice", full, "sh1"), put("k", b"a")),
+    )
+    .await;
+    assert!(r.error.is_none(), "{:?} / {:?}", r.error, r.error_detail);
+    let bob_private: Option<KvEntry> =
+        decode(&dispatch_on_heap(&state, signed(2, &as_agent("bob", full, "sh2"), get("k"))).await);
+    assert_eq!(bob_private, None);
+
+    // A shared write by alice is read by bob, and is not alice's private row.
+    let r = dispatch_on_heap(
+        &state,
+        signed(3, &as_agent("alice", full, "sh3"), shared_put("s", b"team")),
+    )
+    .await;
+    assert!(r.error.is_none(), "{:?} / {:?}", r.error, r.error_detail);
+    let bob_shared: Option<KvEntry> = decode(
+        &dispatch_on_heap(
+            &state,
+            signed(4, &as_agent("bob", coarse, "sh4"), shared_get("s", true)),
+        )
+        .await,
+    );
+    assert_eq!(bob_shared.map(|entry| entry.value), Some(b"team".to_vec()));
+    let alice_private: Option<KvEntry> = decode(
+        &dispatch_on_heap(
+            &state,
+            signed(5, &as_agent("alice", full, "sh5"), shared_get("s", false)),
+        )
+        .await,
+    );
+    assert_eq!(alice_private, None);
+
+    // Coarse write grants cannot write the shared namespace.
+    let denied = dispatch_on_heap(
+        &state,
+        signed(6, &as_agent("bob", coarse, "sh6"), shared_put("s", b"x")),
+    )
+    .await;
+    assert!(
+        denied.result.is_none(),
+        "kg:write must not write a shared key"
+    );
+    assert!(
+        format!("{:?}{:?}", denied.error, denied.error_detail).contains("ACCESS_DENIED"),
+        "{:?} / {:?}",
+        denied.error,
+        denied.error_detail
     );
     let _ = std::fs::remove_dir_all(&dir);
 }

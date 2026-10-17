@@ -503,6 +503,7 @@ mod eh316_eh319_slim_profile_tests {
             namespace: "ns".into(),
             key: "k".into(),
             value: vec![1],
+            shared: false,
         };
         assert!(
             requires_write(&m),

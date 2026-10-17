@@ -14106,6 +14106,7 @@ class MethodKvCasParams(BaseModel):
     key: str
     namespace: str
     new: bytes | None = None
+    shared: bool | None = None
 
 
 class MethodKvDeleteParams(BaseModel):
@@ -14113,6 +14114,7 @@ class MethodKvDeleteParams(BaseModel):
 
     key: str
     namespace: str
+    shared: bool | None = None
 
 
 class MethodKvGetParams(BaseModel):
@@ -14120,6 +14122,7 @@ class MethodKvGetParams(BaseModel):
 
     key: str
     namespace: str
+    shared: bool | None = None
 
 
 class MethodKvPutParams(BaseModel):
@@ -14127,6 +14130,7 @@ class MethodKvPutParams(BaseModel):
 
     key: str
     namespace: str
+    shared: bool | None = None
     value: bytes
 
 
@@ -14137,6 +14141,7 @@ class MethodKvScanParams(BaseModel):
     limit: Annotated[int, Field(ge=0)]
     namespace: str
     prefix: str
+    shared: bool | None = None
 
 
 class MethodLeaveChannelParams(BaseModel):

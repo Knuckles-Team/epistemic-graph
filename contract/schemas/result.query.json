@@ -33145,6 +33145,11 @@
                 },
                 "namespace": {
                   "type": "string"
+                },
+                "shared": {
+                  "default": false,
+                  "description": "`true` scopes the key to the verified tenant and request graph, shared by\nevery principal there (writes need `kv:shared:write`); `false` (the\ndefault) keeps it private to the calling principal.",
+                  "type": "boolean"
                 }
               },
               "required": [
@@ -33176,6 +33181,11 @@
                 },
                 "namespace": {
                   "type": "string"
+                },
+                "shared": {
+                  "default": false,
+                  "description": "`true` scopes the key to the verified tenant and request graph, shared by\nevery principal there (writes need `kv:shared:write`); `false` (the\ndefault) keeps it private to the calling principal.",
+                  "type": "boolean"
                 },
                 "value": {
                   "items": {
@@ -33217,6 +33227,11 @@
                 },
                 "namespace": {
                   "type": "string"
+                },
+                "shared": {
+                  "default": false,
+                  "description": "`true` scopes the key to the verified tenant and request graph, shared by\nevery principal there (writes need `kv:shared:write`); `false` (the\ndefault) keeps it private to the calling principal.",
+                  "type": "boolean"
                 }
               },
               "required": [
@@ -33260,6 +33275,11 @@
                 },
                 "prefix": {
                   "type": "string"
+                },
+                "shared": {
+                  "default": false,
+                  "description": "`true` scopes the key to the verified tenant and request graph, shared by\nevery principal there (writes need `kv:shared:write`); `false` (the\ndefault) keeps it private to the calling principal.",
+                  "type": "boolean"
                 }
               },
               "required": [
@@ -33310,6 +33330,11 @@
                     "array",
                     "null"
                   ]
+                },
+                "shared": {
+                  "default": false,
+                  "description": "`true` scopes the key to the verified tenant and request graph, shared by\nevery principal there (writes need `kv:shared:write`); `false` (the\ndefault) keeps it private to the calling principal.",
+                  "type": "boolean"
                 }
               },
               "required": [
