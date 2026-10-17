@@ -1556,3 +1556,7 @@ Budget: engine overhead under 1 ms per 256-node batch, excluding endpoint latenc
 
 References
 - No paper is cited.
+
+## EG-DECISION-ENGINE-R172.12: designation over connector-pack relationships
+
+Capability designation reads the surface triples that `EG-TYPED-PACKS-R102` projects from each connector pack. Call path: `ConnectorPack.Import` → `project_head` (`src/server/handlers/admin/connector_pack/reproject.rs:72`) → capability index upsert (`crates/eg-compute/src/capability_index/`) → `handle_decide` (`src/server/handlers/decide/stat_decide.rs:137`) → `capability_designation_outcome`. Subclass matching over `cp:appliesTo` and `cp:executes` answers which method and which tool apply to a target class.

@@ -643,6 +643,13 @@ No test in this section has run.
 - `EG-DECISION-ENGINE-R172.9`: `src/server/handlers/decide/stat_tests/capability_designation_tests.rs::premises_name_scores_and_defaults`.
 - `EG-DECISION-ENGINE-R172.10`: `benches/capability_designation_bench.rs`.
 - `EG-DECISION-ENGINE-R172.11`: `tests/decide/test_capability_designation_served.py::test_designation_end_to_end`.
+- `EG-DECISION-ENGINE-R172.12`: Rollup closes when every child `.12.1` to `.12.6` passes its proving test.
+- `EG-DECISION-ENGINE-R172.12.1`: `crates/eg-types/src/decision/capability_designation.rs::tests::pack_surface_fields_round_trip`.
+- `EG-DECISION-ENGINE-R172.12.2`: `crates/eg-types/src/decision/capability_designation.rs::tests::target_class_subsumption_selects_tools`.
+- `EG-DECISION-ENGINE-R172.12.3`: `src/server/handlers/decide/stat_tests/capability_designation_tests.rs::projection_commit_upserts_pack_records`.
+- `EG-DECISION-ENGINE-R172.12.4`: `src/server/handlers/decide/stat_tests/capability_designation_tests.rs::pack_target_refusals`.
+- `EG-DECISION-ENGINE-R172.12.5`: `src/server/handlers/decide/stat_tests/capability_designation_tests.rs::premises_name_subclass_path_and_pack`.
+- `EG-DECISION-ENGINE-R172.12.6`: `tests/decide/test_capability_designation_pack_served.py::test_designation_reads_imported_pack`.
 
 ## EG-DECISION-ENGINE-R175 acceptance
 
