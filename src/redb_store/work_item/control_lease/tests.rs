@@ -378,8 +378,13 @@ fn pending_consume(issue: &IssueControlLeaseRequest) -> TransitionControlLeaseRe
     request
 }
 
+/// Read the WorkItem row back. Each read is its own maintenance write with a
+/// per-attempt op id: a repeated op id is a first-wins replay, and a replayed
+/// member refuses owner rows.
 fn stored_work(shard: &Shard) -> NodeRow {
-    with_nodes(shard, "read-pending-work", |nodes| {
+    static READS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let read = READS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    with_nodes(shard, &format!("read-pending-work-{read}"), |nodes| {
         load_row(nodes, GRAPH, "work-a", DurableCrypto::none()).map(Option::unwrap)
     })
 }
