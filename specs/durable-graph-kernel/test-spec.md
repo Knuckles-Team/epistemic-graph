@@ -352,3 +352,4 @@ Hot-path proof for `EG-DURABLE-KERNEL-R101`: `tests/scheduler/test_downtime_sche
 | Durable mutations | `EG-DURABLE-KERNEL-R102.4` | `src/server/kv/dispatch_tests.rs::kv_fresh_nonce_replays_stable_operation_without_duplicate_write`: the retried CAS returns the stored verdict and writes once. |
 | Hot-path proof | `EG-DURABLE-KERNEL-R102.5` | `src/server/kv/dispatch_tests.rs::kv_served_hot_path_meets_latency_budgets`: measured p50/p99 within the budgets. |
 | Shared namespace | `EG-DURABLE-KERNEL-R102.6` | `src/server/kv/dispatch_tests.rs::kv_shared_namespace_spans_principals_and_needs_kv_shared_write`: private keys never cross principals; a shared key does, and a coarse-write principal is refused. |
+- **EG-DURABLE-KERNEL-R028.3:** `src/redb_store/work_item/lease/tests.rs` tests live, expired and missing worker lease expiry against engine time, unchanged refused rows and unfenced compatibility. Runtime execution pending hosted CI.
