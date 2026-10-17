@@ -24,6 +24,15 @@ capability or its public contract. Start with the repository's
 and the instructions for your assigned lane; they own the current setup,
 commands, resource limits, and publication rules.
 
+## Step 0: route the feature
+
+Route the feature before any code.
+
+1. Read the [ecosystem boundaries standard](https://github.com/Knuckles-Team/pipelines/blob/main/reference/ecosystem-boundaries.md).
+2. Split the feature into parts with its routing procedure.
+3. If a part is not owned by epistemic-graph, stop work on that part. Write its row in the owner's `specs/`, then link it by ID.
+4. Continue here only with the parts that epistemic-graph owns.
+
 ## Rapid delivery: the 5-minute contract
 
 Specs are already designed. The work is implementation, delivered in very small, continuously landed slices.
