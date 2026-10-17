@@ -276,6 +276,7 @@
     "EG-FEDERATED-QUERY-R089.4",
     "EG-FEDERATED-QUERY-R089.5",
     "EG-FEDERATED-QUERY-R089.6",
+    "EG-FEDERATED-QUERY-R089.7",
     "EG-FEDERATED-QUERY-R090",
     "EG-FEDERATED-QUERY-R090.1",
     "EG-FEDERATED-QUERY-R090.2",
@@ -289,7 +290,8 @@
     "EG-FEDERATED-QUERY-R091.3",
     "EG-FEDERATED-QUERY-R091.4",
     "EG-FEDERATED-QUERY-R091.5",
-    "EG-FEDERATED-QUERY-R091.6"
+    "EG-FEDERATED-QUERY-R091.6",
+    "EG-FEDERATED-QUERY-R090.7"
   ],
   "requirements": [
     {
@@ -2824,7 +2826,8 @@
         "EG-FEDERATED-QUERY-R089.3",
         "EG-FEDERATED-QUERY-R089.4",
         "EG-FEDERATED-QUERY-R089.5",
-        "EG-FEDERATED-QUERY-R089.6"
+        "EG-FEDERATED-QUERY-R089.6",
+        "EG-FEDERATED-QUERY-R089.7"
       ]
     },
     {
@@ -2870,6 +2873,13 @@
       "verified_by": []
     },
     {
+      "id": "EG-FEDERATED-QUERY-R089.7",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
       "id": "EG-FEDERATED-QUERY-R090",
       "title": "Discover plans expansions, recency and multi-hop context (rollup)",
       "delivery_state": "SPECIFIED",
@@ -2881,7 +2891,8 @@
         "EG-FEDERATED-QUERY-R090.3",
         "EG-FEDERATED-QUERY-R090.4",
         "EG-FEDERATED-QUERY-R090.5",
-        "EG-FEDERATED-QUERY-R090.6"
+        "EG-FEDERATED-QUERY-R090.6",
+        "EG-FEDERATED-QUERY-R090.7"
       ]
     },
     {
@@ -2979,6 +2990,13 @@
     {
       "id": "EG-FEDERATED-QUERY-R091.6",
       "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R090.7",
+      "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
