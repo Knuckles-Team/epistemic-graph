@@ -1353,7 +1353,7 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [
-        "src/redb_store/work_item/control_lease/tests.rs:218"
+        "src/redb_store/work_item/control_lease/tests.rs:235"
       ]
     },
     {
@@ -1364,9 +1364,9 @@
       "verified_by": [
         "crates/eg-types/src/control_lease/tests.rs:191",
         "crates/eg-types/src/control_lease/tests.rs:224",
-        "src/redb_store/work_item/control_lease/tests.rs:347",
-        "src/redb_store/work_item/control_lease/tests.rs:375",
-        "src/redb_store/work_item/control_lease/tests.rs:401"
+        "src/redb_store/work_item/control_lease/tests.rs:404",
+        "src/redb_store/work_item/control_lease/tests.rs:432",
+        "src/redb_store/work_item/control_lease/tests.rs:457"
       ]
     },
     {

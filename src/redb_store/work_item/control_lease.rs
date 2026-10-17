@@ -41,9 +41,11 @@ pub(crate) fn apply_control_lease_rows(
     graph: &str,
     method: &Method,
     nodes: &mut NativeNodeRows<'_>,
+    native_work_items: &NativeNodeRows<'_>,
     committed_at_ms: u64,
     crypto: DurableCrypto<'_>,
 ) -> Result<Option<crate::protocol::ResultPayload>, String> {
+    pending_call::require_claim(graph, method, native_work_items, crypto)?;
     match method {
         Method::IssueControlLease { request } => {
             apply_issue_control_lease_row(graph, request, nodes, committed_at_ms, crypto)

@@ -44,10 +44,29 @@ fn decode<T: serde::de::DeserializeOwned>(payload: Option<crate::protocol::Resul
     }
 }
 
+fn native_call(
+    shard: &Shard,
+    tag: &str,
+    method: &Method,
+) -> Result<Option<crate::protocol::ResultPayload>, String> {
+    use super::super::test_shard::with_write;
+    use crate::redb_store::store_rows::GraphRowTables;
+    with_write(shard, tag, 2_000, |admitted| {
+        let member = admitted.graph(GRAPH)?;
+        let mut rows = GraphRowTables::open(member)?;
+        apply_control_lease_rows(
+            GRAPH,
+            method,
+            &mut rows.nodes,
+            &rows.native_work_items,
+            2_000,
+            DurableCrypto::none(),
+        )
+    })
+}
+
 fn issued(shard: &Shard, tag: &str, request: IssueControlLeaseRequest) -> ControlLeaseIssued {
-    decode(with_nodes(shard, tag, |nodes| {
-        apply_issue_control_lease_row(GRAPH, &request, nodes, 1_000, DurableCrypto::none())
-    }))
+    decode(native_call(shard, tag, &Method::IssueControlLease { request }).unwrap())
 }
 
 fn transitioned(
@@ -55,9 +74,7 @@ fn transitioned(
     tag: &str,
     request: TransitionControlLeaseRequest,
 ) -> ControlLeaseTransition {
-    decode(with_nodes(shard, tag, |nodes| {
-        apply_transition_control_lease_row(GRAPH, &request, nodes, 2_000, DurableCrypto::none())
-    }))
+    decode(native_call(shard, tag, &Method::TransitionControlLease { request }).unwrap())
 }
 
 fn get(shard: &Shard, tenant: &str, lease_id: &str) -> Option<ControlLeaseView> {
@@ -247,6 +264,7 @@ fn native_record_consumption_checks_commit_time_and_preserves_expired_rows() {
                         batch_id: "lease-expiry-test",
                         method: &method,
                         nodes: &mut rows.nodes,
+                        native_work_items: &rows.native_work_items,
                         edges: &mut rows.edges,
                         command_sequences: &mut rows.command_sequences,
                         committed_at_ms: now_ms,
@@ -283,11 +301,33 @@ fn native_record_consumption_checks_commit_time_and_preserves_expired_rows() {
 }
 
 fn pending_fixture(shard: &Shard) -> IssueControlLeaseRequest {
+    let request = pending_nodes_fixture(shard);
+    use super::super::test_shard::with_write;
+    use crate::redb_store::store_rows::GraphRowTables;
+    with_write(shard, "seed-native-provenance", 1_000, |admitted| {
+        let member = admitted.graph(GRAPH)?;
+        let mut rows = GraphRowTables::open(member)?;
+        let work = load_row(&rows.nodes, GRAPH, "work-a", DurableCrypto::none())?.unwrap();
+        crate::redb_store::work_item_capability::record_native_claim(
+            &mut rows.native_work_items,
+            GRAPH,
+            "work-a",
+            &work,
+            1_000,
+            DurableCrypto::none(),
+        )
+    })
+    .unwrap();
+    request
+}
+
+fn pending_nodes_fixture(shard: &Shard) -> IssueControlLeaseRequest {
     use eg_types::control_lease::{PendingCallFence, PendingCallRegistration, PENDING_CALL_KIND};
     with_nodes(shard, "seed-pending-work", |nodes| {
         let mut work = serde_json::json!({
             "node_type": "WorkItem", "tenant": "tenant-a", "status": "running",
             "lease_owner": "worker-a", "lease_epoch": 2, "fencing_token": 3,
+            "attempt": 1, "work_item_fence": "native-fence",
             "lease_expires_at": 301.0, "metadata": {"task": "task-a"}
         })
         .as_object()
@@ -344,6 +384,23 @@ fn stored_work(shard: &Shard) -> NodeRow {
     })
 }
 
+fn registered_pending_fixture(
+    tag: &str,
+) -> (
+    super::super::test_shard::TempShard,
+    IssueControlLeaseRequest,
+) {
+    let temp = open(tag);
+    let request = pending_fixture(&temp.shard);
+    issued(&temp.shard, "register", request.clone());
+    (temp, request)
+}
+
+fn assert_registration_unchanged(shard: &Shard, before: &NodeRow) {
+    assert_eq!(&stored_work(shard), before);
+    assert!(get(shard, "tenant-a", "pending-a").is_none());
+}
+
 // spec: EG-DURABLE-KERNEL-R039.3
 #[test]
 fn pending_registration_and_consumption_change_both_rows_once() {
@@ -394,16 +451,13 @@ fn pending_registration_refuses_stale_worker_without_writing_either_row() {
         ))
     });
     assert!(result.is_err());
-    assert_eq!(stored_work(&temp.shard), before);
-    assert!(get(&temp.shard, "tenant-a", "pending-a").is_none());
+    assert_registration_unchanged(&temp.shard, &before);
 }
 
 // spec: EG-DURABLE-KERNEL-R039.3
 #[test]
 fn pending_consume_refuses_missing_fence_changed_envelope_or_metadata_atomically() {
-    let temp = open("pending-consume-fenced");
-    let request = pending_fixture(&temp.shard);
-    issued(&temp.shard, "register", request.clone());
+    let (temp, request) = registered_pending_fixture("pending-consume-fenced");
     let work = stored_work(&temp.shard);
     let lease = get(&temp.shard, "tenant-a", "pending-a");
     let valid = pending_consume(&request);
@@ -452,9 +506,7 @@ fn pending_consume_refuses_missing_fence_changed_envelope_or_metadata_atomically
 // spec: EG-DURABLE-KERNEL-R039.3
 #[test]
 fn pending_expiry_preserves_pair_and_revocation_clears_it() {
-    let temp = open("pending-expired");
-    let request = pending_fixture(&temp.shard);
-    issued(&temp.shard, "register", request.clone());
+    let (temp, request) = registered_pending_fixture("pending-expired");
     let work = stored_work(&temp.shard);
     let lease = get(&temp.shard, "tenant-a", "pending-a");
     let consume = pending_consume(&request);
@@ -530,9 +582,7 @@ fn pending_consume_refuses_a_reclaimed_worker_even_with_fresh_row_revision() {
 #[test]
 fn pending_pair_refuses_foreign_tenant_and_generic_pointer_writes() {
     use super::super::test_shard::check_guard;
-    let temp = open("pending-tenant-guard");
-    let request = pending_fixture(&temp.shard);
-    issued(&temp.shard, "register", request.clone());
+    let (temp, request) = registered_pending_fixture("pending-tenant-guard");
     let before = stored_work(&temp.shard);
     let mut consume = pending_consume(&request);
     consume.tenant = "tenant-b".into();
@@ -562,4 +612,63 @@ fn pending_pair_refuses_foreign_tenant_and_generic_pointer_writes() {
         get(&temp.shard, "tenant-a", "pending-a").unwrap().status,
         ControlLeaseStatus::Active
     );
+}
+
+// spec: EG-DURABLE-KERNEL-R039.3
+#[test]
+fn pending_registration_refuses_a_nodes_only_lease_tuple() {
+    let temp = open("pending-no-native-claim");
+    let request = pending_nodes_fixture(&temp.shard);
+    let before = stored_work(&temp.shard);
+    let result = native_call(
+        &temp.shard,
+        "refuse-no-claim",
+        &Method::IssueControlLease { request },
+    );
+    assert!(result.is_err());
+    assert_registration_unchanged(&temp.shard, &before);
+}
+
+// spec: EG-DURABLE-KERNEL-R039.3
+#[test]
+fn pending_consumption_refuses_missing_native_provenance() {
+    use super::super::test_shard::with_write;
+    use crate::redb_store::store_rows::GraphRowTables;
+    let (temp, request) = registered_pending_fixture("pending-lost-native-claim");
+    with_write(&temp.shard, "remove-native-provenance", 2_000, |admitted| {
+        let member = admitted.graph(GRAPH)?;
+        let mut rows = GraphRowTables::open(member)?;
+        rows.native_work_items.remove((GRAPH, "work-a"))?;
+        Ok(())
+    })
+    .unwrap();
+    let work = stored_work(&temp.shard);
+    let lease = get(&temp.shard, "tenant-a", "pending-a");
+    let result = native_call(
+        &temp.shard,
+        "refuse-lost-claim",
+        &Method::TransitionControlLease {
+            request: pending_consume(&request),
+        },
+    );
+    assert!(result.is_err());
+    assert_eq!(stored_work(&temp.shard), work);
+    assert_eq!(get(&temp.shard, "tenant-a", "pending-a"), lease);
+}
+
+// spec: EG-DURABLE-KERNEL-R039.3
+#[test]
+fn pending_worker_refuses_incomplete_fences_and_fractional_deadline() {
+    let temp = open("pending-worker-shape");
+    let request = pending_fixture(&temp.shard);
+    let work = stored_work(&temp.shard);
+    let fence = &request.pending_call_registration.unwrap().expected_lease;
+    for field in ["attempt", "lease_epoch", "fencing_token", "work_item_fence"] {
+        let mut incomplete = work.clone();
+        incomplete.remove(field);
+        assert!(!pending_call::live_worker(&incomplete, fence, 2_000));
+    }
+    let mut fractional = work;
+    fractional.insert("lease_expires_at".into(), serde_json::json!(2.0009));
+    assert!(!pending_call::live_worker(&fractional, fence, 2_000));
 }

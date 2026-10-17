@@ -7,6 +7,35 @@ const PENDING_REF: &str = "pending_call_lease_ref";
 const REGISTERED_WORK: &str = "pending_call_work_item";
 const REGISTERED_FENCE: &str = "pending_call_worker_digest";
 
+/// Check the native provenance table before trusting any mirrored lease tuple.
+pub(super) fn require_claim(
+    graph: &str,
+    method: &Method,
+    native_work_items: &NativeNodeRows<'_>,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    let work_id = match method {
+        Method::IssueControlLease { request } => request
+            .pending_call_registration
+            .as_ref()
+            .map(|pending| pending.work_item.work_item_id.as_str()),
+        Method::TransitionControlLease { request } => request
+            .pending_call_consumption
+            .as_ref()
+            .map(|pending| pending.work_item.work_item_id.as_str()),
+        _ => None,
+    };
+    if let Some(work_id) = work_id {
+        crate::redb_store::work_item_capability::require_native_claim(
+            native_work_items,
+            graph,
+            work_id,
+            crypto,
+        )?;
+    }
+    Ok(())
+}
+
 fn worker_digest(fence: &CasWorkItemMetadataLeaseFence) -> Result<String, String> {
     use sha2::{Digest, Sha256};
     let mut hash = Sha256::new();
@@ -39,14 +68,27 @@ fn work_item(
     Ok(row)
 }
 
-fn live_worker(row: &NodeRow, fence: &CasWorkItemMetadataLeaseFence, now_ms: u64) -> bool {
-    super::super::commit_work_item_lease_is_valid(
-        row,
-        &fence.worker_ref,
-        fence.lease_epoch,
-        fence.fencing_token,
-        now_ms,
-    ) && property_f64(row, "lease_expires_at") > now_ms as f64 / 1000.0
+pub(super) fn live_worker(
+    row: &NodeRow,
+    fence: &CasWorkItemMetadataLeaseFence,
+    now_ms: u64,
+) -> bool {
+    let expiry = property_f64(row, "lease_expires_at");
+    let fenced = property_u64(row, "attempt") != 0
+        && fence.lease_epoch != 0
+        && fence.fencing_token != 0
+        && !property_string(row, "work_item_fence").is_empty();
+    fenced
+        && expiry.is_finite()
+        && expiry > 0.0
+        && (expiry * 1000.0).floor() as u64 > now_ms
+        && super::super::commit_work_item_lease_is_valid(
+            row,
+            &fence.worker_ref,
+            fence.lease_epoch,
+            fence.fencing_token,
+            now_ms,
+        )
 }
 
 pub(super) fn registration(
@@ -107,7 +149,7 @@ pub(super) fn transition(
     let mut work = if request.to == ControlLeaseTarget::Consumed {
         consumption_work(graph, request, lease, nodes, now_ms, crypto)?
     } else {
-        load_row(nodes, graph, &work_id, crypto)?.ok_or("pending WorkItem unavailable")?
+        load_row(nodes, graph, work_id, crypto)?.ok_or("pending WorkItem unavailable")?
     };
     if property_string(&work, "tenant") != request.tenant
         || property_string(&work, PENDING_REF) != request.lease_id
