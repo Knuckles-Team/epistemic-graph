@@ -209,8 +209,8 @@
         "31cbdeb6d98b"
       ],
       "verified_by": [
-        "crates/eg-numeric/src/evaluation/backtest.rs:189",
-        "crates/eg-numeric/src/evaluation/backtest.rs:200",
+        "crates/eg-numeric/src/evaluation/backtest.rs:193",
+        "crates/eg-numeric/src/evaluation/backtest.rs:204",
         "crates/eg-numeric/src/evaluation/skill.rs:237"
       ],
       "rollup_of": [
