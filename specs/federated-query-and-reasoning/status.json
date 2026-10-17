@@ -88,6 +88,7 @@
     "EG-FEDERATED-QUERY-R072.1",
     "EG-FEDERATED-QUERY-R073",
     "EG-FEDERATED-QUERY-R073.1",
+    "EG-FEDERATED-QUERY-R073.2",
     "EG-FEDERATED-QUERY-R074",
     "EG-FEDERATED-QUERY-R075",
     "EG-FEDERATED-QUERY-R076",
@@ -275,13 +276,22 @@
     "EG-FEDERATED-QUERY-R089.4",
     "EG-FEDERATED-QUERY-R089.5",
     "EG-FEDERATED-QUERY-R089.6",
+    "EG-FEDERATED-QUERY-R089.7",
     "EG-FEDERATED-QUERY-R090",
     "EG-FEDERATED-QUERY-R090.1",
     "EG-FEDERATED-QUERY-R090.2",
     "EG-FEDERATED-QUERY-R090.3",
     "EG-FEDERATED-QUERY-R090.4",
     "EG-FEDERATED-QUERY-R090.5",
-    "EG-FEDERATED-QUERY-R090.6"
+    "EG-FEDERATED-QUERY-R090.6",
+    "EG-FEDERATED-QUERY-R091",
+    "EG-FEDERATED-QUERY-R091.1",
+    "EG-FEDERATED-QUERY-R091.2",
+    "EG-FEDERATED-QUERY-R091.3",
+    "EG-FEDERATED-QUERY-R091.4",
+    "EG-FEDERATED-QUERY-R091.5",
+    "EG-FEDERATED-QUERY-R091.6",
+    "EG-FEDERATED-QUERY-R090.7"
   ],
   "requirements": [
     {
@@ -1318,7 +1328,7 @@
     {
       "id": "EG-FEDERATED-QUERY-R073",
       "title": "Operation-bound virtual mappings federate API, MCP, A2A and GraphQL sources",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "62c450561948",
         "bfd84b2ccbcb",
@@ -1326,7 +1336,8 @@
       ],
       "verified_by": [],
       "rollup_of": [
-        "EG-FEDERATED-QUERY-R073.1"
+        "EG-FEDERATED-QUERY-R073.1",
+        "EG-FEDERATED-QUERY-R073.2"
       ]
     },
     {
@@ -1343,6 +1354,13 @@
         "crates/eg-plan/src/federation_opt/budget.rs:156",
         "crates/eg-plan/src/federation_opt/budget.rs:173"
       ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R073.2",
+      "title": "Connection-protocol pushdown matrix",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "EG-FEDERATED-QUERY-R074",
@@ -2808,7 +2826,8 @@
         "EG-FEDERATED-QUERY-R089.3",
         "EG-FEDERATED-QUERY-R089.4",
         "EG-FEDERATED-QUERY-R089.5",
-        "EG-FEDERATED-QUERY-R089.6"
+        "EG-FEDERATED-QUERY-R089.6",
+        "EG-FEDERATED-QUERY-R089.7"
       ]
     },
     {
@@ -2854,6 +2873,13 @@
       "verified_by": []
     },
     {
+      "id": "EG-FEDERATED-QUERY-R089.7",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
       "id": "EG-FEDERATED-QUERY-R090",
       "title": "Discover plans expansions, recency and multi-hop context (rollup)",
       "delivery_state": "SPECIFIED",
@@ -2865,7 +2891,8 @@
         "EG-FEDERATED-QUERY-R090.3",
         "EG-FEDERATED-QUERY-R090.4",
         "EG-FEDERATED-QUERY-R090.5",
-        "EG-FEDERATED-QUERY-R090.6"
+        "EG-FEDERATED-QUERY-R090.6",
+        "EG-FEDERATED-QUERY-R090.7"
       ]
     },
     {
@@ -2906,6 +2933,70 @@
     {
       "id": "EG-FEDERATED-QUERY-R090.6",
       "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R091",
+      "title": "Virtual-query plans evolve by measured improvement (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-FEDERATED-QUERY-R091.1",
+        "EG-FEDERATED-QUERY-R091.2",
+        "EG-FEDERATED-QUERY-R091.3",
+        "EG-FEDERATED-QUERY-R091.4",
+        "EG-FEDERATED-QUERY-R091.5",
+        "EG-FEDERATED-QUERY-R091.6"
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R091.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R091.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R091.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R091.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R091.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R091.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R090.7",
+      "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

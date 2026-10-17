@@ -92,3 +92,109 @@ These bullets define future acceptance targets. They are not test evidence or re
   - Hold application-level SQL/schema conformance until the R026 owner provides the approved target mapping and captured statement corpus.
   - Preserve EG-DURABLE-KERNEL-R035, EG-DURABLE-KERNEL-R043, EG-FEDERATED-QUERY-R080, EG-UNIFIED-DATA-PLANE-R026, and EG-FEDERATED-QUERY-R080.1 through R080.6.
 <!-- /spec-definition-patch -->
+
+## EG-UNIFIED-DATA-PLANE-R038.3 acceptance
+
+| Case | Row | Proving test and observation |
+|---|---|---|
+
+| Model | `EG-UNIFIED-DATA-PLANE-R038.3.1` | `crates/eg-types/src/metadata_acceleration.rs::tests::snapshot_semantics_round_trip`: A serde round trip keeps every field and rejects an unknown category or isolation. |
+
+| Behavior | `EG-UNIFIED-DATA-PLANE-R038.3.2` | `crates/eg-plan/src/federation_opt/tests.rs::fragments_share_snapshot`: Two fragments of one query read one snapshot while a concurrent writer commits. |
+
+| Wiring | `EG-UNIFIED-DATA-PLANE-R038.3.3` | `crates/eg-plan/src/federation_opt/tests.rs::foreign_scan_opens_snapshot`: A served query over a transactional source reaches the snapshot path. |
+
+| Refusal | `EG-UNIFIED-DATA-PLANE-R038.3.4` | `crates/eg-plan/src/federation_opt/tests.rs::snapshot_refusals`: Each case returns its code and runs no source statement. |
+
+| Evidence | `EG-UNIFIED-DATA-PLANE-R038.3.5` | `crates/eg-plan/src/federation_opt/tests.rs::provenance_names_snapshot`: The answer provenance names one snapshot token per source. |
+
+| Hot-path proof | `EG-UNIFIED-DATA-PLANE-R038.3.6` | `tests/federation/test_oltp_snapshot_served.py::test_fragments_share_one_snapshot`: The answer matches the snapshot oracle and the engine row count for that source stays unchanged. |
+
+
+Hot-path proof for `EG-UNIFIED-DATA-PLANE-R038.3`: `tests/federation/test_oltp_snapshot_served.py::test_fragments_share_one_snapshot`.
+
+## EG-UNIFIED-DATA-PLANE-R038.4 acceptance
+
+| Case | Row | Proving test and observation |
+|---|---|---|
+
+| Model | `EG-UNIFIED-DATA-PLANE-R038.4.1` | `crates/eg-lake/src/tests/metastore_model.rs::metastore_spec_round_trips`: A serde round trip keeps every field and rejects an unknown format. |
+
+| Behavior | `EG-UNIFIED-DATA-PLANE-R038.4.2` | `crates/eg-lake/src/tests/metastore_scan.rs::partition_and_stripe_pruning`: A pushed predicate reads only the matching partitions and stripes. |
+
+| Wiring | `EG-UNIFIED-DATA-PLANE-R038.4.3` | `crates/eg-lake/src/tests/metastore_scan.rs::served_scan_reaches_pruning`: A served query over a metastore table reaches the pruned scan. |
+
+| Refusal | `EG-UNIFIED-DATA-PLANE-R038.4.4` | `crates/eg-lake/src/tests/metastore_scan.rs::metastore_refusals`: Each case returns its code and reads no data file. |
+
+| Evidence | `EG-UNIFIED-DATA-PLANE-R038.4.5` | `crates/eg-lake/src/tests/metastore_scan.rs::receipt_counts_match`: The receipt counts match the files the scan opened. |
+
+| Hot-path proof | `EG-UNIFIED-DATA-PLANE-R038.4.6` | `tests/federation/test_metastore_orc_avro_served.py::test_partition_pruned_scan`: The answer matches the full-scan oracle and the receipt shows pruning. |
+
+
+Hot-path proof for `EG-UNIFIED-DATA-PLANE-R038.4`: `tests/federation/test_metastore_orc_avro_served.py::test_partition_pruned_scan`.
+
+## EG-UNIFIED-DATA-PLANE-R038.5 acceptance
+
+| Case | Row | Proving test and observation |
+|---|---|---|
+
+| Model | `EG-UNIFIED-DATA-PLANE-R038.5.1` | `crates/eg-plan/src/federation_opt/tests.rs::search_capability_round_trips`: A serde round trip keeps every field and rejects an unknown score kind. |
+
+| Behavior | `EG-UNIFIED-DATA-PLANE-R038.5.2` | `crates/eg-plan/src/federation_opt/tests.rs::relevance_pushdown_replenishes`: A pushed query returns k results with remote scores in their channel. |
+
+| Wiring | `EG-UNIFIED-DATA-PLANE-R038.5.3` | `crates/eg-plan/src/federation_opt/tests.rs::served_search_reaches_fusion`: A served query reaches the remote index and the shared fusion. |
+
+| Refusal | `EG-UNIFIED-DATA-PLANE-R038.5.4` | `crates/eg-plan/src/federation_opt/tests.rs::search_refusals`: Each case returns its code or pages, and no result carries an invented score. |
+
+| Evidence | `EG-UNIFIED-DATA-PLANE-R038.5.5` | `crates/eg-plan/src/federation_opt/tests.rs::search_receipt`: The receipt matches the remote request. |
+
+| Hot-path proof | `EG-UNIFIED-DATA-PLANE-R038.5.6` | `tests/federation/test_search_index_pushdown_served.py::test_relevance_pushed_and_k_replenished`: The answer holds k results, and the engine stores no index documents. |
+
+
+Hot-path proof for `EG-UNIFIED-DATA-PLANE-R038.5`: `tests/federation/test_search_index_pushdown_served.py::test_relevance_pushed_and_k_replenished`.
+
+## EG-UNIFIED-DATA-PLANE-R038.6 acceptance
+
+| Case | Row | Proving test and observation |
+|---|---|---|
+
+| Model | `EG-UNIFIED-DATA-PLANE-R038.6.1` | `crates/eg-types/src/virtual_graph_view.rs::tests::graph_view_round_trips`: A serde round trip keeps every field and rejects an unmapped label. |
+
+| Behavior | `EG-UNIFIED-DATA-PLANE-R038.6.2` | `crates/eg-query/src/cypher/tests/virtual_view.rs::pattern_pushes_join`: One pattern renders one pushed SQL statement per same-source join. |
+
+| Wiring | `EG-UNIFIED-DATA-PLANE-R038.6.3` | `crates/eg-query/src/cypher/tests/virtual_view.rs::served_read_resolves_view`: A served openCypher read over a mapped source reaches the view resolution. |
+
+| Refusal | `EG-UNIFIED-DATA-PLANE-R038.6.4` | `crates/eg-query/src/cypher/tests/virtual_view.rs::view_refusals`: Each case returns its code and runs no source statement. |
+
+| Evidence | `EG-UNIFIED-DATA-PLANE-R038.6.5` | `crates/eg-query/src/cypher/tests/virtual_view.rs::explain_names_mapping`: EXPLAIN names the mapping digest of each fragment. |
+
+| Hot-path proof | `EG-UNIFIED-DATA-PLANE-R038.6.6` | `tests/federation/test_graph_language_virtual_served.py::test_cypher_and_gremlin_match_sparql_over_sql_source`: The three answers are equal, and the engine row count for that source stays unchanged. |
+
+
+Hot-path proof for `EG-UNIFIED-DATA-PLANE-R038.6`: `tests/federation/test_graph_language_virtual_served.py::test_cypher_and_gremlin_match_sparql_over_sql_source`.
+
+## EG-UNIFIED-DATA-PLANE-R022.4 acceptance
+
+| Case | Row | Proving test and observation |
+|---|---|---|
+| Evidence | `EG-UNIFIED-DATA-PLANE-R022.4` | `crates/eg-types/src/dialect_conformance.rs::tests::matrix_covers_every_source_category`: A unit test fails when a category lacks a row. It reports `unproven` for a category without a passing proof. |
+
+## EG-UNIFIED-DATA-PLANE-R038.7 acceptance
+
+| Case | Row | Proving test and observation |
+|---|---|---|
+
+| Model | `EG-UNIFIED-DATA-PLANE-R038.7.1` | `crates/eg-plan/src/federation_opt/tests.rs::web_result_round_trips`: A serde round trip keeps every field and rejects a result without a URL. |
+
+| Behavior | `EG-UNIFIED-DATA-PLANE-R038.7.2` | `crates/eg-plan/src/federation_opt/tests.rs::web_search_pushdown_and_ttl`: A repeated pattern within the time-to-live sends one connector query. |
+
+| Wiring | `EG-UNIFIED-DATA-PLANE-R038.7.3` | `crates/eg-plan/src/federation_opt/tests.rs::served_web_search_reaches_cache`: A served pattern over web results reaches the connector operation and the shared cache. |
+
+| Refusal | `EG-UNIFIED-DATA-PLANE-R038.7.4` | `crates/eg-plan/src/federation_opt/tests.rs::web_search_refusals`: Each case returns its code, and no expired row serves a read. |
+
+| Evidence | `EG-UNIFIED-DATA-PLANE-R038.7.5` | `crates/eg-plan/src/federation_opt/tests.rs::web_result_provenance`: Each row names its engine, rank and retrieval time, and a cached row says so. |
+
+| Hot-path proof | `EG-UNIFIED-DATA-PLANE-R038.7.6` | `tests/federation/test_web_metasearch_served.py::test_pattern_pushes_to_connector_with_ttl_cache`: The connector receives two queries, the rows are typed, and the graph store holds no result rows. |
+
+
+Hot-path proof for `EG-UNIFIED-DATA-PLANE-R038.7`: `tests/federation/test_web_metasearch_served.py::test_pattern_pushes_to_connector_with_ttl_cache`.

@@ -136,3 +136,41 @@ References
 - Explicit hold: the source names no target application, full relational schema, or captured statement corpus. The R026 pilot owner must supply and approve those artifacts before application compatibility is accepted.
 - Preserve EG-DURABLE-KERNEL-R035, EG-DURABLE-KERNEL-R043, EG-FEDERATED-QUERY-R080, EG-UNIFIED-DATA-PLANE-R026, EG-FEDERATED-QUERY-R080.1, EG-FEDERATED-QUERY-R080.2, EG-FEDERATED-QUERY-R080.3, EG-FEDERATED-QUERY-R080.4, EG-FEDERATED-QUERY-R080.5, EG-FEDERATED-QUERY-R080.6. Source SHA-256: `c55bc629b1bfefc9d0346b75b8bb95e5a231b891e7e34297df17b960d6c9773c`.
 <!-- /spec-definition-patch -->
+
+## Source categories: OLTP, metastore, search index, graph languages and the coverage matrix (R038.3 to R038.6, R022.4)
+
+These rows extend the existing virtual-graph rollups. They add no second planner. Entity rows stay at the source (`EG-UNIFIED-DATA-PLANE-R038`). Mappings are R2RML-style (`EG-UNIFIED-DATA-PLANE-R005`). Pushdown reuses the federation optimizer (`EG-FEDERATED-QUERY-R038`, `EG-FEDERATED-QUERY-R041`). Connection protocols form the second axis in `EG-FEDERATED-QUERY-R073.2`.
+
+Call path: served query -> planner -> `foreign_scan` (`crates/eg-plan/src/federation_opt/run.rs:26`) -> source session -> pushed fragment -> local residual.
+
+### Source-category coverage matrix (R022.4)
+
+| Category | Standard protocol or format | Pushdown | Mapping form | Hot-path proof |
+|---|---|---|---|---|
+| Relational SQL | SQL through ODBC or JDBC drivers | filter, projection, join, aggregate, limit, time range | R2RML | `EG-UNIFIED-DATA-PLANE-R006` differential test |
+| PostgreSQL wire | PostgreSQL frontend/backend protocol 3.0 | filter, projection, join, aggregate, limit, time range | R2RML | `EG-UNIFIED-DATA-PLANE-R022.2` matrix runner |
+| OLTP row store | SQL with snapshot isolation | filter, projection, join, aggregate, limit, time range | R2RML plus `SnapshotSemantics` | `EG-UNIFIED-DATA-PLANE-R038.3.6` |
+| OLAP and columnar | SQL; Arrow Flight SQL | filter, projection, join, aggregate, limit, time range | R2RML | `EG-UNIFIED-DATA-PLANE-R020.2.2` |
+| Time series | SQL with time-bucket aggregates | filter, projection, aggregate, limit, time range | R2RML with a time column | `EG-UNIFIED-DATA-PLANE-R022.2` matrix runner |
+| Search index | HTTP JSON search query; vector nearest-neighbour query | filter, projection, limit, relevance top-k | document-id mapping plus score channel | `EG-UNIFIED-DATA-PLANE-R038.5.6` |
+| Document store | JSON documents addressed by JSONPath | filter, projection, aggregate, limit | RML with JSONPath | `EG-UNIFIED-DATA-PLANE-R022.2` matrix runner |
+| Web metasearch | MCP tool call | category, engine, limit, time range | `cv:SearchResult` with a cache | `EG-UNIFIED-DATA-PLANE-R038.7.6` |
+| Key-value store | key lookup and batched key lookup | key filter, limit | key-template mapping | `EG-FEDERATED-QUERY-R052` |
+| Data lake tables | Apache Iceberg REST catalog; Parquet, ORC, Avro | partition pruning, projection, limit, snapshot time range | R2RML | `EG-FEDERATED-QUERY-R051`; `EG-UNIFIED-DATA-PLANE-R038.4.6` |
+| Hadoop-family catalog | Hive metastore Thrift protocol | filter by partition, projection | R2RML over the table schema | `EG-UNIFIED-DATA-PLANE-R038.4.6` |
+| Spark-compatible engine | Spark Connect gRPC protocol; SQL | filter, projection, join, aggregate, limit, time range | R2RML | `EG-FEDERATED-QUERY-R053` |
+| Arrow Flight SQL | Arrow Flight SQL | filter, projection, join, aggregate, limit, time range | R2RML | `EG-UNIFIED-DATA-PLANE-R020.2.2` |
+| Property-graph source | openCypher; Gremlin | filter, projection, pattern join, aggregate, limit | label and type mapping | `EG-FEDERATED-QUERY-R053`; `EG-UNIFIED-DATA-PLANE-R038.6.6` |
+| Object storage | HTTP object API with range reads | prefix filter, byte-range projection | file-format mapping | `EG-UNIFIED-DATA-PLANE-R038.4.6` |
+
+Budgets: one snapshot per source per query and a 5000 ms replica lag bound. The statement timeout is 30 s, the path depth limit is 8, and catalog pages hold 1,000 tables. These are starting defaults. A measurement on this platform replaces them.
+
+## Web metasearch sources (R038.7)
+
+A web metasearch connector answers a pattern over web results at query time. The connector tools take query text, categories, engines, a time range and a language. The engine maps each result to `cv:SearchResult` with URL, title, snippet, engine, rank and retrieval time.
+
+Call path: served SPARQL or UQL -> planner -> `foreign_scan` (`run.rs:26`) -> `FragmentCacheScope` lookup (`cache.rs:27`) -> MCP operation of `EG-FEDERATED-QUERY-R073` -> typed rows.
+
+Selection: a harness that asks graph-os to search the web receives the search tools through `EG-DECISION-ENGINE-R176` and `GRAPHOS-FLEET-R037`. Online refresh of embeddings over these results belongs to the adaptive-embeddings rows. They reference `EG-UNIFIED-DATA-PLANE-R038.7`.
+
+Budget: a 900 s default time-to-live and one connector query per cache miss. These are starting defaults. A measurement on this platform replaces them.

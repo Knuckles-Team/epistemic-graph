@@ -1556,3 +1556,53 @@ Budget: engine overhead under 1 ms per 256-node batch, excluding endpoint latenc
 
 References
 - No paper is cited.
+
+## EG-DECISION-ENGINE-R174.7 to R174.9 — adaptive embeddings
+
+Vision: retrieval improves from its own outcomes and stays current as data drifts. The base model stays frozen. The engine learns small scoped transforms and refreshes only what changed.
+
+Scoped adapters (`.7`). Call path: served `DecisionLog` -> `DecisionLogOp::Learn` -> `LearningWrite::FitAdapter` -> `stat_adapter.rs` -> `eg-numeric` fit -> receipt -> `stat_pointer.rs`. Serving: `served_adapter.rs` resolves capability, then corpus, then graph, then base. `semantic.rs:233` applies it on `Discover`.
+
+Drift refresh (`.8`). Call path: graph write commit and `RecordOutcome` -> per-shard monitor -> `eg-jobs` evaluation -> `RefreshPlanV1`. The plan then runs the `R174` cycle and swaps each shard under the `R172.6` pin.
+
+Search freshness (`.9`). Call path: trigger -> `LearningWrite::RefreshFreshness` -> `stat_freshness.rs` -> `searxng` virtual-graph source (`EG-MEDIA-VOCAB-R015`) -> dedupe -> region mark -> `.8` refresh.
+
+Crates: `eg-types` for records, `eg-numeric` for fit and monitor kernels and `eg-jobs` for jobs. `eg-ann` and `eg-compute` hold the indexes, and the root server package holds the handlers.
+
+Data structures: an adapter is at most 8 orthonormal Q30 directions of `d` values plus gains. A shard monitor holds `2 * d` running moments, an 8 KiB Bloom filter and a compressed changed-node bitmap. A refresh dedupe set maps canonical URL to content digest.
+
+Concurrency: fits, evaluations and refreshes run on background leases. Readers pin one generation per shard and one adapter digest at query start.
+
+Persistence: adapters, receipts and pointers persist in the Agent Library store. Monitors checkpoint in the `eg-jobs` redb store.
+
+Tenant isolation: every scope, monitor and dedupe set resolves inside the caller's tenant. A refresh needs an ACL policy and a privacy policy.
+
+Scheduling: non-urgent work takes downtime priority from the downtime work scheduling of `EG-DURABLE-KERNEL-R101`. The web metasearch source category is `EG-UNIFIED-DATA-PLANE-R038.7`, listed in the source-category matrix `EG-UNIFIED-DATA-PLANE-R022.4`. A job that needs fresh data runs on demand.
+
+Budgets:
+- Adapter fit: at most 30 s and 64 MiB.
+- Resident adapter: at most 40 KiB.
+- Added query latency: at most 50 µs p99.
+- Monitor update: under 2 µs p99.
+- Refresh overhead: under 2 ms p99 per 100 results.
+
+References
+- No paper is cited.
+
+## EG-DECISION-ENGINE-R172.12: designation over connector-pack relationships
+
+Capability designation reads the surface triples that `EG-TYPED-PACKS-R102` projects from each connector pack. Call path: `ConnectorPack.Import` → `project_head` (`src/server/handlers/admin/connector_pack/reproject.rs:72`) → capability index upsert (`crates/eg-compute/src/capability_index/`) → `handle_decide` (`src/server/handlers/decide/stat_decide.rs:137`) → `capability_designation_outcome`. Subclass matching over `cp:appliesTo` and `cp:executes` answers which method and which tool apply to a target class.
+
+## EG-DECISION-ENGINE-R176 and R177 — job-scoped load set and usage guidance
+
+A harness asks graph-os what a job needs. graph-os asks the engine. The engine answers from the overlay of every imported connector pack. graph-os loads only the answered tools (`GRAPHOS-FLEET-R037`). graph-os holds no ranking policy.
+
+Call path: graph-os `find` with a job -> served `Decide` -> `handle_decide` (`statistical.rs:11`) -> capability designation (`EG-DECISION-ENGINE-R172`) per capability -> union and bound -> premises -> answer.
+
+Crates: `eg-types` for the question and answer, `eg-compute` for the designation index, the root server package for the handler.
+
+Data structures: one `BTreeMap<ComponentId, Candidate>` for the union. One bounded binary heap of `max_tools` entries for the top set.
+
+Budget: p95 under 50 ms for 5,000 tools across 100 packs. This is a starting default. A measurement on this platform replaces it.
+
+Usage guidance (R177) replaces static skill instructions as the authority. A skill asks the engine how and when to use a connector. The pack surface relationships come from `EG-TYPED-PACKS-R102`; the step vocabulary comes from `EG-CQ-ORCH-R001`.

@@ -572,3 +572,48 @@ Neither accepted input supplies a research paper or arXiv identifier; no researc
 - Source record SHA-256: `525e39d1d194ac8a820bbd741a1c261ceab0c7d564981c33c731c06c1eb641d8`.
 - Keep status SPECIFIED until the EG served producer and each separately owned consumer are implemented, served-tested and independently read back.
 <!-- /spec-definition-patch -->
+
+## Connector packs as native OWL/RDF (R101, R102)
+
+### Vision
+
+Every connector ships one OWL/RDF ontology pack. The pack holds the connector's domain ontology and its ingest contract. It also holds the connector's features, tools, prompts and skills. The engine imports the pack and stores every element as native relationships in the pack graph. Selection is an engine decision. The engine answers which algorithm, tool or skill applies by SPARQL and `Decide` over that ontology. Connectors and agents ask; the engine decides and computes. The SDK authors the pack from the connector's typed declarations (`SDK-CONNECTOR-CONTROL-R067`). The competency questions in `EG-CQ-CONN-R084` accept this design.
+
+### Current state
+
+Only pack ontology and shapes entries are native RDF today. They become one graph schema source through `projection_documents_from_store` (`src/server/handlers/admin/connector_pack/reproject.rs:227`). The manifest entry is an opaque engine body. Import extracts a YAML subset into `ConnectorSchemaMapping` structs (`src/server/persistence/connector_pack/manifest.rs:13`). Mapping resolution matches `manifest:` selector strings (`src/server/persistence/connector_pack.rs:381`). Checkpoint positions are opaque JSON (`crates/eg-types/src/source_ingestion.rs:193`). Tools, prompts and skills are typed component rows without graph nodes. No shape validates any contract element. The `virtual_graph-v1` vocabulary already declares contract, mapping and field-pair classes; R101 extends it.
+
+### Design
+
+Import enters at `ConnectorPack.Import` and `run_import` (`import.rs:63`). Contract planning runs at `import/planning.rs:314`. The engine parses the body with the bounded Turtle parser (R033). It validates the body with step-bounded SHACL (R035, R058). The owner commit then records the pack head.
+
+The outbox consumer runs `project` (`src/server/connector_pack_projection.rs:220`) and `project_head` (`reproject.rs:72`). Projection writes the pack graph triples and fills the typed contract index.
+
+`SourceIngest` resolves mappings at `src/server/handlers/source_ingestion.rs:400` through the contract index. The receipt carries the contract digest. Each node carries `cp:governedBy`. The checkpoint compare-and-swap binds the cursor policy at `source_ingestion.rs:473`.
+
+Projection commit upserts the capability index (`EG-DECISION-ENGINE-R172.12.3`). `Decide` answers `CapabilityDesignation` questions at `src/server/handlers/decide/stat_decide.rs:137`. Reads use the SPARQL handler (`src/server/handlers/rdf/sparql.rs:30`) and `OntologyInspect` (R098).
+
+All engine work is native Rust. The engine holds no YAML parser for contracts.
+
+### Runtime ontology import (R103)
+
+A connector imports or revises its domain ontology at runtime without a full pack import. The served `GraphSchema` method reaches the gateway route at `src/server/handlers/graph_ops/gateway_graph_routes.rs:656`. `handle_gateway` (`src/server/graph_schema.rs:191`) matches `ImportOntology`. The engine parses and validates the body. It commits one tenant-scoped schema source revision under `ontology:<connector>/<ontology IRI>`. The content digest makes a repeated import a no-op.
+
+## EG-TYPED-PACKS-R104 — connect-time seed graph import
+
+Component: Connector packs
+References: EG-TYPED-PACKS-R101, EG-TYPED-PACKS-R103, [GRAPHOS-FLEET-R036](https://github.com/Knuckles-Team/graph-os/blob/main/specs/fleet-catalog-and-tools/spec.md), [SDK-CONNECTOR-CONTROL-R068](https://github.com/Knuckles-Team/agent-connector-sdk/blob/main/specs/SDK-CONNECTOR-CONTROL/spec.md)
+
+A connector establishes its contract on first connect. It serves the manifest, the ontology pack and the seed graph as MCP resources (`SDK-CONNECTOR-CONTROL-R068`). The graph-os multiplexer reads them on first connect and on `resources/list_changed` (`GRAPHOS-FLEET-R036`). The engine owns validation, storage and idempotency.
+
+Call path: graph-os `onboard` -> served `ConnectorPack.Import` -> `run_import` (`import.rs:63`) -> seed validation -> `project_head` (`reproject.rs:72`) -> one commit.
+
+Crates: `eg-types` for `SeedGraphImport`, `eg-core` for the seed vocabulary and shapes, `eg-shacl` for validation, the root server package for the handler.
+
+Data structures: one `BTreeMap<SeedPartKey, SeedPart>` per import. The stored part digests are keyed by tenant, connector and part. A digest compare decides each part before any parse.
+
+Budget: 50,000 triples and 8 MiB per seed graph. Engine time stays under 200 ms per 10,000 triples. These are starting defaults; a measurement on this platform replaces them.
+
+Tenant isolation: the seed graph resolves inside the importing tenant.
+
+No bulk data: the seed graph names objects and their references. Entity rows stay at the source and answer through virtual mappings (`EG-UNIFIED-DATA-PLANE-R038`).

@@ -226,3 +226,10 @@ This batch defines the slices; it runs none of their runtime tests.
 - [ ] **EG-DURABLE-KERNEL-R100.6 (Hot-path proof):** Add the served outage test and the benchmark.
 
 - EG-DURABLE-KERNEL-R028.2: terminal event readback, restart identity, tenant isolation, missing/corrupt binding refusal and legacy unavailability. Hosted and served acceptance remains pending until the tests run and pass.
+- [ ] **EG-DURABLE-KERNEL-R101 (rollup):** Downtime work is an ontology that drives the engine scheduler (rollup).
+- [ ] **EG-DURABLE-KERNEL-R101.1 (Model):** Add the typed model.
+- [ ] **EG-DURABLE-KERNEL-R101.2 (Behavior):** Implement the behavior.
+- [ ] **EG-DURABLE-KERNEL-R101.3 (Wiring):** Wire the production call site.
+- [ ] **EG-DURABLE-KERNEL-R101.4 (Refusal):** Add the typed refusals.
+- [ ] **EG-DURABLE-KERNEL-R101.5 (Evidence):** Emit the evidence.
+- [ ] **EG-DURABLE-KERNEL-R101.6 (Hot-path proof):** Add the served hot-path test.

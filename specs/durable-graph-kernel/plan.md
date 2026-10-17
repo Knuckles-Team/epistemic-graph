@@ -610,3 +610,18 @@ safe fields. Never expose fence tokens, executor lease identity, carrier digest
 or caller-filled event sequence/cursor. Missing legacy bindings remain explicit
 unavailability; invalid bindings fail closed. GraphOS A2A-R010 remains open:
 status/step producers and full replay/gap policy are separate prerequisites.
+## EG-DURABLE-KERNEL-R101 — downtime work ontology and scheduler
+
+The scheduler owner is `SchedulerConfig` (`EG-DURABLE-KERNEL-R076`). The durable job plane is `eg-jobs`. This row adds the ontology of downtime work and the selection rule. It adds no second scheduler.
+
+Call path, first half: scheduler tick -> window detection -> `dw:JobType` read -> precondition ASK.
+
+Call path, second half: `priority_then_budget_fit` -> `eg-jobs` enqueue -> checkpointed run -> preemption.
+
+Crates: `eg-core` for the ontology and shapes, `eg-jobs` for `DowntimeJobType` and the selection, `eg-types` for `SchedulerConfig`.
+
+Data structures: one sorted `Vec<DowntimeJobType>` of at most 256 types, rebuilt on ontology revision. Selection is O(n log n) per tick.
+
+Seed job types: `plan_evolution` (`EG-FEDERATED-QUERY-R091`), `index_build`, `compaction`, `seed_reconcile` (`EG-TYPED-PACKS-R104`) and `embedding_generation` (`EG-DECISION-ENGINE-R174`).
+
+Budget: a default window budget of 25% CPU and 2 GiB memory; preemption within 250 ms. These are starting defaults. A measurement on this platform replaces them.

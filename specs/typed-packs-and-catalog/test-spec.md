@@ -336,3 +336,50 @@ No test named here has run; names describe acceptance obligations, not evidence.
 
 - **`EG-TYPED-PACKS-R071.100` (EG:8; source `525e39d1d194ac8a820bbd741a1c261ceab0c7d564981c33c731c06c1eb641d8`):** Cross-repository fixtures admit a new unique path. They refuse duplicate canonical paths, alias collisions, incompatible parent assignments and stale vocabulary revisions. Read back canonical path and unchanged published IRIs. Retain R071 generated ontology authority and R001.4 digest vectors. Producer/consumer boundary: EG vocabulary validation owns canonical identity; repository producers submit proposed paths. Preserve existing published IRIs and federated query vocabulary. Require exact source revision, input/output digests, caller and independent readback where specified. These cases are planned only; no implementation or receipt is asserted. Planned proving tests (names only; not present or executed evidence): `tests/typed_packs/test_concept_path_admission_served.py::test_owner_approved_path_grammar_is_shared`, `tests/typed_packs/test_concept_path_admission_served.py::test_duplicate_or_conflicting_paths_refuse_without_iri_changes`. Owner decision hold: the canonical segment grammar is not approved for separators/escaping, Unicode normalization, case, or whitespace. Keep admission SPECIFIED until the vocabulary owner publishes one versioned grammar shared by producers; preserve existing published IRIs. No runtime/test receipt is asserted.
 <!-- /spec-definition-patch -->
+
+## Connector packs as native RDF (R101, R102)
+
+- `EG-TYPED-PACKS-R101`: Rollup closes when every child `.1` to `.8` passes its proving test.
+- `EG-TYPED-PACKS-R101.1`: `crates/eg-core/tests/connector_pack_vocabulary.rs::contract_terms_resolve_with_domain_and_range`.
+- `EG-TYPED-PACKS-R101.2`: `crates/eg-shacl/tests/connector_pack_shapes.rs::each_contract_shape_accepts_valid_and_refuses_invalid`.
+- `EG-TYPED-PACKS-R101.3`: `src/server/handlers/admin/connector_pack/import/contract_tests.rs::contract_entry_validates_and_projects_triples`.
+- `EG-TYPED-PACKS-R101.4`: `src/server/persistence/connector_pack/contract_index_tests.rs::mapping_resolution_reads_contract_triples`.
+- `EG-TYPED-PACKS-R101.5`: `src/server/handlers/admin/connector_pack/tests/contract_wiring.rs::import_and_ingest_reach_contract_index`.
+- `EG-TYPED-PACKS-R101.6`: `src/server/handlers/admin/connector_pack/import/contract_tests.rs::contract_refusals_leave_state_unchanged`.
+- `EG-TYPED-PACKS-R101.7`: `src/server/handlers/source_ingestion/contract_receipt_tests.rs::receipt_binds_contract_digest_and_governed_by`.
+- `EG-TYPED-PACKS-R101.8`: `tests/typed_packs/test_ingest_contract_rdf_served.py::test_contract_import_governs_ingest`.
+- `EG-TYPED-PACKS-R102`: Rollup closes when every child `.1` to `.7` passes its proving test.
+- `EG-TYPED-PACKS-R102.1`: `crates/eg-shacl/tests/connector_pack_shapes.rs::surface_shapes_accept_valid_and_refuse_invalid`.
+- `EG-TYPED-PACKS-R102.2`: `src/server/connector_pack_projection/surface_tests.rs::surface_nodes_follow_pack_head`.
+- `EG-TYPED-PACKS-R102.3`: `src/server/handlers/admin/connector_pack/import/contract_tests.rs::core_class_redeclaration_is_refused`.
+- `EG-TYPED-PACKS-R102.4`: `src/server/connector_pack_projection/surface_tests.rs::outbox_consumer_writes_surface_nodes`.
+- `EG-TYPED-PACKS-R102.5`: `src/server/handlers/admin/connector_pack/import/contract_tests.rs::surface_refusals_leave_state_unchanged`.
+- `EG-TYPED-PACKS-R102.6`: `src/server/connector_pack_projection/surface_tests.rs::surface_nodes_carry_pack_digest`.
+- `EG-TYPED-PACKS-R102.7`: `tests/typed_packs/test_connector_surface_rdf_served.py::test_surface_query_follows_pack_head`.
+- `EG-TYPED-PACKS-R103`: Rollup closes when every child `.1` to `.6` passes its proving test.
+- `EG-TYPED-PACKS-R103.1`: `crates/eg-types/src/graph_schema.rs::tests::ontology_import_ops_round_trip`.
+- `EG-TYPED-PACKS-R103.2`: `src/server/graph_schema/ontology_import_tests.rs::import_is_idempotent_by_digest_and_revises`.
+- `EG-TYPED-PACKS-R103.3`: `src/server/graph_schema/ontology_import_tests.rs::gateway_routes_ontology_import`.
+- `EG-TYPED-PACKS-R103.4`: `src/server/graph_schema/ontology_import_tests.rs::ontology_import_refusals_leave_schema_unchanged`.
+- `EG-TYPED-PACKS-R103.5`: `src/server/graph_schema/ontology_import_tests.rs::revision_records_digest_importer_and_classes`.
+- `EG-TYPED-PACKS-R103.6`: `tests/typed_packs/test_runtime_ontology_import_served.py::test_import_revise_withdraw_end_to_end`.
+
+## EG-TYPED-PACKS-R104 acceptance
+
+| Case | Row | Proving test and observation |
+|---|---|---|
+
+| Model | `EG-TYPED-PACKS-R104.1` | `crates/eg-types/src/connector_pack/seed_graph.rs::tests::seed_import_round_trips`: A serde round trip keeps every field and rejects an unknown part key. |
+
+| Behavior | `EG-TYPED-PACKS-R104.2` | `src/server/handlers/admin/connector_pack/seed_tests.rs::changed_part_reimports_alone`: A second import with one changed part replaces that part and leaves the other two byte-identical. |
+
+| Wiring | `EG-TYPED-PACKS-R104.3` | `src/server/handlers/admin/connector_pack/seed_tests.rs::served_import_projects_seed`: A served import with a seed body reaches `project_head` and writes the seed triples. |
+
+| Refusal | `EG-TYPED-PACKS-R104.4` | `src/server/handlers/admin/connector_pack/seed_tests.rs::seed_refusals_write_nothing`: Each case returns its code and the graph revision stays unchanged. |
+
+| Evidence | `EG-TYPED-PACKS-R104.5` | `src/server/handlers/admin/connector_pack/seed_tests.rs::receipt_names_part_outcomes`: A served SPARQL read finds the receipt and the `seed:fromSeed` link of one catalog object. |
+
+| Hot-path proof | `EG-TYPED-PACKS-R104.6` | `tests/connector_pack/test_seed_graph_served.py::test_seed_idempotent_and_partial_reimport`: The repeat returns `unchanged`, the change replaces only `catalog`, and the query sees the new objects. |
+
+
+Hot-path proof for `EG-TYPED-PACKS-R104`: `tests/connector_pack/test_seed_graph_served.py::test_seed_idempotent_and_partial_reimport`.

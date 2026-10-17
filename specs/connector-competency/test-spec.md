@@ -41,3 +41,13 @@ These tests remain PENDING; this documentation change supplies no implementation
 | `connector_audit_reassignment::repository_manager` | `EG-CQ-CONN-R052.3` | `sdlc_lifecycle-v1.ttl` | PENDING |
 | `connector_audit_reassignment::servicenow` | `EG-CQ-CONN-R057.3` | `archimate-v1.ttl` | PENDING |
 | `connector_audit_reassignment::stirlingpdf` | `EG-CQ-CONN-R059.3` | `action-v1.ttl` | PENDING |
+
+## Connector-pack competency questions (R084)
+
+- `EG-CQ-CONN-R084`: Rollup closes when every child `.1` to `.6` passes its proving test.
+- `EG-CQ-CONN-R084.1`: `crates/eg-core/tests/connector_pack_competency.rs::finance_algorithm_selection_answers`.
+- `EG-CQ-CONN-R084.2`: `crates/eg-core/tests/connector_pack_competency.rs::positions_and_applicable_risk_analyses_answer`.
+- `EG-CQ-CONN-R084.3`: `crates/eg-core/tests/connector_pack_competency.rs::capability_to_surface_and_contract_answers`.
+- `EG-CQ-CONN-R084.4`: `crates/eg-core/tests/connector_pack_competency.rs::record_governance_answers`.
+- `EG-CQ-CONN-R084.5`: `crates/eg-core/tests/connector_pack_competency.rs::finance_method_terms_and_shape`.
+- `EG-CQ-CONN-R084.6`: `tests/typed_packs/test_connector_pack_competency_served.py::test_pack_questions_end_to_end`.

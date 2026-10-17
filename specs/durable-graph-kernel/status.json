@@ -278,7 +278,14 @@
     "EG-DURABLE-KERNEL-R100.4",
     "EG-DURABLE-KERNEL-R100.5",
     "EG-DURABLE-KERNEL-R100.6",
-    "EG-DURABLE-KERNEL-R028.2"
+    "EG-DURABLE-KERNEL-R028.2",
+    "EG-DURABLE-KERNEL-R101",
+    "EG-DURABLE-KERNEL-R101.1",
+    "EG-DURABLE-KERNEL-R101.2",
+    "EG-DURABLE-KERNEL-R101.3",
+    "EG-DURABLE-KERNEL-R101.4",
+    "EG-DURABLE-KERNEL-R101.5",
+    "EG-DURABLE-KERNEL-R101.6"
   ],
   "requirements": [
     {
@@ -3114,6 +3121,63 @@
         "src/redb_store/work_item/read/tests.rs:221",
         "src/redb_store/work_item/read/tests.rs:246"
       ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R101",
+      "title": "Downtime work is an ontology that drives the engine scheduler (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DURABLE-KERNEL-R101.1",
+        "EG-DURABLE-KERNEL-R101.2",
+        "EG-DURABLE-KERNEL-R101.3",
+        "EG-DURABLE-KERNEL-R101.4",
+        "EG-DURABLE-KERNEL-R101.5",
+        "EG-DURABLE-KERNEL-R101.6"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R101.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R101.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R101.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R101.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R101.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R101.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     }
   ]
 }

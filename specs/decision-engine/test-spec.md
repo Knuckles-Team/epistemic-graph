@@ -643,6 +643,14 @@ No test in this section has run.
 - `EG-DECISION-ENGINE-R172.9`: `src/server/handlers/decide/stat_tests/capability_designation_tests.rs::premises_name_scores_and_defaults`.
 - `EG-DECISION-ENGINE-R172.10`: `benches/capability_designation_bench.rs`.
 - `EG-DECISION-ENGINE-R172.11`: `tests/decide/test_capability_designation_served.py::test_designation_end_to_end`.
+- `EG-DECISION-ENGINE-R172.12`: Rollup closes when every child `.12.1` to `.12.6` passes its proving test.
+- `EG-DECISION-ENGINE-R172.12.1`: `crates/eg-types/src/decision/capability_designation.rs::tests::pack_surface_fields_round_trip`.
+- `EG-DECISION-ENGINE-R172.12.2`: `crates/eg-types/src/decision/capability_designation.rs::tests::target_class_subsumption_selects_tools`.
+- `EG-DECISION-ENGINE-R172.12.3`: `src/server/handlers/decide/stat_tests/capability_designation_tests.rs::projection_commit_upserts_pack_records`.
+- `EG-DECISION-ENGINE-R172.12.4`: `src/server/handlers/decide/stat_tests/capability_designation_tests.rs::pack_target_refusals`.
+- `EG-DECISION-ENGINE-R172.12.5`: `src/server/handlers/decide/stat_tests/capability_designation_tests.rs::premises_name_subclass_path_and_pack`.
+- `EG-DECISION-ENGINE-R172.12.6`: `tests/decide/test_capability_designation_pack_served.py::test_designation_reads_imported_pack`.
+- `EG-DECISION-ENGINE-R172.13`: `crates/eg-compute/src/capability_index/tests.rs::capability_adapter_applies_before_rank`.
 
 ## EG-DECISION-ENGINE-R175 acceptance
 
@@ -708,3 +716,81 @@ Hot-path proof for `EG-DECISION-ENGINE-R100.102`: `tests/decide/test_run_credit_
 | Hot-path proof | `EG-DECISION-ENGINE-R174.6` | The served test passes, and the measured overhead meets the budget. |
 
 Hot-path proof for `EG-DECISION-ENGINE-R174`: `tests/decide/test_generation_cycle_served.py::test_cycle_resumes_and_activates`.
+
+## EG-DECISION-ENGINE-R176 acceptance
+
+| Case | Row | Proving test and observation |
+|---|---|---|
+
+| Model | `EG-DECISION-ENGINE-R176.1` | `crates/eg-types/src/decision/load_set.rs::tests::load_set_round_trips`: A serde round trip keeps every field and rejects `max_tools` above 128. |
+
+| Behavior | `EG-DECISION-ENGINE-R176.2` | `src/server/handlers/decide/stat_tests/load_set.rs::bounded_union_in_stable_order`: A job over three packs returns a bounded, duplicate-free set in a stable order. |
+
+| Wiring | `EG-DECISION-ENGINE-R176.3` | `src/server/handlers/decide/stat_tests/load_set.rs::served_decide_reaches_load_set`: A served `Decide` with a load-set question reaches the new arm. |
+
+| Refusal | `EG-DECISION-ENGINE-R176.4` | `src/server/handlers/decide/stat_tests/load_set.rs::load_set_refusals`: Each case returns its code, and no partial set hides an abstention. |
+
+| Evidence | `EG-DECISION-ENGINE-R176.5` | `src/server/handlers/decide/stat_tests/load_set.rs::premises_per_component`: Each chosen tool has one premise with its pack digest. |
+
+| Hot-path proof | `EG-DECISION-ENGINE-R176.6` | `tests/decide/test_load_set_served.py::test_job_returns_bounded_tool_skill_agent_set`: The answer holds 32 tools or fewer, their skills and one agent start, and meets the time budget. |
+
+
+Hot-path proof for `EG-DECISION-ENGINE-R176`: `tests/decide/test_load_set_served.py::test_job_returns_bounded_tool_skill_agent_set`.
+
+## EG-DECISION-ENGINE-R177 acceptance
+
+| Case | Row | Proving test and observation |
+|---|---|---|
+
+| Model | `EG-DECISION-ENGINE-R177.1` | `crates/eg-types/src/decision/usage_guidance.rs::tests::guidance_round_trips`: A serde round trip keeps every field and rejects a step without a tool. |
+
+| Behavior | `EG-DECISION-ENGINE-R177.2` | `src/server/handlers/decide/stat_tests/usage_guidance.rs::steps_ordered_by_outcome`: A fixture connector returns ordered steps, and success rate breaks a tie. |
+
+| Wiring | `EG-DECISION-ENGINE-R177.3` | `src/server/handlers/decide/stat_tests/usage_guidance.rs::served_decide_reaches_guidance`: A served `Decide` with a guidance question reaches the new arm. |
+
+| Refusal | `EG-DECISION-ENGINE-R177.4` | `src/server/handlers/decide/stat_tests/usage_guidance.rs::guidance_refusals`: Each case returns its code. |
+
+| Evidence | `EG-DECISION-ENGINE-R177.5` | `src/server/handlers/decide/stat_tests/usage_guidance.rs::steps_cite_triples`: Each step lists its supporting triples. |
+
+| Hot-path proof | `EG-DECISION-ENGINE-R177.6` | `tests/decide/test_usage_guidance_served.py::test_how_to_use_connector_answers_from_graph`: The answer lists the steps in the order with the higher success rate, with citations. |
+
+
+Hot-path proof for `EG-DECISION-ENGINE-R177`: `tests/decide/test_usage_guidance_served.py::test_how_to_use_connector_answers_from_graph`.
+## EG-DECISION-ENGINE-R174.7 acceptance
+
+| Case | Row | Proving test and observation |
+|---|---|---|
+| Model | `EG-DECISION-ENGINE-R174.7.1` | A serde round trip keeps every field and rejects an unknown scope, side or source. |
+| Behavior | `EG-DECISION-ENGINE-R174.7.2` | Unit tests cover deterministic refit, keep and revert, resolution order and the memory cap. |
+| Wiring | `EG-DECISION-ENGINE-R174.7.3` | A dispatch test routes a scoped fit, an activation and a served query. |
+| Refusal | `EG-DECISION-ENGINE-R174.7.4` | Each case returns its code and leaves the served adapter unchanged. |
+| Evidence | `EG-DECISION-ENGINE-R174.7.5` | A test reads the fit receipt, a rollback receipt and the verdict field. |
+| Hot-path proof | `EG-DECISION-ENGINE-R174.7.6` | The served test passes, and the benchmark receipt meets each budget. |
+
+Hot-path proof for `EG-DECISION-ENGINE-R174.7`: `tests/decide/test_scoped_adapter_served.py::test_outcome_adapter_lifts_and_reverts`.
+
+## EG-DECISION-ENGINE-R174.8 acceptance
+
+| Case | Row | Proving test and observation |
+|---|---|---|
+| Model | `EG-DECISION-ENGINE-R174.8.1` | A serde round trip keeps every field and rejects 4,097 regions. |
+| Behavior | `EG-DECISION-ENGINE-R174.8.2` | Unit tests fire each signal kind, show hysteresis and select only changed regions. |
+| Wiring | `EG-DECISION-ENGINE-R174.8.3` | A dispatch test observes a monitor update, one plan and one per-shard swap. |
+| Refusal | `EG-DECISION-ENGINE-R174.8.4` | Each case returns its code and leaves every shard generation unchanged. |
+| Evidence | `EG-DECISION-ENGINE-R174.8.5` | A test reads the signal premises and the refresh receipt. |
+| Hot-path proof | `EG-DECISION-ENGINE-R174.8.6` | The served test passes, and the benchmark receipt meets each budget. |
+
+Hot-path proof for `EG-DECISION-ENGINE-R174.8`: `tests/decide/test_drift_refresh_served.py::test_vocabulary_drift_refreshes_changed_shards`.
+
+## EG-DECISION-ENGINE-R174.9 acceptance
+
+| Case | Row | Proving test and observation |
+|---|---|---|
+| Model | `EG-DECISION-ENGINE-R174.9.1` | A serde round trip keeps every field and rejects 33 queries. |
+| Behavior | `EG-DECISION-ENGINE-R174.9.2` | Unit tests cover canonical URLs, each dedupe outcome, the region mark and both budgets. |
+| Wiring | `EG-DECISION-ENGINE-R174.9.3` | A dispatch test observes one virtual-graph read and one region mark. |
+| Refusal | `EG-DECISION-ENGINE-R174.9.4` | Each case returns its code and writes no row and no region mark. |
+| Evidence | `EG-DECISION-ENGINE-R174.9.5` | A test reads the result provenance and the receipt. |
+| Hot-path proof | `EG-DECISION-ENGINE-R174.9.6` | The served test passes, and the measured overhead meets the budget. |
+
+Hot-path proof for `EG-DECISION-ENGINE-R174.9`: `tests/decide/test_freshness_refresh_served.py::test_search_refresh_dedupes_and_feeds_refresh`.

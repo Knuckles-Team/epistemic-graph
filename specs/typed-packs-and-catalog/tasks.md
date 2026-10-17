@@ -180,3 +180,38 @@ Keep each ruled boundary and adjacent owner obligation intact.
 - [ ] `EG-TYPED-PACKS-R071.100`: add the typed request/result, policy/revision binding, producer/consumer wiring contract, refusal cases and receipt/readback fields described in requirements; preserve `R071` and its prior children.
 - [ ] `EG-TYPED-PACKS-R071.100`: add served acceptance for: Cross-repository fixtures admit a new unique path and refuse duplicate canonical path, alias collision, incompatible parent assignment and stale vocabulary revision. Read back canonical path and unchanged published IRIs; retain R071 generated ontology authority and R001.4 digest vectors. Planned proving tests (names only; not present or executed evidence): `tests/typed_packs/test_concept_path_admission_served.py::test_owner_approved_path_grammar_is_shared`, `tests/typed_packs/test_concept_path_admission_served.py::test_duplicate_or_conflicting_paths_refuse_without_iri_changes`. Owner decision hold: the canonical segment grammar is not approved for separators/escaping, Unicode normalization, case, or whitespace. Keep admission SPECIFIED until the vocabulary owner publishes one versioned grammar shared by producers; preserve existing published IRIs.
 <!-- /spec-definition-patch -->
+
+## Connector packs as native RDF (R101, R102)
+
+- [ ] **EG-TYPED-PACKS-R101:** Ingest contracts are native OWL/RDF relationships in the pack graph. Pass the proving test in test-spec.md.
+- [ ] **EG-TYPED-PACKS-R101.1:** Model. Pass the proving test in test-spec.md.
+- [ ] **EG-TYPED-PACKS-R101.2:** Model. Pass the proving test in test-spec.md.
+- [ ] **EG-TYPED-PACKS-R101.3:** Behavior. Pass the proving test in test-spec.md.
+- [ ] **EG-TYPED-PACKS-R101.4:** Behavior. Pass the proving test in test-spec.md.
+- [ ] **EG-TYPED-PACKS-R101.5:** Wiring. Pass the proving test in test-spec.md.
+- [ ] **EG-TYPED-PACKS-R101.6:** Refusal. Pass the proving test in test-spec.md.
+- [ ] **EG-TYPED-PACKS-R101.7:** Evidence. Pass the proving test in test-spec.md.
+- [ ] **EG-TYPED-PACKS-R101.8:** Hot-path proof. Pass the proving test in test-spec.md.
+- [ ] **EG-TYPED-PACKS-R102:** Connector surface and domain relationships are native graph relationships. Pass the proving test in test-spec.md.
+- [ ] **EG-TYPED-PACKS-R102.1:** Model. Pass the proving test in test-spec.md.
+- [ ] **EG-TYPED-PACKS-R102.2:** Behavior. Pass the proving test in test-spec.md.
+- [ ] **EG-TYPED-PACKS-R102.3:** Behavior. Pass the proving test in test-spec.md.
+- [ ] **EG-TYPED-PACKS-R102.4:** Wiring. Pass the proving test in test-spec.md.
+- [ ] **EG-TYPED-PACKS-R102.5:** Refusal. Pass the proving test in test-spec.md.
+- [ ] **EG-TYPED-PACKS-R102.6:** Evidence. Pass the proving test in test-spec.md.
+- [ ] **EG-TYPED-PACKS-R102.7:** Hot-path proof. Pass the proving test in test-spec.md.
+- [ ] **EG-TYPED-PACKS-R103:** Served runtime ontology import, revision and withdrawal. Pass the proving test in test-spec.md.
+- [ ] **EG-TYPED-PACKS-R103.1:** Model. Pass the proving test in test-spec.md.
+- [ ] **EG-TYPED-PACKS-R103.2:** Behavior. Pass the proving test in test-spec.md.
+- [ ] **EG-TYPED-PACKS-R103.3:** Wiring. Pass the proving test in test-spec.md.
+- [ ] **EG-TYPED-PACKS-R103.4:** Refusal. Pass the proving test in test-spec.md.
+- [ ] **EG-TYPED-PACKS-R103.5:** Evidence. Pass the proving test in test-spec.md.
+- [ ] **EG-TYPED-PACKS-R103.6:** Hot-path proof. Pass the proving test in test-spec.md.
+
+- [ ] **EG-TYPED-PACKS-R104 (rollup):** Connect-time seed graph import, idempotent by content digest (rollup).
+- [ ] **EG-TYPED-PACKS-R104.1 (Model):** Add the typed model.
+- [ ] **EG-TYPED-PACKS-R104.2 (Behavior):** Implement the behavior.
+- [ ] **EG-TYPED-PACKS-R104.3 (Wiring):** Wire the production call site.
+- [ ] **EG-TYPED-PACKS-R104.4 (Refusal):** Add the typed refusals.
+- [ ] **EG-TYPED-PACKS-R104.5 (Evidence):** Emit the evidence.
+- [ ] **EG-TYPED-PACKS-R104.6 (Hot-path proof):** Add the served hot-path test.
