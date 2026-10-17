@@ -22,6 +22,12 @@
     "EG-INGEST-WORKER-R001.15",
     "EG-INGEST-WORKER-R001.16",
     "EG-INGEST-WORKER-R001.17",
+    "EG-INGEST-WORKER-R001.1006",
+    "EG-INGEST-WORKER-R001.1007",
+    "EG-INGEST-WORKER-R001.1008",
+    "EG-INGEST-WORKER-R001.1009",
+    "EG-INGEST-WORKER-R001.1010",
+    "EG-INGEST-WORKER-R001.1011",
     "EG-INGEST-WORKER-R002",
     "EG-INGEST-WORKER-R002.1",
     "EG-INGEST-WORKER-R002.2",
@@ -131,7 +137,13 @@
         "EG-INGEST-WORKER-R001.14",
         "EG-INGEST-WORKER-R001.15",
         "EG-INGEST-WORKER-R001.16",
-        "EG-INGEST-WORKER-R001.17"
+        "EG-INGEST-WORKER-R001.17",
+        "EG-INGEST-WORKER-R001.1006",
+        "EG-INGEST-WORKER-R001.1007",
+        "EG-INGEST-WORKER-R001.1008",
+        "EG-INGEST-WORKER-R001.1009",
+        "EG-INGEST-WORKER-R001.1010",
+        "EG-INGEST-WORKER-R001.1011"
       ]
     },
     {
@@ -249,6 +261,48 @@
     {
       "id": "EG-INGEST-WORKER-R001.17",
       "title": "Parity test against the deleted module",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R001.1006",
+      "title": "Model: catalogue, log and declaration ingest",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R001.1007",
+      "title": "Behavior: catalogue, log and declaration ingest",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R001.1008",
+      "title": "Wiring: catalogue, log and declaration ingest",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R001.1009",
+      "title": "Refusal: catalogue, log and declaration ingest",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R001.1010",
+      "title": "Evidence: catalogue, log and declaration ingest",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R001.1011",
+      "title": "Hot-path proof: catalogue, log and declaration ingest",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
