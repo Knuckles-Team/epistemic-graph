@@ -234,3 +234,4 @@ This batch defines the slices; it runs none of their runtime tests.
 - [ ] **EG-DURABLE-KERNEL-R101.4 (Refusal):** Add the typed refusals.
 - [ ] **EG-DURABLE-KERNEL-R101.5 (Evidence):** Emit the evidence.
 - [ ] **EG-DURABLE-KERNEL-R101.6 (Hot-path proof):** Add the served hot-path test.
+- [ ] **EG-DURABLE-KERNEL-R102:** Publish the R085 memory read and save methods in the generated client contract for the GraphOS memory operations.

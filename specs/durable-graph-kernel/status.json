@@ -287,6 +287,7 @@
     "EG-DURABLE-KERNEL-R101.4",
     "EG-DURABLE-KERNEL-R101.5",
     "EG-DURABLE-KERNEL-R101.6",
+    "EG-DURABLE-KERNEL-R102",
     "EG-DURABLE-KERNEL-R609",
     "EG-DURABLE-KERNEL-R609.1",
     "EG-DURABLE-KERNEL-R609.2",
@@ -3257,6 +3258,13 @@
     {
       "id": "EG-DURABLE-KERNEL-R101.6",
       "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R102",
+      "title": "The client contract serves the memory methods GraphOS binds",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

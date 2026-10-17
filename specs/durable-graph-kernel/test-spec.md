@@ -22,7 +22,7 @@ All fixtures run against a disposable local data directory and generated credent
 
 ## Commands and quality evidence
 
-Use focused package tests for `eg-types`, `eg-transaction`, `eg-storage`, `eg-stream`, `eg-tsdb`, and affected server integration tests, followed by the configured full pre-commit and hosted parity commands in `plan.md`. Run `python3 scripts/check_universal_read_rls.py` and `python3 scripts/check_persisted_mutation_contract.py` when their paths are affected. The repository's CCCC changed-function gate rejects new cyclomatic >10 or cognitive >15; run the configured Dupehound changed-function and jscpd differential gates without new suppressions, plus KISS, Rust architecture lint and clippy. Record scanner versions from the checked-in scanner contract. A benchmark is evidence only for its measured hardware/workload/durability class; no live environment is an implicit prerequisite to unit or contract acceptance.
+Use focused package tests for `eg-types`, `eg-transaction`, `eg-storage`, `eg-stream`, `eg-tsdb`, and affected server integration tests. Then run the configured full pre-commit and hosted parity commands in `plan.md`. Run `python3 scripts/check_universal_read_rls.py` and `python3 scripts/check_persisted_mutation_contract.py` when their paths are affected. The repository's CCCC changed-function gate rejects new cyclomatic >10 or cognitive >15; run the configured Dupehound changed-function and jscpd differential gates without new suppressions, plus KISS, Rust architecture lint and clippy. Record scanner versions from the checked-in scanner contract. A benchmark is evidence only for its measured hardware/workload/durability class; no live environment is an implicit prerequisite to unit or contract acceptance.
 
 ## Evidence record
 
@@ -341,3 +341,9 @@ Hot-path proof for `EG-DURABLE-KERNEL-R100`: `tests/mirror_graph_sinks_served.rs
 
 
 Hot-path proof for `EG-DURABLE-KERNEL-R101`: `tests/scheduler/test_downtime_scheduler_served.py::test_idle_window_runs_priority_jobs_and_preempts`.
+
+## EG-DURABLE-KERNEL-R102 acceptance
+
+| Case | Row | Proving test and observation |
+|---|---|---|
+| Served contract | `EG-DURABLE-KERNEL-R102` | `tests/memory_contract_served.py::test_memory_methods_in_client_contract`: The generated contract lists the read and save methods, and a real served engine answers both for one tenant. |
