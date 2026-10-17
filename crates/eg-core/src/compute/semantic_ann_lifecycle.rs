@@ -29,6 +29,8 @@ impl SemanticStore {
             built_len: RwLock::new(0),
             state: AtomicU8::new(STATE_COLD),
             generation,
+            #[cfg(test)]
+            builds: std::sync::atomic::AtomicUsize::new(0),
         }
     }
 
