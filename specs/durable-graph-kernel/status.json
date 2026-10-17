@@ -83,6 +83,7 @@
     "EG-DURABLE-KERNEL-R037.2",
     "EG-DURABLE-KERNEL-R039",
     "EG-DURABLE-KERNEL-R039.1",
+    "EG-DURABLE-KERNEL-R039.2",
     "EG-DURABLE-KERNEL-R040",
     "EG-DURABLE-KERNEL-R041",
     "EG-DURABLE-KERNEL-R041.1",
@@ -1312,14 +1313,15 @@
     {
       "id": "EG-DURABLE-KERNEL-R039",
       "title": "In-memory data structures rebuild from the redb durability log",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "1ef84395fa69",
         "a7372171174e"
       ],
       "verified_by": [],
       "rollup_of": [
-        "EG-DURABLE-KERNEL-R039.1"
+        "EG-DURABLE-KERNEL-R039.1",
+        "EG-DURABLE-KERNEL-R039.2"
       ]
     },
     {
@@ -1334,6 +1336,15 @@
         "crates/eg-types/src/atomic_primitive.rs:120",
         "crates/eg-types/src/atomic_primitive.rs:161",
         "crates/eg-types/src/atomic_primitive.rs:176"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R039.2",
+      "title": "Native control-lease consumption checks expiry inside its durable transaction",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "src/redb_store/work_item/control_lease/tests.rs:214"
       ]
     },
     {

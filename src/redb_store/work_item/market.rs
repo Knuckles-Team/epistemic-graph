@@ -42,8 +42,13 @@ pub(crate) struct NativeRecordRequest<'args, 'table, 'crypto> {
 pub(crate) fn apply_native_record_rows(
     request: NativeRecordRequest<'_, '_, '_>,
 ) -> Result<Option<crate::protocol::ResultPayload>, String> {
-    let lease =
-        apply_control_lease_rows(request.graph, request.method, request.nodes, request.crypto)?;
+    let lease = apply_control_lease_rows(
+        request.graph,
+        request.method,
+        request.nodes,
+        request.committed_at_ms,
+        request.crypto,
+    )?;
     if lease.is_some() {
         return Ok(lease);
     }

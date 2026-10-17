@@ -66,6 +66,7 @@ Status key: `[ ]` queued, `[-]` in progress, `[x]` verified at cited main revisi
 - [x] **EG-DURABLE-KERNEL-R038.2:** DurabilityClass write-path entry point: write_plan and refuse_if_durable_log_write
 - [x] **EG-DURABLE-KERNEL-R039:** In-memory data structures rebuild from the redb durability log
 - [x] **EG-DURABLE-KERNEL-R039.1:** DataStructureKind/AtomicPrimitiveKind/DurabilityDeclaration typed model with always-redb-sole-authority invariant
+- [ ] **EG-DURABLE-KERNEL-R039.2:** Validate native control-lease consumption against engine-owned mutation time inside the row transaction; preserve conflict outcomes and revocation. Run the scoped native-record expiry regression before claiming acceptance.
 - [x] **EG-DURABLE-KERNEL-R040:** Pipelined requests commit as a single batch
 - [x] **EG-DURABLE-KERNEL-R040.1:** PipelineBatch/BatchCommitDecision typed model: one admission per batch, order-preserving replies, empty-batch refusal
 - [x] **EG-DURABLE-KERNEL-R041:** SQL plan cache keyed by statement digest and schema version
