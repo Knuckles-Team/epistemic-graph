@@ -54,7 +54,7 @@ fn transitioned(
     request: TransitionControlLeaseRequest,
 ) -> ControlLeaseTransition {
     decode(with_nodes(shard, tag, |nodes| {
-        apply_transition_control_lease_row(GRAPH, &request, nodes, DurableCrypto::none())
+        apply_transition_control_lease_row(GRAPH, &request, nodes, 2_000, DurableCrypto::none())
     }))
 }
 
@@ -209,4 +209,71 @@ fn the_pending_approval_queue_lists_only_the_tenants_active_approvals() {
         .collect();
     assert_eq!(ids, ["action_approval:1"]);
     assert_eq!(page.next_cursor, None);
+}
+
+// spec: EG-DURABLE-KERNEL-R039.2
+#[test]
+fn native_record_consumption_checks_commit_time_and_preserves_expired_rows() {
+    use super::super::market::{apply_native_record_rows, NativeRecordRequest};
+    use super::super::test_shard::with_write;
+    use crate::redb_store::store_rows::GraphRowTables;
+
+    let temp = open("lease-commit-expiry");
+    for (index, now_ms) in [300_999, 301_000, 301_001, 901_000].into_iter().enumerate() {
+        let id = format!("lease-expiry-{index}");
+        issued(
+            &temp.shard,
+            &format!("issue-{index}"),
+            issue(&id, "tenant-a"),
+        );
+        let before = get(&temp.shard, "tenant-a", &id).unwrap();
+        let method = Method::TransitionControlLease {
+            request: end(&id, before.revision, ControlLeaseTarget::Consumed),
+        };
+        let result: ControlLeaseTransition = decode(
+            with_write(
+                &temp.shard,
+                &format!("consume-{index}"),
+                now_ms,
+                |admitted| {
+                    let member = admitted.graph(GRAPH).unwrap();
+                    let mut rows = GraphRowTables::open(member).unwrap();
+                    apply_native_record_rows(NativeRecordRequest {
+                        graph: GRAPH,
+                        batch_id: "lease-expiry-test",
+                        method: &method,
+                        nodes: &mut rows.nodes,
+                        edges: &mut rows.edges,
+                        command_sequences: &mut rows.command_sequences,
+                        committed_at_ms: now_ms,
+                        crypto: DurableCrypto::none(),
+                    })
+                },
+            )
+            .unwrap(),
+        );
+        if now_ms < before.expires_at_ms {
+            assert_eq!(result.outcome, ControlLeaseTransitionOutcome::Applied);
+            assert_eq!(result.lease.unwrap().status, ControlLeaseStatus::Consumed);
+        } else {
+            assert_eq!(result.outcome, ControlLeaseTransitionOutcome::Conflict);
+            assert!(result.changed_work_item_ids.is_empty());
+            assert_eq!(result.lease, Some(before.clone()));
+            assert_eq!(get(&temp.shard, "tenant-a", &id), Some(before));
+            let revoked: ControlLeaseTransition = decode(with_nodes(
+                &temp.shard,
+                &format!("revoke-{index}"),
+                |nodes| {
+                    apply_transition_control_lease_row(
+                        GRAPH,
+                        &end(&id, 1, ControlLeaseTarget::Revoked),
+                        nodes,
+                        now_ms,
+                        DurableCrypto::none(),
+                    )
+                },
+            ));
+            assert_eq!(revoked.outcome, ControlLeaseTransitionOutcome::Applied);
+        }
+    }
 }
