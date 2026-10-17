@@ -12,8 +12,8 @@
 //! An issue names its kind. A transition does not, so the stored lease is
 //! read; its kind is immutable after issue, so the read cannot race a change
 //! of kind; under raft it runs after the placement-leader check, so the read
-//! is the leader's. A lease that is not visible falls through to the kernel,
-//! which answers `not_found` itself.
+//! is the leader's. A lease that is not visible refuses before dispatch: a
+//! concurrent issue must not supply an unapproved kind after this lookup.
 
 use std::sync::OnceLock;
 
@@ -76,17 +76,36 @@ async fn check(
     policy: &ControlLeaseKindPolicy,
     target: LeaseTarget<'_>,
 ) -> Result<(), String> {
-    let agent_id = ctx.verified_context.agent_id();
-    if !policy.restricts(agent_id) {
-        return Ok(());
+    let kind = match target {
+        LeaseTarget::Kind(kind) => Some(kind.to_owned()),
+        LeaseTarget::Stored { tenant, lease_id } => stored_kind(ctx, tenant, lease_id).await?,
+    };
+    check_resolved_kind(ctx.verified_context, policy, kind.as_deref())
+}
+
+fn check_resolved_kind(
+    verified: &crate::server::auth::VerifiedRequestContext,
+    policy: &ControlLeaseKindPolicy,
+    kind: Option<&str>,
+) -> Result<(), String> {
+    // Never dispatch after an absent lookup: an issue could race that read and
+    // create a kind for which this caller has not been authorized.
+    let kind = kind.ok_or("ACCESS_DENIED: control lease target unavailable before transition")?;
+    require_pending_work_authority(kind, verified)?;
+    policy.require(verified.agent_id(), kind)
+}
+
+/// A pending-call lease also mutates a WorkItem; lease-write alone is insufficient.
+fn require_pending_work_authority(
+    kind: &str,
+    verified: &crate::server::auth::VerifiedRequestContext,
+) -> Result<(), String> {
+    if kind == eg_types::control_lease::PENDING_CALL_KIND
+        && !verified.allows_method("work:write", true)
+    {
+        return Err("ACCESS_DENIED: pending-call storage requires work:write authority".into());
     }
-    match target {
-        LeaseTarget::Kind(kind) => policy.require(agent_id, kind),
-        LeaseTarget::Stored { tenant, lease_id } => {
-            let stored = stored_kind(ctx, tenant, lease_id).await?;
-            stored.map_or(Ok(()), |kind| policy.require(agent_id, &kind))
-        }
-    }
+    Ok(())
 }
 
 /// `Some(refusal)` when the verified principal may not write this lease.
@@ -99,9 +118,13 @@ pub(super) async fn refuse_unpermitted_lease_kind(
         Ok(policy) => check(ctx, policy, target).await,
         Err(error) => Err(format!("ACCESS_DENIED: {error}")),
     };
+    refusal_response(ctx.req_id, outcome)
+}
+
+fn refusal_response(req_id: u64, outcome: Result<(), String>) -> Option<Response> {
     outcome.err().map(|denied| {
         crate::metrics::access_denied();
-        Response::err(ctx.req_id, denied)
+        Response::err(req_id, denied)
     })
 }
 
@@ -120,5 +143,45 @@ mod tests {
         .expect("well-formed");
         assert!(set.permits("service:graph-os", "finance.order-proposal"));
         assert!(!set.permits("service:graph-os", "rbac.elevation"));
+    }
+
+    // spec: EG-DURABLE-KERNEL-R039.3
+    #[test]
+    fn lease_write_alone_cannot_change_pending_work_item_state() {
+        use crate::server::auth::VerifiedRequestContext;
+        use eg_types::control_lease::PENDING_CALL_KIND;
+        let lease_only = VerifiedRequestContext::verified_for_test_with_scopes(
+            "worker-a",
+            "tenant-a",
+            &["lease:write"],
+        );
+        assert!(super::require_pending_work_authority(PENDING_CALL_KIND, &lease_only).is_err());
+        assert!(super::require_pending_work_authority("browser.control", &lease_only).is_ok());
+        let both = VerifiedRequestContext::verified_for_test_with_scopes(
+            "worker-a",
+            "tenant-a",
+            &["lease:write", "work:write"],
+        );
+        assert!(super::require_pending_work_authority(PENDING_CALL_KIND, &both).is_ok());
+    }
+
+    // spec: EG-DURABLE-KERNEL-R039.3
+    #[test]
+    fn absent_lookup_returns_a_terminal_refusal_before_any_later_registration() {
+        use crate::server::auth::VerifiedRequestContext;
+        use eg_types::control_lease::{ControlLeaseKindPolicy, PENDING_CALL_KIND};
+        let verified = VerifiedRequestContext::verified_for_test_with_scopes(
+            "worker-a",
+            "tenant-a",
+            &["lease:write", "work:write"],
+        );
+        let policy = ControlLeaseKindPolicy::default();
+        let absent = super::check_resolved_kind(&verified, &policy, None);
+        let stop_dispatch = super::refusal_response(1, absent);
+        // This is the handler's terminal-response boundary, not a concurrent
+        // storage test: a later lookup cannot replace the already made refusal.
+        assert!(stop_dispatch.is_some());
+        assert!(super::check_resolved_kind(&verified, &policy, Some(PENDING_CALL_KIND)).is_ok());
+        assert!(stop_dispatch.is_some());
     }
 }

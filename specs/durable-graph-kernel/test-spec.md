@@ -340,3 +340,7 @@ Hot-path proof for `EG-DURABLE-KERNEL-R100`: `tests/mirror_graph_sinks_served.rs
 
 
 Hot-path proof for `EG-DURABLE-KERNEL-R101`: `tests/scheduler/test_downtime_scheduler_served.py::test_idle_window_runs_priority_jobs_and_preempts`.
+
+## Pending envelope storage
+
+`EG-DURABLE-KERNEL-R039.3`: use a native shard to register an immutable envelope and consume it with the exact WorkItem preimage. Check stale fence/revision, expiry, changed metadata/envelope, duplicate registration and replay. Every refusal preserves both rows. This is storage acceptance, not human approval or execution acceptance.

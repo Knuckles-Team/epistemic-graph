@@ -94,6 +94,16 @@ impl RowGuard<'_, '_> {
             return Err(LEASE_AUTHORITY.to_string());
         }
         refuse_policy_row(Some(&incoming))?;
+        // Reserve this key even before a row is labelled WorkItem; otherwise
+        // a caller could plant it on a plain row and relabel that row later.
+        if incoming.contains_key("pending_call_lease_ref")
+            || (is_work_item_row(&incoming)
+                && stored
+                    .as_ref()
+                    .is_some_and(|row| row.contains_key("pending_call_lease_ref")))
+        {
+            return Err(NATIVE_KEY_AUTHORITY.to_string());
+        }
         let native_row = stored.as_ref().is_some_and(is_work_item_row);
         let owned = NATIVE_WORK_ITEM_ROW_KEYS
             .iter()

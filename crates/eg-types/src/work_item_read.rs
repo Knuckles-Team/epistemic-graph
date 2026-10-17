@@ -44,8 +44,9 @@ pub const WORK_ITEM_OUTCOME_DIGEST: &str = "outcome_digest";
 pub const WORK_ITEM_TRACE_REF: &str = "trace_ref";
 pub const WORK_ITEM_TOOL_CALL_REFS: &str = "tool_call_refs";
 /// Every WorkItem-row property only the native kernel may write.
-pub const NATIVE_WORK_ITEM_ROW_KEYS: [&str; 5] = [
+pub const NATIVE_WORK_ITEM_ROW_KEYS: [&str; 6] = [
     WORK_ITEM_ROW_REVISION,
+    "pending_call_lease_ref",
     WORK_ITEM_OUTCOME_REF,
     WORK_ITEM_OUTCOME_DIGEST,
     WORK_ITEM_TRACE_REF,
