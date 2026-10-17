@@ -8,7 +8,7 @@
     "contract/schemas/method.request.json": "78092c321db936471630d078a6a332eb4942d426b630a1f358d18b5f59d250cf",
     "contract/schemas/result.cluster.json": "edf102195cce1961ec9fa9b695753ab741f0c40031c3c8beeb9b953bc1472c07",
     "contract/schemas/result.compute.json": "e521cd956226b8a59ec6f09a756412495cf96720e9ef7be028b99a33669cc71d",
-    "contract/schemas/result.coordination.json": "d327a31a18670f8da398dd73b9f297bf40725050e4e28fd7009a20218844067e",
+    "contract/schemas/result.coordination.json": "b9e613d461c3f4471da3b944cb643da2b26171fc12b9071f2ff599b63a63f9b9",
     "contract/schemas/result.graph.json": "74462242f194cb0294b3ffc92a1b2c55f8c8bc9863a77d3c1d1af9d26a87bf3c",
     "contract/schemas/result.ingestion.json": "912a99d4c86afb6a736d5842cc3221c4ae0d21a15fa4b70df7ac7a89f52b234d",
     "contract/schemas/result.messaging.json": "b5798d40e87de71ec35952a00f10cbd89b2b7fb6b1094122b8f244787b5e83b1",
@@ -27,7 +27,7 @@
     "epistemic_graph/contract/schemas/method.request.json": "78092c321db936471630d078a6a332eb4942d426b630a1f358d18b5f59d250cf",
     "epistemic_graph/contract/schemas/result.cluster.json": "edf102195cce1961ec9fa9b695753ab741f0c40031c3c8beeb9b953bc1472c07",
     "epistemic_graph/contract/schemas/result.compute.json": "e521cd956226b8a59ec6f09a756412495cf96720e9ef7be028b99a33669cc71d",
-    "epistemic_graph/contract/schemas/result.coordination.json": "d327a31a18670f8da398dd73b9f297bf40725050e4e28fd7009a20218844067e",
+    "epistemic_graph/contract/schemas/result.coordination.json": "b9e613d461c3f4471da3b944cb643da2b26171fc12b9071f2ff599b63a63f9b9",
     "epistemic_graph/contract/schemas/result.graph.json": "74462242f194cb0294b3ffc92a1b2c55f8c8bc9863a77d3c1d1af9d26a87bf3c",
     "epistemic_graph/contract/schemas/result.ingestion.json": "912a99d4c86afb6a736d5842cc3221c4ae0d21a15fa4b70df7ac7a89f52b234d",
     "epistemic_graph/contract/schemas/result.messaging.json": "b5798d40e87de71ec35952a00f10cbd89b2b7fb6b1094122b8f244787b5e83b1",
@@ -58,7 +58,7 @@
     "epistemic_graph/generated/ingestion.py": "2735ad462eb460209318ecd6e898b2e1de81cc92388ac37f27fb149afacfbc5f",
     "epistemic_graph/generated/managed_index.py": "2359e4b871d4ef359c189ac8debb077fbc04cda00280d42bc6a84aacf3da04d1",
     "epistemic_graph/generated/messaging.py": "0c00d8d93ed7fba40eeeb572c14c7354eaa33693e8acda369942ee9598907e1f",
-    "epistemic_graph/generated/models.py": "b5034cf3ea7f9b168835a958fdb8676d93b1bd07f71bc2ae93ce8f0641663f02",
+    "epistemic_graph/generated/models.py": "d3d9da4bdedd9f1e3d131df0995c05520bdaac516f8514c677dc8619e8ed7ea9",
     "epistemic_graph/generated/policy_evolution.py": "c9a836d2777c9ce2991236db4656966598d0de3463a574f1b5b05780c9be2205",
     "epistemic_graph/generated/query.py": "66b265f728950428e66ee55f9112dc532fb9bb5623074cc1b4b41bdf0332d8db",
     "epistemic_graph/generated/rdf_report.py": "600708e31131a12a37ec4a890490bbd3a0806a16b4961b3a0916d213ef535d49",
@@ -71,7 +71,7 @@
     "epistemic_graph/generated/transactions.py": "83174fd4a8d2032577c60bf61dacf08fbe3b5df8530da66a19d1b36eb9920335",
     "epistemic_graph/generated/write_back.py": "cbd29e0308e7e095abf84d5f31a67ce88ea46c69f8f39a95369a03ce82c21df0"
   },
-  "contract_digest": "71c0039d8fadf8d19b084c639c35c37010f318f7198f034eac5657a447a18f1e",
+  "contract_digest": "d20188290eb7b3d0cd47cf7b1604a8b26dbc425ad038ecbbc9f8cde8f7905c1e",
   "contract_version": 1,
   "feature_profile": [
     "contract",
@@ -672,5 +672,5 @@
     "schematized": 453,
     "unclassified": 0
   },
-  "source_tree_oid": "52a67f1264cca8a75e5e8f8de168f4b3527de3226501688a55a28e083a3a84f3"
+  "source_tree_oid": "861b58d3f43f6048b6d7dfdab738eeb01cbcb37eee1aac31825603d17a7db562"
 }

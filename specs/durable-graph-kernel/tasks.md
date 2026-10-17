@@ -224,3 +224,5 @@ This batch defines the slices; it runs none of their runtime tests.
 - [ ] **EG-DURABLE-KERNEL-R100.4 (Refusal):** Declare and return the two refusals.
 - [ ] **EG-DURABLE-KERNEL-R100.5 (Evidence):** Emit batch receipts and digest reconciliation.
 - [ ] **EG-DURABLE-KERNEL-R100.6 (Hot-path proof):** Add the served outage test and the benchmark.
+
+- EG-DURABLE-KERNEL-R028.2: terminal event readback, restart identity, tenant isolation, missing/corrupt binding refusal and legacy unavailability. Hosted and served acceptance remains pending until the tests run and pass.

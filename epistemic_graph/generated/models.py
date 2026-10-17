@@ -22221,6 +22221,39 @@ class TermWeight(BaseModel):
     weight: float
 
 
+class TerminalEventReadUnavailable(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    reason: TerminalEventUnavailable
+    status: Literal["unavailable"]
+
+
+class TerminalEventReadAvailable(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    batch_id: str
+    commit_sequence: Annotated[int, Field(ge=0)]
+    kind: str
+    ordinal: Annotated[int, Field(ge=0)]
+    outcome: str
+    payload_digest: str
+    result_ref: str | None = None
+    run_id: str
+    scope: MutationScopeIdentity
+    status: Literal["available"]
+    tenant: str
+
+
+TerminalEventRead = Annotated[
+    TerminalEventReadUnavailable | TerminalEventReadAvailable,
+    Field(discriminator="status"),
+]
+
+
+class TerminalEventUnavailable(str, Enum):
+    LEGACY_UNBOUND = "legacy_unbound"
+
+
 class TerminalOutcomeExtension(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -23113,6 +23146,7 @@ class WorkItemOutcomeView(BaseModel):
 
     outcome: dict[str, Any] | None = None
     outcome_ref: str
+    terminal_event: TerminalEventRead | None = None
     tool_call_refs: list[str]
     trace_ref: str
     work_item: WorkItemView
@@ -28195,6 +28229,10 @@ __all__ = [
     "TensorReduceKind",
     "Term",
     "TermWeight",
+    "TerminalEventRead",
+    "TerminalEventReadAvailable",
+    "TerminalEventReadUnavailable",
+    "TerminalEventUnavailable",
     "TerminalOutcomeExtension",
     "TextAlgorithm",
     "TextMiningResult",

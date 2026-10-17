@@ -319,3 +319,5 @@ Hot-path proof for `EG-DURABLE-KERNEL-R099`: `tests/shard_write_fanout.rs::cross
 | Hot-path proof | `EG-DURABLE-KERNEL-R100.6` | The served test passes against real targets, and the benchmark receipt meets the budget. |
 
 Hot-path proof for `EG-DURABLE-KERNEL-R100`: `tests/mirror_graph_sinks_served.rs::each_sink_replays_after_outage`.
+
+- EG-DURABLE-KERNEL-R028.2: terminal event readback, restart identity, tenant isolation, missing/corrupt binding refusal and legacy unavailability. Hosted and served acceptance remains pending until the tests run and pass.
