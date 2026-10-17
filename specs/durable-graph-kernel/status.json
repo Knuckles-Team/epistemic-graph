@@ -293,6 +293,7 @@
     "EG-DURABLE-KERNEL-R102.3",
     "EG-DURABLE-KERNEL-R102.4",
     "EG-DURABLE-KERNEL-R102.5",
+    "EG-DURABLE-KERNEL-R102.6",
     "EG-DURABLE-KERNEL-R609",
     "EG-DURABLE-KERNEL-R609.1",
     "EG-DURABLE-KERNEL-R609.2",
@@ -3273,17 +3274,19 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "2393e9bc7050",
+        "e93b0ab360e8",
         "faa8867b4ff7"
       ],
       "verified_by": [
-        "src/server/kv/dispatch_tests.rs:151"
+        "src/server/kv/dispatch_tests.rs:158"
       ],
       "rollup_of": [
         "EG-DURABLE-KERNEL-R102.1",
         "EG-DURABLE-KERNEL-R102.2",
         "EG-DURABLE-KERNEL-R102.3",
         "EG-DURABLE-KERNEL-R102.4",
-        "EG-DURABLE-KERNEL-R102.5"
+        "EG-DURABLE-KERNEL-R102.5",
+        "EG-DURABLE-KERNEL-R102.6"
       ]
     },
     {
@@ -3292,10 +3295,11 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "95f0d8719878",
+        "bf40f68e6f43",
         "faa8867b4ff7"
       ],
       "verified_by": [
-        "src/server/kv/dispatch_tests.rs:152"
+        "src/server/kv/dispatch_tests.rs:159"
       ]
     },
     {
@@ -3303,10 +3307,11 @@
       "title": "Scope and authorization",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "bf40f68e6f43",
         "faa8867b4ff7"
       ],
       "verified_by": [
-        "src/server/kv/dispatch_tests.rs:253"
+        "src/server/kv/dispatch_tests.rs:261"
       ]
     },
     {
@@ -3318,9 +3323,9 @@
         "faa8867b4ff7"
       ],
       "verified_by": [
-        "src/server/kv/dispatch_tests.rs:153",
-        "src/server/kv/dispatch_tests.rs:224",
-        "src/server/kv/wire.rs:324"
+        "src/server/kv/dispatch_tests.rs:160",
+        "src/server/kv/dispatch_tests.rs:232",
+        "src/server/kv/wire.rs:339"
       ]
     },
     {
@@ -3332,7 +3337,7 @@
         "faa8867b4ff7"
       ],
       "verified_by": [
-        "src/server/kv/dispatch_tests.rs:306"
+        "src/server/kv/dispatch_tests.rs:314"
       ]
     },
     {
@@ -3343,7 +3348,18 @@
         "faa8867b4ff7"
       ],
       "verified_by": [
-        "src/server/kv/dispatch_tests.rs:363"
+        "src/server/kv/dispatch_tests.rs:371"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R102.6",
+      "title": "Opt-in shared namespace",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "e93b0ab360e8"
+      ],
+      "verified_by": [
+        "src/server/kv/dispatch_tests.rs:440"
       ]
     },
     {
