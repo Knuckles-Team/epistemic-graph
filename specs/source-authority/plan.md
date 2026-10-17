@@ -168,7 +168,7 @@ Existing code: `crates/eg-rdf/src/source_selection.rs:26`, `source_selection.rs:
 
 Decision: store the role on the connection and order by it before rank, so one declaration governs every mapped class. Rejected alternative: encode the role as a low rank number, because rank is per class and cannot express trust.
 
-Cross-repository: graph-os prints the role in the "sources used and why" block; owner prefix `GRAPHOS-INTENT`, contract `AuthorityAudit`.
+Cross-repository: graph-os prints the role in the "sources used and why" block; owner prefix `ARBORA-INTENT`, contract `AuthorityAudit`.
 
 References
 - No paper is cited.

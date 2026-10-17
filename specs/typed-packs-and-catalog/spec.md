@@ -69,7 +69,7 @@ Reuse component identity, graph projections, engine bodies and generated operati
 A prompt must pass its pinned schema before rendering or model dispatch.
 Optimization emits proposals; existing policy controls adoption.
 Repository-source writes require separate approved SDK execution under GraphOS authority.
-R094.7 now references merged SDK-GOVERNED-WRITEBACK-R004.5 through R004.12 and GRAPHOS-FLEET-R003.4 through R003.10.
+R094.7 now references merged SDK-GOVERNED-WRITEBACK-R004.5 through R004.12 and ARBORA-FLEET-R003.4 through R003.10.
 The exact producer revisions and contracts are pinned in plan.md; runtime acceptance still requires the actual served journey.
 R002.10 retains its missing AU model-dispatch consumer requirement and call-site prerequisite.
 Original pack types, digest vectors, clients, body holders, grace reconciliation and Stable content serving remain mandatory.
@@ -153,7 +153,7 @@ Preserve the existing `R072` obligation and all prior children; add `EG-TYPED-PA
 
 Extend the typed fleet catalog with workflow registration identity, version/content digest, owner/tenant scope, schema and lifecycle state. Registration is persisted through the existing SourceIngest authority; invocation resolves by registry id and exact admitted revision rather than a caller-supplied body. Unknown, withdrawn, stale or unauthorized workflow ids refuse before execution. Engine/client initialization remains lazy at the AU first-use boundary and is not performed at registration or process startup.
 
-Producer/consumer: EG typed registry and SourceIngest R002 own durable registration; AU owns lazy client initialization/execution; preserve GRAPHOS-HOST-R022 workflow-store semantics.
+Producer/consumer: EG typed registry and SourceIngest R002 own durable registration; AU owns lazy client initialization/execution; preserve ARBORA-HOST-R022 workflow-store semantics.
 
 **Open owner prerequisite:** AU-CONTROL-R037.5 only fills a requirement gap; it does not define lazy initialization timing, the first-use operation, or the execution receipt. No exact AU companion requirement ID is identified. Keep that consumer as an explicit hold until its owner publishes the operation and receipt; no invocation evidence is claimed.
 Source record SHA-256: `f73767d1a3fdba29a702254ed1db2c9904158b6136f6f4b38a3c9a0d3e4fcb03`. Verification remains planned until independently served by each named owner.

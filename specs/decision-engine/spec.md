@@ -240,17 +240,17 @@ Original objective. Search grounding is a replaceable provider selected through 
 
 EG-owned residual. Replaceable search-grounding provider independently selected from reasoning model and bound to a committed route. Unavailable committed provider must refuse rather than substitute.
 
-Producer/consumer boundary. Preserve GRAPHOS-OPS-R021.2.1 retrieval.search and its tenant-scoped retriever. EG must produce the committed provider binding and the SDK/GraphOS consumer must execute that exact provider. That edge is missing.
+Producer/consumer boundary. Preserve ARBORA-OPS-R021.2.1 retrieval.search and its tenant-scoped retriever. EG must produce the committed provider binding and the SDK/GraphOS consumer must execute that exact provider. That edge is missing.
 
 Proposed contract. Define RetrievalProviderBindingV1 in the committed retrieval plan with provider id/revision/config digest, query/request digest, tenant scope. And a separately identified reasoning model id/revision. The binding has an explicit no-substitution policy. Execution evidence records the exact provider, binding digest, request/result digests and provider revision.
 
 Planned acceptance. Case R029.1-exact-provider. independently vary provider and reasoning-model ids while verifying the committed provider is executed. If the bound provider is unavailable, stale, unauthorized or mismatched, refuse before retrieval and record zero calls to alternate providers.
 
-Exact attachment and hold: Preserve GRAPHOS-OPS-R021.2.1 retrieval.search and its tenant-scoped retriever. EG must commit the provider binding. The SDK/GraphOS consumer contract that executes and receipts that exact binding is not defined.
+Exact attachment and hold: Preserve ARBORA-OPS-R021.2.1 retrieval.search and its tenant-scoped retriever. EG must commit the provider binding. The SDK/GraphOS consumer contract that executes and receipts that exact binding is not defined.
 
 This is a SPECIFIED definition only. Implementation and served evidence remain pending.
 
-Preserve existing coverage: `EG-DECISION-ENGINE-R029`, `GRAPHOS-OPS-R021.2.1`.
+Preserve existing coverage: `EG-DECISION-ENGINE-R029`, `ARBORA-OPS-R021.2.1`.
 
 Owner source hash: `c9552392eb813763a83fc96fb48ad1bd18fd805ef608736f1dae5d48ab12c984`.
 
@@ -480,7 +480,7 @@ Preserve the existing `R134` obligation and all prior children. Add `EG-DECISION
 
 Define the generated `AggregateFanout/v1` request with the selected existing `AggregationOp`, TaskPlan digest, AU `FanoutResult` identity, expected subtask ids. And GraphOS durable instance-receipt ids/digests. Define the result with operation/version, ordered input receipts, one typed aggregate artifact/schema version, result digest and graph revision. EG applies the already-selected operator to the complete receipt set. It adds no fan-out width, concurrency policy or second aggregation authority. A served independent readback resolves the returned artifact by tenant/id/revision and compares the digest before success.
 
-Producer/consumer: AU owns FanoutResult production; GraphOS `agents.run` owns durable instance receipts and capacity/refusal. EG owns selected operator and public application/readback contract only. Preserve existing R134.1/.3 and GRAPHOS-FLEET-R024.5-.9.
+Producer/consumer: AU owns FanoutResult production; GraphOS `agents.run` owns durable instance receipts and capacity/refusal. EG owns selected operator and public application/readback contract only. Preserve existing R134.1/.3 and ARBORA-FLEET-R024.5-.9.
 
 Source record SHA-256: `8f2ff3030a71d67b20cd19301f0ed8cef75e975403595cec4060abf9fa8952c1`. Verification remains planned until independently served by each named owner.
 
@@ -748,7 +748,7 @@ The planned proof enters the served DecisionEval route, crosses the actual memor
 
 For each skill revision, bind an atomic/workflow classification, local model id/revision, evaluation-set digest, criteria/policy revision. Result and attestation digest. EG emits the certification attestation only after AU executes the declared local-model evaluation. GraphOS validates the attestation before normal (non-certification) `orchestrate` or `agents.run`. A separately authorized evaluation run may produce a new attestation. Atomic skills are evaluated first. A workflow skill is certifiable only when every referenced atomic dependency has a valid current attestation. Missing, stale, failed or mismatched dependencies refuse certification/invocation before effects. EG attests evaluation outcome; AU executes; GraphOS owns invocation gate and host policy.
 
-**Producer/consumer boundary:** Extend existing GRAPHOS-FLEET-R034.7-.12 identity bindings. Do not add host scoring authority or infer certification from host prerequisites alone.
+**Producer/consumer boundary:** Extend existing ARBORA-FLEET-R034.7-.12 identity bindings. Do not add host scoring authority or infer certification from host prerequisites alone.
 
 **Source record SHA-256:** `5df3f5a45d486aeba5765a31b6c6283637adf2bd8ce63a87938eddd28b90f082`.
 
@@ -766,7 +766,7 @@ The planned proof enters the actual local-model evaluation path. And observes Gr
 
 <!-- spec-definition-patch:owner-dispatch-20261012-spec -->
 
-**Operational wiring / exact hold:** The EG producer attaches to `Method::DecisionEval` and consumes an AU `orchestrate` certification-evaluation receipt. It emits a digest-bound attestation only for a full per-criterion pass. Certification evaluation must be distinguishable from normal skill execution. So an uncertified atomic can be evaluated without opening the normal invocation path. GraphOS remains the normal invocation gate at `GRAPHOS-FLEET-R034.7-.12` before `orchestrate`/`agents.run`; AU execution and GraphOS validation remain separate owners. Neither the AU receipt schema nor GraphOS consumption of this EG attestation is currently evidenced, so both are explicit prerequisites.
+**Operational wiring / exact hold:** The EG producer attaches to `Method::DecisionEval` and consumes an AU `orchestrate` certification-evaluation receipt. It emits a digest-bound attestation only for a full per-criterion pass. Certification evaluation must be distinguishable from normal skill execution. So an uncertified atomic can be evaluated without opening the normal invocation path. GraphOS remains the normal invocation gate at `ARBORA-FLEET-R034.7-.12` before `orchestrate`/`agents.run`; AU execution and GraphOS validation remain separate owners. Neither the AU receipt schema nor GraphOS consumption of this EG attestation is currently evidenced, so both are explicit prerequisites.
 ## Cross-owner retrieval evaluation and context
 
 The existing `DecisionEval` job is the production evaluation attach point. Its new `RetrievalRankingV1` variant pins corpus, label set, query set, k, evaluator and two algorithm configurations. It seals exact hits-at-k numerator/denominator values and refuses comparisons over unequal inputs or incomplete labels. `Method::UnifiedQuery` remains the retrieval result source, and R100's independent-outcome/hard-negative persistence remains unchanged.

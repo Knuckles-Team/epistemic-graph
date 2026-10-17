@@ -171,6 +171,6 @@ A web metasearch connector answers a pattern over web results at query time. The
 
 Call path: served SPARQL or UQL -> planner -> `foreign_scan` (`run.rs:26`) -> `FragmentCacheScope` lookup (`cache.rs:27`) -> MCP operation of `EG-FEDERATED-QUERY-R073` -> typed rows.
 
-Selection: a harness that asks graph-os to search the web receives the search tools through `EG-DECISION-ENGINE-R176` and `GRAPHOS-FLEET-R037`. Online refresh of embeddings over these results belongs to the adaptive-embeddings rows. They reference `EG-UNIFIED-DATA-PLANE-R038.7`.
+Selection: a harness that asks graph-os to search the web receives the search tools through `EG-DECISION-ENGINE-R176` and `ARBORA-FLEET-R037`. Online refresh of embeddings over these results belongs to the adaptive-embeddings rows. They reference `EG-UNIFIED-DATA-PLANE-R038.7`.
 
 Budget: a 900 s default time-to-live and one connector query per cache miss. These are starting defaults. A measurement on this platform replaces them.
