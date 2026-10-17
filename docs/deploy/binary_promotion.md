@@ -55,7 +55,7 @@ repository or an operational report.
    until authoritative redb, durable replay, signer keys, `eg2.` policy values,
    and any configured TLS/observability exporters are ready.
 
-6. Restart dependent GraphOS/agent services through their normal orchestrator
+6. Restart dependent Arbora/agent services through their normal orchestrator
    update so they reconnect with the same current `eg2.` authority contract.
 
 7. Run live verification through the public interface. At minimum, prove:

@@ -1,11 +1,11 @@
 flowchart LR
   People["People"]
-  WebUI["Graph OS web UI<br/>browser experience"]
+  WebUI["Arbora web UI<br/>browser experience"]
   TUI["Agent Terminal UI<br/>REST capabilities"]
   Genius["Geniusbot<br/>desktop cockpit"]
   Messaging["Messaging channels<br/>chat and voice"]
   Clients["MCP / REST / A2A clients"]
-  GraphOS["Graph OS<br/>governed runtime gateway and composition host"]
+  Arbora["Arbora<br/>governed runtime gateway and composition host"]
   AU["Agent Utilities<br/>agent control plane"]
   EG["Epistemic Graph<br/>durable multimodal knowledge and reasoning engine"]
   Server["Epistemic Graph Server<br/>native server executable, subcommands, container image"]
@@ -16,12 +16,12 @@ flowchart LR
   People --> TUI
   People --> Genius
   People --> Messaging
-  Clients --> GraphOS
-  WebUI --> GraphOS
-  TUI -->|REST| GraphOS
-  Genius --> GraphOS
-  Messaging -->|hosted co-service| GraphOS
-  GraphOS --> AU
+  Clients --> Arbora
+  WebUI --> Arbora
+  TUI -->|REST| Arbora
+  Genius --> Arbora
+  Messaging -->|hosted co-service| Arbora
+  Arbora --> AU
   AU --> EG
   EG -->|"epistemic-graph[server] installs"| Server
   Sources --> SDK

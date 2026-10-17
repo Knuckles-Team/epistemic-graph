@@ -2,7 +2,7 @@
 
 `epistemic-graph` is reachable three ways, resolved by **one** precedence so every entrypoint provisions
 an engine identically with no per-entrypoint code. In `agent-utilities` this is the `EngineResolver`
-(CONCEPT:AU-OS.deployment.engine-resolver-auto-provision); every entrypoint — the graph-os MCP server, the gateway/host daemon, the facade, the
+(CONCEPT:AU-OS.deployment.engine-resolver-auto-provision); every entrypoint — the arbora MCP server, the gateway/host daemon, the facade, the
 tenant engine pool, messaging, agent/serving — funnels through it.
 
 ```

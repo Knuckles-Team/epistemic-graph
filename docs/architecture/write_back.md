@@ -7,7 +7,7 @@ calls a source system. The agent-connector-sdk owns those source transports.
 
 ```mermaid
 sequenceDiagram
-    participant G as graph-os
+    participant G as arbora
     participant E as epistemic-graph
     participant S as agent-connector-sdk
     participant V as source system

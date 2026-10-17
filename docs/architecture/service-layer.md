@@ -88,5 +88,5 @@ authenticated `GraphSession`, each graph request resolves the engine's complete
 placement route and validates its epoch and group fence. Multiple contacts are
 not a hash ring; ambiguous or unreachable placement fails closed. Autostart applies
 only to a sole local endpoint. See
-[engine sharding](https://knuckles-team.github.io/graph-os/architecture/engine-sharding/)
-(graph-os).
+[engine sharding](https://knuckles-team.github.io/arbora/architecture/engine-sharding/)
+(arbora).

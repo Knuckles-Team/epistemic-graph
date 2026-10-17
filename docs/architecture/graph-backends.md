@@ -494,8 +494,8 @@ docker compose -f docker/pg-age.compose.yml up -d
 export GRAPH_MIRROR_TARGETS='["pg-age"]'
 export KG_CONNECTIONS='[{"name":"pg-age","backend":"age","uri":"postgresql://agent:agent@localhost:5433/agent_kg"}]'
 
-# 3. Run the graph-os MCP server — engine serves reads, Postgres mirrors writes
-graph-os
+# 3. Run the arbora MCP server — engine serves reads, Postgres mirrors writes
+arbora
 ```
 
 ## Engine stability backstops — surviving the `__commons__` firehose
@@ -640,7 +640,7 @@ Both `MCP tabular_query` and `REST /query/tabular` go through a thin SQL
 route into `TabularQueryService` (request + provenance contract), which
 calls the `QueryBackend` port. `TrinoQueryBackend` (TLS-only, read-only,
 bounded pools) implements that port — configured with typed config +
-delegated identity from graph-os's composition — and reads the
+delegated identity from arbora's composition — and reads the
 Trino/Iceberg projection.
 
 </div>

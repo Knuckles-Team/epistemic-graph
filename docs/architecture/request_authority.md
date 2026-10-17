@@ -7,11 +7,11 @@ audience, policy version, roles, scopes, delegation chain, and trace context.
 The server checks the envelope before dispatch and rejects replay, deployment
 policy mismatch, and conflicting caller identity.
 
-## Capability contract with Graph-OS
+## Capability contract with Arbora
 
 The capability ledger remains authoritative for every method's canonical
 `authz_action` and `mutates` classification. Exact scopes and domain wildcards
-are evaluated first. Graph-OS may also issue three stable aggregate scopes:
+are evaluated first. Arbora may also issue three stable aggregate scopes:
 
 | Aggregate scope | Ledger interpretation |
 |---|---|
@@ -34,7 +34,7 @@ personal display names.
 
 ## Deployment alignment
 
-Secure deployments must align these values with the issuing Graph-OS service:
+Secure deployments must align these values with the issuing Arbora service:
 
 - `GRAPH_SERVICE_AUTH_SECRET`, loaded from the same runtime secret authority;
 - `EPISTEMIC_GRAPH_AUDIENCE` and the issuer's configured audience;
@@ -87,7 +87,7 @@ two-person elevation flow owns, such as `rbac.elevation`.
 `agent_id`:
 
 ```json
-{"service:graph-os": ["action.approval", "finance.order-proposal"]}
+{"service:arbora": ["action.approval", "finance.order-proposal"]}
 ```
 
 The policy works as follows:
@@ -116,7 +116,7 @@ Served row-level security is always default-deny. Unowned, undecodable, or
 untagged rows are invisible unless policy grants ownership/access or the row is
 explicitly public. There is no runtime switch to make served reads permissive.
 
-The companion Graph-OS contract is documented as **Graph Authority
+The companion Arbora contract is documented as **Graph Authority
 Convergence** in agent-utilities, and the exact claim-key-level contract
 (required/optional field table, per-surface carrier status including this
 file's own `authenticated_iceberg_bearer` tenant-match boundary, and the
