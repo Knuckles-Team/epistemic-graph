@@ -373,6 +373,7 @@ Hot-path proof for `EG-FEDERATED-QUERY-R088`: `tests/uql_governed_summary.rs::go
 | Refusal | `EG-FEDERATED-QUERY-R089.4` | Tests assert the code and a failed verdict with rows. |
 | Evidence | `EG-FEDERATED-QUERY-R089.5` | A test reads the three fields. |
 | Hot-path proof | `EG-FEDERATED-QUERY-R089.6` | The served test passes, and the measured cost meets the budget. |
+| Behavior | `EG-FEDERATED-QUERY-R089.7` | `crates/eg-plan/src/retrieval_verdict.rs::tests::drift_mode_reads_monitor_and_names_adapter` sets `drift` and names the adapter and shard generations. |
 
 Hot-path proof for `EG-FEDERATED-QUERY-R089`: `tests/discover_quality_verdict.rs::sparse_index_fails_closed`.
 
@@ -386,6 +387,7 @@ Hot-path proof for `EG-FEDERATED-QUERY-R089`: `tests/discover_quality_verdict.rs
 | Refusal | `EG-FEDERATED-QUERY-R090.4` | Each case returns its code and no rows. |
 | Evidence | `EG-FEDERATED-QUERY-R090.5` | A test reads each field. |
 | Hot-path proof | `EG-FEDERATED-QUERY-R090.6` | The served test passes, and the benchmark receipt meets the budget. |
+| Wiring | `EG-FEDERATED-QUERY-R090.7` | `tests/discover_planning_served.rs::deep_arms_use_scoped_adapter` observes one adapter application per arm and refresh provenance. |
 
 Hot-path proof for `EG-FEDERATED-QUERY-R090`: `tests/discover_planning_served.rs::deep_recency_multihop`.
 

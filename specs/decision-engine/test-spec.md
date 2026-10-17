@@ -650,6 +650,7 @@ No test in this section has run.
 - `EG-DECISION-ENGINE-R172.12.4`: `src/server/handlers/decide/stat_tests/capability_designation_tests.rs::pack_target_refusals`.
 - `EG-DECISION-ENGINE-R172.12.5`: `src/server/handlers/decide/stat_tests/capability_designation_tests.rs::premises_name_subclass_path_and_pack`.
 - `EG-DECISION-ENGINE-R172.12.6`: `tests/decide/test_capability_designation_pack_served.py::test_designation_reads_imported_pack`.
+- `EG-DECISION-ENGINE-R172.13`: `crates/eg-compute/src/capability_index/tests.rs::capability_adapter_applies_before_rank`.
 
 ## EG-DECISION-ENGINE-R175 acceptance
 
@@ -755,3 +756,41 @@ Hot-path proof for `EG-DECISION-ENGINE-R176`: `tests/decide/test_load_set_served
 
 
 Hot-path proof for `EG-DECISION-ENGINE-R177`: `tests/decide/test_usage_guidance_served.py::test_how_to_use_connector_answers_from_graph`.
+## EG-DECISION-ENGINE-R174.7 acceptance
+
+| Case | Row | Proving test and observation |
+|---|---|---|
+| Model | `EG-DECISION-ENGINE-R174.7.1` | A serde round trip keeps every field and rejects an unknown scope, side or source. |
+| Behavior | `EG-DECISION-ENGINE-R174.7.2` | Unit tests cover deterministic refit, keep and revert, resolution order and the memory cap. |
+| Wiring | `EG-DECISION-ENGINE-R174.7.3` | A dispatch test routes a scoped fit, an activation and a served query. |
+| Refusal | `EG-DECISION-ENGINE-R174.7.4` | Each case returns its code and leaves the served adapter unchanged. |
+| Evidence | `EG-DECISION-ENGINE-R174.7.5` | A test reads the fit receipt, a rollback receipt and the verdict field. |
+| Hot-path proof | `EG-DECISION-ENGINE-R174.7.6` | The served test passes, and the benchmark receipt meets each budget. |
+
+Hot-path proof for `EG-DECISION-ENGINE-R174.7`: `tests/decide/test_scoped_adapter_served.py::test_outcome_adapter_lifts_and_reverts`.
+
+## EG-DECISION-ENGINE-R174.8 acceptance
+
+| Case | Row | Proving test and observation |
+|---|---|---|
+| Model | `EG-DECISION-ENGINE-R174.8.1` | A serde round trip keeps every field and rejects 4,097 regions. |
+| Behavior | `EG-DECISION-ENGINE-R174.8.2` | Unit tests fire each signal kind, show hysteresis and select only changed regions. |
+| Wiring | `EG-DECISION-ENGINE-R174.8.3` | A dispatch test observes a monitor update, one plan and one per-shard swap. |
+| Refusal | `EG-DECISION-ENGINE-R174.8.4` | Each case returns its code and leaves every shard generation unchanged. |
+| Evidence | `EG-DECISION-ENGINE-R174.8.5` | A test reads the signal premises and the refresh receipt. |
+| Hot-path proof | `EG-DECISION-ENGINE-R174.8.6` | The served test passes, and the benchmark receipt meets each budget. |
+
+Hot-path proof for `EG-DECISION-ENGINE-R174.8`: `tests/decide/test_drift_refresh_served.py::test_vocabulary_drift_refreshes_changed_shards`.
+
+## EG-DECISION-ENGINE-R174.9 acceptance
+
+| Case | Row | Proving test and observation |
+|---|---|---|
+| Model | `EG-DECISION-ENGINE-R174.9.1` | A serde round trip keeps every field and rejects 33 queries. |
+| Behavior | `EG-DECISION-ENGINE-R174.9.2` | Unit tests cover canonical URLs, each dedupe outcome, the region mark and both budgets. |
+| Wiring | `EG-DECISION-ENGINE-R174.9.3` | A dispatch test observes one virtual-graph read and one region mark. |
+| Refusal | `EG-DECISION-ENGINE-R174.9.4` | Each case returns its code and writes no row and no region mark. |
+| Evidence | `EG-DECISION-ENGINE-R174.9.5` | A test reads the result provenance and the receipt. |
+| Hot-path proof | `EG-DECISION-ENGINE-R174.9.6` | The served test passes, and the measured overhead meets the budget. |
+
+Hot-path proof for `EG-DECISION-ENGINE-R174.9`: `tests/decide/test_freshness_refresh_served.py::test_search_refresh_dedupes_and_feeds_refresh`.
