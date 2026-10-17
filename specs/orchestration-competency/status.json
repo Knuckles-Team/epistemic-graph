@@ -74,6 +74,13 @@
     "EG-CQ-ORCH-R011.4",
     "EG-CQ-ORCH-R011.5",
     "EG-CQ-ORCH-R011.6",
+    "EG-CQ-ORCH-R800",
+    "EG-CQ-ORCH-R800.1",
+    "EG-CQ-ORCH-R800.2",
+    "EG-CQ-ORCH-R800.3",
+    "EG-CQ-ORCH-R800.4",
+    "EG-CQ-ORCH-R800.5",
+    "EG-CQ-ORCH-R800.6",
     "EG-CQ-ORCH-R700",
     "EG-CQ-ORCH-R700.1",
     "EG-CQ-ORCH-R700.2",
@@ -656,6 +663,63 @@
     },
     {
       "id": "EG-CQ-ORCH-R011.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R800",
+      "title": "Run provenance, trace ontology and incident views answer operations questions (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-ORCH-R800.1",
+        "EG-CQ-ORCH-R800.2",
+        "EG-CQ-ORCH-R800.3",
+        "EG-CQ-ORCH-R800.4",
+        "EG-CQ-ORCH-R800.5",
+        "EG-CQ-ORCH-R800.6"
+      ]
+    },
+    {
+      "id": "EG-CQ-ORCH-R800.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R800.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R800.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R800.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R800.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R800.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
