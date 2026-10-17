@@ -138,8 +138,12 @@ pub fn audit_line(method: &Method) -> Option<String> {
         .or_else(|| control_lines::broker_setup_audit_line(method))
         .or_else(|| control_lines::broker_consume_audit_line(method))
         .or_else(|| control_lines::broker_misc_audit_line(method))
-        .or_else(|| sql_catalog::audit_line(method))
-        .or_else(|| kv_store::audit_line(method))
+        .or_else(|| native_store_audit_line(method))
+}
+
+/// Self-routed native stores: the SQL catalog and the served KV surface.
+fn native_store_audit_line(method: &Method) -> Option<String> {
+    sql_catalog::audit_line(method).or_else(|| kv_store::audit_line(method))
 }
 
 /// Walk an ordered iterator of `(seq, stored_blob)` entries and verify the chain.

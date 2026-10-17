@@ -145,74 +145,105 @@ impl KvCall<'_> {
 
 /// Serve one `Method::Kv*` call. The caller has already checked `is_kv_method`.
 pub(super) fn handle(call: &KvCall<'_>, method: Method) -> Response {
-    let req_id = call.req_id;
     let original = method.clone();
     match method {
-        Method::KvGet { namespace, key } => {
-            match call.store.get_versioned(&call.namespace(&namespace), &key) {
-                Ok(entry) => Response::ok(req_id, ResultPayload::of_ref::<results::KvGet>(&entry)),
-                Err(e) => Response::err(req_id, format!("KvGet error: {e}")),
-            }
-        }
-        Method::KvPut { namespace, key, value } => {
-            let namespace = call.namespace(&namespace);
-            let put = call.mutate(&namespace, &original, |write| {
-                call.store
-                    .write_versioned((&namespace, &key), None, Some(value), write)
-            });
-            match put {
-                Ok(outcome) => Response::ok(
-                    req_id,
-                    ResultPayload::of_ref::<results::KvPut>(&eg_types::storage_wire::KvWriteReceipt {
-                        version: outcome.version,
-                    }),
-                ),
-                Err(e) => Response::err(req_id, format!("KvPut error: {e}")),
-            }
-        }
-        Method::KvDelete { namespace, key } => {
-            let namespace = call.namespace(&namespace);
-            let deleted = call.mutate(&namespace, &original, |write| {
-                call.store.delete_batch(&namespace, &key, write.batch, write.at_ms)
-            });
-            match deleted {
-                Ok(existed) => {
-                    Response::ok(req_id, ResultPayload::scalar::<results::KvDelete>(existed))
-                }
-                Err(e) => Response::err(req_id, format!("KvDelete error: {e}")),
-            }
-        }
+        Method::KvGet { namespace, key } => kv_get(call, &namespace, &key),
+        Method::KvPut {
+            namespace,
+            key,
+            value,
+        } => kv_put(call, &original, (&namespace, &key), value),
+        Method::KvDelete { namespace, key } => kv_delete(call, &original, &namespace, &key),
         Method::KvScan {
             namespace,
             prefix,
             limit,
             cursor,
-        } => {
-            let namespace = call.namespace(&namespace);
-            match call
-                .store
-                .scan_versioned(&namespace, &prefix, cursor.as_deref(), limit)
-            {
-                Ok(page) => Response::ok(req_id, ResultPayload::of_ref::<results::KvScan>(&page)),
-                Err(e) => Response::err(req_id, format!("KvScan error: {e}")),
-            }
-        }
+        } => kv_scan(call, &namespace, &prefix, (cursor.as_deref(), limit)),
         Method::KvCas {
             namespace,
             key,
             expected_version,
             new,
-        } => {
-            let namespace = call.namespace(&namespace);
-            let swapped = call.mutate(&namespace, &original, |write| {
-                call.store
-                    .write_versioned((&namespace, &key), Some(expected_version), new, write)
-            });
-            match swapped {
-                Ok(outcome) => Response::ok(req_id, ResultPayload::of_ref::<results::KvCas>(&outcome)),
-                Err(e) => Response::err(req_id, format!("KvCas error: {e}")),
-            }
-        }
-        _ => Response::err(req_id, "kv dispatch routing error"),
+        } => kv_cas(call, &original, (&namespace, &key), expected_version, new),
+        _ => Response::err(call.req_id, "kv dispatch routing error"),
+    }
+}
+
+fn kv_get(call: &KvCall<'_>, namespace: &str, key: &str) -> Response {
+    match call.store.get_versioned(&call.namespace(namespace), key) {
+        Ok(entry) => Response::ok(call.req_id, ResultPayload::of_ref::<results::KvGet>(&entry)),
+        Err(e) => Response::err(call.req_id, format!("KvGet error: {e}")),
+    }
+}
+
+fn kv_put(
+    call: &KvCall<'_>,
+    method: &Method,
+    (namespace, key): (&str, &str),
+    value: Vec<u8>,
+) -> Response {
+    let namespace = call.namespace(namespace);
+    let put = call.mutate(&namespace, method, |write| {
+        call.store
+            .write_versioned((&namespace, key), None, Some(value), write)
+    });
+    match put {
+        Ok(outcome) => Response::ok(
+            call.req_id,
+            ResultPayload::of_ref::<results::KvPut>(&eg_types::storage_wire::KvWriteReceipt {
+                version: outcome.version,
+            }),
+        ),
+        Err(e) => Response::err(call.req_id, format!("KvPut error: {e}")),
+    }
+}
+
+fn kv_delete(call: &KvCall<'_>, method: &Method, namespace: &str, key: &str) -> Response {
+    let namespace = call.namespace(namespace);
+    let deleted = call.mutate(&namespace, method, |write| {
+        call.store
+            .delete_batch(&namespace, key, write.batch, write.at_ms)
+    });
+    match deleted {
+        Ok(existed) => Response::ok(
+            call.req_id,
+            ResultPayload::scalar::<results::KvDelete>(existed),
+        ),
+        Err(e) => Response::err(call.req_id, format!("KvDelete error: {e}")),
+    }
+}
+
+fn kv_scan(
+    call: &KvCall<'_>,
+    namespace: &str,
+    prefix: &str,
+    (cursor, limit): (Option<&str>, usize),
+) -> Response {
+    let namespace = call.namespace(namespace);
+    match call.store.scan_versioned(&namespace, prefix, cursor, limit) {
+        Ok(page) => Response::ok(call.req_id, ResultPayload::of_ref::<results::KvScan>(&page)),
+        Err(e) => Response::err(call.req_id, format!("KvScan error: {e}")),
+    }
+}
+
+fn kv_cas(
+    call: &KvCall<'_>,
+    method: &Method,
+    (namespace, key): (&str, &str),
+    expected_version: u64,
+    new: Option<Vec<u8>>,
+) -> Response {
+    let namespace = call.namespace(namespace);
+    let swapped = call.mutate(&namespace, method, |write| {
+        call.store
+            .write_versioned((&namespace, key), Some(expected_version), new, write)
+    });
+    match swapped {
+        Ok(outcome) => Response::ok(
+            call.req_id,
+            ResultPayload::of_ref::<results::KvCas>(&outcome),
+        ),
+        Err(e) => Response::err(call.req_id, format!("KvCas error: {e}")),
     }
 }
