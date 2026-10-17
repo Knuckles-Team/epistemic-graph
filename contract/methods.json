@@ -28457,7 +28457,7 @@
       "format_identities": [],
       "id": "KvGet",
       "is_wire_callable": true,
-      "note": "EG-DURABLE-KERNEL-R102: keys scoped by verified tenant + principal + request graph + namespace; answers the value and its commit version",
+      "note": "EG-DURABLE-KERNEL-R102. The key is scoped by verified tenant, principal (unless shared), request graph and namespace. It answers the value and its commit version",
       "policy": {
         "audited": false,
         "authz_action": "kv:read",
@@ -28522,7 +28522,7 @@
       ],
       "id": "KvPut",
       "is_wire_callable": true,
-      "note": "native MutationBatch in kv.redb (row + ledger/fence/idempotency/outbox in one commit-before-ack WTX); each write stamps a new namespace commit version; the batch ledger is the durable audit, native outbox rows are the projection authority (no graph CDC)",
+      "note": "Native MutationBatch in kv.redb, committed before the acknowledgment. Each write stamps a new namespace commit version. The batch ledger is the durable audit",
       "policy": {
         "audited": true,
         "authz_action": "kv:write",
@@ -28587,7 +28587,7 @@
       ],
       "id": "KvDelete",
       "is_wire_callable": true,
-      "note": "native MutationBatch in kv.redb; re-deleting an absent key is a safe no-op answering false",
+      "note": "Native MutationBatch in kv.redb. Re-deleting an absent key is a safe no-op that answers false",
       "policy": {
         "audited": true,
         "authz_action": "kv:write",
@@ -28645,7 +28645,7 @@
       "format_identities": [],
       "id": "KvScan",
       "is_wire_callable": true,
-      "note": "bounded prefix scan: default 100, max 1000 rows and 4 MiB per page, exclusive-start cursor pagination over one snapshot",
+      "note": "Bounded prefix scan over one snapshot. A page holds at most 1000 rows (default 100) and 4 MiB. An exclusive-start cursor resumes it",
       "policy": {
         "audited": false,
         "authz_action": "kv:read",
@@ -28710,7 +28710,7 @@
       ],
       "id": "KvCas",
       "is_wire_callable": true,
-      "note": "compare-and-swap on the row's commit version (0 = absent) inside one admitted kv.redb WTX; a failed comparison is a terminal, replayable verdict",
+      "note": "Compare-and-swap on the row commit version inside one admitted kv.redb write; 0 means absent. A failed comparison is a terminal, replayable verdict",
       "policy": {
         "audited": true,
         "authz_action": "kv:write",
