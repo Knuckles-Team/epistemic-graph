@@ -576,14 +576,22 @@ def test_extensions_only_sdist_inputs_are_the_real_build_inputs():
     } <= required
 
 
-def test_server_wheel_job_adds_swap_before_building():
-    steps = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"][
-        "build-server"
-    ]["steps"]
+def test_server_wheel_build_adds_swap_and_thin_links_aarch64():
+    # Swap and the aarch64 link profile live in the shared action, so the release
+    # leg and ci.yml's warm-cache build both get them (the cache job had no swap
+    # and was OOM-killed on main).
+    action = REPO / ".github/actions/build-server-wheel/action.yml"
+    steps = yaml.safe_load(action.read_text(encoding="utf-8"))["runs"]["steps"]
     names = [step.get("name", "") for step in steps]
-    assert names.index("Add swap for the fat-LTO server link") < names.index(
-        "Build the server wheel (release-server profile)"
+    assert names.index("Add swap for the server link") < names.index(
+        "Build the wheel in the manylinux_2_28 container"
     )
+    build = steps[names.index("Build the wheel in the manylinux_2_28 container")]["run"]
+    assert 'image="$ARM_IMAGE"; jobs=1; lto=thin; cgu=16' in build
+    assert '"CARGO_PROFILE_RELEASE_SERVER_LTO=$lto"' in build
+    release = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["build-server"]
+    uses = [step.get("uses", "") for step in release["steps"]]
+    assert "./.github/actions/build-server-wheel" in uses
 
 
 def test_sdist_inventory_includes_explicit_manifest_inputs(tmp_path):
