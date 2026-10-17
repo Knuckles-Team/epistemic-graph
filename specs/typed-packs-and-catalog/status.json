@@ -206,7 +206,14 @@
     "EG-TYPED-PACKS-R103.3",
     "EG-TYPED-PACKS-R103.4",
     "EG-TYPED-PACKS-R103.5",
-    "EG-TYPED-PACKS-R103.6"
+    "EG-TYPED-PACKS-R103.6",
+    "EG-TYPED-PACKS-R104",
+    "EG-TYPED-PACKS-R104.1",
+    "EG-TYPED-PACKS-R104.2",
+    "EG-TYPED-PACKS-R104.3",
+    "EG-TYPED-PACKS-R104.4",
+    "EG-TYPED-PACKS-R104.5",
+    "EG-TYPED-PACKS-R104.6"
   ],
   "requirements": [
     {
@@ -2238,6 +2245,63 @@
     },
     {
       "id": "EG-TYPED-PACKS-R103.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R104",
+      "title": "Connect-time seed graph import, idempotent by content digest (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-TYPED-PACKS-R104.1",
+        "EG-TYPED-PACKS-R104.2",
+        "EG-TYPED-PACKS-R104.3",
+        "EG-TYPED-PACKS-R104.4",
+        "EG-TYPED-PACKS-R104.5",
+        "EG-TYPED-PACKS-R104.6"
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R104.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R104.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R104.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R104.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R104.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R104.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],

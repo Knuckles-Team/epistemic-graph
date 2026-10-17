@@ -192,3 +192,33 @@ For each row, add a subentry containing its merged commit, exact-head test run, 
   - **Hold:** The R026 owner must furnish the target application schema and captured statement corpus before app compatibility is claimed.
   - Keep status SPECIFIED. Source SHA-256: `c55bc629b1bfefc9d0346b75b8bb95e5a231b891e7e34297df17b960d6c9773c`.
 <!-- /spec-definition-patch -->
+
+- [ ] **EG-UNIFIED-DATA-PLANE-R038.3 (rollup):** Transactional row stores answer through one consistent snapshot (rollup).
+- [ ] **EG-UNIFIED-DATA-PLANE-R038.3.1 (Model):** Add the typed model.
+- [ ] **EG-UNIFIED-DATA-PLANE-R038.3.2 (Behavior):** Implement the behavior.
+- [ ] **EG-UNIFIED-DATA-PLANE-R038.3.3 (Wiring):** Wire the production call site.
+- [ ] **EG-UNIFIED-DATA-PLANE-R038.3.4 (Refusal):** Add the typed refusals.
+- [ ] **EG-UNIFIED-DATA-PLANE-R038.3.5 (Evidence):** Emit the evidence.
+- [ ] **EG-UNIFIED-DATA-PLANE-R038.3.6 (Hot-path proof):** Add the served hot-path test.
+- [ ] **EG-UNIFIED-DATA-PLANE-R038.4 (rollup):** Metastore catalogs and ORC and Avro files answer in place (rollup).
+- [ ] **EG-UNIFIED-DATA-PLANE-R038.4.1 (Model):** Add the typed model.
+- [ ] **EG-UNIFIED-DATA-PLANE-R038.4.2 (Behavior):** Implement the behavior.
+- [ ] **EG-UNIFIED-DATA-PLANE-R038.4.3 (Wiring):** Wire the production call site.
+- [ ] **EG-UNIFIED-DATA-PLANE-R038.4.4 (Refusal):** Add the typed refusals.
+- [ ] **EG-UNIFIED-DATA-PLANE-R038.4.5 (Evidence):** Emit the evidence.
+- [ ] **EG-UNIFIED-DATA-PLANE-R038.4.6 (Hot-path proof):** Add the served hot-path test.
+- [ ] **EG-UNIFIED-DATA-PLANE-R038.5 (rollup):** Search-index sources answer with relevance pushdown (rollup).
+- [ ] **EG-UNIFIED-DATA-PLANE-R038.5.1 (Model):** Add the typed model.
+- [ ] **EG-UNIFIED-DATA-PLANE-R038.5.2 (Behavior):** Implement the behavior.
+- [ ] **EG-UNIFIED-DATA-PLANE-R038.5.3 (Wiring):** Wire the production call site.
+- [ ] **EG-UNIFIED-DATA-PLANE-R038.5.4 (Refusal):** Add the typed refusals.
+- [ ] **EG-UNIFIED-DATA-PLANE-R038.5.5 (Evidence):** Emit the evidence.
+- [ ] **EG-UNIFIED-DATA-PLANE-R038.5.6 (Hot-path proof):** Add the served hot-path test.
+- [ ] **EG-UNIFIED-DATA-PLANE-R038.6 (rollup):** openCypher and Gremlin answer over relational and lake sources without a copy (rollup).
+- [ ] **EG-UNIFIED-DATA-PLANE-R038.6.1 (Model):** Add the typed model.
+- [ ] **EG-UNIFIED-DATA-PLANE-R038.6.2 (Behavior):** Implement the behavior.
+- [ ] **EG-UNIFIED-DATA-PLANE-R038.6.3 (Wiring):** Wire the production call site.
+- [ ] **EG-UNIFIED-DATA-PLANE-R038.6.4 (Refusal):** Add the typed refusals.
+- [ ] **EG-UNIFIED-DATA-PLANE-R038.6.5 (Evidence):** Emit the evidence.
+- [ ] **EG-UNIFIED-DATA-PLANE-R038.6.6 (Hot-path proof):** Add the served hot-path test.
+- [ ] **EG-UNIFIED-DATA-PLANE-R022.4:** Source-category coverage matrix.

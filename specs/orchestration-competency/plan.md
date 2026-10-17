@@ -176,3 +176,17 @@ Cross-repository rows: the `AU-WEBUI` row that draws the view depends on the con
 - Source review: `bbc3f62e74bc899e49191e1d9bf324afe5e6dc2553df9e8d8651aae1311a8418`; evidence: spec-audit/reconciliation/fresh-validation-20261012/semantic-reviews/incoming-24-owner-supplements.json.
 - Cross-owner behavior and receipts remain with the named owner; no runtime evidence is claimed.
 <!-- /spec-definition-patch -->
+
+## EG-CQ-ORCH-R011 — job, downtime and plan competency questions
+
+These questions are the acceptance set for the connect-time contract, the downtime scheduler, plan evolution and job-scoped loading. The capability-to-component questions of `EG-CQ-CONN-R084` stay separate. This rollup adds no question that row asks.
+
+| Question | Mechanism |
+|---|---|
+| Q1 load set for job J | `EG-DECISION-ENGINE-R176` |
+| Q2 next downtime jobs | `EG-DURABLE-KERNEL-R101` |
+| Q3 best virtual plan for Q across A and B | `EG-FEDERATED-QUERY-R091` |
+| Q4 how and when to use connector X | `EG-DECISION-ENGINE-R177` |
+| Q5 seed facts and changed parts of connector X | `EG-TYPED-PACKS-R104` |
+
+Call path: graph-os `find` -> served `Decide` or SPARQL -> the mechanism row -> answer with provenance.

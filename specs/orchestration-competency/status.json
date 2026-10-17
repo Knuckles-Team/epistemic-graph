@@ -66,7 +66,14 @@
     "EG-CQ-ORCH-R010.4",
     "EG-CQ-ORCH-R010.5",
     "EG-CQ-ORCH-R010.6",
-    "EG-CQ-ORCH-R010.7"
+    "EG-CQ-ORCH-R010.7",
+    "EG-CQ-ORCH-R011",
+    "EG-CQ-ORCH-R011.1",
+    "EG-CQ-ORCH-R011.2",
+    "EG-CQ-ORCH-R011.3",
+    "EG-CQ-ORCH-R011.4",
+    "EG-CQ-ORCH-R011.5",
+    "EG-CQ-ORCH-R011.6"
   ],
   "requirements": [
     {
@@ -579,6 +586,63 @@
     {
       "id": "EG-CQ-ORCH-R010.7",
       "title": "Preplanning architecture-gap admission and unwired-feature refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R011",
+      "title": "Job, downtime and plan competency questions (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-ORCH-R011.1",
+        "EG-CQ-ORCH-R011.2",
+        "EG-CQ-ORCH-R011.3",
+        "EG-CQ-ORCH-R011.4",
+        "EG-CQ-ORCH-R011.5",
+        "EG-CQ-ORCH-R011.6"
+      ]
+    },
+    {
+      "id": "EG-CQ-ORCH-R011.1",
+      "title": "Question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R011.2",
+      "title": "Question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R011.3",
+      "title": "Question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R011.4",
+      "title": "Question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R011.5",
+      "title": "Question",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-ORCH-R011.6",
+      "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

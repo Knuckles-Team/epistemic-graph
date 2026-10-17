@@ -63,3 +63,11 @@ Producer first: ontology gaps, shapes and authority mappings before fixtures and
 - [ ] **EG-CQ-ORCH-R010.7:** Gate plan-producing Decide responses on a revision-matched architecture view and AU study-gap record. Require each feature's attach point and wiring edge. Reject missing or stale inputs before returning a plan.
 - [ ] **EG-CQ-ORCH-R010.7 acceptance:** Run `unwired_feature_refuses_before_task_plan`, `stale_architecture_or_study_gap_refuses`, and `test_plan_requires_pinned_architecture_and_attach_points`. Assert named refusals and no plan. Confirm AU proposal id/revision before cross-owner closure. Status remains SPECIFIED.
 <!-- /spec-definition-patch -->
+
+- [ ] **EG-CQ-ORCH-R011 (rollup):** Job, downtime and plan competency questions (rollup).
+- [ ] **EG-CQ-ORCH-R011.1 (Question):** Add the Q1 fixture and acceptance test.
+- [ ] **EG-CQ-ORCH-R011.2 (Question):** Add the Q2 fixture and acceptance test.
+- [ ] **EG-CQ-ORCH-R011.3 (Question):** Add the Q3 fixture and acceptance test.
+- [ ] **EG-CQ-ORCH-R011.4 (Question):** Add the Q4 fixture and acceptance test.
+- [ ] **EG-CQ-ORCH-R011.5 (Question):** Add the Q5 fixture and acceptance test.
+- [ ] **EG-CQ-ORCH-R011.6 (Hot-path proof):** Add the served hot-path test.

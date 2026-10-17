@@ -388,3 +388,29 @@ Hot-path proof for `EG-FEDERATED-QUERY-R089`: `tests/discover_quality_verdict.rs
 | Hot-path proof | `EG-FEDERATED-QUERY-R090.6` | The served test passes, and the benchmark receipt meets the budget. |
 
 Hot-path proof for `EG-FEDERATED-QUERY-R090`: `tests/discover_planning_served.rs::deep_recency_multihop`.
+
+## EG-FEDERATED-QUERY-R073.2 acceptance
+
+| Case | Row | Proving test and observation |
+|---|---|---|
+| Evidence | `EG-FEDERATED-QUERY-R073.2` | `crates/eg-plan/src/federation_opt/tests.rs::protocol_matrix_bounds_pushdown`: A unit test fails when a declared protocol lacks a row. It refuses a pushdown kind outside the row. |
+
+## EG-FEDERATED-QUERY-R091 acceptance
+
+| Case | Row | Proving test and observation |
+|---|---|---|
+
+| Model | `EG-FEDERATED-QUERY-R091.1` | `crates/eg-plan/src/federation_opt/plan_evolution.rs::tests::observation_store_bounds`: A serde round trip keeps every field and rejects an unknown kind; the store evicts at its bound. |
+
+| Behavior | `EG-FEDERATED-QUERY-R091.2` | `crates/eg-plan/src/federation_opt/plan_evolution.rs::tests::keep_or_revert_by_measurement`: A faster equal candidate is kept, and a slower or unequal candidate is reverted. |
+
+| Wiring | `EG-FEDERATED-QUERY-R091.3` | `crates/eg-plan/src/federation_opt/plan_evolution.rs::tests::served_path_records_and_reads`: A served query records one observation, and a later query uses the kept plan. |
+
+| Refusal | `EG-FEDERATED-QUERY-R091.4` | `crates/eg-plan/src/federation_opt/plan_evolution.rs::tests::evolution_refusals`: Each case returns its code, and the active plan stays the baseline. |
+
+| Evidence | `EG-FEDERATED-QUERY-R091.5` | `crates/eg-plan/src/federation_opt/plan_evolution.rs::tests::receipt_names_measurements`: A served read finds the receipt linked to the shape. |
+
+| Hot-path proof | `EG-FEDERATED-QUERY-R091.6` | `tests/federation/test_plan_evolution_served.py::test_kept_plan_measurably_faster_and_mismatch_reverts`: The kept plan improves p50 by 10% or more, the unequal candidate reverts, and the overhead meets the budget. |
+
+
+Hot-path proof for `EG-FEDERATED-QUERY-R091`: `tests/federation/test_plan_evolution_served.py::test_kept_plan_measurably_faster_and_mismatch_reverts`.

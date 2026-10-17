@@ -319,3 +319,23 @@ Hot-path proof for `EG-DURABLE-KERNEL-R099`: `tests/shard_write_fanout.rs::cross
 | Hot-path proof | `EG-DURABLE-KERNEL-R100.6` | The served test passes against real targets, and the benchmark receipt meets the budget. |
 
 Hot-path proof for `EG-DURABLE-KERNEL-R100`: `tests/mirror_graph_sinks_served.rs::each_sink_replays_after_outage`.
+
+## EG-DURABLE-KERNEL-R101 acceptance
+
+| Case | Row | Proving test and observation |
+|---|---|---|
+
+| Model | `EG-DURABLE-KERNEL-R101.1` | `crates/eg-jobs/src/downtime.rs::tests::job_type_round_trips`: A serde round trip keeps every field, and the shape refuses a job type without a budget. |
+
+| Behavior | `EG-DURABLE-KERNEL-R101.2` | `crates/eg-jobs/src/downtime.rs::tests::priority_then_budget_fit`: Three job types run in priority order, and one with a false precondition is skipped. |
+
+| Wiring | `EG-DURABLE-KERNEL-R101.3` | `crates/eg-jobs/src/downtime.rs::tests::tick_enqueues_leased_jobs`: A served tick enqueues the selected jobs under background leases. |
+
+| Refusal | `EG-DURABLE-KERNEL-R101.4` | `crates/eg-jobs/src/downtime.rs::tests::downtime_refusals`: Each case returns its code, and no foreground lane runs downtime work. |
+
+| Evidence | `EG-DURABLE-KERNEL-R101.5` | `crates/eg-jobs/src/downtime.rs::tests::selection_recorded`: A served read finds the selection and the budget use of each job. |
+
+| Hot-path proof | `EG-DURABLE-KERNEL-R101.6` | `tests/scheduler/test_downtime_scheduler_served.py::test_idle_window_runs_priority_jobs_and_preempts`: Jobs run in priority order, and the foreground query preempts them within 250 ms. |
+
+
+Hot-path proof for `EG-DURABLE-KERNEL-R101`: `tests/scheduler/test_downtime_scheduler_served.py::test_idle_window_runs_priority_jobs_and_preempts`.
