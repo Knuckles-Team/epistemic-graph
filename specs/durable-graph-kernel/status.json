@@ -3270,10 +3270,11 @@
     },
     {
       "id": "EG-DURABLE-KERNEL-R102",
-      "title": "The engine serves its key-value modality as the memory read and save methods GraphOS binds (rollup)",
+      "title": "The engine serves its key-value modality as the memory read and save methods (rollup)",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "2393e9bc7050",
+        "a7b99166ada5",
         "e93b0ab360e8",
         "faa8867b4ff7"
       ],
@@ -3345,6 +3346,7 @@
       "title": "Hot-path proof",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "a7b99166ada5",
         "faa8867b4ff7"
       ],
       "verified_by": [
@@ -3359,7 +3361,7 @@
         "e93b0ab360e8"
       ],
       "verified_by": [
-        "src/server/kv/dispatch_tests.rs:440"
+        "src/server/kv/dispatch_tests.rs:441"
       ]
     },
     {
