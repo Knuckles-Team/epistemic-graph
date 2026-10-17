@@ -34,7 +34,11 @@ use crate::tenant_cursor::CursorFamily;
 use crate::work_item_read::WORK_ITEM_ROW_REVISION;
 
 mod kind_policy;
+mod pending_call;
 pub use kind_policy::ControlLeaseKindPolicy;
+pub use pending_call::{
+    PendingCallConsumption, PendingCallFence, PendingCallRegistration, PENDING_CALL_KIND,
+};
 
 /// `node_type` of a control-lease row.
 pub const CONTROL_LEASE_NODE_TYPE: &str = "ControlLease";
@@ -143,6 +147,9 @@ pub struct IssueControlLeaseRequest {
     pub kind: String,
     /// The immutable grant body.
     pub grant: Map<String, Value>,
+    /// Required only for the reserved pending-call storage kind.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pending_call_registration: Option<PendingCallRegistration>,
     pub issued_at_ms: u64,
     pub expires_at_ms: u64,
     pub hard_expires_at_ms: u64,
@@ -161,6 +168,9 @@ pub struct TransitionControlLeaseRequest {
     /// The `revision` of the view the caller decided on.
     pub expected_revision: u64,
     pub to: ControlLeaseTarget,
+    /// Required when consuming a pending-call envelope.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pending_call_consumption: Option<PendingCallConsumption>,
     /// Caller-stable retry identity for this transition.
     pub idempotency_key: String,
 }
@@ -276,6 +286,17 @@ impl IssueControlLeaseRequest {
                 self.kind
             ));
         }
+        match (
+            &self.pending_call_registration,
+            self.kind == PENDING_CALL_KIND,
+        ) {
+            (Some(registration), true) => {
+                registration.work_item.validate()?;
+                bounded("pending worker", &registration.expected_lease.worker_ref)?;
+            }
+            (None, false) => {}
+            _ => return Err("pending registration must match the reserved lease kind".into()),
+        }
         self.validate_body()
     }
 
@@ -321,7 +342,18 @@ impl TransitionControlLeaseRequest {
     pub fn validate(&self) -> Result<(), String> {
         bounded("tenant", &self.tenant)?;
         bounded("lease_id", &self.lease_id)?;
-        bounded("idempotency_key", &self.idempotency_key)
+        bounded("idempotency_key", &self.idempotency_key)?;
+        if let Some(pending) = &self.pending_call_consumption {
+            pending.work_item.validate()?;
+            let bytes = serde_json::to_vec(&pending.expected_grant).map_err(|e| e.to_string())?;
+            if bytes.len() > MAX_CONTROL_LEASE_GRANT_BYTES {
+                return Err("pending grant preimage exceeds native bounds".into());
+            }
+            if self.to != ControlLeaseTarget::Consumed {
+                return Err("pending consumption requires consumed target".into());
+            }
+        }
+        Ok(())
     }
 }
 

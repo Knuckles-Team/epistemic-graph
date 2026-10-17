@@ -10,6 +10,7 @@ fn issue(lease_id: &str, tenant: &str) -> IssueControlLeaseRequest {
     let mut grant = serde_json::Map::new();
     grant.insert("tool_ids".into(), serde_json::json!(["click", "type"]));
     IssueControlLeaseRequest {
+        pending_call_registration: None,
         tenant: tenant.into(),
         lease_id: lease_id.into(),
         kind: "browser.control".into(),
@@ -27,6 +28,7 @@ fn end(
     to: ControlLeaseTarget,
 ) -> TransitionControlLeaseRequest {
     TransitionControlLeaseRequest {
+        pending_call_consumption: None,
         tenant: "tenant-a".into(),
         lease_id: lease_id.into(),
         expected_revision,
@@ -42,10 +44,29 @@ fn decode<T: serde::de::DeserializeOwned>(payload: Option<crate::protocol::Resul
     }
 }
 
+fn native_call(
+    shard: &Shard,
+    tag: &str,
+    method: &Method,
+) -> Result<Option<crate::protocol::ResultPayload>, String> {
+    use super::super::test_shard::with_write;
+    use crate::redb_store::store_rows::GraphRowTables;
+    with_write(shard, tag, 2_000, |admitted| {
+        let member = admitted.graph(GRAPH)?;
+        let mut rows = GraphRowTables::open(member)?;
+        apply_control_lease_rows(
+            GRAPH,
+            method,
+            &mut rows.nodes,
+            &rows.native_work_items,
+            2_000,
+            DurableCrypto::none(),
+        )
+    })
+}
+
 fn issued(shard: &Shard, tag: &str, request: IssueControlLeaseRequest) -> ControlLeaseIssued {
-    decode(with_nodes(shard, tag, |nodes| {
-        apply_issue_control_lease_row(GRAPH, &request, nodes, DurableCrypto::none())
-    }))
+    decode(native_call(shard, tag, &Method::IssueControlLease { request }).unwrap())
 }
 
 fn transitioned(
@@ -53,9 +74,7 @@ fn transitioned(
     tag: &str,
     request: TransitionControlLeaseRequest,
 ) -> ControlLeaseTransition {
-    decode(with_nodes(shard, tag, |nodes| {
-        apply_transition_control_lease_row(GRAPH, &request, nodes, 2_000, DurableCrypto::none())
-    }))
+    decode(native_call(shard, tag, &Method::TransitionControlLease { request }).unwrap())
 }
 
 fn get(shard: &Shard, tenant: &str, lease_id: &str) -> Option<ControlLeaseView> {
@@ -172,6 +191,7 @@ fn the_pending_approval_queue_lists_only_the_tenants_active_approvals() {
         &temp.shard,
         "a2",
         IssueControlLeaseRequest {
+            pending_call_registration: None,
             lease_id: "action_approval:2".into(),
             idempotency_key: "issue:a2".into(),
             ..approval.clone()
@@ -182,6 +202,7 @@ fn the_pending_approval_queue_lists_only_the_tenants_active_approvals() {
         &temp.shard,
         "c1",
         IssueControlLeaseRequest {
+            pending_call_registration: None,
             tenant: "tenant-b".into(),
             lease_id: "action_approval:3".into(),
             ..approval
@@ -243,6 +264,7 @@ fn native_record_consumption_checks_commit_time_and_preserves_expired_rows() {
                         batch_id: "lease-expiry-test",
                         method: &method,
                         nodes: &mut rows.nodes,
+                        native_work_items: &rows.native_work_items,
                         edges: &mut rows.edges,
                         command_sequences: &mut rows.command_sequences,
                         committed_at_ms: now_ms,
@@ -276,4 +298,377 @@ fn native_record_consumption_checks_commit_time_and_preserves_expired_rows() {
             assert_eq!(revoked.outcome, ControlLeaseTransitionOutcome::Applied);
         }
     }
+}
+
+fn pending_fixture(shard: &Shard) -> IssueControlLeaseRequest {
+    let request = pending_nodes_fixture(shard);
+    use super::super::test_shard::with_write;
+    use crate::redb_store::store_rows::GraphRowTables;
+    with_write(shard, "seed-native-provenance", 1_000, |admitted| {
+        let member = admitted.graph(GRAPH)?;
+        let mut rows = GraphRowTables::open(member)?;
+        let work = load_row(&rows.nodes, GRAPH, "work-a", DurableCrypto::none())?.unwrap();
+        crate::redb_store::work_item_capability::record_native_claim(
+            &mut rows.native_work_items,
+            GRAPH,
+            "work-a",
+            &work,
+            1_000,
+            DurableCrypto::none(),
+        )
+    })
+    .unwrap();
+    request
+}
+
+fn pending_nodes_fixture(shard: &Shard) -> IssueControlLeaseRequest {
+    use eg_types::control_lease::{PendingCallFence, PendingCallRegistration, PENDING_CALL_KIND};
+    with_nodes(shard, "seed-pending-work", |nodes| {
+        let mut work = serde_json::json!({
+            "node_type": "WorkItem", "tenant": "tenant-a", "status": "running",
+            "lease_owner": "worker-a", "lease_epoch": 2, "fencing_token": 3,
+            "attempt": 1, "work_item_fence": "native-fence",
+            "lease_expires_at": 301.0, "metadata": {"task": "task-a"}
+        })
+        .as_object()
+        .unwrap()
+        .clone();
+        write_work_item_props(nodes, GRAPH, "work-a", &mut work, DurableCrypto::none())
+    });
+    let mut request = issue("pending-a", "tenant-a");
+    request.kind = PENDING_CALL_KIND.into();
+    request.grant = serde_json::json!({
+        "task_id": "task-a", "parent_work_item_id": "parent-a", "child_work_item_id": "work-a",
+        "op_id": "tool-a", "params_digest": "immutable-source-digest"
+    })
+    .as_object()
+    .unwrap()
+    .clone();
+    request.pending_call_registration = Some(PendingCallRegistration {
+        work_item: PendingCallFence {
+            work_item_id: "work-a".into(),
+            expected_revision: 1,
+            expected_metadata: serde_json::json!({"task": "task-a"})
+                .as_object()
+                .unwrap()
+                .clone(),
+        },
+        expected_lease: eg_types::epistemic_operations_ext::CasWorkItemMetadataLeaseFence {
+            worker_ref: "worker-a".into(),
+            lease_epoch: 2,
+            fencing_token: 3,
+        },
+    });
+    request
+}
+
+fn pending_consume(issue: &IssueControlLeaseRequest) -> TransitionControlLeaseRequest {
+    let mut request = end("pending-a", 1, ControlLeaseTarget::Consumed);
+    let mut work_item = issue
+        .pending_call_registration
+        .as_ref()
+        .unwrap()
+        .work_item
+        .clone();
+    work_item.expected_revision = 2;
+    request.pending_call_consumption = Some(eg_types::control_lease::PendingCallConsumption {
+        work_item,
+        expected_grant: issue.grant.clone(),
+    });
+    request
+}
+
+fn stored_work(shard: &Shard) -> NodeRow {
+    with_nodes(shard, "read-pending-work", |nodes| {
+        load_row(nodes, GRAPH, "work-a", DurableCrypto::none()).map(Option::unwrap)
+    })
+}
+
+fn registered_pending_fixture(
+    tag: &str,
+) -> (
+    super::super::test_shard::TempShard,
+    IssueControlLeaseRequest,
+) {
+    let temp = open(tag);
+    let request = pending_fixture(&temp.shard);
+    issued(&temp.shard, "register", request.clone());
+    (temp, request)
+}
+
+fn assert_registration_unchanged(shard: &Shard, before: &NodeRow) {
+    assert_eq!(&stored_work(shard), before);
+    assert!(get(shard, "tenant-a", "pending-a").is_none());
+}
+
+// spec: EG-DURABLE-KERNEL-R039.3
+#[test]
+fn pending_registration_and_consumption_change_both_rows_once() {
+    let temp = open("pending-pair");
+    let request = pending_fixture(&temp.shard);
+    let result = issued(&temp.shard, "register", request.clone());
+    assert_eq!(result.changed_work_item_ids, ["work-a", "pending-a"]);
+    let before = stored_work(&temp.shard);
+    assert_eq!(before["pending_call_lease_ref"], "pending-a");
+    assert_eq!(
+        issued(&temp.shard, "duplicate", request.clone()).outcome,
+        ControlLeaseIssueOutcome::Collision
+    );
+    assert_eq!(stored_work(&temp.shard), before);
+    let consume = pending_consume(&request);
+    let result = transitioned(&temp.shard, "consume", consume.clone());
+    assert_eq!(result.outcome, ControlLeaseTransitionOutcome::Applied);
+    assert_eq!(result.changed_work_item_ids, ["work-a", "pending-a"]);
+    let after = stored_work(&temp.shard);
+    assert!(!after.contains_key("pending_call_lease_ref"));
+    assert_eq!(after["row_revision"], 3);
+    assert_eq!(
+        transitioned(&temp.shard, "replay", consume).outcome,
+        ControlLeaseTransitionOutcome::Conflict
+    );
+    assert_eq!(stored_work(&temp.shard), after);
+}
+
+// spec: EG-DURABLE-KERNEL-R039.3
+#[test]
+fn pending_registration_refuses_stale_worker_without_writing_either_row() {
+    let temp = open("pending-register-fenced");
+    let mut request = pending_fixture(&temp.shard);
+    request
+        .pending_call_registration
+        .as_mut()
+        .unwrap()
+        .expected_lease
+        .fencing_token = 99;
+    let before = stored_work(&temp.shard);
+    let result = with_nodes(&temp.shard, "refused-register", |nodes| {
+        Ok(apply_issue_control_lease_row(
+            GRAPH,
+            &request,
+            nodes,
+            1_000,
+            DurableCrypto::none(),
+        ))
+    });
+    assert!(result.is_err());
+    assert_registration_unchanged(&temp.shard, &before);
+}
+
+// spec: EG-DURABLE-KERNEL-R039.3
+#[test]
+fn pending_consume_refuses_missing_fence_changed_envelope_or_metadata_atomically() {
+    let (temp, request) = registered_pending_fixture("pending-consume-fenced");
+    let work = stored_work(&temp.shard);
+    let lease = get(&temp.shard, "tenant-a", "pending-a");
+    let valid = pending_consume(&request);
+    let mut cases = vec![end("pending-a", 1, ControlLeaseTarget::Consumed)];
+    let mut changed_grant = valid.clone();
+    changed_grant
+        .pending_call_consumption
+        .as_mut()
+        .unwrap()
+        .expected_grant
+        .insert("op_id".into(), "other".into());
+    cases.push(changed_grant);
+    let mut changed_metadata = valid.clone();
+    changed_metadata
+        .pending_call_consumption
+        .as_mut()
+        .unwrap()
+        .work_item
+        .expected_metadata
+        .clear();
+    cases.push(changed_metadata);
+    let mut changed_revision = valid;
+    changed_revision
+        .pending_call_consumption
+        .as_mut()
+        .unwrap()
+        .work_item
+        .expected_revision = 1;
+    cases.push(changed_revision);
+    for (index, consume) in cases.iter().enumerate() {
+        let result = with_nodes(&temp.shard, &format!("refuse-{index}"), |nodes| {
+            Ok(apply_transition_control_lease_row(
+                GRAPH,
+                consume,
+                nodes,
+                1_500,
+                DurableCrypto::none(),
+            ))
+        });
+        assert!(result.is_err());
+        assert_eq!(stored_work(&temp.shard), work);
+        assert_eq!(get(&temp.shard, "tenant-a", "pending-a"), lease);
+    }
+}
+
+// spec: EG-DURABLE-KERNEL-R039.3
+#[test]
+fn pending_expiry_preserves_pair_and_revocation_clears_it() {
+    let (temp, request) = registered_pending_fixture("pending-expired");
+    let work = stored_work(&temp.shard);
+    let lease = get(&temp.shard, "tenant-a", "pending-a");
+    let consume = pending_consume(&request);
+    let result: ControlLeaseTransition =
+        decode(with_nodes(&temp.shard, "expired-consume", |nodes| {
+            apply_transition_control_lease_row(
+                GRAPH,
+                &consume,
+                nodes,
+                request.expires_at_ms,
+                DurableCrypto::none(),
+            )
+        }));
+    assert_eq!(result.outcome, ControlLeaseTransitionOutcome::Conflict);
+    assert_eq!(stored_work(&temp.shard), work);
+    assert_eq!(get(&temp.shard, "tenant-a", "pending-a"), lease);
+    let result = transitioned(
+        &temp.shard,
+        "revoke",
+        end("pending-a", 1, ControlLeaseTarget::Revoked),
+    );
+    assert_eq!(result.outcome, ControlLeaseTransitionOutcome::Applied);
+    assert!(!stored_work(&temp.shard).contains_key("pending_call_lease_ref"));
+}
+
+// spec: EG-DURABLE-KERNEL-R039.3
+#[test]
+fn pending_consume_refuses_a_reclaimed_worker_even_with_fresh_row_revision() {
+    for expired in [false, true] {
+        let temp = open(if expired {
+            "pending-worker-expired"
+        } else {
+            "pending-reclaimed"
+        });
+        let request = pending_fixture(&temp.shard);
+        issued(&temp.shard, "register", request.clone());
+        with_nodes(&temp.shard, "reclaim", |nodes| {
+            let mut work = load_row(nodes, GRAPH, "work-a", DurableCrypto::none())?.unwrap();
+            if expired {
+                work.insert("lease_expires_at".into(), 1.5.into());
+            } else {
+                work.insert("fencing_token".into(), 4.into());
+            }
+            write_work_item_props(nodes, GRAPH, "work-a", &mut work, DurableCrypto::none())
+        });
+        let before = stored_work(&temp.shard);
+        let mut consume = pending_consume(&request);
+        consume
+            .pending_call_consumption
+            .as_mut()
+            .unwrap()
+            .work_item
+            .expected_revision = 3;
+        let result = with_nodes(&temp.shard, "reclaimed-consume", |nodes| {
+            Ok(apply_transition_control_lease_row(
+                GRAPH,
+                &consume,
+                nodes,
+                1_500,
+                DurableCrypto::none(),
+            ))
+        });
+        assert!(result.is_err());
+        assert_eq!(stored_work(&temp.shard), before);
+        assert_eq!(
+            get(&temp.shard, "tenant-a", "pending-a").unwrap().status,
+            ControlLeaseStatus::Active
+        );
+    }
+}
+
+// spec: EG-DURABLE-KERNEL-R039.3
+#[test]
+fn pending_pair_refuses_foreign_tenant_and_generic_pointer_writes() {
+    use super::super::test_shard::check_guard;
+    let (temp, request) = registered_pending_fixture("pending-tenant-guard");
+    let before = stored_work(&temp.shard);
+    let mut consume = pending_consume(&request);
+    consume.tenant = "tenant-b".into();
+    assert_eq!(
+        transitioned(&temp.shard, "foreign", consume).outcome,
+        ControlLeaseTransitionOutcome::NotFound
+    );
+    let forged = Method::CompareAndSetNodeFields {
+        node_id: "work-a".into(),
+        conditions_msgpack: rmp_serde::to_vec_named(&serde_json::json!({})).unwrap(),
+        updates_msgpack: rmp_serde::to_vec_named(
+            &serde_json::json!({"pending_call_lease_ref": "forged"}),
+        )
+        .unwrap(),
+    };
+    assert!(check_guard(&temp.shard, "repoint", forged).is_err());
+    let plant = Method::AddNode {
+        node_id: "forged-work".into(),
+        properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({
+            "node_type": "WorkItem", "pending_call_lease_ref": "pending-a"
+        }))
+        .unwrap(),
+    };
+    assert!(check_guard(&temp.shard, "plant", plant).is_err());
+    assert_eq!(stored_work(&temp.shard), before);
+    assert_eq!(
+        get(&temp.shard, "tenant-a", "pending-a").unwrap().status,
+        ControlLeaseStatus::Active
+    );
+}
+
+// spec: EG-DURABLE-KERNEL-R039.3
+#[test]
+fn pending_registration_refuses_a_nodes_only_lease_tuple() {
+    let temp = open("pending-no-native-claim");
+    let request = pending_nodes_fixture(&temp.shard);
+    let before = stored_work(&temp.shard);
+    let result = native_call(
+        &temp.shard,
+        "refuse-no-claim",
+        &Method::IssueControlLease { request },
+    );
+    assert!(result.is_err());
+    assert_registration_unchanged(&temp.shard, &before);
+}
+
+// spec: EG-DURABLE-KERNEL-R039.3
+#[test]
+fn pending_consumption_refuses_missing_native_provenance() {
+    use super::super::test_shard::with_write;
+    use crate::redb_store::store_rows::GraphRowTables;
+    let (temp, request) = registered_pending_fixture("pending-lost-native-claim");
+    with_write(&temp.shard, "remove-native-provenance", 2_000, |admitted| {
+        let member = admitted.graph(GRAPH)?;
+        let mut rows = GraphRowTables::open(member)?;
+        rows.native_work_items.remove((GRAPH, "work-a"))?;
+        Ok(())
+    })
+    .unwrap();
+    let work = stored_work(&temp.shard);
+    let lease = get(&temp.shard, "tenant-a", "pending-a");
+    let result = native_call(
+        &temp.shard,
+        "refuse-lost-claim",
+        &Method::TransitionControlLease {
+            request: pending_consume(&request),
+        },
+    );
+    assert!(result.is_err());
+    assert_eq!(stored_work(&temp.shard), work);
+    assert_eq!(get(&temp.shard, "tenant-a", "pending-a"), lease);
+}
+
+// spec: EG-DURABLE-KERNEL-R039.3
+#[test]
+fn pending_worker_refuses_incomplete_fences_and_fractional_deadline() {
+    let temp = open("pending-worker-shape");
+    let request = pending_fixture(&temp.shard);
+    let work = stored_work(&temp.shard);
+    let fence = &request.pending_call_registration.unwrap().expected_lease;
+    for field in ["attempt", "lease_epoch", "fencing_token", "work_item_fence"] {
+        let mut incomplete = work.clone();
+        incomplete.remove(field);
+        assert!(!pending_call::live_worker(&incomplete, fence, 2_000));
+    }
+    let mut fractional = work;
+    fractional.insert("lease_expires_at".into(), serde_json::json!(2.0009));
+    assert!(!pending_call::live_worker(&fractional, fence, 2_000));
 }

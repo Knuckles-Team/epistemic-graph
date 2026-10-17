@@ -118,6 +118,7 @@ impl Served {
             unreachable!("the grant literal is an object")
         };
         let issue = IssueControlLeaseRequest {
+            pending_call_registration: None,
             tenant: TENANT.to_string(),
             lease_id: lease_id.to_string(),
             kind: SCHEMA_APPROVAL_LEASE_KIND.to_string(),
@@ -134,6 +135,7 @@ impl Served {
             return;
         }
         let consume = TransitionControlLeaseRequest {
+            pending_call_consumption: None,
             tenant: TENANT.to_string(),
             lease_id: lease_id.to_string(),
             expected_revision: 1,
