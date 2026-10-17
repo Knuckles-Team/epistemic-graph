@@ -74,20 +74,29 @@ graph-derived `source` — never both (explicit wins).
 
 ```python
 from epistemic_graph.client import SyncEpistemicGraphClient
+
 c = SyncEpistemicGraphClient.connect(socket_path="/run/epistemic-graph/shard-0.sock")
 
 # (1) explicit market-basket transactions
 res = c.mining.associate(
-    [["bread", "butter", "milk"],
-     ["bread", "butter"],
-     ["bread", "milk"],
-     ["butter", "milk"],
-     ["bread", "butter", "milk"]],
-    min_support=0.4, min_confidence=0.5, algorithm="fpgrowth",
+    [
+        ["bread", "butter", "milk"],
+        ["bread", "butter"],
+        ["bread", "milk"],
+        ["butter", "milk"],
+        ["bread", "butter", "milk"],
+    ],
+    min_support=0.4,
+    min_confidence=0.5,
+    algorithm="fpgrowth",
 )
 for r in res["rules"]:
-    print(r["antecedent"], "=>", r["consequent"],
-          f"conf={r['confidence']:.2f} lift={r['lift']:.2f}")
+    print(
+        r["antecedent"],
+        "=>",
+        r["consequent"],
+        f"conf={r['confidence']:.2f} lift={r['lift']:.2f}",
+    )
 # {bread,butter} => {milk}  conf=0.67 lift=0.83  …
 ```
 
@@ -110,10 +119,16 @@ compute-near-data operation (no second round-trip, no client-side marshalling):
 ```python
 # For each :Doc, mine which cited topics co-occur — traversing the CITES graph.
 res = c.mining.associate(
-    source={"node_label": "Doc", "direction": "out",
-            "item_field": "prop:topic", "relation": "CITES"},
-    min_support=0.1, min_confidence=0.6, algorithm="fpgrowth",
-    writeback=True,   # materialize :AssociationRule nodes
+    source={
+        "node_label": "Doc",
+        "direction": "out",
+        "item_field": "prop:topic",
+        "relation": "CITES",
+    },
+    min_support=0.1,
+    min_confidence=0.6,
+    algorithm="fpgrowth",
+    writeback=True,  # materialize :AssociationRule nodes
 )
 ```
 
@@ -131,7 +146,7 @@ discovery back into the graph.
 
 ```python
 res = c.mining.associate(..., writeback=True)
-rules = c.nodes.list_by_label("AssociationRule", 0)   # queryable typed nodes
+rules = c.nodes.list_by_label("AssociationRule", 0)  # queryable typed nodes
 ```
 
 ## First consumer — agent-utilities-evolution (concept↔capability rules)
@@ -145,34 +160,47 @@ implement Z"):
 
 ```python
 from epistemic_graph.client import SyncEpistemicGraphClient
+
 c = SyncEpistemicGraphClient.connect(socket_path="/run/epistemic-graph/shard-0.sock")
 c.graph.clear()
 
 concepts = {"cA": "concept:cA", "cB": "concept:cB", "cC": "concept:cC"}
 caps = {"capX": "capability:capX", "capZ": "capability:capZ"}
-for nid in concepts.values(): c.nodes.add(nid, {"type": "Concept"})
-for nid in caps.values():     c.nodes.add(nid, {"type": "Capability"})
+for nid in concepts.values():
+    c.nodes.add(nid, {"type": "Concept"})
+for nid in caps.values():
+    c.nodes.add(nid, {"type": "Capability"})
 
 papers = {
-    "p1": (["cA", "cB"], "capZ"), "p2": (["cA", "cB"], "capZ"),
-    "p3": (["cA", "cB"], "capZ"), "p4": (["cA", "cC"], "capX"),
+    "p1": (["cA", "cB"], "capZ"),
+    "p2": (["cA", "cB"], "capZ"),
+    "p3": (["cA", "cB"], "capZ"),
+    "p4": (["cA", "cC"], "capX"),
     "p5": (["cB", "cC"], "capX"),
 }
 for pid, (cs, cap) in papers.items():
     c.nodes.add(pid, {"type": "Paper"})
-    for x in cs: c.edges.add(pid, concepts[x], {"relationship": "TOUCHES"})
+    for x in cs:
+        c.edges.add(pid, concepts[x], {"relationship": "TOUCHES"})
     c.edges.add(pid, caps[cap], {"relationship": "IMPLEMENTS"})
 
 # Mine each Paper's neighborhood (concepts + capability) → co-occurrence rules,
 # and write the rules back as :AssociationRule nodes.
 res = c.mining.associate(
     source={"node_label": "Paper", "direction": "out"},
-    min_support=0.4, min_confidence=0.9, algorithm="fpgrowth", writeback=True,
+    min_support=0.4,
+    min_confidence=0.9,
+    algorithm="fpgrowth",
+    writeback=True,
 )
 for r in res["rules"]:
     if set(r["antecedent"]) == {"concept:cA", "concept:cB"}:
-        print(r["antecedent"], "=>", r["consequent"],
-              f"conf={r['confidence']:.2f} lift={r['lift']:.2f}")
+        print(
+            r["antecedent"],
+            "=>",
+            r["consequent"],
+            f"conf={r['confidence']:.2f} lift={r['lift']:.2f}",
+        )
 # ['concept:cA', 'concept:cB'] => ['capability:capZ']  conf=1.00 lift=1.67
 print("wrote back", res["written_back"], ":AssociationRule nodes")
 ```
@@ -203,7 +231,9 @@ res = c.mining.cluster(
         {"Rank": {"query": [0.1, 0.1, 0.0, 0.0]}},
         {"Limit": {"k": 50}},
     ],
-    algorithm="kmedoids", k=3, writeback=True,
+    algorithm="kmedoids",
+    k=3,
+    writeback=True,
 )
 ```
 
@@ -252,12 +282,15 @@ score}` (score = mean member→centroid distance; GMM also returns
 
 ```python
 from epistemic_graph.client import SyncEpistemicGraphClient
+
 c = SyncEpistemicGraphClient.connect(socket_path="/run/epistemic-graph/shard-0.sock")
 
 # Explicit feature matrix — DBSCAN two blobs + a noise point.
 res = c.mining.cluster(
     [[0.0, 0.0], [0.1, 0.1], [10.0, 10.0], [10.1, 9.9], [50.0, 50.0]],
-    algorithm="dbscan", eps=1.0, min_pts=2,
+    algorithm="dbscan",
+    eps=1.0,
+    min_pts=2,
 )
 # res["labels"] == [0, 0, 1, 1, -1]   (-1 = noise)
 ```
@@ -272,12 +305,14 @@ then cluster them, then write the clusters back" is **one** compute-near-data pl
 ```python
 # Cluster the embeddings of every :Doc, then materialize :Cluster nodes.
 res = c.mining.cluster(
-    source={"node_label": "Doc"},   # rows = the Docs' embedding vectors
-    algorithm="kmedoids", k=5, writeback=True,
+    source={"node_label": "Doc"},  # rows = the Docs' embedding vectors
+    algorithm="kmedoids",
+    k=5,
+    writeback=True,
 )
 for cl in res["clusters"]:
     print(cl["cluster_id"], "size", len(cl["members"]), "score", round(cl["score"], 3))
-clusters = c.nodes.list_by_label("Cluster", 0)   # queryable typed nodes
+clusters = c.nodes.list_by_label("Cluster", 0)  # queryable typed nodes
 ```
 
 With `writeback=true` each non-noise cluster becomes a typed `:Cluster` node
@@ -322,12 +357,16 @@ its entity:
 
 ```python
 # Pull a metric series window from the engine's TSDB, then Isolation-Forest it.
-series = c.timeseries.range("cpu.util", t0, t1)               # [(ts_ns, [value]), ...]
+series = c.timeseries.range("cpu.util", t0, t1)  # [(ts_ns, [value]), ...]
 res = c.mining.anomaly(
     values=[vals[0] for _ts, vals in series],
-    algorithm="isoforest", n_trees=200, seed=7,
+    algorithm="isoforest",
+    n_trees=200,
+    seed=7,
 )
-spikes = [r["id"] for r in res["rows"] if r["is_anomaly"]]     # row indices of the anomalies
+spikes = [
+    r["id"] for r in res["rows"] if r["is_anomaly"]
+]  # row indices of the anomalies
 ```
 
 Or run over node embeddings directly and write the anomalies back:
@@ -335,7 +374,9 @@ Or run over node embeddings directly and write the anomalies back:
 ```python
 # Flag :Metric nodes whose embeddings are outliers; materialize :Anomaly nodes.
 res = c.mining.anomaly(
-    source={"node_label": "Metric"}, algorithm="zscore", writeback=True,
+    source={"node_label": "Metric"},
+    algorithm="zscore",
+    writeback=True,
 )
 anoms = c.nodes.list_by_label("Anomaly", 0)
 ```
@@ -391,11 +432,13 @@ a linear boundary; k-NN classifies blobs).
 ```python
 # Fit on a labeled feature matrix → model blob, then predict fresh rows.
 fit = await c.mining.classify_fit(
-    x=[[0,0],[0.5,0.3],[0.2,0.8],[10,10],[10.5,9.7],[9.8,10.4]],
-    y=[0,0,0,1,1,1],
-    algorithm="logistic", lr=0.5, epochs=500,
+    x=[[0, 0], [0.5, 0.3], [0.2, 0.8], [10, 10], [10.5, 9.7], [9.8, 10.4]],
+    y=[0, 0, 0, 1, 1, 1],
+    algorithm="logistic",
+    lr=0.5,
+    epochs=500,
 )
-out = await c.mining.classify_predict(fit["model"], x=[[0.3,0.3],[10,10]])
+out = await c.mining.classify_predict(fit["model"], x=[[0.3, 0.3], [10, 10]])
 # out["rows"] == [{"id":0,"label":0,"proba":[...]}, {"id":1,"label":1,"proba":[...]}]
 ```
 
@@ -410,7 +453,9 @@ its source.
 ```python
 # Train once, then classify every :Sample node by its embedding + write :Classification.
 out = await c.mining.classify_predict(
-    model, source={"node_label": "Sample"}, writeback=True,
+    model,
+    source={"node_label": "Sample"},
+    writeback=True,
 )
 # → one :Classification{label, proba, source} node per row, linked CLASSIFIED_AS → the source node.
 ```
@@ -462,7 +507,10 @@ and a downstream feed for clustering.
 ```python
 # UMAP the :Doc embeddings for the graphviz, writing :Embedding2D back.
 out = await c.mining.reduce(
-    source={"node_label": "Doc"}, algorithm="umap", n_components=2, writeback=True,
+    source={"node_label": "Doc"},
+    algorithm="umap",
+    n_components=2,
+    writeback=True,
 )
 # → one :Embedding2D{coords, source} node per :Doc, linked REDUCED_FROM → the :Doc.
 ```
@@ -582,11 +630,15 @@ two-sided `confidence` level (default `0.95`), widening with the forecast horizo
 
 ```python
 # ARIMA(1,1,0) — a pure linear trend needs one difference to become ~constant.
-out = await c.mining.forecast(values=[5 + 3*t for t in range(30)], algorithm="arima", p=1, d=1, horizon=5)
+out = await c.mining.forecast(
+    values=[5 + 3 * t for t in range(30)], algorithm="arima", p=1, d=1, horizon=5
+)
 # out["forecast"] tracks the trend's continuation; out["lower"]/out["upper"] widen with h.
 
 # Holt-Winters over a seasonal series (period=12).
-out = await c.mining.forecast(values=series, algorithm="holtwinters", period=12, horizon=12)
+out = await c.mining.forecast(
+    values=series, algorithm="holtwinters", period=12, horizon=12
+)
 
 # STL decomposition + extrapolation, also returning the fitted components.
 out = await c.mining.forecast(values=series, algorithm="stl", period=12, horizon=12)
@@ -604,8 +656,12 @@ values, lower, upper}` node — linked `FORECAST_OF` to a resident node named
 ```python
 # Forecast a named metric's series and write the result back, linked to its node.
 out = await c.mining.forecast(
-    values=metric_history, algorithm="holtwinters", period=7, horizon=7,
-    series_id="metric:daily_active_users", writeback=True,
+    values=metric_history,
+    algorithm="holtwinters",
+    period=7,
+    horizon=7,
+    series_id="metric:daily_active_users",
+    writeback=True,
 )
 # → one :Forecast{horizon, values, lower, upper, series_id} node, linked FORECAST_OF
 #   → the :metric:daily_active_users node (if resident).
@@ -647,14 +703,18 @@ text property, compute-near-data):
 
 ```python
 # TF-IDF over an explicit, pre-tokenized corpus.
-out = await c.mining.text(docs=[
-    ["the", "cat", "sat", "on", "the", "mat"],
-    ["the", "rocket", "launched", "into", "orbit"],
-])
+out = await c.mining.text(
+    docs=[
+        ["the", "cat", "sat", "on", "the", "mat"],
+        ["the", "rocket", "launched", "into", "orbit"],
+    ]
+)
 # out["doc_terms"][1] ranks "rocket"/"launched"/"orbit" above the common "the".
 
 # LDA topic model — k=2 over two thematically distinct document groups.
-out = await c.mining.text(docs=pet_and_finance_docs, algorithm="lda", k=2, iterations=200, seed=42)
+out = await c.mining.text(
+    docs=pet_and_finance_docs, algorithm="lda", k=2, iterations=200, seed=42
+)
 # out["topics"] recovers one topic per theme; out["doc_topics"][i] is doc i's mixture.
 ```
 
@@ -669,7 +729,10 @@ its topic-membership distribution) it is.
 ```python
 # Topic-model every :Doc's "body" text, writing :Topic nodes back.
 out = await c.mining.text(
-    source={"node_label": "Doc", "field": "body"}, algorithm="lda", k=5, writeback=True,
+    source={"node_label": "Doc", "field": "body"},
+    algorithm="lda",
+    k=5,
+    writeback=True,
 )
 # → one :Topic{terms} node per topic, linked HAS_TOPIC ← every :Doc whose dominant
 #   topic it is — a downstream feed for association-mining topics↔entities.
@@ -775,7 +838,8 @@ typed `:EntityMatch` node per match above `threshold`.
 # Jaccard record linkage over token attributes, blocked by a normalized last name.
 out = await c.mining.entity_resolve(
     records=[["john", "smith", "12345"], ["jon", "smith", "12345"]],
-    block_keys=["smith", "smith"], threshold=0.5,
+    block_keys=["smith", "smith"],
+    threshold=0.5,
 )
 # out["matches"] == [{"a":0,"b":1,"score":...}, ...]
 ```
@@ -786,7 +850,8 @@ out = await c.mining.entity_resolve(
 # Cosine entity resolution over :Person node embeddings, writing :EntityMatch back.
 out = await c.mining.entity_resolve(
     source={"node_label": "Person", "field": "embedding"},
-    threshold=0.85, writeback=True,
+    threshold=0.85,
+    writeback=True,
 )
 # → one :EntityMatch{score} node per match, linked to both member nodes.
 ```
@@ -824,7 +889,9 @@ in the crate.
 
 ```python
 # Interrupted time series — did the metric shift after the intervention?
-out = await c.mining.causal_impact(series=[1,1,1,1, 5,5,5,5], intervention_index=4)
+out = await c.mining.causal_impact(
+    series=[1, 1, 1, 1, 5, 5, 5, 5], intervention_index=4
+)
 # out["effect_size"] == 4.0 (post_mean - pre_mean)
 ```
 
@@ -832,8 +899,11 @@ out = await c.mining.causal_impact(series=[1,1,1,1, 5,5,5,5], intervention_index
 
 ```python
 out = await c.mining.causal_impact(
-    series=[...], control=[...], intervention_index=10,
-    series_id="rollout-v2", writeback=True,
+    series=[...],
+    control=[...],
+    intervention_index=10,
+    series_id="rollout-v2",
+    writeback=True,
 )
 # → one :CausalEffect{pre_mean, post_mean, effect_size, ...} node, linked to
 #   the identified series.
@@ -868,10 +938,12 @@ the footprint stops short of full Petri-net synthesis, since the footprint alone
 is already the queryable `:ProcessModel` this family writes back.
 
 ```python
-out = await c.mining.process(traces=[
-    ["login", "browse", "checkout"],
-    ["login", "browse", "browse", "checkout"],
-])
+out = await c.mining.process(
+    traces=[
+        ["login", "browse", "checkout"],
+        ["login", "browse", "browse", "checkout"],
+    ]
+)
 # out["footprint"]["login","browse"] == "causal"
 ```
 
@@ -905,8 +977,9 @@ PageRank's damping) backward search over the dependency graph.
 
 ```python
 out = await c.mining.root_cause(
-    nodes=["svc-a","svc-b","svc-c"], scores=[0.1, 0.2, 0.9],
-    edges=[("svc-a","svc-b",1.0), ("svc-b","svc-c",1.0)],
+    nodes=["svc-a", "svc-b", "svc-c"],
+    scores=[0.1, 0.2, 0.9],
+    edges=[("svc-a", "svc-b", 1.0), ("svc-b", "svc-c", 1.0)],
     symptom="svc-c",
 )
 # out["candidates"][0]["node"] == "svc-a" or "svc-b", ranked by responsibility
@@ -941,8 +1014,9 @@ seeded nodes outward along dependency edges, controlled by `damping`, `tolerance
 
 ```python
 out = await c.mining.risk_propagation(
-    nodes=["a","b","c"], seed=[1.0, 0.0, 0.0],
-    edges=[("a","b",1.0), ("b","c",1.0)],
+    nodes=["a", "b", "c"],
+    seed=[1.0, 0.0, 0.0],
+    edges=[("a", "b", 1.0), ("b", "c", 1.0)],
 )
 # out["scores"] sums to (approximately) the seed mass, spread along edges
 ```
@@ -1007,7 +1081,8 @@ search pipeline's own quality, rather than mining structure from data.
 
 ```python
 out = await c.mining.retrieval_quality(
-    traces=[{"retrieved": ["d1","d2","d3"], "relevant": ["d1","d3"]}], k=3,
+    traces=[{"retrieved": ["d1", "d2", "d3"], "relevant": ["d1", "d3"]}],
+    k=3,
 )
 # out["precision_at_k"], out["recall_at_k"], out["mrr"]
 ```
@@ -1015,7 +1090,9 @@ out = await c.mining.retrieval_quality(
 ## Write-back — materialize the aggregate report
 
 ```python
-out = await c.mining.retrieval_quality(traces=[...], query_id="rag-eval-2026-07", writeback=True)
+out = await c.mining.retrieval_quality(
+    traces=[...], query_id="rag-eval-2026-07", writeback=True
+)
 # → one :RetrievalQuality{precision_at_k, recall_at_k, mrr} node.
 ```
 
@@ -1092,11 +1169,12 @@ deployed version.
 spec = {
     "features": [{"step": "embedding", "method": "fastrp", "dim": 32}],
     "split": {"test_ratio": 0.3, "seed": 7},
-    "label_property": "label",                       # per-node integer class
+    "label_property": "label",  # per-node integer class
     "model": {"family": "classify", "algorithm": "logistic"},
 }
-v1 = await c.pipeline.train("community", spec,
-                            source={"node_label": "Person", "direction": "any"})
+v1 = await c.pipeline.train(
+    "community", spec, source={"node_label": "Person", "direction": "any"}
+)
 # → {name, version: 1, model_id: "model:community:v1",
 #    metrics: {train: {...}, test: {accuracy, macro_f1}}, ...}
 ```
@@ -1104,16 +1182,23 @@ v1 = await c.pipeline.train("community", spec,
 ## Eval, serve, predict, compare
 
 ```python
-await c.pipeline.evaluate("community", version=1,
-                          source={"node_label": "Person"})   # → {metrics, n}
-await c.pipeline.serve("community", version=1)                # deploy v1
-pred = await c.pipeline.predict("community", version=0,       # 0 ⇒ served
-                                source={"node_label": "Person"}, writeback=True)
+await c.pipeline.evaluate(
+    "community", version=1, source={"node_label": "Person"}
+)  # → {metrics, n}
+await c.pipeline.serve("community", version=1)  # deploy v1
+pred = await c.pipeline.predict(
+    "community",
+    version=0,  # 0 ⇒ served
+    source={"node_label": "Person"},
+    writeback=True,
+)
 # → {rows: [{id, label, proba}], ...}   (+ one :Prediction node per row)
 
-v2 = await c.pipeline.train("community", {**spec,
-        "model": {"family": "classify", "algorithm": "knn"}},
-        source={"node_label": "Person"})                     # → version: 2
+v2 = await c.pipeline.train(
+    "community",
+    {**spec, "model": {"family": "classify", "algorithm": "knn"}},
+    source={"node_label": "Person"},
+)  # → version: 2
 cmp = await c.pipeline.compare("community", 1, 2)
 # → {metrics_a, metrics_b, diff: {accuracy: b−a, macro_f1: b−a}}
 ```

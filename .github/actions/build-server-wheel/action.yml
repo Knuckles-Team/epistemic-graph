@@ -38,11 +38,11 @@ runs:
         print(f"arch={arch}")
         print(f"key={key}")
         PY
-    - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
+    - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
       with:
         toolchain: ${{ steps.env.outputs.channel }}
     - name: Restore the per-architecture compile cache
-      uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       with:
         shared-key: egs-${{ steps.env.outputs.key }}
         workspaces: ${{ inputs.source-dir }} -> target

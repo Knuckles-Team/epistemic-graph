@@ -25,7 +25,7 @@
 //! (a default `cargo bench -p eg-plan` SKIPS it — `required-features = ["query"]`, and
 //! the `execute` leg is `query`-gated).
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use eg_core::compute::semantic::SemanticStore;
 use eg_core::graph::{GraphCore, GraphView};
 use eg_plan::{
@@ -33,6 +33,7 @@ use eg_plan::{
     HierarchicalRetriever, Op, Plan, PlanCtx, Pred, RetrievalParams, Scored,
 };
 use serde_json::json;
+use std::hint::black_box;
 
 // ── deterministic PRNG (LCG) — no rand dep, so the dataset is byte-reproducible ──
 

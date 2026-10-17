@@ -339,16 +339,16 @@ pub(super) fn source_reconciliation_wakeup_digest(
     hasher.update(record.ordinal.to_be_bytes());
     match record.committed_version {
         eg_types::mutation_batch::CommittedVersion::Graph { source, target } => {
-            hasher.update([b'g']);
+            hasher.update(*b"g");
             hasher.update(source.to_be_bytes());
             hasher.update(target.to_be_bytes());
         }
         eg_types::mutation_batch::CommittedVersion::Native { source, target } => {
-            hasher.update([b'n']);
+            hasher.update(*b"n");
             hasher.update(source.to_be_bytes());
             hasher.update(target.to_be_bytes());
         }
-        eg_types::mutation_batch::CommittedVersion::None => hasher.update([b'0']),
+        eg_types::mutation_batch::CommittedVersion::None => hasher.update(*b"0"),
     }
     hasher.update(wakeup.source_scope_digest.as_bytes());
     hasher.update(wakeup.input_digest.as_bytes());

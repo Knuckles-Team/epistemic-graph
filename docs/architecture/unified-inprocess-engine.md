@@ -147,7 +147,10 @@ class NodeClient:
     async def add(self, node_id: str, properties: dict[str, Any] | None = None) -> None:
         await self._client._send(
             "AddNode",
-            {"node_id": node_id, "properties_msgpack": list(msgpack.packb(properties or {}))},
+            {
+                "node_id": node_id,
+                "properties_msgpack": list(msgpack.packb(properties or {})),
+            },
         )
 
     async def properties(self, node_id: str) -> dict[str, Any] | None:
@@ -176,15 +179,24 @@ lifted to an interface both transports satisfy:
 ```python
 class _Transport(Protocol):
     async def _send(
-        self, method: str, params: dict[str, Any] | None = None, *, graph: str | None = None,
+        self,
+        method: str,
+        params: dict[str, Any] | None = None,
+        *,
+        graph: str | None = None,
     ) -> Any: ...
 
-class SocketTransport:                       # today's EpistemicGraphClient, unchanged
-    async def _send(self, method, params=None, *, graph=None) -> Any: ...  # framed UDS/TCP + eg2. envelope
 
-class EmbeddedTransport:                     # NEW — backs epistemic_graph.embedded
+class SocketTransport:  # today's EpistemicGraphClient, unchanged
+    async def _send(
+        self, method, params=None, *, graph=None
+    ) -> Any: ...  # framed UDS/TCP + eg2. envelope
+
+
+class EmbeddedTransport:  # NEW — backs epistemic_graph.embedded
     def __init__(self, graph_name: str = "__commons__") -> None:
-        from . import engine as _native      # the pyo3 extension this crate builds
+        from . import engine as _native  # the pyo3 extension this crate builds
+
         self._engine = _native.Engine()
         self._graph_name = graph_name
         self._engine.create_graph(graph_name)
@@ -193,7 +205,9 @@ class EmbeddedTransport:                     # NEW — backs epistemic_graph.emb
         g = graph or self._graph_name
         params = params or {}
         if method == "AddNode":
-            self._engine.add_node(g, params["node_id"], bytes(params["properties_msgpack"]))
+            self._engine.add_node(
+                g, params["node_id"], bytes(params["properties_msgpack"])
+            )
             return None
         if method == "GetNodeProperties":
             return self._engine.get_node_properties(g, params["node_id"])

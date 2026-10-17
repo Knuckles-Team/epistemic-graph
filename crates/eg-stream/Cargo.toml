@@ -107,7 +107,7 @@ rdkafka = { version = "0.39", default-features = false, features = ["cmake-build
 # channels for per-subscription match fan-out + backpressure, and the source bus-drain
 # task. Optional + referenced only under #[cfg(feature = "stream")], so a default / Pi
 # build links none of it. `sync` = channels, `rt` + `macros` = spawn + `#[tokio::test]`.
-tokio = { version = "1.38", features = ["sync", "rt", "macros"], optional = true }
+tokio = { version = "1.53", features = ["sync", "rt", "macros"], optional = true }
 # ModalityContract retrofit (CONCEPT:E4). Optional, only under `contract` (default
 # OFF) — a default/node/full build links none of it and `Event` carries no new
 # required trait. See `src/contract.rs`.

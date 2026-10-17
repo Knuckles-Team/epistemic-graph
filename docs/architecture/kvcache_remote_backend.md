@@ -133,9 +133,9 @@ Direct use (custom L1→remote hierarchy) is equally supported:
 ```python
 from epistemic_graph.kvcache import RemoteKVConnector
 
-with RemoteKVConnector.from_env() as kv:      # reads EG-KG.backend.is-configured-so-co env
-    if not kv.contains(token_hash):           # HEAD /kv/<hash>
-        kv.put(token_hash, block_bytes)       # PUT  /kv/<hash>
-    block = kv.get(token_hash)                # GET  /kv/<hash>  (None on miss)
-    print(kv.stats())                         # GET  /kv/stats
+with RemoteKVConnector.from_env() as kv:  # reads EG-KG.backend.is-configured-so-co env
+    if not kv.contains(token_hash):  # HEAD /kv/<hash>
+        kv.put(token_hash, block_bytes)  # PUT  /kv/<hash>
+    block = kv.get(token_hash)  # GET  /kv/<hash>  (None on miss)
+    print(kv.stats())  # GET  /kv/stats
 ```

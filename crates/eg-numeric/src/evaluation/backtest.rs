@@ -90,7 +90,7 @@ pub fn deflated_sharpe_ratio(observed_sr: f64, n_trials: usize, sr_returns: &[f6
     }
     let g3 = skew(sr_returns);
     let g4 = excess_kurtosis(sr_returns);
-    let euler = 0.577_215_664_9;
+    let euler = std::f64::consts::EULER_GAMMA;
     let nt = n_trials as f64;
     let e_max_sr = (1.0 - euler) * norm_ppf(1.0 - 1.0 / nt)
         + euler * norm_ppf(1.0 - 1.0 / (nt * std::f64::consts::E));

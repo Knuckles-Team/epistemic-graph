@@ -36,7 +36,7 @@ repos:
   - id: trailing-whitespace
   - id: end-of-file-fixer
 - repo: https://github.com/astral-sh/ruff-pre-commit
-  rev: 6fec9b7edb08fd9989088709d864a7826dc74e80 # v0.15.12
+  rev: 38bfb07c0c64c304f47eb52090f8288150c77730 # v0.17.1
   hooks:
   - id: ruff-check
     args: ["--ignore=E402"]
@@ -44,10 +44,10 @@ repos:
   - id: ruff-format
     stages: [pre-commit, pre-push, manual]
 - repo: https://github.com/pre-commit/mirrors-mypy
-  rev: fc0f09a29bb495f4a91f00266155d6282d52485d # v1.20.2
+  rev: 2834ec6639549dd6796205c8f011dedcd587288b # v2.4.0
   hooks:
   - id: mypy
-    additional_dependencies: [pydantic==2.13.4, types-PyYAML==6.0.12.20260518, types-requests==2.33.0.20260518, types-setuptools==83.0.0.20260706]
+    additional_dependencies: [pydantic==2.14.1, types-PyYAML==6.0.12.20260518, types-requests==2.33.0.20260518, types-setuptools==83.0.0.20260706]
     # Tests and the type-clean script surface are first-class mypy targets. The
     # remaining 20 standalone certification/scanner programs have 135 measured
     # errors and are quarantined exactly, rather than hiding both directories.
@@ -99,7 +99,7 @@ repos:
     args: [".", "--min-confidence", "95", "--exclude", "node_modules,dotnet,.venv,venv,node_modules,.git,build,dist,target"]
     require_serial: true
 - repo: https://github.com/codespell-project/codespell
-  rev: 2ccb47ff45ad361a21071a7eedda4c37e6ae8c5a # v2.4.2
+  rev: 57b21406f092110c18776e39b0bda50d37c945c8 # v2.4.3
   hooks:
   - id: codespell
     args: ["-L", "ans,linar,nam,tread,ot,ser,inh,copyin,unparseable,implementors,implementor,nd,datas,alls,re-declaring,re-declares,fals,paeth", "--ignore-words=.config/codespell.ignore"]

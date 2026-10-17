@@ -314,7 +314,7 @@ fn c_factor(n: usize) -> f64 {
         0.0
     } else {
         let nf = n as f64;
-        2.0 * ((nf - 1.0).ln() + 0.577_215_664_901_532_9) - 2.0 * (nf - 1.0) / nf
+        2.0 * ((nf - 1.0).ln() + std::f64::consts::EULER_GAMMA) - 2.0 * (nf - 1.0) / nf
     }
 }
 

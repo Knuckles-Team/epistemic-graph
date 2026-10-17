@@ -8,12 +8,13 @@
 //!
 //! Run: `cargo bench -p eg-plan --features "query text" --bench filtered_rank`
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
 use eg_core::compute::semantic::SemanticStore;
 use eg_core::graph::{GraphCore, GraphView};
 use eg_plan::{execute, Op, Plan, PlanCtx, Pred};
 use eg_text::TextIndex;
 use serde_json::json;
+use std::hint::black_box;
 
 const DOCS: usize = 20_000;
 const CATEGORIES: usize = 16;
