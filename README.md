@@ -111,7 +111,7 @@ typed source data to the graph.
 
 | This repository owns | Ecosystem projects own |
 |---|---|
-| Durable graph and multimodal state, query planning, reasoning, transactions, and engine authorization | [Arbora](https://knuckles-team.github.io/arbora/) owns MCP/REST/A2A entrypoints, runtime policy, messaging, and frontend hosting |
+| Durable graph and multimodal state, query planning, reasoning, and engine authorization | [Arbora](https://knuckles-team.github.io/arbora/) owns MCP/REST/A2A entrypoints, runtime policy, and frontend hosting |
 | Generated engine contracts and capability truth | [Agent Utilities](https://knuckles-team.github.io/agent-utilities/) owns agents, workflows, skills, evaluation, and the agent control plane |
 | Source-ingestion admission, schema validation, evidence, and provenance commits | [Agent Connector SDK](https://knuckles-team.github.io/agent-connector-sdk/) owns connector execution and source-system adapters |
 | Database and compute execution | [Agent Web UI](https://knuckles-team.github.io/agent-webui/), [Agent Terminal UI](https://github.com/Knuckles-Team/agent-terminal-ui), and [Geniusbot](https://github.com/Knuckles-Team/geniusbot) provide user-facing clients |
