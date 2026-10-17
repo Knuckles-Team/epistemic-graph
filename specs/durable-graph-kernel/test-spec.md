@@ -339,3 +339,5 @@ Hot-path proof for `EG-DURABLE-KERNEL-R100`: `tests/mirror_graph_sinks_served.rs
 
 
 Hot-path proof for `EG-DURABLE-KERNEL-R101`: `tests/scheduler/test_downtime_scheduler_served.py::test_idle_window_runs_priority_jobs_and_preempts`.
+
+- **EG-DURABLE-KERNEL-R028.3:** `src/redb_store/work_item/lease/tests.rs` tests live, expired and missing worker lease expiry against engine time, unchanged refused rows and unfenced compatibility. Runtime execution pending hosted CI.
