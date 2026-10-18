@@ -465,6 +465,8 @@ Give the unchanged serial storage suite its own required hosted job.
 Keep both jobs' ten-minute PR and sixty-minute main budgets.
 Preserve commands, features, fixtures and main-only compiler-cache writes.
 The rolling release consumer must require both jobs.
-Both jobs reuse one step sequence with explicit job and event conditions.
+The storage, workspace and existing PyO3 jobs reuse one step sequence.
+Explicit job and event conditions preserve their separate test commands.
+The PyO3 budget remains unchanged.
 Storage never evaluates workspace scope output.
 Workflow tests establish routing; exact-head hosted tests establish acceptance.

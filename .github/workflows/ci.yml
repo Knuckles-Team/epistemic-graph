@@ -543,7 +543,7 @@ jobs:
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     env: *eg-validation-compiler-cache-backend
-    steps: &eg-workspace-storage-steps
+    steps: &eg-native-crate-steps
       - *eg-gates-checkout
 
       - *eg-gates-python
@@ -643,6 +643,11 @@ jobs:
           printf '%s\n' "${args[@]}"
           python3 scripts/cargo_test_rescue.py cargo test --locked "${args[@]}" --all-features --no-fail-fast
 
+      - name: Test (pyo3 crates, every feature except python)
+        if: github.job == 'gates-pyo3'
+        env: *eg-validation-compiler-cache-env
+        run: python3 scripts/cargo_test_rescue.py cargo test --locked -p eg-numeric -p eg-pyengine --features eg-numeric/analytics,eg-numeric/contract,eg-numeric/complex,eg-numeric/decision,eg-numeric/motif,eg-pyengine/security,eg-pyengine/ml-pipeline,eg-pyengine/reasoning,eg-pyengine/query,eg-pyengine/cypher,eg-pyengine/tsdb,eg-pyengine/streaming,eg-pyengine/wasm-udf,eg-pyengine/rdf,eg-pyengine/blob,eg-pyengine/jobs,eg-pyengine/statechart,eg-pyengine/finance --no-fail-fast
+
       - name: Report native-crate compiler cache reuse
         if: always()
         run: *eg-validation-compiler-cache-stats
@@ -654,7 +659,7 @@ jobs:
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     env: *eg-validation-compiler-cache-backend
-    steps: *eg-workspace-storage-steps
+    steps: *eg-native-crate-steps
 
   # Keep pyo3 validation independent of storage and the workspace sweep.
   # Main warms the same profile; pull requests retain read-only caches.
@@ -665,23 +670,7 @@ jobs:
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     env: *eg-validation-compiler-cache-backend
-    steps:
-      - *eg-gates-checkout
-      - *eg-gates-python
-      - *eg-gates-pydeps
-      - *eg-gates-sasl
-      - *eg-gates-toolchain
-      - *eg-gates-cache
-      - *eg-validation-compiler-cache
-      - *eg-gates-sqlite
-      - *eg-gates-whisper
-      - name: Test (pyo3 crates, every feature except python)
-        env: *eg-validation-compiler-cache-env
-        run: python3 scripts/cargo_test_rescue.py cargo test --locked -p eg-numeric -p eg-pyengine --features eg-numeric/analytics,eg-numeric/contract,eg-numeric/complex,eg-numeric/decision,eg-numeric/motif,eg-pyengine/security,eg-pyengine/ml-pipeline,eg-pyengine/reasoning,eg-pyengine/query,eg-pyengine/cypher,eg-pyengine/tsdb,eg-pyengine/streaming,eg-pyengine/wasm-udf,eg-pyengine/rdf,eg-pyengine/blob,eg-pyengine/jobs,eg-pyengine/statechart,eg-pyengine/finance --no-fail-fast
-
-      - name: Report pyo3 compiler cache reuse
-        if: always()
-        run: *eg-validation-compiler-cache-stats
+    steps: *eg-native-crate-steps
 
   # ── EH-468: the root Python suite (`tests/*.py`, 2,800+ cases) previously had
   # NO release step at all. `gates` above only runs `crates/eg-numeric/tests/*`

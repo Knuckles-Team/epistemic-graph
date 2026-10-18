@@ -643,11 +643,17 @@ CACHE_BACKEND = {
 }
 
 
-# Both jobs reuse the same sequence; exact conditions below route each command.
-COMPILER_CACHE_COMMANDS["gates-crates"].update(COMPILER_CACHE_COMMANDS["gates-storage"])
-COMPILER_CACHE_COMMANDS["gates-storage"] = COMPILER_CACHE_COMMANDS["gates-crates"]
+# Shared steps retain exact routing conditions for each native job below.
+NATIVE_JOB_COMMANDS = {
+    **COMPILER_CACHE_COMMANDS["gates-crates"],
+    **COMPILER_CACHE_COMMANDS["gates-storage"],
+    **COMPILER_CACHE_COMMANDS["gates-pyo3"],
+}
+for native_job in ("gates-crates", "gates-storage", "gates-pyo3"):
+    COMPILER_CACHE_COMMANDS[native_job] = NATIVE_JOB_COMMANDS
 
 CACHE_STEP_CONDITIONS = {
+    "Test (pyo3 crates, every feature except python)": "github.job == 'gates-pyo3'",
     "Test (storage crate, isolated crash-process lifecycle)": "github.job == 'gates-storage'",
     (
         "Test (every other workspace crate, all features; push to main / release tag)"
