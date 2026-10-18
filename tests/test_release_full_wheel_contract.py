@@ -149,7 +149,7 @@ def _verified_x86_workflow() -> dict:
     caller = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     expected = (
         "Knuckles-Team/epistemic-graph/.github/workflows/eg-release-x86.yml@"
-        "bc4448160e8d16deb8210ce8aeb058b2da293d93"
+        "35fe8e492acedce6c31c399e98a8c62c26ee2cd3"
     )
     assert caller["jobs"]["build-x86"]["uses"] == expected
     source = (WORKFLOW.parent / "eg-release-x86.yml").read_bytes()

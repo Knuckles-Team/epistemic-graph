@@ -52,7 +52,7 @@ class ReleasePublication(unittest.TestCase):
         )
         self.assertEqual(
             jobs["build-x86"]["uses"],
-            "Knuckles-Team/epistemic-graph/.github/workflows/eg-release-x86.yml@bc4448160e8d16deb8210ce8aeb058b2da293d93",
+            "Knuckles-Team/epistemic-graph/.github/workflows/eg-release-x86.yml@35fe8e492acedce6c31c399e98a8c62c26ee2cd3",
         )
         self.assertNotIn("docker-image", jobs)
         self.assertNotIn("publish-image", jobs)
