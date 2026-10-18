@@ -4105,7 +4105,7 @@
       "landed_in": [],
       "verified_by": [
         "src/redb_store/work_item/row_guard.rs:262",
-        "tests/adopt_workitem_authenticated_replay.rs:388"
+        "tests/adopt_workitem_authenticated_replay.rs:423"
       ]
     }
   ]

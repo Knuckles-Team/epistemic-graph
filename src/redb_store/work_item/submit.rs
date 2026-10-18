@@ -830,14 +830,7 @@ pub(crate) fn apply_submit_work_items_rows<'txn, 'crypto>(
     let mut results = Vec::with_capacity(request.requests.len());
     let mut changed = Vec::with_capacity(request.requests.len());
     for child in &request.requests {
-        if child.run_id.is_some() {
-            return Err("run admission requires a single SubmitWorkItem".into());
-        }
-        if child.context.tenant_id != request.context.tenant_id
-            || sanitize(&child.context.graph) != graph
-        {
-            return Err("SubmitWorkItems child context scope mismatch".to_string());
-        }
+        validate_batch_child(graph, &request.context.tenant_id, child)?;
         let result = apply_submit_work_item_rows(
             graph,
             child,
@@ -861,4 +854,18 @@ pub(crate) fn apply_submit_work_items_rows<'txn, 'crypto>(
         outbox_id: outbox_id.to_string(),
         changed_work_item_ids: changed,
     })
+}
+
+fn validate_batch_child(
+    graph: &str,
+    tenant: &str,
+    child: &eg_types::native_control::SubmitWorkItemRequest,
+) -> Result<(), String> {
+    if child.run_id.is_some() {
+        return Err("run admission requires a single SubmitWorkItem".into());
+    }
+    if child.context.tenant_id != tenant || sanitize(&child.context.graph) != graph {
+        return Err("SubmitWorkItems child context scope mismatch".to_string());
+    }
+    Ok(())
 }

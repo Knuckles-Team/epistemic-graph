@@ -416,3 +416,9 @@ Hot-path proof for `EG-FEDERATED-QUERY-R090`: `tests/discover_planning_served.rs
 
 
 Hot-path proof for `EG-FEDERATED-QUERY-R091`: `tests/federation/test_plan_evolution_served.py::test_kept_plan_measurably_faster_and_mismatch_reverts`.
+
+## EG-FEDERATED-QUERY-R653.7 acceptance
+
+| Case | Row | Proving test and observation |
+|---|---|---|
+| Citation | `EG-FEDERATED-QUERY-R653.7` | `tests/retrieval/test_web_citation_served.py::test_hybrid_hit_cites_source_url`: A served fused hit cites the URL, the retrieval time and the query. |

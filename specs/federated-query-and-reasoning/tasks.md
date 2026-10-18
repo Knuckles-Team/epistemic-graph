@@ -336,3 +336,5 @@ Preserve all previous acceptance and receipts. Deliver producer leaves before th
 - [ ] **EG-FEDERATED-QUERY-R091.5 (Evidence):** Emit the evidence.
 - [ ] **EG-FEDERATED-QUERY-R091.6 (Hot-path proof):** Add the served hot-path test.
 - [ ] **EG-FEDERATED-QUERY-R090.7 (Wiring):** Apply the scoped adapter to expansion arms and list refresh provenance.
+
+- [ ] **EG-FEDERATED-QUERY-R653.7:** Cite the source URL, retrieval time, digest, backend and query on a web Document hit.

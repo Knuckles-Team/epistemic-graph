@@ -377,6 +377,7 @@ fn run_submit_method() -> Method {
     let mut method = submit_method();
     if let Method::SubmitWorkItem { request } = &mut method {
         request.run_id = Some("run-owner-admission".into());
+        request.context.agent_id = "agent:delegated-run-worker".into();
         request.work_item_id = None;
         request
             .metadata
@@ -385,13 +386,47 @@ fn run_submit_method() -> Method {
     method
 }
 
+async fn run_state_with(
+    backend: Arc<dyn PersistenceBackend>,
+    dir: String,
+) -> test_support::SharedState {
+    use epistemic_graph::acl::{Grant, GrantEffect, RbacAction, ResourceSelector};
+
+    let state = state_with(backend, dir);
+    let mut isolation = test_support::wire_isolation(&[
+        common::TEST_AGENT,
+        "agent:delegated-run-worker",
+        "agent:foreign-owner",
+    ]);
+    for action in [RbacAction::Read, RbacAction::Write] {
+        isolation.add_grant(Grant {
+            role: "commons-user".into(),
+            resource: ResourceSelector::Graph(GRAPH.into()),
+            action,
+            effect: GrantEffect::Allow,
+        });
+    }
+    state.write().await.isolation = isolation;
+    state
+}
+
+fn signed_run_request(id: u64, method: Method, idempotency_key: &str) -> Request {
+    signed_request_with_agent(
+        id,
+        method,
+        idempotency_key,
+        common::TEST_AGENT,
+        "agent:delegated-run-worker",
+    )
+}
+
 // spec: EG-DURABLE-KERNEL-R028.4
 #[tokio::test]
 async fn run_admission_binds_verified_owner_and_replays_without_row_changes() {
     use sha2::{Digest, Sha256};
     let dir = temp_dir("eg-run-owner-admission");
     let concrete = Arc::new(RedbBackend::open(dir.clone(), 8192).unwrap());
-    let state = state_with(concrete.clone(), dir.clone());
+    let state = run_state_with(concrete.clone(), dir.clone()).await;
     let first = test_support::dispatch(
         &state,
         signed_request_with_agent(
@@ -424,7 +459,7 @@ async fn run_admission_binds_verified_owner_and_replays_without_row_changes() {
     );
     let replay = test_support::dispatch(
         &state,
-        signed_request(402, run_submit_method(), "run-admit-key"),
+        signed_run_request(402, run_submit_method(), "run-admit-key"),
     )
     .await;
     let replay: SubmitWorkItemResult = decode_raw(&replay, "run admission replay");
@@ -440,11 +475,12 @@ async fn run_admission_binds_verified_owner_and_replays_without_row_changes() {
     );
     let foreign = test_support::dispatch(
         &state,
-        signed_request_as(
+        signed_request_with_agent(
             403,
             run_submit_method(),
             "run-admit-key",
             "agent:foreign-owner",
+            "agent:delegated-run-worker",
         ),
     )
     .await;
@@ -470,7 +506,7 @@ async fn run_admission_binds_verified_owner_and_replays_without_row_changes() {
         }
         let refused = test_support::dispatch(
             &state,
-            signed_request(410 + index as u64, method, "run-admit-key"),
+            signed_run_request(410 + index as u64, method, "run-admit-key"),
         )
         .await;
         assert!(refused.error.is_some(), "{case} unexpectedly admitted");
@@ -488,7 +524,7 @@ async fn run_admission_binds_verified_owner_and_replays_without_row_changes() {
         request.run_id = Some("another-run-same-key".into());
     }
     let another =
-        test_support::dispatch(&state, signed_request(430, another, "run-admit-key")).await;
+        test_support::dispatch(&state, signed_run_request(430, another, "run-admit-key")).await;
     let another: SubmitWorkItemResult = decode_raw(&another, "independent run admission");
     assert!(another.created);
     assert_ne!(another.work_item_id, admitted.work_item_id);
@@ -496,10 +532,25 @@ async fn run_admission_binds_verified_owner_and_replays_without_row_changes() {
     concrete.shutdown();
     drop(concrete);
     let reopened = Arc::new(reopen(&dir).await);
-    let restarted = state_with(reopened.clone(), dir.clone());
+    let restarted = run_state_with(reopened.clone(), dir.clone()).await;
+    // Restore both rows and their durable version, as a serving restart must.
+    let (snapshot, version) = reopened
+        .read_authoritative_graph_snapshot(GRAPH)
+        .await
+        .unwrap()
+        .expect("durable run graph snapshot");
+    restarted
+        .read()
+        .await
+        .registry
+        .get(GRAPH)
+        .unwrap()
+        .core
+        .install_committed_snapshot(snapshot, version)
+        .unwrap();
     let replay = test_support::dispatch(
         &restarted,
-        signed_request(440, run_submit_method(), "run-admit-key"),
+        signed_run_request(440, run_submit_method(), "run-admit-key"),
     )
     .await;
     let replay: SubmitWorkItemResult = decode_raw(&replay, "reopened admission replay");
