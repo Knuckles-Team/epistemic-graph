@@ -145,6 +145,16 @@ pub(crate) fn work_item_batch_identity(
     transport_request_id: u64,
     method: &Method,
 ) -> Result<WorkItemBatchIdentity, String> {
+    if let Method::SubmitWorkItem { request } = method {
+        if let Some(run_id) = request.run_id.as_deref() {
+            return scoped_terminal_work_item_identity(
+                graph,
+                tenant,
+                &request.idempotency_key,
+                Some(run_id),
+            );
+        }
+    }
     let terminal_key = match method {
         Method::SubmitWorkItem { request } => Some(request.idempotency_key.clone()),
         Method::SubmitWorkItems { request } => Some(request.idempotency_key.clone()),
@@ -217,6 +227,15 @@ fn terminal_work_item_identity(
     tenant: &str,
     terminal_key: &str,
 ) -> Result<WorkItemBatchIdentity, String> {
+    scoped_terminal_work_item_identity(graph, tenant, terminal_key, None)
+}
+
+fn scoped_terminal_work_item_identity(
+    graph: &str,
+    tenant: &str,
+    terminal_key: &str,
+    run_id: Option<&str>,
+) -> Result<WorkItemBatchIdentity, String> {
     use sha2::{Digest, Sha256};
     if terminal_key.trim().is_empty() {
         return Err("terminal WorkItem mutation requires idempotency_key".to_string());
@@ -226,6 +245,12 @@ fn terminal_work_item_identity(
     for field in [graph.as_bytes(), tenant.as_bytes(), terminal_key.as_bytes()] {
         digest.update((field.len() as u64).to_be_bytes());
         digest.update(field);
+    }
+    if let Some(run_id) = run_id {
+        for field in ["admit", "admission", run_id] {
+            digest.update((field.len() as u64).to_be_bytes());
+            digest.update(field.as_bytes());
+        }
     }
     let digest: [u8; 32] = digest.finalize().into();
     let mut request_bytes = [0u8; 8];

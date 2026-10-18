@@ -257,6 +257,9 @@ pub struct CapacityThrottleResult {
 #[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct SubmitWorkItemRequest {
+    /// Optional run identity; native admission binds its verified owner atomically.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run_id: Option<String>,
     pub schema_version: NativeControlSchemaVersion,
     pub context: RequestContext,
     pub work_item_id: Option<String>,

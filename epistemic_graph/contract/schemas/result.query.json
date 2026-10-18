@@ -51713,6 +51713,13 @@
           },
           "type": "array"
         },
+        "run_id": {
+          "description": "Optional run identity; native admission binds its verified owner atomically.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "schema_version": {
           "$ref": "#/$defs/NativeControlSchemaVersion"
         },

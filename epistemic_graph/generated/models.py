@@ -22113,6 +22113,7 @@ class SubmitWorkItemRequest(BaseModel):
     policy_digest: str
     priority: int
     provenance_refs: list[str]
+    run_id: str | None = None
     schema_version: NativeControlSchemaVersion
     work_item_id: str | None = None
 

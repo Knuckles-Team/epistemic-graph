@@ -64,6 +64,7 @@ pub(crate) fn apply_native_record_rows(
                 command_sequences: request.command_sequences,
             },
             WorkItemCommitScope {
+                admitted_actor: None,
                 crypto: request.crypto,
                 authoritative_now_ms: request.committed_at_ms,
                 outbox_id: request.batch_id,
