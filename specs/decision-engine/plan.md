@@ -1679,3 +1679,105 @@ The selection is deterministic and runs no model. It is a dedicated method, not 
 Refresh: a drift or staleness signal of `EG-DECISION-ENGINE-R174.8` turns held web Documents into candidates again (`EG-DECISION-ENGINE-R174.9.7`). The digest decides between a no-op and a supersede.
 
 Budget: k = 60 for rank fusion, an 86,400 s freshness window, 3 ms p99 for 50 candidates and 4 MiB peak memory. These are starting defaults. A measurement on this platform replaces them.
+
+## Amendment 2026-10-18: R036 profile grant authority and cutover
+
+This design extends the profile-use ownership amendment and ARBORA-A2A-R016.6.
+It approves source design, not production migration, credential provisioning or
+retirement of live writers. Runtime acceptance remains open.
+
+### Issuance and reusable grants
+
+Arbora's authenticated access service owns the served issuance and revocation
+operations. Reuse its direct human operator approval boundary. Require the
+exact new approver-class permission `profile:approve-grant`; registration alone
+grants nobody that permission. Existing elevation permission does not imply it.
+Reject self-approval, delegated approval, API-key approval and cross-tenant
+approval. Never derive permission from tenant membership, catalog visibility,
+provider settings or wildcard scopes. EG validates and persists the resulting
+authorization facts; Arbora keeps no parallel grant store.
+
+A grant binds one tenant, beneficiary principal, graph, profile reference and
+digest, and routed capability reference and revision. Record its issuer,
+approved request digest, policy revision, expiry and revocation revision.
+Reject missing bounds and wildcard resource bindings. The grant conveys no
+onward delegation. Issuance must enforce the current issuer authority and
+policy ceiling; it cannot widen either.
+
+Human approval occurs at issuance. Selections may reuse a still-valid grant
+without asking the human again. Each admission must validate the current
+beneficiary session and all grant bindings. Admission expiry cannot exceed
+session or grant expiry. Changing the profile or capability revision requires
+fresh approval for that binding. Revocation prevents new admissions; it does
+not pretend to undo effects already committed by an admitted task.
+
+### One authoritative transaction
+
+Use the existing graph-native mutation owner and replay ledger for the target
+admission transaction. Arbora authenticates and requests admission. EG checks
+durable authority and records the result. The transaction must cover:
+
+- Current grant content, policy and revocation revisions, and issuer authority
+  needed to create or revoke that grant.
+- Authoritative session identity, principal, tenant, expiry and revocation epoch
+  for the caller. Include every mutable authority fact that can invalidate use.
+- Current profile and routed capability admission revisions, their immutable
+  digests, and withdrawal state.
+- The authoritative decision receipt, exact new run/WorkItem binding, task
+  admission and stable-key replay result.
+
+Immutable Agent Library content may remain content-addressed in its existing
+store. Any mutable eligibility or withdrawal fact affecting admission must
+share the transaction authority. A copied snapshot is not current authority.
+A precheck, process lock or separate check/commit/enqueue cannot substitute for
+this transaction. Its engine-clock expiry check and all writes commit together.
+Arbora dispatches only the committed admission; retries reuse its stable key.
+
+### Migration and old writers
+
+Current identity state lives in the RBAC policy image. Agent Library owns its
+separate decision-record transaction. The target above therefore requires an
+explicit migration and writer cutover, not an adapter over those stores.
+
+Before enabling profile admission, inventory every writer for the migrated
+facts. This includes session revoke, expiry and mode-epoch changes through
+`src/server/dispatch/identity_store.rs`, profile/capability eligibility changes
+through Agent Library, and the profile decision receipt write through
+`AgentLibraryStore::commit_decision_record`. Preserve unrelated operations.
+Ultimately fence the old authoritative write paths for migrated records.
+Do not introduce a second mutable authority or leave an unfenced dual writer.
+
+A reviewed migration plan must name the exact records, key mapping, store
+owner, writer fence and cutover epoch. It must also define backup, interrupted
+migration recovery, mixed-version refusal and rollback behavior. Preserve
+original principal, tenant, expiry, revision, audit and revocation provenance.
+Do not extend an expired grant or session during conversion.
+
+Activation requires a durable completed-cutover marker checked by the owner,
+not a configuration flag that assumes completion. During migration, uncertainty
+or mixed writer epochs, profile admission returns AUTHORITY_UNAVAILABLE with
+zero task writes. Existing default-agent behavior stays unchanged. Rollback
+must disable profile admission before restoring any old writer. It cannot
+restore revoked authority or reset replay history.
+
+### Verification and source checkpoint boundary
+
+Required fixtures cover revocation racing admission, expiry at the transaction
+clock boundary, profile withdrawal, stale capability revisions and wrong scope.
+Revocation committed first must prevent admission. Admission committed first
+has one receipt and one task; retry cannot create another. Inject failures
+between each proposed write and prove complete rollback, including replay state.
+
+Cutover tests must exercise restart at every migration phase, stale writers,
+mixed binaries, key collisions, audit preservation and rollback after revocation.
+Compare migrated authority facts against their original records. Prove that old
+writers cannot change migrated records after cutover. Test ordinary default-agent
+requests before, during and after migration without enabling profile preference.
+
+A disabled implementation cannot claim this transaction by reading today's
+separate stores. The existing unavailable boundary remains the safe executable
+checkpoint. Do not add unused grant DTOs or an uncomposed success helper merely
+to report implementation progress. First approve the exact migration/write-owner
+plan; then implement and qualify the native transaction and canonical contract.
+Production migration and live writer retirement require separate deployment
+authorization. This amendment executes neither action.
