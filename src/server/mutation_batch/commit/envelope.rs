@@ -19,13 +19,28 @@ pub(crate) fn publish_change_envelope_projection(
     let source_version = core.version();
     let staged = Arc::new(GraphCore::new());
     staged.install_committed_snapshot(core.snapshot(), source_version)?;
+    // Vectors live in the semantic store beside the snapshot, so they are
+    // published after the snapshot swap (EG-UNIFIED-DATA-PLANE-R651.7.3).
+    let mut vectors: Vec<(&String, &Vec<f32>)> = Vec::new();
+    let mut removed: Vec<&String> = Vec::new();
     for operation in &envelope.mutation.operations {
         match &operation.method {
             Method::AddNode {
                 node_id,
                 properties_msgpack,
             } => staged.add_node(node_id.clone(), properties_msgpack.clone()),
-            Method::RemoveNode { node_id } => staged.remove_node(node_id.clone()),
+            Method::RemoveNode { node_id } => {
+                staged.remove_node(node_id.clone());
+                removed.push(node_id);
+            }
+            Method::AddEmbedding { node_id, embedding } => {
+                if embedding.is_empty() || embedding.iter().any(|x| !x.is_finite()) {
+                    return Err(format!(
+                        "committed embedding for '{node_id}' is not a finite vector"
+                    ));
+                }
+                vectors.push((node_id, embedding));
+            }
             Method::CompareAndSetNodeFields {
                 node_id,
                 conditions_msgpack,
@@ -73,5 +88,18 @@ pub(crate) fn publish_change_envelope_projection(
     let target_graph_version = source_version
         .checked_add(1)
         .ok_or_else(|| "authoritative graph version overflow".to_string())?;
-    core.install_committed_snapshot(staged.snapshot(), target_graph_version)
+    core.install_committed_snapshot(staged.snapshot(), target_graph_version)?;
+    if vectors.is_empty() && removed.is_empty() {
+        return Ok(());
+    }
+    let mut semantic = core.semantic_store.write();
+    for node_id in removed {
+        semantic.remove_embedding(node_id);
+    }
+    for (node_id, embedding) in vectors {
+        semantic
+            .add_embedding(node_id.clone(), embedding.clone())
+            .map_err(|error| format!("committed embedding for '{node_id}': {error}"))?;
+    }
+    Ok(())
 }
