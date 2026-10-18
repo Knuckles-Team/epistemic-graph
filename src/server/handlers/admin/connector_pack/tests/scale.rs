@@ -30,6 +30,15 @@ fn manifest() -> Content {
     }
 }
 
+/// Print the engine's debug log, which names a refusal `Response::err`
+/// reports as INTERNAL, so a failure here says which rule refused.
+fn show_refusals() {
+    let _ = tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::DEBUG)
+        .with_test_writer()
+        .try_init();
+}
+
 /// The shared fixture request, as a first delta with no prior checkpoint.
 fn first_ingest() -> SourceIngestionRequest {
     let mut batch = eg_types::test_support::source_ingestion::request()
@@ -44,6 +53,7 @@ fn first_ingest() -> SourceIngestionRequest {
 // spec: EG-TYPED-PACKS-R101.9
 #[tokio::test]
 async fn an_imported_pack_maps_source_ingest_records_of_the_same_tenant() {
+    show_refusals();
     let served = Served::new();
     let _guard = served.with_graph_persistence().await;
     bind(&served, CONNECTOR, ADMIN).await;
@@ -80,6 +90,7 @@ async fn an_imported_pack_maps_source_ingest_records_of_the_same_tenant() {
 async fn a_5000_entry_pack_imports_and_resolves() {
     const ENTRIES: usize = 5000;
     let connector = "pack-scale";
+    show_refusals();
     let served = Served::new();
     bind(&served, connector, ADMIN).await;
     let tools: Vec<Content> = (0..ENTRIES)

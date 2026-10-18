@@ -13,7 +13,9 @@ use sha2::{Digest, Sha256};
 
 use super::store::{hex_digest, BlobManifest, BLOB_MANIFEST_VERSION};
 
-const MAX_ENGINE_BODY_BATCH: usize = 3_073;
+/// One pack's bodies: each entry's body, input and output schema, plus the
+/// server contract, so the batch bound follows the pack entry bound (#656).
+const MAX_ENGINE_BODY_BATCH: usize = 3 * eg_types::connector_pack::MAX_PACK_ENTRIES + 1;
 const MAX_REPOSITORY_BODY_BYTES: usize = 64 * 1024 * 1024;
 const MAX_REPOSITORY_BODY_BATCH: usize = 4_096;
 const MAX_REPOSITORY_BATCH_BYTES: usize = 256 * 1024 * 1024;
