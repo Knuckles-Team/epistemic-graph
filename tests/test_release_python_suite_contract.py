@@ -654,7 +654,9 @@ for native_job in ("gates-crates", "gates-storage", "gates-pyo3"):
 
 CACHE_STEP_CONDITIONS = {
     "Test (pyo3 crates, every feature except python)": "github.job == 'gates-pyo3'",
-    "Test (storage crate, isolated crash-process lifecycle)": "github.job == 'gates-storage'",
+    ("Test (storage crate, isolated crash-process lifecycle)"): (
+        "github.job == 'gates-storage'"
+    ),
     (
         "Test (every other workspace crate, all features; push to main / release tag)"
     ): "github.job == 'gates-crates' && github.event_name != 'pull_request'",
