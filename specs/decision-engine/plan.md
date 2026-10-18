@@ -1614,6 +1614,8 @@ acceptance. R047 owns the existing DecisionRecord types and methods; R051 owns
 their served handlers and audit behavior. Arbora PR 349 adopted explicit engine-owned profile-use permission
 for `ARBORA-A2A-R016.6`. Catalog visibility and a sealed assembly record do not
 grant that permission. Existing default execution remains unchanged.
+Arbora retains served admission and authentication. EG supplies durable
+transaction validation and persistence under verified authority.
 
 Reuse `Method::DecisionCommit`, its handler in
 `src/server/handlers/decide/commit.rs`, and
