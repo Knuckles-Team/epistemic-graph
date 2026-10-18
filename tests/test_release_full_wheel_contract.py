@@ -154,7 +154,7 @@ def _verified_x86_workflow() -> dict:
     assert caller["jobs"]["build-x86"]["uses"] == expected
     source = (WORKFLOW.parent / "eg-release-x86.yml").read_bytes()
     assert hashlib.sha256(source).hexdigest() == (
-        "5379e1939b5e4972923ef9961b902fc6d5425a517daf8d23ff22725fd0aa4ee3"
+        "28d6e43039e000b1aaf16bc4677c2cd598e10209d0659c7be512573c01ce4e17"
     )
     return yaml.safe_load(source)
 
