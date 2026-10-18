@@ -1821,7 +1821,7 @@ are `crates/eg-core/src/rbac_persist.rs`, `crates/eg-types/src/identity/model.rs
 
 | Record and key | Owner and required participation |
 | --- | --- |
-| `rbac.redb`: `rbac[policy]`, `rbac[identities]`, `rbac[bootstrap]` | Retain RbacOwner and all three keys. Reserve the complete image revision initially; preserve credentials, audit, roles, grants, elevations and bootstrap state. |
+| `rbac.redb`, table `rbac`, keys `policy`, `identities`, `bootstrap` | Retain RbacOwner and all three keys. Reserve the complete image revision initially; preserve credentials, audit, roles, grants, elevations and bootstrap state. |
 | `policy.identity.sessions[session_hash]` | Retain the nested map key. Validate principal, expiry, MFA and revocation within the reserved image. No per-shard session copy or new issuer. |
 | New `profile_use_grants[(tenant, grant_id)]` | Proposed RbacOwner table for exact #661 grant bindings, immutable ID, revision and revocation state. Start empty; never convert existing generic grants into profile-use grants. |
 | New `profile_authority_policy[tenant]` | Proposed RbacOwner table for issuance policy and revision. Missing policy denies. Creation does not confer approver permission. |
