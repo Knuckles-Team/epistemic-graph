@@ -137,6 +137,65 @@ async fn chunk_props(state: &test_support::SharedState, id: u64, node: &str) -> 
     }
 }
 
+/// What the store holds for a chunk that should be linked, for a failure message.
+async fn diagnose(
+    state: &test_support::SharedState,
+    chunk: &str,
+    receipt: &EnrichDocumentReceipt,
+) -> String {
+    let mut out = format!("receipt={receipt:?}; version={}", graph_version(state));
+    let probes = [
+        (
+            "has_chunk",
+            Method::HasNode {
+                node_id: chunk.into(),
+            },
+        ),
+        (
+            "has_record",
+            Method::HasNode {
+                node_id: receipt.enrichment_id.clone(),
+            },
+        ),
+        (
+            "doc_to_chunk",
+            Method::HasEdge {
+                source_id: "doc:a".into(),
+                target_id: chunk.into(),
+            },
+        ),
+        (
+            "doc_to_record",
+            Method::HasEdge {
+                source_id: "doc:a".into(),
+                target_id: receipt.enrichment_id.clone(),
+            },
+        ),
+        (
+            "chunk_props",
+            Method::GetNodeProperties {
+                node_id: chunk.into(),
+            },
+        ),
+        ("node_count", Method::NodeCount),
+    ];
+    for (n, (label, method)) in probes.into_iter().enumerate() {
+        let response = test_support::dispatch(
+            state,
+            test_support::request(SECRET, 900 + n as u64, GRAPH, method),
+        )
+        .await;
+        let value = match &response.result {
+            Some(ResultPayload::Raw(bytes)) => eg_types::msgpack::decode_property_value(bytes)
+                .map(|v| v.to_string())
+                .unwrap_or_else(|_| format!("{} raw bytes", bytes.len())),
+            other => format!("{other:?}"),
+        };
+        out.push_str(&format!("; {label}={value} err={:?}", response.error));
+    }
+    out
+}
+
 fn graph_version(state: &test_support::SharedState) -> u64 {
     state
         .try_read()
@@ -232,17 +291,21 @@ async fn enrich_replay_supersede_and_search() {
     );
     assert_eq!(a.fetch_backend, Some(FetchBackend::Webarchiver));
     for (id, chunk) in a.chunk_ids.iter().enumerate() {
-        assert!(
-            bool_call(
-                &state,
-                10 + id as u64,
-                Method::HasEdge {
-                    source_id: chunk.clone(),
-                    target_id: "doc:a".into()
-                }
-            )
-            .await
-        );
+        let linked = bool_call(
+            &state,
+            10 + id as u64,
+            Method::HasEdge {
+                source_id: chunk.clone(),
+                target_id: "doc:a".into(),
+            },
+        )
+        .await;
+        if !linked {
+            panic!(
+                "chunk {chunk} has no chunkOf edge: {}",
+                diagnose(&state, chunk, &a).await
+            );
+        }
     }
     let first = chunk_props(&state, 40, &a.chunk_ids[1]).await;
     assert_eq!(first["fetch_backend"], "webarchiver");

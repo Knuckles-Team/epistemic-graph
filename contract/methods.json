@@ -18361,7 +18361,7 @@
       ],
       "id": "EnrichDocument",
       "is_wire_callable": true,
-      "note": "EG-UNIFIED-DATA-PLANE-R651.7: reads one RLS-visible held Document, chunks it with eg-document (EG-REPO-INGEST-R652), embeds the chunks through the configured OpenAI-compatible endpoint or the recorded hash fallback, and commits chunk nodes, chunkOf edges, vectors and one enrichment record as ONE content-addressed ChangeEnvelope through ApplyChangeEnvelope; an enriched digest replays without writing, and a new digest removes the earlier digest's chunks in the same commit",
+      "note": "EG-UNIFIED-DATA-PLANE-R651.7: chunks one RLS-visible held Document and embeds the chunks. Chunk nodes, chunkOf edges, vectors and one enrichment record commit as one ChangeEnvelope. An enriched digest replays; a new digest supersedes the earlier chunks",
       "policy": {
         "audited": true,
         "authz_action": "source:ingest",
@@ -24225,7 +24225,7 @@
       "format_identities": [],
       "id": "SelectWebPages",
       "is_wire_callable": true,
-      "note": "EG-DECISION-ENGINE-R802: deterministic web fetch selection. Canonicalizes candidate URLs, fuses duplicate rows by reciprocal rank (k = 60), skips digests and URLs already held in the RLS-visible request graph (held-fresh inside the freshness window), scores relevance, rank and freshness in integer millionths and enforces the fetch budget; commits nothing and runs no model",
+      "note": "EG-DECISION-ENGINE-R802: deterministic web page selection over search candidates. It dedupes by canonical URL and digest against held Documents and enforces a budget. It commits nothing and runs no model",
       "policy": {
         "audited": false,
         "authz_action": "query:decide",
