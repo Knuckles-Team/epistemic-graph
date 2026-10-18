@@ -62,7 +62,7 @@ Policy order is monotone: a request may reduce risk, spending and latency budget
 
 Create binary selection variables for candidate components and, where required, template/slot choices. Constraints include the following. Each required capability is covered by an eligible selected component. Required dependencies imply selection. Incompatible options cannot coexist. Each required slot has exactly one assignment. Cardinality and integer budget bounds hold. Model and tool modality/schema constraints hold. The objective is a sequence of integer levels: first hard feasibility, then policy-defined utility, resource use and stable tie-break. Preprocess dominated or impossible options and seed an incumbent greedily. Then branch and bound with an admissible lower bound until optimality or node budget. A budget-exhausted answer may return an incumbent and proven gap only if policy permits that gap; otherwise abstain. No fixed maximum number of feasible assemblies substitutes for work budgeting.
 
-The independent certificate verifier checks input digest, sorted variable mapping, all constraints against the proposed assignment, objective recomputation, lower-bound validity, gap and solver version. It must not trust a claimed feasible assignment or bound. Why-not for a visible excluded option fixes that option on, re-solves under a separate bounded budget, and reports the resulting violation, worse objective, gap or budget exhaustion. A failed post-solve template/graph validator adds a no-good cut and re-solves within the original budget.
+The independent certificate verifier checks the input digest, sorted variable mapping and every constraint against the proposed assignment. It also checks objective recomputation, lower-bound validity, gap and solver version. It must not trust a claimed feasible assignment or bound. Why-not for a visible excluded option fixes that option on, re-solves under a separate bounded budget, and reports the resulting violation, worse objective, gap or budget exhaustion. A failed post-solve template/graph validator adds a no-good cut and re-solves within the original budget.
 
 ### 4. Statistical decision and evidence
 
@@ -702,7 +702,7 @@ Types: `ParallelMapLimits`, `WindowBudget`, `OverWindowPlan`; `ContextPolicy` is
 
 Moves from agent-utilities: `agent_utilities/rlm/config.py:60`, `agent_utilities/knowledge_graph/retrieval/context_knapsack.py:422`.
 
-Existing code: `crates/eg-types/src/decision/statistical/harness_config.rs:81`, `crates/eg-compute/src/assemble/eliminate.rs:97`, `crates/eg-compute/src/assemble/eliminate.rs:138`, `src/server/handlers/decide/candidates.rs:415`. Reachable today: yes for the window elimination in `eliminate.rs:97`, which discards a candidate whose window is too small; no for the over-window plan and the limits. `EG-DECISION-ENGINE-R128` owns the context policy and thresholds and is reused; this rollup adds the recursive plan and the limits that `EG-DECISION-ENGINE-R128` does not cover. Search terms used with no match: `over_window`, `window_fraction`, `max_items`, `OverWindow`.
+Existing code: `crates/eg-types/src/decision/statistical/harness_config.rs:81`, `crates/eg-compute/src/assemble/eliminate.rs:97`, `crates/eg-compute/src/assemble/eliminate.rs:138`, `src/server/handlers/decide/candidates.rs:415`. Window elimination in `eliminate.rs:97` is reachable today and discards candidates with insufficient windows. The over-window plan and limits are not reachable. `EG-DECISION-ENGINE-R128` owns the context policy and thresholds. This rollup reuses them and adds the recursive plan and remaining limits. Search terms used with no match: `over_window`, `window_fraction`, `max_items`, `OverWindow`.
 
 Decision: the engine returns the plan and the limits together, so the harness never exceeds a budget it did not receive. Rejected alternative: limits set in harness configuration, because they cannot follow the task class.
 
@@ -1937,3 +1937,27 @@ proof, reservation coverage and visibility protocol with independent reviewers.
 Any change to issuer eligibility, grant reuse, revocation semantics or tenant
 isolation is a material security decision and must be surfaced explicitly.
 Source design authorizes neither those policy changes nor live migration.
+
+## Amendment 2026-10-18: R036 stale authority image writes
+
+The whole-image writer now carries the revision from the caller's atomic RBAC
+snapshot through persistence. The snapshot includes policy, registered identities
+and bootstrap state. Isolation-layer clones retain independent preimage revisions.
+A checked write compares that revision while the existing owner transaction holds
+the write lock, before admission or replay can return success. A successful write
+returns its committed revision; no later read supplies that receipt.
+
+The legacy unversioned save API remains callable but refuses writes. Existing
+production callers use the checked operation. Unsupported store adapters also
+refuse checked writes rather than falling back to an unconditional save. Each
+successful checked save advances the existing revision, including equal images;
+a stale equal image is still a conflict. Failed writes preserve the caller's
+rollback boundary and do not advance its revision. Recovery requires a fresh
+atomic snapshot and re-evaluation, not a blind retry with a newer counter.
+
+This is the stale-image prerequisite of R036, not participant reservation or
+multi-owner admission. This slice enables no storage format migration, new issuer, live grant or
+profile admission. Cached authorization reads, coordinator recovery
+and reservation enforcement remain separate obligations. Regression coverage
+must prove stale-clone refusal, one winner for concurrent writers, preservation
+of newer session state and bootstrap, and durable revision checks after reopen.

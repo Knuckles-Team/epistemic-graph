@@ -15,6 +15,8 @@ impl IsolationLayer {
             #[cfg(feature = "security")]
             identity_bootstrap: crate::rbac_persist::IdentityBootstrapState::Pending,
             #[cfg(feature = "security")]
+            persist_revision: 0,
+            #[cfg(feature = "security")]
             persist: Some(std::sync::Arc::new(
                 crate::rbac_persist::MemoryRbacStore::new(),
             )),
@@ -46,7 +48,11 @@ impl IsolationLayer {
     pub fn with_policy_store(
         store: std::sync::Arc<dyn crate::rbac_persist::RbacPolicyStore>,
     ) -> Result<Self, crate::rbac_persist::RbacPersistError> {
-        let (rbac, identities, identity_bootstrap) = store.load()?;
+        let snapshot = store.authority_snapshot()?;
+        let persist_revision = snapshot.revision();
+        let rbac = snapshot.policy().clone();
+        let identities = snapshot.identities().clone();
+        let identity_bootstrap = snapshot.bootstrap();
         if identity_bootstrap == crate::rbac_persist::IdentityBootstrapState::Pending
             && !holds_only_identity_store_state(&rbac, &identities)
         {
@@ -59,6 +65,7 @@ impl IsolationLayer {
             agents,
             rbac,
             identity_bootstrap,
+            persist_revision,
             persist: Some(store),
         })
     }
@@ -71,7 +78,7 @@ impl IsolationLayer {
 
     /// Write through the complete RBAC and identity state.
     #[cfg(feature = "security")]
-    pub(super) fn persist_state(&self) -> Result<(), String> {
+    pub(super) fn persist_state(&mut self) -> Result<(), String> {
         let store = self
             .persist
             .as_ref()
@@ -81,9 +88,16 @@ impl IsolationLayer {
             .iter()
             .map(|(key, value)| (key.clone(), value.clone()))
             .collect();
-        store
-            .save(&self.rbac, &identities, self.identity_bootstrap)
-            .map_err(|error| format!("identity/RBAC policy save failed: {error}"))
+        let committed_revision = store
+            .compare_and_save(
+                self.persist_revision,
+                &self.rbac,
+                &identities,
+                self.identity_bootstrap,
+            )
+            .map_err(|error| format!("identity/RBAC policy save failed: {error}"))?;
+        self.persist_revision = committed_revision;
+        Ok(())
     }
 }
 

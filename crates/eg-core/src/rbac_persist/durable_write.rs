@@ -21,15 +21,23 @@ struct EncodedAuthorityState {
 
 pub(super) fn save_authority_state(
     store: &RbacStore,
+    expected_revision: u64,
     policy: &RbacPolicy,
     identities: &BTreeMap<String, AgentIdentity>,
     bootstrap: IdentityBootstrapState,
-) -> Result<(), RbacPersistError> {
+) -> Result<u64, RbacPersistError> {
     let encoded = encode_authority_state(policy, identities, bootstrap)?;
-    if is_current(store, &encoded)? {
-        return Ok(());
-    }
-    persist_authority_state(store, &encoded)
+    persist_authority_state(store, expected_revision, &encoded, false)
+}
+
+pub(super) fn initialize_authority_state(store: &RbacStore) -> Result<(), RbacPersistError> {
+    let expected_revision = store.current_version()?;
+    let encoded = encode_authority_state(
+        &RbacPolicy::new(),
+        &BTreeMap::new(),
+        IdentityBootstrapState::Pending,
+    )?;
+    persist_authority_state(store, expected_revision, &encoded, true).map(|_| ())
 }
 
 fn encode_authority_state(
@@ -52,29 +60,6 @@ fn encode_authority_state(
         bootstrap,
         digest: hex::encode(state_digest.finalize()),
     })
-}
-
-fn is_current(
-    store: &RbacStore,
-    encoded: &EncodedAuthorityState,
-) -> Result<bool, RbacPersistError> {
-    let read = store.scoped_read()?;
-    let table = read
-        .open_owner_table(RBAC_TABLE)
-        .map_err(RbacPersistError::Redb)?;
-    let policy_matches = table
-        .get(POLICY_KEY)
-        .map_err(|error| RbacPersistError::Redb(error.to_string()))?
-        .is_some_and(|value| value.value() == encoded.policy.as_slice());
-    let identities_match = table
-        .get(IDENTITIES_KEY)
-        .map_err(|error| RbacPersistError::Redb(error.to_string()))?
-        .is_some_and(|value| value.value() == encoded.identities.as_slice());
-    let bootstrap_matches = table
-        .get(BOOTSTRAP_KEY)
-        .map_err(|error| RbacPersistError::Redb(error.to_string()))?
-        .is_some_and(|value| value.value() == encoded.bootstrap.as_slice());
-    Ok(policy_matches && identities_match && bootstrap_matches)
 }
 
 fn authority_batch(
@@ -126,25 +111,46 @@ fn authority_batch(
 
 fn persist_authority_state(
     store: &RbacStore,
+    expected_revision: u64,
     encoded: &EncodedAuthorityState,
-) -> Result<(), RbacPersistError> {
+    initialize: bool,
+) -> Result<u64, RbacPersistError> {
     let outcome = rmp_serde::to_vec_named(&true)
         .map_err(|error| RbacPersistError::Redb(error.to_string()))?;
-    commit_authority_mutation(store, &encoded.digest, Some(outcome), |owner_write| {
-        let mut table = owner_write
-            .open_table(RBAC_TABLE)
-            .map_err(RbacPersistError::Redb)?;
-        table
-            .insert(POLICY_KEY, encoded.policy.as_slice())
-            .map_err(|error| RbacPersistError::Redb(error.to_string()))?;
-        table
-            .insert(IDENTITIES_KEY, encoded.identities.as_slice())
-            .map_err(|error| RbacPersistError::Redb(error.to_string()))?;
-        table
-            .insert(BOOTSTRAP_KEY, encoded.bootstrap.as_slice())
-            .map_err(|error| RbacPersistError::Redb(error.to_string()))?;
-        Ok(())
-    })
+    commit_authority_mutation(
+        store,
+        expected_revision,
+        &encoded.digest,
+        Some(outcome),
+        |owner_write| {
+            let mut table = owner_write
+                .open_table(RBAC_TABLE)
+                .map_err(RbacPersistError::Redb)?;
+            // Initialization requires absence of ALL records in this same write.
+            // Ordinary writes must not repair an incomplete image.
+            for key in [POLICY_KEY, IDENTITIES_KEY, BOOTSTRAP_KEY] {
+                let present = table
+                    .get(key)
+                    .map_err(|error| RbacPersistError::Redb(error.to_string()))?
+                    .is_some();
+                if present == initialize {
+                    return Err(RbacPersistError::IncompleteState(
+                        "authority image does not match initialization/write precondition",
+                    ));
+                }
+            }
+            table
+                .insert(POLICY_KEY, encoded.policy.as_slice())
+                .map_err(|error| RbacPersistError::Redb(error.to_string()))?;
+            table
+                .insert(IDENTITIES_KEY, encoded.identities.as_slice())
+                .map_err(|error| RbacPersistError::Redb(error.to_string()))?;
+            table
+                .insert(BOOTSTRAP_KEY, encoded.bootstrap.as_slice())
+                .map_err(|error| RbacPersistError::Redb(error.to_string()))?;
+            Ok(())
+        },
+    )
 }
 
 /// Remove one mandatory record. The ONLY way this crate can write, so a test
@@ -155,14 +161,21 @@ pub(super) fn remove_authority_record(
     store: &RbacStore,
     key: &'static str,
 ) -> Result<(), RbacPersistError> {
-    commit_authority_mutation(store, &format!("remove-{key}"), None, |owner_write| {
-        owner_write
-            .open_table(RBAC_TABLE)
-            .map_err(RbacPersistError::Redb)?
-            .remove(key)
-            .map_err(|error| RbacPersistError::Redb(error.to_string()))?;
-        Ok(())
-    })
+    commit_authority_mutation(
+        store,
+        store.current_version()?,
+        &format!("remove-{key}"),
+        None,
+        |owner_write| {
+            owner_write
+                .open_table(RBAC_TABLE)
+                .map_err(RbacPersistError::Redb)?
+                .remove(key)
+                .map_err(|error| RbacPersistError::Redb(error.to_string()))?;
+            Ok(())
+        },
+    )
+    .map(|_| ())
 }
 
 /// Mint and admit the maintenance batch, apply `apply_rows` to the `rbac` owner
@@ -172,30 +185,42 @@ pub(super) fn remove_authority_record(
 /// [`AdmittedOwnerWrite`], valid between `owner_rows` and `finish_owner`.
 fn commit_authority_mutation<F>(
     store: &RbacStore,
+    expected_revision: u64,
     digest: &str,
     result_msgpack: Option<Vec<u8>>,
     apply_rows: F,
-) -> Result<(), RbacPersistError>
+) -> Result<u64, RbacPersistError>
 where
     F: FnOnce(&AdmittedOwnerWrite<'_, RbacOwner>) -> Result<(), RbacPersistError>,
 {
-    // The authority image's maintenance claim must be minted from the version
-    // resolved while this write is held.  A pre-lock version read lets two
-    // concurrent bootstrap updates produce the same durable claim.
+    // Compare the caller's preimage before admission/replay under the SAME
+    // owner write lock. Never upgrade a stale image to the latest revision.
+    let mut stale = None;
     let (write, batch, begun) = store
         .mutations
         .admit_current(&store.owner, |expected| {
+            if expected != expected_revision {
+                stale = Some(RbacPersistError::StaleRevision {
+                    expected: expected_revision,
+                    actual: expected,
+                });
+                return Err("RBAC_STALE_REVISION".to_string());
+            }
             let target = expected
                 .checked_add(1)
                 .ok_or_else(|| "identity/RBAC state version overflow".to_string())?;
             Ok(authority_batch(store, expected, target, digest))
         })
-        .map_err(RbacPersistError::Redb)?;
+        .map_err(|error| stale.unwrap_or(RbacPersistError::Redb(error)))?;
     let source_version = match begun {
-        // The idempotency key already names a terminally committed receipt:
-        // this exact state was persisted by an earlier attempt, so the write is
-        // discarded rather than reapplied.
-        Begin::Replay(_) => return write.abort().map_err(RbacPersistError::Redb),
+        // A current preimage always creates the next revision, never a prior
+        // receipt. Do not acknowledge a replay without a committed revision.
+        Begin::Replay(_) => {
+            write.abort().map_err(RbacPersistError::Redb)?;
+            return Err(RbacPersistError::IncompleteState(
+                "unexpected authority write replay",
+            ));
+        }
         Begin::Apply { source_version } => source_version,
     };
     let owner_write = write
@@ -210,5 +235,6 @@ where
     store
         .mutations
         .commit(write, &batch)
-        .map_err(RbacPersistError::Redb)
+        .map_err(RbacPersistError::Redb)?;
+    Ok(expected_revision + 1) // checked for overflow while building the batch
 }
