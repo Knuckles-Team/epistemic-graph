@@ -400,6 +400,8 @@ fn stale_policy_writer_cannot_restore_a_revoked_session() {
     let mut value = serde_json::to_value(snapshot.policy()).unwrap();
     value["identity"]["sessions"][&hash] = serde_json::to_value(SessionRecord {
         session_hash: hash.clone(),
+        session_ref: None,
+        session_tenant: None,
         principal_id: "usr:alice".into(),
         created_at_ms: NOW - 10,
         last_seen_at_ms: NOW - 10,
@@ -448,4 +450,44 @@ fn stale_policy_writer_cannot_restore_a_revoked_session() {
     assert_eq!(after.revision(), committed.revision());
     assert_eq!(serde_json::to_value(after.policy()).unwrap(), persisted);
     assert_eq!(after.bootstrap(), IdentityBootstrapState::Consumed);
+}
+
+// spec: EG-TYPED-PACKS-R085.1
+#[test]
+fn failed_session_touch_persistence_publishes_no_record_projection() {
+    // Existing none-mode store fixture exercises persistence, not served admission.
+    let mut layer = seeded();
+    let mut owner_stamp = stamp(IDENTITY_AUTHENTICATE_SCOPE);
+    owner_stamp.token_hashes = vec!["session-record-hash".into()];
+    owner_stamp.minted_session_ref = Some("ses:stored-record".into());
+    owner_stamp.session_tenant = Some("tenant-record".into());
+    let request = SessionTouch {
+        session_token: Secret::default(),
+        code: Secret::default(),
+    };
+    apply(
+        &mut layer,
+        IdentityOp::Credential(CredentialOp::BootstrapSession {
+            request: request.clone(),
+        }),
+        &owner_stamp,
+    )
+    .unwrap();
+    let op = IdentityOp::Session(SessionOp::Resolve { request });
+    let before = serde_json::to_string(layer.rbac()).unwrap();
+    layer.persist = Some(Arc::new(FailingStore));
+    let outcome = layer.try_apply_identity(&op, &owner_stamp, NOW + 61_000, &Registry);
+    assert!(matches!(outcome, Err(IdentityStoreError::Persist(_))));
+    assert_eq!(serde_json::to_string(layer.rbac()).unwrap(), before);
+    layer.persist = None;
+    let IdentityReply::Resolution(reply) = layer
+        .try_apply_identity(&op, &owner_stamp, NOW + 61_000, &Registry)
+        .unwrap()
+    else {
+        panic!("expected resolution")
+    };
+    assert_eq!(
+        reply.session_record.unwrap().session_ref,
+        "ses:stored-record"
+    );
 }

@@ -316,7 +316,7 @@ All tests below are planned and unexecuted; they create no implementation or ser
 
 - **`EG-TYPED-PACKS-R100.7`:** Matching exact-package passing validation evidence enables the catalog package. Require `run_set_complete=true` and canonical sorted unique run refs. Missing evidence, wrong tenant, candidate/package/graph/policy digest mismatch, incomplete run set, stale source or failed verdict refuses. The refusal leaves no publishable package. Re-run current dangling-ontology refusal. Hold positive AU receipt production and its pass criterion until AU defines the exact operation and rubric. Source record SHA-256: `96ff38761f9e21d52f608ba593c902aff4c93ca7b1ed13088ad39efd3e968a3a`.
 - **`EG-TYPED-PACKS-R097.2.7`:** Import a pinned schema with every supported term kind and mapped/unmapped examples. Independently read full coverage through `OntologyInspect` after commit/restart. Read class activation through `GraphSchemaClasses`. Verify the exact sorted `Mapped`/`Unmapped{NoDeclaredMapping}` report and provenance. Verify unmapped terms are not adopted, order/digest are deterministic, partial packs are admitted, and R071.1 reverse links remain unchanged. Each malformed, duplicate, unsupported-kind, kind-mismatch, stale or forged case refuses with pack head and active schema unchanged.
-- **`EG-TYPED-PACKS-R100.8`:** Export/import a workflow containing named graphs, unknown predicate, typed and language-tagged literals and ontology references; SHA-256 digest of canonical N-Quads and RDF graph isomorphism must survive. Tampered digest, invalid RDF, unresolved references and unsupported serializer refuse without writes. Equal/older export refusal and newer export admission require a resolved stored-version baseline/order contract; positive end-to-end consumer remains held. Source record SHA-256: `620b1ae05d8e35696c7522f207672ef6f374525004d5488fe62fb4b27fc6cf5a`.
+- **`EG-TYPED-PACKS-R100.8`:** Export/import a workflow with named graphs, unknown predicates, typed and language-tagged literals, and ontology references. Preserve the canonical N-Quads SHA-256 digest and RDF graph isomorphism. Tampered digest, invalid RDF, unresolved references and unsupported serializer refuse without writes. Equal/older export refusal and newer export admission require a resolved stored-version baseline/order contract; positive end-to-end consumer remains held. Source record SHA-256: `620b1ae05d8e35696c7522f207672ef6f374525004d5488fe62fb4b27fc6cf5a`.
 <!-- /spec-definition-patch -->
 
 <!-- spec-definition-patch:reviewed-mapped-subsets-20261012 -->
@@ -384,3 +384,17 @@ No test named here has run; names describe acceptance obligations, not evidence.
 
 
 Hot-path proof for `EG-TYPED-PACKS-R104`: `tests/connector_pack/test_seed_graph_served.py::test_seed_idempotent_and_partial_reimport`.
+
+## R085.1 durable session projection
+
+The native session_evidence tests cover post-touch persisted facts, distinct
+references, replay, omitted legacy/unbound metadata and existing refusals.
+Server stamping tests prove caller metadata cannot choose record provenance.
+These checks do not qualify Arbora admission or a live host startup.
+
+`verified_api_key_resolution_omits_session_record` executes the existing
+IssueApiKey and VerifyApiKey operations and checks wire omission.
+`failed_session_touch_persistence_publishes_no_record_projection` uses the
+existing failing RBAC persistence store and asserts the touch returns an error,
+restores the prior state, and publishes facts only after a successful retry.
+Its existing none-mode fixture is storage testing, not served admission proof.

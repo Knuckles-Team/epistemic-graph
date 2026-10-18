@@ -135,6 +135,8 @@
     "EG-TYPED-PACKS-R083",
     "EG-TYPED-PACKS-R084",
     "EG-TYPED-PACKS-R085",
+    "EG-TYPED-PACKS-R085.1",
+    "EG-TYPED-PACKS-R085.2",
     "EG-TYPED-PACKS-R086",
     "EG-TYPED-PACKS-R087",
     "EG-TYPED-PACKS-R088",
@@ -1655,11 +1657,35 @@
     {
       "id": "EG-TYPED-PACKS-R085",
       "title": "Identity domain operations with Argon2id and redacted views",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "0035f9fac382",
         "90f5578ae2f4"
       ],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-TYPED-PACKS-R085.1",
+        "EG-TYPED-PACKS-R085.2"
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R085.1",
+      "title": "Durable session record projection",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "crates/eg-core/src/isolation/identity_store_tests.rs:393",
+        "crates/eg-types/src/identity/tests/session_evidence.rs:127",
+        "crates/eg-types/src/identity/tests/session_evidence.rs:33",
+        "crates/eg-types/src/identity/tests/session_evidence.rs:65",
+        "crates/eg-types/src/identity/tests/session_evidence.rs:92"
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R085.2",
+      "title": "Remaining identity-domain qualification",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {

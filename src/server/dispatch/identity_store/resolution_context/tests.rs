@@ -28,6 +28,7 @@ fn resolution() -> PrincipalResolution {
         mfa_required: false,
         mfa_enrolled: false,
         session_mfa_pending: false,
+        session_record: None,
     }
 }
 

@@ -378,3 +378,50 @@ async fn first_admin_setup_before_the_system_bootstrap_is_refused_at_the_boundar
     let accepted = send(&ready, broker(), initialize(PASSWORD)).await;
     assert!(accepted.error.is_none(), "{:?}", accepted.error);
 }
+
+// spec: EG-TYPED-PACKS-R085.1
+#[tokio::test]
+async fn caller_cannot_choose_session_record_provenance() {
+    let state = state();
+    assert!(send(&state, broker(), initialize(PASSWORD))
+        .await
+        .error
+        .is_none());
+    let context = broker();
+    let mut forged = IdentityStamp::for_actor(identity_actor(&context));
+    forged.minted_session_ref = Some("caller-reference".into());
+    forged.session_tenant = Some("caller-tenant".into());
+    let mut method = Method::Identity {
+        op: sign_in(PASSWORD, SESSION),
+        stamp: Some(forged),
+    };
+    stamp_identity(
+        &state,
+        &mut method,
+        &context,
+        ElevationStampAuthority::External,
+    )
+    .await
+    .unwrap();
+    let Method::Identity {
+        stamp: Some(stamp), ..
+    } = method
+    else {
+        panic!("missing stamp")
+    };
+    assert_eq!(
+        stamp.session_tenant,
+        resolution_context::record_tenant(&context)
+    );
+    assert_ne!(
+        stamp.minted_session_ref.as_deref(),
+        Some("caller-reference")
+    );
+    if stamp.session_tenant.is_some() {
+        let reference = stamp.minted_session_ref.unwrap();
+        assert!(reference.starts_with("ses:"));
+        assert!(uuid::Uuid::parse_str(&reference[4..]).is_ok());
+    } else {
+        assert!(stamp.minted_session_ref.is_none());
+    }
+}

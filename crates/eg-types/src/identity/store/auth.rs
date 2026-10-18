@@ -299,6 +299,8 @@ impl IdentityStore {
         self.open_session(
             SessionOpen {
                 session_hash: stamp.token_hash(0)?,
+                session_ref: stamp.minted_session_ref.as_deref(),
+                session_tenant: stamp.session_tenant.as_deref(),
                 principal_id: principal,
                 method: method.to_string(),
                 mfa_pending: outcome != AuthenticateOutcome::Ok,
@@ -322,6 +324,8 @@ impl IdentityStore {
         self.open_session(
             SessionOpen {
                 session_hash: stamp.token_hash(0)?,
+                session_ref: stamp.minted_session_ref.as_deref(),
+                session_tenant: stamp.session_tenant.as_deref(),
                 principal_id: BOOTSTRAP_PRINCIPAL,
                 method: "none".to_string(),
                 mfa_pending: false,

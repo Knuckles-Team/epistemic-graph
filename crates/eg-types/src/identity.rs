@@ -65,7 +65,9 @@ pub use ops::{
     IDENTITY_READ_SCOPE, IDENTITY_SELF_SCOPE,
 };
 pub use password_policy::check_password;
-pub use projection::{rbac_role_name, PrincipalResolution, RbacProjection};
+pub use projection::{
+    rbac_role_name, PrincipalResolution, RbacProjection, SessionRecordProjection,
+};
 pub use relations::{SqlRelation, SqlType};
 pub use requests::{
     ApiKeyIssue, ApiKeyUse, AuthenticateRequest, CreateUserRequest, ExternalLogin,

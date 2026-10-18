@@ -12,6 +12,7 @@ mod modes;
 mod provision;
 mod recovery;
 mod revocation;
+mod session_evidence;
 mod tokens;
 mod verdicts;
 

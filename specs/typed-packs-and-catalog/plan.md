@@ -46,7 +46,7 @@ For each PACK requirement, attach a PR/merged commit link and contract receipt d
 ### Turtle parse identity repair
 
 - EG-TYPED-PACKS-R093.1: Scope the public bounded/unbounded Turtle readers per invocation. Keep the existing label-preserving reader for catalogue composition, whose callers already apply document namespaces.
-- EG-TYPED-PACKS-R093.2: Validate the served connector-pack reproject path with colliding member labels and repeatable composed digests before claiming the parent requirement complete.
+- EG-TYPED-PACKS-R093.2: Validate the served connector-pack reproject path with colliding member labels and repeatable composed digests. Complete this before claiming parent acceptance.
 
 ## Architecture
 
@@ -559,7 +559,7 @@ Neither accepted input supplies a research paper or arXiv identifier; no researc
 - Extend existing parent `R072` without removing its existing behavior.
 - Specify: Extend the typed fleet catalog with workflow registration identity, version/content digest, owner/tenant scope, schema and lifecycle state. Persist registration through the existing SourceIngest authority. Resolve invocation by registry id and exact admitted revision, not a caller-supplied body. Unknown, withdrawn, stale or unauthorized workflow ids refuse before execution. Keep engine/client initialization lazy at the AU first-use boundary. Do not initialize it at registration or process startup.
 - Producer/consumer boundary: EG typed registry and SourceIngest R002 own durable registration; AU owns lazy client initialization/execution; preserve ARBORA-HOST-R022 workflow-store semantics.
-- Owner prerequisite: AU-CONTROL-R037.5 only fills a requirement gap; it does not define lazy initialization timing, the first-use operation, or the execution receipt. No exact AU companion requirement ID is identified. Keep that consumer as an explicit hold until its owner publishes the operation and receipt; no invocation evidence is claimed.
+- Owner prerequisite: AU-CONTROL-R037.5 only fills a requirement gap. It does not define initialization timing, the first-use operation, or the execution receipt. No exact AU companion requirement ID is identified. Keep that consumer as an explicit hold until its owner publishes the operation and receipt; no invocation evidence is claimed.
 - Source record SHA-256: `f73767d1a3fdba29a702254ed1db2c9904158b6136f6f4b38a3c9a0d3e4fcb03`.
 - Keep status SPECIFIED until the EG served producer and each separately owned consumer are implemented, served-tested and independently read back.
 
@@ -617,3 +617,18 @@ Budget: 50,000 triples and 8 MiB per seed graph. Engine time stays under 200 ms 
 Tenant isolation: the seed graph resolves inside the importing tenant.
 
 No bulk data: the seed graph names objects and their references. Entity rows stay at the source and answer through virtual mappings (`EG-UNIFIED-DATA-PLANE-R038`).
+
+## 2026-10-18 amendment — R085.1 durable session facts
+
+Reuse the existing session record and Resolve path. Persist an opaque storage
+reference and deployment tenant only when the existing verified request context
+matches the configured owner policy at creation. No current caller backfills old
+records. Project six fields after the existing touch; publication follows
+successful persistence. No new operation, read surface or authority verdict is
+introduced. Arbora consumes the optional projection and owns admission.
+
+Native generator and focused execution remain required before publication.
+
+R085.2 retains the original parent operation, redaction and catalogue acceptance.
+The projection fixtures bind only R085.1; their presence does not qualify the
+whole identity domain or Arbora's served admission and host lifecycle.

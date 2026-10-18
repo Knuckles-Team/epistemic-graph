@@ -18,6 +18,35 @@ use super::store::IdentityStore;
 use super::{IdentityRefusal, RBAC_ROLE_PREFIX};
 use crate::acl::{AgentIdentity, AgentRole, Grant, Role};
 
+/// Durable session facts, not a credential or an admission verdict.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct SessionRecordProjection {
+    pub session_ref: String,
+    pub tenant: String,
+    pub principal_id: String,
+    pub absolute_expires_at_ms: u64,
+    pub idle_expires_at_ms: u64,
+    #[serde(deserialize_with = "deserialize_mfa_timestamp")]
+    #[cfg_attr(
+        feature = "contract-schema",
+        schemars(required, schema_with = "nullable_mfa_schema")
+    )]
+    pub mfa_at_ms: Option<u64>,
+}
+
+#[cfg(feature = "contract-schema")]
+fn nullable_mfa_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    generator.subschema_for::<Option<u64>>()
+}
+
+fn deserialize_mfa_timestamp<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<u64>, D::Error> {
+    Option::<u64>::deserialize(deserializer)
+}
+
 /// Current principal projection. The store uses `()`; public issuance requires
 /// `RequestContextClaims`, composed only after credential and policy validation.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -41,6 +70,8 @@ pub struct PrincipalResolution<C = ()> {
     /// Set by `resolve_session`: the session still owes its second factor.
     #[serde(default)]
     pub session_mfa_pending: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_record: Option<SessionRecordProjection>,
 }
 
 impl PrincipalResolution {
@@ -59,6 +90,7 @@ impl PrincipalResolution {
             mfa_required: self.mfa_required,
             mfa_enrolled: self.mfa_enrolled,
             session_mfa_pending: self.session_mfa_pending,
+            session_record: self.session_record,
         }
     }
 }
@@ -156,6 +188,7 @@ impl IdentityStore {
             mfa_required,
             mfa_enrolled: self.mfa_enrolled(principal_id),
             session_mfa_pending: false,
+            session_record: None,
         })
     }
 
