@@ -179,7 +179,7 @@ This register inventories all 118 decision-owned obligations. `Historical label`
 | EG-DECISION-ENGINE-R082 | T4 | BUILT | NOT_RUN | **Option-marker head geometry for eg-decision** — encode state once, score each option at its own marker, softmax in-process, one forward pass serving several questions; no decoder loop. Adopted from the Laya encoder design |
 | EG-DECISION-ENGINE-R083 | T4 | BUILT | NOT_RUN | **Structured option encoding instead of textual — surpasses the external design by construction.** Laya scores 0.425 on Banking77 (vs 0.870 for the closed baseline) purely because 77 label strings exhaust head_max_len; that is a TOKENISATION limit, not a decision limit. Our options are IRIs carrying SHACL shapes, declared capabilities and cost/latency facts, so an option is encoded from its STRUCTURED features and cardinality bounds on feature-vector width rather than token budget. The failure mode that caps their usable option sets does not exist in ours |
 | EG-DECISION-ENGINE-R084 | T4 | BUILT | NOT_RUN | Conformal coverage and abstention are the primary calibration rung across changing option-set sizes. Temperature scaling is a fallback when exchangeability fails. Report both expected calibration error and empirical coverage. |
-| EG-DECISION-ENGINE-R085 | T4 | BUILT | NOT_RUN | **Derive the legal option set; never merely receive it.** Laya scores the A you hand it and cannot say which options are legal. We generate A from the ontology (SHACL shapes + SPARQL shortlist) so only type-valid, policy-admissible candidates are ever scored. This is what makes monotone safety ENFORCEABLE rather than aspirational: an illegal option is never in A, so a learned rung cannot introduce one. It is also the scorer/planner distinction |
+| EG-DECISION-ENGINE-R085 | T4 | BUILT | NOT_RUN | **Derive the legal option set; never merely receive it.** Laya scores the A you hand it and cannot say which options are legal. We generate A from the ontology (SHACL shapes + SPARQL shortlist) so only type-valid, policy-admissible candidates are ever scored. An illegal option is never in A. A learned rung cannot introduce one, so monotone safety is enforceable. It is also the scorer/planner distinction |
 | EG-DECISION-ENGINE-R086 | T4 | BUILT | NOT_RUN | **DecisionFit promotion evaluation protocol.** Adopt their four metrics (accuracy, soft accuracy, Brier, score MAE) and add five: empirical coverage alongside ECE. Abstention rate AND accuracy-on-answered (a good abstainer must be more accurate on what it answers, else the abstention is noise). Cost per decision (an unmeasured rung will not stay cheap). Decision stability (same state + same A -> same answer, since decisions are recorded in the graph and must be reproducible). And calibration drift over time, which bitemporal makes measurable. Frozen workflow set, per tenant and per domain |
 | EG-DECISION-ENGINE-R087 | T4 | BUILT | NOT_RUN | **Cardinality rule: shortlist before scoring.** Never hand a whole catalog to a scorer; SPARQL shortlist with a bounded LIMIT first. Their Banking77 collapse is the empirical case for it, and EG-DECISION-ENGINE-R083 raises the ceiling rather than removing the rule |
 | EG-DECISION-ENGINE-R088 | T4 | BUILT | NOT_RUN | **Trajectory-prefix belief (the one durable idea from SalesRLAgent).** Turn-by-turn P over conversation PREFIXES is a special case of BELIEF AS OF t over temporal slices. We already have this bitemporal capability; neither external system does. Expose it as a Decide primitive rather than a bespoke sales model |
@@ -596,7 +596,7 @@ The benchmark lives in `crates/eg-numeric/benches/decision_resident_scorer.rs`, 
 Native measurement on 2026-10-11 met both parameter and CPU latency limits but
 reported 124,788,736 bytes of whole-runner peak RSS against an 8 MiB ceiling.
 That first Cargo-launched result is inconclusive and remains recorded. A direct
-run of the identical executable subsequently met all measured limits, with
+run of the identical executable later met all measured limits, with
 2,850,816 bytes peak RSS independently corroborated by external time. The test
 specification links both structured receipts and exact release provenance. The
 launch-dependent difference is observed; its precise cause is not established.
@@ -1861,7 +1861,7 @@ terminal decision. A local timeout must not release an in-doubt reservation.
 A missing or unreachable decision service is not evidence of abort. Recovery
 may conclude abort only through the protocol's authoritative decision rule.
 Conflicting writers either wait within bounds or return a typed conflict; they
-must never acknowledge a revocation that the admission can subsequently ignore.
+must never acknowledge a revocation that the admission can later ignore.
 
 ### Decision, expiry and visibility — unimplemented
 
