@@ -1781,3 +1781,155 @@ to report implementation progress. First approve the exact migration/write-owner
 plan; then implement and qualify the native transaction and canonical contract.
 Production migration and live writer retirement require separate deployment
 authorization. This amendment executes neither action.
+
+
+## Amendment 2026-10-18: R036 physical records and migration map
+
+This is the concrete source design following #661. All destination tables below
+are proposed schema, not existing runtime support. Migration execution remains
+subject to deployment approval. No grant is created by importing old records.
+
+### Physical owner and placement constraint
+
+Select one existing graph shard as the authority shard for the whole current
+RBAC security-control domain. Bind its physical identity in the migration
+manifest; never select it from a caller's graph name. Move the complete RBAC
+image into this owner, not a session cache or a per-tenant copy. A profile task
+can be admitted only for a graph physically in that same shard. Other graphs
+return AUTHORITY_UNAVAILABLE for profile selection. Ordinary default-agent
+behavior retains its existing contract.
+
+This deliberately limits the first implementation to one authority shard.
+It does not promise atomic profile admission across shards. Moving additional
+graphs requires their existing storage migration procedure and separate
+approval. A distributed transaction design would be a later architectural
+change, not a fallback to checking another file before commit.
+
+Use GraphShardOwner and MutationKernel's existing scope-group transaction.
+The file control member owns security records; the graph member owns task
+records. Extend the closed table census and control-member capabilities
+explicitly. Today's series-table capability does not authorize security writes.
+Do not reopen this file as RbacOwner or AgentLibraryOwner. Do not duplicate
+kernel mutation, stable-key, receipt, outbox or replay tables.
+
+### Exact source and destination records
+
+The baseline is cd7dcc16313fb060c4a6c7d8a042455eef8d11ef. Source references are
+`crates/eg-core/src/rbac_persist.rs`, `crates/eg-types/src/identity/model.rs`,
+`crates/eg-storage/src/owner/registry.rs` and
+`src/redb_store/work_item_capability.rs`.
+
+| Current record | Proposed destination and conversion |
+| --- | --- |
+| `rbac.redb`, table `rbac`, keys `policy`, `identities`, `bootstrap` | Authority shard control table `profile_security_image`, identical string keys and serialized values. Import all three atomically; retain the complete policy, identity map and bootstrap state. |
+| `policy.identity.sessions[session_hash]` | Remains at the identical nested map key inside `profile_security_image[policy]`. No second session table. Preserve principal, creation, last-seen, idle/absolute expiry, methods, MFA, IP prefix and revocation fields. |
+| Remaining `policy.identity` maps, roles, grants, elevations and governed ledger | Remain in the complete policy image. Preserve credentials, indexes, audit and revocations together. No partial identity export or new credential issuer. |
+| `agent_library.redb`, `agent_library[(tenant, component, revision)]` | Immutable bytes stay in Agent Library. Store their exact digest and pinned revision in a new authority-shard eligibility record. Never use a mutable head as current admission authority. |
+| `agent_library_heads[(tenant, component)]` | Retain for unrelated catalog operations. For migrated profile/capability eligibility, the new control table `profile_eligibility[(tenant, component)]` becomes sole authority. Value names pinned revision, content digest, kind, eligibility revision and withdrawal state. |
+| Profile-use grants, absent today | New control table `profile_use_grants[(tenant, grant_id)]`. Value contains every exact binding required by #661, plus format version and mutation revision. Import creates no rows. Revocation updates the existing row; IDs cannot be reused. |
+| `decision_records[(tenant, record_id)]` in Agent Library | Historical records stay immutable and do not prove task admission. New profile admission receipts use graph-scoped `profile_admission_receipts[(graph, admission_id)]`. Include tenant, principal, grant/revisions, session hash, profile/capability digests, run/WorkItem IDs and committed expiry. |
+| Graph `nodes[(graph, node_id)]` and `native_work_item_authority[(graph, work_item_id)]` | Keep current keys and native ownership proof. Create the new run/task through the native WorkItem mutation, with its verified-principal binding. Never attach a pre-existing generic node or synthesize native provenance. |
+
+Current SessionRecord has no tenant or opaque session reference. Do not infer
+either from a session hash. Tenant and graph authorization must be explicit
+persisted authority checked in the transaction. A later session projection may
+expose facts, but cannot replace the authoritative image or grant missing scope.
+Persist only the session hash in the admission receipt, never the bearer secret.
+
+Add control table `profile_authority_cutover` with one key `active`. Its value
+contains format version, migration ID, source and destination physical IDs,
+source snapshot digest, destination verification digest, writer epoch and phase.
+Add `profile_authority_policy`, keyed by exact tenant, for the profile issuance
+policy and its revision. Missing tenant policy denies issuance and selection.
+These records do not grant `profile:approve-grant` to any existing principal.
+
+### Writer and transaction ownership
+
+Arbora retains authentication, human approval and served admission operations.
+EG persists records and enforces the native transaction preconditions. Moving
+storage does not move the served authorization service into EG.
+
+Route the existing RbacPolicyStore load/save interface to the authority shard
+after cutover. All identity transitions, session touch/revoke, RBAC changes,
+elevation and governed changes must use this single image owner. Update
+`IsolationLayer::persist_state` and its snapshot publication discipline so
+failed persistence cannot publish new state. Every image transition must read and modify within that transaction, or use
+revision CAS that refuses a stale image and requires reload. Unconditional save
+of an in-memory image is forbidden. Admission reads the image inside the write
+transaction; cached policy snapshots are not commit authority.
+
+Profile eligibility publication and withdrawal use the control member. The
+Agent Library writer must reject eligibility changes for migrated components,
+including deletion or tombstone paths. Content publication may precede
+eligibility publication: verify immutable bytes and digest before committing
+eligibility. Orphaned content is harmless; missing content refuses admission.
+
+The profile path must stop calling `commit_decision_record` as its authoritative
+receipt writer. Other decision kinds retain that API. Any later catalog mirror
+of a profile receipt is explicitly non-authoritative and references the native
+receipt; mirror failure cannot cause a second admission.
+
+One scope-group write resolves current image, tenant policy, grant and
+eligibility under the write lock. Validate bindings and engine-clock expiry,
+then stage receipt, native run/task and the existing kernel replay result.
+Commit all members once. No dispatcher starts work from staged rows. The stable
+request key is a caller-supplied operation key scoped to authenticated
+tenant/principal. Its replay record binds the request digest; reuse with a
+different digest refuses rather than becoming a different lookup key. A committed retry returns the same identity and
+never authorizes another dispatch merely because the transport retried.
+
+### Fenced migration, recovery and rollback
+
+1. Prepare an offline manifest with source file identities, complete table
+   census, snapshot digests, target shard identity and graph placement list.
+   Reject missing keys, collisions and unsupported formats. Back up all source
+   files with their manifests and kernel history. Preserve secret protections.
+2. Quiesce affected writers under separately approved maintenance. Require an
+   exclusive deployment/storage fence that also excludes old binaries, which
+   cannot understand a new marker. A marker alone cannot fence an old process.
+   While fenced, take final snapshots and record the migration writer epoch.
+3. Import the three security-image keys as one unit into the proposed tables.
+   Import explicit profile eligibility mappings, preserving revision/digest and
+   withdrawal provenance. Do not translate existing RBAC grants into profile
+   grants. Record phase `prepared`; profile admission remains unavailable.
+4. Verify every imported logical record, source digest and graph placement.
+   Activate phase `active` in one destination transaction. Start only binaries
+   supporting this owner format and writer epoch. Keep old files sealed against
+   writes; old paths must fail rather than silently create a fresh empty store.
+5. Every restart checks physical identity, phase and epoch before serving the
+   migrated authority. Before activation, interruption resumes verified import
+   or restores the fenced original. After activation, recovery uses the new
+   owner and its kernel history; it never chooses the older file by timestamp.
+
+After activation, rollback first stops profile admission and fences all writers.
+Restore only a binary that can read the new authority, or perform a separately
+reviewed reverse migration from its latest complete image. Never restore the
+pre-cutover backup over later revocations or bootstrap consumption. Preserve new
+receipts and replay history even if profile admission stays disabled. A binary
+that cannot preserve these facts is not an eligible rollback target.
+
+### Required evidence before runtime acceptance
+
+Fixtures must verify every row in the conversion table, including unchanged
+credential bytes, audit order, revoked sessions and consumed bootstrap. Exercise
+crashes before and after each phase and activation commit. Refuse a stale writer,
+a different physical shard, a missing tenant policy and a legacy session lacking
+required scope. Test old-binary exclusion at the deployment fence separately
+from the new-binary marker check.
+
+Save a stale policy image after a committed revocation and require CAS refusal
+without restoring revoked authority. Race session revoke, grant revoke, policy
+change and eligibility withdrawal
+against admission in both commit orders. Test exact expiry and wrong principal,
+tenant, graph, revision and digest. Inject failure after each staged write and
+prove no receipt, task or replay fragment survives. Retry after commit and lost
+response; assert one native task and one receipt. Roll back after revocation and
+prove the revoked session stays refused. Verify ordinary default-agent behavior
+before and after storage cutover, with profile selection disabled throughout.
+
+Source preparation may implement schema validation, migration dry-run manifests,
+conversion fixtures and transaction tests. It may not execute this maintenance
+sequence or provision approver permissions. R036 remains incomplete until the
+native implementation and canonical contracts pass these tests. Deployment
+approval must explicitly accept the single-shard placement limit, full security
+image relocation and maintenance fence before any live migration occurs.
