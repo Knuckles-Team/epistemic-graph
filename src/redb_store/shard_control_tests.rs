@@ -229,19 +229,20 @@ fn coordinator_decision_conflicts_preserve_durable_outcome_after_reopen() {
 #[test]
 fn competing_coordinator_decisions_have_one_winner() {
     let path = temp_path("decision-race");
-    let shard = bootstrap(&path);
-    let barrier = std::sync::Barrier::new(2);
-    let (commit, abort) = std::thread::scope(|scope| {
-        let commit = scope.spawn(|| {
-            barrier.wait();
-            put_xshard_decision(&shard, "race", true, true)
-        });
-        let abort = scope.spawn(|| {
-            barrier.wait();
-            put_xshard_decision(&shard, "race", false, true)
-        });
-        (commit.join().unwrap(), abort.join().unwrap())
-    });
+    let shard = std::sync::Arc::new(bootstrap(&path));
+    let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+    let contender = |decision| {
+        let shard = std::sync::Arc::clone(&shard);
+        let barrier = std::sync::Arc::clone(&barrier);
+        std::thread::spawn(move || {
+            crate::test_rendezvous::meet(&barrier, "coordinator decision contenders");
+            put_xshard_decision(&shard, "race", decision, true)
+        })
+    };
+    let commit = contender(true);
+    let abort = contender(false);
+    let commit = crate::test_rendezvous::join_bounded(commit, "coordinator commit contender");
+    let abort = crate::test_rendezvous::join_bounded(abort, "coordinator abort contender");
     assert_ne!(commit.is_ok(), abort.is_ok());
     assert_eq!(
         get_xshard_decision(&shard, "race").unwrap(),
