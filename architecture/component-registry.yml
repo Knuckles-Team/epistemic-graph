@@ -4046,6 +4046,7 @@ components:
       - "tests/usecase_kg_lifecycle.rs"
       - "tests/usecase_observability_rca.rs"
       - "tests/viz_dispatch.rs"
+      - "tests/web_document_enrich_served.rs"
       - "benches"
       - "examples"
     generated_roots: []

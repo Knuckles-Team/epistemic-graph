@@ -1670,7 +1670,7 @@ R036 and the Arbora requirement remain open for these acceptance obligations.
 
 ## Web page selection (R802, R174.9.7)
 
-The engine decides which web candidates to ingest. arbora `research.web` (`ARBORA-OPS-R067`) sends the search rows, the query and a fetch budget as one served `SelectWebPages` call. arbora computes no ranking.
+The engine decides which web candidates to ingest. arbora `research.web` (`ARBORA-OPS-R067`) sends the search rows, the query and a page budget as one served `SelectWebPages` call. arbora computes no ranking.
 
 Call path: served `SelectWebPages` -> `src/server/dispatch/graph_pipeline/web_ingest.rs` -> RLS-visible held `Document` rows -> `eg_numeric::decision::web_fetch_selection::select_web_pages` -> ordered selection with reasons, and one skip entry per other candidate.
 
