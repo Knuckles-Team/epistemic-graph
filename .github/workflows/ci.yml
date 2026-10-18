@@ -542,7 +542,12 @@ jobs:
     runs-on: ubuntu-latest
     env: *eg-validation-compiler-cache-backend
     steps:
-      - *eg-gates-checkout
+      # The PR scope resolver needs the published base; a depth-one merge
+      # checkout otherwise appears to be its own root and selects no crates.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
 
       - *eg-gates-python
 
