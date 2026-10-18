@@ -803,7 +803,7 @@ jobs:
     # The one backward-support leg (pipelines reference/gate-standard.md
     # "Python version"): CI runs on .python-version (3.14); the abi3 kernels
     # built there must still import on the 3.12 interpreter.
-    timeout-minutes: 15
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
     name: backward-python (3.12)
     needs: [changes, python-kernels]
     if: needs.changes.outputs.code == 'true'
