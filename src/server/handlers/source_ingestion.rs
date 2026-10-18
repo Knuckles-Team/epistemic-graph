@@ -389,6 +389,8 @@ fn resolve_mappings(
 ) -> Result<ResolvedIngestionMappings, String> {
     // The request has no tenant or mapping body. Both are resolved exclusively
     // through verified server authority, and every resolver error is terminal.
+    // Packs are keyed by the verified tenant, the same key import writes.
+    let pack_tenant = crate::server::persistence::connector_pack::pack_tenant_key(ctx.verified);
     let mut entities = BTreeMap::new();
     let mut relationships = BTreeMap::new();
     let mut receipts = Vec::new();
@@ -398,7 +400,7 @@ fn resolve_mappings(
             continue;
         }
         let resolved = resources.agent_library.resolve_connector_schema_mapping(
-            ctx.tenant_scope,
+            pack_tenant,
             &batch.connector,
             &record.mapping_reference,
         )?;
@@ -419,7 +421,7 @@ fn resolve_mappings(
         let resolved = resources
             .agent_library
             .resolve_connector_relationship_mapping(
-                ctx.tenant_scope,
+                pack_tenant,
                 &batch.connector,
                 &relationship.relation_reference,
             )?;
@@ -438,7 +440,7 @@ fn resolve_mappings(
         entry_revision = Some(
             resources
                 .agent_library
-                .resolve_connector_ingestion_revision(ctx.tenant_scope, &batch.connector)?,
+                .resolve_connector_ingestion_revision(pack_tenant, &batch.connector)?,
         );
     }
     Ok(ResolvedIngestionMappings {
