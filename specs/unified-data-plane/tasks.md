@@ -236,9 +236,10 @@ For each row, add a subentry containing its merged commit, exact-head test run, 
 - [ ] **EG-UNIFIED-DATA-PLANE-R022.4.1:** Add the residency column to the matrix and its test.
 - [ ] **EG-UNIFIED-DATA-PLANE-R038.7.7:** Add the candidate set with query provenance.
 - [ ] **EG-UNIFIED-DATA-PLANE-R651.7 (rollup):** Fetched web pages enrich through the one document path.
-- [ ] **EG-UNIFIED-DATA-PLANE-R651.7.1 (Model):** Add the web document provenance and the `WebPage` job kind.
-- [ ] **EG-UNIFIED-DATA-PLANE-R651.7.2 (Behavior):** Run the shared phases and the digest filter.
-- [ ] **EG-UNIFIED-DATA-PLANE-R651.7.3 (Wiring):** Route the served `SourceIngest` web page to the phase registry.
-- [ ] **EG-UNIFIED-DATA-PLANE-R651.7.4 (Refusal):** Add the typed refusals.
-- [ ] **EG-UNIFIED-DATA-PLANE-R651.7.5 (Evidence):** Emit the ingest receipt counts.
-- [ ] **EG-UNIFIED-DATA-PLANE-R651.7.6 (Hot-path proof):** Add the served two-backend test and the benchmark.
+- [x] **EG-UNIFIED-DATA-PLANE-R651.7.1 (Model):** Add the enrichment request, receipt and closed fetch backends.
+- [x] **EG-UNIFIED-DATA-PLANE-R651.7.2 (Behavior):** Chunk, embed, link, replay an equal digest and supersede an old one.
+- [x] **EG-UNIFIED-DATA-PLANE-R651.7.3 (Wiring):** Serve `EnrichDocument` through the ChangeEnvelope authority.
+- [x] **EG-UNIFIED-DATA-PLANE-R651.7.4 (Refusal):** Add the typed refusals.
+- [x] **EG-UNIFIED-DATA-PLANE-R651.7.5 (Evidence):** Emit the enrichment receipt and record.
+- [x] **EG-UNIFIED-DATA-PLANE-R651.7.6 (Hot-path proof):** Add the served two-backend test and the chunking benchmark.
+- [ ] **EG-UNIFIED-DATA-PLANE-R651.7.7 (Extraction):** Extract entities, relations and claims from the enriched chunks.

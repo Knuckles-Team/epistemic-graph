@@ -38,6 +38,7 @@ pub mod record;
 pub mod replay;
 pub mod request;
 pub mod statistical;
+pub mod web_fetch_selection;
 pub mod topology;
 
 /// Format identity (RF-ADR-006) of an assembly decision record.

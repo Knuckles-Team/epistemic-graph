@@ -4502,6 +4502,34 @@ class ElevationStanding(str, Enum):
     APPROVER = "approver"
 
 
+class EnrichDocumentReceipt(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    chunk_count: Annotated[int, Field(ge=0)]
+    chunk_ids: list[str]
+    chunker: str
+    content_digest: str
+    dimensions: Annotated[int, Field(ge=0)]
+    document_id: str
+    embedder: str
+    embedding_model: str | None = None
+    enrichment_id: str
+    fetch_backend: FetchBackend | None = None
+    replayed: bool
+    superseded_chunks: Annotated[int, Field(ge=0)]
+    vector_count: Annotated[int, Field(ge=0)]
+
+
+class EnrichDocumentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    document_id: str
+    fetch_backend: FetchBackend | None = None
+    max_chunk_bytes: Annotated[int, Field(ge=0)] | None = None
+    overlap_bytes: Annotated[int, Field(ge=0)] | None = None
+    text_property: str | None = None
+
+
 class EnrichmentBudgetReservation(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -5103,6 +5131,11 @@ FeatureStep = Annotated[
     FeatureStepEmbedding | FeatureStepNodeVector | FeatureStepNormalize,
     Field(discriminator="step"),
 ]
+
+
+class FetchBackend(str, Enum):
+    WEBARCHIVER = "webarchiver"
+    ARCHIVEBOX = "archivebox"
 
 
 class FidelityCounts(BaseModel):
@@ -11773,6 +11806,20 @@ class MethodRetireSealedRecord(BaseModel):
     params: MethodRetireSealedRecordParams
 
 
+class MethodEnrichDocument(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["EnrichDocument"]
+    params: MethodEnrichDocumentParams
+
+
+class MethodSelectWebPages(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["SelectWebPages"]
+    params: MethodSelectWebPagesParams
+
+
 Method = Annotated[
     MethodAddNode
     | MethodCreateNodeIfAbsent
@@ -12239,7 +12286,9 @@ Method = Annotated[
     | MethodTelemetryDerive
     | MethodFinanceMarket
     | MethodFinanceSignalModels
-    | MethodRetireSealedRecord,
+    | MethodRetireSealedRecord
+    | MethodEnrichDocument
+    | MethodSelectWebPages,
     Field(discriminator="method"),
 ]
 
@@ -13108,6 +13157,12 @@ class MethodEdgeSearchParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     request: EdgeSearchRequest
+
+
+class MethodEnrichDocumentParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    request: EnrichDocumentRequest
 
 
 class MethodEpistemicStatusParams(BaseModel):
@@ -15054,6 +15109,12 @@ class MethodSceneChildrenParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     node_id: str
+
+
+class MethodSelectWebPagesParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    request: SelectWebPagesRequest
 
 
 class MethodSemanticIndexParams(BaseModel):
@@ -19256,6 +19317,43 @@ class SeedAttributionRow(BaseModel):
     shapley: float
 
 
+class SelectWebPagesAnswer(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    considered: Annotated[int, Field(ge=0)]
+    max_fetches: Annotated[int, Field(ge=0)]
+    now_ms: Annotated[int, Field(ge=0)]
+    query_digest: str
+    selected: list[SelectedPage]
+    skipped: list[SkippedPage]
+
+
+class SelectWebPagesRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    candidates: list[WebCandidate]
+    freshness_window_s: Annotated[int, Field(ge=0)] | None = None
+    max_fetches: Annotated[int, Field(ge=0)]
+    now_ms: Annotated[int, Field(ge=0)] | None = None
+    query: str
+
+
+class SelectedPage(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    canonical_url: str
+    engines: list[str]
+    freshness_micros: Annotated[int, Field(ge=0)]
+    order: Annotated[int, Field(ge=0)]
+    rank_micros: Annotated[int, Field(ge=0)]
+    reasons: list[str]
+    refresh: bool
+    relevance_micros: Annotated[int, Field(ge=0)]
+    score_micros: Annotated[int, Field(ge=0)]
+    title: str
+    url: str
+
+
 class SemanticActivationTarget(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -21373,6 +21471,23 @@ class SkillOp(BaseModel):
     window: Annotated[int, Field(ge=0)]
 
 
+class SkipReason(str, Enum):
+    DUPLICATE_URL = "duplicate_url"
+    DUPLICATE_DIGEST = "duplicate_digest"
+    HELD_FRESH = "held_fresh"
+    INVALID_URL = "invalid_url"
+    OVER_BUDGET = "over_budget"
+
+
+class SkippedPage(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    canonical_url: str
+    detail: str
+    reason: SkipReason
+    url: str
+
+
 class SlateAttribution(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -23075,6 +23190,18 @@ class WatchBatch(BaseModel):
     head_seq: Annotated[int, Field(ge=0)] | None = None
     next_seq: Annotated[int, Field(ge=0)]
     watermark: Annotated[int, Field(ge=0)] | None = None
+
+
+class WebCandidate(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    content_digest: str | None = None
+    engine: str | None = None
+    published_at_ms: Annotated[int, Field(ge=0)] | None = None
+    rank: Annotated[int, Field(ge=0)]
+    snippet: str | None = None
+    title: str | None = None
+    url: str
 
 
 class WebauthnCredential(BaseModel):
@@ -25746,6 +25873,8 @@ __all__ = [
     "ElevationStanding",
     "ElevationStatus",
     "Elimination",
+    "EnrichDocumentReceipt",
+    "EnrichDocumentRequest",
     "EnrichmentBudgetReservation",
     "EntailedGuardrail",
     "EntailmentStep",
@@ -25823,6 +25952,7 @@ __all__ = [
     "FeatureStepEmbedding",
     "FeatureStepNodeVector",
     "FeatureStepNormalize",
+    "FetchBackend",
     "FidelityCounts",
     "FieldContract",
     "Fill",
@@ -26637,6 +26767,8 @@ __all__ = [
     "MethodEdgeIndexParams",
     "MethodEdgeSearch",
     "MethodEdgeSearchParams",
+    "MethodEnrichDocument",
+    "MethodEnrichDocumentParams",
     "MethodEpistemicStatus",
     "MethodEpistemicStatusParams",
     "MethodEvictBelow",
@@ -27151,6 +27283,8 @@ __all__ = [
     "MethodRunUdfParams",
     "MethodSceneChildren",
     "MethodSceneChildrenParams",
+    "MethodSelectWebPages",
+    "MethodSelectWebPagesParams",
     "MethodSemanticIndex",
     "MethodSemanticIndexParams",
     "MethodSemanticSearch",
@@ -27890,6 +28024,9 @@ __all__ = [
     "SealedRecordTombstone",
     "Secret",
     "SeedAttributionRow",
+    "SelectWebPagesAnswer",
+    "SelectWebPagesRequest",
+    "SelectedPage",
     "SemanticActivationTarget",
     "SemanticActivePointer",
     "SemanticAnnIndexIdentity",
@@ -28129,6 +28266,8 @@ __all__ = [
     "SkillOp",
     "SkillType",
     "SkillTypeSource",
+    "SkipReason",
+    "SkippedPage",
     "SlateAttribution",
     "SlateAttributionMethod",
     "SlateAttributionRequest",
@@ -28472,6 +28611,7 @@ __all__ = [
     "VolatilityClass",
     "WalkForward",
     "WatchBatch",
+    "WebCandidate",
     "WebauthnCredential",
     "WebauthnCredentialView",
     "WebauthnUse",

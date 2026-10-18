@@ -191,6 +191,9 @@ fn source_control_audit_line(method: &Method) -> Option<String> {
             scope.repository_id,
             scope.file_versions.len()
         )),
+        Method::EnrichDocument { request } => {
+            Some(format!("ENRICH_DOCUMENT|{}", request.document_id))
+        }
         Method::WriteBack { op } => Some(format!(
             "WRITE_BACK|{}|{}",
             op.tenant_id(),

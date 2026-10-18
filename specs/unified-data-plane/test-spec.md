@@ -205,11 +205,12 @@ Hot-path proof for `EG-UNIFIED-DATA-PLANE-R038.7`: `tests/federation/test_web_me
 |---|---|---|
 | Matrix | `EG-UNIFIED-DATA-PLANE-R022.4.1` | `crates/eg-types/src/dialect_conformance.rs::tests::matrix_states_residency`: The test fails when a category row has no residency value. |
 | Candidates | `EG-UNIFIED-DATA-PLANE-R038.7.7` | `crates/eg-plan/src/federation_opt/tests.rs::web_candidates_carry_query_provenance`: Candidates carry query provenance, and the store holds no result rows. |
-| Model | `EG-UNIFIED-DATA-PLANE-R651.7.1` | `web_document.rs::tests::web_provenance_round_trips`: A serde round trip keeps every field and rejects a missing URL, digest or backend. |
-| Behavior | `EG-UNIFIED-DATA-PLANE-R651.7.2` | `web_document.rs::tests::links_chunks_vectors_and_facts`: One Document links its chunks, vectors and facts; an equal digest is a no-op. |
-| Wiring | `EG-UNIFIED-DATA-PLANE-R651.7.3` | `tests/ingest/test_web_document_served.py::test_source_ingest_reaches_enrichment`: The served call reaches the chunk, encode and extract phases. |
-| Refusal | `EG-UNIFIED-DATA-PLANE-R651.7.4` | `tests/ingest/test_web_document_served.py::test_web_document_refusals`: Each case returns its code and writes nothing. |
-| Evidence | `EG-UNIFIED-DATA-PLANE-R651.7.5` | `tests/ingest/test_web_document_served.py::test_receipt_counts_match_store`: The receipt counts match a separate read. |
-| Hot-path proof | `EG-UNIFIED-DATA-PLANE-R651.7.6` | `tests/ingest/test_web_document_served.py::test_web_page_enriches_once_for_both_backends`: Both backends store equal sets, and the benchmark meets the budgets. |
+| Model | `EG-UNIFIED-DATA-PLANE-R651.7.1` | `web_document.rs::tests::web_provenance_round_trips`: A serde round trip keeps every field and rejects a missing Document ID or an unknown backend. |
+| Behavior | `EG-UNIFIED-DATA-PLANE-R651.7.2` | `src/server/handlers/web_ingest_tests.rs::links_chunks_vectors_and_facts`: One Document links its chunks and vectors; an equal digest is a no-op, and a new digest supersedes. |
+| Wiring | `EG-UNIFIED-DATA-PLANE-R651.7.3` | `tests/web_document_enrich_served.rs::test_web_page_enriches_once_for_both_backends`: The served call commits chunks, edges and vectors, and `SemanticSearch` returns a chunk. |
+| Refusal | `EG-UNIFIED-DATA-PLANE-R651.7.4` | `tests/web_document_enrich_served.rs::test_web_document_refusals`: Each case returns its code and writes nothing. |
+| Evidence | `EG-UNIFIED-DATA-PLANE-R651.7.5` | `tests/web_document_enrich_served.rs::test_web_page_enriches_once_for_both_backends`: The receipt counts match a separate read of the chunks. |
+| Hot-path proof | `EG-UNIFIED-DATA-PLANE-R651.7.6` | `tests/web_document_enrich_served.rs::test_web_page_enriches_once_for_both_backends`: Both backends store equal chunk sets, and `document_chunk_tree` meets the budgets. |
+| Extraction | `EG-UNIFIED-DATA-PLANE-R651.7.7` | `tests/web_document_enrich_served.rs::test_enriched_chunks_extract_facts`: Each extracted fact links to a chunk of the Document. |
 
-Hot-path proof for `EG-UNIFIED-DATA-PLANE-R651.7`: `tests/ingest/test_web_document_served.py::test_web_page_enriches_once_for_both_backends`.
+Hot-path proof for `EG-UNIFIED-DATA-PLANE-R651.7`: `tests/web_document_enrich_served.rs::test_web_page_enriches_once_for_both_backends`.

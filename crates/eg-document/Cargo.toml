@@ -34,3 +34,7 @@ contract = ["dep:eg-modality"]
 serving = ["contract"]
 [dev-dependencies]
 serde_json = "1.0"
+
+[[bench]]
+name = "document_chunk_tree"
+harness = false

@@ -181,8 +181,8 @@ Search results stay virtual. A web metasearch pattern returns a `WebCandidateSet
 
 A fetched page is the only web content that the engine stores. It enters as one Document through `SourceIngest` (`EG-UNIFIED-DATA-PLANE-R651.7`). The source connector is `webarchiver`; `archivebox` is the secondary backend. Both produce the same Document shape.
 
-Call path: arbora `research.web` (`ARBORA-OPS-R067`) -> engine work item of kind `WebPage` -> SDK ingest worker -> connector fetch -> served `SourceIngest` -> `finish` (`src/server/handlers/source_ingestion.rs:1683`) -> phase registry of `EG-UNIFIED-DATA-PLANE-R650.1`.
+Call path: arbora `research.web` (`ARBORA-OPS-R067`) -> SDK fetch through `webarchiver` or `archivebox` -> served `SourceIngest` (one Document) -> served `EnrichDocument` -> `src/server/dispatch/graph_pipeline/web_ingest.rs` -> one ChangeEnvelope through `ApplyChangeEnvelope`.
 
-Reuse: chunking is `EG-REPO-INGEST-R652`. Chunk encoding is `EG-FEDERATED-QUERY-R039.2`. Extraction is `EG-INGEST-WORKER-R701`. Hash filtering is `EG-INGEST-WORKER-R606`. Citations are `EG-FEDERATED-QUERY-R653.7`. Refresh is `EG-DECISION-ENGINE-R174.9.7`.
+`EnrichDocument` chunks with `eg_document::processing` (`EG-REPO-INGEST-R652`). It embeds through the configured OpenAI-compatible endpoint (`EPISTEMIC_GRAPH_EMBEDDING_URL`, `_MODEL`, `_DIMS`, optional `_API_KEY`), or through the hash embedder, which it records as `embedder = hash`. The vectors use the `AddEmbedding` path, so `SemanticSearch` and hybrid retrieval find them. Extraction is `EG-INGEST-WORKER-R701` (`R651.7.7`). Citations are `EG-FEDERATED-QUERY-R653.7`. Refresh is `EG-DECISION-ENGINE-R174.9.7`.
 
 Budget: 50 ms p99 enrichment overhead per 100 KiB page and 64 MiB peak memory. These are starting defaults. A measurement on this platform replaces them.
