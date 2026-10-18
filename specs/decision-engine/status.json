@@ -8797,8 +8797,8 @@
       "title": "Web fetch selection over search candidates (rollup)",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "3d831bb5ca05",
-        "ec5683fd15e9"
+        "1517690bd1d2",
+        "b3d7b62e5f61"
       ],
       "verified_by": [
         "tests/web_document_enrich_served.rs:222"
@@ -8817,7 +8817,7 @@
       "title": "Model",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "3d831bb5ca05"
+        "b3d7b62e5f61"
       ],
       "verified_by": [
         "crates/eg-types/src/decision/web_fetch_selection.rs:169"
@@ -8828,7 +8828,7 @@
       "title": "Behavior",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "3d831bb5ca05"
+        "b3d7b62e5f61"
       ],
       "verified_by": [
         "crates/eg-numeric/src/decision/web_fetch_selection.rs:333"
@@ -8839,9 +8839,9 @@
       "title": "Wiring",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "3d831bb5ca05",
-        "ec5683fd15e9",
-        "f388cd1f2bb3"
+        "1517690bd1d2",
+        "780ae2e14170",
+        "b3d7b62e5f61"
       ],
       "verified_by": [
         "tests/web_document_enrich_served.rs:223"
@@ -8852,9 +8852,9 @@
       "title": "Refusal",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "16ac429be41e",
-        "3d831bb5ca05",
-        "9d89a0eae23a"
+        "b3d7b62e5f61",
+        "cbda3e13e4c8",
+        "d715658809da"
       ],
       "verified_by": [
         "crates/eg-numeric/src/decision/web_fetch_selection.rs:437"
@@ -8865,7 +8865,7 @@
       "title": "Evidence",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "3d831bb5ca05"
+        "b3d7b62e5f61"
       ],
       "verified_by": [
         "crates/eg-numeric/src/decision/web_fetch_selection.rs:452"
@@ -8876,8 +8876,8 @@
       "title": "Hot-path proof",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "3d831bb5ca05",
-        "ec5683fd15e9"
+        "1517690bd1d2",
+        "b3d7b62e5f61"
       ],
       "verified_by": [
         "tests/web_document_enrich_served.rs:224"
