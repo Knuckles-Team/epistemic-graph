@@ -217,7 +217,7 @@ test = [
 
 [package.metadata]
 requires-dist = [
-    { name = "epistemic-graph-server", marker = "extra == 'server'", specifier = "==2.27.3" },
+    { name = "epistemic-graph-server", marker = "extra == 'server'", directory = "packaging/epistemic-graph-server" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "httpx", marker = "extra == 'lmcache'", specifier = ">=0.28.1" },
     { name = "maturin", marker = "extra == 'test'", specifier = ">=1.15.0,<2.0" },
@@ -236,14 +236,8 @@ provides-extras = ["all", "ast", "datascience", "finance", "full", "lake-parity"
 
 [[package]]
 name = "epistemic-graph-server"
-version = "2.27.3"
-source = { registry = "https://pypi.org/simple" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/64/45/34130479fe2f42d238825ba1077520e8e6a8141766e6d713a7b7650b503f/epistemic_graph_server-2.27.3-py3-none-macosx_11_0_arm64.whl", hash = "sha256:f15115f391ebfcf32f93a59d70b7154ed0a02b971fbfa689a80972e5235b17aa", size = 70844947, upload-time = "2026-10-17T18:21:28.95Z" },
-    { url = "https://files.pythonhosted.org/packages/c9/c3/1f84aacb15165f60f726f6b02c40efe3384332e3fd838a805ac9f39f9ae1/epistemic_graph_server-2.27.3-py3-none-manylinux_2_28_aarch64.whl", hash = "sha256:c3c275978f55475b8c501a0b583c02b946b89758cf7adca717b6a4d67134c304", size = 65216650, upload-time = "2026-10-17T18:39:33.349Z" },
-    { url = "https://files.pythonhosted.org/packages/85/39/03ca869d5ff6134a0acc96cfc1a63f5f38357df4d705d1ddbc491b515443/epistemic_graph_server-2.27.3-py3-none-manylinux_2_28_x86_64.whl", hash = "sha256:752c0342fc7e2955f8f29c9c7e4f1ccb0660812fffbbe33dfe5555d8ffe3646d", size = 62142757, upload-time = "2026-10-17T18:05:51.12Z" },
-    { url = "https://files.pythonhosted.org/packages/73/d8/ea7b18e681d9fe23383c6cec3088d7e4e14e0ca688b7b0619717359260e6/epistemic_graph_server-2.27.3-py3-none-win_amd64.whl", hash = "sha256:43658631a140418823714bb6bf55e9f2e4173f05d48cbbae1c529911ddc5c9d3", size = 65584203, upload-time = "2026-10-17T19:10:32.644Z" },
-]
+version = "2.27.4"
+source = { directory = "packaging/epistemic-graph-server" }
 
 [[package]]
 name = "exceptiongroup"
