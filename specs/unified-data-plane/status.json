@@ -2726,8 +2726,10 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R651.7.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "b3d7b62e5f61"
+      ],
       "verified_by": [
         "crates/eg-types/src/source_ingestion/web_document.rs:94"
       ]
@@ -2735,8 +2737,10 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R651.7.2",
       "title": "Behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "b3d7b62e5f61"
+      ],
       "verified_by": [
         "crates/eg-document/src/processing.rs:269",
         "crates/eg-document/src/processing.rs:282",
@@ -2748,8 +2752,13 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R651.7.3",
       "title": "Wiring",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "780ae2e14170",
+        "9c20a3137fe3",
+        "b3d7b62e5f61",
+        "cbe98c46062a"
+      ],
       "verified_by": [
         "tests/web_document_enrich_served.rs:219"
       ]
@@ -2757,8 +2766,12 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R651.7.4",
       "title": "Refusal",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "b3d7b62e5f61",
+        "cbda3e13e4c8",
+        "d715658809da"
+      ],
       "verified_by": [
         "crates/eg-document/src/processing.rs:314",
         "src/server/handlers/web_ingest_tests.rs:113",
@@ -2768,8 +2781,10 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R651.7.5",
       "title": "Evidence",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "b3d7b62e5f61"
+      ],
       "verified_by": [
         "tests/web_document_enrich_served.rs:220"
       ]
@@ -2777,8 +2792,10 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R651.7.6",
       "title": "Hot-path proof",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "b3d7b62e5f61"
+      ],
       "verified_by": [
         "tests/web_document_enrich_served.rs:221"
       ]
