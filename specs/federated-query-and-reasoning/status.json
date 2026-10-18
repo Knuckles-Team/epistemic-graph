@@ -335,6 +335,7 @@
     "EG-FEDERATED-QUERY-R653.4",
     "EG-FEDERATED-QUERY-R653.5",
     "EG-FEDERATED-QUERY-R653.6",
+    "EG-FEDERATED-QUERY-R653.7",
     "EG-FEDERATED-QUERY-R654",
     "EG-FEDERATED-QUERY-R654.1",
     "EG-FEDERATED-QUERY-R654.2",
@@ -3399,7 +3400,8 @@
         "EG-FEDERATED-QUERY-R653.3",
         "EG-FEDERATED-QUERY-R653.4",
         "EG-FEDERATED-QUERY-R653.5",
-        "EG-FEDERATED-QUERY-R653.6"
+        "EG-FEDERATED-QUERY-R653.6",
+        "EG-FEDERATED-QUERY-R653.7"
       ]
     },
     {
@@ -3440,6 +3442,13 @@
     {
       "id": "EG-FEDERATED-QUERY-R653.6",
       "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R653.7",
+      "title": "Web Document citations",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

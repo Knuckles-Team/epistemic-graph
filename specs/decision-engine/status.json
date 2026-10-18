@@ -699,6 +699,7 @@
     "EG-DECISION-ENGINE-R174.9.4",
     "EG-DECISION-ENGINE-R174.9.5",
     "EG-DECISION-ENGINE-R174.9.6",
+    "EG-DECISION-ENGINE-R174.9.7",
     "EG-DECISION-ENGINE-R614",
     "EG-DECISION-ENGINE-R614.1",
     "EG-DECISION-ENGINE-R614.2",
@@ -851,7 +852,14 @@
     "EG-DECISION-ENGINE-R801.3",
     "EG-DECISION-ENGINE-R801.4",
     "EG-DECISION-ENGINE-R801.5",
-    "EG-DECISION-ENGINE-R801.6"
+    "EG-DECISION-ENGINE-R801.6",
+    "EG-DECISION-ENGINE-R802",
+    "EG-DECISION-ENGINE-R802.1",
+    "EG-DECISION-ENGINE-R802.2",
+    "EG-DECISION-ENGINE-R802.3",
+    "EG-DECISION-ENGINE-R802.4",
+    "EG-DECISION-ENGINE-R802.5",
+    "EG-DECISION-ENGINE-R802.6"
   ],
   "requirements": [
     {
@@ -7492,7 +7500,8 @@
         "EG-DECISION-ENGINE-R174.9.3",
         "EG-DECISION-ENGINE-R174.9.4",
         "EG-DECISION-ENGINE-R174.9.5",
-        "EG-DECISION-ENGINE-R174.9.6"
+        "EG-DECISION-ENGINE-R174.9.6",
+        "EG-DECISION-ENGINE-R174.9.7"
       ]
     },
     {
@@ -7533,6 +7542,13 @@
     {
       "id": "EG-DECISION-ENGINE-R174.9.6",
       "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R174.9.7",
+      "title": "Held web Documents refresh by drift",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -8771,6 +8787,63 @@
     },
     {
       "id": "EG-DECISION-ENGINE-R801.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R802",
+      "title": "Web fetch selection over search candidates (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R802.1",
+        "EG-DECISION-ENGINE-R802.2",
+        "EG-DECISION-ENGINE-R802.3",
+        "EG-DECISION-ENGINE-R802.4",
+        "EG-DECISION-ENGINE-R802.5",
+        "EG-DECISION-ENGINE-R802.6"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R802.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R802.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R802.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R802.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R802.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R802.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
