@@ -120,6 +120,30 @@ const EXACT_METHOD_ERRORS: &[(&str, &[&str])] = &[
         "ApplyChangeEnvelopeDraft",
         &["CARRIER_INNER_METHOD_REFUSED"],
     ),
+    // EG-UNIFIED-DATA-PLANE-R651.7.4 / EG-DECISION-ENGINE-R802.4.
+    (
+        "EnrichDocument",
+        &[
+            "CHUNK_CONFIG_INVALID",
+            "DOCUMENT_NOT_FOUND",
+            "DOCUMENT_PROPERTIES_INVALID",
+            "DOCUMENT_TEXT_MISSING",
+            "EMBEDDING_DIMENSION_MISMATCH",
+            "EMBEDDING_UNAVAILABLE",
+            "ENRICHMENT_UNAVAILABLE",
+            "WEB_BACKEND_INVALID",
+        ],
+    ),
+    (
+        "SelectWebPages",
+        &[
+            "SELECTION_UNAVAILABLE",
+            "WEB_SELECTION_BUDGET_INVALID",
+            "WEB_SELECTION_NO_CANDIDATES",
+            "WEB_SELECTION_QUERY_MISSING",
+            "WEB_SELECTION_TOO_MANY_CANDIDATES",
+        ],
+    ),
     ("GetNodes", &["RESULT_TOO_LARGE"]),
     ("GetEdges", &["RESULT_TOO_LARGE"]),
     (
