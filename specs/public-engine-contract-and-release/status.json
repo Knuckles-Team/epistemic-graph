@@ -997,8 +997,10 @@
     {
       "id": "EG-CONTRACT-R053.9",
       "title": "The server wheel builds and publishes from this repository",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "baf9a680a4c4"
+      ],
       "verified_by": [
         "tests/test_server_package.py:190",
         "tests/test_server_package.py:34",
