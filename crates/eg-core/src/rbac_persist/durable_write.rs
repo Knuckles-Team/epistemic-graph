@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 
 use eg_storage::RbacOwner;
 use eg_transaction::{AdmittedOwnerWrite, Begin};
+use redb::ReadableTable;
 use sha2::{Digest, Sha256};
 
 use crate::acl::AgentIdentity;
