@@ -51,7 +51,7 @@ class ConnectorPackIndex(BaseModel):
     archive: PackArchiveRef
     catalog: McpCatalogSnapshotBinding
     connector: str
-    entries: BoundedVec_PackEntry_1024
+    entries: BoundedVec_PackEntry_8192
     pack_digest: Digest256
     producer: PackProducer
     schema_version: Annotated[int, Field(ge=0, le=65535)]
@@ -186,7 +186,7 @@ class ConnectorPackRetireRequest(BaseModel):
 
     connector: str
     context: AgentLibraryMutationContext
-    uris: BoundedVec_string_1024
+    uris: BoundedVec_string_8192
 
 
 class ConnectorPackStatus(BaseModel):
@@ -545,7 +545,7 @@ class PackWriteErrorCode(str, Enum):
     IDEMPOTENCY_CONFLICT = "IDEMPOTENCY_CONFLICT"
 
 
-BoundedVec_PackEntry_1024 = Annotated[list[PackEntry], Field(max_length=1024)]
+BoundedVec_PackEntry_8192 = Annotated[list[PackEntry], Field(max_length=8192)]
 
 
 BoundedVec_PackRef_64 = Annotated[list[PackRef], Field(max_length=64)]
@@ -557,7 +557,7 @@ BoundedVec_PackViolation_256 = Annotated[list[PackViolation], Field(max_length=2
 BoundedVec_PackWarning_256 = Annotated[list[PackWarning], Field(max_length=256)]
 
 
-BoundedVec_string_1024 = Annotated[list[str], Field(max_length=1024)]
+BoundedVec_string_8192 = Annotated[list[str], Field(max_length=8192)]
 
 ConnectorPackBindRequest.model_rebuild()
 
@@ -656,12 +656,12 @@ PackWarning.model_rebuild()
 
 __all__ = [
     "AgentLibraryMutationContext",
-    "BoundedVec_PackEntry_1024",
+    "BoundedVec_PackEntry_8192",
     "BoundedVec_PackRef_64",
     "BoundedVec_PackViolation_256",
     "BoundedVec_PackWarning_256",
-    "BoundedVec_string_1024",
     "BoundedVec_string_64",
+    "BoundedVec_string_8192",
     "ConnectorPackBindRequest",
     "ConnectorPackImportRequest",
     "ConnectorPackIndex",
