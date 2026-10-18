@@ -1000,6 +1000,7 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [
+        "tests/test_server_package.py:190",
         "tests/test_server_package.py:34",
         "tests/test_server_package.py:47",
         "tests/test_server_package.py:88"
