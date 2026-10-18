@@ -86,6 +86,12 @@ pub(super) fn replay(
         return Err(mismatch("the record digest does not match its content"));
     }
     require_supported_question_kind(record.question.kind)?;
+    if record.inputs.harness_evaluation.is_some() {
+        return Err(refusal(
+            StatisticalErrorCode::ParameterInvalid,
+            "harness_config evidence replay is not supported",
+        ));
+    }
     if !loggable(&record.outcome) {
         return Err(refusal(
             StatisticalErrorCode::ParameterInvalid,

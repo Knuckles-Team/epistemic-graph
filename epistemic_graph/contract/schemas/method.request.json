@@ -272,6 +272,13 @@
       ],
       "type": "string"
     },
+    "ActionSpace": {
+      "enum": [
+        "tool_set",
+        "shell_only"
+      ],
+      "type": "string"
+    },
     "AdapterFitRequest": {
       "additionalProperties": false,
       "description": "Fit an adapter from the judged retrieval outcomes of one space.",
@@ -7302,6 +7309,14 @@
           "type": "object"
         }
       ]
+    },
+    "ContextPolicy": {
+      "enum": [
+        "none",
+        "elide",
+        "elide_then_summarize"
+      ],
+      "type": "string"
     },
     "ControlLeaseStatus": {
       "description": "Where a control lease is in its one-way lifecycle.",
@@ -14404,6 +14419,314 @@
         "task_iri"
       ],
       "type": "object"
+    },
+    "HarnessConfigAnswer": {
+      "additionalProperties": false,
+      "description": "Q32 fractions reuse the checked unit rational with denominator 2^32.",
+      "properties": {
+        "action_space": {
+          "$ref": "#/$defs/HarnessPart4"
+        },
+        "context_policy": {
+          "$ref": "#/$defs/HarnessPart"
+        },
+        "hard_threshold": {
+          "$ref": "#/$defs/HarnessPart2"
+        },
+        "plan_scaffold": {
+          "$ref": "#/$defs/HarnessPart3"
+        },
+        "recent_window_fraction": {
+          "$ref": "#/$defs/HarnessPart2"
+        },
+        "soft_threshold": {
+          "$ref": "#/$defs/HarnessPart2"
+        },
+        "tool_subset": {
+          "$ref": "#/$defs/HarnessPart5"
+        }
+      },
+      "required": [
+        "context_policy",
+        "soft_threshold",
+        "hard_threshold",
+        "recent_window_fraction",
+        "plan_scaffold",
+        "action_space",
+        "tool_subset"
+      ],
+      "type": "object"
+    },
+    "HarnessConfigEvaluationEvidence": {
+      "additionalProperties": false,
+      "description": "Exact evaluation data retained inside the statistical input digest.\nA stored answer is not approval or a verified replay result. The evaluator\nmust resolve the profile pin and bind request fields to the outer params.",
+      "properties": {
+        "answer": {
+          "$ref": "#/$defs/HarnessConfigAnswer"
+        },
+        "model_profile": {
+          "$ref": "#/$defs/ComponentDependency"
+        },
+        "request": {
+          "$ref": "#/$defs/HarnessConfigRequestBody"
+        }
+      },
+      "required": [
+        "model_profile",
+        "request",
+        "answer"
+      ],
+      "type": "object"
+    },
+    "HarnessConfigRequestBody": {
+      "additionalProperties": false,
+      "description": "Typed inputs whose field names match `DecideRequest.params` entries.\nReferences use the opaque strings carried by `TypedValue::Iri`; token counts\nuse the same nonnegative `u32` range as `ToolSubsetRequestBody`.\nPriority reuses the canonical capacity priority vocabulary.",
+      "properties": {
+        "expected_trajectory_tokens": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "model_profile_ref": {
+          "type": "string"
+        },
+        "priority": {
+          "$ref": "#/$defs/LeasePriority"
+        },
+        "task_class": {
+          "type": "string"
+        },
+        "usable_context_budget_tokens": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "model_profile_ref",
+        "task_class",
+        "usable_context_budget_tokens",
+        "priority"
+      ],
+      "type": "object"
+    },
+    "HarnessPart": {
+      "description": "Each part carries its own decision or conservative fallback.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "status": {
+              "const": "decided",
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/$defs/ContextPolicy"
+            }
+          },
+          "required": [
+            "status",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "conservative_default": {
+              "$ref": "#/$defs/ContextPolicy"
+            },
+            "missing_fact": {
+              "$ref": "#/$defs/BoundedVec_string_64"
+            },
+            "status": {
+              "const": "abstained",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "missing_fact",
+            "conservative_default"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "HarnessPart2": {
+      "description": "Each part carries its own decision or conservative fallback.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "status": {
+              "const": "decided",
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/$defs/UnitRationalWire"
+            }
+          },
+          "required": [
+            "status",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "conservative_default": {
+              "$ref": "#/$defs/UnitRationalWire"
+            },
+            "missing_fact": {
+              "$ref": "#/$defs/BoundedVec_string_64"
+            },
+            "status": {
+              "const": "abstained",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "missing_fact",
+            "conservative_default"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "HarnessPart3": {
+      "description": "Each part carries its own decision or conservative fallback.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "status": {
+              "const": "decided",
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/$defs/PlanScaffold"
+            }
+          },
+          "required": [
+            "status",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "conservative_default": {
+              "$ref": "#/$defs/PlanScaffold"
+            },
+            "missing_fact": {
+              "$ref": "#/$defs/BoundedVec_string_64"
+            },
+            "status": {
+              "const": "abstained",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "missing_fact",
+            "conservative_default"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "HarnessPart4": {
+      "description": "Each part carries its own decision or conservative fallback.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "status": {
+              "const": "decided",
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/$defs/ActionSpace"
+            }
+          },
+          "required": [
+            "status",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "conservative_default": {
+              "$ref": "#/$defs/ActionSpace"
+            },
+            "missing_fact": {
+              "$ref": "#/$defs/BoundedVec_string_64"
+            },
+            "status": {
+              "const": "abstained",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "missing_fact",
+            "conservative_default"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "HarnessPart5": {
+      "description": "Each part carries its own decision or conservative fallback.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "status": {
+              "const": "decided",
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/$defs/BoundedVec_string_256"
+            }
+          },
+          "required": [
+            "status",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "conservative_default": {
+              "$ref": "#/$defs/BoundedVec_string_256"
+            },
+            "missing_fact": {
+              "$ref": "#/$defs/BoundedVec_string_64"
+            },
+            "status": {
+              "const": "abstained",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "missing_fact",
+            "conservative_default"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "HeadKind": {
       "description": "Which head shape a fit produces.",
@@ -39270,6 +39593,13 @@
       ],
       "type": "object"
     },
+    "PlanScaffold": {
+      "enum": [
+        "on",
+        "off"
+      ],
+      "type": "string"
+    },
     "PointerMovement": {
       "description": "How a pointer moves.",
       "oneOf": [
@@ -48944,6 +49274,17 @@
         },
         "feature_schema": {
           "$ref": "#/$defs/ComponentDependency"
+        },
+        "harness_evaluation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HarnessConfigEvaluationEvidence"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Optional exact harness evidence; omission preserves existing record bytes."
         },
         "head": {
           "anyOf": [

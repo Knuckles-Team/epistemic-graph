@@ -7,4 +7,4 @@
 
 /// `contract/receipt.json`'s `contract_digest`.
 pub const CONTRACT_CATALOG_DIGEST: &str =
-    "71c0039d8fadf8d19b084c639c35c37010f318f7198f034eac5657a447a18f1e";
+    "db94e5f1a1513a82e5634a836a7715a7290a860c658d137f0796fbde686899b3";

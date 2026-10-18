@@ -96,6 +96,7 @@ async fn harness_config_dispatch_refuses_generic_scoring() {
 }
 
 // spec: EG-DECISION-ENGINE-R128.1
+// spec: EG-DECISION-ENGINE-R128.13.1
 #[tokio::test]
 async fn harness_config_replay_refuses_a_relabelled_generic_record() {
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
@@ -127,35 +128,67 @@ async fn harness_config_replay_refuses_a_relabelled_generic_record() {
     );
     let committed: DecisionLogCommitted = decode(committed_response).unwrap();
     assert_eq!(committed.record_id, record.record_id);
-    let mut relabelled = record;
-    relabelled.question.kind = QuestionKind::HarnessConfig;
-    relabelled.inputs_digest = eg_types::decision::digest::digest_text(
-        super::super::stat_decide::STATISTICAL_INPUTS_DOMAIN,
-        &(&relabelled.question, &relabelled.inputs),
-    );
-    relabelled.record_id = format!(
-        "decision:{}",
-        relabelled.inputs_digest.trim_start_matches("sha256:"),
-    );
-    relabelled.record_digest = eg_types::decision::digest::statistical_record_digest(&relabelled);
-    assert_unsupported(
-        dispatch(
-            &h,
-            Method::DecisionLog {
-                op: Box::new(DecisionLogOp::Commit {
-                    record: Box::new(relabelled.clone()),
-                    evaluator: None,
-                }),
-            },
-        )
-        .await,
-    );
-    assert!(h
-        .store
-        .decision_artifact(
-            TENANT,
-            &crate::server::persistence::decision_jobs::record_key(&relabelled.record_id),
-        )
-        .unwrap()
-        .is_none());
+    for evidence in [false, true] {
+        let mut relabelled = record.clone();
+        if evidence {
+            relabelled.inputs.harness_evaluation = Some(unverified_harness_evidence());
+        } else {
+            relabelled.question.kind = QuestionKind::HarnessConfig;
+        }
+        relabelled.inputs_digest = eg_types::decision::digest::digest_text(
+            super::super::stat_decide::STATISTICAL_INPUTS_DOMAIN,
+            &(&relabelled.question, &relabelled.inputs),
+        );
+        relabelled.record_id = format!(
+            "decision:{}",
+            relabelled.inputs_digest.trim_start_matches("sha256:"),
+        );
+        relabelled.record_digest =
+            eg_types::decision::digest::statistical_record_digest(&relabelled);
+        assert_unsupported(
+            dispatch(
+                &h,
+                Method::DecisionLog {
+                    op: Box::new(DecisionLogOp::Commit {
+                        record: Box::new(relabelled.clone()),
+                        evaluator: None,
+                    }),
+                },
+            )
+            .await,
+        );
+        assert!(h
+            .store
+            .decision_artifact(
+                TENANT,
+                &crate::server::persistence::decision_jobs::record_key(&relabelled.record_id),
+            )
+            .unwrap()
+            .is_none());
+    }
+}
+
+fn unverified_harness_evidence(
+) -> eg_types::decision::statistical::harness_config::HarnessConfigEvaluationEvidence {
+    let missing = |value: serde_json::Value| {
+        serde_json::json!({
+            "status": "abstained", "missing_fact": ["unverified"],
+            "conservative_default": value
+        })
+    };
+    serde_json::from_value(serde_json::json!({
+        "model_profile": {"component_id": "profile", "kind": "model_profile",
+            "definition_digest": "sha256:unverified"},
+        "request": {"model_profile_ref": "profile", "task_class": "task",
+            "usable_context_budget_tokens": 10, "priority": "interactive"},
+        "answer": {
+            "context_policy": missing(serde_json::json!("elide_then_summarize")),
+            "soft_threshold": missing(serde_json::json!({"numerator": 1, "denominator": 4294967296u64})),
+            "hard_threshold": missing(serde_json::json!({"numerator": 2, "denominator": 4294967296u64})),
+            "recent_window_fraction": missing(serde_json::json!({"numerator": 1, "denominator": 4294967296u64})),
+            "plan_scaffold": missing(serde_json::json!("on")),
+            "action_space": missing(serde_json::json!("tool_set")),
+            "tool_subset": missing(serde_json::json!([]))
+        }
+    })).unwrap()
 }

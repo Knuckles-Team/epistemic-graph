@@ -710,6 +710,11 @@ class AccessDecision(BaseModel):
     graph: str
 
 
+class ActionSpace(str, Enum):
+    TOOL_SET = "tool_set"
+    SHELL_ONLY = "shell_only"
+
+
 class AdamResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -2886,6 +2891,12 @@ class ContentVersionPositionOpaqueValue(BaseModel):
 
     value: str
     version_type: str
+
+
+class ContextPolicy(str, Enum):
+    NONE = "none"
+    ELIDE = "elide"
+    ELIDE_THEN_SUMMARIZE = "elide_then_summarize"
 
 
 class ContextView(BaseModel):
@@ -6411,6 +6422,141 @@ class GuardrailEntailmentResult(BaseModel):
     rules: list[EntailedGuardrail]
     schema_version: Annotated[int, Field(ge=0, le=65535)]
     task_iri: str
+
+
+class HarnessConfigAnswer(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    action_space: HarnessPart4
+    context_policy: HarnessPart
+    hard_threshold: HarnessPart2
+    plan_scaffold: HarnessPart3
+    recent_window_fraction: HarnessPart2
+    soft_threshold: HarnessPart2
+    tool_subset: HarnessPart5
+
+
+class HarnessConfigEvaluationEvidence(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    answer: HarnessConfigAnswer
+    model_profile: ComponentDependency
+    request: HarnessConfigRequestBody
+
+
+class HarnessConfigRequestBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    expected_trajectory_tokens: Annotated[int, Field(ge=0)] | None = None
+    model_profile_ref: str
+    priority: LeasePriority
+    task_class: str
+    usable_context_budget_tokens: Annotated[int, Field(ge=0)]
+
+
+class HarnessPartDecided(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    status: Literal["decided"]
+    value: ContextPolicy
+
+
+class HarnessPartAbstained(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    conservative_default: ContextPolicy
+    missing_fact: BoundedVec_string_64
+    status: Literal["abstained"]
+
+
+HarnessPart = Annotated[
+    HarnessPartDecided | HarnessPartAbstained,
+    Field(discriminator="status"),
+]
+
+
+class HarnessPart2Decided(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    status: Literal["decided"]
+    value: UnitRationalWire
+
+
+class HarnessPart2Abstained(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    conservative_default: UnitRationalWire
+    missing_fact: BoundedVec_string_64
+    status: Literal["abstained"]
+
+
+HarnessPart2 = Annotated[
+    HarnessPart2Decided | HarnessPart2Abstained,
+    Field(discriminator="status"),
+]
+
+
+class HarnessPart3Decided(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    status: Literal["decided"]
+    value: PlanScaffold
+
+
+class HarnessPart3Abstained(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    conservative_default: PlanScaffold
+    missing_fact: BoundedVec_string_64
+    status: Literal["abstained"]
+
+
+HarnessPart3 = Annotated[
+    HarnessPart3Decided | HarnessPart3Abstained,
+    Field(discriminator="status"),
+]
+
+
+class HarnessPart4Decided(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    status: Literal["decided"]
+    value: ActionSpace
+
+
+class HarnessPart4Abstained(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    conservative_default: ActionSpace
+    missing_fact: BoundedVec_string_64
+    status: Literal["abstained"]
+
+
+HarnessPart4 = Annotated[
+    HarnessPart4Decided | HarnessPart4Abstained,
+    Field(discriminator="status"),
+]
+
+
+class HarnessPart5Decided(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    status: Literal["decided"]
+    value: BoundedVec_string_256
+
+
+class HarnessPart5Abstained(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    conservative_default: BoundedVec_string_256
+    missing_fact: BoundedVec_string_64
+    status: Literal["abstained"]
+
+
+HarnessPart5 = Annotated[
+    HarnessPart5Decided | HarnessPart5Abstained,
+    Field(discriminator="status"),
+]
 
 
 class HawkesFit(BaseModel):
@@ -17116,6 +17262,11 @@ class Plan(BaseModel):
     ops: list[Op]
 
 
+class PlanScaffold(str, Enum):
+    ON = "on"
+    OFF = "off"
+
+
 class PointerEvent(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -21881,6 +22032,7 @@ class StatisticalInputs(BaseModel):
     exploration: ExplorationRecord | None = None
     feature_matrix: FeatureMatrixRef
     feature_schema: ComponentDependency
+    harness_evaluation: HarnessConfigEvaluationEvidence | None = None
     head: ComponentDependency | None = None
     params: BoundedVec_TypedParam_64 = Field(default_factory=list)
     policy: DecisionPolicyRef
@@ -24895,6 +25047,7 @@ __all__ = [
     "AbstentionResolverModel",
     "AccessCheck",
     "AccessDecision",
+    "ActionSpace",
     "AdamResult",
     "AdapterDirection",
     "AdapterEvalReceipt",
@@ -25398,6 +25551,7 @@ __all__ = [
     "ContentVersionPositionOpaqueValue",
     "ContentVersionPositionSequence",
     "ContentVersionPositionTimestampMillis",
+    "ContextPolicy",
     "ContextView",
     "ContextViewEdgesItem",
     "ContinuousQueryResult",
@@ -25970,6 +26124,24 @@ __all__ = [
     "GspanMiningResult",
     "GuardrailEntailmentRequest",
     "GuardrailEntailmentResult",
+    "HarnessConfigAnswer",
+    "HarnessConfigEvaluationEvidence",
+    "HarnessConfigRequestBody",
+    "HarnessPart",
+    "HarnessPart2",
+    "HarnessPart2Abstained",
+    "HarnessPart2Decided",
+    "HarnessPart3",
+    "HarnessPart3Abstained",
+    "HarnessPart3Decided",
+    "HarnessPart4",
+    "HarnessPart4Abstained",
+    "HarnessPart4Decided",
+    "HarnessPart5",
+    "HarnessPart5Abstained",
+    "HarnessPart5Decided",
+    "HarnessPartAbstained",
+    "HarnessPartDecided",
     "HasNodesBatchResult",
     "HawkesFit",
     "HeadCalibration",
@@ -27463,6 +27635,7 @@ __all__ = [
     "PlacementRouteSchemaVersion",
     "PlacementRouteWire",
     "Plan",
+    "PlanScaffold",
     "PointerEvent",
     "PointerMovement",
     "PointerMovementActivate",
