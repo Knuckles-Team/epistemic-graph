@@ -374,7 +374,8 @@
     "EG-DURABLE-KERNEL-R852.3",
     "EG-DURABLE-KERNEL-R852.4",
     "EG-DURABLE-KERNEL-R852.5",
-    "EG-DURABLE-KERNEL-R852.6"
+    "EG-DURABLE-KERNEL-R852.6",
+    "EG-DURABLE-KERNEL-R028.4"
   ],
   "requirements": [
     {
@@ -1099,7 +1100,8 @@
       "rollup_of": [
         "EG-DURABLE-KERNEL-R028.1",
         "EG-DURABLE-KERNEL-R028.2",
-        "EG-DURABLE-KERNEL-R028.3"
+        "EG-DURABLE-KERNEL-R028.3",
+        "EG-DURABLE-KERNEL-R028.4"
       ]
     },
     {
@@ -4051,6 +4053,16 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R028.4",
+      "title": "Bind run ownership during native admission",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "src/redb_store/work_item/row_guard.rs:262",
+        "tests/adopt_workitem_authenticated_replay.rs:388"
+      ]
     }
   ]
 }
