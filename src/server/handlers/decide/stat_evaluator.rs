@@ -58,6 +58,7 @@ fn issue_request(
     }
     grant.insert("committed_by".into(), committer.into());
     IssueControlLeaseRequest {
+        pending_call_registration: None,
         tenant: ctx.tenant_id.to_string(),
         lease_id: lease_key(record_id),
         kind: DECISION_EVALUATION_LEASE_KIND.to_string(),

@@ -1,7 +1,7 @@
 # Durable MCP resource and template ingestion
 
 `ConnectorPack.import` is the durable ingestion boundary for a served MCP
-catalog snapshot. A pack carries the complete catalog identity that GraphOS
+catalog snapshot. A pack carries the complete catalog identity that Arbora
 observed:
 
 - configuration revision;
@@ -71,7 +71,7 @@ receipt, and outbox atomically.
 ## Ownership boundary
 
 EG persists and answers the catalog snapshot. It does not list an MCP server,
-schedule refreshes, call resources, or own a second catalog. GraphOS owns the
+schedule refreshes, call resources, or own a second catalog. Arbora owns the
 served event-loop reconciler. Source records read from a resource still enter
 through `SourceIngest`, whose mapped graph/provenance/cursor effect commits
 through the existing `ChangeEnvelope` authority. A pack import therefore

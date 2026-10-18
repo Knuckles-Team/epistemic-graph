@@ -535,11 +535,13 @@
     {
       "id": "EG-CONTRACT-R028",
       "title": "SQLite-format and speech-recognition differential tests run in CI",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "7798ab372b1e"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_release_python_suite_contract.py:703"
+      ]
     },
     {
       "id": "EG-CONTRACT-R029",
@@ -600,11 +602,13 @@
     {
       "id": "EG-CONTRACT-R032",
       "title": "Write-classifier functions compile cleanly under the slim profile",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "5bf5b719de7e"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_release_feature_matrix.py:324"
+      ]
     },
     {
       "id": "EG-CONTRACT-R033",
@@ -715,11 +719,13 @@
     {
       "id": "EG-CONTRACT-R042",
       "title": "Quantum hardware macro feature-gated to match its consumers",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "5bf5b719de7e"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_quantum_hardware_provider_feature_gates.py:44"
+      ]
     },
     {
       "id": "EG-CONTRACT-R043",
@@ -970,7 +976,7 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [
-        "tests/test_release_full_wheel_contract.py:647"
+        "tests/test_release_full_wheel_contract.py:684"
       ]
     },
     {
@@ -993,7 +999,7 @@
       "verified_by": [
         "tests/test_server_package.py:34",
         "tests/test_server_package.py:47",
-        "tests/test_server_package.py:85"
+        "tests/test_server_package.py:88"
       ]
     },
     {
@@ -1002,7 +1008,7 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [
-        "tests/test_server_package.py:104"
+        "tests/test_server_package.py:107"
       ]
     },
     {
@@ -1011,7 +1017,7 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [
-        "tests/test_server_package.py:114"
+        "tests/test_server_package.py:117"
       ]
     },
     {
@@ -1020,8 +1026,8 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [
-        "tests/test_server_package.py:136",
-        "tests/test_server_package.py:154"
+        "tests/test_server_package.py:139",
+        "tests/test_server_package.py:157"
       ]
     }
   ]

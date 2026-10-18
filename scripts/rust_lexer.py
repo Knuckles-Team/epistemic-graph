@@ -21,22 +21,39 @@ def require(condition: object, message: str) -> None:
         raise SystemExit(f"Rust source scanner failed: {message}")
 
 
-def _delimiter_depths(mask: str) -> list[tuple[int, int, int]]:
-    """Return brace, parenthesis, and bracket depth before every character."""
+_DELIMITER = re.compile(r"[{}()\[\]]")
+_DELIMITER_SLOT = {
+    "{": (0, 1),
+    "}": (0, -1),
+    "(": (1, 1),
+    ")": (1, -1),
+    "[": (2, 1),
+    "]": (2, -1),
+}
 
-    depths = [(0, 0, 0)] * (len(mask) + 1)
+
+def _delimiter_depths(mask: str) -> list[tuple[int, int, int]]:
+    """Return brace, parenthesis, and bracket depth before every character.
+
+    Only delimiter characters change the depth, so a regex jumps between them
+    and each run of other characters is filled in one slice assignment instead
+    of a Python-level step per character.
+    """
+
+    depths: list[tuple[int, int, int]] = [(0, 0, 0)] * (len(mask) + 1)
     current = [0, 0, 0]
-    closing = {"}": 0, ")": 1, "]": 2}
-    opening = {"{": 0, "(": 1, "[": 2}
-    for position, char in enumerate(mask):
-        depths[position] = (current[0], current[1], current[2])
-        if char in opening:
-            current[opening[char]] += 1
-        elif char in closing:
-            current[closing[char]] -= 1
-        require(min(current) >= 0, "unbalanced Rust module delimiters")
-    depths[-1] = (current[0], current[1], current[2])
-    require(depths[-1] == (0, 0, 0), "unbalanced Rust module delimiters")
+    state = (0, 0, 0)
+    previous = 0
+    for match in _DELIMITER.finditer(mask):
+        position = match.start()
+        depths[previous : position + 1] = [state] * (position + 1 - previous)
+        slot, step = _DELIMITER_SLOT[match.group()]
+        current[slot] += step
+        require(current[slot] >= 0, "unbalanced Rust module delimiters")
+        state = (current[0], current[1], current[2])
+        previous = position + 1
+    depths[previous:] = [state] * (len(mask) + 1 - previous)
+    require(state == (0, 0, 0), "unbalanced Rust module delimiters")
     return depths
 
 

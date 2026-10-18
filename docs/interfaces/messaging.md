@@ -56,6 +56,7 @@ GRAPH_SERVICE_AUTH_SECRET=$SECRET \
 
 ```python
 import pika
+
 credentials = pika.PlainCredentials("publisher", AMQP_PASSWORD)
 conn = pika.BlockingConnection(
     pika.ConnectionParameters("127.0.0.1", 5672, credentials=credentials)
@@ -64,7 +65,7 @@ ch = conn.channel()
 ch.exchange_declare(exchange="events", exchange_type="topic")
 ch.queue_declare(queue="tasks")
 ch.queue_bind(queue="tasks", exchange="events", routing_key="task.*")
-ch.confirm_delivery()                                   # publisher confirms (EG-KG.compute.publisher-confirms-consumer-qos)
+ch.confirm_delivery()  # publisher confirms (EG-KG.compute.publisher-confirms-consumer-qos)
 ch.basic_publish(exchange="events", routing_key="task.new", body="hello")
 ```
 

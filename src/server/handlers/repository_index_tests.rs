@@ -151,14 +151,16 @@ fn repository_code_passes_the_repository_content_rule() {
     assert_eq!(envelope.material_class, MaterialClass::RepositorySnapshot);
 }
 
+/// Attested material admits `@` and a relative `home/` segment as ordinary
+/// text (EG-DURABLE-KERNEL-R043.7): the same code is not refused for privacy
+/// under the attested rule either.
 #[test]
-fn the_same_code_is_refused_under_the_strict_attested_rule() {
+fn the_same_code_is_not_a_privacy_refusal_under_the_attested_rule() {
     let mut envelope = repository_envelope(&code_result(&[])).expect("repository content");
     envelope.material_class = MaterialClass::Attested;
-    let error = envelope
-        .validate()
-        .expect_err("strict rule refuses @ and /home/");
-    assert!(error.contains("persistence privacy policy"), "{error}");
+    if let Err(error) = envelope.validate() {
+        assert!(!error.contains("persistence privacy policy"), "{error}");
+    }
 }
 
 /// Host identity quoted inside repository content (a `pyproject.toml` author,

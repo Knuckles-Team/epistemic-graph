@@ -449,11 +449,11 @@
 | `BlobRef` | true | BlobRedb | `blob:write` | true | false | false | Atomic | X6 (fix/eg-blob-cas-hardening-20260917): holder-scoped named reference (digest, owner scope), not a bare counter -- a retry or replay of the same reference is one holder row, never a second count (holders.rs's own module doc and handle_blob_ref_op's doc comment). Idempotent as of the 2.27.x blob CAS hardening; durable via blob.redb. |
 | `BlobUnref` | true | BlobRedb | `blob:write` | true | false | false | Atomic | X6: releasing an already-released holder returns changed: false rather than erroring or underflowing (HolderOutcome's own doc comment). Idempotent as of the 2.27.x blob CAS hardening; durable via blob.redb. |
 | `BlobGc` | true | BlobRedb | `blob:admin` | true | false | false | Atomic | durable via blob.redb |
-| `KvGet` | false | None | `kv:read` | true | false | false | Snapshot |  |
-| `KvPut` | true | KvRedb | `kv:write` | false | false | false | Atomic | durable via its own kv.redb (redb::Durability::Immediate, commit-before-ack); self-routes before graph dispatch |
-| `KvDelete` | true | KvRedb | `kv:write` | true | false | false | Atomic | durable via its own kv.redb (redb::Durability::Immediate); self-routes before dispatch_graph_op |
-| `KvScan` | false | None | `kv:read` | true | false | false | Snapshot |  |
-| `KvCas` | true | KvRedb | `kv:write` | false | false | false | Atomic | durable via its own kv.redb (redb::Durability::Immediate, commit-before-ack); self-routes before graph dispatch |
+| `KvGet` | false | None | `kv:read` | true | false | false | Snapshot | EG-DURABLE-KERNEL-R102. The key is scoped by verified tenant, principal (unless shared), request graph and namespace. It answers the value and its commit version |
+| `KvPut` | true | KvRedb | `kv:write` | false | true | false | Atomic | Native MutationBatch in kv.redb, committed before the acknowledgment. Each write stamps a new namespace commit version. The batch ledger is the durable audit |
+| `KvDelete` | true | KvRedb | `kv:write` | true | true | false | Atomic | Native MutationBatch in kv.redb. Re-deleting an absent key is a safe no-op that answers false |
+| `KvScan` | false | None | `kv:read` | true | false | false | Snapshot | Bounded prefix scan over one snapshot. A page holds at most 1000 rows (default 100) and 4 MiB. An exclusive-start cursor resumes it |
+| `KvCas` | true | KvRedb | `kv:write` | false | true | false | Atomic | Compare-and-swap on the row commit version inside one admitted kv.redb write; 0 means absent. A failed comparison is a terminal, replayable verdict |
 | `SqlSourceBatch` | true | ControlRedb | `query:sql` | true | true | false | Atomic | native SQL-catalog MutationBatch: typed source rows, provider cursor, committed source epoch, terminal result, replay/idempotency and outbox in one WTX; self-routes before graph dispatch; local-only authority, refused in clustered mode |
 | `ImportSqliteFile` | true | ControlRedb | `admin:sqlite-file` | true | true | false | Atomic | native SQL-catalog MutationBatch; logical transfer name is excluded from the durable receipt |
 | `ExportSqliteFile` | false | None | `admin:sqlite-file` | true | true | false | Snapshot | operator-provisioned transfer root; logical filenames only |

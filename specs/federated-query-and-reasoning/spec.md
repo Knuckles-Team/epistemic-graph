@@ -110,7 +110,7 @@ EG-owned residual: Existing indexed lexical search does not guarantee indexless 
 
 Producer/consumer boundary: GraphOS retrieval.space -> GovernedRetriever -> EG retrieval returns a top-K boundary; EG UQL budgets bound rows/visits. No reviewed governed indexless scan/file-read/context-verification producer contract supplies the requested operations.
 
-Preserve existing coverage: `EG-FEDERATED-QUERY-R070`, `GRAPHOS-OPS-R053.2`, `GRAPHOS-OPS-R053.3`, `GRAPHOS-OPS-R053.5`.
+Preserve existing coverage: `EG-FEDERATED-QUERY-R070`, `ARBORA-OPS-R053.2`, `ARBORA-OPS-R053.3`, `ARBORA-OPS-R053.5`.
 
 Owner source hash: `0f1b775fd66c41586bdcdf0047a9ccbc52e38aa1bc21a4e8234e9c641e45c68e`. This definition adds no AU/GraphOS/SDK implementation or acceptance claim.
 
@@ -234,7 +234,7 @@ EG-owned residual: No cited contract requires offline line-numbered TOCs or navi
 
 Producer/consumer boundary: SDK source ingestion -> EG immutable document/section records -> GraphOS retrieval.space directories -> AU exploration. The offline line-numbered TOC producer and bounded line-range read contract are unbound.
 
-Preserve existing coverage: `GRAPHOS-OPS-R053.1`, `GRAPHOS-OPS-R053.2`, `GRAPHOS-OPS-R053.3`, `GRAPHOS-OPS-R053.6`, `EG-FEDERATED-QUERY-R081.9.7.1`, `EG-FEDERATED-QUERY-R081.9.7.5`.
+Preserve existing coverage: `ARBORA-OPS-R053.1`, `ARBORA-OPS-R053.2`, `ARBORA-OPS-R053.3`, `ARBORA-OPS-R053.6`, `EG-FEDERATED-QUERY-R081.9.7.1`, `EG-FEDERATED-QUERY-R081.9.7.5`.
 
 Owner source hash: `6797cff839c16c3b9c3877d6bbf48bf8953eae8696087abc99f2b57147daed93`. This definition adds no AU/GraphOS/SDK implementation or acceptance claim.
 
@@ -244,7 +244,7 @@ Original objective: Retrieval uses document topic metadata as semantic guidance 
 
 EG-owned residual: Per-document topic-responsibility binding remains unclear. The model specifies backend weights, centroids, corpus revision and embedding space. But does not explicitly associate those topic responsibilities with each source document/candidate. Do not infer that association merely from dense-score document operands or stable document-ID tie-breaking.
 
-Producer/consumer boundary: TopicBackend returns responsibilities, centroids, backend revision and corpus generation. `run_unified_with` binds the selected backend and attaches topic scoring before final truncation. Each candidate must bind revision-matched topic responsibilities before scoring. EG owns retrieval scoring; GraphOS projects reads. GRAPHOS-FLEET-R014 catalog ranking is unrelated.
+Producer/consumer boundary: TopicBackend returns responsibilities, centroids, backend revision and corpus generation. `run_unified_with` binds the selected backend and attaches topic scoring before final truncation. Each candidate must bind revision-matched topic responsibilities before scoring. EG owns retrieval scoring; GraphOS projects reads. ARBORA-FLEET-R014 catalog ranking is unrelated.
 
 Preserve existing coverage: `EG-FEDERATED-QUERY-R040.2.1`, `EG-FEDERATED-QUERY-R040.2.2`, `EG-FEDERATED-QUERY-R040.2.3`, `EG-FEDERATED-QUERY-R040.2.6`.
 

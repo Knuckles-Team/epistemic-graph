@@ -14,7 +14,7 @@
 [![PyPI - Version](https://img.shields.io/pypi/v/epistemic-graph)](https://pypi.org/project/epistemic-graph/)
 [![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-526cff)](https://knuckles-team.github.io/epistemic-graph/)
 [![GitHub license](https://img.shields.io/github/license/Knuckles-Team/epistemic-graph)](LICENSE)
-[![Version](https://img.shields.io/badge/version-2.27.1-blue)](https://github.com/Knuckles-Team/epistemic-graph/releases)
+[![Version](https://img.shields.io/badge/version-2.27.3-blue)](https://github.com/Knuckles-Team/epistemic-graph/releases)
 [![Build](https://github.com/Knuckles-Team/epistemic-graph/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Knuckles-Team/epistemic-graph/actions/workflows/ci.yml)
 [![GitHub Repo stars](https://img.shields.io/github/stars/Knuckles-Team/epistemic-graph)](https://github.com/Knuckles-Team/epistemic-graph/stargazers)
 [![GitHub forks](https://img.shields.io/github/forks/Knuckles-Team/epistemic-graph)](https://github.com/Knuckles-Team/epistemic-graph/forks)
@@ -49,11 +49,11 @@ stores and queries connected graph records, relational data, RDF/OWL knowledge,
 vectors, time-series, events, documents, and media through one engine.
 
 Claims can retain their evidence, provenance, confidence, and time of validity,
-so applications can inspect why information is present and how it changes. Use
-Epistemic Graph directly through its clients and query interfaces, or as the
-durable knowledge layer beneath [Graph OS](https://knuckles-team.github.io/graph-os/)
+so applications can inspect why information is present and how it changes.
+Use Epistemic Graph directly through its clients and query interfaces. It also
+serves as the durable knowledge layer beneath [Arbora](https://knuckles-team.github.io/arbora/)
 and [Agent Utilities](https://knuckles-team.github.io/agent-utilities/).
-Epistemic Graph is the database; agent execution and connector runtimes live in
+Epistemic Graph is the database. Agent execution and connector runtimes live in
 their respective ecosystem projects.
 
 ## Key capabilities
@@ -93,24 +93,25 @@ This repository publishes two PyPI packages and one container image, all at the 
 ## Architecture
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/Knuckles-Team/epistemic-graph/main/docs/assets/runtime-architecture.svg" alt="People use browser, terminal, desktop, or messaging clients. Graph OS serves clients. Agent Utilities coordinates agents. Epistemic Graph stores knowledge. Connectors synchronize source systems." width="960">
+  <img src="https://raw.githubusercontent.com/Knuckles-Team/epistemic-graph/main/docs/assets/runtime-architecture.svg" alt="People use browser, terminal, desktop, or messaging clients. Arbora serves clients. Agent Utilities coordinates agents. Epistemic Graph stores knowledge. Connectors synchronize source systems." width="960">
 </p>
 
 <p align="center">
   <img src="docs/assets/engine-architecture.svg" alt="Epistemic Graph architecture: authenticated interfaces feed a unified planner, which composes graph, semantic, analytical, temporal, and multimodal engines over one durable store." width="920">
 </p>
 
-People use the **Agent Web UI**, **Agent Terminal UI** (through the Graph OS
-REST API), **Geniusbot**, or the messaging services hosted by **Graph OS**.
-External applications and agents connect through Graph OS using MCP, REST, or
-A2A. Graph OS governs the runtime boundary, **Agent Utilities** coordinates
-agents and workflows, and Epistemic Graph stores and reasons over their durable
+People use the **Agent Web UI**, **Agent Terminal UI**, **Geniusbot**, or the
+messaging services hosted by **Arbora**. The terminal UI reaches Arbora through
+its REST API.
+External applications and agents connect through Arbora using MCP, REST, or
+A2A. Arbora governs the runtime boundary. **Agent Utilities** coordinates
+agents and workflows. Epistemic Graph stores and reasons over their durable
 knowledge. Source systems enter through **Agent Connector SDK**, which commits
 typed source data to the graph.
 
 | This repository owns | Ecosystem projects own |
 |---|---|
-| Durable graph and multimodal state, query planning, semantic reasoning, transaction behavior, and engine authorization | [Graph OS](https://knuckles-team.github.io/graph-os/) owns MCP/REST/A2A entrypoints, runtime policy, messaging services, and frontend hosting |
+| Durable graph and multimodal state, query planning, reasoning, and engine authorization | [Arbora](https://knuckles-team.github.io/arbora/) owns MCP/REST/A2A entrypoints, runtime policy, and frontend hosting |
 | Generated engine contracts and capability truth | [Agent Utilities](https://knuckles-team.github.io/agent-utilities/) owns agents, workflows, skills, evaluation, and the agent control plane |
 | Source-ingestion admission, schema validation, evidence, and provenance commits | [Agent Connector SDK](https://knuckles-team.github.io/agent-connector-sdk/) owns connector execution and source-system adapters |
 | Database and compute execution | [Agent Web UI](https://knuckles-team.github.io/agent-webui/), [Agent Terminal UI](https://github.com/Knuckles-Team/agent-terminal-ui), and [Geniusbot](https://github.com/Knuckles-Team/geniusbot) provide user-facing clients |

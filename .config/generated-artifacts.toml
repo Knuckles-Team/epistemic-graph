@@ -7,19 +7,18 @@
 # `proven_by` CI job (tests/test_generated_artifacts_ledger.py), so no entry can
 # outlive the proof that its bytes reproduce. Changing an artifact means
 # regenerating it AND updating its pin in the same commit.
-# Readers: scripts/generated_artifacts.py (EG security sanitizer) and
-# scripts/check_sprawl.py (EG bridge to the fleet sprawl gate).
+# Reader: scripts/generated_artifacts.py (EG security sanitizer).
 
 [[artifact]]
 path = "clients/go/eg_method_codec.wasm"
-sha256 = "d3fdf84c29b74c74abaa04c42d40f3f5e8243a34f20280e2751e2b347abfb32b"
+sha256 = "98f2f7cfe99635ab97f57609360789719e1c8d82e5f6140596711a1dbad644d7"
 reproducer = "python3 scripts/build_method_codec_wasm.py --check"
 proven_by = "language-clients"
 reason = "The eg2 method-body codec (crates/eg-method-codec, wasm32-unknown-unknown) the Go client embeds with //go:embed, which cannot reach outside the Go module, so the module must carry the bytes. --check rebuilds it and requires the committed copy byte-identical."
 
 [[artifact]]
 path = "clients/js/eg_method_codec.wasm"
-sha256 = "d3fdf84c29b74c74abaa04c42d40f3f5e8243a34f20280e2751e2b347abfb32b"
+sha256 = "98f2f7cfe99635ab97f57609360789719e1c8d82e5f6140596711a1dbad644d7"
 reproducer = "python3 scripts/build_method_codec_wasm.py --check"
 proven_by = "language-clients"
 reason = "The same eg2 method-body codec, shipped inside the JavaScript client package so it loads without a build step. --check rebuilds it and requires the committed copy byte-identical."

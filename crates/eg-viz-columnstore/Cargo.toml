@@ -37,7 +37,7 @@ bitvec = "1.1"
 # declare, so this resolves to their already-locked `arrow` 58.3.x rather than
 # adding a second arrow version family to the lockfile.
 [dependencies.arrow]
-version = "58.3"
+version = "58.4"
 default-features = false
 features = ["ipc"]
 optional = true

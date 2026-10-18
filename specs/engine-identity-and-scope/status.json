@@ -45,7 +45,14 @@
     "EG-IDENTITY-R610.4",
     "EG-IDENTITY-R610.5",
     "EG-IDENTITY-R610.6",
-    "EG-IDENTITY-R023.600"
+    "EG-IDENTITY-R023.600",
+    "EG-IDENTITY-R700",
+    "EG-IDENTITY-R700.1",
+    "EG-IDENTITY-R700.2",
+    "EG-IDENTITY-R700.3",
+    "EG-IDENTITY-R700.4",
+    "EG-IDENTITY-R700.5",
+    "EG-IDENTITY-R700.6"
   ],
   "requirements": [
     {
@@ -432,6 +439,63 @@
     {
       "id": "EG-IDENTITY-R023.600",
       "title": "Hierarchical tenant chains and audited reads",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-IDENTITY-R700",
+      "title": "Graph ownership is inferred from signals and applied as reversible grants (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-IDENTITY-R700.1",
+        "EG-IDENTITY-R700.2",
+        "EG-IDENTITY-R700.3",
+        "EG-IDENTITY-R700.4",
+        "EG-IDENTITY-R700.5",
+        "EG-IDENTITY-R700.6"
+      ]
+    },
+    {
+      "id": "EG-IDENTITY-R700.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-IDENTITY-R700.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-IDENTITY-R700.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-IDENTITY-R700.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-IDENTITY-R700.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-IDENTITY-R700.6",
+      "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

@@ -90,6 +90,10 @@ pub fn deflated_sharpe_ratio(observed_sr: f64, n_trials: usize, sr_returns: &[f6
     }
     let g3 = skew(sr_returns);
     let g4 = excess_kurtosis(sr_returns);
+    // Keep this 10-digit literal, not `std::f64::consts::EULER_GAMMA`: the sealed
+    // backtest run digest (`a_sealed_backtest_run_digest_is_pinned_across_hosts`)
+    // pins the value this produces.
+    #[allow(clippy::approx_constant)]
     let euler = 0.577_215_664_9;
     let nt = n_trials as f64;
     let e_max_sr = (1.0 - euler) * norm_ppf(1.0 - 1.0 / nt)

@@ -1,10 +1,10 @@
 [build-system]
-requires = ["maturin>=1.0,<2.0"]
+requires = ["maturin>=1.15.0,<2.0"]
 build-backend = "maturin"
 
 [project]
 name = "epistemic-graph-server"
-version = "2.27.1"
+version = "2.27.3"
 description = "The native epistemic-graph-server executable, built from the epistemic-graph source at the same version"
 readme = "README.md"
 requires-python = ">=3.10"

@@ -4317,6 +4317,26 @@
       ],
       "type": "string"
     },
+    "DurabilityDomain": {
+      "description": "Authoritative durability domain for an operation.",
+      "enum": [
+        "graph_rows",
+        "graph_snapshot",
+        "rdf_dataset",
+        "sql_catalog",
+        "blob_store",
+        "kv_store",
+        "time_series",
+        "analytics_job",
+        "semantic_index",
+        "broker",
+        "cross_modal",
+        "multi_graph",
+        "lifecycle",
+        "control_plane"
+      ],
+      "type": "string"
+    },
     "EntryInputs": {
       "description": "Where a logged record's bulky inputs are (EH-060). The record digest is\nnever recomputed: a compacted record's matrix is replaced by a blob pin,\nand verification restores it from CAS before checking the digest.",
       "oneOf": [
@@ -5673,6 +5693,10 @@
         }
       ]
     },
+    "IncarnationId": {
+      "description": "Opaque logical-generation identity. It is never derived from a resource name.",
+      "type": "string"
+    },
     "InputsBlob": {
       "additionalProperties": false,
       "description": "Where a compacted record's feature matrix lives: one engine-owned Blob\nCAS body, pinned by its content digest.",
@@ -6595,6 +6619,90 @@
       "required": [
         "option_id",
         "contributions"
+      ],
+      "type": "object"
+    },
+    "LogicalName": {
+      "description": "Validated graph or native-resource name with no filesystem semantics.",
+      "type": "string"
+    },
+    "MutationScope": {
+      "description": "Typed logical owner of a durable mutation.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "graph": {
+              "$ref": "#/$defs/LogicalName"
+            },
+            "kind": {
+              "const": "graph",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "graph"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "domain": {
+              "$ref": "#/$defs/DurabilityDomain"
+            },
+            "kind": {
+              "const": "native",
+              "type": "string"
+            },
+            "resource": {
+              "$ref": "#/$defs/LogicalName"
+            }
+          },
+          "required": [
+            "kind",
+            "domain",
+            "resource"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "MutationScopeDigest": {
+      "description": "Canonical SHA-256 identity digest persisted with every authority-bearing row.",
+      "items": {
+        "format": "uint8",
+        "maximum": 255,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "maxItems": 32,
+      "minItems": 32,
+      "type": "array"
+    },
+    "MutationScopeIdentity": {
+      "additionalProperties": false,
+      "description": "Tenant + typed logical owner + exact lifecycle generation.",
+      "properties": {
+        "identity_digest": {
+          "$ref": "#/$defs/MutationScopeDigest"
+        },
+        "incarnation_id": {
+          "$ref": "#/$defs/IncarnationId"
+        },
+        "scope": {
+          "$ref": "#/$defs/MutationScope"
+        },
+        "tenant": {
+          "$ref": "#/$defs/ScopeTenantId"
+        }
+      },
+      "required": [
+        "tenant",
+        "scope",
+        "incarnation_id",
+        "identity_digest"
       ],
       "type": "object"
     },
@@ -9290,6 +9398,10 @@
       "description": "An exact 128-bit signed integer (objective values, bounds, multipliers).",
       "type": "string"
     },
+    "ScopeTenantId": {
+      "description": "Validated tenant security boundary. Bytes are retained exactly as supplied.",
+      "type": "string"
+    },
     "ScoredOption": {
       "additionalProperties": false,
       "description": "One scored option of an advisory answer.",
@@ -10421,6 +10533,94 @@
       ],
       "type": "object"
     },
+    "TerminalEventRead": {
+      "description": "Safe readback of one committed terminal event, never worker authority.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "reason": {
+              "$ref": "#/$defs/TerminalEventUnavailable"
+            },
+            "status": {
+              "const": "unavailable",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "reason"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Durable terminal event identity projected without worker authority.",
+          "properties": {
+            "batch_id": {
+              "type": "string"
+            },
+            "commit_sequence": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "kind": {
+              "type": "string"
+            },
+            "ordinal": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "outcome": {
+              "type": "string"
+            },
+            "payload_digest": {
+              "type": "string"
+            },
+            "result_ref": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "run_id": {
+              "type": "string"
+            },
+            "scope": {
+              "$ref": "#/$defs/MutationScopeIdentity"
+            },
+            "status": {
+              "const": "available",
+              "type": "string"
+            },
+            "tenant": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "tenant",
+            "scope",
+            "batch_id",
+            "commit_sequence",
+            "ordinal",
+            "run_id",
+            "kind",
+            "outcome",
+            "payload_digest"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "TerminalEventUnavailable": {
+      "enum": [
+        "legacy_unbound"
+      ],
+      "type": "string"
+    },
     "ThrottleAction": {
       "description": "What one throttle step did.",
       "enum": [
@@ -11021,6 +11221,13 @@
         },
         "outcome_ref": {
           "type": "string"
+        },
+        "terminal_event": {
+          "$ref": "#/$defs/TerminalEventRead",
+          "default": {
+            "reason": "legacy_unbound",
+            "status": "unavailable"
+          }
         },
         "tool_call_refs": {
           "items": {

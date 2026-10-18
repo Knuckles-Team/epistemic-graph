@@ -4334,6 +4334,122 @@
       ],
       "type": "object"
     },
+    "KvCasOutcome": {
+      "additionalProperties": false,
+      "description": "The verdict of a `KvCas`.",
+      "properties": {
+        "swapped": {
+          "description": "Whether the stored version matched `expected_version` and the swap happened.",
+          "type": "boolean"
+        },
+        "version": {
+          "description": "The key's version after the call: the new commit version when swapped (`0`\nwhen the swap deleted the key), else the version the comparison observed.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "swapped",
+        "version"
+      ],
+      "type": "object"
+    },
+    "KvEntry": {
+      "additionalProperties": false,
+      "description": "One stored value and the version of the write that produced it (`KvGet`).",
+      "properties": {
+        "value": {
+          "description": "The caller's value bytes, verbatim, as a MessagePack `bin`.",
+          "items": {
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "version": {
+          "description": "Commit version of the write that stored `value`.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "value",
+        "version"
+      ],
+      "type": "object"
+    },
+    "KvScanPage": {
+      "additionalProperties": false,
+      "description": "One bounded page of a prefix scan, in key order.",
+      "properties": {
+        "entries": {
+          "items": {
+            "$ref": "#/$defs/KvScanRow"
+          },
+          "type": "array"
+        },
+        "next_cursor": {
+          "description": "Pass back as `cursor` to read the next page; `None` when the prefix is exhausted.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "entries"
+      ],
+      "type": "object"
+    },
+    "KvScanRow": {
+      "additionalProperties": false,
+      "description": "One row of a `KvScan` page.",
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "value": {
+          "items": {
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "version": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "key",
+        "value",
+        "version"
+      ],
+      "type": "object"
+    },
+    "KvWriteReceipt": {
+      "additionalProperties": false,
+      "description": "The committed version of an unconditional `KvPut`.",
+      "properties": {
+        "version": {
+          "description": "Commit version now stored at the key.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "version"
+      ],
+      "type": "object"
+    },
     "LagrangeDual": {
       "additionalProperties": false,
       "description": "Row multipliers `numerator / denominator`, entries strictly ordered by row.",
@@ -8464,9 +8580,9 @@
       "bodies": {
         "result": {
           "dynamic": null,
-          "encoding": "Bool",
+          "encoding": "Raw",
           "schema": {
-            "type": "boolean"
+            "$ref": "#/$defs/KvCasOutcome"
           }
         }
       },
@@ -8487,12 +8603,18 @@
     "KvGet": {
       "bodies": {
         "result": {
-          "dynamic": {
-            "reason": "caller-bytes",
-            "summary": "opaque bytes the caller wrote or a caller-supplied program produced"
-          },
-          "encoding": "RawOrNull",
-          "schema": true
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/KvEntry"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
         }
       },
       "selected_by": null
@@ -8501,9 +8623,9 @@
       "bodies": {
         "result": {
           "dynamic": null,
-          "encoding": "String",
+          "encoding": "Raw",
           "schema": {
-            "type": "string"
+            "$ref": "#/$defs/KvWriteReceipt"
           }
         }
       },
@@ -8512,12 +8634,11 @@
     "KvScan": {
       "bodies": {
         "result": {
-          "dynamic": {
-            "reason": "caller-bytes",
-            "summary": "opaque bytes the caller wrote or a caller-supplied program produced"
-          },
+          "dynamic": null,
           "encoding": "Raw",
-          "schema": true
+          "schema": {
+            "$ref": "#/$defs/KvScanPage"
+          }
         }
       },
       "selected_by": null

@@ -2,7 +2,7 @@
 
 `epistemic-graph` is a **durable, Rust-native graph database engine**. It is a hard base
 dependency of `agent-utilities`, so every Agent Utilities install carries the one supported
-`epistemic-graph[full]` artifact. A local GraphOS process can autostart and supervise that
+`epistemic-graph[full]` artifact. A local Arbora process can autostart and supervise that
 artifact over a private UDS socket, or it can connect to a **standalone, centralized database
 container** shared across multiple agents. This guide covers the standalone deployment: container
 recipes, connection configuration, the configuration surface, and the database architecture.
@@ -192,7 +192,7 @@ process-environment inspection and is not recommended.
 ## Connecting an agent
 
 Local native clients use the per-platform **UDS**; remote native clients use
-verified **TLS** (`9100`). Agent Utilities and GraphOS select topology only from
+verified **TLS** (`9100`). Agent Utilities and Arbora select topology only from
 `GRAPH_SERVICE_ENDPOINTS` and resolve authentication and trust through named
 AgentConfig references. The native Epistemic Graph client instead receives
 `socket_path` or `tcp_addr` explicitly; the listener variables in the
@@ -200,7 +200,7 @@ configuration table below are server settings, not Agent Utilities topology
 selectors.
 
 ```bash
-# GraphOS / Agent Utilities topology (remote or local URI list)
+# Arbora / Agent Utilities topology (remote or local URI list)
 : "${GRAPH_SERVICE_ENDPOINTS:?set canonical service endpoints}"
 # Select named authentication and TLS profiles in AgentConfig. Secrets and
 # certificate paths are resolved from references at runtime, not embedded here.
@@ -211,6 +211,7 @@ selectors.
 ```python
 from epistemic_graph import EpistemicGraphClient
 import asyncio
+
 
 async def main():
     context = {
@@ -227,6 +228,7 @@ async def main():
     await client.nodes.add("node:example", {"type": "Entity"})
     print(await client.nodes.has("node:example"))
     await client.close()
+
 
 asyncio.run(main())
 ```
@@ -395,7 +397,7 @@ flowchart TD
 flowchart LR
     subgraph Single["Single-node"]
         A1[agent / MCP container] -->|TCP 9100| S1[("epistemic-graph<br/>redb @ eg-data")]
-        GOS[graph-os front-end] -->|UDS / TCP| S1
+        GOS[arbora front-end] -->|UDS / TCP| S1
     end
 
     subgraph HA["Cluster (Raft HA)"]

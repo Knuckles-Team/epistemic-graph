@@ -489,6 +489,11 @@ $($variants)*
     KvGet {
         namespace: String,
         key: String,
+        /// `true` scopes the key to the verified tenant and request graph, shared by
+        /// every principal there (writes need `kv:shared:write`); `false` (the
+        /// default) keeps it private to the calling principal.
+        #[serde(default)]
+        shared: bool,
     },
 
     /// Store `value` at `(namespace, key)` (overwrite). Durable commit-before-ack.
@@ -500,6 +505,11 @@ $($variants)*
         #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
         #[serde(with = "serde_bytes")]
         value: Vec<u8>,
+        /// `true` scopes the key to the verified tenant and request graph, shared by
+        /// every principal there (writes need `kv:shared:write`); `false` (the
+        /// default) keeps it private to the calling principal.
+        #[serde(default)]
+        shared: bool,
     },
 
     /// Delete `(namespace, key)`; returns whether the key existed.
@@ -507,15 +517,29 @@ $($variants)*
     KvDelete {
         namespace: String,
         key: String,
+        /// `true` scopes the key to the verified tenant and request graph, shared by
+        /// every principal there (writes need `kv:shared:write`); `false` (the
+        /// default) keeps it private to the calling principal.
+        #[serde(default)]
+        shared: bool,
     },
 
-    /// Ordered `(key, value)` pairs in `namespace` whose key starts with `prefix`
-    /// (empty prefix ⇒ the whole namespace). `limit == 0` ⇒ no cap.
+    /// One bounded page of `(key, value, version)` rows in `namespace` whose key
+    /// starts with `prefix` (empty prefix ⇒ the whole namespace), in key order.
+    /// `limit == 0` ⇒ the default page size; any `limit` is capped by the server.
+    /// `cursor` is the previous page's `next_cursor` (exclusive start).
     #[cfg(feature = "kv")]
     KvScan {
         namespace: String,
         prefix: String,
         limit: usize,
+        #[serde(default)]
+        cursor: Option<String>,
+        /// `true` scopes the key to the verified tenant and request graph, shared by
+        /// every principal there (writes need `kv:shared:write`); `false` (the
+        /// default) keeps it private to the calling principal.
+        #[serde(default)]
+        shared: bool,
     },
         ]);
     };

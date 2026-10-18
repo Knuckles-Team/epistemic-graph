@@ -536,32 +536,9 @@ impl KvStore {
         }
     }
 
-    /// Atomically write a KV value and its terminal MutationBatch metadata. Precondition
-    /// (upheld by every caller — `compile_kv_batch`, below): `batch`'s identity is already
-    /// bound, as a side effect of the `mutation_version` call that gave it its OCC
-    /// expectation.
-    pub fn put_batch(
-        &self,
-        namespace: &str,
-        key: &str,
-        value: Vec<u8>,
-        batch: &MutationBatch,
-        committed_at_ms: u64,
-    ) -> Result<(), String> {
-        validate_key(namespace, key)?;
-        validate_value(&value)?;
-        match &self.backend {
-            Backend::Redb(store) => store.admit_batch(batch, committed_at_ms, |owner_write| {
-                write_kv_row(owner_write, namespace, key, Some(&value)).map(|_| ())
-            }),
-            // The ephemeral backend keeps no MutationBatch bookkeeping, so a `*_batch`
-            // write IS the plain write.
-            Backend::Memory(_) => self.put(namespace, key, value),
-        }
-    }
-
     /// Atomically delete a KV value and its terminal MutationBatch metadata.
-    /// Same binding precondition as [`KvStore::put_batch`].
+    /// Precondition (upheld by `compile_kv_batch`): `batch`'s identity is already bound,
+    /// as a side effect of the `mutation_version` call that gave it its OCC expectation.
     pub fn delete_batch(
         &self,
         namespace: &str,
@@ -574,36 +551,9 @@ impl KvStore {
             Backend::Redb(store) => store.admit_batch(batch, committed_at_ms, |owner_write| {
                 write_kv_row(owner_write, namespace, key, None)
             }),
-            // See `put_batch`'s memory arm.
+            // The ephemeral backend keeps no MutationBatch bookkeeping, so a `*_batch`
+            // write IS the plain write.
             Backend::Memory(_) => self.delete(namespace, key),
-        }
-    }
-
-    /// Atomically compare/swap a KV value and persist the exact verdict in the same
-    /// MutationBatch transaction. A failed comparison is still a terminal, replayable
-    /// request and therefore commits its record. Binding precondition: see `put_batch`.
-    pub fn cas_batch(
-        &self,
-        namespace: &str,
-        key: &str,
-        expected: Option<&[u8]>,
-        new: Option<Vec<u8>>,
-        batch: &MutationBatch,
-        committed_at_ms: u64,
-    ) -> Result<bool, String> {
-        validate_key(namespace, key)?;
-        if let Some(value) = expected {
-            validate_value(value)?;
-        }
-        if let Some(value) = new.as_deref() {
-            validate_value(value)?;
-        }
-        match &self.backend {
-            Backend::Redb(store) => store.admit_batch(batch, committed_at_ms, |owner_write| {
-                swap_in_owner_write(owner_write, namespace, key, expected, new.as_deref())
-            }),
-            // See `put_batch`'s memory arm.
-            Backend::Memory(_) => self.cas(namespace, key, expected, new),
         }
     }
 }
@@ -626,29 +576,6 @@ fn decode_batch_result<T: serde::de::DeserializeOwned>(
     .map_err(|_| "committed KV result is invalid or exceeds resource limits".to_string())
 }
 
-fn kv_scan_response(
-    req_id: u64,
-    store: &KvStore,
-    namespace: &str,
-    prefix: &str,
-    limit: usize,
-) -> Response {
-    match store.scan(namespace, prefix, limit) {
-        Ok(pairs) => {
-            // `[(key, value-bytes)]` straight to MessagePack (value rides as a bin).
-            let wire: Vec<(String, serde_bytes::ByteBuf)> = pairs
-                .into_iter()
-                .map(|(key, value)| (key, serde_bytes::ByteBuf::from(value)))
-                .collect();
-            Response::ok(
-                req_id,
-                ResultPayload::of_dynamic::<results::KvScan, _>(&wire),
-            )
-        }
-        Err(error) => Response::err(req_id, format!("KvScan error: {error}")),
-    }
-}
-
 /// Route a `Method::Kv*` op through the KV store on `ServerState`. Mirrors the
 /// blob/tsdb self-routing handlers: `Err(method)` for a non-KV method (the caller then
 /// falls through), `Ok(Response)` otherwise. Classification (`requires_write`) lives in
@@ -657,6 +584,7 @@ pub(crate) async fn try_handle(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     authority: &CarrierAuthority,
+    graph: &str,
     method: Method,
 ) -> Result<Response, Method> {
     // The store is small + the ops are microsecond-cheap (single-key redb get/put,
@@ -666,85 +594,34 @@ pub(crate) async fn try_handle(
     let Ok(store) = admitted else {
         return *admitted.err().unwrap();
     };
-
-    let original_method = method.clone();
-    let resp = match method {
-        Method::KvGet { namespace, key } => {
-            let namespace = authority.namespace("kv-namespace", &namespace);
-            dispatch_handlers::handle_kv_get(req_id, &store, &namespace, &key)
-        }
-        Method::KvPut {
-            namespace,
-            key,
-            value,
-        } => {
-            let namespace = authority.namespace("kv-namespace", &namespace);
-            dispatch_handlers::handle_kv_put(
-                req_id,
-                &store,
-                authority,
-                &namespace,
-                &key,
-                value,
-                &original_method,
-            )
-        }
-        Method::KvDelete { namespace, key } => {
-            let namespace = authority.namespace("kv-namespace", &namespace);
-            dispatch_handlers::handle_kv_delete(
-                req_id,
-                &store,
-                authority,
-                &namespace,
-                &key,
-                &original_method,
-            )
-        }
-        Method::KvScan {
-            namespace,
-            prefix,
-            limit,
-        } => {
-            let namespace = authority.namespace("kv-namespace", &namespace);
-            kv_scan_response(req_id, &store, &namespace, &prefix, limit)
-        }
-        Method::KvCas {
-            namespace,
-            key,
-            expected,
-            new,
-        } => {
-            let namespace = authority.namespace("kv-namespace", &namespace);
-            dispatch_handlers::handle_kv_cas(
-                req_id,
-                &store,
-                authority,
-                &namespace,
-                &key,
-                (expected, new),
-                &original_method,
-            )
-        }
-        other => return Err(other),
+    if !is_kv_method(&method) {
+        return Err(method);
+    }
+    let call = dispatch_handlers::KvCall {
+        req_id,
+        store: &store,
+        authority,
+        graph,
+        shared: false,
     };
-    Ok(resp)
+    Ok(dispatch_handlers::handle(&call, method))
 }
 
 fn compile_kv_batch(
     store: &KvStore,
     req_id: u64,
     authority: &CarrierAuthority,
-    namespace: &str,
+    (scope_owner, namespace): (&str, &str),
     method: &Method,
-) -> Result<(MutationBatch, u64), String> {
+) -> Result<(MutationBatch, u64, u64), String> {
     if namespace.trim().is_empty() {
         return Err("KV namespace must not be empty".to_string());
     }
-    let scope = crate::server::mutation_batch::opaque_coordinator_key(
-        "kv-scope",
-        authority.owner_scope(),
-        namespace,
-    );
+    // `scope_owner` is the verified owner scope for a private namespace and the
+    // verified tenant scope for a shared one, so every writer of one namespace
+    // advances ONE kernel version sequence.
+    let scope =
+        crate::server::mutation_batch::opaque_coordinator_key("kv-scope", scope_owner, namespace);
     // The batch id is part of the canonical outbox key.  It must identify the
     // verified operation across transport retries, while the request id and
     // nonce identify only this attempt.  Derive it from the same authenticated
@@ -786,7 +663,7 @@ fn compile_kv_batch(
         DurabilityDomain::KvStore,
         "kv_operation",
     )?;
-    Ok((batch, now))
+    Ok((batch, now, expected))
 }
 
 /// Whether a method is one of the KV ops (used only for the no-store error path).
@@ -797,7 +674,7 @@ fn compile_kv_batch(
 fn is_kv_method(method: &Method) -> bool {
     matches!(
         eg_capabilities::policy(method).authz_action,
-        "kv:read" | "kv:write"
+        "kv:read" | "kv:write" | "kv:shared:write"
     )
 }
 
@@ -850,3 +727,4 @@ mod dispatch_handlers;
 mod dispatch_tests;
 #[cfg(test)]
 mod tests;
+mod wire;

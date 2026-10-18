@@ -238,6 +238,7 @@ GRAPH_SERVICE_AUTH_SECRET=$SECRET \
 
 ```python
 import pika
+
 credentials = pika.PlainCredentials("publisher", AMQP_PASSWORD)
 conn = pika.BlockingConnection(
     pika.ConnectionParameters("127.0.0.1", 5672, credentials=credentials)

@@ -13,7 +13,7 @@ flowchart TD
     end
 
     subgraph Optional["Optional — enhance, never required"]
-        AU["agent-utilities<br/>orchestrator + KG hub (graph-os)"]
+        AU["agent-utilities<br/>orchestrator + KG hub (arbora)"]
         WEBUI["agent-webui<br/>web visualization of the DB"]
         TUI["agent-terminal-ui<br/>terminal client"]
         GBOT["geniusbot<br/>desktop cockpit"]
@@ -34,7 +34,7 @@ flowchart TD
 | Component | Repo | What it is | Needs | Talks to the engine via | Required? |
 |-----------|------|------------|-------|-------------------------|-----------|
 | **epistemic-graph** | `epistemic-graph` | The durable multi-modal database engine — the whole product. | nothing | *is* the engine | **Always** |
-| **agent-utilities** | `agent-utilities` | The orchestrator + Knowledge-Graph hub (`graph-os`). Uses **every** engine feature — ontology/OWL reasoning, ingestion, agents, the loop engine — and exposes it to the fleet over MCP. | epistemic-graph | MessagePack RPC (`GRAPH_SERVICE_TCP_ADDR`) or UDS + the native `epistemic_graph` client | Optional |
+| **agent-utilities** | `agent-utilities` | The orchestrator + Knowledge-Graph hub (`arbora`). Uses **every** engine feature — ontology/OWL reasoning, ingestion, agents, the loop engine — and exposes it to the fleet over MCP. | epistemic-graph | MessagePack RPC (`GRAPH_SERVICE_TCP_ADDR`) or UDS + the native `epistemic_graph` client | Optional |
 | **agent-webui** | `agent-webui` | A web UI to **visualize and explore the database** (graphs, tables, query results). | agent-utilities (and/or direct engine reads) | through agent-utilities; can also read the DB directly | Optional |
 | **agent-terminal-ui** | `agent-terminal-ui` | A terminal client for the fleet. | agent-utilities | through agent-utilities | Optional |
 | **geniusbot** | `geniusbot` | A desktop "cockpit" (PySide6/Qt) — visual command centre over the fleet. | agent-utilities | through agent-utilities | Optional |
@@ -61,7 +61,7 @@ it with the operator's own clients (psql, DBeaver, a BI tool, an app, an ORM).
 ### 2. Engine + agent-utilities (the full platform)
 
 Add the orchestrator/KG hub. The `agent-utilities` base install always carries the
-mandatory `epistemic-graph[full]` artifact. For a local dev box, GraphOS autostarts and
+mandatory `epistemic-graph[full]` artifact. For a local dev box, Arbora autostarts and
 supervises its server binary over a private UDS socket; alternatively it connects to the
 **standalone engine container** the operator deployed in shape (1) for a shared, durable,
 separately-scaled database. It layers on ontology-driven ingestion, an agent fleet, MCP
@@ -91,7 +91,7 @@ engine itself is deployed:
 
 - **Ontology-driven modeling & OWL/RDF reasoning** over the graph.
 - **Ingestion pipelines** (connectors, feeds, codebase ingestion) that populate the DB.
-- **An agent fleet + MCP tool surface** (`graph-os`, the multiplexer) so LLMs/agents
+- **An agent fleet + MCP tool surface** (`arbora`, the multiplexer) so LLMs/agents
   query and mutate the DB through governed tools.
 - **The loop / evolution engine** that reasons across the whole knowledge graph.
 
@@ -107,7 +107,7 @@ If the operator is deploying the full platform, these agent-utilities docs are t
 reading (paths are in the `agent-utilities` repo under `docs/`):
 
 - **`docs/guides/deployment.md`** — canonical "Deploying agent-utilities" reference;
-  install extras, backend selection, running `graph-os` and the multiplexer. It uses
+  install extras, backend selection, running `arbora` and the multiplexer. It uses
   this engine as the default backend.
 - **`docs/deploy.md`** — the top-level one-link self-deploy entry point (tiny /
   single-node-prod / enterprise profiles; lists the optional UIs).

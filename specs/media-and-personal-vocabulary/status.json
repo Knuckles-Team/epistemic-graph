@@ -119,7 +119,14 @@
     "EG-MEDIA-VOCAB-R002.5",
     "EG-MEDIA-VOCAB-R001.100",
     "EG-MEDIA-VOCAB-R001.101",
-    "EG-MEDIA-VOCAB-R001.102"
+    "EG-MEDIA-VOCAB-R001.102",
+    "EG-MEDIA-VOCAB-R650",
+    "EG-MEDIA-VOCAB-R650.1",
+    "EG-MEDIA-VOCAB-R650.2",
+    "EG-MEDIA-VOCAB-R650.3",
+    "EG-MEDIA-VOCAB-R650.4",
+    "EG-MEDIA-VOCAB-R650.5",
+    "EG-MEDIA-VOCAB-R650.6"
   ],
   "requirements": [
     {
@@ -1053,6 +1060,63 @@
     {
       "id": "EG-MEDIA-VOCAB-R001.102",
       "title": "Bookmark semantic search and authorized relation projection",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-MEDIA-VOCAB-R650",
+      "title": "Multimodal memory over the blob substrate (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-MEDIA-VOCAB-R650.1",
+        "EG-MEDIA-VOCAB-R650.2",
+        "EG-MEDIA-VOCAB-R650.3",
+        "EG-MEDIA-VOCAB-R650.4",
+        "EG-MEDIA-VOCAB-R650.5",
+        "EG-MEDIA-VOCAB-R650.6"
+      ]
+    },
+    {
+      "id": "EG-MEDIA-VOCAB-R650.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-MEDIA-VOCAB-R650.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-MEDIA-VOCAB-R650.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-MEDIA-VOCAB-R650.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-MEDIA-VOCAB-R650.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-MEDIA-VOCAB-R650.6",
+      "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

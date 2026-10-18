@@ -143,12 +143,12 @@ def test_runtime_svg_labels_match_mermaid_source() -> None:
     mermaid = RUNTIME_DIAGRAM.with_suffix(".mmd").read_text(encoding="utf-8")
 
     for label in (
-        "Graph OS web UI",
+        "Arbora web UI",
         "browser experience",
         "Agent Terminal UI",
         "Geniusbot",
         "Messaging",
-        "Graph OS",
+        "Arbora",
         "governed runtime gateway",
         "Agent Utilities",
         "agent control plane",
@@ -159,9 +159,9 @@ def test_runtime_svg_labels_match_mermaid_source() -> None:
         assert label in text
         assert label.split()[0] in mermaid
     for edge in (
-        "WebUI --> GraphOS",
-        "TUI -->|REST| GraphOS",
-        "GraphOS --> AU",
+        "WebUI --> Arbora",
+        "TUI -->|REST| Arbora",
+        "Arbora --> AU",
         "AU --> EG",
         "Sources --> SDK",
         "SDK --> EG",

@@ -267,7 +267,7 @@ This specification batch makes no runtime execution or implementation-complete c
 
 Planned cases only. None have run. EG producer acceptance stops at its authenticated durable memory contract. Cross-owner cases remain blocked where called out.
 
-- **`EG-DURABLE-KERNEL-R028.1` / AU:21:** Write a checkpoint and both referenced memory revisions through R085. Restart and read back the same revision and digests. Refuse wrong tenant/graph, stale head or stale WorkItem fence. Also refuse a crash/race between snapshot write and WorkItem pointer update. Refuse digest mismatch, changed-body replay identity or unavailable storage without advancing the head. AU must resume the same run and fence. GraphOS must continue from the exact existing host-issued stream cursor without duplicate or skipped output. Those cases remain blocked on the atomic snapshot/pointer transaction or crash-recovery contract. Short-/long-term kind and retention decisions, AU resume-binding and host cursor/replay semantics also remain open. Preserve `EG-DURABLE-KERNEL-R028`, `EG-IDENTITY-R006`, `GRAPHOS-A2A-R001`, `GRAPHOS-A2A-R001.1`, `GRAPHOS-OPS-R001`. Source hash `d89bb9c69e2fdef6a5c3fd428ede3f91868539056c2b949700867d8d8087d1e7`.
+- **`EG-DURABLE-KERNEL-R028.1` / AU:21:** Write a checkpoint and both referenced memory revisions through R085. Restart and read back the same revision and digests. Refuse wrong tenant/graph, stale head or stale WorkItem fence. Also refuse a crash/race between snapshot write and WorkItem pointer update. Refuse digest mismatch, changed-body replay identity or unavailable storage without advancing the head. AU must resume the same run and fence. GraphOS must continue from the exact existing host-issued stream cursor without duplicate or skipped output. Those cases remain blocked on the atomic snapshot/pointer transaction or crash-recovery contract. Short-/long-term kind and retention decisions, AU resume-binding and host cursor/replay semantics also remain open. Preserve `EG-DURABLE-KERNEL-R028`, `EG-IDENTITY-R006`, `ARBORA-A2A-R001`, `ARBORA-A2A-R001.1`, `ARBORA-OPS-R001`. Source hash `d89bb9c69e2fdef6a5c3fd428ede3f91868539056c2b949700867d8d8087d1e7`.
 - **`EG-DURABLE-KERNEL-R085.9` / AU:48:** Store all required search-state fields and evict context. Restart or use an independent client. Read back byte-identical exact UTF-8 JSON content at its bound revision. Validate the envelope field types and the equality of state revision and snapshot revision. Refuse missing/malformed fields, oversize content, wrong authority, stale graph, digest mismatch, and unavailable storage without changing the head. Stale expected revision preserves the accepted head and retains the candidate conflict. AU continuation must restore all four fields using the exact returned document ID/revision before compacted context is used. That last case is blocked on AU’s per-entry schema/source identity and continuation receipt decision. Preserve AU R013.13/R020.1 and EG R085.1/.4/.7. Source hash `8c76fa1637e0cc2082a1cce16b9d637f12b310ae96d1fe9a50ec9c64f8e23944`.
 - **`EG-DURABLE-KERNEL-R085.10` / AU:49:** Write/read an authorized note across restart with source revision, digest, and provenance intact. Ensure cross-tenant/revoked reads are redacted. Stale writes must retain conflict without replacing the accepted head. Capacity exhaustion must refuse before effects. AU must separately test the decided capture trigger, relevance/staleness rule, and conflict presentation without using unresolved content. That acceptance is blocked on AU defining those semantics. Preserve AU R022.3 and EG R085.2/.5/.7. Source hash `2362fd76bf40223aeb813866392670b65eae13d02a725b1af9a2e6711542dd12`.
 - **`EG-DURABLE-KERNEL-R084.7` / EG:28:** Existing one-graph two-client acceptance continues to prove one commit and one typed stale-writer conflict. No cross-backend positive case is valid until owners define the writable target set, ordering key and coordinator. They must also define atomic/eventual semantics and the partial failure/retry/receipt contract. Once defined, cover two tenants, multiple targets, concurrent writes, failure/replay, and assert R039 remains sole durability authority. This child remains explicitly held. Do not use R084.6 as cross-backend evidence. Preserve all R084.1-.6 clauses. Source hash `96c3079859b0e63ec3e1174e25e7a4ab107b23ef6863ae9b54ff0e921a88e4b0`.
@@ -321,6 +321,7 @@ Hot-path proof for `EG-DURABLE-KERNEL-R099`: `tests/shard_write_fanout.rs::cross
 
 Hot-path proof for `EG-DURABLE-KERNEL-R100`: `tests/mirror_graph_sinks_served.rs::each_sink_replays_after_outage`.
 
+- EG-DURABLE-KERNEL-R028.2: terminal event readback, restart identity, tenant isolation, missing/corrupt binding refusal and legacy unavailability. Hosted and served acceptance remains pending until the tests run and pass.
 ## EG-DURABLE-KERNEL-R101 acceptance
 
 | Case | Row | Proving test and observation |
@@ -340,3 +341,21 @@ Hot-path proof for `EG-DURABLE-KERNEL-R100`: `tests/mirror_graph_sinks_served.rs
 
 
 Hot-path proof for `EG-DURABLE-KERNEL-R101`: `tests/scheduler/test_downtime_scheduler_served.py::test_idle_window_runs_priority_jobs_and_preempts`.
+
+## EG-DURABLE-KERNEL-R102 acceptance
+
+| Case | Row | Proving test and observation |
+|---|---|---|
+| Served contract | `EG-DURABLE-KERNEL-R102.1` | `src/server/kv/dispatch_tests.rs::kv_dispatch_put_get_scan_delete_cas`: every KV method answers its typed result through the real dispatch. |
+| Scope and authorization | `EG-DURABLE-KERNEL-R102.2` | `src/server/kv/dispatch_tests.rs::kv_keys_are_scoped_by_graph_and_writes_need_kv_write`: another graph sees nothing; a `kv:read` caller is refused a write. |
+| CAS and scan | `EG-DURABLE-KERNEL-R102.3` | `src/server/kv/dispatch_tests.rs::kv_scan_pages_are_bounded_and_resume_from_the_cursor`: 25 keys arrive in bounded pages in order; a foreign cursor refuses. |
+| Durable mutations | `EG-DURABLE-KERNEL-R102.4` | `src/server/kv/dispatch_tests.rs::kv_fresh_nonce_replays_stable_operation_without_duplicate_write`: the retried CAS returns the stored verdict and writes once. |
+| Hot-path proof | `EG-DURABLE-KERNEL-R102.5` | `src/server/kv/dispatch_tests.rs::kv_served_hot_path_meets_latency_budgets`: measured p50/p99 within the budgets. |
+| Shared namespace | `EG-DURABLE-KERNEL-R102.6` | `src/server/kv/dispatch_tests.rs::kv_shared_namespace_spans_principals_and_needs_kv_shared_write`: private keys never cross principals; a shared key does, and a coarse-write principal is refused. |
+- **EG-DURABLE-KERNEL-R028.3:** `src/redb_store/work_item/lease/tests.rs` tests live, expired and missing worker lease expiry against engine time, unchanged refused rows and unfenced compatibility. Runtime execution pending hosted CI.
+
+## Pending envelope storage
+
+`EG-DURABLE-KERNEL-R039.3`: use a native shard to register an immutable envelope and consume it with the exact WorkItem preimage. Check native provenance, stale fence/revision, expiry, changed metadata/envelope, duplicate registration and replay. Refuse a plausible NODES-only lease tuple without native claim authority. Every refusal preserves both rows. This is storage acceptance, not human approval or execution acceptance.
+
+- **EG-DURABLE-KERNEL-R028.4:** Native admission tests cover immutable caller attribution, duplicate run refusal, and generic-write refusal. Native execution remains pending.

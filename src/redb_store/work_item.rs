@@ -30,6 +30,7 @@ type NativeSequenceRows<'a> = ScopedOwnerTableMut<'a, &'static str, u64>;
 pub(crate) struct WorkItemCommitScope<'crypto, 'outbox> {
     pub(crate) crypto: DurableCrypto<'crypto>,
     pub(crate) authoritative_now_ms: u64,
+    pub(crate) admitted_actor: Option<&'outbox str>,
     pub(crate) outbox_id: &'outbox str,
 }
 
@@ -73,6 +74,7 @@ mod market;
 mod policy_record;
 mod read;
 mod row_guard;
+mod run_owner;
 mod sealed_record;
 mod submit;
 #[cfg(test)]

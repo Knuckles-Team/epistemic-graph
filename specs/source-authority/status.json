@@ -69,7 +69,14 @@
     "EG-SRC-AUTH-R011.3",
     "EG-SRC-AUTH-R011.4",
     "EG-SRC-AUTH-R011.5",
-    "EG-SRC-AUTH-R011.6"
+    "EG-SRC-AUTH-R011.6",
+    "EG-SRC-AUTH-R800",
+    "EG-SRC-AUTH-R800.1",
+    "EG-SRC-AUTH-R800.2",
+    "EG-SRC-AUTH-R800.3",
+    "EG-SRC-AUTH-R800.4",
+    "EG-SRC-AUTH-R800.5",
+    "EG-SRC-AUTH-R800.6"
   ],
   "requirements": [
     {
@@ -606,6 +613,63 @@
     },
     {
       "id": "EG-SRC-AUTH-R011.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SRC-AUTH-R800",
+      "title": "Concept id allocation, lineage and relational authority registry (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-SRC-AUTH-R800.1",
+        "EG-SRC-AUTH-R800.2",
+        "EG-SRC-AUTH-R800.3",
+        "EG-SRC-AUTH-R800.4",
+        "EG-SRC-AUTH-R800.5",
+        "EG-SRC-AUTH-R800.6"
+      ]
+    },
+    {
+      "id": "EG-SRC-AUTH-R800.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SRC-AUTH-R800.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SRC-AUTH-R800.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SRC-AUTH-R800.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SRC-AUTH-R800.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SRC-AUTH-R800.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],

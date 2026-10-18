@@ -233,6 +233,10 @@ pub struct SemanticStore {
     /// Content stamp (EH-393): restamped on every vector / space change and on every ANN
     /// generation adoption (the active generation changes what a probe returns).
     pub(super) generation: crate::compute::semantic::GenerationStamp,
+    /// Test-only count of completed `build_index` runs, so concurrency tests can
+    /// assert that exactly one of several racing warms built the index.
+    #[cfg(test)]
+    builds: std::sync::atomic::AtomicUsize,
 }
 
 mod semantic_ann_index;
@@ -357,27 +361,12 @@ fn invalid_index_manifest(error: impl std::fmt::Display) -> std::io::Error {
     std::io::Error::new(std::io::ErrorKind::InvalidData, error.to_string())
 }
 
-/// SIMD-friendly dot product (CONCEPT:EG-KG.compute.lane-chunked-dot-product). Accumulating into a single `f32`
-/// serializes the floating-point dependency chain and defeats vectorization; instead
-/// we accumulate into 8 independent lanes over `chunks_exact(8)` slices. The fixed
-/// length-8 inner loop is bounds-check-free (the compiler proves `len == 8`) and maps
-/// to one packed 256-bit AVX2 multiply-add per chunk (under `-C target-cpu=x86-64-v3`,
-/// see `.cargo/config.toml`), so a 1024-dim dot product is ~128 vector ops instead of
-/// 1024 scalar ones. The tail (< 8 elems) is scalar.
+/// SIMD-friendly dot product (CONCEPT:EG-KG.compute.lane-chunked-dot-product): the
+/// shared 8-lane `eg_ann::kmeans::lane_reduce` kernel, so a 1024-dim dot product is
+/// ~128 packed multiply-adds (under `-C target-cpu=x86-64-v3`, see
+/// `.cargo/config.toml`) instead of 1024 scalar ones.
 fn dot_product(a: &[f32], b: &[f32]) -> f32 {
-    let mut acc = [0.0f32; 8];
-    let mut ca = a.chunks_exact(8);
-    let mut cb = b.chunks_exact(8);
-    for (x, y) in ca.by_ref().zip(cb.by_ref()) {
-        for l in 0..8 {
-            acc[l] += x[l] * y[l];
-        }
-    }
-    let mut s = ((acc[0] + acc[4]) + (acc[1] + acc[5])) + ((acc[2] + acc[6]) + (acc[3] + acc[7]));
-    for (x, y) in ca.remainder().iter().zip(cb.remainder()) {
-        s += x * y;
-    }
-    s
+    eg_ann::kmeans::lane_reduce(a, b, |x, y| x * y)
 }
 
 /// CONCEPT:EG-KG.compute.cached-row-norm — L2 norm via the SIMD dot kernel (cached per row at insert).
@@ -859,15 +848,19 @@ mod tests {
         assert_eq!(store.len(), n);
     }
 
-    /// W0.4 — two REAL concurrent `warm()` calls on the same store (the on-write
+    /// W0.4 — eight REAL concurrent `warm()` calls on the same store (the on-write
     /// trigger racing the periodic re-check sweep in practice) must leave the
-    /// store correctly warmed, with no panics, corruption, or dropped rows —
-    /// exactly one of them performs the build, the other observes `STATE_WARMING`
-    /// via the atomic claim in `ensure_index` and returns immediately.
+    /// store correctly warmed, with no panics, corruption, or dropped rows, and
+    /// exactly one of them performs the build: the rest observe `STATE_WARMING`
+    /// (or the finished index) and return without building. The callers are
+    /// released together from a start gate; the assertions are on the build
+    /// count and the store state, never on how long the build took.
     #[test]
     fn concurrent_warm_calls_are_race_free() {
+        use crate::test_threads::{BoundedThreads, StartGate};
         let dim = 16;
         let n = ANN_BUILD_THRESHOLD + 50;
+        let callers = 8;
         let mut store = SemanticStore::new();
         for i in 0..n {
             let mut v = vec![0.0f32; dim];
@@ -875,13 +868,24 @@ mod tests {
             store.add_embedding(format!("n{i}"), v).unwrap();
         }
         let store = std::sync::Arc::new(store);
+        let gate = std::sync::Arc::new(StartGate::default());
         // A worker panic is re-raised by `finish`: warm() must not panic here.
-        let mut warmers = crate::test_threads::BoundedThreads::new("concurrent warm() callers", 8);
-        for _ in 0..8 {
+        let mut warmers = BoundedThreads::new("concurrent warm() callers", callers);
+        for _ in 0..callers {
             let store = store.clone();
-            warmers.spawn(move || store.warm("concurrent-test"));
+            let gate = gate.clone();
+            warmers.spawn(move || {
+                gate.wait("concurrent warm() start line");
+                store.warm("concurrent-test");
+            });
         }
+        gate.open();
         warmers.finish();
+        assert_eq!(
+            store.builds.load(Ordering::Relaxed),
+            1,
+            "exactly one of the racing warm() calls may build the index"
+        );
         assert!(store.is_ready(), "the index must end up warmed");
         assert_eq!(store.len(), n, "no rows lost across the concurrent warms");
         let q = store.get_embedding("n0").unwrap();
@@ -1076,6 +1080,7 @@ mod tests {
             built_len: RwLock::new(0),
             state: AtomicU8::new(STATE_COLD),
             generation: store.generation.carry(),
+            builds: std::sync::atomic::AtomicUsize::new(0),
         };
         reloaded.adopt_generation(&image).unwrap();
         assert!(

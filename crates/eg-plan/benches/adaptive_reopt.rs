@@ -45,11 +45,12 @@
 //!
 //! Run: `cargo bench -p eg-plan --features query --bench adaptive_reopt`.
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
 use eg_core::compute::semantic::SemanticStore;
 use eg_core::graph::{GraphCore, GraphView};
 use eg_plan::{execute, Op, Plan, PlanCtx, Pred};
 use serde_json::json;
+use std::hint::black_box;
 
 /// Reached candidates under the hub. Large enough that scoring every one of them
 /// (the un-corrected order) is measurably slower than scoring only the selective

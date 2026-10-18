@@ -7,7 +7,7 @@
 #   maturin build --release -m crates/eg-numeric/Cargo.toml --features python
 #
 [build-system]
-requires = ["maturin>=1.0,<2.0"]
+requires = ["maturin>=1.15.0,<2.0"]
 build-backend = "maturin"
 
 [project]

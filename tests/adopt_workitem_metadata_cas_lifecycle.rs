@@ -235,11 +235,18 @@ async fn workitem_metadata_cas_full_lifecycle_survives_restart() {
         Arc::new(RedbBackend::open(dir_s.clone(), 8192).expect("open redb backend"));
     let state = state_with(backend.clone(), dir_s.clone());
 
+    // Anchor synthetic lifecycle offsets to this epoch. Metadata CAS uses the
+    // engine mutation clock; the later reclaim still advances the claim clock.
+    let epoch_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64;
+
     // ── 1. Submit ──────────────────────────────────────────────────────────
-    let add = test_support::dispatch(&state, req(1, add_work_item(1_000))).await;
+    let add = test_support::dispatch(&state, req(1, add_work_item(epoch_ms + 1_000))).await;
     assert_eq!(add.error, None, "AddNode failed: {add:?}");
 
-    let mut foreign_claim = claim_request(WORKER_A, 1_000, 5_000);
+    let mut foreign_claim = claim_request(WORKER_A, epoch_ms + 1_000, 5_000);
     let Method::ClaimWorkItem { request } = &mut foreign_claim else {
         unreachable!("claim_request constructs ClaimWorkItem")
     };
@@ -252,8 +259,11 @@ async fn workitem_metadata_cas_full_lifecycle_survives_restart() {
     );
 
     // ── 2. Claim (worker-a) ───────────────────────────────────────────────
-    let claim_a =
-        test_support::dispatch(&state, req(2, claim_request(WORKER_A, 1_000, 5_000))).await;
+    let claim_a = test_support::dispatch(
+        &state,
+        req(2, claim_request(WORKER_A, epoch_ms + 1_000, 5_000)),
+    )
+    .await;
     let claim_a_result: ClaimWorkItemResult = decode_raw(&claim_a, "ClaimWorkItem(worker-a)");
     assert!(
         claim_a_result.claimed,
@@ -274,7 +284,7 @@ async fn workitem_metadata_cas_full_lifecycle_survives_restart() {
         &state,
         req(
             3,
-            cas_checkpoint_request(lease_a.clone(), None, "checkpoint:1", 1_100),
+            cas_checkpoint_request(lease_a.clone(), None, "checkpoint:1", epoch_ms + 1_100),
         ),
     )
     .await;
@@ -285,13 +295,19 @@ async fn workitem_metadata_cas_full_lifecycle_survives_restart() {
         vec![WORK_ITEM.to_string()]
     );
 
-    let input =
-        test_support::dispatch(&state, req(4, cas_metadata_request(lease_a.clone(), 1_200))).await;
+    let input = test_support::dispatch(
+        &state,
+        req(4, cas_metadata_request(lease_a.clone(), epoch_ms + 1_200)),
+    )
+    .await;
     let input_result: CasWorkItemMetadataResult = decode_raw(&input, "CasWorkItemMetadata(input)");
     assert_eq!(input_result.outcome, CasWorkItemMetadataOutcome::Applied);
 
-    let prio =
-        test_support::dispatch(&state, req(5, cas_priority_request(lease_a.clone(), 1_300))).await;
+    let prio = test_support::dispatch(
+        &state,
+        req(5, cas_priority_request(lease_a.clone(), epoch_ms + 1_300)),
+    )
+    .await;
     let prio_result: CasWorkItemMetadataResult = decode_raw(&prio, "CasWorkItemMetadata(priority)");
     assert_eq!(prio_result.outcome, CasWorkItemMetadataOutcome::Applied);
 
@@ -302,7 +318,7 @@ async fn workitem_metadata_cas_full_lifecycle_survives_restart() {
         &state,
         req(
             6,
-            cas_checkpoint_request(lease_a.clone(), None, "checkpoint:2", 1_400),
+            cas_checkpoint_request(lease_a.clone(), None, "checkpoint:2", epoch_ms + 1_400),
         ),
     )
     .await;
@@ -317,11 +333,14 @@ async fn workitem_metadata_cas_full_lifecycle_survives_restart() {
         Vec::<String>::new()
     );
 
-    // ── 5. Crash + reclaim: worker-a's lease (5s from now_ms=1_000, so expires
-    // at 6_000ms) is left to expire; a claim at now_ms=10_000 by worker-b
+    // ── 5. Crash + reclaim: worker-a's lease (5s from offset 1_000, so expires
+    // at offset 6_000) is left to expire; a claim at now_ms=epoch_ms + 10_000 by worker-b
     // reclaims it in the SAME call that selects it. ────────────────────────
-    let claim_b =
-        test_support::dispatch(&state, req(7, claim_request(WORKER_B, 10_000, 5_000))).await;
+    let claim_b = test_support::dispatch(
+        &state,
+        req(7, claim_request(WORKER_B, epoch_ms + 10_000, 5_000)),
+    )
+    .await;
     let claim_b_result: ClaimWorkItemResult =
         decode_raw(&claim_b, "ClaimWorkItem(worker-b reclaim)");
     assert!(
@@ -380,7 +399,7 @@ async fn workitem_metadata_cas_full_lifecycle_survives_restart() {
                 lease_a.clone(),
                 Some("checkpoint:1"),
                 "checkpoint:stale",
-                10_100,
+                epoch_ms + 10_100,
             ),
         ),
     )
@@ -410,7 +429,7 @@ async fn workitem_metadata_cas_full_lifecycle_survives_restart() {
                 outcome_extension: None,
                 error_ref: None,
                 retryable: false,
-                now_ms: 10_200,
+                now_ms: epoch_ms + 10_200,
             },
         ),
     )

@@ -50,7 +50,7 @@ authority, durability, audit, CDC, and transaction properties.
 ## Where this engine fits
 
 <figure class="site-card">
-  <img src="https://raw.githubusercontent.com/Knuckles-Team/epistemic-graph/main/docs/assets/runtime-architecture.svg" alt="People use browser, terminal, desktop, or messaging clients. Graph OS serves clients. Agent Utilities coordinates agents. Epistemic Graph stores knowledge. Connectors synchronize source systems.">
+  <img src="https://raw.githubusercontent.com/Knuckles-Team/epistemic-graph/main/docs/assets/runtime-architecture.svg" alt="People use browser, terminal, desktop, or messaging clients. Arbora serves clients. Agent Utilities coordinates agents. Epistemic Graph stores knowledge. Connectors synchronize source systems.">
   <figcaption>Epistemic Graph is the durable authority at the base of the shared runtime.</figcaption>
 </figure>
 
@@ -69,7 +69,7 @@ authority, durability, audit, CDC, and transaction properties.
 
 <ol class="site-flow">
   <li class="site-flow__step">
-    <span class="site-flow__title">Enter through GraphOS</span>
+    <span class="site-flow__title">Enter through Arbora</span>
     <span class="site-flow__body">MCP, REST, A2A, identity, policy, and the hosted WebUI share one public door.</span>
   </li>
   <li class="site-flow__step">

@@ -1,6 +1,6 @@
 # The master-of-all engine
 
-Super Intelligence (SI) is the Graph OS project term for model-backed agents.
+Super Intelligence (SI) is the Arbora project term for model-backed agents.
 
 This is the deep architectural reference for `epistemic-graph` — the one durable engine that unifies
 graph, vector, SQL, RDF/SPARQL, OWL-2, time-series, content-addressed BLOB, full-text, and reasoning
@@ -15,7 +15,7 @@ For the entry-level map see [the overview](../overview.md); for build compositio
 
 ```mermaid
 flowchart TB
-    AGENT["SI agent fleet (agent-utilities, graph-os, MCP)"]
+    AGENT["SI agent fleet (agent-utilities, arbora, MCP)"]
     PSQL["psql / BI tools / ORMs"]
     DBCLI["Neo4j / Redis / MySQL / MSSQL / SQLite drivers"]
     MSG["AMQP / MQTT / STOMP pub-sub clients"]

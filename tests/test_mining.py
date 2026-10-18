@@ -8,6 +8,10 @@ client from conftest.py.
 """
 
 import math
+import re
+from pathlib import Path
+
+MINING_DOC = Path(__file__).resolve().parents[1] / "docs" / "mining.md"
 
 # The classic market-basket fixture (bread/butter/milk), 5 baskets.
 BASKETS = [
@@ -68,32 +72,26 @@ def test_min_confidence_filters(clean_graph):
     assert all(r["confidence"] >= 0.7 - 1e-12 for r in strict["rules"])
 
 
-def _seed_evolution_graph(client):
-    """Seed the concept↔capability co-occurrence graph (the evolution use case).
+def _evolution_seed_source():
+    """The seed half of docs/mining.md's concept↔capability worked example.
 
-    Five ``Paper`` nodes each TOUCHES some ``Concept`` nodes and IMPLEMENTS a
-    ``Capability`` node — so each paper's neighborhood is one transaction over
-    {concepts ∪ capability}.
+    The documented example is the one source of the five-``Paper`` corpus: each
+    paper TOUCHES some ``Concept`` nodes and IMPLEMENTS a ``Capability`` node, so
+    each paper's neighborhood is one transaction over {concepts ∪ capability}.
+    Running the doc's own seed keeps the published example and this test from
+    drifting apart.
     """
-    client.graph.clear()
-    concepts = {"cA": "concept:cA", "cB": "concept:cB", "cC": "concept:cC"}
-    caps = {"capX": "capability:capX", "capZ": "capability:capZ"}
-    for cid in concepts.values():
-        client.nodes.add(cid, {"type": "Concept"})
-    for cid in caps.values():
-        client.nodes.add(cid, {"type": "Capability"})
-    papers = {
-        "p1": (["cA", "cB"], "capZ"),
-        "p2": (["cA", "cB"], "capZ"),
-        "p3": (["cA", "cB"], "capZ"),
-        "p4": (["cA", "cC"], "capX"),
-        "p5": (["cB", "cC"], "capX"),
-    }
-    for pid, (cs, cap) in papers.items():
-        client.nodes.add(pid, {"type": "Paper"})
-        for c in cs:
-            client.edges.add(pid, concepts[c], {"relationship": "TOUCHES"})
-        client.edges.add(pid, caps[cap], {"relationship": "IMPLEMENTS"})
+    doc = MINING_DOC.read_text(encoding="utf-8")
+    blocks = re.findall(r"```python\n(.*?)```", doc, re.S)
+    (example,) = [b for b in blocks if '"concept:cA"' in b and "c.graph.clear()" in b]
+    start = example.index("c.graph.clear()")
+    end = example.index("# Mine each Paper's neighborhood")
+    return example[start:end]
+
+
+def _seed_evolution_graph(client):
+    """Seed the concept↔capability co-occurrence graph (the evolution use case)."""
+    exec(_evolution_seed_source(), {"c": client})
 
 
 def test_graph_derived_source_and_writeback(clean_graph):

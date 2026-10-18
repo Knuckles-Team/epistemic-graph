@@ -354,6 +354,7 @@ fn native_catalog_is_complete_unique_and_has_domain_representatives() {
         Method::KvDelete {
             namespace: "namespace".to_string(),
             key: "key".to_string(),
+            shared: false,
         },
         NativeMutationDomain::KeyValue,
     );

@@ -58,8 +58,8 @@ def test_maturin_default_and_python_extra_are_full() -> None:
         re.split(r"[\[<>=!~;]", dependency, maxsplit=1)[0].lower() == "numpy"
         for dependency in dependencies
     )
-    assert "pyoxigraph>=0.3.22" in dependencies
-    assert "httpx>=0.24.0" in dependencies
+    assert "pyoxigraph>=0.5.11" in dependencies
+    assert "httpx>=0.28.1" in dependencies
     optional = project["project"]["optional-dependencies"]
     assert optional["quant"] == []
     assert all(
@@ -149,12 +149,12 @@ def _verified_x86_workflow() -> dict:
     caller = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     expected = (
         "Knuckles-Team/epistemic-graph/.github/workflows/eg-release-x86.yml@"
-        "bc4448160e8d16deb8210ce8aeb058b2da293d93"
+        "35fe8e492acedce6c31c399e98a8c62c26ee2cd3"
     )
     assert caller["jobs"]["build-x86"]["uses"] == expected
     source = (WORKFLOW.parent / "eg-release-x86.yml").read_bytes()
     assert hashlib.sha256(source).hexdigest() == (
-        "5379e1939b5e4972923ef9961b902fc6d5425a517daf8d23ff22725fd0aa4ee3"
+        "28d6e43039e000b1aaf16bc4677c2cd598e10209d0659c7be512573c01ce4e17"
     )
     return yaml.safe_load(source)
 
@@ -204,7 +204,12 @@ def test_release_wheels_are_rebuilt_and_compared_reproducibly() -> None:
 
     assert re.fullmatch(r"[0-9]+[.][0-9]+[.][0-9]+", toolchain)
     build_job_raw = _build_job_source(raw)
-    assert "toolchain: ${{ steps.rust-toolchain.outputs.channel }}" in build_job_raw
+    assert "uses: ./.github/actions/pinned-rust-toolchain" in build_job_raw
+    pinned = (REPO / ".github/actions/pinned-rust-toolchain/action.yml").read_text(
+        encoding="utf-8"
+    )
+    assert "tomllib.load(open('rust-toolchain.toml','rb'))" in pinned
+    assert "toolchain: ${{ steps.pin.outputs.channel }}" in pinned
     assert "toolchain: stable" not in build_job_raw
     # Wheel legs (thin LTO, zig/qemu cross builds) keep a low job count.
     # The byte-identical reproduction pass is a manual (workflow_dispatch) check,
@@ -471,6 +476,28 @@ def test_rejects_incomplete_or_misidentified_sources(tmp_path, kwargs, match):
         )
 
 
+@pytest.mark.parametrize("shipped", [False, True])
+def test_sdist_declared_license_file_must_ship(tmp_path, shipped):
+    # PyPI answers 400 to an sdist whose PKG-INFO `License-File` is absent.
+    path = tmp_path / "epistemic_graph-2.27.1.tar.gz"
+    entries = {
+        "Cargo.toml": '[package]\nversion = "2.27.1"\n',
+        "PKG-INFO": "Name: epistemic-graph\nVersion: 2.27.1\nLicense-File: LICENSE\n",
+    }
+    if shipped:
+        entries["LICENSE"] = "MIT"
+    with tarfile.open(path, "w:gz") as output:
+        for name, text in entries.items():
+            item = tarfile.TarInfo(f"epistemic_graph-2.27.1/{name}")
+            item.size = len(text.encode())
+            output.addfile(item, io.BytesIO(text.encode()))
+    if shipped:
+        validate(path, {"Cargo.toml"}, "2.27.1")
+    else:
+        with pytest.raises(ValueError, match="License-File"):
+            validate(path, {"Cargo.toml"}, "2.27.1")
+
+
 @pytest.mark.parametrize(
     "alias",
     [
@@ -554,14 +581,24 @@ def test_extensions_only_sdist_inputs_are_the_real_build_inputs():
     } <= required
 
 
-def test_server_wheel_job_adds_swap_before_building():
-    steps = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"][
-        "build-server"
-    ]["steps"]
+def test_server_wheel_build_adds_swap_and_thin_links_aarch64():
+    # Swap and the aarch64 link profile live in the shared action, so the release
+    # leg and ci.yml's warm-cache build both get them (the cache job had no swap
+    # and was OOM-killed on main).
+    action = REPO / ".github/actions/build-server-wheel/action.yml"
+    steps = yaml.safe_load(action.read_text(encoding="utf-8"))["runs"]["steps"]
     names = [step.get("name", "") for step in steps]
-    assert names.index("Add swap for the fat-LTO server link") < names.index(
-        "Build the server wheel (release-server profile)"
+    assert names.index("Add swap for the server link") < names.index(
+        "Build the wheel in the manylinux_2_28 container"
     )
+    build = steps[names.index("Build the wheel in the manylinux_2_28 container")]["run"]
+    assert 'image="$ARM_IMAGE"; jobs=1; lto=thin; cgu=16' in build
+    assert '"CARGO_PROFILE_RELEASE_SERVER_LTO=$lto"' in build
+    release = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"][
+        "build-server"
+    ]
+    uses = [step.get("uses", "") for step in release["steps"]]
+    assert "./.github/actions/build-server-wheel" in uses
 
 
 def test_sdist_inventory_includes_explicit_manifest_inputs(tmp_path):

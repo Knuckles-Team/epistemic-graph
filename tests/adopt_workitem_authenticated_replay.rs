@@ -76,6 +76,7 @@ fn request_context(request_id: &str, trace_id: &str) -> RequestContext {
 fn submit_method() -> Method {
     Method::SubmitWorkItem {
         request: SubmitWorkItemRequest {
+            run_id: None,
             schema_version: NativeControlSchemaVersion::V1,
             context: request_context("client-submit-request", "client-submit-trace"),
             work_item_id: Some(WORK_ITEM.to_string()),
@@ -122,17 +123,35 @@ fn now_secs() -> u64 {
 }
 
 fn signed_request(id: u64, method: Method, idempotency_key: &str) -> Request {
+    signed_request_as(id, method, idempotency_key, common::TEST_AGENT)
+}
+
+fn signed_request_as(id: u64, method: Method, idempotency_key: &str, principal: &str) -> Request {
+    signed_request_with_agent(id, method, idempotency_key, principal, principal)
+}
+
+fn signed_request_with_agent(
+    id: u64,
+    method: Method,
+    idempotency_key: &str,
+    principal: &str,
+    agent: &str,
+) -> Request {
     common::configure_authority();
     static NONCE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
     let context = RequestContextClaims {
-        principal: common::TEST_AGENT.to_string(),
+        principal: principal.to_string(),
         tenant: TENANT.to_string(),
         audience: AUDIENCE.to_string(),
-        agent_id: common::TEST_AGENT.to_string(),
+        agent_id: agent.to_string(),
         roles: Vec::new(),
         scopes: vec!["*".to_string()],
         policy_version: POLICY_VERSION.to_string(),
-        delegation: Vec::new(),
+        delegation: if principal == agent {
+            Vec::new()
+        } else {
+            vec![principal.into(), agent.into()]
+        },
         node: None,
         priority: None,
     };
@@ -140,7 +159,7 @@ fn signed_request(id: u64, method: Method, idempotency_key: &str) -> Request {
         id,
         graph: GRAPH.to_string(),
         auth_token: String::new(),
-        agent_id: Some(common::TEST_AGENT.to_string()),
+        agent_id: Some(agent.to_string()),
         method,
     };
     let nonce = format!(
@@ -350,6 +369,151 @@ async fn authenticated_claim_dispatch_replays_once_in_redb() {
     drop(concrete);
     let reopened = reopen(&dir).await;
     assert_durable_row(&reopened, "leased", Some(WORKER)).await;
+    reopened.shutdown();
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+fn run_submit_method() -> Method {
+    let mut method = submit_method();
+    if let Method::SubmitWorkItem { request } = &mut method {
+        request.run_id = Some("run-owner-admission".into());
+        request.work_item_id = None;
+        request
+            .metadata
+            .insert("principal".into(), "forged-body-owner".into());
+    }
+    method
+}
+
+// spec: EG-DURABLE-KERNEL-R028.4
+#[tokio::test]
+async fn run_admission_binds_verified_owner_and_replays_without_row_changes() {
+    use sha2::{Digest, Sha256};
+    let dir = temp_dir("eg-run-owner-admission");
+    let concrete = Arc::new(RedbBackend::open(dir.clone(), 8192).unwrap());
+    let state = state_with(concrete.clone(), dir.clone());
+    let first = test_support::dispatch(
+        &state,
+        signed_request_with_agent(
+            401,
+            run_submit_method(),
+            "run-admit-key",
+            common::TEST_AGENT,
+            "agent:delegated-run-worker",
+        ),
+    )
+    .await;
+    let admitted: SubmitWorkItemResult = decode_raw(&first, "run admission");
+    let before = concrete
+        .read_node(GRAPH, &admitted.work_item_id)
+        .await
+        .unwrap()
+        .unwrap();
+    let props: serde_json::Value = rmp_serde::from_slice(&before).unwrap();
+    let binding = &props["run_owner_binding"];
+    assert_eq!(binding["run_id"], "run-owner-admission");
+    assert_eq!(binding["work_item_id"], admitted.work_item_id);
+    assert_eq!(binding["graph"], GRAPH);
+    assert_eq!(binding["tenant"], TENANT);
+    assert_eq!(
+        binding["principal"],
+        format!(
+            "principal:sha256:{}",
+            hex::encode(Sha256::digest(common::TEST_AGENT.as_bytes()))
+        )
+    );
+    let replay = test_support::dispatch(
+        &state,
+        signed_request(402, run_submit_method(), "run-admit-key"),
+    )
+    .await;
+    let replay: SubmitWorkItemResult = decode_raw(&replay, "run admission replay");
+    assert!(replay.replayed);
+    assert_eq!(replay.work_item_id, admitted.work_item_id);
+    assert_eq!(
+        concrete
+            .read_node(GRAPH, &admitted.work_item_id)
+            .await
+            .unwrap()
+            .unwrap(),
+        before
+    );
+    let foreign = test_support::dispatch(
+        &state,
+        signed_request_as(
+            403,
+            run_submit_method(),
+            "run-admit-key",
+            "agent:foreign-owner",
+        ),
+    )
+    .await;
+    assert_eq!(
+        foreign.error.as_deref(),
+        Some("IDEMPOTENCY_CONFLICT"),
+        "foreign owner receipt refusal: {foreign:?}"
+    );
+    for (index, case) in ["changed", "new-key", "attach", "tenant", "empty-run"]
+        .into_iter()
+        .enumerate()
+    {
+        let mut method = run_submit_method();
+        if let Method::SubmitWorkItem { request } = &mut method {
+            match case {
+                "changed" => request.kind = "changed-effect-same-digest".into(),
+                "new-key" => request.idempotency_key = "different-key".into(),
+                "attach" => request.work_item_id = Some(admitted.work_item_id.clone()),
+                "tenant" => request.context.tenant_id = "foreign-tenant".into(),
+                "empty-run" => request.run_id = Some(String::new()),
+                _ => unreachable!(),
+            }
+        }
+        let refused = test_support::dispatch(
+            &state,
+            signed_request(410 + index as u64, method, "run-admit-key"),
+        )
+        .await;
+        assert!(refused.error.is_some(), "{case} unexpectedly admitted");
+        assert_eq!(
+            concrete
+                .read_node(GRAPH, &admitted.work_item_id)
+                .await
+                .unwrap()
+                .unwrap(),
+            before
+        );
+    }
+    let mut another = run_submit_method();
+    if let Method::SubmitWorkItem { request } = &mut another {
+        request.run_id = Some("another-run-same-key".into());
+    }
+    let another =
+        test_support::dispatch(&state, signed_request(430, another, "run-admit-key")).await;
+    let another: SubmitWorkItemResult = decode_raw(&another, "independent run admission");
+    assert!(another.created);
+    assert_ne!(another.work_item_id, admitted.work_item_id);
+    drop(state);
+    concrete.shutdown();
+    drop(concrete);
+    let reopened = Arc::new(reopen(&dir).await);
+    let restarted = state_with(reopened.clone(), dir.clone());
+    let replay = test_support::dispatch(
+        &restarted,
+        signed_request(440, run_submit_method(), "run-admit-key"),
+    )
+    .await;
+    let replay: SubmitWorkItemResult = decode_raw(&replay, "reopened admission replay");
+    assert!(replay.replayed);
+    assert_eq!(replay.work_item_id, admitted.work_item_id);
+    drop(restarted);
+    assert_eq!(
+        reopened
+            .read_node(GRAPH, &admitted.work_item_id)
+            .await
+            .unwrap()
+            .unwrap(),
+        before
+    );
     reopened.shutdown();
     let _ = std::fs::remove_dir_all(dir);
 }

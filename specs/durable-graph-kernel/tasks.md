@@ -148,7 +148,7 @@ This batch defines the slices; it runs none of their runtime tests.
 <!-- spec-definition-patch:owner-batch-20261012-durable-graph-kernel -->
 ## Durable-kernel owner definition tasks — 2026-10-12
 
-- [ ] **EG-DURABLE-KERNEL-R028.1:** Implement the R085-backed checkpoint snapshot with run/work-item/fence/checkpoint identity and separate short-/long-term memory references. Enforce verified scope, digest and expected-head refusal rules. Preserve `EG-DURABLE-KERNEL-R028`, `EG-IDENTITY-R006`, and existing GRAPHOS-A2A/OPS streaming requirements.
+- [ ] **EG-DURABLE-KERNEL-R028.1:** Implement the R085-backed checkpoint snapshot with run/work-item/fence/checkpoint identity and separate short-/long-term memory references. Enforce verified scope, digest and expected-head refusal rules. Preserve `EG-DURABLE-KERNEL-R028`, `EG-IDENTITY-R006`, and existing ARBORA-A2A/OPS streaming requirements.
 - [ ] **EG-DURABLE-KERNEL-R028.1 acceptance:** Checkpoint acceptance covers restart/readback and refusal of wrong scope or stale fence/revision. Also refuse digest mismatch, changed-body replay and unavailable storage. Test recovery from interruption between snapshot and pointer update. AU resume/GraphOS stream continuation remain blocked until transaction/recovery, resume-binding and retention decisions are defined.
 - [ ] **EG-DURABLE-KERNEL-R028.1 status:** Keep SPECIFIED. No runtime or consumer receipt is claimed.
 
@@ -226,6 +226,7 @@ This batch defines the slices; it runs none of their runtime tests.
 - [ ] **EG-DURABLE-KERNEL-R100.5 (Evidence):** Emit batch receipts and digest reconciliation.
 - [ ] **EG-DURABLE-KERNEL-R100.6 (Hot-path proof):** Add the served outage test and the benchmark.
 
+- EG-DURABLE-KERNEL-R028.2: terminal event readback, restart identity, tenant isolation, missing/corrupt binding refusal and legacy unavailability. Hosted and served acceptance remains pending until the tests run and pass.
 - [ ] **EG-DURABLE-KERNEL-R101 (rollup):** Downtime work is an ontology that drives the engine scheduler (rollup).
 - [ ] **EG-DURABLE-KERNEL-R101.1 (Model):** Add the typed model.
 - [ ] **EG-DURABLE-KERNEL-R101.2 (Behavior):** Implement the behavior.
@@ -233,3 +234,14 @@ This batch defines the slices; it runs none of their runtime tests.
 - [ ] **EG-DURABLE-KERNEL-R101.4 (Refusal):** Add the typed refusals.
 - [ ] **EG-DURABLE-KERNEL-R101.5 (Evidence):** Emit the evidence.
 - [ ] **EG-DURABLE-KERNEL-R101.6 (Hot-path proof):** Add the served hot-path test.
+- [x] **EG-DURABLE-KERNEL-R102.1 (Served contract):** Mark the five KV methods stable and Python-served; typed results; regenerate the contract and client.
+- [x] **EG-DURABLE-KERNEL-R102.2 (Scope and authorization):** Scope served keys by tenant, principal, graph and namespace; enforce `kv:read`/`kv:write`.
+- [x] **EG-DURABLE-KERNEL-R102.3 (CAS and scan):** Version-stamped rows, version CAS, bounded cursor-paginated scan.
+- [x] **EG-DURABLE-KERNEL-R102.4 (Durable mutations):** Audit lines, policy flags and replay for the KV mutations.
+- [x] **EG-DURABLE-KERNEL-R102.5 (Hot-path proof):** Served latency test with p50/p99 budgets.
+- [x] **EG-DURABLE-KERNEL-R102.6 (Shared namespace):** `shared` flag scoped to tenant + graph, gated by `kv:shared:write`.
+
+- [ ] **EG-DURABLE-KERNEL-R028.3:** Validate fenced metadata CAS expiry at the native row boundary; native tests remain pending.
+- [ ] **EG-DURABLE-KERNEL-R039.3:** Implement and qualify atomic pending envelope registration and consumption. Keep human authority and task hierarchy outside this storage proof.
+
+- [ ] **EG-DURABLE-KERNEL-R028.4:** Bind verified run ownership during single WorkItem admission and prove transaction refusals.

@@ -4339,8 +4339,10 @@ class WorkItemClient:
     ) -> dict[str, Any] | None:
         """Return a terminal WorkItem and the provenance its commit bound:
         ``{"work_item", "trace_ref", "tool_call_refs", "outcome_ref",
-        "outcome"}`` -- ``outcome`` is the OutcomeEvaluation receipt's stored
-        properties, verified by the engine against the committed digest.
+        "outcome", "terminal_event"}``. The ``outcome`` holds the stored
+        OutcomeEvaluation properties, verified against the committed digest.
+        ``terminal_event`` is safe committed readback or explicit legacy unavailability;
+        it does not provide lifecycle streaming or worker lease authority.
         ``None`` when the item is not visible to ``tenant`` or has no bundle.
         """
         value = (
@@ -4401,7 +4403,14 @@ class WorkItemClient:
 
 
 _WORK_ITEM_OUTCOME_FIELDS = frozenset(
-    {"work_item", "trace_ref", "tool_call_refs", "outcome_ref", "outcome"}
+    {
+        "work_item",
+        "trace_ref",
+        "tool_call_refs",
+        "outcome_ref",
+        "outcome",
+        "terminal_event",
+    }
 )
 _WORK_ITEM_VIEW_FIELDS = frozenset(
     {
@@ -4449,6 +4458,7 @@ class ControlLeaseClient:
         expires_at_ms: int,
         hard_expires_at_ms: int,
         idempotency_key: str,
+        pending_call_registration: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Issue one active lease: ``{"outcome": "issued"|"collision", "lease":
         view|None, ...}``. An existing id is a ``collision``, never an overwrite.
@@ -4469,6 +4479,8 @@ class ControlLeaseClient:
                 "IssueControlLease.idempotency_key", idempotency_key
             ),
         }
+        if pending_call_registration is not None:
+            request["pending_call_registration"] = pending_call_registration
         value = (
             await _gen.coordination.send_issue_control_lease(
                 self._client, {"request": request}, idempotency_key=idempotency_key
@@ -4535,6 +4547,7 @@ class ControlLeaseClient:
         expected_revision: int,
         to: Literal["consumed", "revoked", "expired"],
         idempotency_key: str,
+        pending_call_consumption: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Move a lease along a legal edge -- ``active -> consumed | revoked |
         expired`` or ``consumed -> revoked | expired`` -- compare-and-set on
@@ -4557,6 +4570,8 @@ class ControlLeaseClient:
                 "TransitionControlLease.idempotency_key", idempotency_key
             ),
         }
+        if pending_call_consumption is not None:
+            request["pending_call_consumption"] = pending_call_consumption
         value = (
             await _gen.coordination.send_transition_control_lease(
                 self._client, {"request": request}, idempotency_key=idempotency_key
@@ -11031,7 +11046,7 @@ def _validate_resource_stats_arrays(
         raise RuntimeError("summary ResourceStats response must omit detail arrays")
 
 
-_OPAQUE_BINARY_RESULT_METHODS = frozenset({"RunUdf", "KvGet"})
+_OPAQUE_BINARY_RESULT_METHODS = frozenset({"RunUdf"})
 
 
 def _decode_send_result(method: str, result: Any) -> Any:
@@ -11040,8 +11055,9 @@ def _decode_send_result(method: str, result: Any) -> Any:
     Heavy algorithm results and node/edge property blobs come back as a
     top-level MessagePack ``bin`` (the ``Raw`` payload) — the server skips
     building a JSON tree. Decode that second layer for structured methods.
-    ``RunUdf`` and ``KvGet`` declare opaque bytes, so their payload is returned
-    exactly and is never interpreted as another MessagePack document.
+    ``RunUdf`` declares opaque bytes, so its payload is returned exactly and is
+    never interpreted as another MessagePack document. ``KvGet`` answers a typed
+    ``{value, version}`` entry whose ``value`` rides as a MessagePack ``bin``.
     """
     if method not in _OPAQUE_BINARY_RESULT_METHODS and isinstance(
         result, (bytes, bytearray)

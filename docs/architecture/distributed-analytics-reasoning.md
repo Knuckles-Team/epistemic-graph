@@ -1,6 +1,6 @@
 # Distributed analytics and incremental reasoning
 
-The main graph-os build includes a durable analytics worker plane and a
+The main arbora build includes a durable analytics worker plane and a
 change-driven reasoning projection. Both consume committed engine state and use
 opaque operational identities; neither copies runtime principals, prompts,
 credentials, endpoints, user names, or filesystem locations into coordinator
@@ -53,7 +53,7 @@ responses are idempotent for the same authenticated slot and epoch. Lease
 durations are clamped to 1–300 seconds, and quotas remain server-owned.
 
 The companion `agent-utilities` distribution exposes the standalone entry point
-`graph-os-analytics-worker`. It requires `GRAPH_SERVICE_ENDPOINTS` (or
+`arbora-analytics-worker`. It requires `GRAPH_SERVICE_ENDPOINTS` (or
 `GRAPH_SERVICE_TCP_ADDR`), `GRAPH_SERVICE_AUTH_SECRET`,
 `GRAPH_OS_ANALYTICS_PRINCIPAL`, `GRAPH_OS_ANALYTICS_TENANT`,
 `AUTH_JWT_AUDIENCE`, and `KG_POLICY_VERSION`. Slot, lease and poll bounds can be
@@ -162,7 +162,7 @@ perform the same recompute synchronously and returns `projection_pending=false`.
 
 The reasoning worker is intentionally colocated with the graph authority: it must
 read the private authoritative batch/snapshot backend before acknowledging the cursor.
-Deploy it as part of the graph-os stateful authority tier, not as a remote stateless
+Deploy it as part of the arbora stateful authority tier, not as a remote stateless
 worker.
 
 ## Shared control projections
@@ -200,7 +200,7 @@ resource-constrained host.
 
 ## GOC-11 baseline (analytics/mining/job-plane lane) — what already exists vs. what is open
 
-A 2026-08-16 re-verification against `main@02594f7` for the Graph-OS Completion
+A 2026-08-16 re-verification against `main@02594f7` for the Arbora Completion
 Program's GOC-11 lane found this document's own subject — the durable
 `AnalyticsJob` plane — already satisfies the large majority of that lane's stated
 scope. Recorded here so a future pass does not re-derive it, and does not invent a

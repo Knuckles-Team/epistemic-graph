@@ -52,14 +52,14 @@ Original intake fields are recorded exactly in `requirements.md` under R009.18. 
 
 **Planned acceptance:** `run_observations_change_model_and_width_with_trace` exercises actual AU routing/continuation and served EG Decide. It uses identical budgets with controlled joint latency/cost/error windows. Show policy-directed model and width changes. Show budget-forced refusal/stop and exact before/after trace readback. Reject stale windows and invalid rates/denominators. Confirm unknown values stay nonzero-unknown, not zeros. Show narrowing releases capacity. Reject mid-run widening. A host-only AIMD or model-only allocator test is insufficient.
 
-Preserve existing coverage: `AU-CONTROL-R006`, `AU-CONTROL-R019`, `AU-HARNESS-R007`, `EG-ORCH-VOCAB-R009.8`, `EG-ORCH-VOCAB-R009.9`, `GRAPHOS-CAPACITY-R001.1`.
+Preserve existing coverage: `AU-CONTROL-R006`, `AU-CONTROL-R019`, `AU-HARNESS-R007`, `EG-ORCH-VOCAB-R009.8`, `EG-ORCH-VOCAB-R009.9`, `ARBORA-CAPACITY-R001.1`.
 
 Source record SHA-256: `8d2f83f788c5fdd36c4dc47f85c9f7673393b6b9075dc46a5ac1c32afd2386e2`. Owner references:
 - `agent-utilities@50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/agent-control-plane/requirements.md:10` — `AU-CONTROL-R006`
 - `agent-utilities@50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/agent-control-plane/requirements.md:24` — `AU-CONTROL-R019`
 - `epistemic-graph@e1db3f4359e659dc07fb0e0ba5e021bed40c9f26:specs/decision-engine/requirements.md:298` — `EG-DECISION-ENGINE-R136.3`
 - `epistemic-graph@e1db3f4359e659dc07fb0e0ba5e021bed40c9f26:specs/orchestration-vocabulary/requirements.md:69` — `EG-ORCH-VOCAB-R009.17`
-- `graph-os@069eebc785afb9fb26bbbcc907cf5a2a4bcab5c5:specs/adaptive-capacity/requirements.md:6` — `GRAPHOS-CAPACITY-R001.1`
+- `graph-os@069eebc785afb9fb26bbbcc907cf5a2a4bcab5c5:specs/adaptive-capacity/requirements.md:6` — `ARBORA-CAPACITY-R001.1`
 
 Open owner prerequisites:
 - AU-CONTROL-R006.30 is unmerged. Policy thresholds, predictive cost inputs, and tie breaks require an owner-versioned policy. No tuning defaults or implementation claims come from the source.
@@ -158,17 +158,17 @@ Original source objective: Epistemic state and active policy live in the graph. 
 
 **Contract definition:** EG SHALL retain epistemic state and active runtime policy in the graph. It SHALL bind normative source to reviewed, versioned repository files. Each activated binding SHALL include repository, path, commit, blob digest, and candidate-set digest. It SHALL also include review actor/receipt digest, invariant generation, and expected active-policy revision. Review SHALL cover exact source and synthesized-rule digests. Stale, absent, rejected, or mismatched review SHALL refuse before active-policy mutation. EG mutations and reasoning SHALL NOT overwrite normative files. Source changes SHALL use governed SDK writeback and GraphOS approval. Then reread the committed revision and review it before graph-policy activation. A graph-policy edit SHALL NOT rewrite a file or make an unreviewed file runtime authority. R012.7 invariant checks and generation comparison apply at activation.
 
-**Production wiring:** Link R012.2 policy classification and EG-IDENTITY-R008.4 active graph policy to R012.7 activation. Bind review evidence to GRAPHOS-OPS-R050.2/.4 and the concrete SDK source effect. EG has no normative filesystem writer.
+**Production wiring:** Link R012.2 policy classification and EG-IDENTITY-R008.4 active graph policy to R012.7 activation. Bind review evidence to ARBORA-OPS-R050.2/.4 and the concrete SDK source effect. EG has no normative filesystem writer.
 
 **Planned acceptance:** `reviewed_normative_source_activates_without_graph_overwrite` pins a real policy and owner review receipt. Ingest and activate through served EG routes. Dispatch a decision recording policy revision. Compare source bytes and Git revision before/after graph mutation and reasoning. Graph-originated normative writes must have no source effect. Missing/rejected review, modified blob, changed synthesized rules, or raced revisions preserve prior active policy. A permitted source change requires actual governed writeback, reread, renewed review, then activation. Direct fixture activation is insufficient.
 
-Preserve existing coverage: `EG-IDENTITY-R008.4`, `EG-ORCH-VOCAB-R012.2`, `GRAPHOS-OPS-R050.2`, `GRAPHOS-OPS-R050.4`, `EG-ORCH-VOCAB-R012.5`, `EG-ORCH-VOCAB-R012.6`.
+Preserve existing coverage: `EG-IDENTITY-R008.4`, `EG-ORCH-VOCAB-R012.2`, `ARBORA-OPS-R050.2`, `ARBORA-OPS-R050.4`, `EG-ORCH-VOCAB-R012.5`, `EG-ORCH-VOCAB-R012.6`.
 
 Source record SHA-256: `c5f1dfe7867267169ebc8c75abba87a1d9ed47568a65cbfe1bf6d183b8026e59`. Owner references:
 - `epistemic-graph@e1db3f4359e659dc07fb0e0ba5e021bed40c9f26:specs/orchestration-vocabulary/requirements.md:91` — `EG-ORCH-VOCAB-R012.2`
 - `epistemic-graph@e1db3f4359e659dc07fb0e0ba5e021bed40c9f26:specs/engine-identity-and-scope/requirements.md:16` — `EG-IDENTITY-R008.4`
-- `graph-os@069eebc785afb9fb26bbbcc907cf5a2a4bcab5c5:specs/hosted-api-operations/requirements.md:147` — `GRAPHOS-OPS-R050.2`
-- `graph-os@069eebc785afb9fb26bbbcc907cf5a2a4bcab5c5:specs/hosted-api-operations/requirements.md:149` — `GRAPHOS-OPS-R050.4`
+- `graph-os@069eebc785afb9fb26bbbcc907cf5a2a4bcab5c5:specs/hosted-api-operations/requirements.md:147` — `ARBORA-OPS-R050.2`
+- `graph-os@069eebc785afb9fb26bbbcc907cf5a2a4bcab5c5:specs/hosted-api-operations/requirements.md:149` — `ARBORA-OPS-R050.4`
 
 Open owner prerequisites:
 - The concrete producer of the review receipt and normative-file source-effect binding must be owner-confirmed. R050 references establish review/ops boundaries, not proof that the proposed full carrier already exists.

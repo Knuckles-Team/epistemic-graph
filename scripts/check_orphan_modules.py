@@ -53,7 +53,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -252,6 +254,25 @@ def _targets() -> list[Target]:
     return targets
 
 
+def _closure_of_target(path: str) -> set[str]:
+    return closure(path, crate_root=True)
+
+
+def _target_closures(paths: list[str]) -> list[set[str]]:
+    """Walk every target's module tree, spread over the available CPUs.
+
+    The module-tree walk is a pure-Python lexer: about a minute of CPU for the
+    whole repository when run serially.  Targets are independent, so the walks
+    run in worker processes and the wall time drops to a few seconds.
+    """
+
+    workers = min(len(paths), os.cpu_count() or 1, 16)
+    if workers <= 1:
+        return [_closure_of_target(path) for path in paths]
+    with ProcessPoolExecutor(max_workers=workers) as pool:
+        return list(pool.map(_closure_of_target, paths))
+
+
 def _orphan_roots(unreachable: list[str], tracked: set[str]) -> list[dict]:
     """Group unreachable files under the one whose wiring would fix them.
 
@@ -283,8 +304,8 @@ def run_gate() -> dict:
     targets = _targets()
 
     reachable: set[str] = set()
-    for target in targets:
-        reachable |= closure(target.path, crate_root=True)
+    for paths in _target_closures([target.path for target in targets]):
+        reachable |= paths
 
     tracked_set = set(tracked)
     unreachable = sorted(tracked_set - reachable)

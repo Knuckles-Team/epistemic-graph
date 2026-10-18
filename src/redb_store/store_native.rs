@@ -355,6 +355,10 @@ where
         crypto,
     } = scope;
     let result = apply_rows(WorkItemCommitScope {
+        admitted_actor: batch
+            .envelope
+            .operation()
+            .map(|op| op.authority.actor.as_str()),
         crypto,
         authoritative_now_ms: committed_at_ms,
         outbox_id: &batch.batch_id,

@@ -7694,6 +7694,7 @@ class IssueControlLeaseRequest(BaseModel):
     issued_at_ms: Annotated[int, Field(ge=0)]
     kind: str
     lease_id: str
+    pending_call_registration: PendingCallRegistration | None = None
     tenant: str
 
 
@@ -8300,6 +8301,41 @@ class KnowledgeStreamRequest(BaseModel):
     projection: KnowledgeStreamProjection | None = None
     query: KnowledgeStreamQuery
     schema_version: Annotated[int, Field(ge=0, le=65535)]
+
+
+class KvCasOutcome(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    swapped: bool
+    version: Annotated[int, Field(ge=0)]
+
+
+class KvEntry(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    value: bytes
+    version: Annotated[int, Field(ge=0)]
+
+
+class KvScanPage(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    entries: list[KvScanRow]
+    next_cursor: str | None = None
+
+
+class KvScanRow(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    key: str
+    value: bytes
+    version: Annotated[int, Field(ge=0)]
+
+
+class KvWriteReceipt(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    version: Annotated[int, Field(ge=0)]
 
 
 class LabelExclusions(BaseModel):
@@ -14213,10 +14249,11 @@ class MethodKnowledgeStreamParams(BaseModel):
 class MethodKvCasParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
-    expected: bytes | None = None
+    expected_version: Annotated[int, Field(ge=0)]
     key: str
     namespace: str
     new: bytes | None = None
+    shared: bool | None = None
 
 
 class MethodKvDeleteParams(BaseModel):
@@ -14224,6 +14261,7 @@ class MethodKvDeleteParams(BaseModel):
 
     key: str
     namespace: str
+    shared: bool | None = None
 
 
 class MethodKvGetParams(BaseModel):
@@ -14231,6 +14269,7 @@ class MethodKvGetParams(BaseModel):
 
     key: str
     namespace: str
+    shared: bool | None = None
 
 
 class MethodKvPutParams(BaseModel):
@@ -14238,15 +14277,18 @@ class MethodKvPutParams(BaseModel):
 
     key: str
     namespace: str
+    shared: bool | None = None
     value: bytes
 
 
 class MethodKvScanParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
+    cursor: str | None = None
     limit: Annotated[int, Field(ge=0)]
     namespace: str
     prefix: str
+    shared: bool | None = None
 
 
 class MethodLeaveChannelParams(BaseModel):
@@ -17075,6 +17117,28 @@ class PenaltyVerdict(str, Enum):
     ENFORCEMENT_GATED = "enforcement_gated"
     CRIMINAL_SUPPRESSES = "criminal_suppresses"
     CRIMINAL_IS_THE_LEVER = "criminal_is_the_lever"
+
+
+class PendingCallConsumption(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    expected_grant: dict[str, Any]
+    work_item: PendingCallFence
+
+
+class PendingCallFence(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    expected_metadata: dict[str, Any]
+    expected_revision: Annotated[int, Field(ge=0)]
+    work_item_id: str
+
+
+class PendingCallRegistration(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    expected_lease: CasWorkItemMetadataLeaseFence
+    work_item: PendingCallFence
 
 
 class PipelineClassifiedRow(BaseModel):
@@ -22201,6 +22265,7 @@ class SubmitWorkItemRequest(BaseModel):
     policy_digest: str
     priority: int
     provenance_refs: list[str]
+    run_id: str | None = None
     schema_version: NativeControlSchemaVersion
     work_item_id: str | None = None
 
@@ -22371,6 +22436,39 @@ class TermWeight(BaseModel):
 
     term: str
     weight: float
+
+
+class TerminalEventReadUnavailable(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    reason: TerminalEventUnavailable
+    status: Literal["unavailable"]
+
+
+class TerminalEventReadAvailable(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    batch_id: str
+    commit_sequence: Annotated[int, Field(ge=0)]
+    kind: str
+    ordinal: Annotated[int, Field(ge=0)]
+    outcome: str
+    payload_digest: str
+    result_ref: str | None = None
+    run_id: str
+    scope: MutationScopeIdentity
+    status: Literal["available"]
+    tenant: str
+
+
+TerminalEventRead = Annotated[
+    TerminalEventReadUnavailable | TerminalEventReadAvailable,
+    Field(discriminator="status"),
+]
+
+
+class TerminalEventUnavailable(str, Enum):
+    LEGACY_UNBOUND = "legacy_unbound"
 
 
 class TerminalOutcomeExtension(BaseModel):
@@ -22573,6 +22671,7 @@ class TransitionControlLeaseRequest(BaseModel):
     expected_revision: Annotated[int, Field(ge=0)]
     idempotency_key: str
     lease_id: str
+    pending_call_consumption: PendingCallConsumption | None = None
     tenant: str
     to: ControlLeaseTarget
 
@@ -23265,6 +23364,7 @@ class WorkItemOutcomeView(BaseModel):
 
     outcome: dict[str, Any] | None = None
     outcome_ref: str
+    terminal_event: TerminalEventRead | None = None
     tool_call_refs: list[str]
     trace_ref: str
     work_item: WorkItemView
@@ -24318,6 +24418,9 @@ JobState = (
 
 
 JsonPathOp = Literal["Exists"] | JsonPathOpEq | JsonPathOpContains
+
+
+KvGetResult = KvEntry | None
 
 
 LeaseState = str | Literal["expired"] | Literal["reclaimed"]
@@ -26375,6 +26478,12 @@ __all__ = [
     "KnowledgeStreamQueryTimeSeries",
     "KnowledgeStreamQueryVector",
     "KnowledgeStreamRequest",
+    "KvCasOutcome",
+    "KvEntry",
+    "KvGetResult",
+    "KvScanPage",
+    "KvScanRow",
+    "KvWriteReceipt",
     "LabelExclusions",
     "LabelRegime",
     "LabelRegimeBanditLabel",
@@ -27610,6 +27719,9 @@ __all__ = [
     "PatternEdge",
     "PenaltyPolicy",
     "PenaltyVerdict",
+    "PendingCallConsumption",
+    "PendingCallFence",
+    "PendingCallRegistration",
     "PersonalizedPageRankResult",
     "PersonalizedPageRankResultValueItem",
     "PipelineClassifiedRow",
@@ -28368,6 +28480,10 @@ __all__ = [
     "TensorReduceKind",
     "Term",
     "TermWeight",
+    "TerminalEventRead",
+    "TerminalEventReadAvailable",
+    "TerminalEventReadUnavailable",
+    "TerminalEventUnavailable",
     "TerminalOutcomeExtension",
     "TextAlgorithm",
     "TextMiningResult",

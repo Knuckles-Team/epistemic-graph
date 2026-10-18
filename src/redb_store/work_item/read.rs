@@ -72,7 +72,10 @@ pub(crate) fn read_work_item_outcome(
     crypto: DurableCrypto<'_>,
 ) -> Result<Option<WorkItemOutcomeView>, String> {
     validate_work_item_get(tenant, work_item_id)?;
-    let (nodes, row) = snapshot_row(shard, graph, work_item_id, crypto)?;
+    let handle = shard.graph(graph)?;
+    let read = shard.read(&handle)?;
+    let nodes = read.scoped_owner_table(NODES)?;
+    let row = stored_row(&nodes, graph, work_item_id, crypto)?;
     let Some(row) = row else {
         return Ok(None);
     };
@@ -83,12 +86,40 @@ pub(crate) fn read_work_item_outcome(
         return Ok(None);
     };
     let outcome = verified_outcome(&nodes, graph, &refs, crypto)?;
+    let terminal_event = match (
+        row.get(eg_types::work_item_read::WORK_ITEM_EVENT_BATCH),
+        row.get(eg_types::work_item_read::WORK_ITEM_EVENT_DIGEST),
+    ) {
+        (None, None) => eg_types::work_item_read::TerminalEventRead::default(),
+        (Some(batch), Some(digest)) => {
+            let batch = batch
+                .as_str()
+                .ok_or("invalid terminal event batch binding")?;
+            let digest = digest
+                .as_str()
+                .ok_or("invalid terminal event digest binding")?;
+            let receipt = eg_transaction::read_ledger(&read, batch)?
+                .ok_or("committed terminal receipt is missing")?;
+            let records = eg_transaction::read_outbox(&read, batch)?;
+            terminal_event::project(
+                read.scope(),
+                tenant,
+                work_item_id,
+                batch,
+                digest,
+                &receipt,
+                &records,
+            )?
+        }
+        _ => return Err("incomplete terminal event binding".into()),
+    };
     Ok(Some(WorkItemOutcomeView {
         work_item,
         trace_ref: refs.trace_ref,
         tool_call_refs: refs.tool_call_refs,
         outcome_ref: refs.outcome_ref,
         outcome,
+        terminal_event,
     }))
 }
 
@@ -161,3 +192,5 @@ pub(super) fn scan_keyset_page<L: KeysetListing>(
 
 #[cfg(test)]
 mod tests;
+
+mod terminal_event;

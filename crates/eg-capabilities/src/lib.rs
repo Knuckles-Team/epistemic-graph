@@ -624,11 +624,34 @@ fn policy_evolution_policy(method: &Method) -> Option<MethodPolicy> {
     Some(graph_translated_policy(op.is_mutation(), op.authz_action()))
 }
 
+/// A `shared` KV write acts on the tenant+graph namespace every principal there
+/// sees, so it needs its own `kv:shared:write` action rather than `kv:write`;
+/// every other flag of the method's ledger row is unchanged.
+fn kv_shared_write_policy(method: &Method) -> Option<MethodPolicy> {
+    let shared = matches!(
+        method,
+        Method::KvPut { shared: true, .. }
+            | Method::KvDelete { shared: true, .. }
+            | Method::KvCas { shared: true, .. }
+    );
+    if !shared {
+        return None;
+    }
+    let method_name: &'static str = method.into();
+    method_policy_entries()
+        .find(|(name, _, _)| *name == method_name)
+        .map(|(_, policy, _)| MethodPolicy {
+            authz_action: "kv:shared:write",
+            ..policy
+        })
+}
+
 fn policy_for_method(method: &Method) -> MethodPolicy {
     if let Some(policy) = agent_family_policy(method)
         .or_else(|| connector_family_policy(method))
         .or_else(|| registry_family_policy(method))
         .or_else(|| policy_evolution_policy(method))
+        .or_else(|| kv_shared_write_policy(method))
     {
         return policy;
     }

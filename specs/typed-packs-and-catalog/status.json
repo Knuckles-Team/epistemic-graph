@@ -223,7 +223,48 @@
     "EG-TYPED-PACKS-R751.750",
     "EG-TYPED-PACKS-R751.751",
     "EG-TYPED-PACKS-R751.752",
-    "EG-TYPED-PACKS-R751.753"
+    "EG-TYPED-PACKS-R751.753",
+    "EG-TYPED-PACKS-R650",
+    "EG-TYPED-PACKS-R650.1",
+    "EG-TYPED-PACKS-R650.2",
+    "EG-TYPED-PACKS-R650.3",
+    "EG-TYPED-PACKS-R650.4",
+    "EG-TYPED-PACKS-R650.5",
+    "EG-TYPED-PACKS-R650.6",
+    "EG-TYPED-PACKS-R651",
+    "EG-TYPED-PACKS-R651.1",
+    "EG-TYPED-PACKS-R651.2",
+    "EG-TYPED-PACKS-R651.3",
+    "EG-TYPED-PACKS-R651.4",
+    "EG-TYPED-PACKS-R651.5",
+    "EG-TYPED-PACKS-R651.6",
+    "EG-TYPED-PACKS-R652",
+    "EG-TYPED-PACKS-R652.1",
+    "EG-TYPED-PACKS-R652.2",
+    "EG-TYPED-PACKS-R652.3",
+    "EG-TYPED-PACKS-R652.4",
+    "EG-TYPED-PACKS-R652.5",
+    "EG-TYPED-PACKS-R652.6",
+    "EG-TYPED-PACKS-R700",
+    "EG-TYPED-PACKS-R700.1",
+    "EG-TYPED-PACKS-R700.2",
+    "EG-TYPED-PACKS-R700.3",
+    "EG-TYPED-PACKS-R700.4",
+    "EG-TYPED-PACKS-R700.5",
+    "EG-TYPED-PACKS-R700.6",
+    "EG-TYPED-PACKS-R097.700",
+    "EG-TYPED-PACKS-R097.701",
+    "EG-TYPED-PACKS-R710",
+    "EG-TYPED-PACKS-R712",
+    "EG-TYPED-PACKS-R711",
+    "EG-TYPED-PACKS-R713",
+    "EG-TYPED-PACKS-R800",
+    "EG-TYPED-PACKS-R800.1",
+    "EG-TYPED-PACKS-R800.2",
+    "EG-TYPED-PACKS-R800.3",
+    "EG-TYPED-PACKS-R800.4",
+    "EG-TYPED-PACKS-R800.5",
+    "EG-TYPED-PACKS-R800.6"
   ],
   "requirements": [
     {
@@ -1846,7 +1887,9 @@
       "verified_by": [],
       "rollup_of": [
         "EG-TYPED-PACKS-R097.1",
-        "EG-TYPED-PACKS-R097.2"
+        "EG-TYPED-PACKS-R097.2",
+        "EG-TYPED-PACKS-R097.700",
+        "EG-TYPED-PACKS-R097.701"
       ]
     },
     {
@@ -2319,44 +2362,43 @@
     },
     {
       "id": "EG-TYPED-PACKS-R750",
-      "title": "Domain packs for workforce, legal, medical and government vocabularies (rollup)",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: duplicates EG-TYPED-PACKS-R097. Workforce, legal, medical and government domain packs are one capability, owned by EG-TYPED-PACKS-R097 and its children",
+      "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [],
-      "rollup_of": [
-        "EG-TYPED-PACKS-R750.750",
-        "EG-TYPED-PACKS-R750.751",
-        "EG-TYPED-PACKS-R750.752",
-        "EG-TYPED-PACKS-R750.753"
-      ]
+      "retired_reason": "duplicates EG-TYPED-PACKS-R097. Workforce, legal, medical and government domain packs are one capability, owned by EG-TYPED-PACKS-R097 and its children"
     },
     {
       "id": "EG-TYPED-PACKS-R750.750",
-      "title": "Model: Domain packs for workforce, legal, medical and government vocabularies",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: duplicates EG-TYPED-PACKS-R097. Workforce, legal, medical and government domain packs are one capability, owned by EG-TYPED-PACKS-R097 and its children",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "duplicates EG-TYPED-PACKS-R097. Workforce, legal, medical and government domain packs are one capability, owned by EG-TYPED-PACKS-R097 and its children"
     },
     {
       "id": "EG-TYPED-PACKS-R750.751",
-      "title": "Behavior: Domain packs for workforce, legal, medical and government vocabularies",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: duplicates EG-TYPED-PACKS-R097. Workforce, legal, medical and government domain packs are one capability, owned by EG-TYPED-PACKS-R097 and its children",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "duplicates EG-TYPED-PACKS-R097. Workforce, legal, medical and government domain packs are one capability, owned by EG-TYPED-PACKS-R097 and its children"
     },
     {
       "id": "EG-TYPED-PACKS-R750.752",
-      "title": "Refusal: Domain packs for workforce, legal, medical and government vocabularies",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: duplicates EG-TYPED-PACKS-R097. Workforce, legal, medical and government domain packs are one capability, owned by EG-TYPED-PACKS-R097 and its children",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "duplicates EG-TYPED-PACKS-R097. Workforce, legal, medical and government domain packs are one capability, owned by EG-TYPED-PACKS-R097 and its children"
     },
     {
       "id": "EG-TYPED-PACKS-R750.753",
-      "title": "Hot-path proof: Domain packs for workforce, legal, medical and government vocabularies",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: duplicates EG-TYPED-PACKS-R097. Workforce, legal, medical and government domain packs are one capability, owned by EG-TYPED-PACKS-R097 and its children",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "duplicates EG-TYPED-PACKS-R097. Workforce, legal, medical and government domain packs are one capability, owned by EG-TYPED-PACKS-R097 and its children"
     },
     {
       "id": "EG-TYPED-PACKS-R751",
@@ -2395,6 +2437,333 @@
     {
       "id": "EG-TYPED-PACKS-R751.753",
       "title": "Hot-path proof: Specialist registry, provider discovery, transactional install and capability contract",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R650",
+      "title": "Property types, value types, links, interfaces and object sets (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-TYPED-PACKS-R650.1",
+        "EG-TYPED-PACKS-R650.2",
+        "EG-TYPED-PACKS-R650.3",
+        "EG-TYPED-PACKS-R650.4",
+        "EG-TYPED-PACKS-R650.5",
+        "EG-TYPED-PACKS-R650.6"
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R650.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R650.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R650.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R650.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R650.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R650.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R651",
+      "title": "Governed edits, reverts, write-back and sync conflict resolution (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-TYPED-PACKS-R651.1",
+        "EG-TYPED-PACKS-R651.2",
+        "EG-TYPED-PACKS-R651.3",
+        "EG-TYPED-PACKS-R651.4",
+        "EG-TYPED-PACKS-R651.5",
+        "EG-TYPED-PACKS-R651.6"
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R651.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R651.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R651.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R651.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R651.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R651.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R652",
+      "title": "Markings, classification claims and restricted views (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-TYPED-PACKS-R652.1",
+        "EG-TYPED-PACKS-R652.2",
+        "EG-TYPED-PACKS-R652.3",
+        "EG-TYPED-PACKS-R652.4",
+        "EG-TYPED-PACKS-R652.5",
+        "EG-TYPED-PACKS-R652.6"
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R652.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R652.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R652.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R652.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R652.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R652.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R700",
+      "title": "Skill-graph packs validate against an open knowledge-bundle format (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-TYPED-PACKS-R700.1",
+        "EG-TYPED-PACKS-R700.2",
+        "EG-TYPED-PACKS-R700.3",
+        "EG-TYPED-PACKS-R700.4",
+        "EG-TYPED-PACKS-R700.5",
+        "EG-TYPED-PACKS-R700.6"
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R700.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R700.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R700.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R700.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R700.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R700.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R097.700",
+      "title": "Domain pack manifest, mapping language, loader and promotion bridge: model and behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R097.701",
+      "title": "Domain pack manifest, mapping language, loader and promotion bridge: refusal, evidence and hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R710",
+      "title": "Schema drift classification, containment, repair proposal and activation: model and behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R712",
+      "title": "Schema drift classification, containment, repair proposal and activation: refusal, evidence and hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R711",
+      "title": "Process, lifecycle, temporal and harness shape artifacts are generated: model and behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R713",
+      "title": "Process, lifecycle, temporal and harness shape artifacts are generated: refusal, evidence and hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R800",
+      "title": "Typed record models for packs, evidence bundles, manifests and goals (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-TYPED-PACKS-R800.1",
+        "EG-TYPED-PACKS-R800.2",
+        "EG-TYPED-PACKS-R800.3",
+        "EG-TYPED-PACKS-R800.4",
+        "EG-TYPED-PACKS-R800.5",
+        "EG-TYPED-PACKS-R800.6"
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R800.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R800.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R800.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R800.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R800.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R800.6",
+      "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

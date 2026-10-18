@@ -94,6 +94,17 @@ impl RowGuard<'_, '_> {
             return Err(LEASE_AUTHORITY.to_string());
         }
         refuse_policy_row(Some(&incoming))?;
+        // Reserve this key even before a row is labelled WorkItem; otherwise
+        // a caller could plant it on a plain row and relabel that row later.
+        if incoming.contains_key("run_owner_binding")
+            || incoming.contains_key("pending_call_lease_ref")
+            || (is_work_item_row(&incoming)
+                && stored
+                    .as_ref()
+                    .is_some_and(|row| row.contains_key("pending_call_lease_ref")))
+        {
+            return Err(NATIVE_KEY_AUTHORITY.to_string());
+        }
         let native_row = stored.as_ref().is_some_and(is_work_item_row);
         let owned = NATIVE_WORK_ITEM_ROW_KEYS
             .iter()
@@ -133,6 +144,9 @@ impl RowGuard<'_, '_> {
 }
 
 fn refuse_stored_lease(stored: Option<&NodeMap>) -> Result<(), String> {
+    if stored.is_some_and(|row| row.contains_key("run_owner_binding")) {
+        return Err(NATIVE_KEY_AUTHORITY.to_string());
+    }
     if stored.is_some_and(carries_native_only_label) {
         return Err(LEASE_AUTHORITY.to_string());
     }
@@ -244,5 +258,55 @@ mod tests {
             properties_msgpack: msgpack(serde_json::json!({"name": "a document"})),
         };
         check(&temp.shard, "ordinary", ordinary).unwrap();
+    }
+    // spec: EG-DURABLE-KERNEL-R028.4
+    #[test]
+    fn run_owner_binding_survives_generic_removal_and_opaque_replacement() {
+        let temp = open("run-owner-guard");
+        with_nodes(&temp.shard, "seed-run", |nodes| {
+            let mut props = serde_json::json!({"node_type": "WorkItem", "run_owner_binding": {"run_id": "run"}}).as_object().unwrap().clone();
+            write_work_item_props(
+                nodes,
+                GRAPH,
+                "run-work-item",
+                &mut props,
+                DurableCrypto::none(),
+            )
+        });
+        assert!(check(
+            &temp.shard,
+            "remove-run",
+            Method::RemoveNode {
+                node_id: "run-work-item".into()
+            }
+        )
+        .is_err());
+        assert!(check(
+            &temp.shard,
+            "opaque-run",
+            Method::AddNode {
+                node_id: "run-work-item".into(),
+                properties_msgpack: vec![0xc1]
+            }
+        )
+        .is_err());
+        assert!(check(
+            &temp.shard,
+            "forge-run",
+            Method::AddNode {
+                node_id: "plain".into(),
+                properties_msgpack: msgpack(serde_json::json!({"run_owner_binding": {}}))
+            }
+        )
+        .is_err());
+        let operations = serde_json::json!([{"op": "remove_node", "id": "run-work-item"}]);
+        assert!(check(
+            &temp.shard,
+            "batch-remove-run",
+            Method::BatchUpdate {
+                operations_msgpack: rmp_serde::to_vec_named(&operations).unwrap(),
+            }
+        )
+        .is_err());
     }
 }

@@ -55,11 +55,11 @@ features = ["metrics", "wire-contract"]
 # Schema derivation, a JSON serializer, and a digest. A default build of this crate
 # (the one the root `epistemic-graph` package links behind `server`) links none of them.
 [dependencies.schemars]
-version = "1.2.2"
+version = "1.2.3"
 optional = true
 
 [dependencies.serde_json]
-version = "1.0.151"
+version = "1.0.154"
 optional = true
 
 [dependencies.sha2]

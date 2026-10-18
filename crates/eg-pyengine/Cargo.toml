@@ -1,6 +1,6 @@
 [package]
 name = "eg-pyengine"
-version = "2.27.1"
+version = "2.27.3"
 edition = "2021"
 authors = ["Repository Maintainers <maintainers@example.invalid>"]
 description = "In-process PyO3 binding for the epistemic-graph engine core (unified-binary program, workstream W-A). Embeds eg-core's GraphCore/GraphRegistry directly in the Python process as the pyo3 extension module `epistemic_graph.engine`, so a self-contained deployment skips the socket entirely. Opt-in only: OFF by default, never linked by the out-of-process scale-out build (scripts/check_no_pyo3.sh)."

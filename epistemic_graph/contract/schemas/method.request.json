@@ -16624,6 +16624,17 @@
         "lease_id": {
           "type": "string"
         },
+        "pending_call_registration": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PendingCallRegistration"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Required only for the reserved pending-call storage kind."
+        },
         "tenant": {
           "description": "Must equal the verified request tenant.",
           "type": "string"
@@ -31852,6 +31863,11 @@
                 },
                 "namespace": {
                   "type": "string"
+                },
+                "shared": {
+                  "default": false,
+                  "description": "`true` scopes the key to the verified tenant and request graph, shared by\nevery principal there (writes need `kv:shared:write`); `false` (the\ndefault) keeps it private to the calling principal.",
+                  "type": "boolean"
                 }
               },
               "required": [
@@ -31883,6 +31899,11 @@
                 },
                 "namespace": {
                   "type": "string"
+                },
+                "shared": {
+                  "default": false,
+                  "description": "`true` scopes the key to the verified tenant and request graph, shared by\nevery principal there (writes need `kv:shared:write`); `false` (the\ndefault) keeps it private to the calling principal.",
+                  "type": "boolean"
                 },
                 "value": {
                   "items": {
@@ -31924,6 +31945,11 @@
                 },
                 "namespace": {
                   "type": "string"
+                },
+                "shared": {
+                  "default": false,
+                  "description": "`true` scopes the key to the verified tenant and request graph, shared by\nevery principal there (writes need `kv:shared:write`); `false` (the\ndefault) keeps it private to the calling principal.",
+                  "type": "boolean"
                 }
               },
               "required": [
@@ -31941,7 +31967,7 @@
         },
         {
           "additionalProperties": false,
-          "description": "Ordered `(key, value)` pairs in `namespace` whose key starts with `prefix`\n(empty prefix ⇒ the whole namespace). `limit == 0` ⇒ no cap.",
+          "description": "One bounded page of `(key, value, version)` rows in `namespace` whose key\nstarts with `prefix` (empty prefix ⇒ the whole namespace), in key order.\n`limit == 0` ⇒ the default page size; any `limit` is capped by the server.\n`cursor` is the previous page's `next_cursor` (exclusive start).",
           "properties": {
             "method": {
               "const": "KvScan",
@@ -31950,6 +31976,13 @@
             "params": {
               "additionalProperties": false,
               "properties": {
+                "cursor": {
+                  "default": null,
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "limit": {
                   "format": "uint",
                   "minimum": 0,
@@ -31960,6 +31993,11 @@
                 },
                 "prefix": {
                   "type": "string"
+                },
+                "shared": {
+                  "default": false,
+                  "description": "`true` scopes the key to the verified tenant and request graph, shared by\nevery principal there (writes need `kv:shared:write`); `false` (the\ndefault) keeps it private to the calling principal.",
+                  "type": "boolean"
                 }
               },
               "required": [
@@ -31978,7 +32016,7 @@
         },
         {
           "additionalProperties": false,
-          "description": "Atomic compare-and-swap: set `(namespace, key)` to `new` (`None` ⇒ delete) iff\nthe current value equals `expected` (both absent ⇒ the key must not exist).\nReturns whether the swap happened. `expected`/`new` are MessagePack `bin`.",
+          "description": "Atomic compare-and-swap on the row version: set `(namespace, key)` to `new`\n(`None` ⇒ delete) iff its current version equals `expected_version` (`0` ⇒ the\nkey must not exist). Answers whether the swap happened and the key's version\nafter the call. `new` is a MessagePack `bin`.",
           "properties": {
             "method": {
               "const": "KvCas",
@@ -31987,15 +32025,10 @@
             "params": {
               "additionalProperties": false,
               "properties": {
-                "expected": {
-                  "default": null,
-                  "items": {
-                    "format": "uint8",
-                    "maximum": 255,
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "type": "array"
+                "expected_version": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
                 },
                 "key": {
                   "type": "string"
@@ -32011,12 +32044,21 @@
                     "minimum": 0,
                     "type": "integer"
                   },
-                  "type": "array"
+                  "type": [
+                    "array",
+                    "null"
+                  ]
+                },
+                "shared": {
+                  "default": false,
+                  "description": "`true` scopes the key to the verified tenant and request graph, shared by\nevery principal there (writes need `kv:shared:write`); `false` (the\ndefault) keeps it private to the calling principal.",
+                  "type": "boolean"
                 }
               },
               "required": [
                 "namespace",
-                "key"
+                "key",
+                "expected_version"
               ],
               "type": "object"
             }
@@ -39430,6 +39472,65 @@
           "type": "string"
         }
       ]
+    },
+    "PendingCallConsumption": {
+      "additionalProperties": false,
+      "description": "Compare the entire immutable envelope, not caller-selected grant fields.",
+      "properties": {
+        "expected_grant": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "work_item": {
+          "$ref": "#/$defs/PendingCallFence"
+        }
+      },
+      "required": [
+        "work_item",
+        "expected_grant"
+      ],
+      "type": "object"
+    },
+    "PendingCallFence": {
+      "additionalProperties": false,
+      "description": "Compare the exact claimed WorkItem revision and scheduling metadata.",
+      "properties": {
+        "expected_metadata": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "expected_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "work_item_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "work_item_id",
+        "expected_revision",
+        "expected_metadata"
+      ],
+      "type": "object"
+    },
+    "PendingCallRegistration": {
+      "additionalProperties": false,
+      "description": "Registration additionally requires the current live worker fence.",
+      "properties": {
+        "expected_lease": {
+          "$ref": "#/$defs/CasWorkItemMetadataLeaseFence"
+        },
+        "work_item": {
+          "$ref": "#/$defs/PendingCallFence"
+        }
+      },
+      "required": [
+        "work_item",
+        "expected_lease"
+      ],
+      "type": "object"
     },
     "PipelineSpec": {
       "description": "The full composable pipeline recipe: ordered feature steps → split → model. Stored\n(minus the split) inside the `:Model` artifact so eval/predict rebuild features\nIDENTICALLY from the same recipe without the caller re-specifying it.",
@@ -49964,6 +50065,13 @@
           },
           "type": "array"
         },
+        "run_id": {
+          "description": "Optional run identity; native admission binds its verified owner atomically.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "schema_version": {
           "$ref": "#/$defs/NativeControlSchemaVersion"
         },
@@ -51286,6 +51394,17 @@
         },
         "lease_id": {
           "type": "string"
+        },
+        "pending_call_consumption": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PendingCallConsumption"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Required when consuming a pending-call envelope."
         },
         "tenant": {
           "description": "Must equal the verified request tenant.",
@@ -62596,7 +62715,7 @@
     },
     "KvCas": {
       "additionalProperties": false,
-      "description": "Atomic compare-and-swap: set `(namespace, key)` to `new` (`None` ⇒ delete) iff\nthe current value equals `expected` (both absent ⇒ the key must not exist).\nReturns whether the swap happened. `expected`/`new` are MessagePack `bin`.",
+      "description": "Atomic compare-and-swap on the row version: set `(namespace, key)` to `new`\n(`None` ⇒ delete) iff its current version equals `expected_version` (`0` ⇒ the\nkey must not exist). Answers whether the swap happened and the key's version\nafter the call. `new` is a MessagePack `bin`.",
       "properties": {
         "method": {
           "const": "KvCas",
@@ -62605,15 +62724,10 @@
         "params": {
           "additionalProperties": false,
           "properties": {
-            "expected": {
-              "default": null,
-              "items": {
-                "format": "uint8",
-                "maximum": 255,
-                "minimum": 0,
-                "type": "integer"
-              },
-              "type": "array"
+            "expected_version": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
             },
             "key": {
               "type": "string"
@@ -62629,12 +62743,21 @@
                 "minimum": 0,
                 "type": "integer"
               },
-              "type": "array"
+              "type": [
+                "array",
+                "null"
+              ]
+            },
+            "shared": {
+              "default": false,
+              "description": "`true` scopes the key to the verified tenant and request graph, shared by\nevery principal there (writes need `kv:shared:write`); `false` (the\ndefault) keeps it private to the calling principal.",
+              "type": "boolean"
             }
           },
           "required": [
             "namespace",
-            "key"
+            "key",
+            "expected_version"
           ],
           "type": "object"
         }
@@ -62661,6 +62784,11 @@
             },
             "namespace": {
               "type": "string"
+            },
+            "shared": {
+              "default": false,
+              "description": "`true` scopes the key to the verified tenant and request graph, shared by\nevery principal there (writes need `kv:shared:write`); `false` (the\ndefault) keeps it private to the calling principal.",
+              "type": "boolean"
             }
           },
           "required": [
@@ -62692,6 +62820,11 @@
             },
             "namespace": {
               "type": "string"
+            },
+            "shared": {
+              "default": false,
+              "description": "`true` scopes the key to the verified tenant and request graph, shared by\nevery principal there (writes need `kv:shared:write`); `false` (the\ndefault) keeps it private to the calling principal.",
+              "type": "boolean"
             }
           },
           "required": [
@@ -62724,6 +62857,11 @@
             "namespace": {
               "type": "string"
             },
+            "shared": {
+              "default": false,
+              "description": "`true` scopes the key to the verified tenant and request graph, shared by\nevery principal there (writes need `kv:shared:write`); `false` (the\ndefault) keeps it private to the calling principal.",
+              "type": "boolean"
+            },
             "value": {
               "items": {
                 "format": "uint8",
@@ -62750,7 +62888,7 @@
     },
     "KvScan": {
       "additionalProperties": false,
-      "description": "Ordered `(key, value)` pairs in `namespace` whose key starts with `prefix`\n(empty prefix ⇒ the whole namespace). `limit == 0` ⇒ no cap.",
+      "description": "One bounded page of `(key, value, version)` rows in `namespace` whose key\nstarts with `prefix` (empty prefix ⇒ the whole namespace), in key order.\n`limit == 0` ⇒ the default page size; any `limit` is capped by the server.\n`cursor` is the previous page's `next_cursor` (exclusive start).",
       "properties": {
         "method": {
           "const": "KvScan",
@@ -62759,6 +62897,13 @@
         "params": {
           "additionalProperties": false,
           "properties": {
+            "cursor": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "limit": {
               "format": "uint",
               "minimum": 0,
@@ -62769,6 +62914,11 @@
             },
             "prefix": {
               "type": "string"
+            },
+            "shared": {
+              "default": false,
+              "description": "`true` scopes the key to the verified tenant and request graph, shared by\nevery principal there (writes need `kv:shared:write`); `false` (the\ndefault) keeps it private to the calling principal.",
+              "type": "boolean"
             }
           },
           "required": [

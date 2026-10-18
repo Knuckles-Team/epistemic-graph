@@ -634,7 +634,7 @@ fn similarity_scored_pairs(sigs: &[SimilaritySignature<'_>]) -> Vec<(usize, usiz
     const ROWS: usize = MINHASH_K / BANDS;
     let mut buckets: HashMap<(usize, u64), Vec<usize>> = HashMap::new();
     for (idx, (_, sig)) in sigs.iter().enumerate() {
-        for (band, rows) in sig.chunks_exact(ROWS).enumerate().take(BANDS) {
+        for (band, rows) in sig.as_chunks::<ROWS>().0.iter().enumerate().take(BANDS) {
             let h = rows.iter().fold(0xcbf2_9ce4_8422_2325, |h, row| {
                 (h ^ *row as u64).wrapping_mul(0x0000_0100_0000_01b3)
             });

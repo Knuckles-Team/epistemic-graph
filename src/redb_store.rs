@@ -6299,6 +6299,7 @@ mod mutation_batch_tests {
         let _ = std::fs::remove_file(path);
     }
 
+    // spec: EG-DURABLE-KERNEL-R028.2
     #[test]
     fn terminal_extension_commits_rows_outbox_and_replays_after_reopen() {
         let path = temp_path("terminal-extension-success-reopen");
@@ -6373,9 +6374,52 @@ mod mutation_batch_tests {
                 .count(),
             1
         );
+        let terminal_view = work_item::read_work_item_outcome(
+            &db,
+            "graph-a",
+            "tenant-a",
+            "work-extension-success",
+            DurableCrypto::none(),
+        )
+        .unwrap()
+        .unwrap();
+        let event_json = serde_json::to_value(&terminal_view.terminal_event).unwrap();
+        assert_eq!(event_json["status"], "available");
+        assert_eq!(event_json["tenant"], "tenant-a");
+        assert_eq!(
+            event_json["scope"],
+            serde_json::to_value(&outbox[0].identity).unwrap()
+        );
+        assert_eq!(event_json["batch_id"], terminal.batch_id);
+        assert_eq!(
+            event_json["commit_sequence"],
+            outbox[0].commit_sequence.unwrap()
+        );
+        assert_eq!(event_json["ordinal"], outbox[0].ordinal);
+        assert!(event_json.get("fence_token").is_none());
+        assert!(event_json.get("cursor_token").is_none());
+        assert!(work_item::read_work_item_outcome(
+            &db,
+            "graph-a",
+            "foreign-tenant",
+            "work-extension-success",
+            DurableCrypto::none(),
+        )
+        .unwrap()
+        .is_none());
         drop(db);
 
         let reopened = reopen(&path);
+        let replay_view = work_item::read_work_item_outcome(
+            &reopened,
+            "graph-a",
+            "tenant-a",
+            "work-extension-success",
+            DurableCrypto::none(),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(replay_view.terminal_event, terminal_view.terminal_event);
         let durable_receipt = read_one_node(
             &reopened,
             "graph-a",

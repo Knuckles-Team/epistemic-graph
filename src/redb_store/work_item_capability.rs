@@ -432,6 +432,19 @@ fn native_claim_exists(
     Ok(record.schema_version == 1 && record.graph == graph && record.work_item_id == work_item_id)
 }
 
+/// Require engine-created claim provenance in the caller's native transaction.
+pub(crate) fn require_native_claim(
+    native_work_items: &CapabilityRows<'_>,
+    graph: &str,
+    work_item_id: &str,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    match native_claim_exists(native_work_items, graph, work_item_id, crypto) {
+        Ok(true) => Ok(()),
+        _ => Err("native WorkItem claim provenance unavailable".into()),
+    }
+}
+
 const WORK_ITEM_AUTHORITY_KEYS: &[&str] = &[
     "node_type",
     "kind",

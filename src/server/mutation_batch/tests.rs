@@ -678,6 +678,7 @@ fn classifier_source_map_agrees_with_domain_for() {
         Method::KvDelete {
             namespace: "ns".into(),
             key: "k".into(),
+            shared: false,
         },
         DurabilityDomain::KvStore,
         "KvDelete",
@@ -731,6 +732,7 @@ fn owner_domain_classifies_wire_unconditional_methods_regardless_of_this_crates_
                 namespace: "ns".into(),
                 key: "k".into(),
                 value: vec![1],
+                shared: false,
             },
             MutationSurface::Other,
         ),
@@ -778,6 +780,7 @@ fn graph_routed_compiler_refuses_a_store_authoritative_method() {
         vec![Method::KvDelete {
             namespace: "ns".into(),
             key: "k".into(),
+            shared: false,
         }],
     )
     .expect_err("a store-authoritative method has no graph-committed route");
@@ -923,6 +926,7 @@ fn owner_store_batch_names_the_serving_principal_and_carries_the_caller_actor() 
         &Method::KvDelete {
             namespace: "ns".into(),
             key: "k".into(),
+            shared: false,
         },
         MutationSurface::Other,
         crate::mutation_batch::DurabilityDomain::KvStore,
@@ -1182,6 +1186,7 @@ fn served_owner_store_batch_commits_and_its_actor_survives_in_the_ledger() {
         &Method::KvDelete {
             namespace: "ns".into(),
             key: "k".into(),
+            shared: false,
         },
         MutationSurface::Other,
         crate::mutation_batch::DurabilityDomain::KvStore,

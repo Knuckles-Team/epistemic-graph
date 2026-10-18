@@ -58,7 +58,10 @@ def test_release_builds_every_platform_natively_and_uploads_each() -> None:
     }
     assert job["name"] == "server wheel ${{ matrix.label }}"
     assert job["defaults"]["run"]["shell"] == "bash"
-    swap = next(s for s in job["steps"] if "swap" in s.get("name", ""))
+    # Swap lives in the shared build action, so the release leg and ci.yml's
+    # warm-cache build both get it (the cache build had none and was OOM-killed).
+    action = _yaml(ACTION)["runs"]["steps"]
+    swap = next(s for s in action if "swap" in s.get("name", ""))
     assert swap["if"] == "runner.os == 'Linux'"
     script = _script(job)
     assert '"$smoke/$exe" --help' in script

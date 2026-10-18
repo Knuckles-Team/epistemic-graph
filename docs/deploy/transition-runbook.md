@@ -1,9 +1,9 @@
-# Engine + graph-os transition runbook (clean, self-checking deploy)
+# Engine + arbora transition runbook (clean, self-checking deploy)
 
 > How to cleanly transition the epistemic-graph engine to a new build **and** restart
-> graph-os/messaging without the roughness that bit us on 2026-07-05. The one-command
+> arbora/messaging without the roughness that bit us on 2026-07-05. The one-command
 > path is `scripts/transition_deploy.sh --build`. This doc explains what it does, the
-> config hardening that stops graph-os from silently talking to the wrong engine, and
+> config hardening that stops arbora from silently talking to the wrong engine, and
 > rollback/troubleshooting.
 
 ## TL;DR
@@ -16,7 +16,7 @@ scripts/transition_deploy.sh --build --dry-run # see exactly what it would do, m
 
 Then confirm the **served** path (not just /health):
 ```bash
-# a real engine verb through graph-os must return data, not "Connection refused" / "auto-start":
+# a real engine verb through arbora must return data, not "Connection refused" / "auto-start":
 go__graph_query cypher='MATCH (n) RETURN count(n)'      # or the graph_query MCP tool
 ```
 
@@ -27,7 +27,7 @@ The live deployment is the **split-storage** flavor (`services/epistemic-graph/f
 | Piece | Where | Detail |
 |-------|-------|--------|
 | Engine | node **ENGINE-NODE** (192.0.2.10) | pinned `node.labels.name == ENGINE-NODE`; binary bind-mounted from `/home/app/epistemic-graph-server-eg024`; persist `/home/app/epistemic-graph/graph_snapshots` (redb K=4); serves TCP `:9100` |
-| graph-os (MCP) | node **MCP-NODE** (192.0.2.12) | dials the engine at `GRAPH_SERVICE_TCP_ADDR=192.0.2.10:9100` |
+| arbora (MCP) | node **MCP-NODE** (192.0.2.12) | dials the engine at `GRAPH_SERVICE_TCP_ADDR=192.0.2.10:9100` |
 | messaging / host daemon | MCP-NODE | same — TCP clients of the ENGINE-NODE engine |
 | swarm manager | **MANAGER-NODE** (192.0.2.13) | all `docker service …` run here; other nodes reached via a manager SSH hop |
 
@@ -54,13 +54,13 @@ the right node, and **gates on a real engine query** before declaring success.
 
 ## ⚠️ The shadowing gotcha — client nodes must be TCP-only
 
-**Symptom:** after a graph-os restart, real engine verbs (`graph_query`, `graph_memory`,
+**Symptom:** after a arbora restart, real engine verbs (`graph_query`, `graph_memory`,
 `engine_lifecycle`) return `[Errno 111] Connection refused` or
 `Cannot connect … after auto-start: [Errno 2] No such file or directory`, while `/health`
 is 200 and a *direct* TCP client to the engine works fine.
 
 **Root cause:** the split-storage flavor adds `GRAPH_SERVICE_TCP_ADDR` for clients but leaves the
-**co-located-UDS defaults** in place — graph-os still bind-mounts `/run/epistemic-graph` and the
+**co-located-UDS defaults** in place — arbora still bind-mounts `/run/epistemic-graph` and the
 node-local `config.json` still sets `GRAPH_SERVICE_SOCKET=/run/epistemic-graph/epistemic-graph.sock`.
 On the client node that socket path is served (when present) by a **local autostarted "tiny-daemon"
 engine** (`--idle-shutdown-secs 60`, separate near-empty store `~/.local/share/agent-utilities/graph_snapshots`).
@@ -76,7 +76,7 @@ and any `tcp://` endpoint is classified **remote → autostart disabled**. So th
 ### Client TCP-only hardening (apply on the client node / in the flavor)
 
 Add to the **client** section of `services/epistemic-graph/flavors/split-storage.env` (threaded
-into the graph-os / messaging / host-daemon service env):
+into the arbora / messaging / host-daemon service env):
 
 ```sh
 # --- client nodes: TCP-ONLY, never resolve or autostart a local engine ---
@@ -85,7 +85,7 @@ ENGINE_ENDPOINT=tcp://192.0.2.10:9100     # highest-precedence endpoint (beats a
 EPISTEMIC_GRAPH_AUTOSTART=0              # belt-and-suspenders: the tiny-daemon can never spawn
 ```
 
-And on the client services (`services/graph-os/compose*.yml`, messaging, host-daemon):
+And on the client services (`services/arbora/compose*.yml`, messaging, host-daemon):
 - **Drop the `/run/epistemic-graph:/run/epistemic-graph` bind mount** — a client node has no local
   engine socket to share; mounting it only creates the stale-socket surface.
 - **Remove `GRAPH_SERVICE_SOCKET`** from the node-local `~/.config/agent-utilities/config.json` on
@@ -95,7 +95,7 @@ And on the client services (`services/graph-os/compose*.yml`, messaging, host-da
 
 The `split-storage` flavor injects `GRAPH_SERVICE_TCP_ADDR` into the swarm **service env**, but the
 **node-local `~/.config/agent-utilities/config.json`** (read by BOTH the swarm containers via the
-ro-mount AND any locally-spawned graph-os, e.g. a Claude session's `mcpServers.graph-os`) was left
+ro-mount AND any locally-spawned arbora, e.g. a Claude session's `mcpServers.arbora`) was left
 in the co-located-UDS default:
 
 ```jsonc
@@ -117,7 +117,7 @@ added the TCP addr. **Fix the node config.json on every CLIENT node** (this is t
 // remove GRAPH_SERVICE_SOCKET
 ```
 
-A locally-spawned graph-os (e.g. an agent session) must be **restarted / MCP-reconnected** to pick up
+A locally-spawned arbora (e.g. an agent session) must be **restarted / MCP-reconnected** to pick up
 the change — a long-running process caches the resolution at start.
 
 ### Editable installs MUST include the compiled numeric kernel (the crash-on-restart trap)
@@ -160,12 +160,12 @@ command: ["sh","-c","ulimit -Sn 524288; exec python -m agent_utilities.mcp.kg_se
 The env hardening is reversible (`--env-rm`). On the manager:
 
 ```bash
-# graph-os (repeat for the host-daemon + messaging services):
+# arbora (repeat for the host-daemon + messaging services):
 docker service update \
   --env-add ENGINE_MODE=remote \
   --env-add ENGINE_ENDPOINT=tcp://192.0.2.10:9100 \
   --env-add EPISTEMIC_GRAPH_AUTOSTART=0 \
-  graph-os_graph-os
+  arbora_arbora
 # then verify the served path answers a real verb (not just /health), and confirm no
 # `/home/app/workspace/.venv/bin/epistemic-graph-server --idle-shutdown-secs` tiny-daemon
 # respawns on the client node.
@@ -184,10 +184,10 @@ docker service update \
 |---------|-------|-----|
 | deploy "succeeds" but engine unchanged | old script installed to the wrong node/path | use `transition_deploy.sh` (placement-aware) |
 | `Connection refused` / `after auto-start: No such file` on real verbs, `/health` 200 | client resolving/​autostarting a local tiny-daemon | fix node `config.json` (remote TCP + `AUTOSTART=0`) AND client service env; restart the client |
-| a locally-spawned graph-os (agent session) still fails after the fix | long-running process cached the old resolution | MCP-reconnect / restart that process — config is read at start |
+| a locally-spawned arbora (agent session) still fails after the fix | long-running process cached the old resolution | MCP-reconnect / restart that process — config is read at start |
 | host-daemon crash-loops `ImportError: epistemic-graph kernel required` on restart | compiled `numeric.abi3.so` absent from the source-mounted `/eg`; `/au` hard-requires it | drop the wheel's `epistemic_graph/numeric.abi3.so` into `/eg` (see above); `--preflight` catches it |
 | `[Errno 24] Too many open files` | no `nofile` on client services | add `ulimit -Sn 524288` inline |
-| multiple `graph-os_graph-os.1.*` containers, intermittent breaker-open | orphan accumulation from `docker restart` of a swarm task | prefer `docker service update --force`; `docker rm -f` all but the newest |
+| multiple `arbora_arbora.1.*` containers, intermittent breaker-open | orphan accumulation from `docker restart` of a swarm task | prefer `docker service update --force`; `docker rm -f` all but the newest |
 | engine restart hangs binding socket on a large store | first-boot `.mp→redb` migration | already redb here (no migration); otherwise raise `--health-start-period` |
 
 ## See also

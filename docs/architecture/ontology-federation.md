@@ -1,14 +1,14 @@
 # Ontology package composition
 
 Epistemic-graph is the sole active ontology and SHACL authority. Fleet
-components own source content, the connector SDK captures it, GraphOS composes
+components own source content, the connector SDK captures it, Arbora composes
 it, and EG commits it as a graph-scoped `GraphSchema` source.
 
 <div class="admonition architecture" markdown>
 <p class="admonition-title">Ontology composition pipeline</p>
 
 A component's `ConnectorContent` provider is captured by the SDK into a
-`ConnectorPack` head, composed by GraphOS, and attached via
+`ConnectorPack` head, composed by Arbora, and attached via
 `GraphSchema.AttachPack` into EG's composed schema snapshot — which then
 serves both `OwlReason` and `ShaclValidate`.
 
@@ -22,7 +22,7 @@ serves both `OwlReason` and `ShaclValidate`.
   public `ConnectorContent` provider.
 - The SDK captures providers independently and preserves their connector
   identity, content digest, and pack head.
-- GraphOS provisions each provider through the generic SDK workflow and attaches
+- Arbora provisions each provider through the generic SDK workflow and attaches
   the resulting pack. It does not merge one component's content into another.
 - AU never discovers entry points, walks local imports, or interprets Turtle in
   the serving path.
@@ -37,7 +37,7 @@ provider = agent_utilities_content()
 
 Its canonical operational-shape resource is
 `agent_utilities/ontology/shapes/governance.shapes.ttl`. Core ADR,
-Capability, Policy, and Tool shapes remain immutable EG sources. GraphOS owns
+Capability, Policy, and Tool shapes remain immutable EG sources. Arbora owns
 its runtime consent and scheduling shapes in its own pack.
 
 ## Adding component-owned semantic content
@@ -46,7 +46,7 @@ its runtime consent and scheduling shapes in its own pack.
 2. Expose that package through a `ConnectorContent` factory; do not add an AU
    loader or EG DTO wrapper.
 3. Add exact-byte, semantic-digest, and ownership tests.
-4. Let GraphOS call the SDK's generic provisioning workflow.
+4. Let Arbora call the SDK's generic provisioning workflow.
 5. Require the EG `GraphSchemaCommitted` receipt before readiness.
 
 Use `GraphSchemaList` to inspect `core_sources`, `dynamic_sources`, the immutable

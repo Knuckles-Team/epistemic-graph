@@ -248,15 +248,22 @@ pub(crate) fn resolve_submit_work_item_id(
     nodes: &mut ScopedOwnerTableMut<'_, (&str, &str), &[u8]>,
 ) -> Result<String, String> {
     use sha2::{Digest, Sha256};
-    let work_item_id = request.work_item_id.clone().unwrap_or_else(|| {
-        let mut digest = Sha256::new();
-        digest.update(graph.as_bytes());
-        digest.update([0]);
-        digest.update(context_tenant.as_bytes());
-        digest.update([0]);
-        digest.update(request.idempotency_key.as_bytes());
-        format!("work-item:{}", hex::encode(digest.finalize()))
-    });
+    let run_work_item_id = request
+        .run_id
+        .as_deref()
+        .map(|run| super::run_owner::work_item_id(graph, context_tenant, run))
+        .transpose()?;
+    let work_item_id = run_work_item_id
+        .or_else(|| request.work_item_id.clone())
+        .unwrap_or_else(|| {
+            let mut digest = Sha256::new();
+            digest.update(graph.as_bytes());
+            digest.update([0]);
+            digest.update(context_tenant.as_bytes());
+            digest.update([0]);
+            digest.update(request.idempotency_key.as_bytes());
+            format!("work-item:{}", hex::encode(digest.finalize()))
+        });
     if work_item_id.trim().is_empty() || work_item_id.len() > 512 {
         return Err("SubmitWorkItem work_item_id is outside native bounds".to_string());
     }
@@ -600,6 +607,7 @@ pub(crate) struct SubmitWorkItemWrite<'args, 'table, 'crypto> {
     now_s: f64,
     status: &'args str,
     pending_dependencies: usize,
+    owner: Option<serde_json::Value>,
     nodes: &'args mut ScopedOwnerTableMut<'table, (&'static str, &'static str), &'static [u8]>,
     edges: &'args mut ScopedOwnerTableMut<
         'table,
@@ -623,6 +631,7 @@ pub(crate) fn write_submit_work_item_node_and_edges(
         now_s,
         status,
         pending_dependencies,
+        owner,
         nodes,
         edges,
         crypto,
@@ -636,6 +645,9 @@ pub(crate) fn write_submit_work_item_node_and_edges(
         now_s,
         status,
     )?;
+    if let Some(owner) = owner {
+        props.insert("run_owner_binding".into(), owner);
+    }
     write_work_item_props(nodes, graph, work_item_id, &mut props, crypto)?;
     write_submit_work_item_dependency_edges(
         graph,
@@ -717,8 +729,10 @@ pub(crate) fn apply_submit_work_item_rows<'txn, 'crypto>(
         crypto,
         authoritative_now_ms,
         outbox_id,
+        admitted_actor,
     } = scope;
     let context_tenant = request.context.tenant_id.as_str();
+    let owner = super::run_owner::admit_owner(graph, request, admitted_actor)?;
 
     let (max_inflight, dependencies, dependency_rows) =
         validate_and_resolve_submit_work_item_dependencies(graph, request, nodes, crypto)?;
@@ -752,6 +766,7 @@ pub(crate) fn apply_submit_work_item_rows<'txn, 'crypto>(
         now_s,
         status,
         pending_dependencies,
+        owner,
         nodes: &mut *nodes,
         edges: &mut *edges,
         crypto,
@@ -786,6 +801,7 @@ pub(crate) fn apply_submit_work_items_rows<'txn, 'crypto>(
         crypto,
         authoritative_now_ms,
         outbox_id,
+        admitted_actor,
     } = scope;
     use eg_types::native_control::{
         NativeControlSchemaVersion, MAX_SUBMIT_BATCH, MAX_SUBMIT_BATCH_CHANGED_IDS,
@@ -814,6 +830,9 @@ pub(crate) fn apply_submit_work_items_rows<'txn, 'crypto>(
     let mut results = Vec::with_capacity(request.requests.len());
     let mut changed = Vec::with_capacity(request.requests.len());
     for child in &request.requests {
+        if child.run_id.is_some() {
+            return Err("run admission requires a single SubmitWorkItem".into());
+        }
         if child.context.tenant_id != request.context.tenant_id
             || sanitize(&child.context.graph) != graph
         {
@@ -826,6 +845,7 @@ pub(crate) fn apply_submit_work_items_rows<'txn, 'crypto>(
             edges,
             command_sequences,
             WorkItemCommitScope {
+                admitted_actor,
                 crypto,
                 authoritative_now_ms,
                 outbox_id,

@@ -250,7 +250,9 @@ async fn dispatch_store_methods_arm_1(ctx: DispatchCtx<'_>, method: Method) -> R
                         Ok(authority) => authority,
                         Err(denied) => return Response::err(req_id, denied),
                     };
-                    match crate::server::kv::try_handle(state, req_id, &carrier, method).await {
+                    match crate::server::kv::try_handle(state, req_id, &carrier, &req.graph, method)
+                        .await
+                    {
                         Ok(resp) => resp,
                         // Unreachable: every variant matched above is a kv method.
                         Err(_) => Response::err(req_id, "kv dispatch routing error"),

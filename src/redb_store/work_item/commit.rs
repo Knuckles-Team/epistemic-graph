@@ -320,7 +320,7 @@ pub(crate) fn apply_commit_work_item_result_row(
             Some(&authoritative_next),
         );
     }
-    record_outcome_refs(&mut props, committed_status, input.outcome_extension);
+    record_outcome_refs(&mut props, committed_status, input.outcome_extension)?;
     write_work_item_props(
         input.nodes,
         input.graph,
@@ -516,15 +516,27 @@ fn record_outcome_refs(
     props: &mut serde_json::Map<String, serde_json::Value>,
     committed_status: &str,
     extension: Option<&eg_types::outcome_bundle::TerminalOutcomeExtension>,
-) {
+) -> Result<(), String> {
     use eg_types::work_item_read::{
         WORK_ITEM_OUTCOME_DIGEST, WORK_ITEM_OUTCOME_REF, WORK_ITEM_TOOL_CALL_REFS,
         WORK_ITEM_TRACE_REF,
     };
     let Some(extension) = extension.filter(|_| committed_status != "retry_scheduled") else {
-        return;
+        return Ok(());
     };
+    use eg_types::work_item_read::{WORK_ITEM_EVENT_BATCH, WORK_ITEM_EVENT_DIGEST};
+    use sha2::{Digest, Sha256};
     let bundle = &extension.outcome_bundle;
+    let event_bytes = rmp_serde::to_vec_named(&extension.run_event)
+        .map_err(|error| format!("terminal event encoding failed: {error}"))?;
+    props.insert(
+        WORK_ITEM_EVENT_BATCH.into(),
+        bundle.outbox_id.clone().into(),
+    );
+    props.insert(
+        WORK_ITEM_EVENT_DIGEST.into(),
+        hex::encode(Sha256::digest(&event_bytes)).into(),
+    );
     let outcome_digest = extension
         .receipt_nodes
         .iter()
@@ -540,6 +552,7 @@ fn record_outcome_refs(
         WORK_ITEM_TOOL_CALL_REFS.into(),
         serde_json::json!(bundle.tool_call_refs),
     );
+    Ok(())
 }
 
 fn apply_receipt_rows(

@@ -144,12 +144,23 @@ impl Response {
                 (code.to_string(), Some(detail.to_string()))
             }
             _ if crate::contract::declared_error_code(&text) => (text, None),
-            _ => (
-                crate::contract::ServerErrorCode::Internal
-                    .as_str()
-                    .to_string(),
-                Some("unclassified engine refusal".to_string()),
-            ),
+            _ => {
+                // The wire never carries uncoded text (it may name request values);
+                // keep it diagnosable for operators at debug level instead of
+                // dropping it silently (spec: EG-DURABLE-KERNEL-R043.8).
+                tracing::debug!(
+                    target: "eg_types::response",
+                    request_id = id,
+                    refusal = %text,
+                    "unclassified engine refusal reported as INTERNAL"
+                );
+                (
+                    crate::contract::ServerErrorCode::Internal
+                        .as_str()
+                        .to_string(),
+                    Some("unclassified engine refusal".to_string()),
+                )
+            }
         };
         Response {
             id,

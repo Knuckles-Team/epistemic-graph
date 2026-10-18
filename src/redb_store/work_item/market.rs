@@ -31,6 +31,7 @@ pub(crate) struct NativeRecordRequest<'args, 'table, 'crypto> {
     pub(crate) batch_id: &'args str,
     pub(crate) method: &'args Method,
     pub(crate) nodes: &'args mut NodeRows<'table>,
+    pub(crate) native_work_items: &'args NodeRows<'table>,
     pub(crate) edges: &'args mut NativeEdgeRows<'table>,
     pub(crate) command_sequences: &'args mut NativeSequenceRows<'table>,
     pub(crate) committed_at_ms: u64,
@@ -46,6 +47,7 @@ pub(crate) fn apply_native_record_rows(
         request.graph,
         request.method,
         request.nodes,
+        request.native_work_items,
         request.committed_at_ms,
         request.crypto,
     )?;
@@ -62,6 +64,7 @@ pub(crate) fn apply_native_record_rows(
                 command_sequences: request.command_sequences,
             },
             WorkItemCommitScope {
+                admitted_actor: None,
                 crypto: request.crypto,
                 authoritative_now_ms: request.committed_at_ms,
                 outbox_id: request.batch_id,

@@ -245,8 +245,13 @@ pub struct ChangeEnvelope {
 }
 
 impl ChangeEnvelope {
+    /// Validate the envelope for admission. Every refusal carries a declared
+    /// error code (free-text refusals are classified as `INVALID_ARGUMENT`), so
+    /// the served path never reduces it to an unclassified `INTERNAL`
+    /// (spec: EG-DURABLE-KERNEL-R043.8).
     pub fn validate(&self) -> Result<(), String> {
         validation::validate_change_envelope(self)
+            .map_err(|refusal| crate::contract::classify_refusal("INVALID_ARGUMENT", "", &refusal))
     }
 }
 
@@ -681,7 +686,11 @@ fn validate_safe_text(value: &str) -> Result<(), String> {
         || lower.contains("/mnt/")
         || lower.contains("file://")
     {
-        return Err("persistence privacy policy rejected inline text".to_string());
+        return Err(
+            "INVALID_ARGUMENT: persistence privacy policy rejected an identifier or key \
+             containing '@', '\\', a host path or a file URI"
+                .to_string(),
+        );
     }
     Ok(())
 }
@@ -724,9 +733,10 @@ fn validate_msgpack_material(bytes: &[u8], rule: TextRule) -> Result<(), String>
     validate_json_material(&value, rule)
 }
 
-/// Caller-attested material (outbox, evidence, features): the strict rule.
+/// Caller-attested material (outbox, evidence, features): the attested
+/// host-identity rule for values, the strict rule for keys.
 fn validate_msgpack_privacy(bytes: &[u8]) -> Result<(), String> {
-    validate_msgpack_material(bytes, validate_safe_text)
+    validate_msgpack_material(bytes, material::validate_attested_text)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

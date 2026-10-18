@@ -54,7 +54,7 @@ Authenticated request + tenant scope
   -> optional snapshot-checked DecisionCommit
 ```
 
-The request carries a question kind, typed constraints, candidate source, policy reference and work budget. Candidate facts pin component ID, kind, definition digest, lifecycle, capability and model facts, provenance and evidence class. The input digest covers every value read by the decision function, including quantized feature matrix, time used for freshness, embedder/head/schema/policy digests, shortlist mode and exploration propensity when applicable. A live graph recomputation is a new decision, not replay of the old one. `verify-replay` runs the pure function over stored inputs and compares canonical bytes across supported targets. Integer `i128` arithmetic is checked; statistical math uses pinned deterministic implementations and quantizes once before digesting. `DecisionRecord` v1 is integer assembly, v2 statistical and v3 topology; decoder compatibility and golden vectors are versioned.
+The request carries a question kind, typed constraints, candidate source, policy reference and work budget. Candidate facts pin component ID, kind, definition digest, lifecycle, capability and model facts, provenance and evidence class. The input digest covers every value read by the decision function. These include the quantized feature matrix, freshness time, embedder/head/schema/policy digests, shortlist mode and applicable exploration propensity. A live graph recomputation is a new decision, not replay of the old one. `verify-replay` runs the pure function over stored inputs and compares canonical bytes across supported targets. Integer `i128` arithmetic is checked; statistical math uses pinned deterministic implementations and quantizes once before digesting. `DecisionRecord` v1 is integer assembly, v2 statistical and v3 topology; decoder compatibility and golden vectors are versioned.
 
 Policy order is monotone: a request may reduce risk, spending and latency budgets, increase minimum support, add denials and tighten the accepted optimality gap; a relaxation returns a typed error. Hard constraints cannot be bypassed by the scorer. The legal set comes from EG-held policy and facts rather than a caller-supplied arbitrary option list. A zero-cost unknown is prohibited; policy may exclude it, require a ceiling, or abstain. Visible constraints and derivations are returned; invisible candidates never appear in counts, digests, why-not or errors.
 
@@ -182,7 +182,7 @@ This register inventories all 118 decision-owned obligations. `Historical label`
 | EG-DECISION-ENGINE-R085 | T4 | BUILT | NOT_RUN | **Derive the legal option set; never merely receive it.** Laya scores the A you hand it and cannot say which options are legal. We generate A from the ontology (SHACL shapes + SPARQL shortlist) so only type-valid, policy-admissible candidates are ever scored. This is what makes monotone safety ENFORCEABLE rather than aspirational: an illegal option is never in A, so a learned rung cannot introduce one. It is also the scorer/planner distinction |
 | EG-DECISION-ENGINE-R086 | T4 | BUILT | NOT_RUN | **DecisionFit promotion evaluation protocol.** Adopt their four metrics (accuracy, soft accuracy, Brier, score MAE) and add five: empirical coverage alongside ECE. Abstention rate AND accuracy-on-answered (a good abstainer must be more accurate on what it answers, else the abstention is noise). Cost per decision (an unmeasured rung will not stay cheap). Decision stability (same state + same A -> same answer, since decisions are recorded in the graph and must be reproducible). And calibration drift over time, which bitemporal makes measurable. Frozen workflow set, per tenant and per domain |
 | EG-DECISION-ENGINE-R087 | T4 | BUILT | NOT_RUN | **Cardinality rule: shortlist before scoring.** Never hand a whole catalog to a scorer; SPARQL shortlist with a bounded LIMIT first. Their Banking77 collapse is the empirical case for it, and EG-DECISION-ENGINE-R083 raises the ceiling rather than removing the rule |
-| EG-DECISION-ENGINE-R088 | T4 | BUILT | NOT_RUN | **Trajectory-prefix belief (the one durable idea from SalesRLAgent).** Turn-by-turn P over conversation PREFIXES is a special case of BELIEF AS OF t over temporal slices — a capability we already have bitemporally and neither external system does. Expose it as a Decide primitive rather than a bespoke sales model |
+| EG-DECISION-ENGINE-R088 | T4 | BUILT | NOT_RUN | **Trajectory-prefix belief (the one durable idea from SalesRLAgent).** Turn-by-turn P over conversation PREFIXES is a special case of BELIEF AS OF t over temporal slices. We already have this bitemporal capability; neither external system does. Expose it as a Decide primitive rather than a bespoke sales model |
 | EG-DECISION-ENGINE-R089 | T4 | BUILT | NOT_RUN | **External validation of the decision ladder, to be cited in the design rationale.** Laya base scores 0.362 on typed decisions against 0.318 random and 0.461 majority-class — near chance, and BELOW majority. That is strong empirical evidence that a learned rung cannot be the primary decision mechanism without task labels, which is exactly the approved ladder's rule (Constrained -> Entailed -> Solved -> Scored -> Abstained, learned rungs may only narrow or abstain). Best external corroboration of monotone safety we have |
 | EG-DECISION-ENGINE-R090 | T4 | BUILT | NOT_RUN | **Resident native decision scorer in eg-decision — re-implement, do not vendor.** cua-ai/cua-s1-forms (MIT, open weights) proves the option-attention head geometry works at **706,048 params / 2.8 MB / 7-9 ms on CPU**: byte embedding (vocab 257) -> 2-layer transformer encoder (width 128, 4 heads) -> option-attention head, trained by plain cross-entropy on 10k synthetic episodes in ~30 minutes. That is small enough to be RESIDENT — compiled into the engine, no Python runtime, no sidecar, no IPC hop, no GPU scheduling. This reverses the Laya ruling (421M, do not adopt) on size grounds, not principle |
 | EG-DECISION-ENGINE-R091 | T4 | BUILT | NOT_RUN | **Bit-reproducible decisions via fixed-point arithmetic — the strongest reason to build rather than borrow.** EG records decisions as DecisionRecord graph objects. A nondeterministic scorer makes records unreproducible. That defeats the purpose of recording them. Jev is hosted and irreproducible. Laya uses 421M floats; cua-s1 uses PyTorch floats. Neither offers this at any size. eg-numeric’s detkernel enforces a no-f64-transcendental discipline for this reason. A 2-layer encoder with an attention head using FIXED-POINT INTEGER arithmetic produces bit-identical results across machines and time |
@@ -193,7 +193,7 @@ This register inventories all 118 decision-owned obligations. `Historical label`
 | EG-DECISION-ENGINE-R095 | T3 | LANDED | NOT_RUN | **The solver's committed replay contract is BROKEN on main, and no publication gate runs the test that proves it.** crates/eg-compute/tests/solve/determinism.rs::the_certificate_digest_matches_the_committed_golden_vector fails on clean main @ be0f1acb0: computed 1bc99ac3ed5d12211a9074b23cafde1f35f7ed90d70608f7e47c4a0429f4ea88 vs committed GOLDEN_DIGEST = 71a64f581943d7cadfaecbcba26644c7d2fd2176ff714a9c1b840dc6659d8f4e. The other two tests in the file PASS, including repeated_solves_are_byte_identical (4 solves compared), so the solver is stable **within** a run — what moved is the value relative to the committed constant. Bit-reproducible certificates are the whole reason decisions are recorded as graph objects (cf. EG-DECISION-ENGINE-R091), and FX-SOLVER shipped in 2.27.x. **Discovered incidentally** by an unrelated grammar change's batched cargo test -p eg-compute; ruled out as that change's own regression by an authoritative Cargo.lock package-set diff (5 added, 0 removed, **0 version-changed**) and confirmed by running the test on clean main. cargo check --locked passes on base |
 | EG-DECISION-ENGINE-R096 | T2 | LANDED | NOT_RUN | **The dominant community-detection wire method cannot carry edge weights or a quality function, so EG-REPO-INGEST-R011 and related rows (see `repository-index-and-ingestion/requirements.md`) are unreachable in production as built.** CommunityDetectEphemeral (crates/eg-types/src/protocol/method/method_02.rs:115-119) is { node_ids: Vec<String>, edges: Vec<(String, String)>, resolution: f64 } — the edge tuple has **no weight/properties slot** and there is **no quality-function selector**, only a modularity resolution. This is the stateless path tried FIRST and taken almost always in production. Consequence: EG-DECISION-ENGINE-R081's confidence weighting and EG-FEDERATED-QUERY-R060's CPM both land correctly in the kernel but are reachable only through the rarer tenant-load fallback branch. **This corrects EG-DECISION-ENGINE-R081's own premise** — the register says "the kernel change is zero, only the weight supply changes", and the weight supply turns out to require a wire change as well as the AU-side change. The AU half is done and correct: confidence was already extracted into EnrichmentEdge.props by enrichment/extractors/code_test.py:274-279 and was being discarded by enrichment/features.py's cluster_features(); the fix now carries it as (source, target, confidence) and never fabricates a value for the Python name-only fallback resolver, which has no tiered confidence model. similar_to is confirmed MOOT on this path — cluster_features/resolve_call_edges only ever build CALLS edges |
 | EG-DECISION-ENGINE-R097 | T1 | LANDED | NOT_RUN | **CORRECTED: these are DETERMINISTIC stale-test-assumption defects, NOT load-sensitive races.** Filed originally as EG-DURABLE-KERNEL-R014's family because they surfaced in the constrained gate; A6 root-caused both statically and an independent main-verify run on be0f1acb0 reproduced them unconstrained (1936 passed, 3 failed). **(a)** every_declared_surface_reaches_its_stub — the test's signed() helper hardcoded ONE literal nonce ("05".repeat(32)) for every request while looping over contract_wave_samples(); the transport replay record is a single global OnceLock in test builds and correctly rejects the second non-mutating request presenting that nonce. AgentAssemble records it first, Decide collides. 100% deterministic, present since the test's introduction in a4804f87c. **(b)** roundtrip_dedup_bounded_memory_and_gc — the X2 blob-GC hardening commit 62a2471e1 introduced a default **24-hour GC grace period** and never updated this dispatch-level test, which uses the real wall clock and asserts immediate reclaim after BlobUnref; grace cannot elapse inside a millisecond test, so blobs_reclaimed is always 0. Neither shares any mechanism with EG-DURABLE-KERNEL-R014. Original text follows. ~~Two --lib tests fail under 2-core constrained execution, shape-consistent with EG-DURABLE-KERNEL-R014's load-sensitive family.~~ (a) server::contract_wave::dispatch_reachability_tests::every_declared_surface_reaches_its_stub panics "Decide must reach its contract-wave stub, got nonce already used (replay rejected)" (src/server/contract_wave.rs:184); (b) server::dispatch::graph_pipeline::blob_dispatch_tests::roundtrip_dedup_bounded_memory_and_gc fails "unreferenced blob reclaimed, left: 0, right: 1" (graph_pipeline.rs:2028). Both are exactly what the GOC-70 constrained-parallelism gate exists to catch. **Neither was diagnosed** — the review that found them correctly flagged rather than guessed |
-| EG-DECISION-ENGINE-R098 | — | DEFERRED | NOT_RUN | Defer a Rust microgpt, in-engine autograd, generative UQL model and KLPO loss in EG. Each needs a separate canonical Gap and frozen held-out evidence. Reuse the approved typed Decide ladder for legal-option derivation, calibrated probabilities, cost-sensitive optimal choice, provenance, abstention, NlTemplate and constrained DecideText/UQL. The bounded resident scorer is non-generative and does not authorize a GPT |
+| EG-DECISION-ENGINE-R098 | — | DEFERRED | NOT_RUN | Defer a Rust microgpt, in-engine autograd, generative UQL model and KLPO loss in EG. Each needs a separate canonical Gap and frozen held-out evidence. Reuse the approved typed Decide ladder for legal-option derivation, calibrated probabilities, cost-sensitive optimal choice, provenance, abstention, NlTemplate and constrained DecideText/UQL; the bounded resident scorer is non-generative and does not authorize a GPT |
 | EG-DECISION-ENGINE-R099 | T3 | LANDED | NOT_RUN | Wikidata alignment connector (wikidataId, skos:exactMatch) feeding EG-DECISION-ENGINE-R032 entity resolution keys for Region/Country/Taxon/Food/Nutrient. EG-DECISION-ENGINE-R033 proposes connector schema_mappings against world_model-v1 properties with the world-model SHACL shapes as acceptance |
 | EG-DECISION-ENGINE-R100 | T6 | BUILT | NOT_RUN | Retrieval outcome join (cited evidence + independent evaluation) on retrieval DecisionRecords; durable hard negatives |
 | EG-DECISION-ENGINE-R101 | T6 | BUILT | NOT_RUN | Query-side low-rank embedding adapter head, post-RLS in ANN probe, promoted by DecisionEval receipt |
@@ -464,7 +464,7 @@ Reused:
 - `StatisticalOutcome::Advisory` and `::Abstained` (`outcome.rs:101`, `outcome.rs:107`).
 - `ObservationRef` (`facts.rs:142`).
 
-New: the question kind, the request and answer types, the three pure rule functions, the handler, the SHACL shapes and the generated-contract entries.
+Add the question kind, request and answer types, and three pure rule functions. Add the handler, SHACL shapes and generated-contract entries.
 
 Decisions:
 
@@ -480,7 +480,7 @@ Cross-repository rows:
 
 - The `AU-CONTROL` row for the signed dispatch envelope `harness_config` calls this decision and signs the committed answer.
 - The `AU-HARNESS` row for the evaluation runner writes the measured facts that `EG-TYPED-PACKS-R048.3` and `R048.4` store.
-- The `GRAPHOS-A2A` row for admission refuses a task without a committed `HarnessConfig` answer.
+- The `ARBORA-A2A` row for admission refuses a task without a committed `HarnessConfig` answer.
 - The `SDK-CONNECTOR-CONTROL` row for tool `read_only` and `side_effects` facts feeds the tool-subset candidates.
 
 ### Committed pack receipt binding (R073.4)
@@ -537,9 +537,8 @@ metadata (`rule_id`, `applies_to_class`, `source_generation`), with no rule
 predicate or contradiction semantics. `entailed_guardrails` establishes task
 applicability only, so it cannot implement an invariant contradiction check.
 
-EG-DECISION-ENGINE-R129 and children .1/.3/.4/.5/.6 remain open. The promotion
-owner and rule/invariant semantics must be established before wiring a pure
-check, confidence ordering, audit persistence, or served acceptance. The
+EG-DECISION-ENGINE-R129 and children .1/.3/.4/.5/.6 remain open. Establish the promotion owner and rule/invariant semantics first.
+Then wire a pure check, confidence ordering, audit persistence and served acceptance. The
 intended invariant check must precede any confidence threshold; consensus
 cannot grant a bypass. No new promotion machinery is introduced by .2.
 
@@ -916,10 +915,10 @@ Dependency order: typed request/plan/refusal/evidence round trip; deterministic 
 - Existing EG rollup: `EG-DECISION-ENGINE-R029`. Append-only residual ID: `EG-DECISION-ENGINE-R029.1`.
 - Original objective. Search grounding is a replaceable provider selected through the committed routing decision, independent of the reasoning model. An unavailable provider is refused, not silently substituted.
 - Missing EG obligation. Replaceable search-grounding provider independently selected from reasoning model and bound to a committed route. Unavailable committed provider must refuse rather than substitute.
-- Producer/consumer route. Preserve GRAPHOS-OPS-R021.2.1 retrieval.search and its tenant-scoped retriever. EG must produce the committed provider binding and the SDK/GraphOS consumer must execute that exact provider. That edge is missing.
+- Producer/consumer route. Preserve ARBORA-OPS-R021.2.1 retrieval.search and its tenant-scoped retriever. EG must produce the committed provider binding and the SDK/GraphOS consumer must execute that exact provider. That edge is missing.
 - Proposed definition. Define RetrievalProviderBindingV1 in the committed retrieval plan. Bind provider id/revision/config digest, query/request digest and tenant scope. Identify reasoning model id/revision separately. The binding has an explicit no-substitution policy. Execution evidence records the exact provider, binding digest, request/result digests and provider revision.
-- Planned acceptance and owner hold. Case R029.1-exact-provider. independently vary provider and reasoning-model ids while verifying the committed provider is executed. If the bound provider is unavailable, stale, unauthorized or mismatched, refuse before retrieval and record zero calls to alternate providers. Preserve GRAPHOS-OPS-R021.2.1 retrieval.search and its tenant-scoped retriever. EG must commit the provider binding. The SDK/GraphOS consumer contract that executes and receipts that exact binding is not defined. No implementation, served test, or receipt is claimed by this SPECIFIED definition.
-- Preserve covered clauses: `EG-DECISION-ENGINE-R029`, `GRAPHOS-OPS-R021.2.1`.
+- Planned acceptance and owner hold. Case R029.1-exact-provider. independently vary provider and reasoning-model ids while verifying the committed provider is executed. If the bound provider is unavailable, stale, unauthorized or mismatched, refuse before retrieval and record zero calls to alternate providers. Preserve ARBORA-OPS-R021.2.1 retrieval.search and its tenant-scoped retriever. EG must commit the provider binding. The SDK/GraphOS consumer contract that executes and receipts that exact binding is not defined. No implementation, served test, or receipt is claimed by this SPECIFIED definition.
+- Preserve covered clauses: `EG-DECISION-ENGINE-R029`, `ARBORA-OPS-R021.2.1`.
 - Source review. `c9552392eb813763a83fc96fb48ad1bd18fd805ef608736f1dae5d48ab12c984`. Evidence: epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:41. Graph-os:069eebc785afb9fb26bbbcc907cf5a2a4bcab5c5:specs/hosted-api-operations/requirements.md:42.
 - Cross-owner behavior and receipts remain with the named owner. No runtime evidence is claimed.
 
@@ -1063,7 +1062,7 @@ Dependency order: typed request/plan/refusal/evidence round trip; deterministic 
 
 - Extend existing parent `R134` without removing its existing behavior.
 - Specify: Define generated `AggregateFanout/v1` request. Bind the selected `AggregationOp`, TaskPlan digest and AU `FanoutResult` identity. Include expected subtask ids and GraphOS durable instance-receipt ids/digests. Define the result with operation/version, ordered input receipts, one typed aggregate artifact/schema version, result digest and graph revision. EG applies the already-selected operator to the complete receipt set. It adds no fan-out width, concurrency policy or second aggregation authority. A served independent readback resolves the returned artifact by tenant/id/revision and compares the digest before success.
-- Producer/consumer boundary. AU owns FanoutResult production; GraphOS `agents.run` owns durable instance receipts and capacity/refusal. EG owns selected operator and public application/readback contract only. Preserve existing R134.1/.3 and GRAPHOS-FLEET-R024.5-.9.
+- Producer/consumer boundary. AU owns FanoutResult production; GraphOS `agents.run` owns durable instance receipts and capacity/refusal. EG owns selected operator and public application/readback contract only. Preserve existing R134.1/.3 and ARBORA-FLEET-R024.5-.9.
 - Source record SHA-256: `8f2ff3030a71d67b20cd19301f0ed8cef75e975403595cec4060abf9fa8952c1`.
 - Keep status SPECIFIED until the EG served producer and each separately owned consumer are implemented, served-tested and independently read back.
 
@@ -1298,7 +1297,7 @@ Dependency order: typed request/plan/refusal/evidence round trip; deterministic 
 
 - Preserve parent `EG-DECISION-ENGINE-R142` and its existing clauses.
 - Define. For each skill revision, bind its atomic/workflow classification and local model id/revision. Record evaluation-set digest, criteria/policy revision and result/attestation digest. EG emits the certification attestation only after AU executes the declared local-model evaluation. GraphOS validates the attestation before normal (non-certification) `orchestrate` or `agents.run`. A separately authorized evaluation run may produce a new attestation. Atomic skills are evaluated first. A workflow skill is certifiable only when every referenced atomic dependency has a valid current attestation. Missing, stale, failed or mismatched dependencies refuse certification/invocation before effects. EG attests evaluation outcome; AU executes; GraphOS owns invocation gate and host policy.
-- Producer/consumer: Extend existing GRAPHOS-FLEET-R034.7-.12 identity bindings. Do not add host scoring authority or infer certification from host prerequisites alone.
+- Producer/consumer: Extend existing ARBORA-FLEET-R034.7-.12 identity bindings. Do not add host scoring authority or infer certification from host prerequisites alone.
 - Source record SHA-256: `5df3f5a45d486aeba5765a31b6c6283637adf2bd8ce63a87938eddd28b90f082`.
 - Keep status SPECIFIED until each named producer and consumer is separately implemented, served-tested and independently read back.
 <!-- /spec-definition-patch -->
@@ -1310,7 +1309,7 @@ Dependency order: typed request/plan/refusal/evidence round trip; deterministic 
 ### `EG-DECISION-ENGINE-R142.101` — Wiring row
 
 - Production call sites: src/server/dispatch/router/decision_plane.rs:119 -> src/server/handlers/decide/jobs.rs:30.
-- The EG attestation must bind the AU evaluation receipt and exact skill/model/dataset/criteria revisions; GraphOS consumption is at GRAPHOS-FLEET-R034.7-.12.
+- The EG attestation must bind the AU evaluation receipt and exact skill/model/dataset/criteria revisions; GraphOS consumption is at ARBORA-FLEET-R034.7-.12.
 - Explicit owner holds: AU has not defined its per-criterion evaluation receipt. GraphOS has not defined its attestation-consumer operation. R034 identity checks do not close this dependency.
 - Planned proving test. tests/decide/test_local_skill_certification_served.py::test_decision_eval_attestation_binds_au_receipt.
 
@@ -1595,7 +1594,7 @@ Capability designation reads the surface triples that `EG-TYPED-PACKS-R102` proj
 
 ## EG-DECISION-ENGINE-R176 and R177 — job-scoped load set and usage guidance
 
-A harness asks graph-os what a job needs. graph-os asks the engine. The engine answers from the overlay of every imported connector pack. graph-os loads only the answered tools (`GRAPHOS-FLEET-R037`). graph-os holds no ranking policy.
+A harness asks graph-os what a job needs. graph-os asks the engine. The engine answers from the overlay of every imported connector pack. graph-os loads only the answered tools (`ARBORA-FLEET-R037`). graph-os holds no ranking policy.
 
 Call path: graph-os `find` with a job -> served `Decide` -> `handle_decide` (`statistical.rs:11`) -> capability designation (`EG-DECISION-ENGINE-R172`) per capability -> union and bound -> premises -> answer.
 
@@ -1618,3 +1617,76 @@ against params before trusting the answer. This slice enables neither executor
 dispatch nor advisory commit. Policy thresholds remain a separate increment.
 Commit replay rejects evidence on every currently supported question, so a
 caller cannot attach a fabricated answer to a rehashed ordinary record.
+
+R128.13.2 retains the parent commit and readback obligation. The evidence type
+and its refusal tests do not establish successful HarnessConfig replay.
+The status generator uses commit trailers and test bindings, not test results.
+Record native execution evidence separately before claiming acceptance.
+
+R128.13.1.1 owns the unchanged evidence codec and native refusal tests.
+R128.13.1.2 retains the undefined workload and performance acceptance.
+R128.13.2.1 retains successful replay and readback; R128.13.2.2 retains their resource qualification.
+The benchmark paths named in those rows are planned and unimplemented.
+Vector cardinalities and context-token bounds do not establish byte, latency or memory budgets.
+Generate status only from the canonical tool; record execution and measurement gaps separately.
+
+## Amendment 2026-10-18: R036 profile-use admission ownership
+
+This amendment extends `EG-DECISION-ENGINE-R036`; it does not deliver runtime
+acceptance. R047 owns the existing DecisionRecord types and methods; R051 owns
+their served handlers and audit behavior. Arbora PR 349 adopted explicit engine-owned profile-use permission
+for `ARBORA-A2A-R016.6`. Catalog visibility and a sealed assembly record do not
+grant that permission. Existing default execution remains unchanged.
+Arbora retains served admission and authentication. EG supplies durable
+transaction validation and persistence under verified authority.
+
+Reuse `Method::DecisionCommit`, its handler in
+`src/server/handlers/decide/commit.rs`, and
+`AgentLibraryStore::commit_decision_record` in
+`src/server/persistence/decision_record.rs` as the decision-record owner.
+`Method::AgentAssemble` remains a read-only derivation. The current commit
+transaction checks catalog/component snapshots and stores a decision; it does
+not admit a task or establish profile-use authority.
+
+Before adding a preference-enabled success result, extend the owner contract
+with an explicit admission variant or operation. Its exact wire shape remains
+producer work. Bind the verified tenant, principal, graph and session.
+Bind the explicit owner-issued profile-use grant and revision, and the routed capability revision.
+Also bind the selected profile reference and digest, decision reference, and task-admission reference. Request fields cannot establish these facts.
+`EG-IDENTITY-R001/R002/R004` own verified identity, atomic authorization writes,
+and scope classification. The grant schema and current session evidence must
+be specified there; registering a scope does not issue a grant.
+
+The native admission must read current authority and validate expiry using the
+engine clock within the transaction authority that records the decision and
+admits the task. Agent Library, identity and task storage ownership must be
+resolved explicitly before implementation. Separate check/commit/enqueue calls
+are not atomic admission. Until a shared transaction exists, no profile-enabled
+success is served. Do not alter sealed component definitions or infer permission
+from visibility, roles, provider configuration or a cached catalog.
+
+Reuse the new-run ownership and replay contract under
+`EG-DURABLE-KERNEL-R028` in `../durable-graph-kernel/plan.md` (PR 646).
+Retain the verified ultimate principal, immutable run/WorkItem binding, and
+native stable-key replay ledger. Do not attach a new run to a pre-existing
+WorkItem or create a second ownership table. That admission contract alone does
+not grant profile use or make the cross-owner transaction available.
+
+Required native acceptance fixtures use real owner-issued test authority:
+
+- A matching caller, live grant and exact capability/profile revisions create
+  one admission receipt and task admission; an identical retry is idempotent.
+- Foreign caller/session, missing or expired evidence, revoked grants, and
+  changed capability/profile/grant revisions produce no admission writes.
+- Revocation between resolution and admission queues zero tasks; transaction
+  failure leaves neither admission receipt nor admitted task.
+- Reusing a receipt with a changed task reference or binding refuses. Existing
+  requests without model preference preserve their current behavior.
+
+After native tests pass, regenerate the contract with
+`cargo run --locked -p eg-capabilities --features contract --bin gen_contract`,
+run its `--check` mode and the capability tests, and regenerate/check the method
+codec through `scripts/build_method_codec_wasm.py`. Generated Python bindings
+are consumers, not an alternative authority. Arbora may wire its application
+port only after the accepted owner operation and real receipt are available.
+R036 and the Arbora requirement remain open for these acceptance obligations.

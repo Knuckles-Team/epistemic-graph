@@ -291,7 +291,7 @@ References
 - Contract definition: R009.18 in `requirements.md` specifies the complete revisioned observation window, fields, validation, joint decision, trace, and capacity behavior. This plan preserves that contract without restating its long field list.
 - Production wiring and owner boundary: Feed the proposed AU RunAdjustmentObservation from the existing routing and continuation paths to Method::Decide. Reuse R136 model adequacy/stage allocation and the existing RunTrace ingestion/readback under R009.17. Persist both adjustments and abstentions before application; GraphOS remains capacity authority.
 - Planned acceptance: `run_observations_change_model_and_width_with_trace` exercises AU routing/continuation and served EG Decide. It compares controlled latency, cost, and error windows under identical budgets. Full positive, refusal, trace, and capacity cases remain in `requirements.md` and `test-spec.md`.
-- Preserve existing coverage: `AU-CONTROL-R006`, `AU-CONTROL-R019`, `AU-HARNESS-R007`, `EG-ORCH-VOCAB-R009.8`, `EG-ORCH-VOCAB-R009.9`, `GRAPHOS-CAPACITY-R001.1`.
+- Preserve existing coverage: `AU-CONTROL-R006`, `AU-CONTROL-R019`, `AU-HARNESS-R007`, `EG-ORCH-VOCAB-R009.8`, `EG-ORCH-VOCAB-R009.9`, `ARBORA-CAPACITY-R001.1`.
 - Source record: AU:26 SHA-256 and exact owner references are retained in `requirements.md`.
 - Explicit owner holds: AU-CONTROL-R006.30 is unmerged. Policy thresholds, predictive cost inputs, and tie breaks remain open until the owner publishes a versioned policy. No tuning defaults or implementation claims are supplied.
 - Unmerged consumer dependencies: AU-CONTROL-R006.30 (draft/unmerged).
@@ -347,9 +347,9 @@ References
 - Existing EG parent/rollup: `EG-ORCH-VOCAB-R012`; preserve its existing obligations.
 - Original objective: Epistemic state and active policy live in the graph. Normative rules and constitutions live in versioned files. Graph writes never overwrite those files. Normative changes require review.
 - Contract definition: `requirements.md` R012.8 defines the normative-source binding, review digest, generation/revision checks, governed writeback, reread, and activation conditions.
-- Production wiring and owner boundary: Link the R012.2 policy classification and EG-IDENTITY-R008.4 active graph policy to R012.7 activation. Bind review/approval evidence to GRAPHOS-OPS-R050.2/.4 and the concrete SDK governed source effect. EG has no normative filesystem writer.
+- Production wiring and owner boundary: Link the R012.2 policy classification and EG-IDENTITY-R008.4 active graph policy to R012.7 activation. Bind review/approval evidence to ARBORA-OPS-R050.2/.4 and the concrete SDK governed source effect. EG has no normative filesystem writer.
 - Planned acceptance: `reviewed_normative_source_activates_without_graph_overwrite` exercises served ingestion, owner review, activation, and decision use. It confirms unchanged source bytes after graph operations and refusal without reviewed governed writeback. Full mismatch, stale, and race cases remain in `requirements.md` and `test-spec.md`.
-- Preserve existing coverage: `EG-IDENTITY-R008.4`, `EG-ORCH-VOCAB-R012.2`, `GRAPHOS-OPS-R050.2`, `GRAPHOS-OPS-R050.4`, `EG-ORCH-VOCAB-R012.5`, `EG-ORCH-VOCAB-R012.6`.
+- Preserve existing coverage: `EG-IDENTITY-R008.4`, `EG-ORCH-VOCAB-R012.2`, `ARBORA-OPS-R050.2`, `ARBORA-OPS-R050.4`, `EG-ORCH-VOCAB-R012.5`, `EG-ORCH-VOCAB-R012.6`.
 - Source record: EG:61 SHA-256 `c5f1dfe7867267169ebc8c75abba87a1d9ed47568a65cbfe1bf6d183b8026e59`. Owner reference IDs and paths are in the canonical R012.8 requirement.
 - Explicit owner holds: The concrete producer of the review receipt and normative-file source-effect binding must be owner-confirmed. R050 references establish review/ops boundaries, not proof that the proposed full carrier already exists.
 - Unmerged consumer dependencies: none.

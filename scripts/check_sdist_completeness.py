@@ -172,6 +172,14 @@ def _check_metadata(
     package = tomllib.loads(manifest.read().decode()).get("package")
     if package is not None and package.get("version") != version:
         raise ValueError("sdist Cargo version differs")
+    # PyPI refuses (HTTP 400) an upload whose `License-File` is not in the archive.
+    absent = [
+        name
+        for name in message.get_all("License-File", [])
+        if prefix + name not in files
+    ]
+    if absent:
+        raise ValueError(f"declared License-File missing from sdist: {absent}")
 
 
 def validate(path: Path, required: set[str], version: str) -> None:

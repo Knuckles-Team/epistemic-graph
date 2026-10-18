@@ -28,7 +28,7 @@
 * **Raft RPC** binds `:9100` on every node (the `EPISTEMIC_GRAPH_RAFT_PEERS` port).
   Peers dial the runtime-injected `NODE_<N>_ADDR` values on `:9100`.
 * The engine's **client TCP** must therefore move OFF `:9100` (collision) — the
-  `cluster.env` flavor sets `ENGINE_TCP_ADDR=0.0.0.0:9101`; a **co-located graph-os**
+  `cluster.env` flavor sets `ENGINE_TCP_ADDR=0.0.0.0:9101`; a **co-located arbora**
   should prefer the **local UDS**. Remote clients dial a member's `:9101` and follow
   the `ForwardToLeader` redirect.
 * `EPISTEMIC_GRAPH_RAFT_BIND_ADDR=0.0.0.0:9100` lets a containerized member bind all
@@ -84,7 +84,7 @@ performance still require the operator's multi-node soak.
    registry image for prod).
 3. **Open `:9100` between the four hosts** (Raft RPC) on the trusted LAN.
 4. **Confirm clocks are sane** (Raft leases tolerate drift but don't abuse it; run NTP).
-5. **Decide the client path.** If graph-os is co-located on each node, it uses the local
+5. **Decide the client path.** If arbora is co-located on each node, it uses the local
    UDS and needs no change. If clients dial the engine over TCP, repoint them at a
    member's `:9101` (see `GRAPH_SERVICE_TCP_ADDR` in `cluster.env`).
 
@@ -234,7 +234,7 @@ confirm there before declaring the cluster production-live:
 1. **Leader-routing on the dispatch hot path:** when `ServerState.raft` is `Some`, a
    durable write must go through `client_write` (consensus barrier) and a follower must
    surface the leader hint so the client retries against the leader (or the co-located
-   graph-os transparently forwards). Verify this is wired for the 0.10 `client_write`
+   arbora transparently forwards). Verify this is wired for the 0.10 `client_write`
    return/`ForwardToLeader` shape.
 2. **Membership admin entrypoint — DONE.** `MultiRaft::add_group_member` was split
    into `add_group_learner` (`src/raft/multi.rs`, add-learner only, no

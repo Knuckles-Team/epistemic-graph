@@ -131,7 +131,7 @@ The named defaults `complete_document`, `content_identity`, `source_sequence` an
 
 Cross-repository dependency: `SDK-SOURCE-INGEST-R010` specifies `run_ingest_worker`; its delivery state remains `SPECIFIED`.
 This planned worker must capture sources, perform source effects, parse external formats and submit normalized records.
-`GRAPHOS-` owns the hosted entry and worker supervision; `AU-` emits harness events only in this ingestion boundary.
+`ARBORA-` owns the hosted entry and worker supervision; `AU-` emits harness events only in this ingestion boundary.
 EG must validate, store and select knowledge; no connector credential or source-effect loop moves into EG.
 R001 already owns queues and retries; R003.1 through R003.6 already own atom decomposition and selection.
 Decision rows R133 through R138 own run traces, plans and budgets; they do not own source transcript ingestion.

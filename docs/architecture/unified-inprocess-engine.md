@@ -14,7 +14,7 @@ Two shapes now exist, and this doc is about the second one:
 | | Out-of-process (today's default) | Unified single binary (this doc) |
 |---|---|---|
 | Transport | Tokio UDS/TCP server, length-prefixed MessagePack, `eg2.` HMAC envelope | A direct Rust function call inside the same OS process |
-| Scales | Horizontally — one engine, multiple `graph-os` clients | Vertically only — one `graph-os`, one embedded engine |
+| Scales | Horizontally — one engine, multiple `arbora` clients | Vertically only — one `arbora`, one embedded engine |
 | Wheel target | `bindings = "bin"` (`epistemic-graph-server`) | A pyo3 `cdylib` (`epistemic_graph.engine`), injected into the same wheel |
 | Identity boundary | Real — client and engine are different processes/hosts | None needed for the call itself — the caller *is* the trusted process |
 | Batching rule | Non-negotiable (round-trip amortization) | **Equally non-negotiable** (lock/allocation amortization — see §5) |
@@ -147,7 +147,10 @@ class NodeClient:
     async def add(self, node_id: str, properties: dict[str, Any] | None = None) -> None:
         await self._client._send(
             "AddNode",
-            {"node_id": node_id, "properties_msgpack": list(msgpack.packb(properties or {}))},
+            {
+                "node_id": node_id,
+                "properties_msgpack": list(msgpack.packb(properties or {})),
+            },
         )
 
     async def properties(self, node_id: str) -> dict[str, Any] | None:
@@ -176,15 +179,24 @@ lifted to an interface both transports satisfy:
 ```python
 class _Transport(Protocol):
     async def _send(
-        self, method: str, params: dict[str, Any] | None = None, *, graph: str | None = None,
+        self,
+        method: str,
+        params: dict[str, Any] | None = None,
+        *,
+        graph: str | None = None,
     ) -> Any: ...
 
-class SocketTransport:                       # today's EpistemicGraphClient, unchanged
-    async def _send(self, method, params=None, *, graph=None) -> Any: ...  # framed UDS/TCP + eg2. envelope
 
-class EmbeddedTransport:                     # NEW — backs epistemic_graph.embedded
+class SocketTransport:  # today's EpistemicGraphClient, unchanged
+    async def _send(
+        self, method, params=None, *, graph=None
+    ) -> Any: ...  # framed UDS/TCP + eg2. envelope
+
+
+class EmbeddedTransport:  # NEW — backs epistemic_graph.embedded
     def __init__(self, graph_name: str = "__commons__") -> None:
-        from . import engine as _native      # the pyo3 extension this crate builds
+        from . import engine as _native  # the pyo3 extension this crate builds
+
         self._engine = _native.Engine()
         self._graph_name = graph_name
         self._engine.create_graph(graph_name)
@@ -193,7 +205,9 @@ class EmbeddedTransport:                     # NEW — backs epistemic_graph.emb
         g = graph or self._graph_name
         params = params or {}
         if method == "AddNode":
-            self._engine.add_node(g, params["node_id"], bytes(params["properties_msgpack"]))
+            self._engine.add_node(
+                g, params["node_id"], bytes(params["properties_msgpack"])
+            )
             return None
         if method == "GetNodeProperties":
             return self._engine.get_node_properties(g, params["node_id"])
@@ -204,7 +218,7 @@ class EmbeddedTransport:                     # NEW — backs epistemic_graph.emb
 interchangeable — same class, same method names, same msgpack encode/decode, different
 object underneath `self._client`. `agent_utilities` code that does
 `client.nodes.add(...)`/`await client.nodes.properties(...)` never has to know or care
-which one it was handed. A `graph-os` config flag (`engine_mode: embedded | socket`,
+which one it was handed. A `arbora` config flag (`engine_mode: embedded | socket`,
 tying into W-D's transport modes) decides which `Transport` gets constructed at startup;
 everything above that line is unmodified.
 
@@ -315,7 +329,7 @@ read + a `DashMap` insert is sub-microsecond, so holding the GIL across it will 
 register. It matters for real once the durable path is wired in (see §11): a redb
 group-commit **awaits** an off-reactor fsync (`AGENTS.md`'s "commit-before-ack"), and
 that wait must not hold the GIL, or a busy embedded engine will stall every other Python
-thread in the process (including, critically, `graph-os`'s own asyncio event loop if it
+thread in the process (including, critically, `arbora`'s own asyncio event loop if it
 runs on the same interpreter) for the duration of a disk write. The production shape
 for that case is a **persistent Tokio runtime owned once by the pyo3 module** (not
 spun up per call), with the async commit driven as:
@@ -366,7 +380,7 @@ What this means concretely, layer by layer:
   `EmbeddedEngine` shares with this prototype rather than one this crate introduces. RLS
   answers "can agent A see/write property P on node N", a question that still matters
   in-process whenever more than one agent shares **one** embedded engine (the common
-  case — one `graph-os` serves multiple agents). Because there is no network boundary to
+  case — one `arbora` serves multiple agents). Because there is no network boundary to
   authenticate, the identity for an RLS check does not need a *signature* — but it still
   needs to be **asserted**: the pyo3 call still needs an `agent_id`/scope parameter that
   feeds `IsolationLayer::filter_view` the same way the socket dispatch's
@@ -439,7 +453,7 @@ extension once §11's packaging work lands.
 
 **Runtime, not install-time, selection.** `pip install epistemic-graph` always gets both
 artifacts (the `bin` **and** the extension) once this ships — installing does not commit
-the operator to a transport. `graph-os` picks the transport (`EmbeddedTransport` vs
+the operator to a transport. `arbora` picks the transport (`EmbeddedTransport` vs
 `SocketTransport`, §4) from its own config at **startup**, which is exactly what W-D
 (deployment modes) and W-E (genesis profiles) key off of: a self-contained profile
 builds `EmbeddedTransport` and never spawns `epistemic-graph-server` at all; a
@@ -535,12 +549,12 @@ settings.
 
 **Reading the result.** The program doc's gate is *"no measured downside before this
 becomes default"* — that is a claim about the **unified, self-contained** deployment
-shape specifically (one `graph-os`, no horizontal fan-out), not a claim that in-process is
+shape specifically (one `arbora`, no horizontal fan-out), not a claim that in-process is
 strictly faster in every configuration. The out-of-process shape's entire reason to exist
 is horizontal scale-out (one engine, multiple clients, GIL-free) — a fair comparison is
 narrower than "socket vs. no socket": it is "for the self-contained deployment this
 feature targets, does removing the socket round trip measurably help, and does it cost
-anything else (e.g. GIL contention with `graph-os`'s own event loop) that will eat the
+anything else (e.g. GIL contention with `arbora`'s own event loop) that will eat the
 win back." This bench answers the first half (transport tax, isolated); §11 lists what a
 follow-up needs to close the second half (a concurrent-load / GIL-contention soak, not a
 single-threaded criterion sample).
@@ -586,7 +600,7 @@ surface. In priority order:
    calling Python thread (§6).
 7. **Concurrent-load / GIL-contention validation.** This session's bench is
    single-threaded criterion sampling (§10) — it proves the transport-tax removal, not
-   the "does an embedded engine under real concurrent agent load stall `graph-os`'s own
+   the "does an embedded engine under real concurrent agent load stall `arbora`'s own
    asyncio loop" question the program doc's gate ultimately cares about. That needs a
    Python-side stress harness (multiple concurrent coroutines calling into the embedded
    engine while a control coroutine measures event-loop responsiveness) — out of scope
@@ -594,7 +608,7 @@ surface. In priority order:
 8. **Single-writer-per-persist-dir enforcement.** Once (1) lands, exactly one embedded
    engine may hold a given `persist_dir` open (redb is single-writer-per-file — the same
    constraint `EmbeddedEngine`/the server's `persist_lock` already enforce). Document/
-   guard this explicitly for the embedded case (e.g. two `graph-os` processes must never
+   guard this explicitly for the embedded case (e.g. two `arbora` processes must never
    both embed against the same directory) before it ships as a supported deployment
    shape.
 9. **`EngineResolver` / genesis wiring** (W-D, W-E). `agent-utilities`' engine resolution

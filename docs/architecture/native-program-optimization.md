@@ -127,9 +127,7 @@ submitted = await client.jobs.submit_program_optimization(
 status = await client.jobs.status(submitted["job_id"])
 rows = (status.get("output") or {}).get("rows", [])
 candidates = [row for row in rows if row["kind"] == "program_candidate"]
-plan_steps = [
-    row for row in rows if row["kind"] == "program_optimization_plan_step"
-]
+plan_steps = [row for row in rows if row["kind"] == "program_optimization_plan_step"]
 ```
 
 Submission durably records a `Submitted` job and automatically requires the
@@ -149,7 +147,7 @@ promotion occurs only when aggregate improvement, per-modality non-regression,
 coverage, and minimum-evidence requirements all pass. Promotion still commits
 through `ChangeEnvelope` and `MutationBatch`.
 
-For an Agent Utilities or GraphOS deployment, run the
+For an Agent Utilities or Arbora deployment, run the
 [live deployment doctor](https://github.com/Knuckles-Team/agent-utilities/blob/main/docs/guides/self-setup.md#8-check)
 with `agent-utilities-doctor --live`; it checks that the connected engine
 advertises and runs the native optimization capability.
