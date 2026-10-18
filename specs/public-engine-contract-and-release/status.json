@@ -541,7 +541,7 @@
         "9ed0560ea093"
       ],
       "verified_by": [
-        "tests/test_release_python_suite_contract.py:711"
+        "tests/test_release_python_suite_contract.py:717"
       ]
     },
     {
@@ -609,7 +609,7 @@
         "9ed0560ea093"
       ],
       "verified_by": [
-        "tests/test_release_feature_matrix.py:324"
+        "tests/test_release_feature_matrix.py:327"
       ]
     },
     {
@@ -778,7 +778,7 @@
         "5bf5b719de7e"
       ],
       "verified_by": [
-        "tests/test_release_feature_matrix.py:303"
+        "tests/test_release_feature_matrix.py:306"
       ]
     },
     {
