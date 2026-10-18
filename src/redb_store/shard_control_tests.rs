@@ -1,7 +1,10 @@
 //! The shard file's fixed durable shape: its reserved control scope and the
 //! kernel-owned GraphShard table census.
 
-use super::control::{clear_xshard_decision, put_xshard_decision};
+use super::control::{
+    clear_xshard_decision, get_xshard_decision, get_xshard_decision_retain, put_xshard_decision,
+    put_xshard_recoverable_pending,
+};
 #[cfg(feature = "compute-dist")]
 use super::control::{put_matview, scan_matviews};
 use super::{
@@ -199,4 +202,59 @@ fn control_rows_are_repeatable_writes_not_first_wins_claims() {
 
     drop(shard);
     let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn coordinator_decision_conflicts_preserve_durable_outcome_after_reopen() {
+    for first in [false, true] {
+        let path = temp_path("decision-monotonic");
+        let shard = bootstrap(&path);
+        put_xshard_recoverable_pending(&shard, "txn").unwrap();
+        put_xshard_decision(&shard, "txn", first, false).unwrap();
+        put_xshard_decision(&shard, "txn", first, false).unwrap();
+        assert!(put_xshard_decision(&shard, "txn", !first, true).is_err());
+        assert!(put_xshard_recoverable_pending(&shard, "txn").is_err());
+        drop(shard);
+
+        let shard = bootstrap(&path);
+        assert_eq!(get_xshard_decision(&shard, "txn").unwrap(), Some(first));
+        assert!(get_xshard_decision_retain(&shard, "txn").unwrap());
+        clear_xshard_decision(&shard, "txn").unwrap();
+        clear_xshard_decision(&shard, "txn").unwrap();
+        assert_eq!(get_xshard_decision(&shard, "txn").unwrap(), None);
+        drop(shard);
+        std::fs::remove_file(path).unwrap();
+    }
+}
+
+#[test]
+fn competing_coordinator_decisions_have_one_winner() {
+    let path = temp_path("decision-race");
+    let shard = std::sync::Arc::new(bootstrap(&path));
+    let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+    let contender = |decision| {
+        let shard = std::sync::Arc::clone(&shard);
+        let barrier = std::sync::Arc::clone(&barrier);
+        std::thread::spawn(move || {
+            crate::test_rendezvous::meet(&barrier, "coordinator decision contenders");
+            put_xshard_decision(&shard, "race", decision, true)
+        })
+    };
+    let commit = contender(true);
+    let abort = contender(false);
+    let commit = crate::test_rendezvous::join_bounded(commit, "coordinator commit contender");
+    let abort = crate::test_rendezvous::join_bounded(abort, "coordinator abort contender");
+    assert_ne!(commit.is_ok(), abort.is_ok());
+    assert_eq!(
+        get_xshard_decision(&shard, "race").unwrap(),
+        Some(commit.is_ok())
+    );
+    drop(shard);
+    let shard = bootstrap(&path);
+    assert_eq!(
+        get_xshard_decision(&shard, "race").unwrap(),
+        Some(commit.is_ok())
+    );
+    drop(shard);
+    std::fs::remove_file(path).unwrap();
 }

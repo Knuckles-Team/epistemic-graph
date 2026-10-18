@@ -145,6 +145,8 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # The workspace PR selector must resolve the published base.
+          fetch-depth: ${{ github.job != 'gates-crates' && 1 || 0 }}
 
       # actions/setup-python downloads a prebuilt CPython that requires AVX2;
       # on the homelab self-hosted runners (no AVX2) it fails fast with
