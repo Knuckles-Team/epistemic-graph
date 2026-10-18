@@ -125,7 +125,7 @@ pub struct ConnectorPackIndex {
     pub server: PackEntry,
     pub server_package_version: String,
     pub archive: PackArchiveRef,
-    pub entries: BoundedVec<PackEntry, 1024>,
+    pub entries: BoundedVec<PackEntry, { super::MAX_PACK_ENTRIES }>,
     pub producer: PackProducer,
     /// The exact served generation/digest observed by the catalog lister.
     pub catalog: McpCatalogSnapshotBinding,

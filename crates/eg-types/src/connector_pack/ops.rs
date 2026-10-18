@@ -78,7 +78,7 @@ pub struct ConnectorPackUnbindRequest {
 pub struct ConnectorPackRetireRequest {
     pub context: AgentLibraryMutationContext,
     pub connector: ResourceId,
-    pub uris: BoundedVec<String, 1024>,
+    pub uris: BoundedVec<String, { super::MAX_PACK_ENTRIES }>,
 }
 
 /// Re-project the current head into the graph.
