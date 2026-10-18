@@ -27,24 +27,18 @@ fn props(v: serde_json::Value) -> Vec<u8> {
     rmp_serde::to_vec_named(&v).unwrap()
 }
 
-fn tmp_series() -> Arc<SeriesStore> {
-    let path = std::env::temp_dir().join(format!(
-        "eg-d3-series-{}-{}.redb",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0)
-    ));
-    Arc::new(
+fn tmp_series() -> (tempfile::TempDir, Arc<SeriesStore>) {
+    let dir = tempfile::tempdir().expect("create temp series directory");
+    let series = Arc::new(
         SeriesStore::open(
-            &path,
+            &dir.path().join("series.redb"),
             epistemic_graph::store_authority::process_verifier(),
             epistemic_graph::store_authority::process_authority().principal(),
             &epistemic_graph::store_authority::process_authority().proof(),
         )
         .expect("open temp series store"),
-    )
+    );
+    (dir, series)
 }
 
 // ── text: incremental ≡ rebuild ──────────────────────────────────────────────────
@@ -151,7 +145,7 @@ fn text_incremental_equals_rebuild() {
 
 #[test]
 fn temporal_incremental_equals_rebuild() {
-    let series = tmp_series();
+    let (_series_dir, series) = tmp_series();
     let core = GraphCore::new();
     let idx = GraphTemporalIndex::new(series.clone(), "g");
     // (register a boxed clone-equivalent onto core purely to flip the capture flag;
@@ -183,7 +177,7 @@ fn temporal_incremental_equals_rebuild() {
     idx.apply_delta(&core, &cs2).unwrap();
 
     // Baseline: a fresh temporal index over a fresh store, rebuilt from live nodes.
-    let base_series = tmp_series();
+    let (_base_series_dir, base_series) = tmp_series();
     let base = GraphTemporalIndex::new(base_series.clone(), "g");
     base.full_rebuild(&core).unwrap();
 
@@ -203,7 +197,7 @@ fn temporal_incremental_equals_rebuild() {
 /// rebuild must commit nothing, and nodes without measurements must never cost one.
 #[test]
 fn temporal_rebuild_over_a_current_store_commits_nothing() {
-    let series = tmp_series();
+    let (_series_dir, series) = tmp_series();
     let core = GraphCore::new();
     for i in 0..200 {
         core.add_node(

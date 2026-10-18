@@ -1961,3 +1961,17 @@ profile admission. Cached authorization reads, coordinator recovery
 and reservation enforcement remain separate obligations. Regression coverage
 must prove stale-clone refusal, one winner for concurrent writers, preservation
 of newer session state and bootstrap, and durable revision checks after reopen.
+
+
+## Amendment 2026-10-18: R036 graph access snapshot freshness
+
+A stale isolation clone can retain grants or a System identity after another
+writer revokes them. Revision checks on writes do not refresh access reads.
+The security graph access check must read identity, grants and elevations from
+one current authority snapshot. Missing or unreadable authority denies access.
+Preserve explicit deny precedence and the existing non-security ACL behavior.
+
+This slice covers access_basis and its check_access callers only. Row visibility,
+administrative capability checks and other cached readers need separate review.
+It does not reserve authority through a later effect or implement multi-owner
+admission. Participant reservations, recovery and visibility remain incomplete.

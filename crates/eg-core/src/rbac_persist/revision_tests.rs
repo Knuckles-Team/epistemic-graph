@@ -301,3 +301,118 @@ fn legacy_adapter_cannot_fall_back_to_unchecked_save() {
     assert_eq!(store.writes.load(std::sync::atomic::Ordering::SeqCst), 0);
     assert_eq!(layer.rbac().roles().count(), 0);
 }
+
+fn exercise_access_refresh(store: Arc<dyn RbacPolicyStore>) {
+    use crate::acl::{Grant, GrantEffect, RbacAction, ResourceSelector};
+    use crate::isolation::AccessLevel;
+    use crate::protocol::GraphType;
+
+    let initial = store.authority_snapshot().unwrap();
+    let mut policy = initial.policy().clone();
+    policy.add_role(Role::new("reader"));
+    policy.add_grant(Grant {
+        role: "reader".into(),
+        resource: ResourceSelector::Graph("graph".into()),
+        action: RbacAction::Read,
+        effect: GrantEffect::Allow,
+    });
+    let mut identities = BTreeMap::from([(
+        "reader".into(),
+        AgentIdentity {
+            agent_id: "reader".into(),
+            role: AgentRole::Agent,
+            teams: vec![],
+            roles: vec!["reader".into()],
+        },
+    )]);
+    store
+        .compare_and_save(
+            initial.revision(),
+            &policy,
+            &identities,
+            IdentityBootstrapState::Consumed,
+        )
+        .unwrap();
+    let stale = IsolationLayer::with_policy_store(Arc::clone(&store)).unwrap();
+    let allowed =
+        || stale.check_access("reader", "graph", GraphType::Agent, None, AccessLevel::Read);
+    assert!(allowed());
+
+    let current = store.authority_snapshot().unwrap();
+    let denied = RbacPolicy::new();
+    store
+        .compare_and_save(
+            current.revision(),
+            &denied,
+            &identities,
+            IdentityBootstrapState::Consumed,
+        )
+        .unwrap();
+    assert!(!allowed(), "a stale clone must observe removed grants");
+
+    identities.get_mut("reader").unwrap().role = AgentRole::System;
+    let current = store.authority_snapshot().unwrap();
+    store
+        .compare_and_save(
+            current.revision(),
+            &denied,
+            &identities,
+            IdentityBootstrapState::Consumed,
+        )
+        .unwrap();
+    let system_clone = IsolationLayer::with_policy_store(Arc::clone(&store)).unwrap();
+    assert!(system_clone.check_access(
+        "reader",
+        "graph",
+        GraphType::Agent,
+        None,
+        AccessLevel::Read
+    ));
+    identities.get_mut("reader").unwrap().role = AgentRole::Agent;
+    let current = store.authority_snapshot().unwrap();
+    store
+        .compare_and_save(
+            current.revision(),
+            &denied,
+            &identities,
+            IdentityBootstrapState::Consumed,
+        )
+        .unwrap();
+    assert!(
+        !system_clone.check_access("reader", "graph", GraphType::Agent, None, AccessLevel::Read),
+        "cached System status must not survive demotion"
+    );
+
+    let current = store.authority_snapshot().unwrap();
+    store
+        .compare_and_save(
+            current.revision(),
+            &policy,
+            &BTreeMap::new(),
+            IdentityBootstrapState::Consumed,
+        )
+        .unwrap();
+    assert!(
+        !allowed(),
+        "a removed identity must not regain its old grant"
+    );
+}
+
+#[test]
+fn graph_access_refreshes_revoked_grants_and_identities_in_memory_and_redb() {
+    exercise_access_refresh(Arc::new(MemoryRbacStore::new()));
+    let dir = directory("access-refresh");
+    exercise_access_refresh(Arc::new(test_support::open_test_store(&dir).unwrap()));
+    let reopened =
+        IsolationLayer::with_policy_store(Arc::new(test_support::open_test_store(&dir).unwrap()))
+            .unwrap();
+    assert!(!reopened.check_access(
+        "reader",
+        "graph",
+        crate::protocol::GraphType::Agent,
+        None,
+        crate::isolation::AccessLevel::Read
+    ));
+    drop(reopened);
+    std::fs::remove_dir_all(dir).unwrap();
+}
