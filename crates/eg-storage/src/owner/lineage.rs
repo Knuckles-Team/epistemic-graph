@@ -10,8 +10,9 @@
 //! * [`layout_predecessors`] names every refused predecessor of a layout. A
 //!   predecessor file is refused with `{LAYOUT}_FORMAT_UPGRADE_REQUIRED` and its
 //!   removal step. SQL, immediate pre-MCP Agent Library, pre-enrichment
-//!   GraphShard and immediate pre-audit-request-index GraphShard predecessors
-//!   have explicit inspected offline upgrades; ordinary opens still refuse.
+//!   GraphShard, immediate pre-audit-request-index GraphShard and pre-current-plan
+//!   GraphShard predecessors have explicit inspected offline upgrades; ordinary opens
+//!   still refuse.
 //! * [`validate_against_lineage`] is the check every manifest read runs --
 //!   open, recovery adoption, classification and backup restore all read the
 //!   manifest through `manifest_io::read_manifest` -- so none of them can miss
@@ -400,7 +401,7 @@ pub fn render_owner_store_formats() -> String {
          Every durable owner file records the digest of its exact table layout. A file whose \
          layout is a declared predecessor below is refused on ordinary open with the named \
          error. The SQL, immediate pre-MCP Agent Library, pre-enrichment GraphShard and \
-         immediate pre-audit-request-index GraphShard predecessors have explicit offline, \
+         immediate pre-audit-request-index and pre-current-plan GraphShard predecessors have explicit offline, \
          data-preserving upgrades; others move aside and re-created. Any other digest is refused as `OWNER_STORE_FORMAT_UNKNOWN`.\n\n\
          | Store | Current layout digest | Refused predecessors |\n|---|---|---|\n",
     );

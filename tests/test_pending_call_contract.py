@@ -10,6 +10,8 @@ from pydantic import ValidationError
 from epistemic_graph import client as client_module
 from epistemic_graph.generated.models import (
     IssueControlLeaseRequest,
+    PendingCallConsumption,
+    PendingCallRegistration,
     TransitionControlLeaseRequest,
 )
 
@@ -120,3 +122,28 @@ def test_client_forwards_optional_pending_preconditions(
     )
     assert calls[0]["pending_call_registration"] == registration()
     assert calls[1]["pending_call_consumption"] == fence
+
+
+@pytest.mark.spec("EG-DURABLE-KERNEL-R039.4", "EG-DURABLE-KERNEL-R039.4.1")
+def test_generated_plan_preimage_round_trips_and_refuses_unknown_authority() -> None:
+    plan = {
+        "lease_id": "plan-a",
+        "expected_revision": 1,
+        "expected_kind": "configured.plan",
+        "expected_grant": {"op_id": "tool-a"},
+    }
+    registered = PendingCallRegistration.model_validate(registration() | {"plan": plan})
+    consumed = PendingCallConsumption.model_validate(
+        {
+            "work_item": registration()["work_item"],
+            "expected_grant": {},
+            "plan": plan,
+        }
+    )
+    assert registered.plan is not None
+    assert registered.plan == consumed.plan
+    assert registered.plan.model_dump() == plan
+    with pytest.raises(ValidationError):
+        PendingCallRegistration.model_validate(
+            registration() | {"plan": plan | {"human_approved": True}}
+        )

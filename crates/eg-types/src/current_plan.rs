@@ -81,6 +81,25 @@ pub struct CurrentPlanPublished {
     pub changed_work_item_ids: Vec<String>,
 }
 
+/// Shared typed publication fixture for native identity and validation tests.
+#[cfg(any(test, feature = "test-support"))]
+pub fn sample_publish_request() -> PublishCurrentPlanRequest {
+    PublishCurrentPlanRequest {
+        tenant: "tenant".into(),
+        worker_id: "worker".into(),
+        lease_epoch: 1,
+        fencing_token: 1,
+        idempotency_key: "key".into(),
+        snapshot: CurrentPlanSnapshot {
+            run_id: "run".into(),
+            revision: 0,
+            observed_at_ms: 1,
+            expires_at_ms: 2,
+            items: vec![],
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -92,20 +111,7 @@ mod tests {
             "\"done\""
         );
         assert!(serde_json::from_str::<PlanStatus>("\"completed\"").is_err());
-        let mut request = PublishCurrentPlanRequest {
-            tenant: "tenant".into(),
-            worker_id: "worker".into(),
-            lease_epoch: 1,
-            fencing_token: 1,
-            idempotency_key: "key".into(),
-            snapshot: CurrentPlanSnapshot {
-                run_id: "run".into(),
-                revision: 0,
-                observed_at_ms: 1,
-                expires_at_ms: 2,
-                items: vec![],
-            },
-        };
+        let mut request = sample_publish_request();
         assert!(request.validate().is_ok());
         request.snapshot.items.push(PlanItem {
             text: " ".into(),

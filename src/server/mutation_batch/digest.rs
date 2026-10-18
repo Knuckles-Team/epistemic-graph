@@ -80,18 +80,24 @@ pub(crate) fn lifecycle_batch_id(
     )
 }
 
+fn graph_identity_hasher(namespace: &str, graph: &str) -> sha2::Sha256 {
+    use sha2::{Digest, Sha256};
+    let mut digest = Sha256::new();
+    for field in [namespace, graph] {
+        digest.update(field.as_bytes());
+        digest.update([0]);
+    }
+    digest
+}
+
 pub(crate) fn opaque_request_key(
     namespace: &str,
     graph: &str,
     request_id: u64,
     method: &Method,
 ) -> String {
-    use sha2::{Digest, Sha256};
-    let mut digest = Sha256::new();
-    digest.update(namespace.as_bytes());
-    digest.update([0]);
-    digest.update(graph.as_bytes());
-    digest.update([0]);
+    use sha2::Digest;
+    let mut digest = graph_identity_hasher(namespace, graph);
     digest.update(request_id.to_be_bytes());
     digest.update(rmp_serde::to_vec_named(method).unwrap_or_default());
     format!("{namespace}:{}", hex::encode(digest.finalize()))
@@ -167,7 +173,28 @@ pub(crate) fn work_item_batch_identity(
             ],
         );
     }
-    let terminal_key = match method {
+    let terminal_key = work_item_terminal_key(method)?;
+
+    if let Some(terminal_key) = terminal_key {
+        return terminal_work_item_identity(graph, tenant, &terminal_key);
+    }
+
+    let batch_id = opaque_request_key("work", graph, transport_request_id, method);
+    use sha2::{Digest, Sha256};
+    let idempotency_key = format!(
+        "work-idem:{}",
+        hex::encode(Sha256::digest(batch_id.as_bytes()))
+    );
+    Ok(WorkItemBatchIdentity {
+        batch_id,
+        idempotency_key,
+        durable_request_id: transport_request_id,
+        uses_native_row_cas: false,
+    })
+}
+
+fn work_item_terminal_key(method: &Method) -> Result<Option<String>, String> {
+    Ok(match method {
         Method::SubmitWorkItem { request } => Some(request.idempotency_key.clone()),
         Method::SubmitWorkItems { request } => Some(request.idempotency_key.clone()),
         Method::CommitWorkItemResult {
@@ -191,26 +218,8 @@ pub(crate) fn work_item_batch_identity(
         )),
         // graph-os EG-2 control-lease writes share the terminal identity rule.
         _ => {
-            return control_lease_idempotency_key(method)
-                .and_then(|key| terminal_work_item_identity(graph, tenant, &key));
+            return control_lease_idempotency_key(method).map(Some);
         }
-    };
-
-    if let Some(terminal_key) = terminal_key {
-        return terminal_work_item_identity(graph, tenant, &terminal_key);
-    }
-
-    let batch_id = opaque_request_key("work", graph, transport_request_id, method);
-    use sha2::{Digest, Sha256};
-    let idempotency_key = format!(
-        "work-idem:{}",
-        hex::encode(Sha256::digest(batch_id.as_bytes()))
-    );
-    Ok(WorkItemBatchIdentity {
-        batch_id,
-        idempotency_key,
-        durable_request_id: transport_request_id,
-        uses_native_row_cas: false,
     })
 }
 
@@ -297,12 +306,8 @@ fn scoped_work_item_identity(
 /// Stable privacy-safe identity for a multi-request/native coordinator. The raw
 /// transaction/session id is never written to durable status or outbox rows.
 pub(crate) fn opaque_coordinator_key(namespace: &str, graph: &str, coordinator_id: &str) -> String {
-    use sha2::{Digest, Sha256};
-    let mut digest = Sha256::new();
-    digest.update(namespace.as_bytes());
-    digest.update([0]);
-    digest.update(graph.as_bytes());
-    digest.update([0]);
+    use sha2::Digest;
+    let mut digest = graph_identity_hasher(namespace, graph);
     digest.update(coordinator_id.as_bytes());
     format!("{namespace}:{}", hex::encode(digest.finalize()))
 }
@@ -310,25 +315,11 @@ pub(crate) fn opaque_coordinator_key(namespace: &str, graph: &str, coordinator_i
 #[cfg(test)]
 mod current_plan_identity_tests {
     use super::*;
-    use eg_types::current_plan::{CurrentPlanSnapshot, PublishCurrentPlanRequest};
 
     // spec: EG-DURABLE-KERNEL-R028.5
     #[test]
     fn publication_identity_separates_operation_revision_run_and_transport() {
-        let request = PublishCurrentPlanRequest {
-            tenant: "tenant".into(),
-            worker_id: "worker".into(),
-            lease_epoch: 1,
-            fencing_token: 1,
-            idempotency_key: "key".into(),
-            snapshot: CurrentPlanSnapshot {
-                run_id: "run".into(),
-                revision: 0,
-                observed_at_ms: 1,
-                expires_at_ms: 2,
-                items: vec![],
-            },
-        };
+        let request = eg_types::current_plan::sample_publish_request();
         let method = Method::PublishCurrentPlan {
             request: request.clone(),
         };

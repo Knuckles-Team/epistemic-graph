@@ -410,6 +410,34 @@ async fn run_state_with(
     state
 }
 
+async fn reopen_run_state(
+    state: test_support::SharedState,
+    concrete: Arc<RedbBackend>,
+    dir: &str,
+) -> (Arc<RedbBackend>, test_support::SharedState) {
+    drop(state);
+    concrete.shutdown();
+    drop(concrete);
+    let reopened = Arc::new(reopen(dir).await);
+    let restarted = run_state_with(reopened.clone(), dir.to_owned()).await;
+    // Restore both rows and their durable version, as a serving restart must.
+    let (snapshot, version) = reopened
+        .read_authoritative_graph_snapshot(GRAPH)
+        .await
+        .unwrap()
+        .expect("durable run graph snapshot");
+    restarted
+        .read()
+        .await
+        .registry
+        .get(GRAPH)
+        .unwrap()
+        .core
+        .install_committed_snapshot(snapshot, version)
+        .unwrap();
+    (reopened, restarted)
+}
+
 fn signed_run_request(id: u64, method: Method, idempotency_key: &str) -> Request {
     signed_request_with_agent(
         id,
@@ -528,26 +556,7 @@ async fn run_admission_binds_verified_owner_and_replays_without_row_changes() {
     let another: SubmitWorkItemResult = decode_raw(&another, "independent run admission");
     assert!(another.created);
     assert_ne!(another.work_item_id, admitted.work_item_id);
-    drop(state);
-    concrete.shutdown();
-    drop(concrete);
-    let reopened = Arc::new(reopen(&dir).await);
-    let restarted = run_state_with(reopened.clone(), dir.clone()).await;
-    // Restore both rows and their durable version, as a serving restart must.
-    let (snapshot, version) = reopened
-        .read_authoritative_graph_snapshot(GRAPH)
-        .await
-        .unwrap()
-        .expect("durable run graph snapshot");
-    restarted
-        .read()
-        .await
-        .registry
-        .get(GRAPH)
-        .unwrap()
-        .core
-        .install_committed_snapshot(snapshot, version)
-        .unwrap();
+    let (reopened, restarted) = reopen_run_state(state, concrete, &dir).await;
     let replay = test_support::dispatch(
         &restarted,
         signed_run_request(440, run_submit_method(), "run-admit-key"),
@@ -752,25 +761,7 @@ async fn current_plan_native_publish_read_and_receipt_replay() {
         .unwrap(),
         receipt_before
     );
-    drop(state);
-    concrete.shutdown();
-    drop(concrete);
-    let reopened = Arc::new(reopen(&dir).await);
-    let restarted = run_state_with(reopened.clone(), dir.clone()).await;
-    let (snapshot, version) = reopened
-        .read_authoritative_graph_snapshot(GRAPH)
-        .await
-        .unwrap()
-        .unwrap();
-    restarted
-        .read()
-        .await
-        .registry
-        .get(GRAPH)
-        .unwrap()
-        .core
-        .install_committed_snapshot(snapshot, version)
-        .unwrap();
+    let (reopened, restarted) = reopen_run_state(state, concrete, &dir).await;
     let recovered: Option<CurrentPlanSnapshot> = decode_raw(
         &test_support::dispatch(&restarted, signed_run_request(511, get(), "reopened-read")).await,
         "reopened plan",

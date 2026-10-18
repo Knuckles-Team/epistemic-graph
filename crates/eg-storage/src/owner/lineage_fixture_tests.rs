@@ -76,15 +76,19 @@ fn the_predecessor_file_builder_reproduces_the_recorded_files() {
 }
 
 /// The table sets of earlier generations are spelled out, not derived from the
-/// current census: a table added later must appear in none of them.
+/// current census: each table appears only after its introduction.
 #[test]
-fn no_historical_graph_shard_table_set_contains_the_audit_request_index() {
+fn historical_graph_shard_tables_preserve_introduction_boundaries() {
     for predecessor in layout_predecessors(OwnerLayout::GraphShard) {
-        assert!(
-            !predecessor.owner_tables.contains(&"audit_requests"),
+        assert_eq!(
+            predecessor.owner_tables.contains(&"audit_requests"),
+            predecessor.label == GRAPH_SHARD_BEFORE_CURRENT_PLANS.label,
             "{}",
             predecessor.label
         );
+        assert!(!predecessor
+            .owner_tables
+            .contains(&"work_item_current_plans"));
     }
     assert!(
         crate::owner::registry::owner_table_names(OwnerLayout::GraphShard)
