@@ -564,13 +564,6 @@ jobs:
 
       - *eg-gates-sqlite
       - *eg-gates-whisper
-      # Crash-stage tests spawn children that briefly inherit sibling tests'
-      # read-only redb locks. Isolate this crate's full suite, not just the
-      # crash-test module: no sleeps, lock-error retries, or skipped assertions.
-      - name: Test (storage crate, isolated crash-process lifecycle)
-        env: *eg-validation-compiler-cache-env
-        run: python3 scripts/cargo_test_rescue.py cargo test --locked -p eg-storage --all-features --no-fail-fast -- --test-threads=1
-
       # Operator decision (2026-10-09): on a pull request this broad
       # workspace sweep narrows to only the crates the diff could plausibly
       # break, so a PR gate turns around in minutes; `push` to main and a
@@ -643,6 +636,34 @@ jobs:
           python3 scripts/cargo_test_rescue.py cargo test --locked "${args[@]}" --all-features --no-fail-fast
 
       - name: Report workspace-crate compiler cache reuse
+        if: always()
+        run: *eg-validation-compiler-cache-stats
+
+  gates-storage:
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
+    name: gates (storage crate)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    env: *eg-validation-compiler-cache-backend
+    steps:
+      - *eg-gates-checkout
+      - *eg-gates-python
+      - *eg-gates-pydeps
+      - *eg-gates-sasl
+      - *eg-gates-toolchain
+      - *eg-gates-cache
+      - *eg-validation-compiler-cache
+      - *eg-gates-sqlite
+      - *eg-gates-whisper
+      # Crash-stage tests spawn children that briefly inherit sibling tests'
+      # read-only redb locks. Isolate this crate's full suite, not just the
+      # crash-test module: no sleeps, lock-error retries, or skipped assertions.
+      - name: Test (storage crate, isolated crash-process lifecycle)
+        env: *eg-validation-compiler-cache-env
+        run: python3 scripts/cargo_test_rescue.py cargo test --locked -p eg-storage --all-features --no-fail-fast -- --test-threads=1
+
+      - name: Report storage compiler cache reuse
         if: always()
         run: *eg-validation-compiler-cache-stats
 
@@ -1554,7 +1575,7 @@ jobs:
   engine-main-wheel:
     timeout-minutes: 360
     name: engine-main wheel (linux-x86_64)
-    needs: [gates, gates-plan-fuzz, gates-wheel, gates-facade, gates-whisper, gates-variants, gates-crates, gates-pyo3, python-suite, security, lint-and-architecture]
+    needs: [gates, gates-plan-fuzz, gates-wheel, gates-facade, gates-whisper, gates-variants, gates-crates, gates-storage, gates-pyo3, python-suite, security, lint-and-architecture]
     if: >-
       github.repository == 'Knuckles-Team/epistemic-graph'
       && github.event_name == 'push' && github.ref == 'refs/heads/main'

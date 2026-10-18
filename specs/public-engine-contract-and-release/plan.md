@@ -456,3 +456,13 @@ Keep both events on ubuntu-latest to avoid additional native work on constrained
 This covers lower crates, plan fuzz, installed wheels, facade and Whisper.
 Preserve every command, feature, assertion, artifact identity check and job budget.
 Main-only cache writes remain unchanged.
+
+### 2026-10-18: isolate storage acceptance from the workspace compile budget
+
+Run 39148513985 passed all 123 storage tests before its workspace job timed out.
+The selected capability crate needed a separate dependency feature compilation.
+Give the unchanged serial storage suite its own required hosted job.
+Keep both jobs' ten-minute PR and sixty-minute main budgets.
+Preserve commands, features, fixtures and main-only compiler-cache writes.
+The rolling release consumer must require both jobs.
+Workflow tests establish routing; exact-head hosted tests establish acceptance.

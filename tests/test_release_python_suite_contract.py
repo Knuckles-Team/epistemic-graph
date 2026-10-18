@@ -55,6 +55,7 @@ def _test_step(job: dict) -> dict:
         "gates-facade",
         "gates-variants",
         "gates-crates",
+        "gates-storage",
         "gates-pyo3",
         "python-suite",
     ],
@@ -582,13 +583,15 @@ COMPILER_CACHE_COMMANDS: dict[str, dict[str, tuple[str, ...]]] = {
             ),
         ),
     },
-    "gates-crates": {
+    "gates-storage": {
         ("Test (storage crate, isolated crash-process lifecycle)"): (
             (
                 "python3 scripts/cargo_test_rescue.py cargo test --locked -p "
                 "eg-storage --all-features --no-fail-fast -- --test-threads=1"
             ),
         ),
+    },
+    "gates-crates": {
         (
             "Test (every other workspace crate, all features; push to main / "
             "release tag)"

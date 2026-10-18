@@ -105,21 +105,24 @@ class ReleasePublication(unittest.TestCase):
         self.assertEqual(steps[publish]["with"]["pattern"], "dist-sdist/*.tar.gz")
 
     def test_storage_crash_processes_do_not_overlap_sibling_file_tests(self):
-        steps = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())["jobs"][
-            "gates-crates"
-        ]["steps"]
-        commands = [step.get("run", "") for step in steps]
+        jobs = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())["jobs"]
+        commands = [step.get("run", "") for step in jobs["gates-storage"]["steps"]]
         storage = (
             "python3 scripts/cargo_test_rescue.py cargo test --locked "
             "-p eg-storage --all-features --no-fail-fast -- --test-threads=1"
         )
         self.assertEqual(commands.count(storage), 1)
         workspace = next(
-            command for command in commands if "--locked --workspace" in command
+            step["run"]
+            for step in jobs["gates-crates"]["steps"]
+            if "--locked --workspace" in step.get("run", "")
         )
         self.assertIn("--exclude eg-storage ", workspace)
         self.assertNotIn("--test-threads=1", workspace)
-        self.assertLess(commands.index(storage), commands.index(workspace))
+        self.assertNotIn(
+            storage, [step.get("run", "") for step in jobs["gates-crates"]["steps"]]
+        )
+        self.assertIn("gates-storage", jobs["engine-main-wheel"]["needs"])
 
     def _assert_publish_jobs_use_same_run_artifacts(self):
         jobs = self.workflow["jobs"]
