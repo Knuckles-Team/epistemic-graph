@@ -198,3 +198,18 @@ Hot-path proof for `EG-UNIFIED-DATA-PLANE-R038.6`: `tests/federation/test_graph_
 
 
 Hot-path proof for `EG-UNIFIED-DATA-PLANE-R038.7`: `tests/federation/test_web_metasearch_served.py::test_pattern_pushes_to_connector_with_ttl_cache`.
+
+## EG-UNIFIED-DATA-PLANE-R651.7 acceptance
+
+| Case | Row | Proving test and observation |
+|---|---|---|
+| Matrix | `EG-UNIFIED-DATA-PLANE-R022.4.1` | `crates/eg-types/src/dialect_conformance.rs::tests::matrix_states_residency`: The test fails when a category row has no residency value. |
+| Candidates | `EG-UNIFIED-DATA-PLANE-R038.7.7` | `crates/eg-plan/src/federation_opt/tests.rs::web_candidates_carry_query_provenance`: Candidates carry query provenance, and the store holds no result rows. |
+| Model | `EG-UNIFIED-DATA-PLANE-R651.7.1` | `web_document.rs::tests::web_provenance_round_trips`: A serde round trip keeps every field and rejects a missing URL, digest or backend. |
+| Behavior | `EG-UNIFIED-DATA-PLANE-R651.7.2` | `web_document.rs::tests::links_chunks_vectors_and_facts`: One Document links its chunks, vectors and facts; an equal digest is a no-op. |
+| Wiring | `EG-UNIFIED-DATA-PLANE-R651.7.3` | `tests/ingest/test_web_document_served.py::test_source_ingest_reaches_enrichment`: The served call reaches the chunk, encode and extract phases. |
+| Refusal | `EG-UNIFIED-DATA-PLANE-R651.7.4` | `tests/ingest/test_web_document_served.py::test_web_document_refusals`: Each case returns its code and writes nothing. |
+| Evidence | `EG-UNIFIED-DATA-PLANE-R651.7.5` | `tests/ingest/test_web_document_served.py::test_receipt_counts_match_store`: The receipt counts match a separate read. |
+| Hot-path proof | `EG-UNIFIED-DATA-PLANE-R651.7.6` | `tests/ingest/test_web_document_served.py::test_web_page_enriches_once_for_both_backends`: Both backends store equal sets, and the benchmark meets the budgets. |
+
+Hot-path proof for `EG-UNIFIED-DATA-PLANE-R651.7`: `tests/ingest/test_web_document_served.py::test_web_page_enriches_once_for_both_backends`.

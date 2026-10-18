@@ -1667,3 +1667,15 @@ codec through `scripts/build_method_codec_wasm.py`. Generated Python bindings
 are consumers, not an alternative authority. Arbora may wire its application
 port only after the accepted owner operation and real receipt are available.
 R036 and the Arbora requirement remain open for these acceptance obligations.
+
+## Web page selection (R802, R174.9.7)
+
+The engine decides which web candidates to ingest. arbora `research.web` (`ARBORA-OPS-R067`) sends the `WebCandidateSet` of `EG-UNIFIED-DATA-PLANE-R038.7.7` as one `Decide` question. arbora computes no ranking.
+
+Call path: served `Decide` -> `handle_decide` (`src/server/handlers/decide/statistical.rs:11`) -> `stat_web_fetch.rs` -> answer with premises.
+
+Reuse: URL canonicalization and the token bucket come from `EG-DECISION-ENGINE-R174.9.2`. Near-duplicate content comes from `EG-INGEST-WORKER-R702`. Selected pages enter through `EG-UNIFIED-DATA-PLANE-R651.7`.
+
+Refresh: a drift or staleness signal of `EG-DECISION-ENGINE-R174.8` turns held web Documents into candidates again (`EG-DECISION-ENGINE-R174.9.7`). The digest decides between a no-op and a supersede.
+
+Budget: k = 60 for rank fusion, an 86,400 s freshness window, 3 ms p99 for 50 candidates and 4 MiB peak memory. These are starting defaults. A measurement on this platform replaces them.
