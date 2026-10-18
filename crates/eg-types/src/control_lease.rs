@@ -37,7 +37,8 @@ mod kind_policy;
 mod pending_call;
 pub use kind_policy::ControlLeaseKindPolicy;
 pub use pending_call::{
-    PendingCallConsumption, PendingCallFence, PendingCallRegistration, PENDING_CALL_KIND,
+    PendingCallConsumption, PendingCallFence, PendingCallRegistration, PendingPlanPreimage,
+    PENDING_CALL_KIND,
 };
 
 /// `node_type` of a control-lease row.
@@ -292,6 +293,9 @@ impl IssueControlLeaseRequest {
         ) {
             (Some(registration), true) => {
                 registration.work_item.validate()?;
+                if let Some(plan) = &registration.plan {
+                    plan.validate()?;
+                }
                 bounded("pending worker", &registration.expected_lease.worker_ref)?;
             }
             (None, false) => {}
@@ -345,6 +349,9 @@ impl TransitionControlLeaseRequest {
         bounded("idempotency_key", &self.idempotency_key)?;
         if let Some(pending) = &self.pending_call_consumption {
             pending.work_item.validate()?;
+            if let Some(plan) = &pending.plan {
+                plan.validate()?;
+            }
             let bytes = serde_json::to_vec(&pending.expected_grant).map_err(|e| e.to_string())?;
             if bytes.len() > MAX_CONTROL_LEASE_GRANT_BYTES {
                 return Err("pending grant preimage exceeds native bounds".into());

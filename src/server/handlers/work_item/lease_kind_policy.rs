@@ -108,11 +108,32 @@ fn require_pending_work_authority(
     Ok(())
 }
 
+/// The paired storage primitive has no served authority composition yet.
+fn refuse_paired_plan(req_id: u64, method: &Method) -> Option<Response> {
+    let paired = match method {
+        Method::IssueControlLease { request } => request
+            .pending_call_registration
+            .as_ref()
+            .is_some_and(|pending| pending.plan.is_some()),
+        Method::TransitionControlLease { request } => request
+            .pending_call_consumption
+            .as_ref()
+            .is_some_and(|pending| pending.plan.is_some()),
+        _ => false,
+    };
+    paired.then(|| {
+        crate::server::contract_wave::not_yet_served(req_id, "ControlLease.pending_call.plan")
+    })
+}
+
 /// `Some(refusal)` when the verified principal may not write this lease.
 pub(super) async fn refuse_unpermitted_lease_kind(
     ctx: &HandleContext<'_>,
     method: &Method,
 ) -> Option<Response> {
+    if let Some(refusal) = refuse_paired_plan(ctx.req_id, method) {
+        return Some(refusal);
+    }
     let target = lease_target(method)?;
     let outcome = match policy() {
         Ok(policy) => check(ctx, policy, target).await,
@@ -183,5 +204,51 @@ mod tests {
         assert!(stop_dispatch.is_some());
         assert!(super::check_resolved_kind(&verified, &policy, Some(PENDING_CALL_KIND)).is_ok());
         assert!(stop_dispatch.is_some());
+    }
+    // spec: EG-DURABLE-KERNEL-R039.4, EG-DURABLE-KERNEL-R039.4.1
+    #[test]
+    fn paired_storage_is_unavailable_on_both_served_writes() {
+        use crate::protocol::Method;
+        use serde_json::json;
+        let plan = json!({"lease_id":"plan-a", "expected_revision":1,
+            "expected_kind":"configured.plan", "expected_grant":{}});
+        let work = json!({"work_item_id":"work-a", "expected_revision":1,
+            "expected_metadata":{}});
+        for paired in [false, true] {
+            let mut registration = json!({"work_item":work,
+                "expected_lease":{"worker_ref":"worker-a","lease_epoch":1,"fencing_token":1}});
+            let mut consumption = json!({"work_item":work,"expected_grant":{}});
+            if paired {
+                registration["plan"] = plan.clone();
+                consumption["plan"] = plan.clone();
+            }
+            let issue = Method::IssueControlLease {
+                request: serde_json::from_value(json!({
+                    "tenant":"tenant-a","lease_id":"pending-a","kind":"work_item.pending_call",
+                    "grant":{},"issued_at_ms":1000,"expires_at_ms":2000,"hard_expires_at_ms":2000,
+                    "idempotency_key":"issue-a","pending_call_registration":registration
+                }))
+                .unwrap(),
+            };
+            let consume = Method::TransitionControlLease {
+                request: serde_json::from_value(json!({
+                    "tenant":"tenant-a","lease_id":"pending-a","expected_revision":1,
+                    "to":"consumed","idempotency_key":"consume-a",
+                    "pending_call_consumption":consumption
+                }))
+                .unwrap(),
+            };
+            for method in [issue, consume] {
+                let refusal = super::refuse_paired_plan(7, &method);
+                assert_eq!(refusal.is_some(), paired);
+                if let Some(response) = refusal {
+                    assert_eq!(response.id, 7);
+                    assert!(response
+                        .refusal_text()
+                        .unwrap()
+                        .starts_with("METHOD_NOT_YET_SERVED:"));
+                }
+            }
+        }
     }
 }

@@ -39274,6 +39274,16 @@
           "additionalProperties": true,
           "type": "object"
         },
+        "plan": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PendingPlanPreimage"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "work_item": {
           "$ref": "#/$defs/PendingCallFence"
         }
@@ -39315,6 +39325,16 @@
         "expected_lease": {
           "$ref": "#/$defs/CasWorkItemMetadataLeaseFence"
         },
+        "plan": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PendingPlanPreimage"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "work_item": {
           "$ref": "#/$defs/PendingCallFence"
         }
@@ -39322,6 +39342,34 @@
       "required": [
         "work_item",
         "expected_lease"
+      ],
+      "type": "object"
+    },
+    "PendingPlanPreimage": {
+      "additionalProperties": false,
+      "description": "Exact immutable stored-data expectation supplied by the caller.\nThis is not an authorization grant; Arbora owns permission decisions.",
+      "properties": {
+        "expected_grant": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "expected_kind": {
+          "type": "string"
+        },
+        "expected_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "lease_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "lease_id",
+        "expected_revision",
+        "expected_kind",
+        "expected_grant"
       ],
       "type": "object"
     },

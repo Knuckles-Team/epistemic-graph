@@ -236,6 +236,12 @@ jscpd_exclusions = [
     "**/package-lock.json",
 ]
 
+# Source-checkout locks use the real server package before a release exists.
+# The published server extra keeps its exact version pin. Release wheel and
+# public-index validation remain separate from this development-only source.
+[tool.uv.sources]
+epistemic-graph-server = { path = "packaging/epistemic-graph-server" }
+
 [tool.maturin]
 python-source = "."
 # The public wheel compiles ONLY the extension modules (EG-CONTRACT-R053.8):
