@@ -119,9 +119,26 @@ class ReleasePublication(unittest.TestCase):
         )
         self.assertIn("--exclude eg-storage ", workspace)
         self.assertNotIn("--test-threads=1", workspace)
-        self.assertNotIn(
-            storage, [step.get("run", "") for step in jobs["gates-crates"]["steps"]]
-        )
+        steps = jobs["gates-storage"]["steps"]
+        self.assertEqual(steps, jobs["gates-crates"]["steps"])
+        storage_step = next(step for step in steps if step.get("run") == storage)
+        self.assertEqual(storage_step["if"], "github.job == 'gates-storage'")
+        for step in steps:
+            name = step.get("name", "")
+            if name in (
+                "Resolve the published base",
+                "Resolve pull-request test scope (workspace crates)",
+                "Test (every other workspace crate -- pull request fast subset)",
+            ):
+                self.assertEqual(
+                    step["if"],
+                    "github.job == 'gates-crates' && github.event_name == 'pull_request'",
+                )
+            elif step.get("run") == workspace:
+                self.assertEqual(
+                    step["if"],
+                    "github.job == 'gates-crates' && github.event_name != 'pull_request'",
+                )
         self.assertIn("gates-storage", jobs["engine-main-wheel"]["needs"])
 
     def _assert_publish_jobs_use_same_run_artifacts(self):

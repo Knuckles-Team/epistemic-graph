@@ -543,7 +543,7 @@ jobs:
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     env: *eg-validation-compiler-cache-backend
-    steps:
+    steps: &eg-workspace-storage-steps
       - *eg-gates-checkout
 
       - *eg-gates-python
@@ -564,12 +564,20 @@ jobs:
 
       - *eg-gates-sqlite
       - *eg-gates-whisper
+      # Crash-stage tests spawn children that briefly inherit sibling tests'
+      # read-only redb locks. Isolate this crate's full suite, not just the
+      # crash-test module: no sleeps, lock-error retries, or skipped assertions.
+      - name: Test (storage crate, isolated crash-process lifecycle)
+        if: github.job == 'gates-storage'
+        env: *eg-validation-compiler-cache-env
+        run: python3 scripts/cargo_test_rescue.py cargo test --locked -p eg-storage --all-features --no-fail-fast -- --test-threads=1
+
       # Operator decision (2026-10-09): on a pull request this broad
       # workspace sweep narrows to only the crates the diff could plausibly
       # break, so a PR gate turns around in minutes; `push` to main and a
       # release tag keep running the unchanged full command below.
       - name: Resolve the published base
-        if: github.event_name == 'pull_request'
+        if: github.job == 'gates-crates' && github.event_name == 'pull_request'
         run: |
           set -euo pipefail
           BASE="${{ github.event.pull_request.base.sha }}"
@@ -578,7 +586,7 @@ jobs:
           fi
           echo "PRE_COMMIT_FROM_REF=$BASE" >> "$GITHUB_ENV"
       - name: Resolve pull-request test scope (workspace crates)
-        if: github.event_name == 'pull_request'
+        if: github.job == 'gates-crates' && github.event_name == 'pull_request'
         id: pr-test-scope
         run: |
           set -euo pipefail
@@ -593,10 +601,10 @@ jobs:
           } >> "$GITHUB_OUTPUT"
       - name: Test (every other workspace crate, all features; push to main / release tag)
         env: *eg-validation-compiler-cache-env
-        if: github.event_name != 'pull_request'
+        if: github.job == 'gates-crates' && github.event_name != 'pull_request'
         run: python3 scripts/cargo_test_rescue.py cargo test --locked --workspace --exclude epistemic-graph --exclude eg-types --exclude eg-core --exclude eg-compute --exclude eg-storage --exclude eg-tts-piper --exclude eg-numeric --exclude eg-pyengine --all-features --no-fail-fast
       - name: Test (every other workspace crate -- pull request fast subset)
-        if: github.event_name == 'pull_request'
+        if: github.job == 'gates-crates' && github.event_name == 'pull_request'
         env:
           RUSTC_WRAPPER: sccache
           SCOPE: ${{ steps.pr-test-scope.outputs.scope }}
@@ -635,7 +643,7 @@ jobs:
           printf '%s\n' "${args[@]}"
           python3 scripts/cargo_test_rescue.py cargo test --locked "${args[@]}" --all-features --no-fail-fast
 
-      - name: Report workspace-crate compiler cache reuse
+      - name: Report native-crate compiler cache reuse
         if: always()
         run: *eg-validation-compiler-cache-stats
 
@@ -646,26 +654,7 @@ jobs:
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     env: *eg-validation-compiler-cache-backend
-    steps:
-      - *eg-gates-checkout
-      - *eg-gates-python
-      - *eg-gates-pydeps
-      - *eg-gates-sasl
-      - *eg-gates-toolchain
-      - *eg-gates-cache
-      - *eg-validation-compiler-cache
-      - *eg-gates-sqlite
-      - *eg-gates-whisper
-      # Crash-stage tests spawn children that briefly inherit sibling tests'
-      # read-only redb locks. Isolate this crate's full suite, not just the
-      # crash-test module: no sleeps, lock-error retries, or skipped assertions.
-      - name: Test (storage crate, isolated crash-process lifecycle)
-        env: *eg-validation-compiler-cache-env
-        run: python3 scripts/cargo_test_rescue.py cargo test --locked -p eg-storage --all-features --no-fail-fast -- --test-threads=1
-
-      - name: Report storage compiler cache reuse
-        if: always()
-        run: *eg-validation-compiler-cache-stats
+    steps: *eg-workspace-storage-steps
 
   # Keep pyo3 validation independent of storage and the workspace sweep.
   # Main warms the same profile; pull requests retain read-only caches.

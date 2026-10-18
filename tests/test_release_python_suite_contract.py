@@ -643,12 +643,17 @@ CACHE_BACKEND = {
 }
 
 
+# Both jobs reuse the same sequence; exact conditions below route each command.
+COMPILER_CACHE_COMMANDS["gates-crates"].update(COMPILER_CACHE_COMMANDS["gates-storage"])
+COMPILER_CACHE_COMMANDS["gates-storage"] = COMPILER_CACHE_COMMANDS["gates-crates"]
+
 CACHE_STEP_CONDITIONS = {
+    "Test (storage crate, isolated crash-process lifecycle)": "github.job == 'gates-storage'",
     (
         "Test (every other workspace crate, all features; push to main / release tag)"
-    ): "github.event_name != 'pull_request'",
+    ): "github.job == 'gates-crates' && github.event_name != 'pull_request'",
     "Test (every other workspace crate -- pull request fast subset)": (
-        "github.event_name == 'pull_request'"
+        "github.job == 'gates-crates' && github.event_name == 'pull_request'"
     ),
 }
 
