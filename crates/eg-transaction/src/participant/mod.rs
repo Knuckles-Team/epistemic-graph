@@ -7,6 +7,7 @@
 //! so this kernel stays vendor-neutral and the composition root injects the
 //! cipher it already owns.
 
+mod decision;
 mod key_codec;
 mod model;
 mod record_codec;
@@ -14,6 +15,7 @@ mod sealed;
 mod transition;
 mod validate;
 
+pub use decision::merge_coordinator_decision;
 pub use key_codec::{decode_record_key, encode_record_key};
 pub use model::{
     ConsensusParentOperationKind, ConsensusTransactionBinding, ConsensusTransactionCasOutcome,

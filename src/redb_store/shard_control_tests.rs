@@ -1,7 +1,10 @@
 //! The shard file's fixed durable shape: its reserved control scope and the
 //! kernel-owned GraphShard table census.
 
-use super::control::{clear_xshard_decision, put_xshard_decision};
+use super::control::{
+    clear_xshard_decision, get_xshard_decision, get_xshard_decision_retain, put_xshard_decision,
+    put_xshard_recoverable_pending,
+};
 #[cfg(feature = "compute-dist")]
 use super::control::{put_matview, scan_matviews};
 use super::{
@@ -198,4 +201,58 @@ fn control_rows_are_repeatable_writes_not_first_wins_claims() {
 
     drop(shard);
     let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn coordinator_decision_conflicts_preserve_durable_outcome_after_reopen() {
+    for first in [false, true] {
+        let path = temp_path("decision-monotonic");
+        let shard = bootstrap(&path);
+        put_xshard_recoverable_pending(&shard, "txn").unwrap();
+        put_xshard_decision(&shard, "txn", first, false).unwrap();
+        put_xshard_decision(&shard, "txn", first, false).unwrap();
+        assert!(put_xshard_decision(&shard, "txn", !first, true).is_err());
+        assert!(put_xshard_recoverable_pending(&shard, "txn").is_err());
+        drop(shard);
+
+        let shard = bootstrap(&path);
+        assert_eq!(get_xshard_decision(&shard, "txn").unwrap(), Some(first));
+        assert!(get_xshard_decision_retain(&shard, "txn").unwrap());
+        clear_xshard_decision(&shard, "txn").unwrap();
+        clear_xshard_decision(&shard, "txn").unwrap();
+        assert_eq!(get_xshard_decision(&shard, "txn").unwrap(), None);
+        drop(shard);
+        std::fs::remove_file(path).unwrap();
+    }
+}
+
+#[test]
+fn competing_coordinator_decisions_have_one_winner() {
+    let path = temp_path("decision-race");
+    let shard = bootstrap(&path);
+    let barrier = std::sync::Barrier::new(2);
+    let (commit, abort) = std::thread::scope(|scope| {
+        let commit = scope.spawn(|| {
+            barrier.wait();
+            put_xshard_decision(&shard, "race", true, true)
+        });
+        let abort = scope.spawn(|| {
+            barrier.wait();
+            put_xshard_decision(&shard, "race", false, true)
+        });
+        (commit.join().unwrap(), abort.join().unwrap())
+    });
+    assert_ne!(commit.is_ok(), abort.is_ok());
+    assert_eq!(
+        get_xshard_decision(&shard, "race").unwrap(),
+        Some(commit.is_ok())
+    );
+    drop(shard);
+    let shard = bootstrap(&path);
+    assert_eq!(
+        get_xshard_decision(&shard, "race").unwrap(),
+        Some(commit.is_ok())
+    );
+    drop(shard);
+    std::fs::remove_file(path).unwrap();
 }

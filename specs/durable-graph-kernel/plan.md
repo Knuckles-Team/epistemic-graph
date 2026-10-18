@@ -756,3 +756,23 @@ No numerical performance result is claimed by this amendment. Only after those
 native gates pass may SDK/AU/Arbora composition and authenticated served acceptance
 establish runtime availability. No native build or generation is part of this
 spec-only amendment.
+
+
+## Amendment 2026-10-18: R034 coordinator decision monotonicity
+
+The existing cross-shard decision row must preserve its first terminal outcome.
+Compare and write under the same owner transaction. Permit absent-to-pending,
+absent-to-terminal and pending-to-terminal transitions. Repeating the same
+outcome is safe. Reject opposite outcomes, terminal-to-pending transitions and
+unknown encodings without modifying the row. Retention may strengthen but must
+not weaken. Explicit garbage collection stays separate and repeatable.
+
+Deterministic tests cover the full encoded transition matrix and malformed
+values. Storage fixtures cover both conflict orders, concurrent writers and
+reopen after refusal. They preserve repeated cleanup behavior. Protection ends
+after legitimate record collection; this slice does not add permanent history.
+
+This repairs a prerequisite in the existing coordinator. It does not establish
+heterogeneous-owner reservations, revocation fencing, visibility or profile
+admission. R034 and EG-DECISION-ENGINE-R036 remain incomplete. Native test
+execution and storage-fixture qualification must be reported separately.

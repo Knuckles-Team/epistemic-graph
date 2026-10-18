@@ -56,10 +56,10 @@ pub use outbox::{
 };
 pub use participant::{
     decode_record, decode_record_key, encode_record, encode_record_key, is_sealed_payload,
-    sealed_blob_digest, validate_key_matches_record, validate_transition,
-    ConsensusParentOperationKind, ConsensusTransactionBinding, ConsensusTransactionCasOutcome,
-    ConsensusTransactionDecision, ConsensusTransactionGcOutcome, ConsensusTransactionGcRequest,
-    ConsensusTransactionGroupMeta, ConsensusTransactionParentState,
+    merge_coordinator_decision, sealed_blob_digest, validate_key_matches_record,
+    validate_transition, ConsensusParentOperationKind, ConsensusTransactionBinding,
+    ConsensusTransactionCasOutcome, ConsensusTransactionDecision, ConsensusTransactionGcOutcome,
+    ConsensusTransactionGcRequest, ConsensusTransactionGroupMeta, ConsensusTransactionParentState,
     ConsensusTransactionParticipantState, ConsensusTransactionPendingFinalization,
     ConsensusTransactionRawSnapshot, ConsensusTransactionRecord, ConsensusTransactionRecordKey,
     ConsensusTransactionRetentionFence, ConsensusTransactionScanCursor,
