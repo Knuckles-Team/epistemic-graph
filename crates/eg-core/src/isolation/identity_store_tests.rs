@@ -345,7 +345,12 @@ impl RbacPolicyStore for FailingStore {
 fn a_failed_write_rolls_back_the_store_and_the_projection_together() {
     let mut layer = seeded();
     let before = serde_json::to_string(layer.rbac()).unwrap();
+    let working_store = layer.persist.clone();
     layer.persist = Some(Arc::new(FailingStore));
+    assert!(
+        !can_read(&layer),
+        "unreadable authority cannot allow access"
+    );
     let outcome = apply(
         &mut layer,
         unbind(BindingChange::Remove),
@@ -353,7 +358,7 @@ fn a_failed_write_rolls_back_the_store_and_the_projection_together() {
     );
     assert!(matches!(outcome, Err(IdentityStoreError::Persist(_))));
     assert_eq!(serde_json::to_string(layer.rbac()).unwrap(), before);
-    assert!(can_read(&layer), "neither half of the change was kept");
+    assert!(!can_read(&layer), "failed authority reads remain denied");
     let audited = layer.try_rbac_admin_audited(RbacAdminOp::AddRole(Role::new("ops")), actor());
     assert!(audited.is_err());
     assert_eq!(
@@ -361,6 +366,8 @@ fn a_failed_write_rolls_back_the_store_and_the_projection_together() {
         before,
         "nor its audit entry"
     );
+    layer.persist = working_store;
+    assert!(can_read(&layer), "the durable image was not changed");
 }
 
 #[test]
