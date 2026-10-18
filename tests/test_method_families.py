@@ -67,6 +67,8 @@ _WORK_ITEM_METHODS = frozenset(
         # family after the base commit; every classifier selects them with it.
         "IssueControlLease",
         "TransitionControlLease",
+        # EG-DURABLE-KERNEL-R028.5: fenced snapshots use the WorkItem write family.
+        "PublishCurrentPlan",
         "PolicyEvolutionStore",
         "GapUpsert",
         "GapTransition",
@@ -130,6 +132,8 @@ _DURABLE_AT_BASE = (
         "CasWorkItemMetadata",
         "IssueControlLease",
         "TransitionControlLease",
+        # EG-DURABLE-KERNEL-R028.5: fenced snapshots use the WorkItem write family.
+        "PublishCurrentPlan",
         "PolicyEvolutionStore",
         "GapUpsert",
         "GapTransition",
@@ -165,6 +169,8 @@ _ATOMIC_BATCH_ROWS_AT_BASE = frozenset(
         "CasWorkItemMetadata",
         "IssueControlLease",
         "TransitionControlLease",
+        # EG-DURABLE-KERNEL-R028.5: fenced snapshots use the WorkItem write family.
+        "PublishCurrentPlan",
         "PolicyEvolutionStore",
         "GapUpsert",
         "GapTransition",
