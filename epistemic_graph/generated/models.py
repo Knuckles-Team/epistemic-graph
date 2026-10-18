@@ -290,11 +290,11 @@ from .agent_component import (
     AgentComponentStatusRequest,
 )
 from .connector_pack import (
-    BoundedVec_PackEntry_1024,
+    BoundedVec_PackEntry_8192,
     BoundedVec_PackRef_64,
     BoundedVec_PackViolation_256,
     BoundedVec_PackWarning_256,
-    BoundedVec_string_1024,
+    BoundedVec_string_8192,
     ConnectorPackBindRequest,
     ConnectorPackImportRequest,
     ConnectorPackIndex,
@@ -16942,7 +16942,7 @@ class PackRetireResult(BaseModel):
     batch_id: str
     committed_version: Annotated[int, Field(ge=0)]
     connector: str
-    retired: BoundedVec_ComponentDependency_1024
+    retired: BoundedVec_ComponentDependency_8192
     schema_version: Annotated[int, Field(ge=0, le=65535)]
     tenant_id: str
 
@@ -23570,10 +23570,10 @@ BoundedVec_ComponentContribution_64 = Annotated[
 ]
 
 
-BoundedVec_ComponentDependency_1024 = Annotated[
+BoundedVec_ComponentDependency_8192 = Annotated[
     list[ComponentDependency],
     Field(
-        max_length=1024,
+        max_length=8192,
     ),
 ]
 
@@ -25313,9 +25313,9 @@ __all__ = [
     "BoundedVec_ClaimedTaskMapping_32",
     "BoundedVec_ClassCoverage_64",
     "BoundedVec_ComponentContribution_64",
-    "BoundedVec_ComponentDependency_1024",
     "BoundedVec_ComponentDependency_256",
     "BoundedVec_ComponentDependency_64",
+    "BoundedVec_ComponentDependency_8192",
     "BoundedVec_CoverageDerivation_32",
     "BoundedVec_DecisionEvalReceipt_50",
     "BoundedVec_DecisionReceiptTimelineEntry_50",
@@ -25346,7 +25346,7 @@ __all__ = [
     "BoundedVec_OptionAggregate_1024",
     "BoundedVec_OptionContribution_256",
     "BoundedVec_OutboxDeadLetterView_256",
-    "BoundedVec_PackEntry_1024",
+    "BoundedVec_PackEntry_8192",
     "BoundedVec_PackRef_64",
     "BoundedVec_PackViolation_256",
     "BoundedVec_PackWarning_256",
@@ -25392,12 +25392,12 @@ __all__ = [
     "BoundedVec_int64_2048",
     "BoundedVec_int64_256",
     "BoundedVec_int64_512",
-    "BoundedVec_string_1024",
     "BoundedVec_string_16",
     "BoundedVec_string_256",
     "BoundedVec_string_32",
     "BoundedVec_string_64",
     "BoundedVec_string_8",
+    "BoundedVec_string_8192",
     "BoundedVec_uint64_8",
     "BrokerConsumeResult",
     "BrokerConsumeResultValue",

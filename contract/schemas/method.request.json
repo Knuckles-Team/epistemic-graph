@@ -4027,11 +4027,11 @@
       "maxItems": 8,
       "type": "array"
     },
-    "BoundedVec_PackEntry_1024": {
+    "BoundedVec_PackEntry_8192": {
       "items": {
         "$ref": "#/$defs/PackEntry"
       },
-      "maxItems": 1024,
+      "maxItems": 8192,
       "type": "array"
     },
     "BoundedVec_PackRef_64": {
@@ -4241,13 +4241,6 @@
       "maxItems": 2048,
       "type": "array"
     },
-    "BoundedVec_string_1024": {
-      "items": {
-        "type": "string"
-      },
-      "maxItems": 1024,
-      "type": "array"
-    },
     "BoundedVec_string_16": {
       "items": {
         "type": "string"
@@ -4281,6 +4274,13 @@
         "type": "string"
       },
       "maxItems": 8,
+      "type": "array"
+    },
+    "BoundedVec_string_8192": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 8192,
       "type": "array"
     },
     "BoundedVec_uint64_8": {
@@ -6629,7 +6629,7 @@
           "type": "string"
         },
         "entries": {
-          "$ref": "#/$defs/BoundedVec_PackEntry_1024"
+          "$ref": "#/$defs/BoundedVec_PackEntry_8192"
         },
         "pack_digest": {
           "$ref": "#/$defs/Digest256",
@@ -6938,7 +6938,7 @@
           "$ref": "#/$defs/AgentLibraryMutationContext"
         },
         "uris": {
-          "$ref": "#/$defs/BoundedVec_string_1024"
+          "$ref": "#/$defs/BoundedVec_string_8192"
         }
       },
       "required": [
