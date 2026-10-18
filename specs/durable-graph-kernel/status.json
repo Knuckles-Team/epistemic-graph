@@ -1471,7 +1471,10 @@
       "id": "EG-DURABLE-KERNEL-R039.4",
       "title": "Atomic plan-bound pending consumption",
       "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "landed_in": [
+        "9cff8714dbf0",
+        "e4ca61b2ecc0"
+      ],
       "verified_by": [
         "crates/eg-types/src/control_lease/tests.rs:237",
         "src/redb_store/work_item/control_lease/tests/plan_consumption.rs:119",
