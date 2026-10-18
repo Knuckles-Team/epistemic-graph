@@ -15658,6 +15658,12 @@
             "null"
           ]
         },
+        "minted_session_ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "password_check": {
           "anyOf": [
             {
@@ -15678,6 +15684,12 @@
         },
         "sealed_secret": {
           "description": "A new sealed TOTP secret for enrollment, or the exact sealed secret\nagainst which `totp_step` was verified for confirmation/sign-in.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "session_tenant": {
           "type": [
             "string",
             "null"

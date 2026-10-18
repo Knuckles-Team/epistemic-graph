@@ -7290,9 +7290,11 @@ class IdentityStamp(BaseModel):
     actor: IdentityActor
     engine_loopback: bool | None = None
     minted_principal_id: str | None = None
+    minted_session_ref: str | None = None
     password_check: PasswordCheck | None = None
     password_hash: str | None = None
     sealed_secret: str | None = None
+    session_tenant: str | None = None
     token_hashes: list[str] = Field(default_factory=list)
     totp_step: Annotated[int, Field(ge=0)] | None = None
 
@@ -17712,6 +17714,7 @@ class PrincipalResolution(BaseModel):
     roles: Annotated[list[str], AfterValidator(_eg_unique_items)]
     scopes: Annotated[list[str], AfterValidator(_eg_unique_items)]
     session_mfa_pending: bool | None = None
+    session_record: SessionRecordProjection | None = None
     status: UserStatus
     username: str
 
@@ -21407,6 +21410,17 @@ class ServedSegmentKind(str, Enum):
     TIME_WINDOW = "time_window"
     CODE_SYMBOL = "code_symbol"
     TRACE_SPAN = "trace_span"
+
+
+class SessionRecordProjection(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    absolute_expires_at_ms: Annotated[int, Field(ge=0)]
+    idle_expires_at_ms: Annotated[int, Field(ge=0)]
+    mfa_at_ms: Annotated[int, Field(ge=0)] | None
+    principal_id: str
+    session_ref: str
+    tenant: str
 
 
 class SessionTouch(BaseModel):
@@ -28341,6 +28355,7 @@ __all__ = [
     "ServedSegmentKind",
     "ServerDesiredState",
     "ServerTransport",
+    "SessionRecordProjection",
     "SessionTouch",
     "SessionView",
     "Sha256Digest",

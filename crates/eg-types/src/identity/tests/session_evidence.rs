@@ -137,3 +137,28 @@ fn projection_schema_requires_explicit_nullable_mfa() {
         serde_json::json!(["integer", "null"])
     );
 }
+
+// spec: EG-TYPED-PACKS-R085.1
+#[test]
+fn resolve_preserves_creation_tenant_and_exact_mfa_timestamp() {
+    let mut store = opened();
+    store.sessions.get_mut("hash-one").unwrap().mfa_at_ms = Some(NOW - 17);
+    let op = IdentityOp::Session(SessionOp::Resolve {
+        request: SessionTouch {
+            session_token: Secret::default(),
+            code: Secret::default(),
+        },
+    });
+    let mut changed = broker();
+    changed.token_hashes.push("hash-one".into());
+    changed.session_tenant = Some("other-current-tenant".into());
+    changed.minted_session_ref = Some("replacement-reference".into());
+    let IdentityReply::Resolution(value) = apply_kept(&mut store, &op, &changed, NOW).unwrap()
+    else {
+        panic!("expected resolution")
+    };
+    let record = value.session_record.unwrap();
+    assert_eq!(record.session_ref, "ses:one");
+    assert_eq!(record.tenant, "tenant-one");
+    assert_eq!(record.mfa_at_ms, Some(NOW - 17));
+}

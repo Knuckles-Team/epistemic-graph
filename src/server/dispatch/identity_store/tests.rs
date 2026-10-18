@@ -417,11 +417,11 @@ async fn caller_cannot_choose_session_record_provenance() {
         stamp.minted_session_ref.as_deref(),
         Some("caller-reference")
     );
-    if stamp.session_tenant.is_some() {
-        let reference = stamp.minted_session_ref.unwrap();
-        assert!(reference.starts_with("ses:"));
-        assert!(uuid::Uuid::parse_str(&reference[4..]).is_ok());
-    } else {
-        assert!(stamp.minted_session_ref.is_none());
-    }
+    assert!(
+        stamp.session_tenant.is_some(),
+        "configured test policy must bind creation"
+    );
+    let reference = stamp.minted_session_ref.unwrap();
+    assert!(reference.starts_with("ses:"));
+    assert!(uuid::Uuid::parse_str(&reference[4..]).is_ok());
 }

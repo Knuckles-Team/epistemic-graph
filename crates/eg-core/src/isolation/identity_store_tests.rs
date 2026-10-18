@@ -491,3 +491,6 @@ fn failed_session_touch_persistence_publishes_no_record_projection() {
         "ses:stored-record"
     );
 }
+
+#[path = "identity_store_tests/session_evidence.rs"]
+mod session_evidence;

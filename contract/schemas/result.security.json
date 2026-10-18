@@ -1517,6 +1517,16 @@
           "description": "Set by `resolve_session`: the session still owes its second factor.",
           "type": "boolean"
         },
+        "session_record": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SessionRecordProjection"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "status": {
           "$ref": "#/$defs/UserStatus"
         },
@@ -1830,6 +1840,48 @@
       "required": [
         "role_id",
         "name"
+      ],
+      "type": "object"
+    },
+    "SessionRecordProjection": {
+      "additionalProperties": false,
+      "description": "Durable session facts, not a credential or an admission verdict.",
+      "properties": {
+        "absolute_expires_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "idle_expires_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "mfa_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "principal_id": {
+          "type": "string"
+        },
+        "session_ref": {
+          "type": "string"
+        },
+        "tenant": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "session_ref",
+        "tenant",
+        "principal_id",
+        "absolute_expires_at_ms",
+        "idle_expires_at_ms",
+        "mfa_at_ms"
       ],
       "type": "object"
     },

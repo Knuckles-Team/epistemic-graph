@@ -387,9 +387,10 @@ Hot-path proof for `EG-TYPED-PACKS-R104`: `tests/connector_pack/test_seed_graph_
 
 ## R085.1 durable session projection
 
-The native session_evidence tests cover post-touch persisted facts, distinct
-references, replay, omitted legacy/unbound metadata and existing refusals.
-Server stamping tests prove caller metadata cannot choose record provenance.
+The native session_evidence source fixtures cover post-touch facts, distinct
+references, omitted legacy/unbound metadata and existing refusals. Their source
+presence does not establish execution. Server stamping fixtures require caller
+metadata replacement and positive creation under the configured test policy.
 These checks do not qualify Arbora admission or a live host startup.
 
 `verified_api_key_resolution_omits_session_record` executes the existing
@@ -398,3 +399,13 @@ IssueApiKey and VerifyApiKey operations and checks wire omission.
 existing failing RBAC persistence store and asserts the touch returns an error,
 restores the prior state, and publishes facts only after a successful retry.
 Its existing none-mode fixture is storage testing, not served admission proof.
+
+`exact_session_facts_and_revocation_survive_durable_reopen` uses the existing
+native RbacStore test opener and checked writes. It closes and reopens the redb
+store after touch and revocation, asserts exact reference, creation tenant and
+MFA timestamp, and refuses another credential. Test-owned storage proofs do not
+establish production admission. `resolve_preserves_creation_tenant_and_exact_mfa_timestamp`
+refuses to overwrite stored provenance with a later stamp's metadata.
+`successful_session_resolution_runs_boundary_store_and_public_response` requires
+creation-to-resolution reference continuity. Existing pending-MFA served refusal
+requires an error response with no result. Canonical artifact freshness passes. Newly added native cases remain pending execution.

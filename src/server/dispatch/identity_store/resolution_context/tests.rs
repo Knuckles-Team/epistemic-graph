@@ -450,6 +450,22 @@ async fn successful_session_resolution_runs_boundary_store_and_public_response()
     let state = ready_engine().await;
     let response = send_op(&state, live_broker(), session_request()).await;
     let value = resolved(&response);
+    let record = value
+        .session_record
+        .as_ref()
+        .expect("configured creation binds session");
+    assert!(record.session_ref.starts_with("ses:"));
+    assert!(uuid::Uuid::parse_str(&record.session_ref[4..]).is_ok());
+    assert_eq!(
+        record.tenant,
+        request_context_policy().unwrap().expected_tenant
+    );
+    assert_eq!(record.principal_id, BOOTSTRAP_PRINCIPAL);
+    let repeated = send_op(&state, live_broker(), session_request()).await;
+    assert_eq!(
+        resolved(&repeated).session_record.unwrap().session_ref,
+        record.session_ref
+    );
     assert_eq!(value.principal_id, BOOTSTRAP_PRINCIPAL);
     assert_eq!(value.request_context.principal, BOOTSTRAP_PRINCIPAL);
     assert_eq!(value.request_context.agent_id, BOOTSTRAP_PRINCIPAL);
@@ -626,4 +642,25 @@ async fn pending_mfa_refusal_preserves_a_completable_ceremony_after_touch() {
     );
     let response = send_op(&state, live_broker(), session_request()).await;
     assert!(!resolved(&response).session_mfa_pending);
+}
+
+// spec: EG-TYPED-PACKS-R085.1
+#[test]
+fn session_record_creation_requires_matching_deployment_context() {
+    let valid = live_broker();
+    let expected = request_context_policy().unwrap();
+    assert_eq!(
+        record_tenant(&valid).as_deref(),
+        Some(expected.expected_tenant.as_str())
+    );
+    for field in ["tenant", "audience", "policy_version"] {
+        let mut claims = valid.claims().clone();
+        match field {
+            "tenant" => claims.tenant = "other-tenant".into(),
+            "audience" => claims.audience.clear(),
+            _ => claims.policy_version = "obsolete-policy".into(),
+        }
+        let mismatched = VerifiedRequestContext::from_verified_claims(claims, "test-only".into());
+        assert!(record_tenant(&mismatched).is_none());
+    }
 }
