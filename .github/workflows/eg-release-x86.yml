@@ -155,8 +155,8 @@ jobs:
       run: |-
         set -euo pipefail
         eg-piper-image-smoke
-        test "$(cat .python-version)" = 3.12
-        /opt/python/3.12.14/bin/python3 -m venv "$RUNNER_TEMP/release-python"
+        test "$(cat .python-version)" = 3.14
+        /opt/python/3.14.7/bin/python3 -m venv "$RUNNER_TEMP/release-python"
         echo "$RUNNER_TEMP/release-python/bin" >> "$GITHUB_PATH"
         channel=$(python3 -c "import tomllib; print(tomllib.load(open('rust-toolchain.toml','rb'))['toolchain']['channel'])")
         case "$channel" in 1.96.0) ;; *) echo 'Tracked Rust pin is not in the reviewed release profile' >&2; exit 1;; esac
