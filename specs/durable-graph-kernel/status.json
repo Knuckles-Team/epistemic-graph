@@ -84,6 +84,7 @@
     "EG-DURABLE-KERNEL-R039",
     "EG-DURABLE-KERNEL-R039.1",
     "EG-DURABLE-KERNEL-R039.2",
+    "EG-DURABLE-KERNEL-R039.3",
     "EG-DURABLE-KERNEL-R040",
     "EG-DURABLE-KERNEL-R041",
     "EG-DURABLE-KERNEL-R041.1",
@@ -1051,7 +1052,7 @@
         "d768ee483940"
       ],
       "verified_by": [
-        "crates/eg-types/src/control_lease/tests.rs:171",
+        "crates/eg-types/src/control_lease/tests.rs:174",
         "crates/eg-types/src/governed_change/tests.rs:110",
         "crates/eg-types/src/governed_change/tests.rs:148",
         "crates/eg-types/src/governed_change/tests.rs:54",
@@ -1418,7 +1419,8 @@
       "verified_by": [],
       "rollup_of": [
         "EG-DURABLE-KERNEL-R039.1",
-        "EG-DURABLE-KERNEL-R039.2"
+        "EG-DURABLE-KERNEL-R039.2",
+        "EG-DURABLE-KERNEL-R039.3"
       ]
     },
     {
@@ -1441,7 +1443,20 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [
-        "src/redb_store/work_item/control_lease/tests.rs:214"
+        "src/redb_store/work_item/control_lease/tests.rs:235"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R039.3",
+      "title": "Atomic pending-call envelope storage and consumption",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "crates/eg-types/src/control_lease/tests.rs:191",
+        "crates/eg-types/src/control_lease/tests.rs:224",
+        "src/redb_store/work_item/control_lease/tests.rs:409",
+        "src/redb_store/work_item/control_lease/tests.rs:437",
+        "src/redb_store/work_item/control_lease/tests.rs:462"
       ]
     },
     {
