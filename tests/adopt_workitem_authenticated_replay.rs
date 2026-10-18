@@ -533,6 +533,21 @@ async fn run_admission_binds_verified_owner_and_replays_without_row_changes() {
     drop(concrete);
     let reopened = Arc::new(reopen(&dir).await);
     let restarted = run_state_with(reopened.clone(), dir.clone()).await;
+    // Restore both rows and their durable version, as a serving restart must.
+    let (snapshot, version) = reopened
+        .read_authoritative_graph_snapshot(GRAPH)
+        .await
+        .unwrap()
+        .expect("durable run graph snapshot");
+    restarted
+        .read()
+        .await
+        .registry
+        .get(GRAPH)
+        .unwrap()
+        .core
+        .install_committed_snapshot(snapshot, version)
+        .unwrap();
     let replay = test_support::dispatch(
         &restarted,
         signed_run_request(440, run_submit_method(), "run-admit-key"),
