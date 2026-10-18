@@ -1986,8 +1986,8 @@ non-security registered-System rule. Elevations grant no administrative power.
 This repairs an existing decision over EG records; it adds no issuer, served
 operation, profile permission, or Arbora admission policy.
 
-Regression coverage must include stale-clone grant removal, System demotion,
-identity deletion, explicit deny and unavailable authority, across memory and
-redb stores, plus refusal through the existing administrative caller. This is
+Test stale-clone grant removal, System demotion, identity deletion, explicit
+deny and unavailable authority across memory and redb stores. Also test refusal
+through the existing administrative caller. This is
 snapshot-time freshness only. Other cached readers, conservative has_rules
 checks, effect-time reservations and performance qualification remain separate.
