@@ -4,6 +4,15 @@ use crate::change_envelope::ChangeEnvelope;
 use crate::graph::GraphCore;
 use crate::protocol::Method;
 
+/// Vectors and node removals an envelope carries. Vectors live in the
+/// semantic store beside the snapshot, so they are published after the
+/// snapshot swap (EG-UNIFIED-DATA-PLANE-R651.7.3).
+#[derive(Default)]
+struct StagedVectors<'a> {
+    added: Vec<(&'a String, &'a Vec<f32>)>,
+    removed: Vec<&'a String>,
+}
+
 /// Publish the graph-row projection of a durably committed ChangeEnvelope.
 /// Durable redb state remains authoritative; a failure here is repaired from the
 /// transactional `engine.projection.rebuild` outbox rather than rolling back or
@@ -19,65 +28,9 @@ pub(crate) fn publish_change_envelope_projection(
     let source_version = core.version();
     let staged = Arc::new(GraphCore::new());
     staged.install_committed_snapshot(core.snapshot(), source_version)?;
-    // Vectors live in the semantic store beside the snapshot, so they are
-    // published after the snapshot swap (EG-UNIFIED-DATA-PLANE-R651.7.3).
-    let mut vectors: Vec<(&String, &Vec<f32>)> = Vec::new();
-    let mut removed: Vec<&String> = Vec::new();
+    let mut vectors = StagedVectors::default();
     for operation in &envelope.mutation.operations {
-        match &operation.method {
-            Method::AddNode {
-                node_id,
-                properties_msgpack,
-            } => staged.add_node(node_id.clone(), properties_msgpack.clone()),
-            Method::RemoveNode { node_id } => {
-                staged.remove_node(node_id.clone());
-                removed.push(node_id);
-            }
-            Method::AddEmbedding { node_id, embedding } => {
-                if embedding.is_empty() || embedding.iter().any(|x| !x.is_finite()) {
-                    return Err(format!(
-                        "committed embedding for '{node_id}' is not a finite vector"
-                    ));
-                }
-                vectors.push((node_id, embedding));
-            }
-            Method::CompareAndSetNodeFields {
-                node_id,
-                conditions_msgpack,
-                updates_msgpack,
-            } => {
-                let conditions = eg_types::msgpack::decode_property_object(conditions_msgpack)
-                    .map_err(|_| "invalid committed CAS conditions".to_string())?;
-                let updates = eg_types::msgpack::decode_property_object(updates_msgpack)
-                    .map_err(|_| "invalid committed CAS updates".to_string())?;
-                if !staged.compare_and_set_fields(node_id, &conditions, &updates) {
-                    return Err(format!(
-                        "committed CAS projection for '{}' no longer matches RAM",
-                        node_id
-                    ));
-                }
-            }
-            Method::AddEdge {
-                source_id,
-                target_id,
-                properties_msgpack,
-            } => staged.add_edge(
-                source_id.clone(),
-                target_id.clone(),
-                properties_msgpack.clone(),
-            )?,
-            Method::RemoveEdge {
-                source_id,
-                target_id,
-            } => staged.remove_edge(source_id.clone(), target_id.clone()),
-            Method::ClearGraph => staged.clear(),
-            other => {
-                return Err(format!(
-                    "ChangeEnvelope contains a non-projectable operation in domain {:?}",
-                    crate::server::mutation_batch::domain_for(other, operation.surface)
-                ));
-            }
-        }
+        stage_operation(&staged, operation, &mut vectors)?;
     }
     if core.version() != source_version {
         return Err(format!(
@@ -89,14 +42,97 @@ pub(crate) fn publish_change_envelope_projection(
         .checked_add(1)
         .ok_or_else(|| "authoritative graph version overflow".to_string())?;
     core.install_committed_snapshot(staged.snapshot(), target_graph_version)?;
-    if vectors.is_empty() && removed.is_empty() {
+    publish_vectors(core, vectors)
+}
+
+/// Apply one committed operation to the staged copy.
+fn stage_operation<'a>(
+    staged: &GraphCore,
+    operation: &'a crate::mutation_batch::MutationOperation,
+    vectors: &mut StagedVectors<'a>,
+) -> Result<(), String> {
+    match &operation.method {
+        Method::AddNode {
+            node_id,
+            properties_msgpack,
+        } => staged.add_node(node_id.clone(), properties_msgpack.clone()),
+        Method::RemoveNode { node_id } => {
+            staged.remove_node(node_id.clone());
+            vectors.removed.push(node_id);
+        }
+        Method::AddEmbedding { node_id, embedding } => stage_vector(node_id, embedding, vectors)?,
+        Method::CompareAndSetNodeFields {
+            node_id,
+            conditions_msgpack,
+            updates_msgpack,
+        } => stage_cas(staged, node_id, conditions_msgpack, updates_msgpack)?,
+        Method::AddEdge {
+            source_id,
+            target_id,
+            properties_msgpack,
+        } => staged.add_edge(
+            source_id.clone(),
+            target_id.clone(),
+            properties_msgpack.clone(),
+        )?,
+        Method::RemoveEdge {
+            source_id,
+            target_id,
+        } => staged.remove_edge(source_id.clone(), target_id.clone()),
+        Method::ClearGraph => staged.clear(),
+        other => {
+            return Err(format!(
+                "ChangeEnvelope contains a non-projectable operation in domain {:?}",
+                crate::server::mutation_batch::domain_for(other, operation.surface)
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn stage_vector<'a>(
+    node_id: &'a String,
+    embedding: &'a Vec<f32>,
+    vectors: &mut StagedVectors<'a>,
+) -> Result<(), String> {
+    if embedding.is_empty() || embedding.iter().any(|x| !x.is_finite()) {
+        return Err(format!(
+            "committed embedding for '{node_id}' is not a finite vector"
+        ));
+    }
+    vectors.added.push((node_id, embedding));
+    Ok(())
+}
+
+fn stage_cas(
+    staged: &GraphCore,
+    node_id: &str,
+    conditions_msgpack: &[u8],
+    updates_msgpack: &[u8],
+) -> Result<(), String> {
+    let conditions = eg_types::msgpack::decode_property_object(conditions_msgpack)
+        .map_err(|_| "invalid committed CAS conditions".to_string())?;
+    let updates = eg_types::msgpack::decode_property_object(updates_msgpack)
+        .map_err(|_| "invalid committed CAS updates".to_string())?;
+    if !staged.compare_and_set_fields(node_id, &conditions, &updates) {
+        return Err(format!(
+            "committed CAS projection for '{}' no longer matches RAM",
+            node_id
+        ));
+    }
+    Ok(())
+}
+
+/// Publish staged vectors after the snapshot swap; a removed node loses its vector.
+fn publish_vectors(core: &GraphCore, vectors: StagedVectors<'_>) -> Result<(), String> {
+    if vectors.added.is_empty() && vectors.removed.is_empty() {
         return Ok(());
     }
     let mut semantic = core.semantic_store.write();
-    for node_id in removed {
+    for node_id in vectors.removed {
         semantic.remove_embedding(node_id);
     }
-    for (node_id, embedding) in vectors {
+    for (node_id, embedding) in vectors.added {
         semantic
             .add_embedding(node_id.clone(), embedding.clone())
             .map_err(|error| format!("committed embedding for '{node_id}': {error}"))?;
