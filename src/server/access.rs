@@ -1073,6 +1073,35 @@ mod secure_empty_policy_tests {
     use super::*;
     use crate::protocol::GraphType;
 
+    #[cfg(feature = "security")]
+    #[test]
+    fn served_graph_access_refuses_a_system_identity_demoted_by_another_clone() {
+        use crate::isolation::{AgentIdentity, AgentRole};
+        let mut writer = IsolationLayer::new();
+        let mut identity = AgentIdentity {
+            agent_id: "revoked-system".into(),
+            role: AgentRole::System,
+            teams: vec![],
+            roles: vec![],
+        };
+        writer.try_register_agent(identity.clone()).unwrap();
+        let stale = writer.clone();
+        let check = || {
+            check_graph_access_with_policy(
+                &stale,
+                Some("revoked-system"),
+                "graph",
+                GraphType::Agent,
+                None,
+                AccessLevel::Read,
+            )
+        };
+        assert!(check().is_ok());
+        identity.role = AgentRole::Agent;
+        writer.try_register_agent(identity).unwrap();
+        assert!(check().unwrap_err().contains("ACCESS_DENIED"));
+    }
+
     #[test]
     fn secure_graph_access_fails_closed_when_identity_store_is_empty() {
         let isolation = IsolationLayer::new();

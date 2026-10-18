@@ -119,6 +119,7 @@ fn revocation_takes_effect_at_the_chokepoint_immediately() {
     let now = access_clock_ms();
     elevate(&mut layer, now);
     assert!(basis(&layer, AccessLevel::Write, now).is_allowed());
+    let stale = layer.clone();
     let revoke = ElevationRevoke {
         elevation_id: "e1".to_string(),
     };
@@ -130,6 +131,7 @@ fn revocation_takes_effect_at_the_chokepoint_immediately() {
         )
         .unwrap();
     assert_eq!(basis(&layer, AccessLevel::Write, now), AccessBasis::Denied);
+    assert_eq!(basis(&stale, AccessLevel::Write, now), AccessBasis::Denied);
     assert!(!layer.check_access(
         "agent:alice",
         GRAPH,
