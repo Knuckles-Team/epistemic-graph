@@ -243,6 +243,12 @@
     },
     {
       "class": "server",
+      "code": "CHUNK_CONFIG_INVALID",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
       "code": "CLUSTER_CONFIGURATION_INVALID",
       "http_status_hint": 400,
       "retryable": false
@@ -440,6 +446,24 @@
       "retryable": false
     },
     {
+      "class": "server",
+      "code": "DOCUMENT_NOT_FOUND",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "DOCUMENT_PROPERTIES_INVALID",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "DOCUMENT_TEXT_MISSING",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
       "class": "internal",
       "code": "ELEVATION_ACTOR_UNSTAMPED",
       "http_status_hint": 500,
@@ -524,6 +548,18 @@
       "retryable": false
     },
     {
+      "class": "server",
+      "code": "EMBEDDING_DIMENSION_MISMATCH",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "EMBEDDING_UNAVAILABLE",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
       "class": "availability",
       "code": "ENGINE_DEADLINE_EXCEEDED",
       "http_status_hint": 504,
@@ -546,6 +582,12 @@
       "code": "ENGINE_UNAVAILABLE",
       "http_status_hint": 503,
       "retryable": true
+    },
+    {
+      "class": "server",
+      "code": "ENRICHMENT_UNAVAILABLE",
+      "http_status_hint": 400,
+      "retryable": false
     },
     {
       "class": "decision",
@@ -1214,6 +1256,12 @@
       "retryable": false
     },
     {
+      "class": "server",
+      "code": "SELECTION_UNAVAILABLE",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
       "class": "schema",
       "code": "SHAPES_INVALID",
       "http_status_hint": 400,
@@ -1636,6 +1684,36 @@
     {
       "class": "schema",
       "code": "VALIDATION_BUDGET_EXCEEDED",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "WEB_BACKEND_INVALID",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "WEB_SELECTION_BUDGET_INVALID",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "WEB_SELECTION_NO_CANDIDATES",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "WEB_SELECTION_QUERY_MISSING",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "server",
+      "code": "WEB_SELECTION_TOO_MANY_CANDIDATES",
       "http_status_hint": 400,
       "retryable": false
     }
