@@ -1675,10 +1675,10 @@
       "landed_in": [],
       "verified_by": [
         "crates/eg-core/src/isolation/identity_store_tests.rs:455",
+        "crates/eg-core/src/isolation/identity_store_tests/session_evidence.rs:5",
         "crates/eg-types/src/identity/tests/session_evidence.rs:127",
         "crates/eg-types/src/identity/tests/session_evidence.rs:141",
-        "crates/eg-types/src/identity/tests/session_evidence.rs:33",
-        "crates/eg-types/src/identity/tests/session_evidence.rs:65"
+        "crates/eg-types/src/identity/tests/session_evidence.rs:33"
       ]
     },
     {
