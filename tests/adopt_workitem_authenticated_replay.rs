@@ -386,6 +386,19 @@ fn run_submit_method() -> Method {
     method
 }
 
+async fn run_state_with(
+    backend: Arc<dyn PersistenceBackend>,
+    dir: String,
+) -> test_support::SharedState {
+    let state = state_with(backend, dir);
+    state.write().await.isolation = test_support::wire_isolation(&[
+        common::TEST_AGENT,
+        "agent:delegated-run-worker",
+        "agent:foreign-owner",
+    ]);
+    state
+}
+
 fn signed_run_request(id: u64, method: Method, idempotency_key: &str) -> Request {
     signed_request_with_agent(
         id,
@@ -402,7 +415,7 @@ async fn run_admission_binds_verified_owner_and_replays_without_row_changes() {
     use sha2::{Digest, Sha256};
     let dir = temp_dir("eg-run-owner-admission");
     let concrete = Arc::new(RedbBackend::open(dir.clone(), 8192).unwrap());
-    let state = state_with(concrete.clone(), dir.clone());
+    let state = run_state_with(concrete.clone(), dir.clone()).await;
     let first = test_support::dispatch(
         &state,
         signed_request_with_agent(
@@ -508,7 +521,7 @@ async fn run_admission_binds_verified_owner_and_replays_without_row_changes() {
     concrete.shutdown();
     drop(concrete);
     let reopened = Arc::new(reopen(&dir).await);
-    let restarted = state_with(reopened.clone(), dir.clone());
+    let restarted = run_state_with(reopened.clone(), dir.clone()).await;
     let replay = test_support::dispatch(
         &restarted,
         signed_run_request(440, run_submit_method(), "run-admit-key"),
