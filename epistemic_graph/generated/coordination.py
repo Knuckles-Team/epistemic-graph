@@ -39,6 +39,8 @@ if TYPE_CHECKING:
     CancelWorkItemRequest = _models.MethodCancelWorkItemParams
     DeferWorkItemRequest = _models.MethodDeferWorkItemParams
     CasWorkItemMetadataRequest = _models.MethodCasWorkItemMetadataParams
+    PublishCurrentPlanRequest = _models.MethodPublishCurrentPlanParams
+    GetCurrentPlanRequest = _models.MethodGetCurrentPlanParams
     GetWorkItemRequest = _models.MethodGetWorkItemParams
     ListWorkItemsRequest = _models.MethodListWorkItemsParams
     GetWorkItemOutcomeRequest = _models.MethodGetWorkItemOutcomeParams
@@ -993,6 +995,92 @@ def decode_cas_work_item_metadata(
     return decode_result(
         "CasWorkItemMetadata", models().CasWorkItemMetadataResult, result
     )
+
+
+async def send_publish_current_plan(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        PublishCurrentPlan
+    Authorization:
+        work:write
+    Durability:
+        GraphRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.coordination.json
+        #/methods/PublishCurrentPlan
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    models().MethodPublishCurrentPlanParams.model_validate(params or {})
+    payload = await client._send(
+        "PublishCurrentPlan",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("PublishCurrentPlan", payload)
+
+
+def decode_publish_current_plan(result: OpaqueResult) -> _models.CurrentPlanPublished:
+    """Validate this method's result against its contract model."""
+    return decode_result("PublishCurrentPlan", models().CurrentPlanPublished, result)
+
+
+async def send_get_current_plan(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        GetCurrentPlan
+    Authorization:
+        work:read
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.coordination.json
+        #/methods/GetCurrentPlan
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    models().MethodGetCurrentPlanParams.model_validate(params or {})
+    payload = await client._send(
+        "GetCurrentPlan",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("GetCurrentPlan", payload)
+
+
+def decode_get_current_plan(result: OpaqueResult) -> _models.GetCurrentPlanResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("GetCurrentPlan", models().GetCurrentPlanResult, result)
 
 
 async def send_get_work_item(
@@ -2572,6 +2660,8 @@ _REQUEST_METHODS = frozenset(
         "CancelWorkItem",
         "DeferWorkItem",
         "CasWorkItemMetadata",
+        "PublishCurrentPlan",
+        "GetCurrentPlan",
         "GetWorkItem",
         "ListWorkItems",
         "GetWorkItemOutcome",

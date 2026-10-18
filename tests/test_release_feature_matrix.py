@@ -289,11 +289,14 @@ def test_pyo3_gate_is_independent_required_and_keeps_trusted_cache_policy(
     ]
     assert len(caches) == 1
     assert caches[0]["with"]["save-if"] == "${{ github.ref == 'refs/heads/main' }}"
-    names = {step.get("name") for step in job["steps"]}
-    assert "Test (storage crate, isolated crash-process lifecycle)" not in names
-    assert "Test (pyo3 crates, every feature except python)" not in {
-        step.get("name") for step in jobs["gates-crates"]["steps"]
-    }
+    steps = {step.get("name"): step for step in job["steps"]}
+    assert steps["Test (pyo3 crates, every feature except python)"]["if"] == (
+        "github.job == 'gates-pyo3'"
+    )
+    assert steps["Test (storage crate, isolated crash-process lifecycle)"]["if"] == (
+        "github.job == 'gates-storage'"
+    )
+    assert job["steps"] == jobs["gates-crates"]["steps"]
     for consumer in ("engine-main-wheel",):
         assert "gates-pyo3" in jobs[consumer]["needs"]
 

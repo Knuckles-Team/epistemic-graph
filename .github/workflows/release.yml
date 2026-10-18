@@ -10,7 +10,7 @@ name: Release
 #   guard -> build (matrix leg)  -> uploads its own wheel to PyPI
 #         -> build-x86           -> publish-x86 uploads the Linux x86_64 wheel
 #         -> build-sdist         -> uploads the source distribution
-#         -> build-server        -> uploads the epistemic-graph-server wheel (linux x86_64/aarch64, macOS arm64, Windows x64)
+#         -> build-server        -> uploads the epistemic-graph-server wheel (linux x86_64/aarch64, macOS arm64, Windows x64) and its sdist
 #         -> server-image        -> per-arch image from that wheel, one multi-arch manifest
 #   every uploader -> verify-pypi (checks every expected file reached PyPI)
 #
@@ -508,6 +508,53 @@ jobs:
           set -euo pipefail
           python -m pip install --upgrade twine
           python -m twine upload --skip-existing source/dist-server/*.whl
+      # The server package's one source distribution (PIPE-RELEASE-R008): built on the
+      # x86_64 leg from the same overlaid, version-pinned source, proven by an isolated
+      # rebuild into a working executable, and uploaded beside the wheels.
+      - name: Build the server source distribution
+        if: matrix.arch == 'x86_64'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          python -m pip install --quiet 'maturin==1.15.0'
+          rm -rf source/dist-server-sdist
+          (cd source/packaging/epistemic-graph-server && maturin sdist --out ../../dist-server-sdist)
+          archive="source/dist-server-sdist/epistemic_graph_server-${VERSION}.tar.gz"
+          if [ "$(ls source/dist-server-sdist | wc -l)" -ne 1 ] || [ ! -f "$archive" ]; then
+            echo "expected exactly $archive" >&2; ls -l source/dist-server-sdist >&2; exit 1
+          fi
+      - name: Prove the server source distribution by an isolated rebuild
+        if: matrix.arch == 'x86_64'
+        env:
+          MATURIN_PEP517_ARGS: --profile dev --locked
+        run: |
+          set -euo pipefail
+          rm -rf source/target
+          work="$RUNNER_TEMP/egs-sdist-proof"
+          rm -rf "$work" && mkdir -p "$work"
+          python -m venv "$work/venv"
+          archive="$(ls "$GITHUB_WORKSPACE"/source/dist-server-sdist/*.tar.gz)"
+          (cd "$work" && "$work/venv/bin/python" -m pip wheel --isolated --no-deps --no-cache-dir --wheel-dir "$work/wheel" "$archive")
+          "$work/venv/bin/python" -m pip install --isolated --no-deps --no-index "$work"/wheel/*.whl
+          "$work/venv/bin/epistemic-graph-server" --help >/dev/null
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: matrix.arch == 'x86_64'
+        with:
+          name: server-sdist
+          path: source/dist-server-sdist/*.tar.gz
+          if-no-files-found: error
+      - name: Publish the server source distribution to PyPI
+        if: >-
+          matrix.arch == 'x86_64'
+          && ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v'))
+          || (github.event_name == 'workflow_dispatch' && inputs.source_ref != ''))
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          python -m twine upload --skip-existing source/dist-server-sdist/*.tar.gz
 
   # Per-architecture image from that architecture's server wheel, pushed by digest.
   server-image:
@@ -667,12 +714,18 @@ jobs:
           pattern: server-wheel-*
           merge-multiple: true
           path: dist-server
-      - name: Require the four server wheels
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: server-sdist
+          path: dist-server
+      - name: Require the four server wheels and the server sdist
         run: |
           set -euo pipefail
           for tag in manylinux_2_28_x86_64 manylinux_2_28_aarch64 macosx_11_0_arm64 win_amd64; do
             ls dist-server/*"$tag"*.whl >/dev/null || { echo "MISSING: server wheel $tag" >&2; exit 1; }
           done
+          ls dist-server/epistemic_graph_server-"${GITHUB_REF_NAME#v}".tar.gz >/dev/null \
+            || { echo "MISSING: server source distribution" >&2; exit 1; }
       - name: Verify every published server filename and digest
         env:
           SOURCE_COMMIT: ${{ github.sha }}

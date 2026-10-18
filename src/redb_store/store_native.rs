@@ -383,6 +383,28 @@ pub(crate) fn apply_native_work_item_family_operation(
     crypto: DurableCrypto<'_>,
     committed_at_ms: u64,
 ) -> Result<(), String> {
+    if let Method::PublishCurrentPlan { request } = method {
+        let actor = batch
+            .envelope
+            .operation()
+            .map(|op| op.authority.actor.as_str());
+        let result = super::work_item::current_plan::publish(
+            graph_fname,
+            request,
+            actor,
+            &mut tables.graph,
+            crypto,
+            committed_at_ms,
+        )?;
+        if generated_result.is_some() || batch.operations.len() != 1 {
+            return Err("current-plan publication requires one operation".into());
+        }
+        let payload = crate::protocol::ResultPayload::of::<
+            eg_types::result_contract::coordination::PublishCurrentPlan,
+        >(result)?;
+        *generated_result = Some(rmp_serde::to_vec_named(&payload).map_err(|e| e.to_string())?);
+        return Ok(());
+    }
     let result = apply_work_item_rows(super::work_item::WorkItemApplyRequest {
         graph: graph_fname,
         batch_id: batch.batch_id.as_str(),

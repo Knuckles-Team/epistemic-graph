@@ -82,6 +82,7 @@ pub(crate) fn apply_add_edge_row(
 /// what keeps the writers below inside the argument cap without threading six
 /// same-shaped handles positionally through every one of them.
 pub(crate) struct GraphRowTables<'g> {
+    pub(crate) current_plans: ScopedOwnerTableMut<'g, (&'static str, &'static str), &'static [u8]>,
     pub(crate) nodes: ScopedOwnerTableMut<'g, (&'static str, &'static str), &'static [u8]>,
     pub(crate) edges:
         ScopedOwnerTableMut<'g, (&'static str, &'static str, &'static str, u32), &'static [u8]>,
@@ -125,6 +126,8 @@ impl<'g> GraphRowTables<'g> {
     ) -> Result<Self, String> {
         Ok(Self {
             nodes: member.open_scoped_table(NODES)?,
+            current_plans: member
+                .open_scoped_table(super::work_item::current_plan::CURRENT_PLANS)?,
             edges: member.open_scoped_table(EDGES)?,
             ledger: member.open_scoped_table(LEDGER)?,
             semantic: member.open_scoped_table(SEMANTIC)?,

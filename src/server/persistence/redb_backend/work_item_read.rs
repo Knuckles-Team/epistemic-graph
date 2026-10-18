@@ -140,3 +140,79 @@ impl RedbBackend {
         .await
     }
 }
+
+/// An owner-bound point read over one authoritative graph snapshot.
+type OwnerPointRead<T> = for<'a> fn(
+    &'a crate::redb_store::Shard,
+    &str,
+    &str,
+    &str,
+    &str,
+    crate::redb_store::DurableCrypto<'a>,
+) -> Result<T, String>;
+
+impl RedbBackend {
+    async fn owner_point_read<T: Send + 'static>(
+        &self,
+        graph_fname: &str,
+        tenant: &str,
+        run_id: &str,
+        actor: &str,
+        read: OwnerPointRead<T>,
+    ) -> Result<T, String> {
+        let (graph, tenant, run_id, actor) = (
+            graph_fname.to_owned(),
+            tenant.to_owned(),
+            run_id.to_owned(),
+            actor.to_owned(),
+        );
+        self.read_snapshot(graph_fname, move |shard, crypto| {
+            read(shard, &graph, &tenant, &run_id, &actor, crypto)
+        })
+        .await
+    }
+
+    pub(crate) async fn current_plan_owner(
+        &self,
+        graph_fname: &str,
+        tenant: &str,
+        run_id: &str,
+        actor: &str,
+    ) -> Result<bool, String> {
+        self.owner_point_read(
+            graph_fname,
+            tenant,
+            run_id,
+            actor,
+            crate::redb_store::work_item::current_plan::is_owner,
+        )
+        .await
+    }
+
+    pub(crate) async fn read_current_plan(
+        &self,
+        graph_fname: &str,
+        tenant: &str,
+        run_id: &str,
+        actor: &str,
+    ) -> Result<Option<eg_types::current_plan::CurrentPlanSnapshot>, String> {
+        self.owner_point_read(
+            graph_fname,
+            tenant,
+            run_id,
+            actor,
+            |shard, graph, tenant, run_id, actor, crypto| {
+                crate::redb_store::work_item::current_plan::read_current(
+                    shard,
+                    graph,
+                    tenant,
+                    run_id,
+                    actor,
+                    crypto,
+                    crate::server::dispatch::authoritative_now_ms(),
+                )
+            },
+        )
+        .await
+    }
+}

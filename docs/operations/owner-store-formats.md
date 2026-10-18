@@ -3,7 +3,7 @@
 Generated from `crates/eg-storage/src/owner/lineage.rs`; do not edit by hand.
 Regenerate with `cargo run -p eg-storage --example gen_owner_store_formats`.
 
-Every durable owner file records the digest of its exact table layout. A file whose layout is a declared predecessor below is refused on ordinary open with the named error. The SQL, immediate pre-MCP Agent Library, pre-enrichment GraphShard and immediate pre-audit-request-index GraphShard predecessors have explicit offline, data-preserving upgrades; others move aside and re-created. Any other digest is refused as `OWNER_STORE_FORMAT_UNKNOWN`.
+Every durable owner file records the digest of its exact table layout. A file whose layout is a declared predecessor below is refused on ordinary open with the named error. SQL and immediate pre-MCP Agent Library predecessors have explicit offline, data-preserving upgrades. GraphShard also supports these upgrades for pre-enrichment, immediate pre-audit-request-index and pre-current-plan predecessors. Other predecessors require moving files aside and recreating them. Any other digest is refused as `OWNER_STORE_FORMAT_UNKNOWN`.
 
 | Store | Current layout digest | Refused predecessors |
 |---|---|---|
@@ -23,7 +23,7 @@ Every durable owner file records the digest of its exact table layout. A file wh
 | `tenant_catalog` | `01b945d16fa187e69ca3dd5777a27066310b64a8b351380af1ba810f5dcd57aa` | none |
 | `node_info` | `02e5ca262822f4de0a1507780b2e908e605655d3a758e78c2a75f205ffa80347` | none |
 | `cluster_hierarchy` | `0561a2a2ae13f067bf01a4c94d6cbaeb280aaefa56c68036a1f01da92cba8431` | none |
-| `graph_shard` | `952ea729e026deee49d9922dd2577cd1f789860be06b19e981cbb2949cf2a217` | `GRAPH_SHARD_FORMAT_UPGRADE_REQUIRED` |
+| `graph_shard` | `cfc47e43654abc32fbf63cf3d9d7ffd4e04c742e3c955c259d2d05f5316e0a27` | `GRAPH_SHARD_FORMAT_UPGRADE_REQUIRED` |
 | `agent_library` | `e112d8118e4e62b002799b84bba8c69162e477071861a81d3893277736727ea0` | `AGENT_LIBRARY_FORMAT_UPGRADE_REQUIRED` |
 
 ## `BLOB_FORMAT_UPGRADE_REQUIRED`: blob store from before holder-scoped references
@@ -82,6 +82,14 @@ Every durable owner file records the digest of its exact table layout. A file wh
 * Owner tables of the refused generation: `nodes`, `edges`, `ledger`, `semantic_store`, `audit_chain`, `provenance_anchor_members`, `graph_meta`, `work_item_command_sequence`, `resource_reservations`, `resource_reservation_tenant_index`, `resource_reservation_attempts`, `resource_hosts`, `resource_exclusivity`, `resource_fairness`, `resource_concurrency`, `resource_anti_affinity`, `resource_disk_policies`, `change_envelopes`, `content_versions`, `change_cursors`, `change_blobs`, `change_features`, `change_evidence`, `change_policies`, `change_lineage`, `raft_log`, `raft_meta`, `xshard_prepare`, `xshard_decision`, `matviews`, `plan_matviews`, `matview_operator_state`, `capacity_cells`, `capacity_leases`, `capacity_usage`, `capacity_idempotency`, `repository_enrichment_budgets`, `repository_enrichment_policy_revisions`, `repository_enrichment_supersessions`, `repository_enrichment_parks`, `work_item_claim_capabilities`, `work_item_claim_capability_invocations`, `native_work_item_authority`, `development_lane_holds`, `development_lane_tenant_index`, `development_lane_lane_index`, `development_lane_repository_branch_index`, `development_lane_worktree_index`, `development_lane_work_item_index`, `development_lane_counters`, `development_lane_pressure_index`, `development_lane_policies`, `development_lane_invocations`, `encryption_canary`, `series_chunks`, `series_meta`, `series_projection_state`, `storage_scrub_cursor`
 * Removal step: none. This generation is upgraded in place with `epistemic-graph-server store-upgrade apply <data-dir> --confirm` while the engine is stopped; see the procedure below. Moving the file aside instead loses its rows.
 
+## `GRAPH_SHARD_FORMAT_UPGRADE_REQUIRED`: graph shard before private current-plan snapshots
+
+* Store file: `graph-*.redb`
+* Refused generation: graph shard before private current-plan snapshots
+* Data lost: none after the explicit offline current-plan layout upgrade. Normal open refuses this predecessor.
+* Owner tables of the refused generation: `nodes`, `edges`, `ledger`, `semantic_store`, `audit_chain`, `provenance_anchor_members`, `graph_meta`, `work_item_command_sequence`, `resource_reservations`, `resource_reservation_tenant_index`, `resource_reservation_attempts`, `resource_hosts`, `resource_exclusivity`, `resource_fairness`, `resource_concurrency`, `resource_anti_affinity`, `resource_disk_policies`, `change_envelopes`, `content_versions`, `change_cursors`, `change_blobs`, `change_features`, `change_evidence`, `change_policies`, `change_lineage`, `raft_log`, `raft_meta`, `xshard_prepare`, `xshard_decision`, `matviews`, `plan_matviews`, `matview_operator_state`, `capacity_cells`, `capacity_leases`, `capacity_usage`, `capacity_idempotency`, `repository_enrichment_budgets`, `repository_enrichment_policy_revisions`, `repository_enrichment_supersessions`, `repository_enrichment_parks`, `audit_requests`, `work_item_claim_capabilities`, `work_item_claim_capability_invocations`, `native_work_item_authority`, `development_lane_holds`, `development_lane_tenant_index`, `development_lane_lane_index`, `development_lane_repository_branch_index`, `development_lane_worktree_index`, `development_lane_work_item_index`, `development_lane_counters`, `development_lane_pressure_index`, `development_lane_policies`, `development_lane_invocations`, `encryption_canary`, `series_chunks`, `series_meta`, `series_projection_state`, `storage_scrub_cursor`
+* Removal step: none. This generation is upgraded in place with `epistemic-graph-server store-upgrade apply <data-dir> --confirm` while the engine is stopped; see the procedure below. Moving the file aside instead loses its rows.
+
 ## `AGENT_LIBRARY_FORMAT_UPGRADE_REQUIRED`: Agent Library before connector packs and governed write-back
 
 * Store file: `agent_library.redb`
@@ -113,6 +121,7 @@ The last output line of both verbs is one JSON object with the outcome, the exit
 
 | Store | Predecessor generation | Store file |
 |---|---|---|
+| `graph_shard` | graph shard before private current-plan snapshots | `graph-*.redb` |
 | `sql` | SQL catalog store before durable source checkpoints | `sql.redb` |
 | `sql` | SQL catalog store before durable ANN and edge index generations | `sql.redb` |
 | `agent_library` | Agent Library before served MCP catalog authority | `agent_library.redb` |

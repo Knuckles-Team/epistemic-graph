@@ -2256,6 +2256,71 @@
       ],
       "type": "object"
     },
+    "CurrentPlanPublished": {
+      "properties": {
+        "changed_work_item_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "payload_digest": {
+          "type": "string"
+        },
+        "revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "run_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "revision",
+        "payload_digest",
+        "changed_work_item_ids"
+      ],
+      "type": "object"
+    },
+    "CurrentPlanSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "expires_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/PlanItem"
+          },
+          "type": "array"
+        },
+        "observed_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "run_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "revision",
+        "observed_at_ms",
+        "expires_at_ms",
+        "items"
+      ],
+      "type": "object"
+    },
     "DecisionEvalReceipt": {
       "additionalProperties": false,
       "description": "The receipt a head must carry before it may be published.",
@@ -6827,6 +6892,30 @@
           "type": "string"
         }
       ]
+    },
+    "PlanItem": {
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "$ref": "#/$defs/PlanStatus"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "text",
+        "status"
+      ],
+      "type": "object"
+    },
+    "PlanStatus": {
+      "enum": [
+        "pending",
+        "in_progress",
+        "done"
+      ],
+      "type": "string"
     },
     "PointerEvent": {
       "additionalProperties": false,
@@ -11760,6 +11849,25 @@
       },
       "selected_by": null
     },
+    "GetCurrentPlan": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/CurrentPlanSnapshot"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "selected_by": null
+    },
     "GetWorkItem": {
       "bodies": {
         "result": {
@@ -11865,6 +11973,18 @@
           "encoding": "Raw",
           "schema": {
             "$ref": "#/$defs/DevelopmentLaneObserveResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "PublishCurrentPlan": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/CurrentPlanPublished"
           }
         }
       },

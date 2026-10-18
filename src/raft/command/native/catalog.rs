@@ -64,6 +64,7 @@ macro_rules! native_method_catalog {
             record CancelWorkItem => WorkItem,
             record DeferWorkItem => WorkItem,
             record CasWorkItemMetadata => WorkItem,
+            record PublishCurrentPlan => WorkItem,
             record IssueControlLease => WorkItem,
             record TransitionControlLease => WorkItem,
             record PolicyEvolutionStore => WorkItem,

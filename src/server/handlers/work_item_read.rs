@@ -25,6 +25,11 @@ use crate::server::persistence::PersistenceBackend;
 
 /// One decoded WorkItem read.
 pub(crate) enum WorkItemRead {
+    CurrentPlan {
+        tenant: String,
+        run_id: String,
+        actor: String,
+    },
     Get {
         tenant: String,
         work_item_id: String,
@@ -55,6 +60,7 @@ impl WorkItemRead {
     fn tenant(&self) -> &str {
         match self {
             Self::Get { tenant, .. } | Self::Outcome { tenant, .. } => tenant,
+            Self::CurrentPlan { tenant, .. } => tenant,
             Self::List(request) => &request.tenant,
             Self::ControlLeases(request) => &request.tenant,
             Self::ControlLease { tenant, .. } | Self::Gap { tenant, .. } => tenant,
@@ -98,6 +104,18 @@ async fn serve_native(
         .and_then(|backend| backend.as_redb())
         .ok_or_else(|| NATIVE_UNAVAILABLE.to_string())?;
     match read {
+        WorkItemRead::CurrentPlan {
+            tenant,
+            run_id,
+            actor,
+        } => {
+            let actor = crate::server::mutation_batch::principal_fingerprint(&actor)?;
+            ResultPayload::of::<eg_types::result_contract::coordination::GetCurrentPlan>(
+                backend
+                    .read_current_plan(graph, &tenant, &run_id, &actor)
+                    .await?,
+            )
+        }
         WorkItemRead::Get {
             tenant,
             work_item_id,

@@ -55,6 +55,7 @@ def _test_step(job: dict) -> dict:
         "gates-facade",
         "gates-variants",
         "gates-crates",
+        "gates-storage",
         "gates-pyo3",
         "python-suite",
     ],
@@ -582,13 +583,15 @@ COMPILER_CACHE_COMMANDS: dict[str, dict[str, tuple[str, ...]]] = {
             ),
         ),
     },
-    "gates-crates": {
+    "gates-storage": {
         ("Test (storage crate, isolated crash-process lifecycle)"): (
             (
                 "python3 scripts/cargo_test_rescue.py cargo test --locked -p "
                 "eg-storage --all-features --no-fail-fast -- --test-threads=1"
             ),
         ),
+    },
+    "gates-crates": {
         (
             "Test (every other workspace crate, all features; push to main / "
             "release tag)"
@@ -640,12 +643,25 @@ CACHE_BACKEND = {
 }
 
 
+# Shared steps retain exact routing conditions for each native job below.
+NATIVE_JOB_COMMANDS = {
+    **COMPILER_CACHE_COMMANDS["gates-crates"],
+    **COMPILER_CACHE_COMMANDS["gates-storage"],
+    **COMPILER_CACHE_COMMANDS["gates-pyo3"],
+}
+for native_job in ("gates-crates", "gates-storage", "gates-pyo3"):
+    COMPILER_CACHE_COMMANDS[native_job] = NATIVE_JOB_COMMANDS
+
 CACHE_STEP_CONDITIONS = {
+    "Test (pyo3 crates, every feature except python)": "github.job == 'gates-pyo3'",
+    ("Test (storage crate, isolated crash-process lifecycle)"): (
+        "github.job == 'gates-storage'"
+    ),
     (
         "Test (every other workspace crate, all features; push to main / release tag)"
-    ): "github.event_name != 'pull_request'",
+    ): "github.job == 'gates-crates' && github.event_name != 'pull_request'",
     "Test (every other workspace crate -- pull request fast subset)": (
-        "github.event_name == 'pull_request'"
+        "github.job == 'gates-crates' && github.event_name == 'pull_request'"
     ),
 }
 
