@@ -42,7 +42,7 @@ fn snapshot_for(
     )
 }
 
-// spec: EG-DURABLE-KERNEL-R039.4
+// spec: EG-DURABLE-KERNEL-R039.4, EG-DURABLE-KERNEL-R039.4.1
 #[test]
 fn paired_consumption_changes_three_rows_and_replay_changes_none() {
     let (temp, pending) = fixture("plan-paired-consume");
@@ -66,7 +66,7 @@ fn paired_consumption_changes_three_rows_and_replay_changes_none() {
     assert_eq!(snapshot(&temp.shard), after);
 }
 
-// spec: EG-DURABLE-KERNEL-R039.4
+// spec: EG-DURABLE-KERNEL-R039.4, EG-DURABLE-KERNEL-R039.4.1
 #[test]
 fn paired_consumption_refuses_omission_and_every_changed_preimage() {
     let (temp, pending) = fixture("plan-paired-preimage");
@@ -94,7 +94,7 @@ fn paired_consumption_refuses_omission_and_every_changed_preimage() {
     }
 }
 
-// spec: EG-DURABLE-KERNEL-R039.4
+// spec: EG-DURABLE-KERNEL-R039.4, EG-DURABLE-KERNEL-R039.4.1
 #[test]
 fn revoked_plan_blocks_pending_consumption_without_partial_changes() {
     let (temp, pending) = fixture("plan-paired-revocation");
@@ -116,7 +116,7 @@ fn revoked_plan_blocks_pending_consumption_without_partial_changes() {
     assert_eq!(snapshot(&temp.shard), before);
 }
 
-// spec: EG-DURABLE-KERNEL-R039.4
+// spec: EG-DURABLE-KERNEL-R039.4, EG-DURABLE-KERNEL-R039.4.1
 #[test]
 fn registration_refuses_foreign_plan_and_excessive_lifetime() {
     for foreign in [false, true] {
@@ -151,7 +151,7 @@ fn registration_refuses_foreign_plan_and_excessive_lifetime() {
     }
 }
 
-// spec: EG-DURABLE-KERNEL-R039.4
+// spec: EG-DURABLE-KERNEL-R039.4, EG-DURABLE-KERNEL-R039.4.1
 #[test]
 fn expired_pair_refuses_without_consuming_either_lease() {
     let (temp, pending) = fixture("plan-paired-expiry");
@@ -172,7 +172,7 @@ fn expired_pair_refuses_without_consuming_either_lease() {
     assert_eq!(snapshot(&temp.shard), before);
 }
 
-// spec: EG-DURABLE-KERNEL-R039.4
+// spec: EG-DURABLE-KERNEL-R039.4, EG-DURABLE-KERNEL-R039.4.1
 #[test]
 fn shared_plan_has_one_winner_and_losing_pending_pair_is_unchanged() {
     use super::super::super::test_shard::with_write;
@@ -226,7 +226,7 @@ fn shared_plan_has_one_winner_and_losing_pending_pair_is_unchanged() {
     assert_eq!(snapshot_for(&temp.shard, "work-b", "pending-b"), before);
 }
 
-// spec: EG-DURABLE-KERNEL-R039.4
+// spec: EG-DURABLE-KERNEL-R039.4, EG-DURABLE-KERNEL-R039.4.1
 #[test]
 fn persisted_plan_drift_refuses_before_any_paired_write() {
     // Fault-inject persisted drift. Legal registration bounds make natural plan

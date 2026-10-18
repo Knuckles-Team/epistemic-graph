@@ -86,6 +86,8 @@
     "EG-DURABLE-KERNEL-R039.2",
     "EG-DURABLE-KERNEL-R039.3",
     "EG-DURABLE-KERNEL-R039.4",
+    "EG-DURABLE-KERNEL-R039.4.1",
+    "EG-DURABLE-KERNEL-R039.4.2",
     "EG-DURABLE-KERNEL-R040",
     "EG-DURABLE-KERNEL-R041",
     "EG-DURABLE-KERNEL-R041.1",
@@ -1467,6 +1469,25 @@
       "id": "EG-DURABLE-KERNEL-R039.4",
       "title": "Atomic plan-bound pending consumption",
       "delivery_state": "SPECIFIED",
+      "landed_in": [
+        "9cff8714dbf0"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/control_lease/tests.rs:237",
+        "src/redb_store/work_item/control_lease/tests/plan_consumption.rs:119",
+        "src/redb_store/work_item/control_lease/tests/plan_consumption.rs:154",
+        "src/redb_store/work_item/control_lease/tests/plan_consumption.rs:175",
+        "src/redb_store/work_item/control_lease/tests/plan_consumption.rs:229"
+      ],
+      "rollup_of": [
+        "EG-DURABLE-KERNEL-R039.4.1",
+        "EG-DURABLE-KERNEL-R039.4.2"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R039.4.1",
+      "title": "Functional plan-bound pending storage",
+      "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [
         "crates/eg-types/src/control_lease/tests.rs:237",
@@ -1475,6 +1496,13 @@
         "src/redb_store/work_item/control_lease/tests/plan_consumption.rs:175",
         "src/redb_store/work_item/control_lease/tests/plan_consumption.rs:229"
       ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R039.4.2",
+      "title": "Paired-consumption performance qualification",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "EG-DURABLE-KERNEL-R040",

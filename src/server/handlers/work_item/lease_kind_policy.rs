@@ -205,7 +205,7 @@ mod tests {
         assert!(super::check_resolved_kind(&verified, &policy, Some(PENDING_CALL_KIND)).is_ok());
         assert!(stop_dispatch.is_some());
     }
-    // spec: EG-DURABLE-KERNEL-R039.4
+    // spec: EG-DURABLE-KERNEL-R039.4, EG-DURABLE-KERNEL-R039.4.1
     #[test]
     fn paired_storage_is_unavailable_on_both_served_writes() {
         use crate::protocol::Method;

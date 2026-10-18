@@ -234,7 +234,7 @@ fn ordinary_lease_wire_shape_remains_compatible_without_pending_fields() {
     );
 }
 
-// spec: EG-DURABLE-KERNEL-R039.4
+// spec: EG-DURABLE-KERNEL-R039.4, EG-DURABLE-KERNEL-R039.4.1
 #[test]
 fn paired_plan_preimage_is_bounded_and_cannot_name_another_pending_lease() {
     let mut plan = PendingPlanPreimage {

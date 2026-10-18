@@ -124,7 +124,7 @@ def test_client_forwards_optional_pending_preconditions(
     assert calls[1]["pending_call_consumption"] == fence
 
 
-@pytest.mark.spec("EG-DURABLE-KERNEL-R039.4")
+@pytest.mark.spec("EG-DURABLE-KERNEL-R039.4", "EG-DURABLE-KERNEL-R039.4.1")
 def test_generated_plan_preimage_round_trips_and_refuses_unknown_authority() -> None:
     plan = {
         "lease_id": "plan-a",
