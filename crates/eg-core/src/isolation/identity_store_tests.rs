@@ -482,11 +482,14 @@ fn failed_session_touch_persistence_publishes_no_record_projection() {
     .unwrap();
     let op = IdentityOp::Session(SessionOp::Resolve { request });
     let before = serde_json::to_string(layer.rbac()).unwrap();
+    let working_store = layer.persist.clone();
     layer.persist = Some(Arc::new(FailingStore));
     let outcome = layer.try_apply_identity(&op, &owner_stamp, NOW + 61_000, &Registry);
-    assert!(matches!(outcome, Err(IdentityStoreError::Persist(_))));
+    assert!(
+        matches!(outcome, Err(IdentityStoreError::Persist(error)) if error.contains("disk full"))
+    );
     assert_eq!(serde_json::to_string(layer.rbac()).unwrap(), before);
-    layer.persist = None;
+    layer.persist = working_store;
     let IdentityReply::Resolution(reply) = layer
         .try_apply_identity(&op, &owner_stamp, NOW + 61_000, &Registry)
         .unwrap()
