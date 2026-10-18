@@ -4057,8 +4057,10 @@
     {
       "id": "EG-DURABLE-KERNEL-R028.4",
       "title": "Bind run ownership during native admission",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "da4215024f88"
+      ],
       "verified_by": [
         "src/redb_store/work_item/row_guard.rs:262",
         "tests/adopt_workitem_authenticated_replay.rs:388"
