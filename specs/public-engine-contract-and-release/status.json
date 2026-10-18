@@ -541,7 +541,7 @@
         "9ed0560ea093"
       ],
       "verified_by": [
-        "tests/test_release_python_suite_contract.py:717"
+        "tests/test_release_python_suite_contract.py:719"
       ]
     },
     {
