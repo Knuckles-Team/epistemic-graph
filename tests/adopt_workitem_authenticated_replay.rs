@@ -390,12 +390,23 @@ async fn run_state_with(
     backend: Arc<dyn PersistenceBackend>,
     dir: String,
 ) -> test_support::SharedState {
+    use epistemic_graph::acl::{Grant, GrantEffect, RbacAction, ResourceSelector};
+
     let state = state_with(backend, dir);
-    state.write().await.isolation = test_support::wire_isolation(&[
+    let mut isolation = test_support::wire_isolation(&[
         common::TEST_AGENT,
         "agent:delegated-run-worker",
         "agent:foreign-owner",
     ]);
+    for action in [RbacAction::Read, RbacAction::Write] {
+        isolation.add_grant(Grant {
+            role: "commons-user".into(),
+            resource: ResourceSelector::Graph(GRAPH.into()),
+            action,
+            effect: GrantEffect::Allow,
+        });
+    }
+    state.write().await.isolation = isolation;
     state
 }
 
