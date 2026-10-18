@@ -74,7 +74,7 @@ Gold-labelled data and executed-option-only bandit data are different datasets. 
 
 The existing pack types in `crates/eg-types/src/connector_pack/`, handlers in `src/server/handlers/admin/connector_pack/`, persistence in `src/server/persistence/connector_pack/` and Python `epistemic_graph/connector_pack.py` form one owner. The decision engine consumes published, tenant-visible component revisions and their annotations. It does not parse raw packs or trust client-provided digests. A pack entry's `provides`, `requires_capabilities`, modality and schema digest are publisher claims. So are its cost, latency, model profile and `contract_pin`. Native capability IRIs can enter ontology derivation with that claim premise. Unknown foreign IRIs are claim-only exact terms. Malformed native IRIs are refused at import. Re-import does not alter a component revision when its own entry content is byte-identical. `Withdrawn` members become ineligible immediately. A pack cannot insert decision-owned component kinds. The pack head and projection readiness marker must match before a projected ontology/shape fact is used as current.
 
-Decide's contract at this boundary is narrow: it sees only validated component revisions and preserves publisher-claim class in every derivation, score and record. It rejects reserved decision-owned kinds and stale projection facts. Pack import atomicity, body storage and parser refusals are specified and tested by the pack owner independently.
+Decide sees only validated component revisions. It preserves publisher-claim class in every derivation, score and record. It rejects reserved decision-owned kinds and stale projection facts. Pack import atomicity, body storage and parser refusals are specified and tested by the pack owner independently.
 
 ### 6. Question-specific extensions
 
@@ -179,7 +179,7 @@ This register inventories all 118 decision-owned obligations. `Historical label`
 | EG-DECISION-ENGINE-R082 | T4 | BUILT | NOT_RUN | **Option-marker head geometry for eg-decision** — encode state once, score each option at its own marker, softmax in-process, one forward pass serving several questions; no decoder loop. Adopted from the Laya encoder design |
 | EG-DECISION-ENGINE-R083 | T4 | BUILT | NOT_RUN | **Structured option encoding instead of textual — surpasses the external design by construction.** Laya scores 0.425 on Banking77 (vs 0.870 for the closed baseline) purely because 77 label strings exhaust head_max_len; that is a TOKENISATION limit, not a decision limit. Our options are IRIs carrying SHACL shapes, declared capabilities and cost/latency facts, so an option is encoded from its STRUCTURED features and cardinality bounds on feature-vector width rather than token budget. The failure mode that caps their usable option sets does not exist in ours |
 | EG-DECISION-ENGINE-R084 | T4 | BUILT | NOT_RUN | Conformal coverage and abstention are the primary calibration rung across changing option-set sizes. Temperature scaling is a fallback when exchangeability fails. Report both expected calibration error and empirical coverage. |
-| EG-DECISION-ENGINE-R085 | T4 | BUILT | NOT_RUN | **Derive the legal option set; never merely receive it.** Laya scores the A you hand it and cannot say which options are legal. We generate A from the ontology (SHACL shapes + SPARQL shortlist) so only type-valid, policy-admissible candidates are ever scored. This is what makes monotone safety ENFORCEABLE rather than aspirational: an illegal option is never in A, so a learned rung cannot introduce one. It is also the scorer/planner distinction |
+| EG-DECISION-ENGINE-R085 | T4 | BUILT | NOT_RUN | **Derive the legal option set; never merely receive it.** Laya scores the A you hand it and cannot say which options are legal. We generate A from the ontology (SHACL shapes + SPARQL shortlist) so only type-valid, policy-admissible candidates are ever scored. An illegal option is never in A. A learned rung cannot introduce one, so monotone safety is enforceable. It is also the scorer/planner distinction |
 | EG-DECISION-ENGINE-R086 | T4 | BUILT | NOT_RUN | **DecisionFit promotion evaluation protocol.** Adopt their four metrics (accuracy, soft accuracy, Brier, score MAE) and add five: empirical coverage alongside ECE. Abstention rate AND accuracy-on-answered (a good abstainer must be more accurate on what it answers, else the abstention is noise). Cost per decision (an unmeasured rung will not stay cheap). Decision stability (same state + same A -> same answer, since decisions are recorded in the graph and must be reproducible). And calibration drift over time, which bitemporal makes measurable. Frozen workflow set, per tenant and per domain |
 | EG-DECISION-ENGINE-R087 | T4 | BUILT | NOT_RUN | **Cardinality rule: shortlist before scoring.** Never hand a whole catalog to a scorer; SPARQL shortlist with a bounded LIMIT first. Their Banking77 collapse is the empirical case for it, and EG-DECISION-ENGINE-R083 raises the ceiling rather than removing the rule |
 | EG-DECISION-ENGINE-R088 | T4 | BUILT | NOT_RUN | **Trajectory-prefix belief (the one durable idea from SalesRLAgent).** Turn-by-turn P over conversation PREFIXES is a special case of BELIEF AS OF t over temporal slices. We already have this bitemporal capability; neither external system does. Expose it as a Decide primitive rather than a bespoke sales model |
@@ -361,9 +361,8 @@ The full Cargo suite and hosted CI remain unrun for this change.
 ### 2026-10-11 amendment: bounded R073 storage acceptance
 
 Add R073.1 and R073.2 for the existing served import path's durable per-component
-outbox and competing head compare-and-set behavior. These child tests do not
-complete R073: direct multi-intent receipt digest coverage and an owner-table /
-current-format refusal audit remain separate acceptance work. Native execution
+outbox and competing head compare-and-set behavior. These child tests do not complete R073. Direct multi-intent receipt digest
+coverage and an owner-table / current-format refusal audit remain separate acceptance work. Native execution
 is reported separately from the existence of these acceptance tests.
 
 ## Retrieval refusal envelope (R029)
@@ -524,7 +523,7 @@ pack Import admission does not establish a production Blob CAS fix.
 
 Current delivery is limited to EG-DECISION-ENGINE-R129.2: the typed
 `RulePromotionVerdict` in `crates/eg-types/src/decision/guardrail.rs` contains
-`Promotable` and `RejectedInvariant { invariant_iri: String }`, following the
+`Promotable` and `RejectedInvariant { invariant_iri: String }`. It follows the
 existing string IRI convention and snake_case serde representation. Positive
 roundtrips and malformed-payload refusals bind to the literal child spec ID.
 This enum-only delivery does not implement the invariant gate.
@@ -537,9 +536,8 @@ metadata (`rule_id`, `applies_to_class`, `source_generation`), with no rule
 predicate or contradiction semantics. `entailed_guardrails` establishes task
 applicability only, so it cannot implement an invariant contradiction check.
 
-EG-DECISION-ENGINE-R129 and children .1/.3/.4/.5/.6 remain open. The promotion
-owner and rule/invariant semantics must be established before wiring a pure
-check, confidence ordering, audit persistence, or served acceptance. The
+EG-DECISION-ENGINE-R129 and children .1/.3/.4/.5/.6 remain open. Establish the promotion owner and rule/invariant semantics first. Then wire a
+pure check, confidence ordering, audit persistence, or served acceptance. The
 intended invariant check must precede any confidence threshold; consensus
 cannot grant a bypass. No new promotion machinery is introduced by .2.
 
@@ -593,12 +591,12 @@ Cross-repository: `AU-` rows may surface the refusal; the owning policy gate kee
 
 ### Resident scorer resource measurement (R090.3)
 
-The benchmark lives in `crates/eg-numeric/benches/decision_resident_scorer.rs`, beside the production scorer. It reuses the promotion fit recipe and maximum legal head dimensions at 256 rows, timing individual production forward calls with Linux thread CPU time under the existing release profile. Whole-runner peak RSS is a conservative upper bound: above 8 MiB leaves scorer-specific memory inconclusive. Runner executable size is reported separately from server footprint. Acceptance requires an external receipt of the effective optimized build and passing measured limits; source publication alone does not verify the requirement.
+The benchmark lives in `crates/eg-numeric/benches/decision_resident_scorer.rs`, beside the production scorer. It reuses the promotion fit recipe and maximum legal head dimensions at 256 rows, timing individual production forward calls with Linux thread CPU time under the existing release profile. Whole-runner peak RSS is a conservative upper bound: above 8 MiB leaves scorer-specific memory inconclusive. Runner executable size is reported separately from server footprint. Acceptance requires an external receipt of the effective optimized build and passing measured limits. Source publication alone does not verify the requirement.
 
 Native measurement on 2026-10-11 met both parameter and CPU latency limits but
 reported 124,788,736 bytes of whole-runner peak RSS against an 8 MiB ceiling.
 That first Cargo-launched result is inconclusive and remains recorded. A direct
-run of the identical executable subsequently met all measured limits, with
+run of the identical executable later met all measured limits, with
 2,850,816 bytes peak RSS independently corroborated by external time. The test
 specification links both structured receipts and exact release provenance. The
 launch-dependent difference is observed; its precise cause is not established.
@@ -1711,11 +1709,14 @@ session or grant expiry. Changing the profile or capability revision requires
 fresh approval for that binding. Revocation prevents new admissions; it does
 not pretend to undo effects already committed by an admitted task.
 
-### One authoritative transaction
+### One atomic, serializable outcome
 
-Use the existing graph-native mutation owner and replay ledger for the target
-admission transaction. Arbora authenticates and requests admission. EG checks
-durable authority and records the result. The transaction must cover:
+Require one atomic, serializable admission outcome across authoritative owners.
+Preserve multi-tenant and multi-shard support; one physical file is not required.
+Reuse native mutation ownership and replay machinery through an owner-supported
+coordinator protocol. That heterogeneous-owner protocol is not implemented yet.
+Arbora authenticates and requests admission. EG checks durable authority and
+records the outcome. The coordinated transaction must cover:
 
 - Current grant content, policy and revocation revisions, and issuer authority
   needed to create or revoke that grant.
@@ -1727,17 +1728,20 @@ durable authority and records the result. The transaction must cover:
   admission and stable-key replay result.
 
 Immutable Agent Library content may remain content-addressed in its existing
-store. Any mutable eligibility or withdrawal fact affecting admission must
-share the transaction authority. A copied snapshot is not current authority.
-A precheck, process lock or separate check/commit/enqueue cannot substitute for
-this transaction. Its engine-clock expiry check and all writes commit together.
+store. Mutable eligibility and withdrawal facts must participate in the same
+serializable outcome through their authoritative owners. A copied snapshot is
+not current authority. A precheck, process lock or separate check/commit/enqueue
+cannot substitute for that protocol. Validate expiry at the durable decision
+point. Readers and dispatchers must never observe a partial admission outcome.
 Arbora dispatches only the committed admission; retries reuse its stable key.
 
 ### Migration and old writers
 
 Current identity state lives in the RBAC policy image. Agent Library owns its
-separate decision-record transaction. The target above therefore requires an
-explicit migration and writer cutover, not an adapter over those stores.
+separate decision-record transaction. Extend those owners with coordinated
+participation and recovery. Do not require wholesale security-image relocation
+or forced graph placement. Owner-format upgrades and writer fencing remain
+necessary; a thin adapter over today's independent commits is insufficient.
 
 Before enabling profile admission, inventory every writer for the migrated
 facts. This includes session revoke, expiry and mode-epoch changes through
@@ -1766,7 +1770,9 @@ Required fixtures cover revocation racing admission, expiry at the transaction
 clock boundary, profile withdrawal, stale capability revisions and wrong scope.
 Revocation committed first must prevent admission. Admission committed first
 has one receipt and one task; retry cannot create another. Inject failures
-between each proposed write and prove complete rollback, including replay state.
+before the durable decision and prove complete abort, including replay state.
+After a commit decision, prove recovery completes every participant exactly once;
+never roll back one committed participant independently.
 
 Cutover tests must exercise restart at every migration phase, stale writers,
 mixed binaries, key collisions, audit preservation and rollback after revocation.
@@ -1781,3 +1787,153 @@ to report implementation progress. First approve the exact migration/write-owner
 plan; then implement and qualify the native transaction and canonical contract.
 Production migration and live writer retirement require separate deployment
 authorization. This amendment executes neither action.
+
+
+## Amendment 2026-10-18: R036 records and coordinated owner protocol
+
+This corrects the initial #662 co-location proposal. Multi-tenant and multi-shard
+admission remain the target. A single-file fixture may qualify a local fast
+path, but cannot complete R036. No wholesale security-image relocation or graph
+placement restriction is required. All protocol extensions below are proposed,
+not existing runtime support. No deployment or new privilege is authorized.
+
+### Existing machinery and its limits
+
+`MutationKernel::admit_group_current` commits members within one physical file.
+`src/raft/cross_shard_txn/` supplies graph-slice prepare, decision and recovery
+machinery. `src/server/handlers/txn/consensus.rs` supplies graph participant
+commands and placement fencing. Neither supplies the heterogeneous RBAC,
+Agent Library and task transaction required here.
+
+Extend the existing native coordinator and mutation ownership contracts. Do not
+create an Arbora transaction ledger or a second native replay authority. Keep
+same-file scope groups as an optimization under the identical outcome contract.
+Current graph read-only checks and prepare records do not prove durable
+protection of security predicates until the decision. Existing coordination
+must not be described as already satisfying the obligations below.
+
+### Record keys and authoritative participants
+
+The inspected baseline is cd7dcc16313fb060c4a6c7d8a042455eef8d11ef. Source owners
+are `crates/eg-core/src/rbac_persist.rs`, `crates/eg-types/src/identity/model.rs`,
+`crates/eg-storage/src/owner/registry.rs` and
+`src/redb_store/work_item_capability.rs`.
+
+| Record and key | Owner and required participation |
+| --- | --- |
+| `rbac.redb`, table `rbac`, keys `policy`, `identities`, `bootstrap` | Retain RbacOwner and all three keys. Reserve the complete image revision initially; preserve credentials, audit, roles, grants, elevations and bootstrap state. |
+| `policy.identity.sessions[session_hash]` | Retain the nested map key. Validate principal, expiry, MFA and revocation within the reserved image. No per-shard session copy or new issuer. |
+| New `profile_use_grants[(tenant, grant_id)]` | Proposed RbacOwner table for exact #661 grant bindings, immutable ID, revision and revocation state. Start empty; never convert existing generic grants into profile-use grants. |
+| New `profile_authority_policy[tenant]` | Proposed RbacOwner table for issuance policy and revision. Missing policy denies. Creation does not confer approver permission. |
+| `agent_library[(tenant, component, revision)]` | Retain immutable content in AgentLibraryOwner. Verify exact pinned content and digest; no relocation. |
+| `agent_library_heads[(tenant, component)]` | Retain authoritative heads and tombstone/withdrawal semantics. Reserve every mutable head and eligibility predicate read by admission, including routed capability dependencies. No copied eligibility authority. |
+| `decision_records[(tenant, record_id)]` and its decision component revision | Retain AgentLibraryOwner. Stage the new record and component together as one participant; bind them to the same transaction and native task IDs. Historical records never become admission proof retroactively. |
+| Graph `nodes[(graph, node_id)]` and `native_work_item_authority[(graph, work_item_id)]` | Retain the graph's actual owner and placement. Stage native new run/task ownership under that participant. Generic nodes cannot supply native provenance. |
+| Existing kernel replay/receipt/outbox and coordinator prepare/decision records | Extend their versioned schemas for owner participants and linked outcome IDs. Reuse one authoritative transaction identity; no new profile replay ledger. |
+
+SessionRecord currently lacks tenant and an opaque session reference. Do not
+infer either from its hash. Check explicit tenant and graph authorization in
+the participating authority records. Never persist a bearer token in a receipt.
+A session projection provides facts, not a replacement authority or scope grant.
+
+### Participant contract and conflict protection — unimplemented
+
+An owner participant descriptor must bind owner kind, physical identity, scope,
+placement epoch, format version and canonical read/write-set digest. Use typed
+owner operations, not arbitrary table writes. The coordinator must reject an
+unsupported participant or mixed protocol version before a positive vote.
+
+Prepare must atomically validate current records and persist a reservation with
+sealed recovery intent. Reserve both present keys and absence predicates. The
+reservation binds transaction ID, expected revisions, full authority digest,
+proposed writes and expiry bounds. For RBAC, the digest must cover identity
+state too; the existing policy digest alone omits that state.
+
+Every conflicting writer must honor these reservations. This includes session
+revoke/touch, policy changes, grant revocation, library withdrawal and ordinary
+whole-image saves. Use transactional read-modify-write or revision CAS; reject
+stale images. Initially reserving the complete RBAC image is conservative and
+may serialize unrelated users. Measure that cost without redefining tenant or
+shard support. A later finer-grained format must prove the same dependencies.
+
+Reservations persist across process failure and remain effective until a proven
+terminal decision. A local timeout must not release an in-doubt reservation.
+A missing or unreachable decision service is not evidence of abort. Recovery
+may conclude abort only through the protocol's authoritative decision rule.
+Conflicting writers either wait within bounds or return a typed conflict; they
+must never acknowledge a revocation that the admission can later ignore.
+
+### Decision, expiry and visibility — unimplemented
+
+The native coordinator owns the durable, fenced decision and its recovery.
+Bind a caller operation key to authenticated tenant/principal and store its
+request digest. Different payloads under the same key conflict. Prepared
+participants and final receipts must reference that same transaction identity.
+
+A revocation serialized before admission makes admission refuse. If admission
+wins, its decision precedes the acknowledged revocation. This ordering includes
+all owner paths; an external precheck cannot establish it. Human approval and
+served authorization remain Arbora responsibilities under the unchanged #661
+policy. EG records and transaction checks do not create a new approval issuer.
+
+Choose the decision timestamp through the existing trusted engine clock owner.
+All participants must supply comparable expiry bounds or refuse participation.
+Before recording COMMIT, enforce the minimum session, grant and policy deadline.
+An admission whose deadline has arrived must abort even if every prepare voted
+yes earlier. Recovery preserves the recorded timestamp and never renews expiry.
+Clock uncertainty must refuse; remote client clocks cannot establish validity.
+
+COMMIT is one durable decision, not simultaneous physical writes. Participants
+apply it idempotently. Until reconciliation, all affected read and dispatch paths
+must resolve that decision or block; they cannot expose prepared or partly
+applied admission state. This obligation includes library receipts, task reads,
+work queues and cached authority views. Do not publish a success receipt until
+the protocol can guarantee the complete visible outcome.
+
+Dispatch must use committed native task ownership and the existing durable
+claim/outbox discipline. A lost response returns the same admission identity.
+It must not trigger a second task or dispatch. Post-COMMIT failures roll forward
+from durable intents; pre-COMMIT abort leaves no visible admission effects.
+
+### Owner upgrades, cutover and rollback — unimplemented
+
+Keep existing domain records and keys in their owners. Add only the reviewed
+participant/reservation formats and new profile records. Update the closed
+owner table census and kernel schemas through their canonical generators.
+Do not hand-edit generated contracts. No credentials or graphs need moving.
+
+Inventory every writer and reader that can bypass reservation or visibility
+rules. Upgrade them before enabling profile admission. The rollout manifest
+must bind participant formats, physical identities, supported epochs and
+recovery capability. Old binaries need a storage/deployment fence; a new marker
+cannot make an unaware old writer safe. Missing capability means unavailable,
+not a fallback to independent commits. Preserve ordinary default-agent behavior.
+
+Before rollout, back up each owner together with coordinated decision and replay
+evidence. Restore must preserve a consistent outcome across participants.
+After rollout, disable new admissions before rollback and drain or recover
+prepared transactions. Restore only binaries supporting all retained formats.
+Never erase a commit decision, revocation, bootstrap consumption or replay key
+to make an older binary start. An incompatible rollback must remain refused.
+
+### Required qualification and security decisions
+
+Test two tenants, multiple graph shards and separate RBAC/library owner files.
+Exercise cross-node participant routing where deployment supports it. The same
+acceptance suite must cover the single-file optimization without weakening the
+multi-owner target. Benchmark contention and bounded failure behavior.
+
+Race revoke, policy change, withdrawal and stale whole-image save against
+admission in both orders. Test exact decision-time expiry after delayed prepare,
+wrong scope, missing keys, conflicting replay digest and changed placement.
+Crash every participant and coordinator before prepare, before decision and
+during each apply. Inject partitions and lost responses. Prove durable fences,
+no partial reads or dispatch, consistent recovery and one native task/receipt.
+Test old writers, mixed versions, coordinated restore and rollback after revoke.
+
+These are unimplemented protocol obligations. Existing graph coordination tests
+cannot close them. Before runtime enablement, review the concrete clock-bound
+proof, reservation coverage and visibility protocol with independent reviewers.
+Any change to issuer eligibility, grant reuse, revocation semantics or tenant
+isolation is a material security decision and must be surfaced explicitly.
+Source design authorizes neither those policy changes nor live migration.
