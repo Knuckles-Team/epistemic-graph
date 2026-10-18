@@ -357,5 +357,6 @@ Hot-path proof for `EG-DURABLE-KERNEL-R101`: `tests/scheduler/test_downtime_sche
 ## Pending envelope storage
 
 `EG-DURABLE-KERNEL-R039.3`: use a native shard to register an immutable envelope and consume it with the exact WorkItem preimage. Check native provenance, stale fence/revision, expiry, changed metadata/envelope, duplicate registration and replay. Refuse a plausible NODES-only lease tuple without native claim authority. Every refusal preserves both rows. This is storage acceptance, not human approval or execution acceptance.
+`EG-DURABLE-KERNEL-R039.4`: register an exact same-tenant active plan preimage with a pending envelope. Consume both leases and clear the WorkItem reference atomically. Refuse omitted or changed pairs, expired or revoked plans, and replay without partial writes. Check that paired served requests refuse before dispatch; ordinary unpaired requests retain their policy checks. This storage proof does not authenticate human approval or task hierarchy.
 
 - **EG-DURABLE-KERNEL-R028.4:** Native admission tests cover immutable caller attribution, duplicate run refusal, and generic-write refusal. Native execution remains pending.

@@ -243,5 +243,6 @@ This batch defines the slices; it runs none of their runtime tests.
 
 - [ ] **EG-DURABLE-KERNEL-R028.3:** Validate fenced metadata CAS expiry at the native row boundary; native tests remain pending.
 - [ ] **EG-DURABLE-KERNEL-R039.3:** Implement and qualify atomic pending envelope registration and consumption. Keep human authority and task hierarchy outside this storage proof.
+- [ ] **EG-DURABLE-KERNEL-R039.4:** Qualify immutable plan binding and atomic plan/pending/WorkItem consumption with paired served requests explicitly unavailable until Arbora integration.
 
 - [ ] **EG-DURABLE-KERNEL-R028.4:** Bind verified run ownership during single WorkItem admission and prove transaction refusals.

@@ -16977,6 +16977,7 @@ class PendingCallConsumption(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     expected_grant: dict[str, Any]
+    plan: PendingPlanPreimage | None = None
     work_item: PendingCallFence
 
 
@@ -16992,7 +16993,17 @@ class PendingCallRegistration(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     expected_lease: CasWorkItemMetadataLeaseFence
+    plan: PendingPlanPreimage | None = None
     work_item: PendingCallFence
+
+
+class PendingPlanPreimage(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    expected_grant: dict[str, Any]
+    expected_kind: str
+    expected_revision: Annotated[int, Field(ge=0)]
+    lease_id: str
 
 
 class PipelineClassifiedRow(BaseModel):
@@ -27550,6 +27561,7 @@ __all__ = [
     "PendingCallConsumption",
     "PendingCallFence",
     "PendingCallRegistration",
+    "PendingPlanPreimage",
     "PersonalizedPageRankResult",
     "PersonalizedPageRankResultValueItem",
     "PipelineClassifiedRow",

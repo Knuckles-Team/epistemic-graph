@@ -85,6 +85,7 @@
     "EG-DURABLE-KERNEL-R039.1",
     "EG-DURABLE-KERNEL-R039.2",
     "EG-DURABLE-KERNEL-R039.3",
+    "EG-DURABLE-KERNEL-R039.4",
     "EG-DURABLE-KERNEL-R040",
     "EG-DURABLE-KERNEL-R041",
     "EG-DURABLE-KERNEL-R041.1",
@@ -1422,7 +1423,8 @@
       "rollup_of": [
         "EG-DURABLE-KERNEL-R039.1",
         "EG-DURABLE-KERNEL-R039.2",
-        "EG-DURABLE-KERNEL-R039.3"
+        "EG-DURABLE-KERNEL-R039.3",
+        "EG-DURABLE-KERNEL-R039.4"
       ]
     },
     {
@@ -1445,7 +1447,7 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [
-        "src/redb_store/work_item/control_lease/tests.rs:235"
+        "src/redb_store/work_item/control_lease/tests.rs:246"
       ]
     },
     {
@@ -1455,10 +1457,23 @@
       "landed_in": [],
       "verified_by": [
         "crates/eg-types/src/control_lease/tests.rs:191",
-        "crates/eg-types/src/control_lease/tests.rs:224",
-        "src/redb_store/work_item/control_lease/tests.rs:409",
-        "src/redb_store/work_item/control_lease/tests.rs:437",
-        "src/redb_store/work_item/control_lease/tests.rs:462"
+        "crates/eg-types/src/control_lease/tests.rs:225",
+        "src/redb_store/work_item/control_lease/tests.rs:424",
+        "src/redb_store/work_item/control_lease/tests.rs:452",
+        "src/redb_store/work_item/control_lease/tests.rs:477"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R039.4",
+      "title": "Atomic plan-bound pending consumption",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "crates/eg-types/src/control_lease/tests.rs:237",
+        "src/redb_store/work_item/control_lease/tests/plan_consumption.rs:119",
+        "src/redb_store/work_item/control_lease/tests/plan_consumption.rs:154",
+        "src/redb_store/work_item/control_lease/tests/plan_consumption.rs:175",
+        "src/redb_store/work_item/control_lease/tests/plan_consumption.rs:229"
       ]
     },
     {
@@ -4057,10 +4072,8 @@
     {
       "id": "EG-DURABLE-KERNEL-R028.4",
       "title": "Bind run ownership during native admission",
-      "delivery_state": "VERIFIED",
-      "landed_in": [
-        "da4215024f88"
-      ],
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": [
         "src/redb_store/work_item/row_guard.rs:262",
         "tests/adopt_workitem_authenticated_replay.rs:388"

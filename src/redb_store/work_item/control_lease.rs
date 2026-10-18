@@ -18,6 +18,7 @@ use eg_types::result_contract::coordination::{IssueControlLease, TransitionContr
 use super::*;
 
 mod pending_call;
+mod plan_pair;
 
 type NodeRow = serde_json::Map<String, serde_json::Value>;
 
@@ -78,6 +79,7 @@ pub(crate) fn apply_issue_control_lease_row(
     let mut row = request.row();
     let pair =
         pending_call::registration(graph, request, &mut row, nodes, committed_at_ms, crypto)?;
+    plan_pair::register(graph, request, &mut row, nodes, committed_at_ms, crypto)?;
     write_work_item_props(nodes, graph, &request.lease_id, &mut row, crypto)?;
     let mut changed = pending_call::write_pair(graph, pair, nodes, crypto)?;
     changed.push(request.lease_id.clone());
@@ -121,10 +123,12 @@ pub(crate) fn apply_transition_control_lease_row(
         );
     }
     let pair = pending_call::transition(graph, request, &row, nodes, committed_at_ms, crypto)?;
+    let plan = plan_pair::consume(graph, request, &row, nodes, committed_at_ms, crypto)?;
     row.insert("status".into(), request.to.status().as_stored().into());
     write_work_item_props(nodes, graph, &request.lease_id, &mut row, crypto)?;
     let ended = ControlLeaseView::from_row(&request.lease_id, &row)?;
     let mut changed = pending_call::write_pair(graph, pair, nodes, crypto)?;
+    changed.extend(pending_call::write_pair(graph, plan, nodes, crypto)?);
     changed.push(request.lease_id.clone());
     crate::protocol::ResultPayload::of::<TransitionControlLease>(ControlLeaseTransition {
         outcome: ControlLeaseTransitionOutcome::Applied,

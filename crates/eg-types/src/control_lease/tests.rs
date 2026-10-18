@@ -193,6 +193,7 @@ fn a_governed_kind_cannot_be_issued_as_a_generic_control_lease() {
 fn pending_registration_requires_reserved_kind_and_bounded_preimage() {
     let mut request = issue();
     let registration = PendingCallRegistration {
+        plan: None,
         work_item: PendingCallFence {
             work_item_id: "work-a".into(),
             expected_revision: 1,
@@ -231,4 +232,27 @@ fn ordinary_lease_wire_shape_remains_compatible_without_pending_fields() {
         serde_json::from_value::<IssueControlLeaseRequest>(value).unwrap(),
         request
     );
+}
+
+// spec: EG-DURABLE-KERNEL-R039.4
+#[test]
+fn paired_plan_preimage_is_bounded_and_cannot_name_another_pending_lease() {
+    let mut plan = PendingPlanPreimage {
+        lease_id: "configured-plan".into(),
+        expected_revision: 1,
+        expected_kind: "configured.kind".into(),
+        expected_grant: Map::new(),
+    };
+    assert!(plan.validate().is_ok());
+    plan.expected_kind = PENDING_CALL_KIND.into();
+    assert!(plan.validate().is_err());
+    plan.expected_kind = "configured.kind".into();
+    plan.expected_revision = 0;
+    assert!(plan.validate().is_err());
+    plan.expected_revision = 1;
+    plan.expected_grant.insert(
+        "large".into(),
+        "x".repeat(MAX_CONTROL_LEASE_GRANT_BYTES).into(),
+    );
+    assert!(plan.validate().is_err());
 }
