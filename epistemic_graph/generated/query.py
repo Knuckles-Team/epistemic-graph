@@ -53,6 +53,7 @@ if TYPE_CHECKING:
     TxnUnifiedQueryRequest = _models.MethodTxnUnifiedQueryParams
     TxnUqlRequest = _models.MethodTxnUqlParams
     EdgeSearchRequest = _models.MethodEdgeSearchParams
+    SelectWebPagesRequest = _models.MethodSelectWebPagesParams
     DecideRequest = _models.MethodDecideParams
 
 
@@ -1375,6 +1376,47 @@ async def send_edge_search(
     return EdgeSearchView.model_validate(payload)
 
 
+async def send_select_web_pages(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        SelectWebPages
+    Authorization:
+        query:decide
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.query.json
+        #/methods/SelectWebPages
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    models().MethodSelectWebPagesParams.model_validate(params or {})
+    payload = await client._send(
+        "SelectWebPages",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("SelectWebPages", payload)
+
+
+def decode_select_web_pages(result: OpaqueResult) -> _models.SelectWebPagesAnswer:
+    """Validate this method's result against its contract model."""
+    return decode_result("SelectWebPages", models().SelectWebPagesAnswer, result)
+
+
 async def send_decide(
     client: Any,
     params: dict[str, Any] | None = None,
@@ -1448,6 +1490,7 @@ _REQUEST_METHODS = frozenset(
         "TxnUnifiedQuery",
         "TxnUql",
         "EdgeSearch",
+        "SelectWebPages",
         "Decide",
     }
 )

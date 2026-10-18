@@ -276,6 +276,7 @@ fn source_ingestion_marker_event_id(method: &Method) -> Option<&'static str> {
     match method {
         Method::SourceIngest { .. } => Some("__source_ingest"),
         Method::IndexRepository { scope: Some(_), .. } => Some("__index_repository"),
+        Method::EnrichDocument { .. } => Some("__enrich_document"),
         _ => x9_marker_event_id(method),
     }
 }

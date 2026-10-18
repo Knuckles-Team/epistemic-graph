@@ -172,6 +172,10 @@ pub(super) async fn route_native_store_ops(
     let persistence = ctx.persistence;
     #[cfg(feature = "raft")]
     let routed_raft = ctx.routed_raft;
+    let method = match super::web_ingest::route_web_ingest(ctx, method).await {
+        Ok(response) => return Ok(response),
+        Err(method) => method,
+    };
     let method = match route_source_ingestion_or_resources(ctx, method).await {
         Ok(response) => return Ok(response),
         Err(method) => method,
@@ -441,7 +445,7 @@ enum SourceIngestionRoute {
 }
 
 #[cfg(feature = "raft")]
-async fn source_ingestion_route_fence(
+pub(super) async fn source_ingestion_route_fence(
     ctx: &GraphOpRouting<'_>,
 ) -> Result<(u64, Option<u64>), Response> {
     let Some(routed) = ctx.routed_raft.as_ref() else {
@@ -462,7 +466,7 @@ async fn source_ingestion_route_fence(
 }
 
 #[cfg(not(feature = "raft"))]
-async fn source_ingestion_route_fence(
+pub(super) async fn source_ingestion_route_fence(
     _ctx: &GraphOpRouting<'_>,
 ) -> Result<(u64, Option<u64>), Response> {
     Ok((0, None))

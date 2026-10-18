@@ -49,6 +49,8 @@ method_results! {
     AddEmbedding(AddEmbedding) => Text<String>;
     SourceIngest(SourceIngest) => Raw<SourceIngestionReceipt>;
     SourceIngestStatus(SourceIngestStatus) => Raw<SourceIngestStatusBody>;
+    // EG-UNIFIED-DATA-PLANE-R651.7: chunk, vector and provenance counts.
+    EnrichDocument(EnrichDocument) => Raw<crate::source_ingestion::web_document::EnrichDocumentReceipt>;
     // EH-408 / EH-409: counts plus the id of every fact node written.
     TelemetryDerive(TelemetryDerive) => Raw<TelemetryDeriveReceipt>;
     // `(node_id, weighted_similarity)` pairs, best first.

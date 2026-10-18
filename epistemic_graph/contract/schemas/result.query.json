@@ -11012,6 +11012,60 @@
       ],
       "type": "object"
     },
+    "EnrichDocumentRequest": {
+      "additionalProperties": false,
+      "description": "Request body of `EnrichDocument`.",
+      "properties": {
+        "document_id": {
+          "description": "The held Document node to enrich.",
+          "type": "string"
+        },
+        "fetch_backend": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FetchBackend"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The backend that fetched the page. Absent reads the Document's\n`fetch_backend` (or `backend`) property."
+        },
+        "max_chunk_bytes": {
+          "default": null,
+          "description": "Chunk window in UTF-8 bytes (64 to 65 536). Absent is 1 200.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "overlap_bytes": {
+          "default": null,
+          "description": "Overlap between consecutive chunks in bytes, under half the window.\nAbsent is 150.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "text_property": {
+          "default": null,
+          "description": "The Document property holding its text. Absent tries `text`, then\n`content`, then `body`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "document_id"
+      ],
+      "type": "object"
+    },
     "EnrichmentBudgetReservation": {
       "additionalProperties": false,
       "description": "Compare-and-swap reservation on the immutable source snapshot's global\ncompute budget. The native submit transaction applies this debit and all\nchild WorkItems together or neither. A capacity lease is a separate live\nresource fence and cannot replace this spending ledger.",
@@ -12765,6 +12819,14 @@
           "type": "object"
         }
       ]
+    },
+    "FetchBackend": {
+      "description": "The closed set of web fetch backends (EG-UNIFIED-DATA-PLANE-R651.7.1).",
+      "enum": [
+        "webarchiver",
+        "archivebox"
+      ],
+      "type": "string"
     },
     "FieldContract": {
       "additionalProperties": false,
@@ -37429,6 +37491,60 @@
             "params"
           ],
           "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Chunk one held Document of the request graph, embed the chunks and\ncommit the chunks, their `chunkOf` edges, their vectors and one\nenrichment record as one governed ChangeEnvelope. Idempotent by the\nDocument's content digest; a new digest supersedes the earlier chunks.\nSee [`crate::source_ingestion::web_document`].",
+          "properties": {
+            "method": {
+              "const": "EnrichDocument",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "request": {
+                  "$ref": "#/$defs/EnrichDocumentRequest"
+                }
+              },
+              "required": [
+                "request"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Choose which web search candidates to fetch: canonical-URL and digest\ndedupe against each other and the request graph's held Documents,\nheld-fresh skips, deterministic relevance/rank/freshness scoring and a\nfetch budget. Reads only; no model runs. See\n[`crate::decision::web_fetch_selection`].",
+          "properties": {
+            "method": {
+              "const": "SelectWebPages",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "request": {
+                  "$ref": "#/$defs/SelectWebPagesRequest"
+                }
+              },
+              "required": [
+                "request"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -45456,6 +45572,173 @@
       "description": "A secret in a request body. `Debug` never prints it; the boundary clears\nit with [`Secret::take`] before the op leaves the leader.",
       "type": "string"
     },
+    "SelectWebPagesAnswer": {
+      "additionalProperties": false,
+      "description": "Result body of `SelectWebPages`.",
+      "properties": {
+        "considered": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max_fetches": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "now_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "query_digest": {
+          "description": "`sha256:<hex>` of the trimmed query text.",
+          "type": "string"
+        },
+        "selected": {
+          "items": {
+            "$ref": "#/$defs/SelectedPage"
+          },
+          "type": "array"
+        },
+        "skipped": {
+          "items": {
+            "$ref": "#/$defs/SkippedPage"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "query_digest",
+        "selected",
+        "skipped",
+        "max_fetches",
+        "considered",
+        "now_ms"
+      ],
+      "type": "object"
+    },
+    "SelectWebPagesRequest": {
+      "additionalProperties": false,
+      "description": "Request body of `SelectWebPages`.",
+      "properties": {
+        "candidates": {
+          "items": {
+            "$ref": "#/$defs/WebCandidate"
+          },
+          "type": "array"
+        },
+        "freshness_window_s": {
+          "default": null,
+          "description": "Absent is 86 400 s.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "max_fetches": {
+          "description": "The fetch budget, 1 to 32.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "now_ms": {
+          "default": null,
+          "description": "The decision clock in Unix milliseconds. Absent reads the server\nclock; pass it to make a replay exact.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "query": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "query",
+        "candidates",
+        "max_fetches"
+      ],
+      "type": "object"
+    },
+    "SelectedPage": {
+      "additionalProperties": false,
+      "description": "One selected page.",
+      "properties": {
+        "canonical_url": {
+          "type": "string"
+        },
+        "engines": {
+          "description": "The engines that returned the URL, sorted.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "freshness_micros": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "order": {
+          "description": "0-based fetch order.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "rank_micros": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "reasons": {
+          "description": "Human-readable reasons, in a fixed order.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "refresh": {
+          "description": "True when a held copy exists but is older than the window.",
+          "type": "boolean"
+        },
+        "relevance_micros": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "score_micros": {
+          "description": "Weighted total in millionths.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "title": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "order",
+        "url",
+        "canonical_url",
+        "title",
+        "score_micros",
+        "relevance_micros",
+        "rank_micros",
+        "freshness_micros",
+        "engines",
+        "refresh",
+        "reasons"
+      ],
+      "type": "object"
+    },
     "SemanticActivationTarget": {
       "additionalProperties": false,
       "properties": {
@@ -49337,6 +49620,61 @@
         "mcp_skill"
       ],
       "type": "string"
+    },
+    "SkipReason": {
+      "description": "Why a candidate was not selected.",
+      "oneOf": [
+        {
+          "const": "duplicate_url",
+          "description": "Another row has the same canonical URL; its rank was fused into it.",
+          "type": "string"
+        },
+        {
+          "const": "duplicate_digest",
+          "description": "Another row, or a held Document, has the same content digest.",
+          "type": "string"
+        },
+        {
+          "const": "held_fresh",
+          "description": "A held Document for the URL is younger than the freshness window.",
+          "type": "string"
+        },
+        {
+          "const": "invalid_url",
+          "description": "The URL is not an absolute http or https URL.",
+          "type": "string"
+        },
+        {
+          "const": "over_budget",
+          "description": "The candidate ranked below the fetch budget.",
+          "type": "string"
+        }
+      ]
+    },
+    "SkippedPage": {
+      "additionalProperties": false,
+      "description": "One candidate that was not selected.",
+      "properties": {
+        "canonical_url": {
+          "type": "string"
+        },
+        "detail": {
+          "type": "string"
+        },
+        "reason": {
+          "$ref": "#/$defs/SkipReason"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "canonical_url",
+        "reason",
+        "detail"
+      ],
+      "type": "object"
     },
     "SlateAttributionMethod": {
       "description": "How a slate's outcome is split across its components (EH-523).",
@@ -54642,6 +54980,57 @@
       ],
       "type": "object"
     },
+    "WebCandidate": {
+      "additionalProperties": false,
+      "description": "One search result row.",
+      "properties": {
+        "content_digest": {
+          "default": null,
+          "description": "`sha256:<hex>` of the page content, when already known.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "engine": {
+          "default": "",
+          "description": "The search engine that returned the row.",
+          "type": "string"
+        },
+        "published_at_ms": {
+          "default": null,
+          "description": "Publication time in Unix milliseconds, when the engine reports one.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "rank": {
+          "description": "The engine's 1-based rank for the row.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "snippet": {
+          "default": "",
+          "type": "string"
+        },
+        "title": {
+          "default": "",
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "rank"
+      ],
+      "type": "object"
+    },
     "WebauthnCredential": {
       "additionalProperties": false,
       "description": "`register_webauthn`: store a credential graph-os verified at\nregistration. The live session proves the person.",
@@ -55660,6 +56049,18 @@
           "encoding": "Raw",
           "schema": {
             "$ref": "#/$defs/ResolveConflictResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "SelectWebPages": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/SelectWebPagesAnswer"
           }
         }
       },

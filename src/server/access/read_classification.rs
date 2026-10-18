@@ -154,6 +154,7 @@ pub(super) const RLS_ROUTED: &[&str] = &[
     "ResolveConflict",
     "RunRules",
     "SceneChildren",
+    "SelectWebPages",
     "SemanticSearch",
     "ShaclValidate",
     "ShexValidate",

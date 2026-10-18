@@ -624,6 +624,10 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         | Method::ConnectorPack { .. }
         | Method::SourceIngest { .. }
         | Method::SourceIngestStatus { .. }
+        // EG-UNIFIED-DATA-PLANE-R651.7: lowers to one ChangeEnvelope, which
+        // carries its own domains; selection commits nothing.
+        | Method::EnrichDocument { .. }
+        | Method::SelectWebPages { .. }
         // EH-408/EH-409: self-translates into a request-graph `BatchUpdate`,
         // which carries its own domain.
         | Method::TelemetryDerive { .. }

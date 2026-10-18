@@ -10661,6 +10661,60 @@
       ],
       "type": "object"
     },
+    "EnrichDocumentRequest": {
+      "additionalProperties": false,
+      "description": "Request body of `EnrichDocument`.",
+      "properties": {
+        "document_id": {
+          "description": "The held Document node to enrich.",
+          "type": "string"
+        },
+        "fetch_backend": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FetchBackend"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The backend that fetched the page. Absent reads the Document's\n`fetch_backend` (or `backend`) property."
+        },
+        "max_chunk_bytes": {
+          "default": null,
+          "description": "Chunk window in UTF-8 bytes (64 to 65 536). Absent is 1 200.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "overlap_bytes": {
+          "default": null,
+          "description": "Overlap between consecutive chunks in bytes, under half the window.\nAbsent is 150.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "text_property": {
+          "default": null,
+          "description": "The Document property holding its text. Absent tries `text`, then\n`content`, then `body`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "document_id"
+      ],
+      "type": "object"
+    },
     "EnrichmentBudgetReservation": {
       "additionalProperties": false,
       "description": "Compare-and-swap reservation on the immutable source snapshot's global\ncompute budget. The native submit transaction applies this debit and all\nchild WorkItems together or neither. A capacity lease is a separate live\nresource fence and cannot replace this spending ledger.",
@@ -11449,6 +11503,14 @@
           "type": "object"
         }
       ]
+    },
+    "FetchBackend": {
+      "description": "The closed set of web fetch backends (EG-UNIFIED-DATA-PLANE-R651.7.1).",
+      "enum": [
+        "webarchiver",
+        "archivebox"
+      ],
+      "type": "string"
     },
     "FieldContract": {
       "additionalProperties": false,
@@ -35813,6 +35875,60 @@
             "params"
           ],
           "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Chunk one held Document of the request graph, embed the chunks and\ncommit the chunks, their `chunkOf` edges, their vectors and one\nenrichment record as one governed ChangeEnvelope. Idempotent by the\nDocument's content digest; a new digest supersedes the earlier chunks.\nSee [`crate::source_ingestion::web_document`].",
+          "properties": {
+            "method": {
+              "const": "EnrichDocument",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "request": {
+                  "$ref": "#/$defs/EnrichDocumentRequest"
+                }
+              },
+              "required": [
+                "request"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Choose which web search candidates to fetch: canonical-URL and digest\ndedupe against each other and the request graph's held Documents,\nheld-fresh skips, deterministic relevance/rank/freshness scoring and a\nfetch budget. Reads only; no model runs. See\n[`crate::decision::web_fetch_selection`].",
+          "properties": {
+            "method": {
+              "const": "SelectWebPages",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "request": {
+                  "$ref": "#/$defs/SelectWebPagesRequest"
+                }
+              },
+              "required": [
+                "request"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -43560,6 +43676,53 @@
     "Secret": {
       "description": "A secret in a request body. `Debug` never prints it; the boundary clears\nit with [`Secret::take`] before the op leaves the leader.",
       "type": "string"
+    },
+    "SelectWebPagesRequest": {
+      "additionalProperties": false,
+      "description": "Request body of `SelectWebPages`.",
+      "properties": {
+        "candidates": {
+          "items": {
+            "$ref": "#/$defs/WebCandidate"
+          },
+          "type": "array"
+        },
+        "freshness_window_s": {
+          "default": null,
+          "description": "Absent is 86 400 s.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "max_fetches": {
+          "description": "The fetch budget, 1 to 32.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "now_ms": {
+          "default": null,
+          "description": "The decision clock in Unix milliseconds. Absent reads the server\nclock; pass it to make a replay exact.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "query": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "query",
+        "candidates",
+        "max_fetches"
+      ],
+      "type": "object"
     },
     "SemanticActivationTarget": {
       "additionalProperties": false,
@@ -52211,6 +52374,57 @@
       ],
       "type": "object"
     },
+    "WebCandidate": {
+      "additionalProperties": false,
+      "description": "One search result row.",
+      "properties": {
+        "content_digest": {
+          "default": null,
+          "description": "`sha256:<hex>` of the page content, when already known.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "engine": {
+          "default": "",
+          "description": "The search engine that returned the row.",
+          "type": "string"
+        },
+        "published_at_ms": {
+          "default": null,
+          "description": "Publication time in Unix milliseconds, when the engine reports one.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "rank": {
+          "description": "The engine's 1-based rank for the row.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "snippet": {
+          "default": "",
+          "type": "string"
+        },
+        "title": {
+          "default": "",
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "rank"
+      ],
+      "type": "object"
+    },
     "WebauthnCredential": {
       "additionalProperties": false,
       "description": "`register_webauthn`: store a credential graph-os verified at\nregistration. The live session proves the person.",
@@ -57269,6 +57483,33 @@
           "properties": {
             "request": {
               "$ref": "#/$defs/EdgeSearchRequest"
+            }
+          },
+          "required": [
+            "request"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    "EnrichDocument": {
+      "additionalProperties": false,
+      "description": "Chunk one held Document of the request graph, embed the chunks and\ncommit the chunks, their `chunkOf` edges, their vectors and one\nenrichment record as one governed ChangeEnvelope. Idempotent by the\nDocument's content digest; a new digest supersedes the earlier chunks.\nSee [`crate::source_ingestion::web_document`].",
+      "properties": {
+        "method": {
+          "const": "EnrichDocument",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": false,
+          "properties": {
+            "request": {
+              "$ref": "#/$defs/EnrichDocumentRequest"
             }
           },
           "required": [
@@ -67511,6 +67752,33 @@
           },
           "required": [
             "node_id"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    "SelectWebPages": {
+      "additionalProperties": false,
+      "description": "Choose which web search candidates to fetch: canonical-URL and digest\ndedupe against each other and the request graph's held Documents,\nheld-fresh skips, deterministic relevance/rank/freshness scoring and a\nfetch budget. Reads only; no model runs. See\n[`crate::decision::web_fetch_selection`].",
+      "properties": {
+        "method": {
+          "const": "SelectWebPages",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": false,
+          "properties": {
+            "request": {
+              "$ref": "#/$defs/SelectWebPagesRequest"
+            }
+          },
+          "required": [
+            "request"
           ],
           "type": "object"
         }

@@ -29,6 +29,7 @@ from .source_ingestion import (
 if TYPE_CHECKING:
     from . import models as _models
 
+    EnrichDocumentRequest = _models.MethodEnrichDocumentParams
     TelemetryDeriveRequest = _models.MethodTelemetryDeriveParams
     ServedModalityRequest = _models.MethodServedModalityParams
     ParseFileRequest = _models.MethodParseFileParams
@@ -151,6 +152,51 @@ async def send_source_ingest_status(
         idempotency_key=idempotency_key,
     )
     return SourceIngestStatus.model_validate(payload)
+
+
+async def send_enrich_document(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        EnrichDocument
+    Authorization:
+        source:ingest
+    Durability:
+        GraphRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.ingestion.json
+        #/methods/EnrichDocument
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    models().MethodEnrichDocumentParams.model_validate(params or {})
+    payload = await client._send(
+        "EnrichDocument",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("EnrichDocument", payload)
+
+
+def decode_enrich_document(result: OpaqueResult) -> _models.EnrichDocumentReceipt:
+    """Validate this method's result against its contract model."""
+    return decode_result("EnrichDocument", models().EnrichDocumentReceipt, result)
 
 
 async def send_telemetry_derive(
@@ -690,6 +736,7 @@ async def send_viz(
 # Methods whose `{Id}Request` resolves to `models.Method{Id}Params` (EH-192).
 _REQUEST_METHODS = frozenset(
     {
+        "EnrichDocument",
         "TelemetryDerive",
         "ServedModality",
         "ParseFile",
