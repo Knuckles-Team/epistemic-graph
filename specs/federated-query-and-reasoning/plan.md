@@ -921,3 +921,7 @@ Data structures: one ring buffer of 4,096 `PlanObservation` values per shape. On
 Budget: recording costs under 20 microseconds per execution. Evaluation runs only inside the downtime budget of `EG-DURABLE-KERNEL-R101`. The thresholds 10%, 20 replays and 25% are starting defaults. A measurement on this platform replaces them.
 
 Correctness: a candidate is kept only when its result multiset equals the baseline. The federation optimizer (`EG-FEDERATED-QUERY-R041`) stays the only planner. This row adds the measured choice among its plans.
+
+## Web Document citations (R653.7)
+
+A web Document answers through the same hybrid retrieval as every other Document. `fuse_rrf` (`crates/eg-plan/src/exec.rs:848`) fuses the vector, graph and keyword branches. The citation reads the `WebDocumentProvenance` of `EG-UNIFIED-DATA-PLANE-R651.7.1`. No second retriever exists for web content.

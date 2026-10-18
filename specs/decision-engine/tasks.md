@@ -749,3 +749,14 @@ Deliver these additive leaves in order; preserve R137.1–.6 and R128 unchanged.
 - [ ] **EG-DECISION-ENGINE-R174.9.4 (Refusal):** Add the typed refusals.
 - [ ] **EG-DECISION-ENGINE-R174.9.5 (Evidence):** Emit result provenance and the refresh receipt.
 - [ ] **EG-DECISION-ENGINE-R174.9.6 (Hot-path proof):** Add the served freshness test and the overhead measurement.
+
+## Web page selection (R802, R174.9.7)
+
+- [ ] **EG-DECISION-ENGINE-R174.9.7:** Turn stale web Documents into page candidates and supersede on a digest change.
+- [ ] **EG-DECISION-ENGINE-R802 (rollup):** Web page selection over search candidates.
+- [ ] **EG-DECISION-ENGINE-R802.1 (Model):** Add the question, the answer and the skip reasons.
+- [ ] **EG-DECISION-ENGINE-R802.2 (Behavior):** Implement ranking, deduplication, freshness skips and budgets.
+- [ ] **EG-DECISION-ENGINE-R802.3 (Wiring):** Add the `Decide` arm.
+- [ ] **EG-DECISION-ENGINE-R802.4 (Refusal):** Add the typed refusals.
+- [ ] **EG-DECISION-ENGINE-R802.5 (Evidence):** Emit one premise per candidate.
+- [ ] **EG-DECISION-ENGINE-R802.6 (Hot-path proof):** Add the served selection test and the benchmark.
