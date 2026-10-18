@@ -65,6 +65,7 @@ fn work_item_body_tenants(method: &Method) -> Vec<&str> {
     match method {
         Method::ClaimWorkItem { request } => vec![request.tenant_ref.as_str()],
         Method::CasWorkItemMetadata { request } => vec![request.tenant_ref.as_str()],
+        Method::PublishCurrentPlan { request } => vec![request.tenant.as_str()],
         Method::RenewWorkItemLease { tenant, .. }
         | Method::CommitWorkItemResult { tenant, .. }
         | Method::CancelWorkItem { tenant, .. }

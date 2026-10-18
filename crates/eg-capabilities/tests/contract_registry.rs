@@ -213,9 +213,10 @@ fn every_wire_variant_has_exactly_one_descriptor_and_vice_versa() {
     // 465 -> 466: EG-DECISION-ENGINE-R127.2.2 read-only guardrail entailment.
     // 466 -> 468: EG-UNIFIED-DATA-PLANE-R651.7 `EnrichDocument` and
     // EG-DECISION-ENGINE-R802 `SelectWebPages`.
+    // 468 -> 470: EG-DURABLE-KERNEL-R028.5 `PublishCurrentPlan` and `GetCurrentPlan`.
     assert_eq!(
         variants.len(),
-        468,
+        470,
         "the wire method census changed; update this exact count deliberately"
     );
 }

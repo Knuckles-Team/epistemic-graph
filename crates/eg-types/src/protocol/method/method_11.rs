@@ -3,6 +3,9 @@ macro_rules! __eg_method_chunk_11 {
         __eg_method_finish!(@acc [
 $($variants)*
 
+    PublishCurrentPlan { request: crate::current_plan::PublishCurrentPlanRequest },
+    GetCurrentPlan { tenant: String, run_id: String },
+
     // ── Typed WorkItem reads (EH-219) ──────────────────────────────────────
     /// The caller's view of one native WorkItem row, or `null` when no row with
     /// this id is visible to `tenant`. `tenant` must equal the verified request

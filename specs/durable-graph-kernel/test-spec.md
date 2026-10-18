@@ -364,3 +364,5 @@ Hot-path proof for `EG-DURABLE-KERNEL-R101`: `tests/scheduler/test_downtime_sche
 `EG-DURABLE-KERNEL-R039.4.2`: pending benchmark coverage in `benches/redb_write_latency_bench.rs` must exercise paired consumption through the durable path. Retain workload configuration and commit-phase measurements with the source revision. Generic write results are not paired-call evidence.
 
 - **EG-DURABLE-KERNEL-R028.4:** Native admission tests cover immutable caller attribution, duplicate run refusal, and generic-write refusal. Native execution remains pending.
+
+- **EG-DURABLE-KERNEL-R028.5:** `current_plan_publication_readback`, `current_plan_refusals_preserve_row`, `renewal_does_not_extend_snapshot_and_generic_nodes_carry_no_plan` exercise private storage; `current_plan_native_publish_read_and_receipt_replay` exercises authenticated admission, native claim, ordered publication, foreign-owner refusal, replay and reopen. Native acceptance remains pending.

@@ -22,6 +22,8 @@ WORK_ITEM_METHODS = {
     # graph-os EG-2: native control-lease writes share the WorkItem kernel.
     "IssueControlLease",
     "TransitionControlLease",
+    # EG-DURABLE-KERNEL-R028.5: fenced snapshots use the WorkItem write family.
+    "PublishCurrentPlan",
     # EH-346: the engine-internal policy-record store shares the kernel.
     "PolicyEvolutionStore",
     "GapUpsert",

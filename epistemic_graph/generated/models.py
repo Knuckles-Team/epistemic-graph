@@ -2997,6 +2997,25 @@ class CrossEntropyResult(BaseModel):
     loss: float
 
 
+class CurrentPlanPublished(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    changed_work_item_ids: list[str]
+    payload_digest: str
+    revision: Annotated[int, Field(ge=0)]
+    run_id: str
+
+
+class CurrentPlanSnapshot(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    expires_at_ms: Annotated[int, Field(ge=0)]
+    items: list[PlanItem]
+    observed_at_ms: Annotated[int, Field(ge=0)]
+    revision: Annotated[int, Field(ge=0)]
+    run_id: str
+
+
 class CursorPositionSequence(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -11666,6 +11685,20 @@ class MethodEdgeSearch(BaseModel):
     params: MethodEdgeSearchParams
 
 
+class MethodPublishCurrentPlan(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["PublishCurrentPlan"]
+    params: MethodPublishCurrentPlanParams
+
+
+class MethodGetCurrentPlan(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["GetCurrentPlan"]
+    params: MethodGetCurrentPlanParams
+
+
 class MethodGetWorkItem(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -12267,6 +12300,8 @@ Method = Annotated[
     | MethodMutationOutbox
     | MethodEdgeIndex
     | MethodEdgeSearch
+    | MethodPublishCurrentPlan
+    | MethodGetCurrentPlan
     | MethodGetWorkItem
     | MethodListWorkItems
     | MethodGetWorkItemOutcome
@@ -13910,6 +13945,13 @@ class MethodGetControlLeaseParams(BaseModel):
     tenant: str
 
 
+class MethodGetCurrentPlanParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    run_id: str
+    tenant: str
+
+
 class MethodGetEdgePropertiesBatchParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -14719,6 +14761,12 @@ class MethodPublishConfirmedParams(BaseModel):
     priority: int | None = None
     routing_key: str
     ttl_ms: Annotated[int, Field(ge=0)] | None = None
+
+
+class MethodPublishCurrentPlanParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    request: PublishCurrentPlanRequest
 
 
 class MethodPublishExParams(BaseModel):
@@ -17252,6 +17300,19 @@ class Plan(BaseModel):
     ops: list[Op]
 
 
+class PlanItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    status: PlanStatus
+    text: str
+
+
+class PlanStatus(str, Enum):
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    DONE = "done"
+
+
 class PointerEvent(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -17801,6 +17862,17 @@ class PruneStats(BaseModel):
     edges_removed: Annotated[int, Field(ge=0)]
     nodes_archived: Annotated[int, Field(ge=0)]
     nodes_removed: Annotated[int, Field(ge=0)]
+
+
+class PublishCurrentPlanRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    fencing_token: Annotated[int, Field(ge=0)]
+    idempotency_key: str
+    lease_epoch: Annotated[int, Field(ge=0)]
+    snapshot: CurrentPlanSnapshot
+    tenant: str
+    worker_id: str
 
 
 class QuantumExpectationResult(BaseModel):
@@ -24253,6 +24325,9 @@ GetContentVersionResult = ContentVersion | None
 GetControlLeaseResult = ControlLeaseView | None
 
 
+GetCurrentPlanResult = CurrentPlanSnapshot | None
+
+
 PropertyBlob = bytes
 
 
@@ -25658,6 +25733,8 @@ __all__ = [
     "CoverageDerivation",
     "CreateUserRequest",
     "CrossEntropyResult",
+    "CurrentPlanPublished",
+    "CurrentPlanSnapshot",
     "CursorPosition",
     "CursorPositionOpaque",
     "CursorPositionOpaqueValue",
@@ -26153,6 +26230,7 @@ __all__ = [
     "GetChannelMessagesResult",
     "GetContentVersionResult",
     "GetControlLeaseResult",
+    "GetCurrentPlanResult",
     "GetEdgePropertiesBatchResult",
     "GetEdgesPageResult",
     "GetEdgesPageResultValueItem",
@@ -26972,6 +27050,8 @@ __all__ = [
     "MethodGetContextViewParams",
     "MethodGetControlLease",
     "MethodGetControlLeaseParams",
+    "MethodGetCurrentPlan",
+    "MethodGetCurrentPlanParams",
     "MethodGetEdgeProperties",
     "MethodGetEdgePropertiesBatch",
     "MethodGetEdgePropertiesBatchParams",
@@ -27187,6 +27267,8 @@ __all__ = [
     "MethodPublish",
     "MethodPublishConfirmed",
     "MethodPublishConfirmedParams",
+    "MethodPublishCurrentPlan",
+    "MethodPublishCurrentPlanParams",
     "MethodPublishEx",
     "MethodPublishExParams",
     "MethodPublishIdempotent",
@@ -27721,6 +27803,8 @@ __all__ = [
     "PlacementRouteSchemaVersion",
     "PlacementRouteWire",
     "Plan",
+    "PlanItem",
+    "PlanStatus",
     "PointerEvent",
     "PointerMovement",
     "PointerMovementActivate",
@@ -27847,6 +27931,7 @@ __all__ = [
     "ProvisionedQuery",
     "ProvisionedUser",
     "PruneStats",
+    "PublishCurrentPlanRequest",
     "QuantScaleTag",
     "QuantisedValue",
     "QuantumExpectationResult",

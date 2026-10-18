@@ -7786,6 +7786,43 @@
       ],
       "type": "object"
     },
+    "CurrentPlanSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "expires_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/PlanItem"
+          },
+          "type": "array"
+        },
+        "observed_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "run_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "revision",
+        "observed_at_ms",
+        "expires_at_ms",
+        "items"
+      ],
+      "type": "object"
+    },
     "CursorPosition": {
       "oneOf": [
         {
@@ -36867,6 +36904,62 @@
         },
         {
           "additionalProperties": false,
+          "properties": {
+            "method": {
+              "const": "PublishCurrentPlan",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "request": {
+                  "$ref": "#/$defs/PublishCurrentPlanRequest"
+                }
+              },
+              "required": [
+                "request"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "const": "GetCurrentPlan",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "run_id": {
+                  "type": "string"
+                },
+                "tenant": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "tenant",
+                "run_id"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
           "description": "The caller's view of one native WorkItem row, or `null` when no row with\nthis id is visible to `tenant`. `tenant` must equal the verified request\ntenant (`ACCESS_DENIED` otherwise); lease owner, epoch and fencing token\nare never returned. See [`crate::work_item_read`].",
           "properties": {
             "method": {
@@ -41178,6 +41271,30 @@
       ],
       "type": "object"
     },
+    "PlanItem": {
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "$ref": "#/$defs/PlanStatus"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "text",
+        "status"
+      ],
+      "type": "object"
+    },
+    "PlanStatus": {
+      "enum": [
+        "pending",
+        "in_progress",
+        "done"
+      ],
+      "type": "string"
+    },
     "PointerMovement": {
       "description": "How a pointer moves.",
       "oneOf": [
@@ -43030,6 +43147,42 @@
       "required": [
         "idp_id",
         "limit"
+      ],
+      "type": "object"
+    },
+    "PublishCurrentPlanRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "fencing_token": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "lease_epoch": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "snapshot": {
+          "$ref": "#/$defs/CurrentPlanSnapshot"
+        },
+        "tenant": {
+          "type": "string"
+        },
+        "worker_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tenant",
+        "snapshot",
+        "worker_id",
+        "lease_epoch",
+        "fencing_token",
+        "idempotency_key"
       ],
       "type": "object"
     },

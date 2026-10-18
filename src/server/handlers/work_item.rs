@@ -44,6 +44,7 @@ pub(crate) async fn try_handle(ctx: HandleContext<'_>, method: Method) -> Result
         | Method::CancelWorkItem { .. }
         | Method::DeferWorkItem { .. }
         | Method::CasWorkItemMetadata { .. }
+        | Method::PublishCurrentPlan { .. }
         | Method::IssueControlLease { .. }
         | Method::TransitionControlLease { .. }
         | Method::PolicyEvolutionStore { .. }
@@ -101,13 +102,20 @@ pub(crate) async fn commit_verified_work_item(
     placement_fence: Option<u64>,
     method: Method,
 ) -> Result<crate::protocol::ResultPayload, String> {
+    let is_plan = matches!(&method, Method::PublishCurrentPlan { .. });
+    let method = prepare_current_plan(ctx, method).await?;
+    let principal = if is_plan {
+        Some(ctx.verified_context.principal())
+    } else {
+        ctx.caller
+    };
     crate::server::mutation_batch::commit_work_item(
         crate::server::mutation_batch::WorkItemCommitRequest::new(
             ctx.persistence.as_ref(),
             ctx.core,
             crate::server::mutation_batch::CommitOrigin {
                 request_id: ctx.req_id,
-                principal: ctx.caller,
+                principal,
             },
             Some(ctx.verified_context.idempotency_key()),
             ctx.graph_name,
@@ -131,4 +139,37 @@ fn stamp_retired_by(method: Method, caller: Option<&str>) -> Result<Method, Stri
         caller.ok_or("ACCESS_DENIED: retiring a sealed record requires a verified caller")?;
     request.retired_by = crate::server::mutation_batch::principal_fingerprint(caller)?;
     Ok(Method::RetireSealedRecord { request })
+}
+
+/// Authorization precedes the ledger lookup even for an expired historical retry.
+async fn prepare_current_plan(ctx: &HandleContext<'_>, method: Method) -> Result<Method, String> {
+    let Method::PublishCurrentPlan { mut request } = method else {
+        return Ok(method);
+    };
+    super::native_write_authority::require_carrier_tenant(
+        &request.tenant,
+        ctx.verified_context.tenant(),
+    )?;
+    request.idempotency_key = ctx.verified_context.idempotency_key().to_string();
+    request.validate()?;
+    #[cfg(feature = "redb")]
+    {
+        let backend = ctx
+            .persistence
+            .as_ref()
+            .and_then(|backend| backend.as_redb())
+            .ok_or("current-plan publication requires native persistence")?;
+        let actor =
+            crate::server::mutation_batch::principal_fingerprint(ctx.verified_context.principal())?;
+        let graph = crate::persist::sanitize(ctx.graph_name);
+        if !backend
+            .current_plan_owner(&graph, &request.tenant, &request.snapshot.run_id, &actor)
+            .await?
+        {
+            return Err("ACCESS_DENIED: current-plan owner unavailable".into());
+        }
+        Ok(Method::PublishCurrentPlan { request })
+    }
+    #[cfg(not(feature = "redb"))]
+    Err("current-plan publication requires native persistence".into())
 }
