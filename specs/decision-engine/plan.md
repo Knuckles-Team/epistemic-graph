@@ -1975,3 +1975,19 @@ This slice covers access_basis and its check_access callers only. Row visibility
 administrative capability checks and other cached readers need separate review.
 It does not reserve authority through a later effect or implement multi-owner
 admission. Participant reservations, recovery and visibility remain incomplete.
+
+## Amendment 2026-10-18: R036 administrative capability snapshot freshness
+
+The existing administrative capability decision must evaluate the registered
+identity and Admin grants from one current durable authority snapshot. Missing
+or unreadable authority denies the decision, including a cached System identity.
+Preserve the existing System role behavior, explicit deny precedence, and
+non-security registered-System rule. Elevations grant no administrative power.
+This repairs an existing decision over EG records; it adds no issuer, served
+operation, profile permission, or Arbora admission policy.
+
+Regression coverage must include stale-clone grant removal, System demotion,
+identity deletion, explicit deny and unavailable authority, across memory and
+redb stores, plus refusal through the existing administrative caller. This is
+snapshot-time freshness only. Other cached readers, conservative has_rules
+checks, effect-time reservations and performance qualification remain separate.

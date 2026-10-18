@@ -302,7 +302,7 @@ fn legacy_adapter_cannot_fall_back_to_unchecked_save() {
     assert_eq!(layer.rbac().roles().count(), 0);
 }
 
-fn exercise_access_refresh(store: Arc<dyn RbacPolicyStore>) {
+fn exercise_access_refresh(store: Arc<dyn RbacPolicyStore>, admin: bool) {
     use crate::acl::{Grant, GrantEffect, RbacAction, ResourceSelector};
     use crate::isolation::AccessLevel;
     use crate::protocol::GraphType;
@@ -312,8 +312,12 @@ fn exercise_access_refresh(store: Arc<dyn RbacPolicyStore>) {
     policy.add_role(Role::new("reader"));
     policy.add_grant(Grant {
         role: "reader".into(),
-        resource: ResourceSelector::Graph("graph".into()),
-        action: RbacAction::Read,
+        resource: ResourceSelector::Graph(if admin { "__admin__" } else { "graph" }.into()),
+        action: if admin {
+            RbacAction::Admin
+        } else {
+            RbacAction::Read
+        },
         effect: GrantEffect::Allow,
     });
     let mut identities = BTreeMap::from([(
@@ -334,9 +338,38 @@ fn exercise_access_refresh(store: Arc<dyn RbacPolicyStore>) {
         )
         .unwrap();
     let stale = IsolationLayer::with_policy_store(Arc::clone(&store)).unwrap();
-    let allowed =
-        || stale.check_access("reader", "graph", GraphType::Agent, None, AccessLevel::Read);
+    let check = |layer: &IsolationLayer| {
+        if admin {
+            layer.has_admin_capability("reader")
+        } else {
+            layer.check_access("reader", "graph", GraphType::Agent, None, AccessLevel::Read)
+        }
+    };
+    let allowed = || check(&stale);
     assert!(allowed());
+
+    if admin {
+        let mut explicit_deny = policy.clone();
+        explicit_deny.add_grant(Grant {
+            role: "reader".into(),
+            resource: ResourceSelector::Graph("__admin__".into()),
+            action: RbacAction::Admin,
+            effect: GrantEffect::Deny,
+        });
+        let current = store.authority_snapshot().unwrap();
+        store
+            .compare_and_save(
+                current.revision(),
+                &explicit_deny,
+                &identities,
+                IdentityBootstrapState::Consumed,
+            )
+            .unwrap();
+        assert!(
+            !allowed(),
+            "a fresh explicit deny overrides the cached allow"
+        );
+    }
 
     let current = store.authority_snapshot().unwrap();
     let denied = RbacPolicy::new();
@@ -361,13 +394,7 @@ fn exercise_access_refresh(store: Arc<dyn RbacPolicyStore>) {
         )
         .unwrap();
     let system_clone = IsolationLayer::with_policy_store(Arc::clone(&store)).unwrap();
-    assert!(system_clone.check_access(
-        "reader",
-        "graph",
-        GraphType::Agent,
-        None,
-        AccessLevel::Read
-    ));
+    assert!(check(&system_clone));
     identities.get_mut("reader").unwrap().role = AgentRole::Agent;
     let current = store.authority_snapshot().unwrap();
     store
@@ -379,7 +406,7 @@ fn exercise_access_refresh(store: Arc<dyn RbacPolicyStore>) {
         )
         .unwrap();
     assert!(
-        !system_clone.check_access("reader", "graph", GraphType::Agent, None, AccessLevel::Read),
+        !check(&system_clone),
         "cached System status must not survive demotion"
     );
 
@@ -400,9 +427,12 @@ fn exercise_access_refresh(store: Arc<dyn RbacPolicyStore>) {
 
 #[test]
 fn graph_access_refreshes_revoked_grants_and_identities_in_memory_and_redb() {
-    exercise_access_refresh(Arc::new(MemoryRbacStore::new()));
+    exercise_access_refresh(Arc::new(MemoryRbacStore::new()), false);
     let dir = directory("access-refresh");
-    exercise_access_refresh(Arc::new(test_support::open_test_store(&dir).unwrap()));
+    exercise_access_refresh(
+        Arc::new(test_support::open_test_store(&dir).unwrap()),
+        false,
+    );
     let reopened =
         IsolationLayer::with_policy_store(Arc::new(test_support::open_test_store(&dir).unwrap()))
             .unwrap();
@@ -413,6 +443,19 @@ fn graph_access_refreshes_revoked_grants_and_identities_in_memory_and_redb() {
         None,
         crate::isolation::AccessLevel::Read
     ));
+    drop(reopened);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn admin_access_refreshes_revoked_grants_and_identities_in_memory_and_redb() {
+    exercise_access_refresh(Arc::new(MemoryRbacStore::new()), true);
+    let dir = directory("admin-refresh");
+    exercise_access_refresh(Arc::new(test_support::open_test_store(&dir).unwrap()), true);
+    let reopened =
+        IsolationLayer::with_policy_store(Arc::new(test_support::open_test_store(&dir).unwrap()))
+            .unwrap();
+    assert!(!reopened.has_admin_capability("reader"));
     drop(reopened);
     std::fs::remove_dir_all(dir).unwrap();
 }
