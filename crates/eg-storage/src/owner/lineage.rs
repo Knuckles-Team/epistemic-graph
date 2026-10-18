@@ -183,7 +183,7 @@ pub const GRAPH_SHARD_BEFORE_CURRENT_PLANS: LayoutPredecessor = LayoutPredecesso
     layout: OwnerLayout::GraphShard,
     label: "graph shard before private current-plan snapshots",
     owner_tables: GRAPH_SHARD_TABLES_BEFORE_CURRENT_PLANS,
-    data_lost: "its graph rows require the explicit offline current-plan layout upgrade before normal open; no normal-open migration is performed",
+    data_lost: "none after the explicit offline current-plan layout upgrade. Normal open refuses this predecessor.",
     file_name: "graph-*.redb",
 };
 
@@ -400,9 +400,9 @@ pub fn render_owner_store_formats() -> String {
          Regenerate with `cargo run -p eg-storage --example gen_owner_store_formats`.\n\n\
          Every durable owner file records the digest of its exact table layout. A file whose \
          layout is a declared predecessor below is refused on ordinary open with the named \
-         error. The SQL, immediate pre-MCP Agent Library, pre-enrichment GraphShard and \
-         immediate pre-audit-request-index and pre-current-plan GraphShard predecessors have explicit offline, \
-         data-preserving upgrades; others move aside and re-created. Any other digest is refused as `OWNER_STORE_FORMAT_UNKNOWN`.\n\n\
+         error. SQL and immediate pre-MCP Agent Library predecessors have explicit offline, data-preserving upgrades. \
+         GraphShard also supports these upgrades for pre-enrichment, immediate pre-audit-request-index and pre-current-plan predecessors. \
+         Other predecessors require moving files aside and recreating them. Any other digest is refused as `OWNER_STORE_FORMAT_UNKNOWN`.\n\n\
          | Store | Current layout digest | Refused predecessors |\n|---|---|---|\n",
     );
     for layout in ALL_LAYOUTS {

@@ -3,7 +3,7 @@
 Generated from `crates/eg-storage/src/owner/lineage.rs`; do not edit by hand.
 Regenerate with `cargo run -p eg-storage --example gen_owner_store_formats`.
 
-Every durable owner file records the digest of its exact table layout. A file whose layout is a declared predecessor below is refused on ordinary open with the named error. The SQL, immediate pre-MCP Agent Library, pre-enrichment GraphShard and immediate pre-audit-request-index and pre-current-plan GraphShard predecessors have explicit offline, data-preserving upgrades; others move aside and re-created. Any other digest is refused as `OWNER_STORE_FORMAT_UNKNOWN`.
+Every durable owner file records the digest of its exact table layout. A file whose layout is a declared predecessor below is refused on ordinary open with the named error. SQL and immediate pre-MCP Agent Library predecessors have explicit offline, data-preserving upgrades. GraphShard also supports these upgrades for pre-enrichment, immediate pre-audit-request-index and pre-current-plan predecessors. Other predecessors require moving files aside and recreating them. Any other digest is refused as `OWNER_STORE_FORMAT_UNKNOWN`.
 
 | Store | Current layout digest | Refused predecessors |
 |---|---|---|
@@ -86,7 +86,7 @@ Every durable owner file records the digest of its exact table layout. A file wh
 
 * Store file: `graph-*.redb`
 * Refused generation: graph shard before private current-plan snapshots
-* Data lost: its graph rows require the explicit offline current-plan layout upgrade before normal open; no normal-open migration is performed
+* Data lost: none after the explicit offline current-plan layout upgrade. Normal open refuses this predecessor.
 * Owner tables of the refused generation: `nodes`, `edges`, `ledger`, `semantic_store`, `audit_chain`, `provenance_anchor_members`, `graph_meta`, `work_item_command_sequence`, `resource_reservations`, `resource_reservation_tenant_index`, `resource_reservation_attempts`, `resource_hosts`, `resource_exclusivity`, `resource_fairness`, `resource_concurrency`, `resource_anti_affinity`, `resource_disk_policies`, `change_envelopes`, `content_versions`, `change_cursors`, `change_blobs`, `change_features`, `change_evidence`, `change_policies`, `change_lineage`, `raft_log`, `raft_meta`, `xshard_prepare`, `xshard_decision`, `matviews`, `plan_matviews`, `matview_operator_state`, `capacity_cells`, `capacity_leases`, `capacity_usage`, `capacity_idempotency`, `repository_enrichment_budgets`, `repository_enrichment_policy_revisions`, `repository_enrichment_supersessions`, `repository_enrichment_parks`, `audit_requests`, `work_item_claim_capabilities`, `work_item_claim_capability_invocations`, `native_work_item_authority`, `development_lane_holds`, `development_lane_tenant_index`, `development_lane_lane_index`, `development_lane_repository_branch_index`, `development_lane_worktree_index`, `development_lane_work_item_index`, `development_lane_counters`, `development_lane_pressure_index`, `development_lane_policies`, `development_lane_invocations`, `encryption_canary`, `series_chunks`, `series_meta`, `series_projection_state`, `storage_scrub_cursor`
 * Removal step: none. This generation is upgraded in place with `epistemic-graph-server store-upgrade apply <data-dir> --confirm` while the engine is stopped; see the procedure below. Moving the file aside instead loses its rows.
 
