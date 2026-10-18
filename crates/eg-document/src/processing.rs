@@ -247,6 +247,18 @@ fn next_start(text: &str, from: usize, cut: usize, overlap: usize) -> usize {
 mod tests {
     use super::*;
 
+    /// Every chunk's char offsets select exactly its byte-offset text.
+    fn assert_char_offsets(text: &str, chunks: &[ChunkSpan]) {
+        for chunk in chunks {
+            let by_chars: String = text
+                .chars()
+                .skip(chunk.start_char)
+                .take(chunk.end_char - chunk.start_char)
+                .collect();
+            assert_eq!(by_chars, chunk.text(text));
+        }
+    }
+
     fn config(max_bytes: usize, overlap_bytes: usize) -> ChunkingConfig {
         ChunkingConfig {
             max_bytes,
@@ -264,14 +276,7 @@ mod tests {
         assert_eq!(chunks[1].heading_path, vec!["Title", "Part A"]);
         assert_eq!(chunks[2].heading_path, vec!["Title", "Part B"]);
         assert!(chunks[1].text(text).starts_with("## Part A"));
-        for chunk in &chunks {
-            let by_chars: String = text
-                .chars()
-                .skip(chunk.start_char)
-                .take(chunk.end_char - chunk.start_char)
-                .collect();
-            assert_eq!(by_chars, chunk.text(text));
-        }
+        assert_char_offsets(text, &chunks);
     }
 
     // spec: EG-UNIFIED-DATA-PLANE-R651.7.2
@@ -290,14 +295,7 @@ mod tests {
             assert!(pair[1].start_byte > pair[0].start_byte, "windows advance");
         }
         assert_eq!(chunks.last().unwrap().end_byte, text.trim_end().len());
-        for chunk in &chunks {
-            let by_chars: String = text
-                .chars()
-                .skip(chunk.start_char)
-                .take(chunk.end_char - chunk.start_char)
-                .collect();
-            assert_eq!(by_chars, chunk.text(&text));
-        }
+        assert_char_offsets(&text, &chunks);
     }
 
     // spec: EG-UNIFIED-DATA-PLANE-R651.7.2

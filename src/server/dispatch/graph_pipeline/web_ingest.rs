@@ -7,6 +7,8 @@
 //! exactly like a scoped `IndexRepository`. Selection reads the visible
 //! `Document` rows and answers; it writes nothing.
 
+#[cfg(all(feature = "query", feature = "modality-serving"))]
+use super::repository_index::commit_context;
 use super::*;
 
 /// Route the two web-ingest methods; hand any other method back.
@@ -97,15 +99,7 @@ async fn commit(
         Ok(fence) => fence,
         Err(response) => return response,
     };
-    let commit_ctx = handlers::repository_index::IndexCommitContext {
-        request_id: ctx.req_id,
-        graph_name: ctx.graph_name,
-        tenant_scope: ctx.tenant_scope,
-        verified: ctx.verified_context,
-        graph_version: ctx.core.version(),
-        placement_epoch,
-        fencing_token,
-    };
+    let commit_ctx = commit_context(&ctx, placement_epoch, fencing_token);
     let envelope = match handlers::repository_index::build_labelled_envelope(
         &commit_ctx,
         write_set,
