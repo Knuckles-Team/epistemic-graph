@@ -2321,7 +2321,7 @@
         "aea4fe89bd19"
       ],
       "verified_by": [
-        "crates/eg-capabilities/src/error_routing.rs:317",
+        "crates/eg-capabilities/src/error_routing.rs:341",
         "src/server/handlers/admin/connector_pack/tests/content_model.rs:372",
         "src/server/handlers/admin/connector_pack/tests/content_model.rs:407",
         "src/server/handlers/admin/connector_pack/tests/withdrawal.rs:43"
@@ -8795,9 +8795,14 @@
     {
       "id": "EG-DECISION-ENGINE-R802",
       "title": "Web fetch selection over search candidates (rollup)",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "3d831bb5ca05",
+        "ec5683fd15e9"
+      ],
+      "verified_by": [
+        "tests/web_document_enrich_served.rs:222"
+      ],
       "rollup_of": [
         "EG-DECISION-ENGINE-R802.1",
         "EG-DECISION-ENGINE-R802.2",
@@ -8810,44 +8815,73 @@
     {
       "id": "EG-DECISION-ENGINE-R802.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "3d831bb5ca05"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/decision/web_fetch_selection.rs:169"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R802.2",
       "title": "Behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "3d831bb5ca05"
+      ],
+      "verified_by": [
+        "crates/eg-numeric/src/decision/web_fetch_selection.rs:333"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R802.3",
       "title": "Wiring",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "3d831bb5ca05",
+        "ec5683fd15e9",
+        "f388cd1f2bb3"
+      ],
+      "verified_by": [
+        "tests/web_document_enrich_served.rs:223"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R802.4",
       "title": "Refusal",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "16ac429be41e",
+        "3d831bb5ca05",
+        "9d89a0eae23a"
+      ],
+      "verified_by": [
+        "crates/eg-numeric/src/decision/web_fetch_selection.rs:437"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R802.5",
       "title": "Evidence",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "3d831bb5ca05"
+      ],
+      "verified_by": [
+        "crates/eg-numeric/src/decision/web_fetch_selection.rs:452"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R802.6",
       "title": "Hot-path proof",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "3d831bb5ca05",
+        "ec5683fd15e9"
+      ],
+      "verified_by": [
+        "tests/web_document_enrich_served.rs:224"
+      ]
     }
   ]
 }

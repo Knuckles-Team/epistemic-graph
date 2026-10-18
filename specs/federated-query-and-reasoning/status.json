@@ -669,7 +669,7 @@
         "c3b87d31ac11"
       ],
       "verified_by": [
-        "crates/eg-capabilities/tests/contract_registry.rs:221"
+        "crates/eg-capabilities/tests/contract_registry.rs:223"
       ]
     },
     {
@@ -703,6 +703,7 @@
       "title": "A label Scan matches the engine's label set",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "5d36ccdd2732",
         "8040b672e582"
       ],
       "verified_by": [
