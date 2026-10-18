@@ -106,6 +106,8 @@ pub enum RbacPersistError {
     Redb(String),
     /// One or both mandatory current state records are absent.
     IncompleteState(&'static str),
+    /// The image was derived from a revision that is no longer current.
+    StaleRevision { expected: u64, actual: u64 },
 }
 
 impl fmt::Display for RbacPersistError {
@@ -114,6 +116,12 @@ impl fmt::Display for RbacPersistError {
             RbacPersistError::Io(e) => write!(f, "rbac persist io error: {e}"),
             RbacPersistError::Serde(e) => write!(f, "rbac persist serde error: {e}"),
             RbacPersistError::Redb(e) => write!(f, "rbac persist redb error: {e}"),
+            RbacPersistError::StaleRevision { expected, actual } => {
+                write!(
+                    f,
+                    "RBAC_STALE_REVISION: expected {expected}, current {actual}"
+                )
+            }
             RbacPersistError::IncompleteState(message) => {
                 write!(f, "rbac persist current-state error: {message}")
             }
@@ -146,6 +154,7 @@ pub struct RbacAuthoritySnapshot {
     identity_digest: String,
     policy: RbacPolicy,
     identities: BTreeMap<String, AgentIdentity>,
+    bootstrap: IdentityBootstrapState,
 }
 
 impl RbacAuthoritySnapshot {
@@ -153,6 +162,7 @@ impl RbacAuthoritySnapshot {
         revision: u64,
         policy: RbacPolicy,
         identities: BTreeMap<String, AgentIdentity>,
+        bootstrap: IdentityBootstrapState,
     ) -> Result<Self, RbacPersistError> {
         Ok(Self {
             revision,
@@ -160,7 +170,12 @@ impl RbacAuthoritySnapshot {
             identity_digest: authority_identity_digest(&identities)?,
             policy,
             identities,
+            bootstrap,
         })
+    }
+
+    pub fn bootstrap(&self) -> IdentityBootstrapState {
+        self.bootstrap
     }
 
     pub fn revision(&self) -> u64 {
@@ -223,7 +238,14 @@ fn authority_identity_digest(
 
 fn read_authority_image(
     read: &ScopedRead<'_, RbacOwner>,
-) -> Result<(RbacPolicy, BTreeMap<String, AgentIdentity>), RbacPersistError> {
+) -> Result<
+    (
+        RbacPolicy,
+        BTreeMap<String, AgentIdentity>,
+        IdentityBootstrapState,
+    ),
+    RbacPersistError,
+> {
     let state = read
         .open_owner_table(RBAC_TABLE)
         .map_err(RbacPersistError::Redb)?;
@@ -241,14 +263,14 @@ fn read_authority_image(
             "mandatory identities record is absent",
         ))
         .and_then(|value| serde_json::from_slice(value.value()).map_err(RbacPersistError::Serde))?;
-    let _: IdentityBootstrapState = state
+    let bootstrap: IdentityBootstrapState = state
         .get(BOOTSTRAP_KEY)
         .map_err(|error| RbacPersistError::Redb(error.to_string()))?
         .ok_or(RbacPersistError::IncompleteState(
             "mandatory identity bootstrap record is absent",
         ))
         .and_then(|value| serde_json::from_slice(value.value()).map_err(RbacPersistError::Serde))?;
-    Ok((policy, identities))
+    Ok((policy, identities, bootstrap))
 }
 
 /// A durable, kernel-backed image of the RBAC policy + registered identities
@@ -282,12 +304,33 @@ pub trait RbacPolicyStore: Send + Sync {
         ),
         RbacPersistError,
     >;
+    /// Unversioned writes cannot prove which image the caller edited.
+    /// Retained for source compatibility; use `compare_and_save` instead.
     fn save(
         &self,
-        policy: &RbacPolicy,
-        identities: &BTreeMap<String, AgentIdentity>,
-        bootstrap: IdentityBootstrapState,
-    ) -> Result<(), RbacPersistError>;
+        _policy: &RbacPolicy,
+        _identities: &BTreeMap<String, AgentIdentity>,
+        _bootstrap: IdentityBootstrapState,
+    ) -> Result<(), RbacPersistError> {
+        Err(RbacPersistError::IncompleteState(
+            "RBAC_EXPECTED_REVISION_REQUIRED",
+        ))
+    }
+
+    /// Compare the caller snapshot revision under the write lock and return
+    /// the revision committed with the complete replacement image. Adapters
+    /// must implement this atomically; a legacy save is not a safe fallback.
+    fn compare_and_save(
+        &self,
+        _expected_revision: u64,
+        _policy: &RbacPolicy,
+        _identities: &BTreeMap<String, AgentIdentity>,
+        _bootstrap: IdentityBootstrapState,
+    ) -> Result<u64, RbacPersistError> {
+        Err(RbacPersistError::IncompleteState(
+            "RBAC_CHECKED_WRITE_UNSUPPORTED",
+        ))
+    }
 
     /// Capture revision, policy, identities, and their canonical digests from
     /// one store snapshot. This is the only valid input to a policy decision
@@ -310,23 +353,9 @@ pub trait RbacPolicyStore: Send + Sync {
         false
     }
 
-    /// Audit/display-facing durable-policy epoch (GRAPH-POLICY-LEASE-CONTRACT.md
-    /// §2.4, R5) — reuses the SAME monotonic counter the mutation kernel
-    /// already bumps atomically with every [`RbacStore::save`] write, rather
-    /// than adding a second, independently-maintained persisted counter.
-    /// **Never the staleness ground truth**: `PolicyDecisionLease`'s fail-closed
-    /// comparison is digest-only, always — this is populated onto
-    /// `PolicySnapshot.version` purely for audit/display (e.g. "policy epoch
-    /// 4,812"), and is a spuriously-bumpable approximation, not a strict
-    /// count of logical policy changes (`RbacStore::save`'s `already_current`
-    /// gate compares raw, non-canonical bytes — see that method's doc).
-    ///
-    /// Default body **fails closed** rather than returning a plausible-
-    /// looking `0` — a store that cannot report its own epoch must not be
-    /// usable to mint or revalidate a lease (contract §8 item 13). This
-    /// This default remains for non-lease consumers; every store used to mint
-    /// a lease must implement [`Self::authority_snapshot`] and returns that
-    /// snapshot's revision instead of composing separate reads.
+    /// Existing mutation revision, useful for diagnostics. Never combine a
+    /// separate version read with an image to construct a write precondition;
+    /// use `authority_snapshot` for the complete atomic preimage instead.
     fn current_version(&self) -> Result<u64, RbacPersistError> {
         Err(RbacPersistError::IncompleteState(
             "this policy store does not implement a durable policy version counter",
@@ -336,6 +365,8 @@ pub trait RbacPolicyStore: Send + Sync {
 
 mod durable_write;
 mod memory_store;
+#[cfg(test)]
+mod revision_tests;
 
 pub use memory_store::MemoryRbacStore;
 
@@ -474,11 +505,7 @@ impl RbacStore {
         drop(read);
         match (policy_present, identities_present, bootstrap_present) {
             (true, true, true) => Ok(()),
-            (false, false, false) => self.save(
-                &RbacPolicy::new(),
-                &BTreeMap::new(),
-                IdentityBootstrapState::Pending,
-            ),
+            (false, false, false) => durable_write::initialize_authority_state(self),
             _ => Err(RbacPersistError::IncompleteState(
                 "policy, identities, and bootstrap state must all be present",
             )),
@@ -543,22 +570,32 @@ impl RbacStore {
     /// bytes from one commit with the revision or identities from another.
     pub fn authority_snapshot(&self) -> Result<RbacAuthoritySnapshot, RbacPersistError> {
         let read = self.scoped_read()?;
-        let (policy, identities) = read_authority_image(&read)?;
+        let (policy, identities, bootstrap) = read_authority_image(&read)?;
         let revision = eg_transaction::version(&read).map_err(RbacPersistError::Redb)?;
-        RbacAuthoritySnapshot::from_parts(revision, policy, identities)
+        RbacAuthoritySnapshot::from_parts(revision, policy, identities, bootstrap)
     }
 
-    /// Write-through the FULL RBAC state in ONE durable
-    /// (immediate-fsync) transaction (CONCEPT:EG-KG.compute.durable-rbac-identity-persistence). Re-serializing the whole
-    /// (small, admin-scale) state on each mutation keeps the three keys mutually
-    /// consistent and the write path trivially correct.
+    /// Unversioned writes fail closed. Use the snapshot revision with
+    /// `compare_and_save`; reading the latest counter just before saving a
+    /// previously loaded image does not establish a valid precondition.
     pub fn save(
         &self,
         policy: &RbacPolicy,
         identities: &BTreeMap<String, AgentIdentity>,
         bootstrap: IdentityBootstrapState,
     ) -> Result<(), RbacPersistError> {
-        durable_write::save_authority_state(self, policy, identities, bootstrap)
+        <Self as RbacPolicyStore>::save(self, policy, identities, bootstrap)
+    }
+
+    /// Replace the full image only if the caller's atomic snapshot is current.
+    pub fn compare_and_save(
+        &self,
+        expected_revision: u64,
+        policy: &RbacPolicy,
+        identities: &BTreeMap<String, AgentIdentity>,
+        bootstrap: IdentityBootstrapState,
+    ) -> Result<u64, RbacPersistError> {
+        durable_write::save_authority_state(self, expected_revision, policy, identities, bootstrap)
     }
 
     /// Remove one mandatory durable record through the mutation kernel, so a
@@ -572,7 +609,7 @@ impl RbacStore {
     }
 
     /// GRAPH-POLICY-LEASE-CONTRACT.md §2.4 (R5): the SAME mutation-ledger
-    /// counter [`RbacStore::save`] already bumps atomically (inside the one
+    /// counter [`RbacStore::compare_and_save`] bumps atomically (inside the one
     /// admitted write transaction, above) with the policy/identity/bootstrap
     /// writes -- reused here rather than adding a second, independently-
     /// maintained persisted counter.
@@ -596,13 +633,14 @@ impl RbacPolicyStore for RbacStore {
         RbacStore::load(self)
     }
 
-    fn save(
+    fn compare_and_save(
         &self,
+        expected_revision: u64,
         policy: &RbacPolicy,
         identities: &BTreeMap<String, AgentIdentity>,
         bootstrap: IdentityBootstrapState,
-    ) -> Result<(), RbacPersistError> {
-        RbacStore::save(self, policy, identities, bootstrap)
+    ) -> Result<u64, RbacPersistError> {
+        RbacStore::compare_and_save(self, expected_revision, policy, identities, bootstrap)
     }
 
     fn authority_snapshot(&self) -> Result<RbacAuthoritySnapshot, RbacPersistError> {
@@ -675,7 +713,12 @@ mod tests {
         {
             let store = open_test_store(&dir).unwrap();
             store
-                .save(&policy, &identities, IdentityBootstrapState::Consumed)
+                .compare_and_save(
+                    store.authority_snapshot().unwrap().revision(),
+                    &policy,
+                    &identities,
+                    IdentityBootstrapState::Consumed,
+                )
                 .unwrap();
         }
         // Reopen the SAME dir — the state is durable across "process" lifetimes.
@@ -711,7 +754,8 @@ mod tests {
         let mut identities = BTreeMap::new();
         identities.insert("sam".to_string(), identity("sam", vec!["reader".into()]));
         store
-            .save(
+            .compare_and_save(
+                store.authority_snapshot().unwrap().revision(),
                 &RbacPolicy::new(),
                 &identities,
                 IdentityBootstrapState::Consumed,
@@ -745,7 +789,8 @@ mod tests {
         {
             let store = open_test_store(&dir).unwrap();
             store
-                .save(
+                .compare_and_save(
+                    store.authority_snapshot().unwrap().revision(),
                     &RbacPolicy::new(),
                     &BTreeMap::new(),
                     IdentityBootstrapState::Consumed,
