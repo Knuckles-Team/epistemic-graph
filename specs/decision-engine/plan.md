@@ -74,7 +74,7 @@ Gold-labelled data and executed-option-only bandit data are different datasets. 
 
 The existing pack types in `crates/eg-types/src/connector_pack/`, handlers in `src/server/handlers/admin/connector_pack/`, persistence in `src/server/persistence/connector_pack/` and Python `epistemic_graph/connector_pack.py` form one owner. The decision engine consumes published, tenant-visible component revisions and their annotations. It does not parse raw packs or trust client-provided digests. A pack entry's `provides`, `requires_capabilities`, modality and schema digest are publisher claims. So are its cost, latency, model profile and `contract_pin`. Native capability IRIs can enter ontology derivation with that claim premise. Unknown foreign IRIs are claim-only exact terms. Malformed native IRIs are refused at import. Re-import does not alter a component revision when its own entry content is byte-identical. `Withdrawn` members become ineligible immediately. A pack cannot insert decision-owned component kinds. The pack head and projection readiness marker must match before a projected ontology/shape fact is used as current.
 
-Decide's contract at this boundary is narrow: it sees only validated component revisions and preserves publisher-claim class in every derivation, score and record. It rejects reserved decision-owned kinds and stale projection facts. Pack import atomicity, body storage and parser refusals are specified and tested by the pack owner independently.
+Decide sees only validated component revisions. It preserves publisher-claim class in every derivation, score and record. It rejects reserved decision-owned kinds and stale projection facts. Pack import atomicity, body storage and parser refusals are specified and tested by the pack owner independently.
 
 ### 6. Question-specific extensions
 
@@ -361,9 +361,8 @@ The full Cargo suite and hosted CI remain unrun for this change.
 ### 2026-10-11 amendment: bounded R073 storage acceptance
 
 Add R073.1 and R073.2 for the existing served import path's durable per-component
-outbox and competing head compare-and-set behavior. These child tests do not
-complete R073: direct multi-intent receipt digest coverage and an owner-table /
-current-format refusal audit remain separate acceptance work. Native execution
+outbox and competing head compare-and-set behavior. These child tests do not complete R073. Direct multi-intent receipt digest
+coverage and an owner-table / current-format refusal audit remain separate acceptance work. Native execution
 is reported separately from the existence of these acceptance tests.
 
 ## Retrieval refusal envelope (R029)
@@ -524,7 +523,7 @@ pack Import admission does not establish a production Blob CAS fix.
 
 Current delivery is limited to EG-DECISION-ENGINE-R129.2: the typed
 `RulePromotionVerdict` in `crates/eg-types/src/decision/guardrail.rs` contains
-`Promotable` and `RejectedInvariant { invariant_iri: String }`, following the
+`Promotable` and `RejectedInvariant { invariant_iri: String }`. It follows the
 existing string IRI convention and snake_case serde representation. Positive
 roundtrips and malformed-payload refusals bind to the literal child spec ID.
 This enum-only delivery does not implement the invariant gate.
@@ -537,9 +536,8 @@ metadata (`rule_id`, `applies_to_class`, `source_generation`), with no rule
 predicate or contradiction semantics. `entailed_guardrails` establishes task
 applicability only, so it cannot implement an invariant contradiction check.
 
-EG-DECISION-ENGINE-R129 and children .1/.3/.4/.5/.6 remain open. The promotion
-owner and rule/invariant semantics must be established before wiring a pure
-check, confidence ordering, audit persistence, or served acceptance. The
+EG-DECISION-ENGINE-R129 and children .1/.3/.4/.5/.6 remain open. Establish the promotion owner and rule/invariant semantics first. Then wire a
+pure check, confidence ordering, audit persistence, or served acceptance. The
 intended invariant check must precede any confidence threshold; consensus
 cannot grant a bypass. No new promotion machinery is introduced by .2.
 
@@ -593,7 +591,7 @@ Cross-repository: `AU-` rows may surface the refusal; the owning policy gate kee
 
 ### Resident scorer resource measurement (R090.3)
 
-The benchmark lives in `crates/eg-numeric/benches/decision_resident_scorer.rs`, beside the production scorer. It reuses the promotion fit recipe and maximum legal head dimensions at 256 rows, timing individual production forward calls with Linux thread CPU time under the existing release profile. Whole-runner peak RSS is a conservative upper bound: above 8 MiB leaves scorer-specific memory inconclusive. Runner executable size is reported separately from server footprint. Acceptance requires an external receipt of the effective optimized build and passing measured limits; source publication alone does not verify the requirement.
+The benchmark lives in `crates/eg-numeric/benches/decision_resident_scorer.rs`, beside the production scorer. It reuses the promotion fit recipe and maximum legal head dimensions at 256 rows, timing individual production forward calls with Linux thread CPU time under the existing release profile. Whole-runner peak RSS is a conservative upper bound: above 8 MiB leaves scorer-specific memory inconclusive. Runner executable size is reported separately from server footprint. Acceptance requires an external receipt of the effective optimized build and passing measured limits. Source publication alone does not verify the requirement.
 
 Native measurement on 2026-10-11 met both parameter and CPU latency limits but
 reported 124,788,736 bytes of whole-runner peak RSS against an 8 MiB ceiling.
@@ -1802,7 +1800,7 @@ behavior retains its existing contract.
 This deliberately limits the first implementation to one authority shard.
 It does not promise atomic profile admission across shards. Moving additional
 graphs requires their existing storage migration procedure and separate
-approval. A distributed transaction design would be a later architectural
+approval. A distributed transaction design requires a later architectural
 change, not a fallback to checking another file before commit.
 
 Use GraphShardOwner and MutationKernel's existing scope-group transaction.
@@ -1893,7 +1891,7 @@ never authorizes another dispatch merely because the transport retried.
    withdrawal provenance. Do not translate existing RBAC grants into profile
    grants. Record phase `prepared`; profile admission remains unavailable.
 4. Verify every imported logical record, source digest and graph placement.
-   Activate phase `active` in one destination transaction. Start only binaries
+   Commit phase `active` in one destination transaction. Start only binaries
    supporting this owner format and writer epoch. Keep old files sealed against
    writes; old paths must fail rather than silently create a fresh empty store.
 5. Every restart checks physical identity, phase and epoch before serving the
