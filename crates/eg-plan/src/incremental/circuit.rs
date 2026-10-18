@@ -683,8 +683,9 @@ mod tests {
     // ── per-operator: apply-delta result == full recompute ──
 
     #[test]
-    fn scan_matches_only_type_key() {
-        // node_type/label must NOT match — only `type` (faithful to exec::scan_label).
+    fn scan_matches_every_label_key() {
+        // `type` and `node_type` both carry the label, exactly as exec::scan_label
+        // reads it (EG-FEDERATED-QUERY-R022.1); another label does not match.
         let plan = Plan::new(vec![Op::Scan {
             label: "Doc".into(),
         }]);
@@ -694,8 +695,10 @@ mod tests {
         model.insert("a".into(), props(json!({"type": "Doc"})));
         c.apply(&insert("b", json!({"node_type": "Doc"})));
         model.insert("b".into(), props(json!({"node_type": "Doc"})));
+        c.apply(&insert("c", json!({"type": "Other"})));
+        model.insert("c".into(), props(json!({"type": "Other"})));
         assert_eq!(c.current(), c.recompute(&model));
-        assert_eq!(c.current().ids(), vec!["a"]);
+        assert_eq!(c.current().ids(), vec!["a", "b"]);
     }
 
     #[test]
