@@ -95,7 +95,7 @@ redb = "~4.1"
 
 [package]
 name = "epistemic-graph"
-version = "2.27.4"
+version = "2.27.5"
 edition = "2021"
 authors = ["Repository Maintainers <maintainers@example.invalid>"]
 description = "Rust-native durable multimodal and epistemic database for governed SI systems"
