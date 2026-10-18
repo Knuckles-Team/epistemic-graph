@@ -187,6 +187,9 @@ async fn durable_graph() -> (
 // spec: EG-UNIFIED-DATA-PLANE-R651.7.3
 // spec: EG-UNIFIED-DATA-PLANE-R651.7.5
 // spec: EG-UNIFIED-DATA-PLANE-R651.7.6
+// spec: EG-DECISION-ENGINE-R802
+// spec: EG-DECISION-ENGINE-R802.3
+// spec: EG-DECISION-ENGINE-R802.6
 #[test]
 fn test_web_page_enriches_once_for_both_backends() {
     on_engine(enrich_replay_supersede_and_search);

@@ -254,7 +254,6 @@ mod tests {
         }
     }
 
-    // spec: EG-REPO-INGEST-R652.2
     // spec: EG-UNIFIED-DATA-PLANE-R651.7.2
     #[test]
     fn chunks_respect_headings_size_and_offsets() {
@@ -275,7 +274,7 @@ mod tests {
         }
     }
 
-    // spec: EG-REPO-INGEST-R652.2
+    // spec: EG-UNIFIED-DATA-PLANE-R651.7.2
     #[test]
     fn long_sections_split_with_overlap_under_the_limit() {
         let sentence = "Ünïcode sentence number with some words in it. ";
@@ -301,7 +300,7 @@ mod tests {
         }
     }
 
-    // spec: EG-REPO-INGEST-R652.2
+    // spec: EG-UNIFIED-DATA-PLANE-R651.7.2
     #[test]
     fn chunking_is_deterministic_and_paragraph_aware() {
         let text = format!("{}\n\n{}", "a".repeat(500), "b ".repeat(400));
@@ -314,7 +313,7 @@ mod tests {
         );
     }
 
-    // spec: EG-REPO-INGEST-R652.4
+    // spec: EG-UNIFIED-DATA-PLANE-R651.7.4
     #[test]
     fn invalid_configs_and_blank_text() {
         assert!(chunk_text("x", &config(10, 0)).is_err());
