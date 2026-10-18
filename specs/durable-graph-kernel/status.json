@@ -4069,8 +4069,10 @@
     {
       "id": "EG-DURABLE-KERNEL-R028.5",
       "title": "Native current-plan publication and readback",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "88fc4a5577c7"
+      ],
       "verified_by": [
         "crates/eg-storage/src/owner/agent_library_upgrade/tests.rs:293",
         "crates/eg-types/src/current_plan.rs:87",
