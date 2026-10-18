@@ -348,6 +348,7 @@ No test named here has run; names describe acceptance obligations, not evidence.
 - `EG-TYPED-PACKS-R101.6`: `src/server/handlers/admin/connector_pack/import/contract_tests.rs::contract_refusals_leave_state_unchanged`.
 - `EG-TYPED-PACKS-R101.7`: `src/server/handlers/source_ingestion/contract_receipt_tests.rs::receipt_binds_contract_digest_and_governed_by`.
 - `EG-TYPED-PACKS-R101.8`: `tests/typed_packs/test_ingest_contract_rdf_served.py::test_contract_import_governs_ingest`.
+- `EG-TYPED-PACKS-R101.9`: a served test imports a pack through `ConnectorPack.Import` and submits one mapped record through `SourceIngest`; the engine accepts it.
 - `EG-TYPED-PACKS-R102`: Rollup closes when every child `.1` to `.7` passes its proving test.
 - `EG-TYPED-PACKS-R102.1`: `crates/eg-shacl/tests/connector_pack_shapes.rs::surface_shapes_accept_valid_and_refuse_invalid`.
 - `EG-TYPED-PACKS-R102.2`: `src/server/connector_pack_projection/surface_tests.rs::surface_nodes_follow_pack_head`.
