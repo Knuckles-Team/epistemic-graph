@@ -2188,10 +2188,11 @@
       "title": "One tenant key for pack heads",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "0f1d5dbd19e8",
         "c4a73f6d5a74"
       ],
       "verified_by": [
-        "src/server/handlers/admin/connector_pack/tests/scale.rs:44"
+        "src/server/handlers/admin/connector_pack/tests/scale.rs:53"
       ]
     },
     {
