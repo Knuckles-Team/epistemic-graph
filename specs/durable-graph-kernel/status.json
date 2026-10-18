@@ -3041,8 +3041,10 @@
     {
       "id": "EG-DURABLE-KERNEL-R043.7",
       "title": "Attested envelope text admits `@` and `\\` and refuses only host identity",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "8040b672e582"
+      ],
       "verified_by": [
         "crates/eg-types/src/change_envelope/material.rs:161",
         "crates/eg-types/src/change_envelope/material.rs:181",
@@ -3052,8 +3054,11 @@
     {
       "id": "EG-DURABLE-KERNEL-R043.8",
       "title": "Envelope admission refusals carry a declared code and a safe diagnostic",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "690f4389a87e",
+        "8040b672e582"
+      ],
       "verified_by": [
         "crates/eg-types/src/change_envelope/material.rs:198",
         "src/server/mod.rs:2141"
@@ -3385,8 +3390,13 @@
     {
       "id": "EG-DURABLE-KERNEL-R102",
       "title": "The engine serves its key-value modality as the memory read and save methods (rollup)",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "34d9e78dbe3c",
+        "48284711e3db",
+        "70d7b722668b",
+        "b714af935390"
+      ],
       "verified_by": [
         "src/server/kv/dispatch_tests.rs:158"
       ],
@@ -3402,8 +3412,12 @@
     {
       "id": "EG-DURABLE-KERNEL-R102.1",
       "title": "Served contract",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "34d9e78dbe3c",
+        "5430f4d714ee",
+        "74f3436402b8"
+      ],
       "verified_by": [
         "src/server/kv/dispatch_tests.rs:159"
       ]
@@ -3411,8 +3425,11 @@
     {
       "id": "EG-DURABLE-KERNEL-R102.2",
       "title": "Scope and authorization",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "34d9e78dbe3c",
+        "74f3436402b8"
+      ],
       "verified_by": [
         "src/server/kv/dispatch_tests.rs:261"
       ]
@@ -3420,8 +3437,11 @@
     {
       "id": "EG-DURABLE-KERNEL-R102.3",
       "title": "Versioned compare-and-swap and bounded paginated scan",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "34d9e78dbe3c",
+        "5430f4d714ee"
+      ],
       "verified_by": [
         "src/server/kv/dispatch_tests.rs:160",
         "src/server/kv/dispatch_tests.rs:232",
@@ -3431,8 +3451,11 @@
     {
       "id": "EG-DURABLE-KERNEL-R102.4",
       "title": "Durable, audited, replayable mutations",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "34d9e78dbe3c",
+        "5430f4d714ee"
+      ],
       "verified_by": [
         "src/server/kv/dispatch_tests.rs:314"
       ]
@@ -3440,8 +3463,11 @@
     {
       "id": "EG-DURABLE-KERNEL-R102.5",
       "title": "Hot-path proof",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "34d9e78dbe3c",
+        "48284711e3db"
+      ],
       "verified_by": [
         "src/server/kv/dispatch_tests.rs:371"
       ]
@@ -3449,8 +3475,10 @@
     {
       "id": "EG-DURABLE-KERNEL-R102.6",
       "title": "Opt-in shared namespace",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "b714af935390"
+      ],
       "verified_by": [
         "src/server/kv/dispatch_tests.rs:441"
       ]

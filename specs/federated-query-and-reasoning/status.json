@@ -687,7 +687,7 @@
     {
       "id": "EG-FEDERATED-QUERY-R022",
       "title": "UQL source clauses are first-class, with typed empty-result cases",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "0265d3a41baf",
         "8451d7eecf02"
@@ -700,8 +700,10 @@
     {
       "id": "EG-FEDERATED-QUERY-R022.1",
       "title": "A label Scan matches the engine's label set",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "8040b672e582"
+      ],
       "verified_by": [
         "crates/eg-plan/src/exec.rs:2661",
         "src/server/mod.rs:2077"
