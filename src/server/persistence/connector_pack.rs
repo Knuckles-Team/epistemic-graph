@@ -20,6 +20,14 @@ use eg_types::contract::{BoundedVec, Digest256, ResourceId};
 
 use super::agent_library::AgentLibraryStore;
 
+/// The tenant key connector pack heads are stored and looked up under: the
+/// verified tenant id exactly as pack import writes it. Import, status and
+/// `SourceIngest` all call this, never a graph route's opaque carrier
+/// `tenant_scope` digest (EG-TYPED-PACKS-R101.9).
+pub(crate) fn pack_tenant_key(verified: &crate::server::auth::VerifiedRequestContext) -> &str {
+    verified.tenant()
+}
+
 pub(crate) mod admin;
 pub(crate) mod admitted;
 pub(crate) mod catalog_authority;
