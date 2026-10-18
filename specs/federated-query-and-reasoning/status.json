@@ -702,7 +702,7 @@
       "title": "A label Scan matches the engine's label set",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "196bf71a6686"
+        "8040b672e582"
       ],
       "verified_by": [
         "crates/eg-plan/src/exec.rs:2661",

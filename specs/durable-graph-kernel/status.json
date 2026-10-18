@@ -3041,7 +3041,7 @@
       "title": "Attested envelope text admits `@` and `\\` and refuses only host identity",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "196bf71a6686"
+        "8040b672e582"
       ],
       "verified_by": [
         "crates/eg-types/src/change_envelope/material.rs:161",
@@ -3054,8 +3054,8 @@
       "title": "Envelope admission refusals carry a declared code and a safe diagnostic",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "1248aca1427c",
-        "196bf71a6686"
+        "690f4389a87e",
+        "8040b672e582"
       ],
       "verified_by": [
         "crates/eg-types/src/change_envelope/material.rs:198",
