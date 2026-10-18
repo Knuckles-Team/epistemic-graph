@@ -66,7 +66,7 @@ The independent certificate verifier checks input digest, sorted variable mappin
 
 ### 4. Statistical decision and evidence
 
-Feature extraction is over the RLS-filtered candidate set. Candidate-local BM25 and visible-only vector scoring avoid corpus statistics and overfetch effects from invisible rows. The feature schema is versioned, records missingness and provenance, and includes only policy-approved facts: similarity, entailed coverage, evidence quality, belief/confidence, cost and latency. The resident option-marker scorer can encode state once and score each structured option in process; it must retain deterministic fixed-point output and CPU portability. Statistical heads are bounded, fitted components, not generative models; text generation and LLM weights stay outside EG.
+Feature extraction is over the RLS-filtered candidate set. Candidate-local BM25 and visible-only vector scoring avoid corpus statistics and overfetch effects from invisible rows. The feature schema is versioned, records missingness and provenance, and includes only policy-approved facts: similarity, entailed coverage, evidence quality, belief/confidence, cost and latency. The resident option-marker scorer can encode state once and score each structured option in process. It must retain deterministic fixed-point output and CPU portability. Statistical heads are bounded, fitted components, not generative models; text generation and LLM weights stay outside EG.
 
 Gold-labelled data and executed-option-only bandit data are different datasets. The latter requires exact action propensities and support diagnostics. It also requires inverse propensity or doubly robust estimators, effective sample size and censoring. Self-reported run outcomes cannot promote a head. Independent evaluations with sufficient trace fidelity and approved principal are joined to records. Hierarchical pooling requires minimum support and coarse output to avoid individual-run inference. Conformal and selective-risk calibration use held-out or walk-forward folds. They account for drift and explicitly abstain when their stated bound lacks support. `DecisionEval` receipts pin head, dataset window, policy, feature schema, metrics and thresholds. A policy change or head digest change invalidates the receipt for promotion.
 
@@ -175,7 +175,7 @@ This register inventories all 118 decision-owned obligations. `Historical label`
 | EG-DECISION-ENGINE-R078 | T4 | CLOSED | NOT_RUN | Contract freeze re-issued with the decide feature |
 | EG-DECISION-ENGINE-R079 | AU-batch | BUILT | NOT_RUN | **Embedding admission classifier.** Ingest-time embedding is applied to essentially everything crossing the ChangeEnvelope boundary by explicit design (envelope_ingest.py:2753 — the chokepoint exists "so no future connector can bypass it"). The only gates are four cheap predicates: upsert+typed-payload, text-unchanged short-circuit, empty-derived-text, and a global KG_INGEST_AUTO_EMBED flag defaulting ON. No content-type policy, no per-column decision, no cost budget |
 | EG-DECISION-ENGINE-R080 | AU-batch | BUILT | NOT_RUN | **Ingestion cost ladder with provenance** mirrors the approved Decide ladder. Rung 0 uses AST and records EXTRACTED. Rung 1 uses symbol/type resolution and records INFERRED. Rung 2 uses statistical/community derivation and records DERIVED. Rung 3 uses classical ML/NER and records MODELED. Rung 4 uses embeddings and records EMBEDDED. Rung 5 uses an LLM and records ASSERTED. Run a higher rung only when every lower rung abstains. Never overwrite a deterministic fact with a higher rung. This preserves Decide’s monotone-safety rule |
-| EG-DECISION-ENGINE-R081 | AU-batch | BUILT | NOT_RUN | **Weight community-detection edges by the resolver confidence we ALREADY compute, and stop letting similar_to vote.** The kernel consumes undirected_weighted_adjacency() so weights are supported; ingestion supplies none, discarding the exact signal that makes communities trustworthy. A scoped call (0.95) should bind a community harder than a unique guess (0.60) — see resolve.rs:663-672. Separately, MinHash similar_to is a RESEMBLANCE edge, not a structural one: including it conflates "looks alike" with "works together" (two similarly-shaped utility files are not a module). Type-weight edges — calls/imports/inherits structural, similar_to excluded or heavily discounted |
+| EG-DECISION-ENGINE-R081 | AU-batch | BUILT | NOT_RUN | **Weight community-detection edges by the resolver confidence we ALREADY compute, and stop letting similar_to vote.** The kernel consumes undirected_weighted_adjacency(), which supports weights. Ingestion supplies none, discarding the exact signal that makes communities trustworthy. A scoped call (0.95) should bind a community harder than a unique guess (0.60) — see resolve.rs:663-672. Separately, MinHash similar_to is a RESEMBLANCE edge, not a structural one. Including it conflates "looks alike" with "works together". Two similarly-shaped utility files are not a module. Type-weight edges — calls/imports/inherits structural, similar_to excluded or heavily discounted |
 | EG-DECISION-ENGINE-R082 | T4 | BUILT | NOT_RUN | **Option-marker head geometry for eg-decision** — encode state once, score each option at its own marker, softmax in-process, one forward pass serving several questions; no decoder loop. Adopted from the Laya encoder design |
 | EG-DECISION-ENGINE-R083 | T4 | BUILT | NOT_RUN | **Structured option encoding instead of textual — surpasses the external design by construction.** Laya scores 0.425 on Banking77 (vs 0.870 for the closed baseline) purely because 77 label strings exhaust head_max_len; that is a TOKENISATION limit, not a decision limit. Our options are IRIs carrying SHACL shapes, declared capabilities and cost/latency facts, so an option is encoded from its STRUCTURED features and cardinality bounds on feature-vector width rather than token budget. The failure mode that caps their usable option sets does not exist in ours |
 | EG-DECISION-ENGINE-R084 | T4 | BUILT | NOT_RUN | Conformal coverage and abstention are the primary calibration rung across changing option-set sizes. Temperature scaling is a fallback when exchangeability fails. Report both expected calibration error and empirical coverage. |
@@ -1679,3 +1679,105 @@ The selection is deterministic and runs no model. It is a dedicated method, not 
 Refresh: a drift or staleness signal of `EG-DECISION-ENGINE-R174.8` turns held web Documents into candidates again (`EG-DECISION-ENGINE-R174.9.7`). The digest decides between a no-op and a supersede.
 
 Budget: k = 60 for rank fusion, an 86,400 s freshness window, 3 ms p99 for 50 candidates and 4 MiB peak memory. These are starting defaults. A measurement on this platform replaces them.
+
+## Amendment 2026-10-18: R036 profile grant authority and cutover
+
+This design extends the profile-use ownership amendment and ARBORA-A2A-R016.6.
+It approves source design, not production migration, credential provisioning or
+retirement of live writers. Runtime acceptance remains open.
+
+### Issuance and reusable grants
+
+Arbora's authenticated access service owns the served issuance and revocation
+operations. Reuse its direct human operator approval boundary. Require the
+exact new approver-class permission `profile:approve-grant`; registration alone
+grants nobody that permission. Existing elevation permission does not imply it.
+Reject self-approval, delegated approval, API-key approval and cross-tenant
+approval. Never derive permission from tenant membership, catalog visibility,
+provider settings or wildcard scopes. EG validates and persists the resulting
+authorization facts; Arbora keeps no parallel grant store.
+
+A grant binds one tenant, beneficiary principal, graph, profile reference and
+digest, and routed capability reference and revision. Record its issuer,
+approved request digest, policy revision, expiry and revocation revision.
+Reject missing bounds and wildcard resource bindings. The grant conveys no
+onward delegation. Issuance must enforce the current issuer authority and
+policy ceiling; it cannot widen either.
+
+Human approval occurs at issuance. Selections may reuse a still-valid grant
+without asking the human again. Each admission must validate the current
+beneficiary session and all grant bindings. Admission expiry cannot exceed
+session or grant expiry. Changing the profile or capability revision requires
+fresh approval for that binding. Revocation prevents new admissions; it does
+not pretend to undo effects already committed by an admitted task.
+
+### One authoritative transaction
+
+Use the existing graph-native mutation owner and replay ledger for the target
+admission transaction. Arbora authenticates and requests admission. EG checks
+durable authority and records the result. The transaction must cover:
+
+- Current grant content, policy and revocation revisions, and issuer authority
+  needed to create or revoke that grant.
+- Authoritative session identity, principal, tenant, expiry and revocation epoch
+  for the caller. Include every mutable authority fact that can invalidate use.
+- Current profile and routed capability admission revisions, their immutable
+  digests, and withdrawal state.
+- The authoritative decision receipt, exact new run/WorkItem binding, task
+  admission and stable-key replay result.
+
+Immutable Agent Library content may remain content-addressed in its existing
+store. Any mutable eligibility or withdrawal fact affecting admission must
+share the transaction authority. A copied snapshot is not current authority.
+A precheck, process lock or separate check/commit/enqueue cannot substitute for
+this transaction. Its engine-clock expiry check and all writes commit together.
+Arbora dispatches only the committed admission; retries reuse its stable key.
+
+### Migration and old writers
+
+Current identity state lives in the RBAC policy image. Agent Library owns its
+separate decision-record transaction. The target above therefore requires an
+explicit migration and writer cutover, not an adapter over those stores.
+
+Before enabling profile admission, inventory every writer for the migrated
+facts. This includes session revoke, expiry and mode-epoch changes through
+`src/server/dispatch/identity_store.rs`, profile/capability eligibility changes
+through Agent Library, and the profile decision receipt write through
+`AgentLibraryStore::commit_decision_record`. Preserve unrelated operations.
+Ultimately fence the old authoritative write paths for migrated records.
+Do not introduce a second mutable authority or leave an unfenced dual writer.
+
+A reviewed migration plan must name the exact records, key mapping, store
+owner, writer fence and cutover epoch. It must also define backup, interrupted
+migration recovery, mixed-version refusal and rollback behavior. Preserve
+original principal, tenant, expiry, revision, audit and revocation provenance.
+Do not extend an expired grant or session during conversion.
+
+Activation requires a durable completed-cutover marker checked by the owner,
+not a configuration flag that assumes completion. During migration, uncertainty
+or mixed writer epochs, profile admission returns AUTHORITY_UNAVAILABLE with
+zero task writes. Existing default-agent behavior stays unchanged. Rollback
+must disable profile admission before restoring any old writer. It cannot
+restore revoked authority or reset replay history.
+
+### Verification and source checkpoint boundary
+
+Required fixtures cover revocation racing admission, expiry at the transaction
+clock boundary, profile withdrawal, stale capability revisions and wrong scope.
+Revocation committed first must prevent admission. Admission committed first
+has one receipt and one task; retry cannot create another. Inject failures
+between each proposed write and prove complete rollback, including replay state.
+
+Cutover tests must exercise restart at every migration phase, stale writers,
+mixed binaries, key collisions, audit preservation and rollback after revocation.
+Compare migrated authority facts against their original records. Prove that old
+writers cannot change migrated records after cutover. Test ordinary default-agent
+requests before, during and after migration without enabling profile preference.
+
+A disabled implementation cannot claim this transaction by reading today's
+separate stores. The existing unavailable boundary remains the safe executable
+checkpoint. Do not add unused grant DTOs or an uncomposed success helper merely
+to report implementation progress. First approve the exact migration/write-owner
+plan; then implement and qualify the native transaction and canonical contract.
+Production migration and live writer retirement require separate deployment
+authorization. This amendment executes neither action.
