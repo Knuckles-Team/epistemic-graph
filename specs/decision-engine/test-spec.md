@@ -794,3 +794,17 @@ Hot-path proof for `EG-DECISION-ENGINE-R174.8`: `tests/decide/test_drift_refresh
 | Hot-path proof | `EG-DECISION-ENGINE-R174.9.6` | The served test passes, and the measured overhead meets the budget. |
 
 Hot-path proof for `EG-DECISION-ENGINE-R174.9`: `tests/decide/test_freshness_refresh_served.py::test_search_refresh_dedupes_and_feeds_refresh`.
+
+## EG-DECISION-ENGINE-R802 acceptance
+
+| Case | Row | Proving test and observation |
+|---|---|---|
+| Refresh | `EG-DECISION-ENGINE-R174.9.7` | `tests/decide/test_freshness_refresh_served.py::test_stale_web_document_refetches_on_digest_change`: An equal digest writes nothing; a changed digest supersedes and marks the region. |
+| Model | `EG-DECISION-ENGINE-R802.1` | `web_fetch_selection.rs::tests::question_round_trips`: A serde round trip keeps every field and rejects 33 fetches. |
+| Behavior | `EG-DECISION-ENGINE-R802.2` | `web_fetch_selection.rs::tests::ranks_dedupes_and_skips_fresh`: Unit tests cover each skip reason, the order and both budgets. |
+| Wiring | `EG-DECISION-ENGINE-R802.3` | `stat_tests/web_fetch.rs::served_decide_reaches_web_fetch`: A served `Decide` reaches the new arm. |
+| Refusal | `EG-DECISION-ENGINE-R802.4` | `stat_tests/web_fetch.rs::web_fetch_refusals`: Each case returns its code and selects no candidate. |
+| Evidence | `EG-DECISION-ENGINE-R802.5` | `stat_tests/web_fetch.rs::premises_per_candidate`: Each candidate has one premise. |
+| Hot-path proof | `EG-DECISION-ENGINE-R802.6` | `tests/decide/test_web_fetch_selection_served.py::test_selection_dedupes_skips_fresh_and_budgets`: The served test passes, and the benchmark meets both budgets. |
+
+Hot-path proof for `EG-DECISION-ENGINE-R802`: `tests/decide/test_web_fetch_selection_served.py::test_selection_dedupes_skips_fresh_and_budgets`.

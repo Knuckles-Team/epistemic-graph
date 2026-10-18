@@ -230,3 +230,15 @@ For each row, add a subentry containing its merged commit, exact-head test run, 
 - [ ] **EG-UNIFIED-DATA-PLANE-R038.7.4 (Refusal):** Add the typed refusals.
 - [ ] **EG-UNIFIED-DATA-PLANE-R038.7.5 (Evidence):** Emit the evidence.
 - [ ] **EG-UNIFIED-DATA-PLANE-R038.7.6 (Hot-path proof):** Add the served hot-path test.
+
+## Web page ingest (R022.4.1, R038.7.7, R651.7)
+
+- [ ] **EG-UNIFIED-DATA-PLANE-R022.4.1:** Add the residency column to the matrix and its test.
+- [ ] **EG-UNIFIED-DATA-PLANE-R038.7.7:** Add the candidate set with query provenance.
+- [ ] **EG-UNIFIED-DATA-PLANE-R651.7 (rollup):** Fetched web pages enrich through the one document path.
+- [ ] **EG-UNIFIED-DATA-PLANE-R651.7.1 (Model):** Add the web document provenance and the `WebPage` job kind.
+- [ ] **EG-UNIFIED-DATA-PLANE-R651.7.2 (Behavior):** Run the shared phases and the digest filter.
+- [ ] **EG-UNIFIED-DATA-PLANE-R651.7.3 (Wiring):** Route the served `SourceIngest` web page to the phase registry.
+- [ ] **EG-UNIFIED-DATA-PLANE-R651.7.4 (Refusal):** Add the typed refusals.
+- [ ] **EG-UNIFIED-DATA-PLANE-R651.7.5 (Evidence):** Emit the ingest receipt counts.
+- [ ] **EG-UNIFIED-DATA-PLANE-R651.7.6 (Hot-path proof):** Add the served two-backend test and the benchmark.
