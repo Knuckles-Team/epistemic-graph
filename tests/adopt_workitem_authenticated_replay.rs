@@ -377,12 +377,23 @@ fn run_submit_method() -> Method {
     let mut method = submit_method();
     if let Method::SubmitWorkItem { request } = &mut method {
         request.run_id = Some("run-owner-admission".into());
+        request.context.agent_id = "agent:delegated-run-worker".into();
         request.work_item_id = None;
         request
             .metadata
             .insert("principal".into(), "forged-body-owner".into());
     }
     method
+}
+
+fn signed_run_request(id: u64, method: Method, idempotency_key: &str) -> Request {
+    signed_request_with_agent(
+        id,
+        method,
+        idempotency_key,
+        common::TEST_AGENT,
+        "agent:delegated-run-worker",
+    )
 }
 
 // spec: EG-DURABLE-KERNEL-R028.4
@@ -424,7 +435,7 @@ async fn run_admission_binds_verified_owner_and_replays_without_row_changes() {
     );
     let replay = test_support::dispatch(
         &state,
-        signed_request(402, run_submit_method(), "run-admit-key"),
+        signed_run_request(402, run_submit_method(), "run-admit-key"),
     )
     .await;
     let replay: SubmitWorkItemResult = decode_raw(&replay, "run admission replay");
@@ -440,11 +451,12 @@ async fn run_admission_binds_verified_owner_and_replays_without_row_changes() {
     );
     let foreign = test_support::dispatch(
         &state,
-        signed_request_as(
+        signed_request_with_agent(
             403,
             run_submit_method(),
             "run-admit-key",
             "agent:foreign-owner",
+            "agent:delegated-run-worker",
         ),
     )
     .await;
@@ -470,7 +482,7 @@ async fn run_admission_binds_verified_owner_and_replays_without_row_changes() {
         }
         let refused = test_support::dispatch(
             &state,
-            signed_request(410 + index as u64, method, "run-admit-key"),
+            signed_run_request(410 + index as u64, method, "run-admit-key"),
         )
         .await;
         assert!(refused.error.is_some(), "{case} unexpectedly admitted");
@@ -488,7 +500,7 @@ async fn run_admission_binds_verified_owner_and_replays_without_row_changes() {
         request.run_id = Some("another-run-same-key".into());
     }
     let another =
-        test_support::dispatch(&state, signed_request(430, another, "run-admit-key")).await;
+        test_support::dispatch(&state, signed_run_request(430, another, "run-admit-key")).await;
     let another: SubmitWorkItemResult = decode_raw(&another, "independent run admission");
     assert!(another.created);
     assert_ne!(another.work_item_id, admitted.work_item_id);
@@ -499,7 +511,7 @@ async fn run_admission_binds_verified_owner_and_replays_without_row_changes() {
     let restarted = state_with(reopened.clone(), dir.clone());
     let replay = test_support::dispatch(
         &restarted,
-        signed_request(440, run_submit_method(), "run-admit-key"),
+        signed_run_request(440, run_submit_method(), "run-admit-key"),
     )
     .await;
     let replay: SubmitWorkItemResult = decode_raw(&replay, "reopened admission replay");
