@@ -25,7 +25,7 @@ use eg_types::decision::web_fetch_selection::{
 use eg_types::source_ingestion::web_document::{
     EnrichDocumentReceipt, EnrichDocumentRequest, FetchBackend,
 };
-use epistemic_graph::protocol::{GraphType, Method, Response, ResultPayload};
+use epistemic_graph::protocol::{Method, Response, ResultPayload};
 
 const SECRET: &str = "web-document-enrich-secret";
 const GRAPH: &str = "webenrich";
@@ -33,14 +33,7 @@ const NOW: u64 = 1_800_000_000_000;
 const HOUR: u64 = 3_600_000;
 
 async fn call(state: &test_support::SharedState, id: u64, method: Method) -> Response {
-    let response =
-        test_support::dispatch(state, test_support::request(SECRET, id, GRAPH, method)).await;
-    assert!(
-        response.error.is_none(),
-        "request {id} failed: {:?}",
-        response.error
-    );
-    response
+    test_support::call_ok(state, SECRET, id, GRAPH, method).await
 }
 
 fn raw<T: serde::de::DeserializeOwned>(response: Response) -> T {
@@ -207,39 +200,19 @@ fn graph_version(state: &test_support::SharedState) -> u64 {
         .version()
 }
 
-fn on_engine<F: std::future::Future<Output = ()> + 'static>(test: fn() -> F) {
-    let driver = epistemic_graph::server::spawn_engine_driver(move || {
-        tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(2)
-            .thread_stack_size(epistemic_graph::server::ENGINE_WORKER_STACK_BYTES)
-            .enable_all()
-            .build()
-            .expect("build engine runtime")
-            .block_on(test());
-    })
-    .expect("spawn engine driver");
-    epistemic_graph::server::join_engine_driver(driver).expect("engine test body failed");
-}
-
 async fn durable_graph() -> (
     std::path::PathBuf,
     test_support::SharedPersistence,
     test_support::SharedState,
 ) {
-    test_support::provision_encryption_key_once("web-document-enrich-encryption-key");
-    let dir = test_support::fresh_dir("eg-webenrich");
-    let dir_s = dir.to_string_lossy().to_string();
-    let (backend, state) = test_support::redb_state_at(SECRET, common::current_isolation(), &dir_s);
-    call(
-        &state,
-        1,
-        Method::CreateGraph {
-            graph_name: GRAPH.into(),
-            graph_type: GraphType::Global,
-        },
+    test_support::durable_graph_state(
+        SECRET,
+        "web-document-enrich-encryption-key",
+        "eg-webenrich",
+        common::current_isolation(),
+        GRAPH,
     )
-    .await;
-    (dir, backend, state)
+    .await
 }
 
 // spec: EG-UNIFIED-DATA-PLANE-R651.7
@@ -251,7 +224,7 @@ async fn durable_graph() -> (
 // spec: EG-DECISION-ENGINE-R802.6
 #[test]
 fn test_web_page_enriches_once_for_both_backends() {
-    on_engine(enrich_replay_supersede_and_search);
+    test_support::on_engine(enrich_replay_supersede_and_search);
 }
 
 async fn enrich_replay_supersede_and_search() {
@@ -448,7 +421,7 @@ async fn enrich_replay_supersede_and_search() {
 // spec: EG-UNIFIED-DATA-PLANE-R651.7.4
 #[test]
 fn test_web_document_refusals() {
-    on_engine(refusals);
+    test_support::on_engine(refusals);
 }
 
 async fn refusals() {
