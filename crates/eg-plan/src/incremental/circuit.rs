@@ -13,8 +13,9 @@
 //! the REAL `eg_plan::execute` recompute after every mutation. So this reproduces
 //! `exec.rs`'s semantics EXACTLY, including two that an idealized DBSP model would miss:
 //!
-//! * **`Scan { label }`** — `label_matches` tests ONLY `props["type"]` (a string equal to
-//!   `label`), exactly like `exec::scan_label` (NOT `node_type`/`label`).
+//! * **`Scan { label }`** — `label_matches` tests the `type`/`node_type`/`label` keys and
+//!   the `labels` array through `eg_core::graph::props_carry_label`, exactly like
+//!   `exec::scan_label`.
 //! * **`Filter { preds }`** — the relational predicate algebra (`crate::pred_eval`), mirroring `exec::where_clause`.
 //! * **`AsOf { ts, axis }`** — `asof_holds` mirrors `exec::live_at` (u64 coercion, `from`
 //!   defaults 0, `until` open when absent, query instant `ts.max(0)`).
@@ -88,7 +89,7 @@ impl std::error::Error for UnsupportedOp {}
 /// One membership stage's per-row predicate — the `exec` op it reproduces.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 enum StagePred {
-    /// `Scan { label }`: `props["type"] == label`.
+    /// `Scan { label }`: the node carries `label` (`eg_core::graph::props_carry_label`).
     Scan { label: String },
     /// `Filter { preds }`: ALL preds hold (one `exec::filter_op` call ANDs them).
     Filter { preds: Vec<Pred> },
@@ -486,10 +487,10 @@ fn op_name(op: &Op) -> &'static str {
 
 // ── shared per-row predicate primitives (faithful to `exec.rs`) ───────────────
 
-/// The `Scan` label test: `props["type"]` is a string equal to `label`. Byte-for-byte
-/// `exec::scan_label` — ONLY the `type` key (not `node_type`/`label`).
+/// The `Scan` label test: the SAME label set `exec::scan_label` and the label index
+/// read (spec: EG-FEDERATED-QUERY-R022.1).
 fn label_matches(props: &Map<String, Value>, label: &str) -> bool {
-    matches!(props.get("type"), Some(Value::String(s)) if s == label)
+    eg_core::graph::props_carry_label(props, label)
 }
 
 /// Evaluate one relational `Filter` predicate against a row's props: SQL three-valued

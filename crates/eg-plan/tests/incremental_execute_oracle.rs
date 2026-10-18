@@ -255,8 +255,9 @@ proptest! {
 }
 
 /// A concrete regression for the Scan-over-matches bug: an incremental `Scan{Doc}` must
-/// select the SAME nodes as `execute` — only those with `type == "Doc"`, never a
-/// `node_type: Doc` node. (Deterministic, so it pins the exact fix without proptest.)
+/// select the SAME nodes as `execute` — those carrying `Doc` under `type`, `node_type`
+/// or `label` (EG-FEDERATED-QUERY-R022.1), never another label. (Deterministic, so it
+/// pins the exact fix without proptest.)
 #[test]
 fn scan_type_only_matches_execute() {
     let plan = Plan::new(vec![Op::Scan {
@@ -268,9 +269,9 @@ fn scan_type_only_matches_execute() {
 
     for (id, v) in [
         ("a", json!({"type": "Doc"})),
-        ("b", json!({"node_type": "Doc"})), // must NOT be selected
-        ("c", json!({"label": "Doc"})),     // must NOT be selected
-        ("d", json!({"type": "Other"})),
+        ("b", json!({"node_type": "Doc"})),
+        ("c", json!({"label": "Doc"})),
+        ("d", json!({"type": "Other"})), // must NOT be selected
     ] {
         let props = v.as_object().unwrap().clone();
         core.add_node(id.into(), blob(&props));
@@ -281,7 +282,7 @@ fn scan_type_only_matches_execute() {
     let ctx = PlanCtx::new(&view, &semantic);
     let recompute = execute(&plan, &ctx).unwrap();
     assert_eq!(norm(&circuit.current()), norm(&recompute));
-    assert_eq!(circuit.current().ids(), vec!["a"]);
+    assert_eq!(circuit.current().ids(), vec!["a", "b", "c"]);
 }
 
 // ── window plans: only under `timeseries` (exec aggregates; otherwise it passes
