@@ -292,6 +292,95 @@
       ],
       "type": "string"
     },
+    "EnrichDocumentReceipt": {
+      "additionalProperties": false,
+      "description": "Result body of `EnrichDocument`.",
+      "properties": {
+        "chunk_count": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "chunk_ids": {
+          "description": "Chunk node ids in document order.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "chunker": {
+          "description": "The chunker version tag.",
+          "type": "string"
+        },
+        "content_digest": {
+          "description": "`sha256:<hex>` of the enriched text.",
+          "type": "string"
+        },
+        "dimensions": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "document_id": {
+          "type": "string"
+        },
+        "embedder": {
+          "description": "`openai-compatible` or `hash`.",
+          "type": "string"
+        },
+        "embedding_model": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "enrichment_id": {
+          "description": "The enrichment record node, keyed by the Document and its digest.",
+          "type": "string"
+        },
+        "fetch_backend": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FetchBackend"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "replayed": {
+          "description": "True when this digest was already enriched and nothing was written.",
+          "type": "boolean"
+        },
+        "superseded_chunks": {
+          "description": "Chunk nodes of an earlier digest of this Document that were removed.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "vector_count": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "document_id",
+        "enrichment_id",
+        "content_digest",
+        "embedder",
+        "dimensions",
+        "chunker",
+        "chunk_count",
+        "vector_count",
+        "superseded_chunks",
+        "replayed",
+        "chunk_ids"
+      ],
+      "type": "object"
+    },
     "ExtractedEdge": {
       "description": "An extracted graph edge.",
       "properties": {
@@ -341,6 +430,14 @@
         "properties"
       ],
       "type": "object"
+    },
+    "FetchBackend": {
+      "description": "The closed set of web fetch backends (EG-UNIFIED-DATA-PLANE-R651.7.1).",
+      "enum": [
+        "webarchiver",
+        "archivebox"
+      ],
+      "type": "string"
     },
     "GraphTextPropertyRef": {
       "additionalProperties": false,
@@ -4712,6 +4809,18 @@
               "$ref": "#/$defs/DiscoverHit"
             },
             "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "EnrichDocument": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/EnrichDocumentReceipt"
           }
         }
       },

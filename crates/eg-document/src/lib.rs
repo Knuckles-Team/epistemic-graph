@@ -33,6 +33,8 @@ mod decoder;
 mod document;
 mod header;
 mod html;
+/// Deterministic heading- and paragraph-aware chunking (EG-REPO-INGEST-R652).
+pub mod processing;
 
 // ModalityContract implementation, behind the crate's opt-in contract feature.
 #[cfg(feature = "contract")]

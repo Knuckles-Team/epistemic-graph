@@ -58,7 +58,7 @@ pub(crate) const REDACTED_HOST_IDENTITY: &str = "[redacted: host identity]";
 /// repository-snapshot rule refuses such text, and one quoted address must not
 /// refuse a whole repository batch, so the VALUE is replaced; the rule itself
 /// is unchanged and still screens every committed value.
-fn stored_value(value: &str) -> &str {
+pub(crate) fn stored_value(value: &str) -> &str {
     if eg_types::change_envelope::admits_repository_text(value) {
         value
     } else {
@@ -118,15 +118,33 @@ pub(crate) fn lower(result: &IndexResult) -> Result<IndexWriteSet, String> {
             methods.push(edge_method(edge)?);
         }
     }
-    let encoded = rmp_serde::to_vec_named(&methods)
-        .map_err(|error| format!("repository index write-set encoding failed: {error}"))?;
-    check_commit_budget(&encoded, methods.len())?;
-    let digest = Digest256::framed(b"eg/repository-index-batch", &[&encoded])?;
-    Ok(IndexWriteSet {
-        envelope_id: format!("{ENVELOPE_PREFIX}{}", digest.to_hex()),
-        digest,
-        methods,
-    })
+    IndexWriteSet::from_methods(ENVELOPE_PREFIX, b"eg/repository-index-batch", methods)
+}
+
+impl IndexWriteSet {
+    /// The lowered methods, in commit order.
+    pub(crate) fn methods(&self) -> &[Method] {
+        &self.methods
+    }
+
+    /// Digest-key an engine-lowered write-set: the envelope id is `prefix`
+    /// followed by the framed digest of the encoded methods, so an unchanged
+    /// write-set replays. Refused whole past one commit's budget.
+    pub(crate) fn from_methods(
+        prefix: &str,
+        domain: &[u8],
+        methods: Vec<Method>,
+    ) -> Result<Self, String> {
+        let encoded = rmp_serde::to_vec_named(&methods)
+            .map_err(|error| format!("engine write-set encoding failed: {error}"))?;
+        check_commit_budget(&encoded, methods.len())?;
+        let digest = Digest256::framed(domain, &[&encoded])?;
+        Ok(IndexWriteSet {
+            envelope_id: format!("{prefix}{}", digest.to_hex()),
+            digest,
+            methods,
+        })
+    }
 }
 
 /// A batch commits as ONE atomic envelope or is refused whole with
@@ -154,7 +172,18 @@ fn check_commit_budget(encoded: &[u8], operations: usize) -> Result<(), String> 
     ))
 }
 
-fn policy(object_id: &str, tenant: &str) -> Result<PolicyRecord, String> {
+/// The labels an engine-lowered envelope kind is sealed under.
+pub(crate) struct EnvelopeLabels {
+    pub version_type: &'static str,
+    pub policy_version: &'static str,
+}
+
+const REPOSITORY_LABELS: EnvelopeLabels = EnvelopeLabels {
+    version_type: VERSION_TYPE,
+    policy_version: POLICY_VERSION,
+};
+
+fn policy(object_id: &str, tenant: &str, labels: &EnvelopeLabels) -> Result<PolicyRecord, String> {
     let subject = Digest256::framed(b"eg/repository-index-policy-subject", &[tenant.as_bytes()])?;
     Ok(PolicyRecord {
         policy_id: format!("policy:{object_id}"),
@@ -162,9 +191,9 @@ fn policy(object_id: &str, tenant: &str) -> Result<PolicyRecord, String> {
         object_id: object_id.into(),
         tenant: tenant.into(),
         classification: "tenant-private".into(),
-        policy_version: POLICY_VERSION.into(),
+        policy_version: labels.policy_version.into(),
         subject_set_digest: subject.to_hex(),
-        retention_policy: "repository-index".into(),
+        retention_policy: labels.policy_version.into(),
         legal_hold: false,
     })
 }
@@ -190,7 +219,30 @@ pub(crate) fn build_envelope_with_outbox(
         methods,
     } = write_set;
     let mutation = ctx.compile_with_outbox(&envelope_id, methods, outbox)?;
-    seal(mutation, envelope_id, &digest, ctx.tenant_scope)
+    seal(
+        mutation,
+        envelope_id,
+        &digest,
+        ctx.tenant_scope,
+        &REPOSITORY_LABELS,
+    )
+}
+
+/// Compile an engine-lowered write-set as one envelope under `labels`. The
+/// values were already screened with [`stored_value`], so the
+/// repository-snapshot rule admits them.
+pub(crate) fn build_labelled_envelope(
+    ctx: &IndexCommitContext<'_>,
+    write_set: IndexWriteSet,
+    labels: &EnvelopeLabels,
+) -> Result<ChangeEnvelope, String> {
+    let IndexWriteSet {
+        envelope_id,
+        digest,
+        methods,
+    } = write_set;
+    let mutation = ctx.compile_with_outbox(&envelope_id, methods, Vec::new())?;
+    seal(mutation, envelope_id, &digest, ctx.tenant_scope, labels)
 }
 
 /// Wrap a compiled batch as the repository-snapshot envelope of `digest`.
@@ -199,11 +251,12 @@ fn seal(
     envelope_id: String,
     digest: &Digest256,
     tenant: &str,
+    labels: &EnvelopeLabels,
 ) -> Result<ChangeEnvelope, String> {
     let digest = digest.to_hex();
     let envelope = ChangeEnvelope {
         schema_version: CHANGE_ENVELOPE_VERSION,
-        policies: vec![policy(&envelope_id, tenant)?],
+        policies: vec![policy(&envelope_id, tenant, labels)?],
         envelope_id: envelope_id.clone(),
         mutation,
         content_version: ContentVersion {
@@ -212,7 +265,7 @@ fn seal(
             digest: digest.clone(),
             previous_digest: None,
             source_version: ContentVersionPosition::Opaque {
-                version_type: VERSION_TYPE.into(),
+                version_type: labels.version_type.into(),
                 value: digest.clone(),
             },
         },
@@ -222,8 +275,8 @@ fn seal(
         evidence: Vec::new(),
         lineage: Vec::new(),
         privacy: PrivacyAttestation {
-            policy_version: POLICY_VERSION.into(),
-            sanitizer_version: POLICY_VERSION.into(),
+            policy_version: labels.policy_version.into(),
+            sanitizer_version: labels.policy_version.into(),
             sanitized_payload_digest: digest,
         },
         material_class: MaterialClass::RepositorySnapshot,

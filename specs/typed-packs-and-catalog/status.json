@@ -192,6 +192,7 @@
     "EG-TYPED-PACKS-R101.6",
     "EG-TYPED-PACKS-R101.7",
     "EG-TYPED-PACKS-R101.8",
+    "EG-TYPED-PACKS-R101.9",
     "EG-TYPED-PACKS-R102",
     "EG-TYPED-PACKS-R102.1",
     "EG-TYPED-PACKS-R102.2",
@@ -580,7 +581,7 @@
         "d116b7dbfd27"
       ],
       "verified_by": [
-        "src/server/mutation.rs:2394"
+        "src/server/mutation.rs:2396"
       ]
     },
     {
@@ -2122,7 +2123,8 @@
         "EG-TYPED-PACKS-R101.5",
         "EG-TYPED-PACKS-R101.6",
         "EG-TYPED-PACKS-R101.7",
-        "EG-TYPED-PACKS-R101.8"
+        "EG-TYPED-PACKS-R101.8",
+        "EG-TYPED-PACKS-R101.9"
       ]
     },
     {
@@ -2180,6 +2182,15 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R101.9",
+      "title": "One tenant key for pack heads",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "src/server/handlers/admin/connector_pack/tests/scale.rs:53"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R102",

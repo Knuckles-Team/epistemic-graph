@@ -568,3 +568,64 @@ pub fn raw_rows(response: &epistemic_graph::protocol::Response) -> Vec<(String, 
 pub fn edge_properties(tag: &str) -> Vec<u8> {
     json_bytes(serde_json::json!({"tag": tag}))
 }
+
+/// Run `test` on the engine's runtime shape (driver thread and Tokio workers
+/// at `ENGINE_WORKER_STACK_BYTES`), exactly as production serves a request,
+/// and propagate its failure.
+pub fn on_engine<F: std::future::Future<Output = ()> + 'static>(test: fn() -> F) {
+    let driver = epistemic_graph::server::spawn_engine_driver(move || {
+        tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .thread_stack_size(epistemic_graph::server::ENGINE_WORKER_STACK_BYTES)
+            .enable_all()
+            .build()
+            .expect("build engine runtime")
+            .block_on(test());
+    })
+    .expect("spawn engine driver");
+    epistemic_graph::server::join_engine_driver(driver).expect("engine test body failed");
+}
+
+/// Dispatch `method` against `graph` and require that it succeeds.
+pub async fn call_ok(
+    state: &SharedState,
+    auth_secret: &str,
+    id: u64,
+    graph: &str,
+    method: Method,
+) -> Response {
+    let response = dispatch(state, request(auth_secret, id, graph, method)).await;
+    assert!(
+        response.error.is_none(),
+        "request {id} failed: {:?}",
+        response.error
+    );
+    response
+}
+
+/// A fresh durable engine directory with `graph` created in it.
+#[cfg(feature = "redb")]
+pub async fn durable_graph_state(
+    auth_secret: &str,
+    encryption_key: &str,
+    prefix: &str,
+    isolation: IsolationLayer,
+    graph: &str,
+) -> (std::path::PathBuf, SharedPersistence, SharedState) {
+    provision_encryption_key_once(encryption_key);
+    let dir = fresh_dir(prefix);
+    let dir_s = dir.to_string_lossy().to_string();
+    let (backend, state) = redb_state_at(auth_secret, isolation, &dir_s);
+    call_ok(
+        &state,
+        auth_secret,
+        1,
+        graph,
+        Method::CreateGraph {
+            graph_name: graph.to_string(),
+            graph_type: epistemic_graph::protocol::GraphType::Global,
+        },
+    )
+    .await;
+    (dir, backend, state)
+}

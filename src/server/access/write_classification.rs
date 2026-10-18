@@ -400,6 +400,7 @@ pub(crate) fn requires_write(method: &Method) -> bool {
                 | Method::ApplyChangeEnvelopeDraft { .. }
                 | Method::ApplyChangeEnvelopeDrafts { .. }
                 | Method::SourceIngest { .. }
+                | Method::EnrichDocument { .. }
                 | Method::TelemetryDerive { .. }
                 | Method::Reconcile { .. }
                 | Method::ApplyMutation { .. }

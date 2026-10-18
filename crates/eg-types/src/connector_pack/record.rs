@@ -78,7 +78,7 @@ pub struct PackImportRecord {
     pub archive: PackArchiveFacts,
     pub importer: String,
     pub committed_at_ms: u64,
-    pub entries: BoundedVec<PackEntryRecord, 1024>,
+    pub entries: BoundedVec<PackEntryRecord, { super::MAX_PACK_ENTRIES }>,
     pub warnings: BoundedVec<PackWarning, 256>,
     pub projection: PackProjectionState,
 }

@@ -142,3 +142,8 @@ required-features = ["decision"]
 name = "decision_resident_scorer"
 harness = false
 required-features = ["decision"]
+
+[[bench]]
+name = "web_fetch_selection"
+harness = false
+required-features = ["decision"]

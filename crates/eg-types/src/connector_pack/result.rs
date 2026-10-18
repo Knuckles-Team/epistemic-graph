@@ -235,7 +235,8 @@ pub struct PackRetireResult {
     pub schema_version: u16,
     pub tenant_id: String,
     pub connector: ResourceId,
-    pub retired: BoundedVec<crate::agent_component::ComponentDependency, 1024>,
+    pub retired:
+        BoundedVec<crate::agent_component::ComponentDependency, { super::MAX_PACK_ENTRIES }>,
     pub batch_id: String,
     pub committed_version: u64,
 }

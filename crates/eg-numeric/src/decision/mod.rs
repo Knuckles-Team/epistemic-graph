@@ -45,5 +45,6 @@ pub mod scorer;
 mod targets;
 pub mod track_record;
 pub mod trajectory;
+pub mod web_fetch_selection;
 
 pub use refusal::{Refusal, RefusalResult};

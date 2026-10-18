@@ -791,10 +791,17 @@ pub const NODE_LABEL_KEYS: [&str; 3] = ["type", "node_type", "label"];
 /// executor's label `Scan` uses this so a Scan sees exactly the nodes a label
 /// index lookup sees (spec: EG-FEDERATED-QUERY-R022.1).
 pub fn node_carries_label(val: &serde_json::Value, label: &str) -> bool {
+    val.as_object()
+        .is_some_and(|props| props_carry_label(props, label))
+}
+
+/// [`node_carries_label`] over an already-decoded property map, for readers
+/// (the incremental circuit's `Scan`) that hold the map rather than a value.
+pub fn props_carry_label(props: &serde_json::Map<String, serde_json::Value>, label: &str) -> bool {
     NODE_LABEL_KEYS
         .iter()
-        .any(|key| val.get(*key).and_then(|v| v.as_str()) == Some(label))
-        || val
+        .any(|key| props.get(*key).and_then(|v| v.as_str()) == Some(label))
+        || props
             .get("labels")
             .and_then(|v| v.as_array())
             .is_some_and(|labels| labels.iter().any(|x| x.as_str() == Some(label)))

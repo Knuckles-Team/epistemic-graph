@@ -1670,11 +1670,11 @@ R036 and the Arbora requirement remain open for these acceptance obligations.
 
 ## Web page selection (R802, R174.9.7)
 
-The engine decides which web candidates to ingest. arbora `research.web` (`ARBORA-OPS-R067`) sends the `WebCandidateSet` of `EG-UNIFIED-DATA-PLANE-R038.7.7` as one `Decide` question. arbora computes no ranking.
+The engine decides which web candidates to ingest. arbora `research.web` (`ARBORA-OPS-R067`) sends the search rows, the query and a page budget as one served `SelectWebPages` call. arbora computes no ranking.
 
-Call path: served `Decide` -> `handle_decide` (`src/server/handlers/decide/statistical.rs:11`) -> `stat_web_fetch.rs` -> answer with premises.
+Call path: served `SelectWebPages` -> `src/server/dispatch/graph_pipeline/web_ingest.rs` -> RLS-visible held `Document` rows -> `eg_numeric::decision::web_fetch_selection::select_web_pages` -> ordered selection with reasons, and one skip entry per other candidate.
 
-Reuse: URL canonicalization and the token bucket come from `EG-DECISION-ENGINE-R174.9.2`. Near-duplicate content comes from `EG-INGEST-WORKER-R702`. Selected pages enter through `EG-UNIFIED-DATA-PLANE-R651.7`.
+The selection is deterministic and runs no model. It is a dedicated method, not a `Decide` question kind, because it needs no feature schema, head or decision policy. Selected pages enter through `EG-UNIFIED-DATA-PLANE-R651.7`. Near-duplicate content by the index of `EG-INGEST-WORKER-R702` is not yet used.
 
 Refresh: a drift or staleness signal of `EG-DECISION-ENGINE-R174.8` turns held web Documents into candidates again (`EG-DECISION-ENGINE-R174.9.7`). The digest decides between a no-op and a supersede.
 

@@ -290,11 +290,11 @@ from .agent_component import (
     AgentComponentStatusRequest,
 )
 from .connector_pack import (
-    BoundedVec_PackEntry_1024,
+    BoundedVec_PackEntry_8192,
     BoundedVec_PackRef_64,
     BoundedVec_PackViolation_256,
     BoundedVec_PackWarning_256,
-    BoundedVec_string_1024,
+    BoundedVec_string_8192,
     ConnectorPackBindRequest,
     ConnectorPackImportRequest,
     ConnectorPackIndex,
@@ -4502,6 +4502,34 @@ class ElevationStanding(str, Enum):
     APPROVER = "approver"
 
 
+class EnrichDocumentReceipt(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    chunk_count: Annotated[int, Field(ge=0)]
+    chunk_ids: list[str]
+    chunker: str
+    content_digest: str
+    dimensions: Annotated[int, Field(ge=0)]
+    document_id: str
+    embedder: str
+    embedding_model: str | None = None
+    enrichment_id: str
+    fetch_backend: FetchBackend | None = None
+    replayed: bool
+    superseded_chunks: Annotated[int, Field(ge=0)]
+    vector_count: Annotated[int, Field(ge=0)]
+
+
+class EnrichDocumentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    document_id: str
+    fetch_backend: FetchBackend | None = None
+    max_chunk_bytes: Annotated[int, Field(ge=0)] | None = None
+    overlap_bytes: Annotated[int, Field(ge=0)] | None = None
+    text_property: str | None = None
+
+
 class EnrichmentBudgetReservation(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -5103,6 +5131,11 @@ FeatureStep = Annotated[
     FeatureStepEmbedding | FeatureStepNodeVector | FeatureStepNormalize,
     Field(discriminator="step"),
 ]
+
+
+class FetchBackend(str, Enum):
+    WEBARCHIVER = "webarchiver"
+    ARCHIVEBOX = "archivebox"
 
 
 class FidelityCounts(BaseModel):
@@ -11773,6 +11806,20 @@ class MethodRetireSealedRecord(BaseModel):
     params: MethodRetireSealedRecordParams
 
 
+class MethodEnrichDocument(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["EnrichDocument"]
+    params: MethodEnrichDocumentParams
+
+
+class MethodSelectWebPages(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["SelectWebPages"]
+    params: MethodSelectWebPagesParams
+
+
 Method = Annotated[
     MethodAddNode
     | MethodCreateNodeIfAbsent
@@ -12239,7 +12286,9 @@ Method = Annotated[
     | MethodTelemetryDerive
     | MethodFinanceMarket
     | MethodFinanceSignalModels
-    | MethodRetireSealedRecord,
+    | MethodRetireSealedRecord
+    | MethodEnrichDocument
+    | MethodSelectWebPages,
     Field(discriminator="method"),
 ]
 
@@ -13108,6 +13157,12 @@ class MethodEdgeSearchParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     request: EdgeSearchRequest
+
+
+class MethodEnrichDocumentParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    request: EnrichDocumentRequest
 
 
 class MethodEpistemicStatusParams(BaseModel):
@@ -15056,6 +15111,12 @@ class MethodSceneChildrenParams(BaseModel):
     node_id: str
 
 
+class MethodSelectWebPagesParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    request: SelectWebPagesRequest
+
+
 class MethodSemanticIndexParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -16881,7 +16942,7 @@ class PackRetireResult(BaseModel):
     batch_id: str
     committed_version: Annotated[int, Field(ge=0)]
     connector: str
-    retired: BoundedVec_ComponentDependency_1024
+    retired: BoundedVec_ComponentDependency_8192
     schema_version: Annotated[int, Field(ge=0, le=65535)]
     tenant_id: str
 
@@ -19267,6 +19328,43 @@ class SeedAttributionRow(BaseModel):
     shapley: float
 
 
+class SelectWebPagesAnswer(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    considered: Annotated[int, Field(ge=0)]
+    max_fetches: Annotated[int, Field(ge=0)]
+    now_ms: Annotated[int, Field(ge=0)]
+    query_digest: str
+    selected: list[SelectedPage]
+    skipped: list[SkippedPage]
+
+
+class SelectWebPagesRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    candidates: list[WebCandidate]
+    freshness_window_s: Annotated[int, Field(ge=0)] | None = None
+    max_fetches: Annotated[int, Field(ge=0)]
+    now_ms: Annotated[int, Field(ge=0)] | None = None
+    query: str
+
+
+class SelectedPage(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    canonical_url: str
+    engines: list[str]
+    freshness_micros: Annotated[int, Field(ge=0)]
+    order: Annotated[int, Field(ge=0)]
+    rank_micros: Annotated[int, Field(ge=0)]
+    reasons: list[str]
+    refresh: bool
+    relevance_micros: Annotated[int, Field(ge=0)]
+    score_micros: Annotated[int, Field(ge=0)]
+    title: str
+    url: str
+
+
 class SemanticActivationTarget(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -21384,6 +21482,23 @@ class SkillOp(BaseModel):
     window: Annotated[int, Field(ge=0)]
 
 
+class SkipReason(str, Enum):
+    DUPLICATE_URL = "duplicate_url"
+    DUPLICATE_DIGEST = "duplicate_digest"
+    HELD_FRESH = "held_fresh"
+    INVALID_URL = "invalid_url"
+    OVER_BUDGET = "over_budget"
+
+
+class SkippedPage(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    canonical_url: str
+    detail: str
+    reason: SkipReason
+    url: str
+
+
 class SlateAttribution(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -23088,6 +23203,18 @@ class WatchBatch(BaseModel):
     watermark: Annotated[int, Field(ge=0)] | None = None
 
 
+class WebCandidate(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    content_digest: str | None = None
+    engine: str | None = None
+    published_at_ms: Annotated[int, Field(ge=0)] | None = None
+    rank: Annotated[int, Field(ge=0)]
+    snippet: str | None = None
+    title: str | None = None
+    url: str
+
+
 class WebauthnCredential(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -23454,10 +23581,10 @@ BoundedVec_ComponentContribution_64 = Annotated[
 ]
 
 
-BoundedVec_ComponentDependency_1024 = Annotated[
+BoundedVec_ComponentDependency_8192 = Annotated[
     list[ComponentDependency],
     Field(
-        max_length=1024,
+        max_length=8192,
     ),
 ]
 
@@ -25197,9 +25324,9 @@ __all__ = [
     "BoundedVec_ClaimedTaskMapping_32",
     "BoundedVec_ClassCoverage_64",
     "BoundedVec_ComponentContribution_64",
-    "BoundedVec_ComponentDependency_1024",
     "BoundedVec_ComponentDependency_256",
     "BoundedVec_ComponentDependency_64",
+    "BoundedVec_ComponentDependency_8192",
     "BoundedVec_CoverageDerivation_32",
     "BoundedVec_DecisionEvalReceipt_50",
     "BoundedVec_DecisionReceiptTimelineEntry_50",
@@ -25230,7 +25357,7 @@ __all__ = [
     "BoundedVec_OptionAggregate_1024",
     "BoundedVec_OptionContribution_256",
     "BoundedVec_OutboxDeadLetterView_256",
-    "BoundedVec_PackEntry_1024",
+    "BoundedVec_PackEntry_8192",
     "BoundedVec_PackRef_64",
     "BoundedVec_PackViolation_256",
     "BoundedVec_PackWarning_256",
@@ -25276,12 +25403,12 @@ __all__ = [
     "BoundedVec_int64_2048",
     "BoundedVec_int64_256",
     "BoundedVec_int64_512",
-    "BoundedVec_string_1024",
     "BoundedVec_string_16",
     "BoundedVec_string_256",
     "BoundedVec_string_32",
     "BoundedVec_string_64",
     "BoundedVec_string_8",
+    "BoundedVec_string_8192",
     "BoundedVec_uint64_8",
     "BrokerConsumeResult",
     "BrokerConsumeResultValue",
@@ -25757,6 +25884,8 @@ __all__ = [
     "ElevationStanding",
     "ElevationStatus",
     "Elimination",
+    "EnrichDocumentReceipt",
+    "EnrichDocumentRequest",
     "EnrichmentBudgetReservation",
     "EntailedGuardrail",
     "EntailmentStep",
@@ -25834,6 +25963,7 @@ __all__ = [
     "FeatureStepEmbedding",
     "FeatureStepNodeVector",
     "FeatureStepNormalize",
+    "FetchBackend",
     "FidelityCounts",
     "FieldContract",
     "Fill",
@@ -26648,6 +26778,8 @@ __all__ = [
     "MethodEdgeIndexParams",
     "MethodEdgeSearch",
     "MethodEdgeSearchParams",
+    "MethodEnrichDocument",
+    "MethodEnrichDocumentParams",
     "MethodEpistemicStatus",
     "MethodEpistemicStatusParams",
     "MethodEvictBelow",
@@ -27162,6 +27294,8 @@ __all__ = [
     "MethodRunUdfParams",
     "MethodSceneChildren",
     "MethodSceneChildrenParams",
+    "MethodSelectWebPages",
+    "MethodSelectWebPagesParams",
     "MethodSemanticIndex",
     "MethodSemanticIndexParams",
     "MethodSemanticSearch",
@@ -27902,6 +28036,9 @@ __all__ = [
     "SealedRecordTombstone",
     "Secret",
     "SeedAttributionRow",
+    "SelectWebPagesAnswer",
+    "SelectWebPagesRequest",
+    "SelectedPage",
     "SemanticActivationTarget",
     "SemanticActivePointer",
     "SemanticAnnIndexIdentity",
@@ -28141,6 +28278,8 @@ __all__ = [
     "SkillOp",
     "SkillType",
     "SkillTypeSource",
+    "SkipReason",
+    "SkippedPage",
     "SlateAttribution",
     "SlateAttributionMethod",
     "SlateAttributionRequest",
@@ -28484,6 +28623,7 @@ __all__ = [
     "VolatilityClass",
     "WalkForward",
     "WatchBatch",
+    "WebCandidate",
     "WebauthnCredential",
     "WebauthnCredentialView",
     "WebauthnUse",

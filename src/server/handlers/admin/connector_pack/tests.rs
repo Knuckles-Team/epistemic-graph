@@ -29,6 +29,7 @@ mod content_model;
 mod ontology;
 #[cfg(feature = "shacl")]
 mod outbox;
+mod scale;
 mod self_served_catalog;
 mod storage_acceptance;
 mod withdrawal;
@@ -94,10 +95,24 @@ impl Served {
         key: &str,
         method: Method,
     ) -> Response {
+        self.call_as_on("__commons__", principal, scopes, key, method)
+            .await
+    }
+
+    /// [`Self::call_as`] against the named request `graph`.
+    async fn call_as_on(
+        &self,
+        graph: &str,
+        principal: &str,
+        scopes: &[&str],
+        key: &str,
+        method: Method,
+    ) -> Response {
         let id = next_id();
-        let request = crate::server::auth::scoped_test_request(
+        let request = crate::server::auth::scoped_test_request_on(
             SECRET,
             id,
+            graph,
             method,
             crate::server::auth::ScopedTestCaller {
                 principal,
@@ -108,6 +123,11 @@ impl Served {
             },
         );
         dispatch_test_on_heap(&self.state, request).await
+    }
+
+    /// Send `method` as the admin against the named request `graph`.
+    pub(super) async fn call_on(&self, graph: &str, key: &str, method: Method) -> Response {
+        self.call_as_on(graph, ADMIN, &["*"], key, method).await
     }
 
     /// Send `method` as the System-role admin with every scope.

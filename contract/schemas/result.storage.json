@@ -2369,13 +2369,6 @@
       "maxItems": 32,
       "type": "array"
     },
-    "BoundedVec_ComponentDependency_1024": {
-      "items": {
-        "$ref": "#/$defs/ComponentDependency"
-      },
-      "maxItems": 1024,
-      "type": "array"
-    },
     "BoundedVec_ComponentDependency_256": {
       "items": {
         "$ref": "#/$defs/ComponentDependency"
@@ -2388,6 +2381,13 @@
         "$ref": "#/$defs/ComponentDependency"
       },
       "maxItems": 64,
+      "type": "array"
+    },
+    "BoundedVec_ComponentDependency_8192": {
+      "items": {
+        "$ref": "#/$defs/ComponentDependency"
+      },
+      "maxItems": 8192,
       "type": "array"
     },
     "BoundedVec_CoverageDerivation_32": {
@@ -5270,7 +5270,7 @@
           "type": "string"
         },
         "retired": {
-          "$ref": "#/$defs/BoundedVec_ComponentDependency_1024"
+          "$ref": "#/$defs/BoundedVec_ComponentDependency_8192"
         },
         "schema_version": {
           "format": "uint16",

@@ -236,6 +236,7 @@
     "EG-UNIFIED-DATA-PLANE-R651.7.4",
     "EG-UNIFIED-DATA-PLANE-R651.7.5",
     "EG-UNIFIED-DATA-PLANE-R651.7.6",
+    "EG-UNIFIED-DATA-PLANE-R651.7.7",
     "EG-UNIFIED-DATA-PLANE-R700",
     "EG-UNIFIED-DATA-PLANE-R700.1",
     "EG-UNIFIED-DATA-PLANE-R700.2",
@@ -2709,14 +2710,17 @@
       "title": "Fetched web pages enrich through the one document path (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [],
+      "verified_by": [
+        "tests/web_document_enrich_served.rs:218"
+      ],
       "rollup_of": [
         "EG-UNIFIED-DATA-PLANE-R651.7.1",
         "EG-UNIFIED-DATA-PLANE-R651.7.2",
         "EG-UNIFIED-DATA-PLANE-R651.7.3",
         "EG-UNIFIED-DATA-PLANE-R651.7.4",
         "EG-UNIFIED-DATA-PLANE-R651.7.5",
-        "EG-UNIFIED-DATA-PLANE-R651.7.6"
+        "EG-UNIFIED-DATA-PLANE-R651.7.6",
+        "EG-UNIFIED-DATA-PLANE-R651.7.7"
       ]
     },
     {
@@ -2724,39 +2728,64 @@
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/source_ingestion/web_document.rs:94"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R651.7.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-document/src/processing.rs:269",
+        "crates/eg-document/src/processing.rs:282",
+        "crates/eg-document/src/processing.rs:301",
+        "src/server/handlers/web_ingest/embedder.rs:206",
+        "src/server/handlers/web_ingest_tests.rs:44"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R651.7.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "tests/web_document_enrich_served.rs:219"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R651.7.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-document/src/processing.rs:314",
+        "src/server/handlers/web_ingest_tests.rs:113",
+        "tests/web_document_enrich_served.rs:421"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R651.7.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "tests/web_document_enrich_served.rs:220"
+      ]
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R651.7.6",
       "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "tests/web_document_enrich_served.rs:221"
+      ]
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R651.7.7",
+      "title": "Extraction",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

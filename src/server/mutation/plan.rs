@@ -781,6 +781,7 @@ fn cluster_mutation_route_admin(method: &Method) -> Option<ClusterMutationRoute>
             | Method::KgDelegate { .. }
             | Method::SourceIngest { .. }
             | Method::IndexRepository { .. }
+            | Method::EnrichDocument { .. }
     ) {
         return Some(ClusterMutationRoute::VolatileControl);
     }
