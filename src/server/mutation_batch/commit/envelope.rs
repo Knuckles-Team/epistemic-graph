@@ -9,8 +9,8 @@ use crate::protocol::Method;
 /// snapshot swap (EG-UNIFIED-DATA-PLANE-R651.7.3).
 #[derive(Default)]
 struct StagedVectors<'a> {
-    added: Vec<(&'a String, &'a Vec<f32>)>,
-    removed: Vec<&'a String>,
+    added: Vec<(&'a str, &'a [f32])>,
+    removed: Vec<&'a str>,
 }
 
 /// Publish the graph-row projection of a durably committed ChangeEnvelope.
@@ -91,8 +91,8 @@ fn stage_operation<'a>(
 }
 
 fn stage_vector<'a>(
-    node_id: &'a String,
-    embedding: &'a Vec<f32>,
+    node_id: &'a str,
+    embedding: &'a [f32],
     vectors: &mut StagedVectors<'a>,
 ) -> Result<(), String> {
     if embedding.is_empty() || embedding.iter().any(|x| !x.is_finite()) {
@@ -134,7 +134,7 @@ fn publish_vectors(core: &GraphCore, vectors: StagedVectors<'_>) -> Result<(), S
     }
     for (node_id, embedding) in vectors.added {
         semantic
-            .add_embedding(node_id.clone(), embedding.clone())
+            .add_embedding(node_id.to_string(), embedding.to_vec())
             .map_err(|error| format!("committed embedding for '{node_id}': {error}"))?;
     }
     Ok(())
