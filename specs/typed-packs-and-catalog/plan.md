@@ -8,7 +8,7 @@ The order below minimizes incompatible intermediate states. A step may be a veri
 
 1. **Freeze contract and baseline.** Record the exact default-branch revision, current pack schema version and generated receipt. Run contract generation in check mode, full test inventory, CCCC, jscpd, Dupehound and KISS scans. Compare committed artifact *content* across all output directories. Classify findings as fixed, open or unrelated with exact evidence.
 2. **Type and encoding proof.** Audit `eg-types` bounds, kinds, digest framing, sorted lists, optionals and canonical fixture vectors. Make the SDK's JSON serialization and deterministic idempotency key a shared TCK contract. Extend generated method/result descriptors rather than hand-writing client DTO copies.
-3. **Admission and atomicity proof.** Audit G1–G21, tenant/importer checks, reserved IDs, preflight size checks and stable codes. Ensure the import planner resolves staged pins, stages engine bodies with holder/refcount invariants, and commits all owner rows plus N outbox intents atomically. Test all crash windows and replay identities.
+3. **Admission and atomicity proof.** Audit G1–G21, tenant/importer checks, reserved IDs, preflight size checks and stable codes. The import planner resolves staged pins and stages engine bodies with holder/refcount invariants. It commits all owner rows plus N outbox intents atomically. Test all crash windows and replay identities.
 4. **Lifecycle and catalog proof.** Verify carry-forward, changed pin cascade, reversible withdrawal, permanent retirement, content reads, no-op import and mass-withdrawal override. Confirm typed ServerRegistry owns liveness and component/pack owner owns content; remove any shadow catalog after consumer migration.
 5. **Schema and projection proof.** Reuse one G13–G16/K1–K7 validator for operator, pack and ingestion sources. Attach current pack schema in one graph commit. Mark visibility only after attach; use durable failure/retry and least-privilege row-scoped graph grant. Verify static `AttachPack` staleness and `GraphSchemaClasses` output. Preserve exact `IcvConfigure` behavior.
 6. **Consumer and release proof.** Run an end-to-end connector fixture from SDK package creation through Import, projection, GraphOS typed read and an authorized body read. Run Go/JS/Python/Rust contract vectors and full integration suites on the exact commit. Include scanner and architecture gates, release workflow parity, and a crash/restart restore check. Record exact evidence for each required outcome.
@@ -84,7 +84,7 @@ Entries are a closed kind set: `mcp_server`, `tool`, `skill`, `prompt`, `ontolog
 
 The pack head is keyed by `(tenant, connector)` and includes binding revision, content digest, server pin, package provenance, record ID and projection state. Membership is keyed by pack URI and has a component ID, revision, content digest and lifecycle. Bodies are keyed by SHA-256 with holder rows to protect live content. A same-digest import produces no write. A changed entry or pinned server revision creates a new component revision; a removed entry is `Withdrawn`. Historical pinned records may resolve withdrawn revisions; new publication, search, assembly and candidate selection cannot. `Retired` is explicit and permanent, and a later return is refused. Pack-generated `mcp:` IDs cannot be directly published by the generic component method.
 
-`Status` is a snapshot read and has no reap/write side effects. `Content` checks component-read authority and the exact revision and returns verified bytes. Bind/Unbind/Retire/Reproject and body reconciliation require admin rights. Import requires `agent:pack-control`, matching verified principal and tenant, an expected head, and a deterministic operation identity. A mass withdrawal (empty pack or over half of published members) requires an explicit override and admin capability.
+`Status` is a snapshot read and has no reap/write side effects. `Content` checks component-read authority and the exact revision and returns verified bytes. Bind/Unbind/Retire/Reproject and body reconciliation require admin rights. Import requires `agent:pack-control` and a matching verified principal and tenant. It also requires an expected head and deterministic operation identity. A mass withdrawal (empty pack or over half of published members) requires an explicit override and admin capability.
 
 ### Validation table
 
@@ -637,12 +637,9 @@ whole identity domain or Arbora's served admission and host lifecycle.
 
 R085.1 is reconciled onto c27048bc, preserving the checked-RBAC stale-writer
 revocation regression alongside the failed-touch rollback fixture. Source review
-added a real redb reopen test: persist exact session facts, touch and close,
-reopen without changing the reference or MFA timestamp, revoke, and reopen to
-verify refusal. Separate tests require positive configured creation, refuse
+added a real redb reopen test. It persists exact session facts, touches and closes. It then reopens without changing the reference or MFA timestamp. It revokes the session and reopens to verify refusal. Separate tests require positive configured creation, refuse
 creation metadata for mismatched context, and preserve the creation tenant when
-a later stamp supplies different metadata. These are source additions, not
-executed native qualification.
+a later stamp supplies different metadata. These tests exist in source. Native tests remain pending.
 
 Compatibility is asymmetric. New readers accept legacy records without binding
 metadata. Old readers deny unknown SessionRecord fields and cannot reopen an
