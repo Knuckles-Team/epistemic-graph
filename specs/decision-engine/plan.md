@@ -1606,3 +1606,63 @@ Data structures: one `BTreeMap<ComponentId, Candidate>` for the union. One bound
 Budget: p95 under 50 ms for 5,000 tools across 100 packs. This is a starting default. A measurement on this platform replaces it.
 
 Usage guidance (R177) replaces static skill instructions as the authority. A skill asks the engine how and when to use a connector. The pack surface relationships come from `EG-TYPED-PACKS-R102`; the step vocabulary comes from `EG-CQ-ORCH-R001`.
+
+## Amendment 2026-10-18: R036 profile-use admission ownership
+
+This amendment extends `EG-DECISION-ENGINE-R036`; it does not deliver runtime
+acceptance. R047 owns the existing DecisionRecord types and methods; R051 owns
+their served handlers and audit behavior. Arbora PR 349 adopted explicit engine-owned profile-use permission
+for `ARBORA-A2A-R016.6`. Catalog visibility and a sealed assembly record do not
+grant that permission. Existing default execution remains unchanged.
+
+Reuse `Method::DecisionCommit`, its handler in
+`src/server/handlers/decide/commit.rs`, and
+`AgentLibraryStore::commit_decision_record` in
+`src/server/persistence/decision_record.rs` as the decision-record owner.
+`Method::AgentAssemble` remains a read-only derivation. The current commit
+transaction checks catalog/component snapshots and stores a decision; it does
+not admit a task or establish profile-use authority.
+
+Before adding a preference-enabled success result, extend the owner contract
+with an explicit admission variant or operation. Its exact wire shape remains
+producer work. It must bind the verified tenant, principal, graph and session;
+the explicit owner-issued profile-use grant and revision; the routed capability
+revision; the selected profile reference and digest; the decision reference;
+and the task-admission reference. Request fields cannot establish these facts.
+`EG-IDENTITY-R001/R002/R004` own verified identity, atomic authorization writes,
+and scope classification. The grant schema and current session evidence must
+be specified there; registering a scope does not issue a grant.
+
+The native admission must read current authority and validate expiry using the
+engine clock within the transaction authority that records the decision and
+admits the task. Agent Library, identity and task storage ownership must be
+resolved explicitly before implementation. Separate check/commit/enqueue calls
+are not atomic admission. Until a shared transaction exists, no profile-enabled
+success is served. Do not alter sealed component definitions or infer permission
+from visibility, roles, provider configuration or a cached catalog.
+
+Reuse the new-run ownership and replay contract under
+`EG-DURABLE-KERNEL-R028` in `../durable-graph-kernel/plan.md` (PR 646).
+Retain the verified ultimate principal, immutable run/WorkItem binding, and
+native stable-key replay ledger. Do not attach a new run to a pre-existing
+WorkItem or create a second ownership table. That admission contract alone does
+not grant profile use or make the cross-owner transaction available.
+
+Required native acceptance fixtures use real owner-issued test authority:
+
+- A matching caller, live grant and exact capability/profile revisions create
+  one admission receipt and task admission; an identical retry is idempotent.
+- Foreign caller/session, missing or expired evidence, revoked grants, and
+  changed capability/profile/grant revisions produce no admission writes.
+- Revocation between resolution and admission queues zero tasks; transaction
+  failure leaves neither admission receipt nor admitted task.
+- Reusing a receipt with a changed task reference or binding refuses. Existing
+  requests without model preference preserve their current behavior.
+
+After native tests pass, regenerate the contract with
+`cargo run --locked -p eg-capabilities --features contract --bin gen_contract`,
+run its `--check` mode and the capability tests, and regenerate/check the method
+codec through `scripts/build_method_codec_wasm.py`. Generated Python bindings
+are consumers, not an alternative authority. Arbora may wire its application
+port only after the accepted owner operation and real receipt are available.
+R036 and the Arbora requirement remain open for these acceptance obligations.
