@@ -192,6 +192,7 @@ Keep each ruled boundary and adjacent owner obligation intact.
 - [ ] **EG-TYPED-PACKS-R101.6:** Refusal. Pass the proving test in test-spec.md.
 - [ ] **EG-TYPED-PACKS-R101.7:** Evidence. Pass the proving test in test-spec.md.
 - [ ] **EG-TYPED-PACKS-R101.8:** Hot-path proof. Pass the proving test in test-spec.md.
+- [ ] **EG-TYPED-PACKS-R101.9:** One tenant key for pack heads. Resolve SourceIngest mappings under the import tenant key.
 - [ ] **EG-TYPED-PACKS-R102:** Connector surface and domain relationships are native graph relationships. Pass the proving test in test-spec.md.
 - [ ] **EG-TYPED-PACKS-R102.1:** Model. Pass the proving test in test-spec.md.
 - [ ] **EG-TYPED-PACKS-R102.2:** Behavior. Pass the proving test in test-spec.md.
