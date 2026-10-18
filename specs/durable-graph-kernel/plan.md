@@ -58,7 +58,7 @@ No arrow bypasses identity, owner binding, or transaction admission. A native fa
 
 ### Commit and recovery
 
-Admission checks identity, scope, capability, owner member set, lineage, size and idempotency before opening a write transaction. For a single redb shard, graph and table members should share one redb `WriteTransaction`; if they cannot, an ADR must choose a recoverable intent protocol or a clear pre-effect refusal. A multi-shard/replicated batch must identify the commitment and replay boundary, preserve deterministic ordering, and return one terminal result after durable acknowledgement. Crash injection at before-admission, after-intent, after-member-write, before-seal, after-seal, before-reply and after-reply must yield only absent or fully committed state, with idempotent retry after lost acknowledgement.
+Admission checks identity, scope, capability, owner member set, lineage, size and idempotency before opening a write transaction. For a single redb shard, graph and table members should share one redb `WriteTransaction`. Otherwise, an ADR must choose a recoverable intent protocol or a clear pre-effect refusal. A multi-shard/replicated batch must identify the commitment and replay boundary and preserve deterministic ordering. It must return one terminal result after durable acknowledgement. Crash injection must cover before-admission, after-intent, after-member-write, before-seal, after-seal, before-reply and after-reply. Each case must yield only absent or fully committed state, with idempotent retry after lost acknowledgement.
 
 Owner binding is validated once per write transaction and cached only for that transaction. A manifest format bump retains a golden fixture for each supported predecessor and a named refusal for unsupported lineage. A background scrub uses bounded read transactions, a persisted/resumable key cursor and a rate cap. It never repairs data silently. Typed findings include member, key digest, error class and first/last observed time without leaking payloads.
 
@@ -66,11 +66,11 @@ Owner binding is validated once per write transaction and cached only for that t
 
 The transport verifies claims; all read executors and the native fast path take an immutable scoped authority context. RLS predicates apply before returning or joining user data. Explicit grants are resolved at use time, so revoke takes effect on the next request. KV keys retain principal-bound HMAC partitioning in every durability class. Audit reservation must be durable before any governed effect; an interrupted worker leaves `PENDING` for reconciliation, not a fabricated success. The outbox increments attempts for the head actually tried. Rejected reasoning projections require rebuild rather than skip-ack. CDC and mirror checkpoints move after target apply and can replay from the previous checkpoint safely. Delivery-side cursor rows stay local to their owner unless a versioned replicated contract proves otherwise.
 
-The deployment may offer `none`, `local`, or `external` authentication, but all modes produce the same internal principal/RBAC context before dispatch. `none` is an explicit single-principal development mode and must not mint an administrative identity from a client-supplied name. `local` owns password/session lifecycle in EG; `external` validates issuer, audience, tenant and policy-version binding before mapping claims. Switching modes must not reinterpret an old session as another principal. Every mode uses the same scope checks, request digest, audit class and access-denied errors. JIT elevation is a separate reserved `rbac.elevation` lease: the proposer and approver are distinct verified principals, the digest is exact, expiry is checked on every use, and ordinary lease-write capability cannot issue it. Schema repair uses its own reserved kind with the same two-person invariant.
+The deployment may offer `none`, `local`, or `external` authentication, but all modes produce the same internal principal/RBAC context before dispatch. `none` is an explicit single-principal development mode and must not mint an administrative identity from a client-supplied name. `local` owns password/session lifecycle in EG; `external` validates issuer, audience, tenant and policy-version binding before mapping claims. Switching modes must not reinterpret an old session as another principal. Every mode uses the same scope checks, request digest, audit class and access-denied errors. JIT elevation is a separate reserved `rbac.elevation` lease. The proposer and approver are distinct verified principals. The digest is exact, and expiry is checked on every use. Ordinary lease-write capability cannot issue it. Schema repair uses its own reserved kind with the same two-person invariant.
 
 ### Native storage expansion
 
-Classify requests before planner allocation. Only an exact supported point/structure form takes the native route; ambiguous SQL stays in the SQL planner. Prepared SQL cache keys include statement digest, dialect, schema version, authorization scope and relevant dependency-clock generation. Schema or policy changes invalidate before reuse. `sync` is default and cannot be silently changed. `async` acknowledges within its advertised maximum loss window, exports observed oldest-unflushed age, and blocks/degrades explicitly if it cannot honor ≤100 ms. `ephemeral` is advertised as non-recoverable. Hot structures are reconstructed deterministically from the durability log; compaction and hot/cold union preserve tombstone/version order. The store-engine comparison is an ADR based on reproducible captured workload fixtures, not a second authority design.
+Classify requests before planner allocation. Only an exact supported point/structure form takes the native route; ambiguous SQL stays in the SQL planner. Prepared SQL cache keys include statement digest, dialect, schema version, authorization scope and relevant dependency-clock generation. Schema or policy changes invalidate before reuse. `sync` is default and cannot be silently changed. `async` acknowledges within its advertised maximum loss window and exports observed oldest-unflushed age. It blocks/degrades explicitly if it cannot honor ≤100 ms. `ephemeral` is advertised as non-recoverable. Hot structures are reconstructed deterministically from the durability log; compaction and hot/cold union preserve tombstone/version order. The store-engine comparison is an ADR based on reproducible captured workload fixtures, not a second authority design.
 
 ### Cross-product boundaries
 
@@ -85,9 +85,9 @@ The [`unified-data-plane`](../unified-data-plane/spec.md) spec owns attached-sou
 
 ### Analytics worker carry-over
 
-The agent-utilities analytics worker (removed in AU-SEMANTIC-R011.10) was a remote client of the engine's existing `eg-jobs` plane, not a separate queue. It opened one engine connection per slot with a service identity holding scopes `kg:write` and `analytics:worker`, claimed jobs with `worker_claim`, checkpointed at progress 0.1 and 0.9, stage-published a typed result and called `worker_publish`. It had no schedule: it polled. Schedules for analytics belong to `JobIntent` in `crates/eg-jobs`, which this spec does not change.
+The agent-utilities analytics worker (removed in AU-SEMANTIC-R011.10) was a remote client of the engine's existing `eg-jobs` plane, not a separate queue. It opened one engine connection per slot with a service identity holding scopes `kg:write` and `analytics:worker`. It claimed jobs with `worker_claim` and checkpointed at progress 0.1 and 0.9. It stage-published a typed result and called `worker_publish`. It had no schedule: it polled. Schedules for analytics belong to `JobIntent` in `crates/eg-jobs`, which this spec does not change.
 
-The engine already runs the same loop in-process (`ensure_job_workers`), so the owning process for mining is the engine. A second process only adds a network hop and a second copy of the kernel. If a remote worker is ever needed, graph-os hosts it (it deploys engine-adjacent services) and uses the generated client; agent-utilities does not. The generic task queue in `EG-DURABLE-KERNEL-R071` to `R077` serves other work and is not used by this path.
+The engine already runs the same loop in-process (`ensure_job_workers`), so the owning process for mining is the engine. A second process only adds a network hop and a second copy of the kernel. If a remote worker is ever needed, graph-os hosts it and uses the generated client. Graph-os deploys engine-adjacent services. Agent-utilities does not host this worker. The generic task queue in `EG-DURABLE-KERNEL-R071` to `R077` serves other work and is not used by this path.
 
 | Old entry point | New entry point | Status |
 |---|---|---|
@@ -106,7 +106,7 @@ Out of scope: new analytics families, a schedule for mining jobs, and any change
 
 ### Scheduler policy contract (R076.1)
 
-`eg_types::scheduler_config::SchedulerConfig` is the sole producer of scheduler policy data: explicit total workers and queue depth, deterministic lane-floor map, CPU per-mille default 360, and memory-per-worker default 3,221,225,472 bytes. `validate()` rejects blank lane IDs, CPU fractions above 1000, zero memory divisors and floor sums exceeding the pool. Checked subtraction prevents floor-sum overflow. Zero pool, CPU fraction or queue depth is an explicit disabled resource; the later grant path must never override it with a floor of one. Serde rejects unknown fields and requires the two explicit limits. Deserialization alone is not policy admission: consumers must call validation before applying data.
+`eg_types::scheduler_config::SchedulerConfig` is the sole producer of scheduler policy data. It includes explicit total workers and queue depth, a deterministic lane-floor map, and CPU per-mille default 360. The memory-per-worker default is 3,221,225,472 bytes. `validate()` rejects blank lane IDs, CPU fractions above 1000, zero memory divisors and floor sums exceeding the pool. Checked subtraction prevents floor-sum overflow. Zero pool, CPU fraction or queue depth is an explicit disabled resource. The later grant path must never override it with a floor of one. Serde rejects unknown fields and requires the two explicit limits. Deserialization alone is not policy admission: consumers must call validation before applying data.
 
 R076.2 remains responsible for scope, persistence, served reads/updates, lane membership and real admission/queue enforcement. Worker registration supplies capacity, not an alternative policy authority. R074 worker registration and these floor keys share canonical engine lane IDs; served integration must validate membership against the same registry.
 
@@ -199,7 +199,7 @@ R014.2 extends the existing cluster validation script with explicit opt-in CPU l
 `RAFT_LOAD_WORKERS` accepts 1 through 32; `RAFT_LOAD_SECONDS` accepts 1 through
 3600 seconds, default 300. Invalid settings refuse before compilation.
 Workers begin only after the build and remain active during the test command.
-The supervisor aborts on budget exhaustion or unexpected worker exit and reaps
+The supervisor aborts on budget exhaustion or unexpected worker exit. It reaps
 workers and the command process group on success, failure, SIGINT, or SIGTERM.
 The supervisor logs worker count, process IDs, duration bound, and measured elapsed time.
 Unconfigured callers keep the existing unloaded command. R014.3 through R014.5
@@ -625,3 +625,134 @@ Data structures: one sorted `Vec<DowntimeJobType>` of at most 256 types, rebuilt
 Seed job types: `plan_evolution` (`EG-FEDERATED-QUERY-R091`), `index_build`, `compaction`, `seed_reconcile` (`EG-TYPED-PACKS-R104`) and `embedding_generation` (`EG-DECISION-ENGINE-R174`).
 
 Budget: a default window budget of 25% CPU and 2 GiB memory; preemption within 250 ms. These are starting defaults. A measurement on this platform replaces them.
+
+### 2026-10-18 — current-plan owner admission and replay contract
+
+This owner-contract amendment extends the WorkItem/run boundary under
+`EG-DURABLE-KERNEL-R028`. It resolves the current-plan admission and retry design
+for a subsequent implementation child. It does not implement a producer, expose
+a served operation, grant access, or change deployed authorization. It does not
+close the checkpoint/resume, retention or stream-cursor holds in R028.1. The
+separate decision-owner amendment is outside this change.
+
+#### Immutable ownership at new admission
+
+Arbora owns authenticated run admission; EG owns enforcement and durable state.
+The existing verified request context supplies tenant, graph authority and the
+principal that starts the run. A delegated request retains its verified ultimate principal;
+worker identity, agent identity and body metadata cannot replace that principal.
+EG captures the privacy-safe principal persistence reference together with graph,
+tenant, run ID and WorkItem ID. The same native transaction admits a new
+WorkItem/run and captures this binding. A run ID selects the record and never grants access. All existing
+authentication, graph, WorkItem-write, quota and dependency checks still apply.
+
+Admission creates the immutable binding and its durable receipt, not a worker
+lease or an available plan. A new run ID cannot be attached to a pre-existing
+WorkItem in this slice, including an apparently same-owner legacy row. Such an
+attachment requires a separately defined owner-preserving admission proof. An
+existing binding cannot be rebound or have its revision reset. Generic metadata
+writes must neither create nor overwrite the binding. A retry may return its
+original admission receipt through the existing native replay path. It cannot
+create another WorkItem or another owner binding.
+
+#### Native publication and read transaction
+
+After native claim admission, publication checks run inside the existing durable
+mutation transaction. They compare the immutable binding and verified principal,
+active WorkItem status, worker reference, lease epoch and fencing token. Reuse the
+engine-clock live-fence rule from R028.3. Missing, expired, exact-deadline or
+superseded fences refuse before any new effect. WorkItem revision alone is not a
+lease fence. Keep one redb durability authority. A metadata write followed by a
+separate snapshot write, or a host dictionary, is not this operation.
+
+Publish the initial empty scaffold at revision zero before AU accepts any
+scaffold update. A first publication at a later revision is refused. Later
+new publications require a strictly greater AU scaffold revision; gaps are
+permitted. Every new accepted publication stores its binding, revision, canonical
+payload digest and existing durable commit receipt atomically. Refusal changes
+none of them. SDK-CONNECTOR-CONTROL-R070 supplies the DTO; AU-BOUNDARY-R043.5.1
+supplies the atomic revision/items pair. Arbora retains its read projection under
+ARBORA-OPS-R021.4.5.1. No model-history reconstruction is allowed.
+
+A native read checks existing graph/WorkItem-read authority and the current
+verified principal against the immutable owner. It reads binding, plan and
+lease/lifecycle in one authoritative snapshot. Missing or legacy bindings,
+foreign owners, ended runs and expired or superseded leases are unavailable with
+no items. Existing WorkItem reads keep their existing contract. Observation and
+expiry are UTC; availability requires observation <= engine read time < both
+snapshot expiry and lease expiry. Lease renewal and reads never extend a stored
+snapshot. An exact replay receipt is historical evidence, not current-plan
+availability or renewed lease authority.
+
+#### Reuse existing mutation identity and replay
+
+Use the existing authenticated stable idempotency key, native WorkItem
+`MutationBatch` identity derivation and durable receipt ledger. Extend that path
+for the new operation; do not create another replay table, namespace protocol or
+host deduplication cache. The logical command scope binds graph, verified tenant and
+admitted run identity. It also binds operation (admit or publish), revision
+discriminator and the stable retry key. Admission uses the fixed tagged discriminator `admission`,
+which cannot equal an integer publication revision, including zero. Publication
+uses the AU scaffold revision integer. Admission reserves the proposed new run identity in the same transaction;
+publication resolves the already admitted identity. Encode the additional scope
+unambiguously in the existing key derivation. Preserve existing operation keys
+and compatibility for unrelated WorkItem methods.
+
+Bind the accepted owner/WorkItem identity and all effect-bearing content in the
+canonical mutation digest. This content includes the publication fence and
+validity interval. Keep transport request numbers and attempt nonces outside logical retry
+identity, as the existing authenticated WorkItem retry path does. Do not put the
+payload digest into the retry-key derivation. Changing a body under the same key
+must be detectable as a conflict, not become a new command.
+
+After current authentication and owner authorization, an identical retry returns
+the original durable receipt. It causes no additional write, revision advance,
+outbox append or expiry refresh. Reuse of that scoped key with a changed canonical body
+refuses. A different key at an equal or lower published revision also refuses.
+A retry after lease expiry may return an already accepted receipt only through
+this no-effect replay path. It cannot authorize a new write or make readback
+available. A caller that no longer has authority cannot obtain the receipt.
+
+Existing attachment points, reviewed at EG `11a1aa62`:
+`src/server/mutation_batch/commit/work_item.rs::derive_work_item_identity`,
+`src/server/mutation_batch/digest.rs::work_item_batch_identity` and
+`terminal_work_item_identity`, and the native durable `MutationBatch` replay
+receipt. `crates/eg-types/src/work_item_command_log.rs` documents same-key,
+same-digest replay and changed-digest conflict, but its reference map is not
+itself durable evidence. Reuse the native writer, not that map as a new store.
+
+#### Planned acceptance and implementation boundary
+
+All following tests are required future acceptance; none is claimed run here.
+
+- Admit a new run/WorkItem through real verified admission, claim it natively,
+  publish revision zero and two increasing revisions, and read exact ordered
+  items. Reopen durable storage and recover the binding, revision and receipts.
+  Availability still depends on the current live lease and validity interval.
+- Refuse foreign tenant/graph, same-tenant different principal, forged body
+  ownership, missing verified principal, worker impersonation and attachment to
+  a pre-existing WorkItem. Prove delegated same-principal execution and refuse
+  a different ultimate principal. Check unchanged binding and bytes on refusal.
+- Refuse wrong worker/epoch/token, absent/expired/exact-deadline/superseded leases,
+  ended runs, future observation and invalid intervals. A lease renewal alone
+  cannot refresh the plan. Read and concurrent lease supersession must never
+  combine different binding, plan and lease generations.
+- Verify equal/regressing revision refusal, exact retry with a fresh transport
+  nonce returning the original receipt, changed-body conflict, and independent
+  graph/tenant/run/operation/revision scopes. Changing the stable key cannot
+  bypass revision monotonicity. Compare durable row bytes, commit/version and
+  outbox counts before and after replay/refusal, including after restart.
+- Prove authorization precedes receipt disclosure. Retry after expiry returns
+  only the historical receipt for an authorized owner. Current-plan read remains
+  unavailable, and no lease, validity interval or revision is renewed.
+
+Before implementation, add the corresponding narrowly decomposed requirement,
+task and test-spec rows with SPECIFIED status. Then define native typed request,
+result and immutable storage fields. Extend new-run admission and the existing
+mutation identity/transaction paths. Regenerate the authoritative protocol,
+method catalog, schemas and Python bindings. Add native transaction/restart tests
+and measure the new operation against the existing WorkItem transaction budget.
+No numerical performance result is claimed by this amendment. Only after those
+native gates pass may SDK/AU/Arbora composition and authenticated served acceptance
+establish runtime availability. No native build or generation is part of this
+spec-only amendment.
