@@ -134,8 +134,8 @@ def g1_skill_file_traversal(spec: PackSpec) -> MalformedPack:
 
 
 def g2_entries(spec: PackSpec) -> MalformedPack:
-    pack = assemble(spec.with_entries(_tools(spec, 1_025)))
-    return case("G2", "entries_over_1024", "1,025 entries", pack, _TOO_LARGE)
+    pack = assemble(spec.with_entries(_tools(spec, 8_193)))
+    return case("G2", "entries_over_8192", "8,193 entries", pack, _TOO_LARGE)
 
 
 def g2_body(spec: PackSpec) -> MalformedPack:
@@ -151,9 +151,9 @@ def g2_body(spec: PackSpec) -> MalformedPack:
 
 
 def g2_index(spec: PackSpec) -> MalformedPack:
-    pack = assemble(spec.with_entries(_tools(spec, 1_024, uri_padding=1_200)))
+    pack = assemble(spec.with_entries(_tools(spec, 8_192, uri_padding=2_200)))
     return case(
-        "G2", "index_over_1mib", "an encoded index well over 1 MiB", pack, _TOO_LARGE
+        "G2", "index_over_16mib", "an encoded index well over 16 MiB", pack, _TOO_LARGE
     )
 
 

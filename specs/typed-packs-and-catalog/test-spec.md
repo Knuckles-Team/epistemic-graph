@@ -47,7 +47,7 @@ Every cross-cutting pack-import-safety defect is a named rule (G1-G21) in `epist
 | Rule | Variants, each with its own regression case in `MUTATIONS` |
 |---|---|
 | G1 | connector_with_slash, invalid_connector, name_over_256_bytes, schema_version, scheme_mismatch, skill_file_traversal, two_servers, unknown_kind, unsorted_uris |
-| G2 | archive_over_16mib, body_over_2mib, entries_over_1024, index_over_1mib, iri_list_over_64, references_over_64, schema_over_1mib |
+| G2 | archive_over_16mib, body_over_2mib, entries_over_8192, index_over_16mib, iri_list_over_64, references_over_64, schema_over_1mib |
 | G3 | archive_length, archive_not_uploaded, archive_sha256 |
 | G4 | offset_overflow, overlapping_sections, uncovered_bytes |
 | G5 | flipped_body_byte, forged_pack_digest |
