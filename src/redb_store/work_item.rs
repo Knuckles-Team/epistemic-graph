@@ -68,6 +68,7 @@ mod cancel;
 mod claim;
 mod commit;
 mod control_lease;
+pub(crate) mod current_plan;
 mod dispatch;
 mod lease;
 mod market;

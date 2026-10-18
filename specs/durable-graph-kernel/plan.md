@@ -756,3 +756,23 @@ No numerical performance result is claimed by this amendment. Only after those
 native gates pass may SDK/AU/Arbora composition and authenticated served acceptance
 establish runtime availability. No native build or generation is part of this
 spec-only amendment.
+
+### 2026-10-18 — private native current-plan implementation
+
+R028.5 stores payloads in the graph owner's private `work_item_current_plans`
+table. It shares the existing MutationBatch transaction and read snapshot with run ownership and native WorkItem claims.
+Ordinary node projections do not receive plan items or publication fences.
+Publication expiry cannot exceed the current lease expiry; renewal never extends
+an already stored snapshot. Existing stable receipt identity gains an explicit
+publication/run/revision discriminator, independent of transport attempts.
+
+The immediately preceding graph layout `952ea729e026deee49d9922dd2577cd1f789860be06b19e981cbb2949cf2a217`
+is retained as a named predecessor. The existing offline owner-store upgrade
+registry creates the empty private table atomically and preserves existing rows.
+It validates the source descriptor, manifest, evidence and table census.
+Normal opens refuse the predecessor; no production migration is performed by this
+implementation. A synthesized predecessor test is added; a recorded fixture from
+the previous build and native execution evidence remain pending.
+
+This engine prerequisite does not compose Arbora's reader or AU's run loop and
+does not establish successful end-to-end inspector publication.

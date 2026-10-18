@@ -167,6 +167,25 @@ const GRAPH_SHARD_TABLES_BEFORE_AUDIT_REQUESTS: &[&str] = super::graph_shard::gr
     "repository_enrichment_parks",
 );
 
+const GRAPH_SHARD_TABLES_BEFORE_CURRENT_PLANS: &[&str] = super::graph_shard::graph_shard_table_names!(
+    "repository_enrichment_budgets",
+    "repository_enrichment_policy_revisions",
+    "repository_enrichment_supersessions",
+    "repository_enrichment_parks",
+    "audit_requests",
+);
+pub const GRAPH_SHARD_PRE_CURRENT_PLANS_DIGEST: [u8; 32] = [
+    0x95, 0x2e, 0xa7, 0x29, 0xe0, 0x26, 0xde, 0xee, 0x49, 0xd9, 0x92, 0x2d, 0xd2, 0x57, 0x7c, 0xd1,
+    0xf7, 0x89, 0x86, 0x0b, 0xe0, 0x6b, 0x19, 0xe9, 0x81, 0xcb, 0xb2, 0x94, 0x9c, 0xf2, 0xa2, 0x17,
+];
+pub const GRAPH_SHARD_BEFORE_CURRENT_PLANS: LayoutPredecessor = LayoutPredecessor {
+    layout: OwnerLayout::GraphShard,
+    label: "graph shard before private current-plan snapshots",
+    owner_tables: GRAPH_SHARD_TABLES_BEFORE_CURRENT_PLANS,
+    data_lost: "its graph rows require the explicit offline current-plan layout upgrade before normal open; no normal-open migration is performed",
+    file_name: "graph-*.redb",
+};
+
 /// Earlier graph-shard layout before the node-payload scrub cursor (EH-384).
 const GRAPH_SHARD_TABLES_BEFORE_STORAGE_SCRUB: &[&str] = GRAPH_SHARD_TABLES_BEFORE_ENRICHMENT
     .split_at(GRAPH_SHARD_TABLES_BEFORE_ENRICHMENT.len() - 1)
@@ -249,6 +268,7 @@ pub fn layout_predecessors(layout: OwnerLayout) -> &'static [LayoutPredecessor] 
             GRAPH_SHARD_BEFORE_ENRICHMENT,
             GRAPH_SHARD_BEFORE_POLICY_REVISIONS,
             GRAPH_SHARD_BEFORE_AUDIT_REQUESTS,
+            GRAPH_SHARD_BEFORE_CURRENT_PLANS,
         ],
     }
 }
@@ -317,7 +337,7 @@ pub fn pinned_layout_digest(layout: OwnerLayout) -> &'static str {
             "0561a2a2ae13f067bf01a4c94d6cbaeb280aaefa56c68036a1f01da92cba8431"
         }
         OwnerLayout::GraphShard => {
-            "952ea729e026deee49d9922dd2577cd1f789860be06b19e981cbb2949cf2a217"
+            "cfc47e43654abc32fbf63cf3d9d7ffd4e04c742e3c955c259d2d05f5316e0a27"
         }
         OwnerLayout::AgentLibrary => {
             "e112d8118e4e62b002799b84bba8c69162e477071861a81d3893277736727ea0"

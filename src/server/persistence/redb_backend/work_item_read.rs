@@ -140,3 +140,53 @@ impl RedbBackend {
         .await
     }
 }
+
+impl RedbBackend {
+    pub(crate) async fn current_plan_owner(
+        &self,
+        graph_fname: &str,
+        tenant: &str,
+        run_id: &str,
+        actor: &str,
+    ) -> Result<bool, String> {
+        let (graph, tenant, run_id, actor) = (
+            graph_fname.to_owned(),
+            tenant.to_owned(),
+            run_id.to_owned(),
+            actor.to_owned(),
+        );
+        self.read_snapshot(graph_fname, move |shard, crypto| {
+            crate::redb_store::work_item::current_plan::is_owner(
+                shard, &graph, &tenant, &run_id, &actor, crypto,
+            )
+        })
+        .await
+    }
+
+    pub(crate) async fn read_current_plan(
+        &self,
+        graph_fname: &str,
+        tenant: &str,
+        run_id: &str,
+        actor: &str,
+    ) -> Result<Option<eg_types::current_plan::CurrentPlanSnapshot>, String> {
+        let (graph, tenant, run_id, actor) = (
+            graph_fname.to_owned(),
+            tenant.to_owned(),
+            run_id.to_owned(),
+            actor.to_owned(),
+        );
+        self.read_snapshot(graph_fname, move |shard, crypto| {
+            crate::redb_store::work_item::current_plan::read_current(
+                shard,
+                &graph,
+                &tenant,
+                &run_id,
+                &actor,
+                crypto,
+                crate::server::dispatch::authoritative_now_ms(),
+            )
+        })
+        .await
+    }
+}

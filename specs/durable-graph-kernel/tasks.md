@@ -245,3 +245,5 @@ This batch defines the slices; it runs none of their runtime tests.
 - [ ] **EG-DURABLE-KERNEL-R039.3:** Implement and qualify atomic pending envelope registration and consumption. Keep human authority and task hierarchy outside this storage proof.
 
 - [ ] **EG-DURABLE-KERNEL-R028.4:** Bind verified run ownership during single WorkItem admission and prove transaction refusals.
+
+- [ ] **EG-DURABLE-KERNEL-R028.5:** Implement private native plan publication/readback. Native and served tests, replay/expiry/restart and performance acceptance remain pending.

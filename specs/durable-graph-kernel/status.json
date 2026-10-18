@@ -375,7 +375,8 @@
     "EG-DURABLE-KERNEL-R852.4",
     "EG-DURABLE-KERNEL-R852.5",
     "EG-DURABLE-KERNEL-R852.6",
-    "EG-DURABLE-KERNEL-R028.4"
+    "EG-DURABLE-KERNEL-R028.4",
+    "EG-DURABLE-KERNEL-R028.5"
   ],
   "requirements": [
     {
@@ -1101,7 +1102,8 @@
         "EG-DURABLE-KERNEL-R028.1",
         "EG-DURABLE-KERNEL-R028.2",
         "EG-DURABLE-KERNEL-R028.3",
-        "EG-DURABLE-KERNEL-R028.4"
+        "EG-DURABLE-KERNEL-R028.4",
+        "EG-DURABLE-KERNEL-R028.5"
       ]
     },
     {
@@ -4060,8 +4062,21 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [
-        "src/redb_store/work_item/row_guard.rs:262",
+        "src/redb_store/work_item/row_guard.rs:263",
         "tests/adopt_workitem_authenticated_replay.rs:423"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R028.5",
+      "title": "Native current-plan publication and readback",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "crates/eg-storage/src/owner/agent_library_upgrade/tests.rs:293",
+        "crates/eg-types/src/current_plan.rs:87",
+        "src/redb_store/work_item/current_plan/tests.rs:131",
+        "src/redb_store/work_item/current_plan/tests.rs:62",
+        "src/redb_store/work_item/current_plan/tests.rs:95"
       ]
     }
   ]

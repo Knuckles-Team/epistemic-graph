@@ -155,6 +155,18 @@ pub(crate) fn work_item_batch_identity(
             );
         }
     }
+    if let Method::PublishCurrentPlan { request } = method {
+        return scoped_work_item_identity(
+            graph,
+            tenant,
+            &request.idempotency_key,
+            &[
+                "publish",
+                &request.snapshot.run_id,
+                &request.snapshot.revision.to_string(),
+            ],
+        );
+    }
     let terminal_key = match method {
         Method::SubmitWorkItem { request } => Some(request.idempotency_key.clone()),
         Method::SubmitWorkItems { request } => Some(request.idempotency_key.clone()),
@@ -236,6 +248,20 @@ fn scoped_terminal_work_item_identity(
     terminal_key: &str,
     run_id: Option<&str>,
 ) -> Result<WorkItemBatchIdentity, String> {
+    match run_id {
+        Some(run_id) => {
+            scoped_work_item_identity(graph, tenant, terminal_key, &["admit", "admission", run_id])
+        }
+        None => scoped_work_item_identity(graph, tenant, terminal_key, &[]),
+    }
+}
+
+fn scoped_work_item_identity(
+    graph: &str,
+    tenant: &str,
+    terminal_key: &str,
+    scope: &[&str],
+) -> Result<WorkItemBatchIdentity, String> {
     use sha2::{Digest, Sha256};
     if terminal_key.trim().is_empty() {
         return Err("terminal WorkItem mutation requires idempotency_key".to_string());
@@ -246,11 +272,9 @@ fn scoped_terminal_work_item_identity(
         digest.update((field.len() as u64).to_be_bytes());
         digest.update(field);
     }
-    if let Some(run_id) = run_id {
-        for field in ["admit", "admission", run_id] {
-            digest.update((field.len() as u64).to_be_bytes());
-            digest.update(field.as_bytes());
-        }
+    for field in scope {
+        digest.update((field.len() as u64).to_be_bytes());
+        digest.update(field.as_bytes());
     }
     let digest: [u8; 32] = digest.finalize().into();
     let mut request_bytes = [0u8; 8];
@@ -281,4 +305,81 @@ pub(crate) fn opaque_coordinator_key(namespace: &str, graph: &str, coordinator_i
     digest.update([0]);
     digest.update(coordinator_id.as_bytes());
     format!("{namespace}:{}", hex::encode(digest.finalize()))
+}
+
+#[cfg(test)]
+mod current_plan_identity_tests {
+    use super::*;
+    use eg_types::current_plan::{CurrentPlanSnapshot, PublishCurrentPlanRequest};
+
+    // spec: EG-DURABLE-KERNEL-R028.5
+    #[test]
+    fn publication_identity_separates_operation_revision_run_and_transport() {
+        let request = PublishCurrentPlanRequest {
+            tenant: "tenant".into(),
+            worker_id: "worker".into(),
+            lease_epoch: 1,
+            fencing_token: 1,
+            idempotency_key: "key".into(),
+            snapshot: CurrentPlanSnapshot {
+                run_id: "run".into(),
+                revision: 0,
+                observed_at_ms: 1,
+                expires_at_ms: 2,
+                items: vec![],
+            },
+        };
+        let method = Method::PublishCurrentPlan {
+            request: request.clone(),
+        };
+        let first = work_item_batch_identity("graph", "tenant", 1, &method).unwrap();
+        assert_eq!(
+            first,
+            work_item_batch_identity("graph", "tenant", 99, &method).unwrap()
+        );
+        assert_ne!(
+            first,
+            scoped_terminal_work_item_identity("graph", "tenant", "key", Some("run")).unwrap()
+        );
+        let legacy_key = serde_json::to_string(&("publish", "run", 0, "key")).unwrap();
+        assert_ne!(
+            first,
+            terminal_work_item_identity("graph", "tenant", &legacy_key).unwrap()
+        );
+        let mut changed = request.clone();
+        changed.snapshot.expires_at_ms = 3;
+        assert_eq!(
+            first,
+            work_item_batch_identity(
+                "graph",
+                "tenant",
+                2,
+                &Method::PublishCurrentPlan { request: changed }
+            )
+            .unwrap()
+        );
+        for (run, revision) in [("run", 1), ("other", 0)] {
+            let mut other = request.clone();
+            other.snapshot.run_id = run.into();
+            other.snapshot.revision = revision;
+            assert_ne!(
+                first,
+                work_item_batch_identity(
+                    "graph",
+                    "tenant",
+                    1,
+                    &Method::PublishCurrentPlan { request: other }
+                )
+                .unwrap()
+            );
+        }
+        assert_ne!(
+            first,
+            work_item_batch_identity("other-graph", "tenant", 1, &method).unwrap()
+        );
+        assert_ne!(
+            first,
+            work_item_batch_identity("graph", "other-tenant", 1, &method).unwrap()
+        );
+    }
 }

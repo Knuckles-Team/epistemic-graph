@@ -61,6 +61,7 @@ impl Method {
             | Self::CancelWorkItem { .. }
             | Self::DeferWorkItem { .. }
             | Self::CasWorkItemMetadata { .. }
+            | Self::PublishCurrentPlan { .. }
             | Self::IssueControlLease { .. }
             | Self::TransitionControlLease { .. }
             | Self::PolicyEvolutionStore { .. }

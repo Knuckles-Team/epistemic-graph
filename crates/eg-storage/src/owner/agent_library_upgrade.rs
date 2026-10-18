@@ -10,7 +10,7 @@ use super::identity::PhysicalStoreIdentity;
 use super::layout::{layout_digest_over, OwnerLayout};
 use super::lineage::{
     AGENT_LIBRARY_BEFORE_MCP_CATALOG, GRAPH_SHARD_BEFORE_AUDIT_REQUESTS,
-    GRAPH_SHARD_BEFORE_ENRICHMENT,
+    GRAPH_SHARD_BEFORE_CURRENT_PLANS, GRAPH_SHARD_BEFORE_ENRICHMENT,
 };
 use super::persisted_layout::LayoutPredecessor;
 use super::registry::predecessor_evidence;
@@ -51,6 +51,8 @@ pub enum GraphShardSource {
     BeforeEnrichment,
     /// Lacking only the operation audit-append idempotency index.
     BeforeAuditRequests,
+    /// Before private current-plan snapshots.
+    BeforeCurrentPlans,
 }
 
 impl GraphShardSource {
@@ -58,6 +60,7 @@ impl GraphShardSource {
         match self {
             Self::BeforeEnrichment => &GRAPH_SHARD_BEFORE_ENRICHMENT,
             Self::BeforeAuditRequests => &GRAPH_SHARD_BEFORE_AUDIT_REQUESTS,
+            Self::BeforeCurrentPlans => &GRAPH_SHARD_BEFORE_CURRENT_PLANS,
         }
     }
 
@@ -65,6 +68,7 @@ impl GraphShardSource {
         match self {
             Self::BeforeEnrichment => super::lineage::GRAPH_SHARD_PRE_ENRICHMENT_DIGEST,
             Self::BeforeAuditRequests => super::lineage::GRAPH_SHARD_PRE_AUDIT_REQUESTS_DIGEST,
+            Self::BeforeCurrentPlans => super::lineage::GRAPH_SHARD_PRE_CURRENT_PLANS_DIGEST,
         }
     }
 }
