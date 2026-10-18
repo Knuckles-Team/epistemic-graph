@@ -705,6 +705,7 @@
     "EG-DECISION-ENGINE-R174.9.4",
     "EG-DECISION-ENGINE-R174.9.5",
     "EG-DECISION-ENGINE-R174.9.6",
+    "EG-DECISION-ENGINE-R174.9.7",
     "EG-DECISION-ENGINE-R614",
     "EG-DECISION-ENGINE-R614.1",
     "EG-DECISION-ENGINE-R614.2",
@@ -857,7 +858,14 @@
     "EG-DECISION-ENGINE-R801.3",
     "EG-DECISION-ENGINE-R801.4",
     "EG-DECISION-ENGINE-R801.5",
-    "EG-DECISION-ENGINE-R801.6"
+    "EG-DECISION-ENGINE-R801.6",
+    "EG-DECISION-ENGINE-R802",
+    "EG-DECISION-ENGINE-R802.1",
+    "EG-DECISION-ENGINE-R802.2",
+    "EG-DECISION-ENGINE-R802.3",
+    "EG-DECISION-ENGINE-R802.4",
+    "EG-DECISION-ENGINE-R802.5",
+    "EG-DECISION-ENGINE-R802.6"
   ],
   "requirements": [
     {
@@ -2319,7 +2327,7 @@
         "aea4fe89bd19"
       ],
       "verified_by": [
-        "crates/eg-capabilities/src/error_routing.rs:317",
+        "crates/eg-capabilities/src/error_routing.rs:341",
         "src/server/handlers/admin/connector_pack/tests/content_model.rs:372",
         "src/server/handlers/admin/connector_pack/tests/content_model.rs:407",
         "src/server/handlers/admin/connector_pack/tests/withdrawal.rs:43"
@@ -3723,9 +3731,9 @@
         "5b6086e4075d"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/statistical/harness_config.rs:406",
-        "crates/eg-types/src/decision/statistical/harness_config.rs:433",
-        "crates/eg-types/src/decision/statistical/harness_config.rs:452"
+        "crates/eg-types/src/decision/statistical/harness_config.rs:407",
+        "crates/eg-types/src/decision/statistical/harness_config.rs:434",
+        "crates/eg-types/src/decision/statistical/harness_config.rs:453"
       ]
     },
     {
@@ -3737,9 +3745,9 @@
         "c0466b57ce04"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/statistical/harness_config.rs:535",
-        "crates/eg-types/src/decision/statistical/harness_config.rs:565",
-        "crates/eg-types/src/decision/statistical/harness_config.rs:592"
+        "crates/eg-types/src/decision/statistical/harness_config.rs:536",
+        "crates/eg-types/src/decision/statistical/harness_config.rs:566",
+        "crates/eg-types/src/decision/statistical/harness_config.rs:593"
       ]
     },
     {
@@ -3772,9 +3780,9 @@
         "4cd26ef35745"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/statistical/harness_config.rs:301",
-        "crates/eg-types/src/decision/statistical/harness_config.rs:344",
-        "crates/eg-types/src/decision/statistical/harness_config.rs:373"
+        "crates/eg-types/src/decision/statistical/harness_config.rs:302",
+        "crates/eg-types/src/decision/statistical/harness_config.rs:345",
+        "crates/eg-types/src/decision/statistical/harness_config.rs:374"
       ]
     },
     {
@@ -3785,7 +3793,7 @@
         "a565bdb085f2"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/statistical/harness_config.rs:638"
+        "crates/eg-types/src/decision/statistical/harness_config.rs:639"
       ]
     },
     {
@@ -3842,8 +3850,8 @@
         "3e6b9bf0243d"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/statistical/harness_config.rs:681",
-        "crates/eg-types/src/decision/statistical/harness_config.rs:694",
+        "crates/eg-types/src/decision/statistical/harness_config.rs:682",
+        "crates/eg-types/src/decision/statistical/harness_config.rs:695",
         "src/server/handlers/decide/stat_tests/harness_config_tests.rs:99"
       ],
       "rollup_of": [
@@ -3857,8 +3865,8 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [
-        "crates/eg-types/src/decision/statistical/harness_config.rs:682",
-        "crates/eg-types/src/decision/statistical/harness_config.rs:695",
+        "crates/eg-types/src/decision/statistical/harness_config.rs:683",
+        "crates/eg-types/src/decision/statistical/harness_config.rs:696",
         "src/server/handlers/decide/stat_tests/harness_config_tests.rs:100"
       ]
     },
@@ -7562,7 +7570,8 @@
         "EG-DECISION-ENGINE-R174.9.3",
         "EG-DECISION-ENGINE-R174.9.4",
         "EG-DECISION-ENGINE-R174.9.5",
-        "EG-DECISION-ENGINE-R174.9.6"
+        "EG-DECISION-ENGINE-R174.9.6",
+        "EG-DECISION-ENGINE-R174.9.7"
       ]
     },
     {
@@ -7603,6 +7612,13 @@
     {
       "id": "EG-DECISION-ENGINE-R174.9.6",
       "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R174.9.7",
+      "title": "Held web Documents refresh by drift",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -8845,6 +8861,77 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R802",
+      "title": "Web fetch selection over search candidates (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "tests/web_document_enrich_served.rs:222"
+      ],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R802.1",
+        "EG-DECISION-ENGINE-R802.2",
+        "EG-DECISION-ENGINE-R802.3",
+        "EG-DECISION-ENGINE-R802.4",
+        "EG-DECISION-ENGINE-R802.5",
+        "EG-DECISION-ENGINE-R802.6"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R802.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "crates/eg-types/src/decision/web_fetch_selection.rs:169"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R802.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "crates/eg-numeric/src/decision/web_fetch_selection.rs:333"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R802.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "tests/web_document_enrich_served.rs:223"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R802.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "crates/eg-numeric/src/decision/web_fetch_selection.rs:437"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R802.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "crates/eg-numeric/src/decision/web_fetch_selection.rs:452"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R802.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "tests/web_document_enrich_served.rs:224"
+      ]
     }
   ]
 }

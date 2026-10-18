@@ -425,6 +425,9 @@ pub struct IsolationLayer {
     /// identity count so deleting identities can never reopen first-run authority.
     #[cfg(feature = "security")]
     identity_bootstrap: crate::rbac_persist::IdentityBootstrapState,
+    /// Revision of this layer's complete preimage; clones keep their own copy.
+    #[cfg(feature = "security")]
+    persist_revision: u64,
     /// RBAC/identity persistence handle
     /// (CONCEPT:EG-KG.compute.durable-rbac-identity-persistence). Current layers always
     /// carry a store: embedded layers use the atomic memory store and served layers
@@ -1826,12 +1829,13 @@ mod tests {
                 ))
             }
 
-            fn save(
+            fn compare_and_save(
                 &self,
+                _expected_revision: u64,
                 _policy: &crate::rbac::RbacPolicy,
                 _identities: &BTreeMap<String, AgentIdentity>,
                 _bootstrap: crate::rbac_persist::IdentityBootstrapState,
-            ) -> Result<(), RbacPersistError> {
+            ) -> Result<u64, RbacPersistError> {
                 Err(RbacPersistError::Redb("injected commit failure".into()))
             }
 

@@ -377,6 +377,7 @@ fn run_submit_method() -> Method {
     let mut method = submit_method();
     if let Method::SubmitWorkItem { request } = &mut method {
         request.run_id = Some("run-owner-admission".into());
+        request.context.agent_id = "agent:delegated-run-worker".into();
         request.work_item_id = None;
         request
             .metadata
@@ -385,13 +386,75 @@ fn run_submit_method() -> Method {
     method
 }
 
+async fn run_state_with(
+    backend: Arc<dyn PersistenceBackend>,
+    dir: String,
+) -> test_support::SharedState {
+    use epistemic_graph::acl::{Grant, GrantEffect, RbacAction, ResourceSelector};
+
+    let state = state_with(backend, dir);
+    let mut isolation = test_support::wire_isolation(&[
+        common::TEST_AGENT,
+        "agent:delegated-run-worker",
+        "agent:foreign-owner",
+    ]);
+    for action in [RbacAction::Read, RbacAction::Write] {
+        isolation.add_grant(Grant {
+            role: "commons-user".into(),
+            resource: ResourceSelector::Graph(GRAPH.into()),
+            action,
+            effect: GrantEffect::Allow,
+        });
+    }
+    state.write().await.isolation = isolation;
+    state
+}
+
+async fn reopen_run_state(
+    state: test_support::SharedState,
+    concrete: Arc<RedbBackend>,
+    dir: &str,
+) -> (Arc<RedbBackend>, test_support::SharedState) {
+    drop(state);
+    concrete.shutdown();
+    drop(concrete);
+    let reopened = Arc::new(reopen(dir).await);
+    let restarted = run_state_with(reopened.clone(), dir.to_owned()).await;
+    // Restore both rows and their durable version, as a serving restart must.
+    let (snapshot, version) = reopened
+        .read_authoritative_graph_snapshot(GRAPH)
+        .await
+        .unwrap()
+        .expect("durable run graph snapshot");
+    restarted
+        .read()
+        .await
+        .registry
+        .get(GRAPH)
+        .unwrap()
+        .core
+        .install_committed_snapshot(snapshot, version)
+        .unwrap();
+    (reopened, restarted)
+}
+
+fn signed_run_request(id: u64, method: Method, idempotency_key: &str) -> Request {
+    signed_request_with_agent(
+        id,
+        method,
+        idempotency_key,
+        common::TEST_AGENT,
+        "agent:delegated-run-worker",
+    )
+}
+
 // spec: EG-DURABLE-KERNEL-R028.4
 #[tokio::test]
 async fn run_admission_binds_verified_owner_and_replays_without_row_changes() {
     use sha2::{Digest, Sha256};
     let dir = temp_dir("eg-run-owner-admission");
     let concrete = Arc::new(RedbBackend::open(dir.clone(), 8192).unwrap());
-    let state = state_with(concrete.clone(), dir.clone());
+    let state = run_state_with(concrete.clone(), dir.clone()).await;
     let first = test_support::dispatch(
         &state,
         signed_request_with_agent(
@@ -424,7 +487,7 @@ async fn run_admission_binds_verified_owner_and_replays_without_row_changes() {
     );
     let replay = test_support::dispatch(
         &state,
-        signed_request(402, run_submit_method(), "run-admit-key"),
+        signed_run_request(402, run_submit_method(), "run-admit-key"),
     )
     .await;
     let replay: SubmitWorkItemResult = decode_raw(&replay, "run admission replay");
@@ -440,11 +503,12 @@ async fn run_admission_binds_verified_owner_and_replays_without_row_changes() {
     );
     let foreign = test_support::dispatch(
         &state,
-        signed_request_as(
+        signed_request_with_agent(
             403,
             run_submit_method(),
             "run-admit-key",
             "agent:foreign-owner",
+            "agent:delegated-run-worker",
         ),
     )
     .await;
@@ -470,7 +534,7 @@ async fn run_admission_binds_verified_owner_and_replays_without_row_changes() {
         }
         let refused = test_support::dispatch(
             &state,
-            signed_request(410 + index as u64, method, "run-admit-key"),
+            signed_run_request(410 + index as u64, method, "run-admit-key"),
         )
         .await;
         assert!(refused.error.is_some(), "{case} unexpectedly admitted");
@@ -488,18 +552,14 @@ async fn run_admission_binds_verified_owner_and_replays_without_row_changes() {
         request.run_id = Some("another-run-same-key".into());
     }
     let another =
-        test_support::dispatch(&state, signed_request(430, another, "run-admit-key")).await;
+        test_support::dispatch(&state, signed_run_request(430, another, "run-admit-key")).await;
     let another: SubmitWorkItemResult = decode_raw(&another, "independent run admission");
     assert!(another.created);
     assert_ne!(another.work_item_id, admitted.work_item_id);
-    drop(state);
-    concrete.shutdown();
-    drop(concrete);
-    let reopened = Arc::new(reopen(&dir).await);
-    let restarted = state_with(reopened.clone(), dir.clone());
+    let (reopened, restarted) = reopen_run_state(state, concrete, &dir).await;
     let replay = test_support::dispatch(
         &restarted,
-        signed_request(440, run_submit_method(), "run-admit-key"),
+        signed_run_request(440, run_submit_method(), "run-admit-key"),
     )
     .await;
     let replay: SubmitWorkItemResult = decode_raw(&replay, "reopened admission replay");
@@ -516,4 +576,313 @@ async fn run_admission_binds_verified_owner_and_replays_without_row_changes() {
     );
     reopened.shutdown();
     let _ = std::fs::remove_dir_all(dir);
+}
+
+// spec: EG-DURABLE-KERNEL-R028.5
+#[tokio::test]
+async fn current_plan_native_publish_read_and_receipt_replay() {
+    use eg_types::current_plan::{
+        CurrentPlanPublished, CurrentPlanSnapshot, PlanItem, PlanStatus, PublishCurrentPlanRequest,
+    };
+    let dir = temp_dir("eg-current-plan-native");
+    let concrete = Arc::new(RedbBackend::open(dir.clone(), 8192).unwrap());
+    let state = run_state_with(concrete.clone(), dir.clone()).await;
+    let admitted: SubmitWorkItemResult = decode_raw(
+        &test_support::dispatch(
+            &state,
+            signed_run_request(501, run_submit_method(), "admit-plan"),
+        )
+        .await,
+        "admit plan run",
+    );
+    let mut claim = claim_method(WORKER);
+    if let Method::ClaimWorkItem { request } = &mut claim {
+        request.work_item_id = Some(admitted.work_item_id.clone());
+        request.now_ms = now_secs() * 1000;
+        request.lease_ms = 60_000;
+    }
+    let claimed: ClaimWorkItemResult = decode_raw(
+        &test_support::dispatch(&state, signed_run_request(502, claim, "claim-plan")).await,
+        "claim plan run",
+    );
+    assert!(claimed.claimed);
+    let initial = PublishCurrentPlanRequest {
+        tenant: TENANT.into(),
+        worker_id: WORKER.into(),
+        lease_epoch: claimed.lease_epoch.unwrap(),
+        fencing_token: claimed.fencing_token.unwrap(),
+        idempotency_key: "wire-key".into(),
+        snapshot: CurrentPlanSnapshot {
+            run_id: "run-owner-admission".into(),
+            revision: 0,
+            observed_at_ms: now_secs() * 1000,
+            expires_at_ms: now_secs() * 1000 + 30_000,
+            items: vec![],
+        },
+    };
+    let publish = |request| Method::PublishCurrentPlan { request };
+    let _: CurrentPlanPublished = decode_raw(
+        &test_support::dispatch(
+            &state,
+            signed_run_request(503, publish(initial.clone()), "plan-zero"),
+        )
+        .await,
+        "publish empty plan",
+    );
+    let mut updated = initial.clone();
+    updated.snapshot.revision = 2;
+    updated.snapshot.items = vec![
+        PlanItem {
+            text: "ordered first".into(),
+            status: PlanStatus::Done,
+        },
+        PlanItem {
+            text: "ordered second".into(),
+            status: PlanStatus::InProgress,
+        },
+    ];
+    let first: CurrentPlanPublished = decode_raw(
+        &test_support::dispatch(
+            &state,
+            signed_run_request(504, publish(updated.clone()), "plan-two"),
+        )
+        .await,
+        "publish updated plan",
+    );
+    let version_before = concrete.read_mutation_graph_version(GRAPH).await.unwrap();
+    let receipt_id = current_plan_receipt_id("plan-two", 2);
+    let outbox_before = serde_json::to_value(
+        concrete
+            .read_mutation_outbox(GRAPH, &receipt_id)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    let receipt_before = serde_json::to_value(
+        concrete
+            .read_mutation_batch(GRAPH, &receipt_id)
+            .await
+            .unwrap()
+            .expect("publication has a durable receipt"),
+    )
+    .unwrap();
+    let before = concrete
+        .read_node(GRAPH, &admitted.work_item_id)
+        .await
+        .unwrap()
+        .unwrap();
+    let replay: CurrentPlanPublished = decode_raw(
+        &test_support::dispatch(
+            &state,
+            signed_run_request(505, publish(updated.clone()), "plan-two"),
+        )
+        .await,
+        "replay plan",
+    );
+    assert_eq!(first, replay);
+    let get = || Method::GetCurrentPlan {
+        tenant: TENANT.into(),
+        run_id: initial.snapshot.run_id.clone(),
+    };
+    let read: Option<CurrentPlanSnapshot> = decode_raw(
+        &test_support::dispatch(&state, signed_run_request(506, get(), "read-plan")).await,
+        "read plan",
+    );
+    assert_eq!(read, Some(updated.snapshot.clone()));
+    let foreign: Option<CurrentPlanSnapshot> = decode_raw(
+        &test_support::dispatch(
+            &state,
+            signed_request_as(507, get(), "foreign-read", "agent:foreign-owner"),
+        )
+        .await,
+        "foreign read",
+    );
+    assert!(foreign.is_none());
+    let denied = test_support::dispatch(
+        &state,
+        signed_request_as(
+            508,
+            publish(updated.clone()),
+            "plan-two",
+            "agent:foreign-owner",
+        ),
+    )
+    .await;
+    assert!(denied.error.is_some());
+    let mut changed = updated.clone();
+    changed.snapshot.items[0].text = "changed".into();
+    let conflict = test_support::dispatch(
+        &state,
+        signed_run_request(509, publish(changed), "plan-two"),
+    )
+    .await;
+    assert!(conflict.error.is_some());
+    let regression = test_support::dispatch(
+        &state,
+        signed_run_request(510, publish(updated.clone()), "new-key-same-revision"),
+    )
+    .await;
+    assert!(regression.error.is_some());
+    assert_eq!(
+        concrete
+            .read_node(GRAPH, &admitted.work_item_id)
+            .await
+            .unwrap()
+            .unwrap(),
+        before
+    );
+    let after_refusal: Option<CurrentPlanSnapshot> = decode_raw(
+        &test_support::dispatch(&state, signed_run_request(512, get(), "after-refusal-read")).await,
+        "read after refusals",
+    );
+    assert_eq!(after_refusal, Some(updated.snapshot.clone()));
+    assert_eq!(
+        concrete.read_mutation_graph_version(GRAPH).await.unwrap(),
+        version_before
+    );
+    assert_eq!(
+        serde_json::to_value(
+            concrete
+                .read_mutation_outbox(GRAPH, &receipt_id)
+                .await
+                .unwrap()
+        )
+        .unwrap(),
+        outbox_before
+    );
+    assert_eq!(
+        serde_json::to_value(
+            concrete
+                .read_mutation_batch(GRAPH, &receipt_id)
+                .await
+                .unwrap()
+                .unwrap()
+        )
+        .unwrap(),
+        receipt_before
+    );
+    let (reopened, restarted) = reopen_run_state(state, concrete, &dir).await;
+    let recovered: Option<CurrentPlanSnapshot> = decode_raw(
+        &test_support::dispatch(&restarted, signed_run_request(511, get(), "reopened-read")).await,
+        "reopened plan",
+    );
+    assert_eq!(recovered, Some(updated.snapshot.clone()));
+    assert_eq!(
+        reopened
+            .read_node(GRAPH, &admitted.work_item_id)
+            .await
+            .unwrap()
+            .unwrap(),
+        before
+    );
+    current_plan_expired_replay(
+        &restarted,
+        &reopened,
+        &admitted.work_item_id,
+        updated,
+        first,
+    )
+    .await;
+    drop(restarted);
+    reopened.shutdown();
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+// Locate the native receipt independently of the transport request number.
+fn current_plan_receipt_id(key: &str, revision: u64) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hash = Sha256::new();
+    hash.update(b"epistemic-graph.work-item-terminal.v1");
+    for field in [
+        GRAPH,
+        TENANT,
+        key,
+        "publish",
+        "run-owner-admission",
+        &revision.to_string(),
+    ] {
+        hash.update((field.len() as u64).to_be_bytes());
+        hash.update(field.as_bytes());
+    }
+    format!("work:{}", hex::encode(hash.finalize()))
+}
+
+async fn current_plan_expired_replay(
+    state: &test_support::SharedState,
+    backend: &RedbBackend,
+    work_item_id: &str,
+    published: eg_types::current_plan::PublishCurrentPlanRequest,
+    receipt: eg_types::current_plan::CurrentPlanPublished,
+) {
+    use eg_types::current_plan::{CurrentPlanPublished, CurrentPlanSnapshot};
+    let renew = Method::RenewWorkItemLease {
+        tenant: TENANT.into(),
+        work_item_id: work_item_id.into(),
+        worker_id: WORKER.into(),
+        lease_epoch: published.lease_epoch,
+        fencing_token: published.fencing_token,
+        now_ms: now_secs() * 1000,
+        lease_ms: 1,
+    };
+    let response =
+        test_support::dispatch(state, signed_run_request(520, renew, "expire-plan-lease")).await;
+    assert!(
+        response.error.is_none(),
+        "renew to short lease: {response:?}"
+    );
+    assert!(
+        matches!(response.result, Some(ResultPayload::Json(ref value)) if value["renewed"] == true)
+    );
+    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    let version = backend.read_mutation_graph_version(GRAPH).await.unwrap();
+    let receipt_id = current_plan_receipt_id("plan-two", 2);
+    let outbox = serde_json::to_value(
+        backend
+            .read_mutation_outbox(GRAPH, &receipt_id)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    let method = Method::PublishCurrentPlan { request: published };
+    let replay: CurrentPlanPublished = decode_raw(
+        &test_support::dispatch(state, signed_run_request(521, method.clone(), "plan-two")).await,
+        "expired historical replay",
+    );
+    assert_eq!(receipt, replay);
+    let read: Option<CurrentPlanSnapshot> = decode_raw(
+        &test_support::dispatch(
+            state,
+            signed_run_request(
+                522,
+                Method::GetCurrentPlan {
+                    tenant: TENANT.into(),
+                    run_id: "run-owner-admission".into(),
+                },
+                "expired-plan-read",
+            ),
+        )
+        .await,
+        "expired plan read",
+    );
+    assert!(read.is_none());
+    let denied = test_support::dispatch(
+        state,
+        signed_request_as(523, method, "plan-two", "agent:foreign-owner"),
+    )
+    .await;
+    assert!(denied.error.is_some());
+    assert_eq!(
+        backend.read_mutation_graph_version(GRAPH).await.unwrap(),
+        version
+    );
+    assert_eq!(
+        serde_json::to_value(
+            backend
+                .read_mutation_outbox(GRAPH, &receipt_id)
+                .await
+                .unwrap()
+        )
+        .unwrap(),
+        outbox
+    );
 }

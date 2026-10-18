@@ -130,6 +130,11 @@ pub(crate) fn put_xshard_decision(
             (false, true) => 2u8,
             (true, true) => 3u8,
         };
+        let current = table
+            .get(txn_id)
+            .map_err(|e| e.to_string())?
+            .map(|row| row.value());
+        let encoded = eg_transaction::merge_coordinator_decision(current, encoded)?;
         table.insert(txn_id, encoded).map_err(|e| e.to_string())?;
         Ok(())
     })
@@ -144,7 +149,12 @@ pub(crate) fn put_xshard_recoverable_pending(shard: &Shard, txn_id: &str) -> Res
         let mut table = control
             .open_table::<&str, u8>(XSHARD_DECISION)
             .map_err(|e| e.to_string())?;
-        table.insert(txn_id, 4u8).map_err(|e| e.to_string())?;
+        let current = table
+            .get(txn_id)
+            .map_err(|e| e.to_string())?
+            .map(|row| row.value());
+        let encoded = eg_transaction::merge_coordinator_decision(current, 4)?;
+        table.insert(txn_id, encoded).map_err(|e| e.to_string())?;
         Ok(())
     })
 }

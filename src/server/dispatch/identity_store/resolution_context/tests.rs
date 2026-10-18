@@ -500,11 +500,18 @@ fn all_producer_refusals_survive_final_response_classification() {
 /// it normally. Used only to put session time/MFA at precise test boundaries.
 fn edit_fixture_identity(state: &mut ServerState, edit: impl FnOnce(&mut serde_json::Value)) {
     let adapter = state.isolation.policy_store().unwrap();
-    let (policy, identities, bootstrap) = adapter.load().unwrap();
-    let mut value = serde_json::to_value(policy).unwrap();
+    let snapshot = adapter.authority_snapshot().unwrap();
+    let mut value = serde_json::to_value(snapshot.policy()).unwrap();
     edit(&mut value["identity"]);
     let policy = serde_json::from_value(value).unwrap();
-    adapter.save(&policy, &identities, bootstrap).unwrap();
+    adapter
+        .compare_and_save(
+            snapshot.revision(),
+            &policy,
+            snapshot.identities(),
+            snapshot.bootstrap(),
+        )
+        .unwrap();
     state.isolation = crate::isolation::IsolationLayer::with_policy_store(adapter).unwrap();
 }
 

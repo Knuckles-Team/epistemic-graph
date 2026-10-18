@@ -96,7 +96,8 @@ impl RowGuard<'_, '_> {
         refuse_policy_row(Some(&incoming))?;
         // Reserve this key even before a row is labelled WorkItem; otherwise
         // a caller could plant it on a plain row and relabel that row later.
-        if incoming.contains_key("run_owner_binding")
+        if incoming.contains_key("current_plan")
+            || incoming.contains_key("run_owner_binding")
             || incoming.contains_key("pending_call_lease_ref")
             || (is_work_item_row(&incoming)
                 && stored

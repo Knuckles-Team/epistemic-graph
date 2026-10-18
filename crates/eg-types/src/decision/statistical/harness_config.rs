@@ -31,6 +31,7 @@ pub struct HarnessConfigRequestBody {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case", deny_unknown_fields)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "contract-schema", schemars(rename = "HarnessPart_{T}"))]
 pub enum HarnessPart<T> {
     Decided {
         value: T,

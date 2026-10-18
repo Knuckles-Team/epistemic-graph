@@ -147,10 +147,11 @@ def test_pr_runtime_gates_do_not_wait_for_self_hosted_runners() -> None:
         assert jobs[name]["if"] == "needs.changes.outputs.code == 'true'"
 
 
-def test_workspace_gates_use_hosted_runner_with_required_headers() -> None:
+@pytest.mark.parametrize("job_name", ["gates-crates", "gates-storage"])
+def test_workspace_gates_use_hosted_runner_with_required_headers(job_name: str) -> None:
     """EG-CONTRACT-R035: prerequisite installation must work on every event."""
     jobs = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())["jobs"]
-    job = jobs["gates-crates"]
+    job = jobs[job_name]
     assert job["runs-on"] == "ubuntu-latest"
     assert job["needs"] == "changes"
     assert job["if"] == "needs.changes.outputs.code == 'true'"

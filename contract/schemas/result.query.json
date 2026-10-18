@@ -4071,11 +4071,11 @@
       "maxItems": 8,
       "type": "array"
     },
-    "BoundedVec_PackEntry_1024": {
+    "BoundedVec_PackEntry_8192": {
       "items": {
         "$ref": "#/$defs/PackEntry"
       },
-      "maxItems": 1024,
+      "maxItems": 8192,
       "type": "array"
     },
     "BoundedVec_PackRef_64": {
@@ -4292,13 +4292,6 @@
       "maxItems": 2048,
       "type": "array"
     },
-    "BoundedVec_string_1024": {
-      "items": {
-        "type": "string"
-      },
-      "maxItems": 1024,
-      "type": "array"
-    },
     "BoundedVec_string_16": {
       "items": {
         "type": "string"
@@ -4332,6 +4325,13 @@
         "type": "string"
       },
       "maxItems": 8,
+      "type": "array"
+    },
+    "BoundedVec_string_8192": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 8192,
       "type": "array"
     },
     "BoundedVec_uint64_8": {
@@ -6835,7 +6835,7 @@
           "type": "string"
         },
         "entries": {
-          "$ref": "#/$defs/BoundedVec_PackEntry_1024"
+          "$ref": "#/$defs/BoundedVec_PackEntry_8192"
         },
         "pack_digest": {
           "$ref": "#/$defs/Digest256",
@@ -7144,7 +7144,7 @@
           "$ref": "#/$defs/AgentLibraryMutationContext"
         },
         "uris": {
-          "$ref": "#/$defs/BoundedVec_string_1024"
+          "$ref": "#/$defs/BoundedVec_string_8192"
         }
       },
       "required": [
@@ -7798,6 +7798,43 @@
       "required": [
         "username",
         "kind"
+      ],
+      "type": "object"
+    },
+    "CurrentPlanSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "expires_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/PlanItem"
+          },
+          "type": "array"
+        },
+        "observed_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "run_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "revision",
+        "observed_at_ms",
+        "expires_at_ms",
+        "items"
       ],
       "type": "object"
     },
@@ -11027,6 +11064,60 @@
       ],
       "type": "object"
     },
+    "EnrichDocumentRequest": {
+      "additionalProperties": false,
+      "description": "Request body of `EnrichDocument`.",
+      "properties": {
+        "document_id": {
+          "description": "The held Document node to enrich.",
+          "type": "string"
+        },
+        "fetch_backend": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FetchBackend"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The backend that fetched the page. Absent reads the Document's\n`fetch_backend` (or `backend`) property."
+        },
+        "max_chunk_bytes": {
+          "default": null,
+          "description": "Chunk window in UTF-8 bytes (64 to 65 536). Absent is 1 200.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "overlap_bytes": {
+          "default": null,
+          "description": "Overlap between consecutive chunks in bytes, under half the window.\nAbsent is 150.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "text_property": {
+          "default": null,
+          "description": "The Document property holding its text. Absent tries `text`, then\n`content`, then `body`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "document_id"
+      ],
+      "type": "object"
+    },
     "EnrichmentBudgetReservation": {
       "additionalProperties": false,
       "description": "Compare-and-swap reservation on the immutable source snapshot's global\ncompute budget. The native submit transaction applies this debit and all\nchild WorkItems together or neither. A capacity lease is a separate live\nresource fence and cannot replace this spending ledger.",
@@ -12780,6 +12871,14 @@
           "type": "object"
         }
       ]
+    },
+    "FetchBackend": {
+      "description": "The closed set of web fetch backends (EG-UNIFIED-DATA-PLANE-R651.7.1).",
+      "enum": [
+        "webarchiver",
+        "archivebox"
+      ],
+      "type": "string"
     },
     "FieldContract": {
       "additionalProperties": false,
@@ -15765,25 +15864,25 @@
       "description": "Q32 fractions reuse the checked unit rational with denominator 2^32.",
       "properties": {
         "action_space": {
-          "$ref": "#/$defs/HarnessPart4"
+          "$ref": "#/$defs/HarnessPart_ActionSpace"
         },
         "context_policy": {
-          "$ref": "#/$defs/HarnessPart"
+          "$ref": "#/$defs/HarnessPart_ContextPolicy"
         },
         "hard_threshold": {
-          "$ref": "#/$defs/HarnessPart2"
+          "$ref": "#/$defs/HarnessPart_UnitRationalWire"
         },
         "plan_scaffold": {
-          "$ref": "#/$defs/HarnessPart3"
+          "$ref": "#/$defs/HarnessPart_PlanScaffold"
         },
         "recent_window_fraction": {
-          "$ref": "#/$defs/HarnessPart2"
+          "$ref": "#/$defs/HarnessPart_UnitRationalWire"
         },
         "soft_threshold": {
-          "$ref": "#/$defs/HarnessPart2"
+          "$ref": "#/$defs/HarnessPart_UnitRationalWire"
         },
         "tool_subset": {
-          "$ref": "#/$defs/HarnessPart5"
+          "$ref": "#/$defs/HarnessPart_BoundedVec_string_256"
         }
       },
       "required": [
@@ -15853,136 +15952,7 @@
       ],
       "type": "object"
     },
-    "HarnessPart": {
-      "description": "Each part carries its own decision or conservative fallback.",
-      "oneOf": [
-        {
-          "additionalProperties": false,
-          "properties": {
-            "status": {
-              "const": "decided",
-              "type": "string"
-            },
-            "value": {
-              "$ref": "#/$defs/ContextPolicy"
-            }
-          },
-          "required": [
-            "status",
-            "value"
-          ],
-          "type": "object"
-        },
-        {
-          "additionalProperties": false,
-          "properties": {
-            "conservative_default": {
-              "$ref": "#/$defs/ContextPolicy"
-            },
-            "missing_fact": {
-              "$ref": "#/$defs/BoundedVec_string_64"
-            },
-            "status": {
-              "const": "abstained",
-              "type": "string"
-            }
-          },
-          "required": [
-            "status",
-            "missing_fact",
-            "conservative_default"
-          ],
-          "type": "object"
-        }
-      ]
-    },
-    "HarnessPart2": {
-      "description": "Each part carries its own decision or conservative fallback.",
-      "oneOf": [
-        {
-          "additionalProperties": false,
-          "properties": {
-            "status": {
-              "const": "decided",
-              "type": "string"
-            },
-            "value": {
-              "$ref": "#/$defs/UnitRationalWire"
-            }
-          },
-          "required": [
-            "status",
-            "value"
-          ],
-          "type": "object"
-        },
-        {
-          "additionalProperties": false,
-          "properties": {
-            "conservative_default": {
-              "$ref": "#/$defs/UnitRationalWire"
-            },
-            "missing_fact": {
-              "$ref": "#/$defs/BoundedVec_string_64"
-            },
-            "status": {
-              "const": "abstained",
-              "type": "string"
-            }
-          },
-          "required": [
-            "status",
-            "missing_fact",
-            "conservative_default"
-          ],
-          "type": "object"
-        }
-      ]
-    },
-    "HarnessPart3": {
-      "description": "Each part carries its own decision or conservative fallback.",
-      "oneOf": [
-        {
-          "additionalProperties": false,
-          "properties": {
-            "status": {
-              "const": "decided",
-              "type": "string"
-            },
-            "value": {
-              "$ref": "#/$defs/PlanScaffold"
-            }
-          },
-          "required": [
-            "status",
-            "value"
-          ],
-          "type": "object"
-        },
-        {
-          "additionalProperties": false,
-          "properties": {
-            "conservative_default": {
-              "$ref": "#/$defs/PlanScaffold"
-            },
-            "missing_fact": {
-              "$ref": "#/$defs/BoundedVec_string_64"
-            },
-            "status": {
-              "const": "abstained",
-              "type": "string"
-            }
-          },
-          "required": [
-            "status",
-            "missing_fact",
-            "conservative_default"
-          ],
-          "type": "object"
-        }
-      ]
-    },
-    "HarnessPart4": {
+    "HarnessPart_ActionSpace": {
       "description": "Each part carries its own decision or conservative fallback.",
       "oneOf": [
         {
@@ -16025,7 +15995,7 @@
         }
       ]
     },
-    "HarnessPart5": {
+    "HarnessPart_BoundedVec_string_256": {
       "description": "Each part carries its own decision or conservative fallback.",
       "oneOf": [
         {
@@ -16050,6 +16020,135 @@
           "properties": {
             "conservative_default": {
               "$ref": "#/$defs/BoundedVec_string_256"
+            },
+            "missing_fact": {
+              "$ref": "#/$defs/BoundedVec_string_64"
+            },
+            "status": {
+              "const": "abstained",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "missing_fact",
+            "conservative_default"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "HarnessPart_ContextPolicy": {
+      "description": "Each part carries its own decision or conservative fallback.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "status": {
+              "const": "decided",
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/$defs/ContextPolicy"
+            }
+          },
+          "required": [
+            "status",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "conservative_default": {
+              "$ref": "#/$defs/ContextPolicy"
+            },
+            "missing_fact": {
+              "$ref": "#/$defs/BoundedVec_string_64"
+            },
+            "status": {
+              "const": "abstained",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "missing_fact",
+            "conservative_default"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "HarnessPart_PlanScaffold": {
+      "description": "Each part carries its own decision or conservative fallback.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "status": {
+              "const": "decided",
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/$defs/PlanScaffold"
+            }
+          },
+          "required": [
+            "status",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "conservative_default": {
+              "$ref": "#/$defs/PlanScaffold"
+            },
+            "missing_fact": {
+              "$ref": "#/$defs/BoundedVec_string_64"
+            },
+            "status": {
+              "const": "abstained",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "missing_fact",
+            "conservative_default"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "HarnessPart_UnitRationalWire": {
+      "description": "Each part carries its own decision or conservative fallback.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "status": {
+              "const": "decided",
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/$defs/UnitRationalWire"
+            }
+          },
+          "required": [
+            "status",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "conservative_default": {
+              "$ref": "#/$defs/UnitRationalWire"
             },
             "missing_fact": {
               "$ref": "#/$defs/BoundedVec_string_64"
@@ -37128,6 +37227,62 @@
         },
         {
           "additionalProperties": false,
+          "properties": {
+            "method": {
+              "const": "PublishCurrentPlan",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "request": {
+                  "$ref": "#/$defs/PublishCurrentPlanRequest"
+                }
+              },
+              "required": [
+                "request"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "const": "GetCurrentPlan",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "run_id": {
+                  "type": "string"
+                },
+                "tenant": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "tenant",
+                "run_id"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
           "description": "The caller's view of one native WorkItem row, or `null` when no row with\nthis id is visible to `tenant`. `tenant` must equal the verified request\ntenant (`ACCESS_DENIED` otherwise); lease owner, epoch and fencing token\nare never returned. See [`crate::work_item_read`].",
           "properties": {
             "method": {
@@ -37739,6 +37894,60 @@
               "properties": {
                 "request": {
                   "$ref": "#/$defs/RetireSealedRecordRequest"
+                }
+              },
+              "required": [
+                "request"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Chunk one held Document of the request graph, embed the chunks and\ncommit the chunks, their `chunkOf` edges, their vectors and one\nenrichment record as one governed ChangeEnvelope. Idempotent by the\nDocument's content digest; a new digest supersedes the earlier chunks.\nSee [`crate::source_ingestion::web_document`].",
+          "properties": {
+            "method": {
+              "const": "EnrichDocument",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "request": {
+                  "$ref": "#/$defs/EnrichDocumentRequest"
+                }
+              },
+              "required": [
+                "request"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Choose which web search candidates to fetch: canonical-URL and digest\ndedupe against each other and the request graph's held Documents,\nheld-fresh skips, deterministic relevance/rank/freshness scoring and a\nfetch budget. Reads only; no model runs. See\n[`crate::decision::web_fetch_selection`].",
+          "properties": {
+            "method": {
+              "const": "SelectWebPages",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "request": {
+                  "$ref": "#/$defs/SelectWebPagesRequest"
                 }
               },
               "required": [
@@ -41124,6 +41333,16 @@
           "additionalProperties": true,
           "type": "object"
         },
+        "plan": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PendingPlanPreimage"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "work_item": {
           "$ref": "#/$defs/PendingCallFence"
         }
@@ -41165,6 +41384,16 @@
         "expected_lease": {
           "$ref": "#/$defs/CasWorkItemMetadataLeaseFence"
         },
+        "plan": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PendingPlanPreimage"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "work_item": {
           "$ref": "#/$defs/PendingCallFence"
         }
@@ -41172,6 +41401,34 @@
       "required": [
         "work_item",
         "expected_lease"
+      ],
+      "type": "object"
+    },
+    "PendingPlanPreimage": {
+      "additionalProperties": false,
+      "description": "Exact immutable stored-data expectation supplied by the caller.\nThis is not an authorization grant; Arbora owns permission decisions.",
+      "properties": {
+        "expected_grant": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "expected_kind": {
+          "type": "string"
+        },
+        "expected_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "lease_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "lease_id",
+        "expected_revision",
+        "expected_kind",
+        "expected_grant"
       ],
       "type": "object"
     },
@@ -41337,10 +41594,34 @@
       ],
       "type": "object"
     },
+    "PlanItem": {
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "$ref": "#/$defs/PlanStatus"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "text",
+        "status"
+      ],
+      "type": "object"
+    },
     "PlanScaffold": {
       "enum": [
         "on",
         "off"
+      ],
+      "type": "string"
+    },
+    "PlanStatus": {
+      "enum": [
+        "pending",
+        "in_progress",
+        "done"
       ],
       "type": "string"
     },
@@ -43196,6 +43477,42 @@
       "required": [
         "idp_id",
         "limit"
+      ],
+      "type": "object"
+    },
+    "PublishCurrentPlanRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "fencing_token": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "lease_epoch": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "snapshot": {
+          "$ref": "#/$defs/CurrentPlanSnapshot"
+        },
+        "tenant": {
+          "type": "string"
+        },
+        "worker_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tenant",
+        "snapshot",
+        "worker_id",
+        "lease_epoch",
+        "fencing_token",
+        "idempotency_key"
       ],
       "type": "object"
     },
@@ -45785,6 +46102,173 @@
     "Secret": {
       "description": "A secret in a request body. `Debug` never prints it; the boundary clears\nit with [`Secret::take`] before the op leaves the leader.",
       "type": "string"
+    },
+    "SelectWebPagesAnswer": {
+      "additionalProperties": false,
+      "description": "Result body of `SelectWebPages`.",
+      "properties": {
+        "considered": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max_fetches": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "now_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "query_digest": {
+          "description": "`sha256:<hex>` of the trimmed query text.",
+          "type": "string"
+        },
+        "selected": {
+          "items": {
+            "$ref": "#/$defs/SelectedPage"
+          },
+          "type": "array"
+        },
+        "skipped": {
+          "items": {
+            "$ref": "#/$defs/SkippedPage"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "query_digest",
+        "selected",
+        "skipped",
+        "max_fetches",
+        "considered",
+        "now_ms"
+      ],
+      "type": "object"
+    },
+    "SelectWebPagesRequest": {
+      "additionalProperties": false,
+      "description": "Request body of `SelectWebPages`.",
+      "properties": {
+        "candidates": {
+          "items": {
+            "$ref": "#/$defs/WebCandidate"
+          },
+          "type": "array"
+        },
+        "freshness_window_s": {
+          "default": null,
+          "description": "Absent is 86 400 s.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "max_fetches": {
+          "description": "The fetch budget, 1 to 32.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "now_ms": {
+          "default": null,
+          "description": "The decision clock in Unix milliseconds. Absent reads the server\nclock; pass it to make a replay exact.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "query": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "query",
+        "candidates",
+        "max_fetches"
+      ],
+      "type": "object"
+    },
+    "SelectedPage": {
+      "additionalProperties": false,
+      "description": "One selected page.",
+      "properties": {
+        "canonical_url": {
+          "type": "string"
+        },
+        "engines": {
+          "description": "The engines that returned the URL, sorted.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "freshness_micros": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "order": {
+          "description": "0-based fetch order.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "rank_micros": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "reasons": {
+          "description": "Human-readable reasons, in a fixed order.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "refresh": {
+          "description": "True when a held copy exists but is older than the window.",
+          "type": "boolean"
+        },
+        "relevance_micros": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "score_micros": {
+          "description": "Weighted total in millionths.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "title": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "order",
+        "url",
+        "canonical_url",
+        "title",
+        "score_micros",
+        "relevance_micros",
+        "rank_micros",
+        "freshness_micros",
+        "engines",
+        "refresh",
+        "reasons"
+      ],
+      "type": "object"
     },
     "SemanticActivationTarget": {
       "additionalProperties": false,
@@ -49667,6 +50151,61 @@
         "mcp_skill"
       ],
       "type": "string"
+    },
+    "SkipReason": {
+      "description": "Why a candidate was not selected.",
+      "oneOf": [
+        {
+          "const": "duplicate_url",
+          "description": "Another row has the same canonical URL; its rank was fused into it.",
+          "type": "string"
+        },
+        {
+          "const": "duplicate_digest",
+          "description": "Another row, or a held Document, has the same content digest.",
+          "type": "string"
+        },
+        {
+          "const": "held_fresh",
+          "description": "A held Document for the URL is younger than the freshness window.",
+          "type": "string"
+        },
+        {
+          "const": "invalid_url",
+          "description": "The URL is not an absolute http or https URL.",
+          "type": "string"
+        },
+        {
+          "const": "over_budget",
+          "description": "The candidate ranked below the fetch budget.",
+          "type": "string"
+        }
+      ]
+    },
+    "SkippedPage": {
+      "additionalProperties": false,
+      "description": "One candidate that was not selected.",
+      "properties": {
+        "canonical_url": {
+          "type": "string"
+        },
+        "detail": {
+          "type": "string"
+        },
+        "reason": {
+          "$ref": "#/$defs/SkipReason"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "canonical_url",
+        "reason",
+        "detail"
+      ],
+      "type": "object"
     },
     "SlateAttributionMethod": {
       "description": "How a slate's outcome is split across its components (EH-523).",
@@ -54983,6 +55522,57 @@
       ],
       "type": "object"
     },
+    "WebCandidate": {
+      "additionalProperties": false,
+      "description": "One search result row.",
+      "properties": {
+        "content_digest": {
+          "default": null,
+          "description": "`sha256:<hex>` of the page content, when already known.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "engine": {
+          "default": "",
+          "description": "The search engine that returned the row.",
+          "type": "string"
+        },
+        "published_at_ms": {
+          "default": null,
+          "description": "Publication time in Unix milliseconds, when the engine reports one.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "rank": {
+          "description": "The engine's 1-based rank for the row.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "snippet": {
+          "default": "",
+          "type": "string"
+        },
+        "title": {
+          "default": "",
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "rank"
+      ],
+      "type": "object"
+    },
     "WebauthnCredential": {
       "additionalProperties": false,
       "description": "`register_webauthn`: store a credential graph-os verified at\nregistration. The live session proves the person.",
@@ -56001,6 +56591,18 @@
           "encoding": "Raw",
           "schema": {
             "$ref": "#/$defs/ResolveConflictResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "SelectWebPages": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/SelectWebPagesAnswer"
           }
         }
       },

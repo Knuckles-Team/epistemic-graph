@@ -624,6 +624,10 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         | Method::ConnectorPack { .. }
         | Method::SourceIngest { .. }
         | Method::SourceIngestStatus { .. }
+        // EG-UNIFIED-DATA-PLANE-R651.7: lowers to one ChangeEnvelope, which
+        // carries its own domains; selection commits nothing.
+        | Method::EnrichDocument { .. }
+        | Method::SelectWebPages { .. }
         // EH-408/EH-409: self-translates into a request-graph `BatchUpdate`,
         // which carries its own domain.
         | Method::TelemetryDerive { .. }
@@ -636,6 +640,7 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         | Method::GraphSchemaClasses { .. }
         // EH-219 / graph-os EG-2/3 typed reads: MVCC snapshot reads that commit
         // nothing, so like every other read they carry the surface-keyed default.
+        | Method::GetCurrentPlan { .. }
         | Method::GetWorkItem { .. }
         | Method::ListWorkItems { .. }
         | Method::GetWorkItemOutcome { .. }

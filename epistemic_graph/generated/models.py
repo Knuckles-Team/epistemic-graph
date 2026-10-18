@@ -290,11 +290,11 @@ from .agent_component import (
     AgentComponentStatusRequest,
 )
 from .connector_pack import (
-    BoundedVec_PackEntry_1024,
+    BoundedVec_PackEntry_8192,
     BoundedVec_PackRef_64,
     BoundedVec_PackViolation_256,
     BoundedVec_PackWarning_256,
-    BoundedVec_string_1024,
+    BoundedVec_string_8192,
     ConnectorPackBindRequest,
     ConnectorPackImportRequest,
     ConnectorPackIndex,
@@ -3008,6 +3008,25 @@ class CrossEntropyResult(BaseModel):
     loss: float
 
 
+class CurrentPlanPublished(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    changed_work_item_ids: list[str]
+    payload_digest: str
+    revision: Annotated[int, Field(ge=0)]
+    run_id: str
+
+
+class CurrentPlanSnapshot(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    expires_at_ms: Annotated[int, Field(ge=0)]
+    items: list[PlanItem]
+    observed_at_ms: Annotated[int, Field(ge=0)]
+    revision: Annotated[int, Field(ge=0)]
+    run_id: str
+
+
 class CursorPositionSequence(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -4513,6 +4532,34 @@ class ElevationStanding(str, Enum):
     APPROVER = "approver"
 
 
+class EnrichDocumentReceipt(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    chunk_count: Annotated[int, Field(ge=0)]
+    chunk_ids: list[str]
+    chunker: str
+    content_digest: str
+    dimensions: Annotated[int, Field(ge=0)]
+    document_id: str
+    embedder: str
+    embedding_model: str | None = None
+    enrichment_id: str
+    fetch_backend: FetchBackend | None = None
+    replayed: bool
+    superseded_chunks: Annotated[int, Field(ge=0)]
+    vector_count: Annotated[int, Field(ge=0)]
+
+
+class EnrichDocumentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    document_id: str
+    fetch_backend: FetchBackend | None = None
+    max_chunk_bytes: Annotated[int, Field(ge=0)] | None = None
+    overlap_bytes: Annotated[int, Field(ge=0)] | None = None
+    text_property: str | None = None
+
+
 class EnrichmentBudgetReservation(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -5114,6 +5161,11 @@ FeatureStep = Annotated[
     FeatureStepEmbedding | FeatureStepNodeVector | FeatureStepNormalize,
     Field(discriminator="step"),
 ]
+
+
+class FetchBackend(str, Enum):
+    WEBARCHIVER = "webarchiver"
+    ARCHIVEBOX = "archivebox"
 
 
 class FidelityCounts(BaseModel):
@@ -6427,13 +6479,13 @@ class GuardrailEntailmentResult(BaseModel):
 class HarnessConfigAnswer(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
-    action_space: HarnessPart4
-    context_policy: HarnessPart
-    hard_threshold: HarnessPart2
-    plan_scaffold: HarnessPart3
-    recent_window_fraction: HarnessPart2
-    soft_threshold: HarnessPart2
-    tool_subset: HarnessPart5
+    action_space: HarnessPart_ActionSpace
+    context_policy: HarnessPart_ContextPolicy
+    hard_threshold: HarnessPart_UnitRationalWire
+    plan_scaffold: HarnessPart_PlanScaffold
+    recent_window_fraction: HarnessPart_UnitRationalWire
+    soft_threshold: HarnessPart_UnitRationalWire
+    tool_subset: HarnessPart_BoundedVec_string_256
 
 
 class HarnessConfigEvaluationEvidence(BaseModel):
@@ -6454,77 +6506,14 @@ class HarnessConfigRequestBody(BaseModel):
     usable_context_budget_tokens: Annotated[int, Field(ge=0)]
 
 
-class HarnessPartDecided(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
-
-    status: Literal["decided"]
-    value: ContextPolicy
-
-
-class HarnessPartAbstained(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
-
-    conservative_default: ContextPolicy
-    missing_fact: BoundedVec_string_64
-    status: Literal["abstained"]
-
-
-HarnessPart = Annotated[
-    HarnessPartDecided | HarnessPartAbstained,
-    Field(discriminator="status"),
-]
-
-
-class HarnessPart2Decided(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
-
-    status: Literal["decided"]
-    value: UnitRationalWire
-
-
-class HarnessPart2Abstained(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
-
-    conservative_default: UnitRationalWire
-    missing_fact: BoundedVec_string_64
-    status: Literal["abstained"]
-
-
-HarnessPart2 = Annotated[
-    HarnessPart2Decided | HarnessPart2Abstained,
-    Field(discriminator="status"),
-]
-
-
-class HarnessPart3Decided(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
-
-    status: Literal["decided"]
-    value: PlanScaffold
-
-
-class HarnessPart3Abstained(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
-
-    conservative_default: PlanScaffold
-    missing_fact: BoundedVec_string_64
-    status: Literal["abstained"]
-
-
-HarnessPart3 = Annotated[
-    HarnessPart3Decided | HarnessPart3Abstained,
-    Field(discriminator="status"),
-]
-
-
-class HarnessPart4Decided(BaseModel):
+class HarnessPart_ActionSpaceDecided(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     status: Literal["decided"]
     value: ActionSpace
 
 
-class HarnessPart4Abstained(BaseModel):
+class HarnessPart_ActionSpaceAbstained(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     conservative_default: ActionSpace
@@ -6532,20 +6521,20 @@ class HarnessPart4Abstained(BaseModel):
     status: Literal["abstained"]
 
 
-HarnessPart4 = Annotated[
-    HarnessPart4Decided | HarnessPart4Abstained,
+HarnessPart_ActionSpace = Annotated[
+    HarnessPart_ActionSpaceDecided | HarnessPart_ActionSpaceAbstained,
     Field(discriminator="status"),
 ]
 
 
-class HarnessPart5Decided(BaseModel):
+class HarnessPart_BoundedVec_string_256Decided(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     status: Literal["decided"]
     value: BoundedVec_string_256
 
 
-class HarnessPart5Abstained(BaseModel):
+class HarnessPart_BoundedVec_string_256Abstained(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     conservative_default: BoundedVec_string_256
@@ -6553,8 +6542,72 @@ class HarnessPart5Abstained(BaseModel):
     status: Literal["abstained"]
 
 
-HarnessPart5 = Annotated[
-    HarnessPart5Decided | HarnessPart5Abstained,
+HarnessPart_BoundedVec_string_256 = Annotated[
+    HarnessPart_BoundedVec_string_256Decided
+    | HarnessPart_BoundedVec_string_256Abstained,
+    Field(discriminator="status"),
+]
+
+
+class HarnessPart_ContextPolicyDecided(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    status: Literal["decided"]
+    value: ContextPolicy
+
+
+class HarnessPart_ContextPolicyAbstained(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    conservative_default: ContextPolicy
+    missing_fact: BoundedVec_string_64
+    status: Literal["abstained"]
+
+
+HarnessPart_ContextPolicy = Annotated[
+    HarnessPart_ContextPolicyDecided | HarnessPart_ContextPolicyAbstained,
+    Field(discriminator="status"),
+]
+
+
+class HarnessPart_PlanScaffoldDecided(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    status: Literal["decided"]
+    value: PlanScaffold
+
+
+class HarnessPart_PlanScaffoldAbstained(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    conservative_default: PlanScaffold
+    missing_fact: BoundedVec_string_64
+    status: Literal["abstained"]
+
+
+HarnessPart_PlanScaffold = Annotated[
+    HarnessPart_PlanScaffoldDecided | HarnessPart_PlanScaffoldAbstained,
+    Field(discriminator="status"),
+]
+
+
+class HarnessPart_UnitRationalWireDecided(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    status: Literal["decided"]
+    value: UnitRationalWire
+
+
+class HarnessPart_UnitRationalWireAbstained(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    conservative_default: UnitRationalWire
+    missing_fact: BoundedVec_string_64
+    status: Literal["abstained"]
+
+
+HarnessPart_UnitRationalWire = Annotated[
+    HarnessPart_UnitRationalWireDecided | HarnessPart_UnitRationalWireAbstained,
     Field(discriminator="status"),
 ]
 
@@ -11779,6 +11832,20 @@ class MethodEdgeSearch(BaseModel):
     params: MethodEdgeSearchParams
 
 
+class MethodPublishCurrentPlan(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["PublishCurrentPlan"]
+    params: MethodPublishCurrentPlanParams
+
+
+class MethodGetCurrentPlan(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["GetCurrentPlan"]
+    params: MethodGetCurrentPlanParams
+
+
 class MethodGetWorkItem(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -11917,6 +11984,20 @@ class MethodRetireSealedRecord(BaseModel):
 
     method: Literal["RetireSealedRecord"]
     params: MethodRetireSealedRecordParams
+
+
+class MethodEnrichDocument(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["EnrichDocument"]
+    params: MethodEnrichDocumentParams
+
+
+class MethodSelectWebPages(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["SelectWebPages"]
+    params: MethodSelectWebPagesParams
 
 
 Method = Annotated[
@@ -12366,6 +12447,8 @@ Method = Annotated[
     | MethodMutationOutbox
     | MethodEdgeIndex
     | MethodEdgeSearch
+    | MethodPublishCurrentPlan
+    | MethodGetCurrentPlan
     | MethodGetWorkItem
     | MethodListWorkItems
     | MethodGetWorkItemOutcome
@@ -12385,7 +12468,9 @@ Method = Annotated[
     | MethodTelemetryDerive
     | MethodFinanceMarket
     | MethodFinanceSignalModels
-    | MethodRetireSealedRecord,
+    | MethodRetireSealedRecord
+    | MethodEnrichDocument
+    | MethodSelectWebPages,
     Field(discriminator="method"),
 ]
 
@@ -13256,6 +13341,12 @@ class MethodEdgeSearchParams(BaseModel):
     request: EdgeSearchRequest
 
 
+class MethodEnrichDocumentParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    request: EnrichDocumentRequest
+
+
 class MethodEpistemicStatusParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -13998,6 +14089,13 @@ class MethodGetControlLeaseParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     lease_id: str
+    tenant: str
+
+
+class MethodGetCurrentPlanParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    run_id: str
     tenant: str
 
 
@@ -14812,6 +14910,12 @@ class MethodPublishConfirmedParams(BaseModel):
     ttl_ms: Annotated[int, Field(ge=0)] | None = None
 
 
+class MethodPublishCurrentPlanParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    request: PublishCurrentPlanRequest
+
+
 class MethodPublishExParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -15200,6 +15304,12 @@ class MethodSceneChildrenParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     node_id: str
+
+
+class MethodSelectWebPagesParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    request: SelectWebPagesRequest
 
 
 class MethodSemanticIndexParams(BaseModel):
@@ -17027,7 +17137,7 @@ class PackRetireResult(BaseModel):
     batch_id: str
     committed_version: Annotated[int, Field(ge=0)]
     connector: str
-    retired: BoundedVec_ComponentDependency_1024
+    retired: BoundedVec_ComponentDependency_8192
     schema_version: Annotated[int, Field(ge=0, le=65535)]
     tenant_id: str
 
@@ -17123,6 +17233,7 @@ class PendingCallConsumption(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     expected_grant: dict[str, Any]
+    plan: PendingPlanPreimage | None = None
     work_item: PendingCallFence
 
 
@@ -17138,7 +17249,17 @@ class PendingCallRegistration(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     expected_lease: CasWorkItemMetadataLeaseFence
+    plan: PendingPlanPreimage | None = None
     work_item: PendingCallFence
+
+
+class PendingPlanPreimage(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    expected_grant: dict[str, Any]
+    expected_kind: str
+    expected_revision: Annotated[int, Field(ge=0)]
+    lease_id: str
 
 
 class PipelineClassifiedRow(BaseModel):
@@ -17326,9 +17447,22 @@ class Plan(BaseModel):
     ops: list[Op]
 
 
+class PlanItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    status: PlanStatus
+    text: str
+
+
 class PlanScaffold(str, Enum):
     ON = "on"
     OFF = "off"
+
+
+class PlanStatus(str, Enum):
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    DONE = "done"
 
 
 class PointerEvent(BaseModel):
@@ -17880,6 +18014,17 @@ class PruneStats(BaseModel):
     edges_removed: Annotated[int, Field(ge=0)]
     nodes_archived: Annotated[int, Field(ge=0)]
     nodes_removed: Annotated[int, Field(ge=0)]
+
+
+class PublishCurrentPlanRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    fencing_token: Annotated[int, Field(ge=0)]
+    idempotency_key: str
+    lease_epoch: Annotated[int, Field(ge=0)]
+    snapshot: CurrentPlanSnapshot
+    tenant: str
+    worker_id: str
 
 
 class QuantumExpectationResult(BaseModel):
@@ -19405,6 +19550,43 @@ class SeedAttributionRow(BaseModel):
     node: str
     seed: str
     shapley: float
+
+
+class SelectWebPagesAnswer(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    considered: Annotated[int, Field(ge=0)]
+    max_fetches: Annotated[int, Field(ge=0)]
+    now_ms: Annotated[int, Field(ge=0)]
+    query_digest: str
+    selected: list[SelectedPage]
+    skipped: list[SkippedPage]
+
+
+class SelectWebPagesRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    candidates: list[WebCandidate]
+    freshness_window_s: Annotated[int, Field(ge=0)] | None = None
+    max_fetches: Annotated[int, Field(ge=0)]
+    now_ms: Annotated[int, Field(ge=0)] | None = None
+    query: str
+
+
+class SelectedPage(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    canonical_url: str
+    engines: list[str]
+    freshness_micros: Annotated[int, Field(ge=0)]
+    order: Annotated[int, Field(ge=0)]
+    rank_micros: Annotated[int, Field(ge=0)]
+    reasons: list[str]
+    refresh: bool
+    relevance_micros: Annotated[int, Field(ge=0)]
+    score_micros: Annotated[int, Field(ge=0)]
+    title: str
+    url: str
 
 
 class SemanticActivationTarget(BaseModel):
@@ -21524,6 +21706,23 @@ class SkillOp(BaseModel):
     window: Annotated[int, Field(ge=0)]
 
 
+class SkipReason(str, Enum):
+    DUPLICATE_URL = "duplicate_url"
+    DUPLICATE_DIGEST = "duplicate_digest"
+    HELD_FRESH = "held_fresh"
+    INVALID_URL = "invalid_url"
+    OVER_BUDGET = "over_budget"
+
+
+class SkippedPage(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    canonical_url: str
+    detail: str
+    reason: SkipReason
+    url: str
+
+
 class SlateAttribution(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -23229,6 +23428,18 @@ class WatchBatch(BaseModel):
     watermark: Annotated[int, Field(ge=0)] | None = None
 
 
+class WebCandidate(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    content_digest: str | None = None
+    engine: str | None = None
+    published_at_ms: Annotated[int, Field(ge=0)] | None = None
+    rank: Annotated[int, Field(ge=0)]
+    snippet: str | None = None
+    title: str | None = None
+    url: str
+
+
 class WebauthnCredential(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -23595,10 +23806,10 @@ BoundedVec_ComponentContribution_64 = Annotated[
 ]
 
 
-BoundedVec_ComponentDependency_1024 = Annotated[
+BoundedVec_ComponentDependency_8192 = Annotated[
     list[ComponentDependency],
     Field(
-        max_length=1024,
+        max_length=8192,
     ),
 ]
 
@@ -24265,6 +24476,9 @@ GetContentVersionResult = ContentVersion | None
 
 
 GetControlLeaseResult = ControlLeaseView | None
+
+
+GetCurrentPlanResult = CurrentPlanSnapshot | None
 
 
 PropertyBlob = bytes
@@ -25339,9 +25553,9 @@ __all__ = [
     "BoundedVec_ClaimedTaskMapping_32",
     "BoundedVec_ClassCoverage_64",
     "BoundedVec_ComponentContribution_64",
-    "BoundedVec_ComponentDependency_1024",
     "BoundedVec_ComponentDependency_256",
     "BoundedVec_ComponentDependency_64",
+    "BoundedVec_ComponentDependency_8192",
     "BoundedVec_CoverageDerivation_32",
     "BoundedVec_DecisionEvalReceipt_50",
     "BoundedVec_DecisionReceiptTimelineEntry_50",
@@ -25372,7 +25586,7 @@ __all__ = [
     "BoundedVec_OptionAggregate_1024",
     "BoundedVec_OptionContribution_256",
     "BoundedVec_OutboxDeadLetterView_256",
-    "BoundedVec_PackEntry_1024",
+    "BoundedVec_PackEntry_8192",
     "BoundedVec_PackRef_64",
     "BoundedVec_PackViolation_256",
     "BoundedVec_PackWarning_256",
@@ -25418,12 +25632,12 @@ __all__ = [
     "BoundedVec_int64_2048",
     "BoundedVec_int64_256",
     "BoundedVec_int64_512",
-    "BoundedVec_string_1024",
     "BoundedVec_string_16",
     "BoundedVec_string_256",
     "BoundedVec_string_32",
     "BoundedVec_string_64",
     "BoundedVec_string_8",
+    "BoundedVec_string_8192",
     "BoundedVec_uint64_8",
     "BrokerConsumeResult",
     "BrokerConsumeResultValue",
@@ -25674,6 +25888,8 @@ __all__ = [
     "CoverageDerivation",
     "CreateUserRequest",
     "CrossEntropyResult",
+    "CurrentPlanPublished",
+    "CurrentPlanSnapshot",
     "CursorPosition",
     "CursorPositionOpaque",
     "CursorPositionOpaqueValue",
@@ -25900,6 +26116,8 @@ __all__ = [
     "ElevationStanding",
     "ElevationStatus",
     "Elimination",
+    "EnrichDocumentReceipt",
+    "EnrichDocumentRequest",
     "EnrichmentBudgetReservation",
     "EntailedGuardrail",
     "EntailmentStep",
@@ -25977,6 +26195,7 @@ __all__ = [
     "FeatureStepEmbedding",
     "FeatureStepNodeVector",
     "FeatureStepNormalize",
+    "FetchBackend",
     "FidelityCounts",
     "FieldContract",
     "Fill",
@@ -26166,6 +26385,7 @@ __all__ = [
     "GetChannelMessagesResult",
     "GetContentVersionResult",
     "GetControlLeaseResult",
+    "GetCurrentPlanResult",
     "GetEdgePropertiesBatchResult",
     "GetEdgesPageResult",
     "GetEdgesPageResultValueItem",
@@ -26230,21 +26450,21 @@ __all__ = [
     "HarnessConfigAnswer",
     "HarnessConfigEvaluationEvidence",
     "HarnessConfigRequestBody",
-    "HarnessPart",
-    "HarnessPart2",
-    "HarnessPart2Abstained",
-    "HarnessPart2Decided",
-    "HarnessPart3",
-    "HarnessPart3Abstained",
-    "HarnessPart3Decided",
-    "HarnessPart4",
-    "HarnessPart4Abstained",
-    "HarnessPart4Decided",
-    "HarnessPart5",
-    "HarnessPart5Abstained",
-    "HarnessPart5Decided",
-    "HarnessPartAbstained",
-    "HarnessPartDecided",
+    "HarnessPart_ActionSpace",
+    "HarnessPart_ActionSpaceAbstained",
+    "HarnessPart_ActionSpaceDecided",
+    "HarnessPart_BoundedVec_string_256",
+    "HarnessPart_BoundedVec_string_256Abstained",
+    "HarnessPart_BoundedVec_string_256Decided",
+    "HarnessPart_ContextPolicy",
+    "HarnessPart_ContextPolicyAbstained",
+    "HarnessPart_ContextPolicyDecided",
+    "HarnessPart_PlanScaffold",
+    "HarnessPart_PlanScaffoldAbstained",
+    "HarnessPart_PlanScaffoldDecided",
+    "HarnessPart_UnitRationalWire",
+    "HarnessPart_UnitRationalWireAbstained",
+    "HarnessPart_UnitRationalWireDecided",
     "HasNodesBatchResult",
     "HawkesFit",
     "HeadCalibration",
@@ -26809,6 +27029,8 @@ __all__ = [
     "MethodEdgeIndexParams",
     "MethodEdgeSearch",
     "MethodEdgeSearchParams",
+    "MethodEnrichDocument",
+    "MethodEnrichDocumentParams",
     "MethodEpistemicStatus",
     "MethodEpistemicStatusParams",
     "MethodEvictBelow",
@@ -27001,6 +27223,8 @@ __all__ = [
     "MethodGetContextViewParams",
     "MethodGetControlLease",
     "MethodGetControlLeaseParams",
+    "MethodGetCurrentPlan",
+    "MethodGetCurrentPlanParams",
     "MethodGetEdgeProperties",
     "MethodGetEdgePropertiesBatch",
     "MethodGetEdgePropertiesBatchParams",
@@ -27216,6 +27440,8 @@ __all__ = [
     "MethodPublish",
     "MethodPublishConfirmed",
     "MethodPublishConfirmedParams",
+    "MethodPublishCurrentPlan",
+    "MethodPublishCurrentPlanParams",
     "MethodPublishEx",
     "MethodPublishExParams",
     "MethodPublishIdempotent",
@@ -27323,6 +27549,8 @@ __all__ = [
     "MethodRunUdfParams",
     "MethodSceneChildren",
     "MethodSceneChildrenParams",
+    "MethodSelectWebPages",
+    "MethodSelectWebPagesParams",
     "MethodSemanticIndex",
     "MethodSemanticIndexParams",
     "MethodSemanticSearch",
@@ -27722,6 +27950,7 @@ __all__ = [
     "PendingCallConsumption",
     "PendingCallFence",
     "PendingCallRegistration",
+    "PendingPlanPreimage",
     "PersonalizedPageRankResult",
     "PersonalizedPageRankResultValueItem",
     "PipelineClassifiedRow",
@@ -27747,7 +27976,9 @@ __all__ = [
     "PlacementRouteSchemaVersion",
     "PlacementRouteWire",
     "Plan",
+    "PlanItem",
     "PlanScaffold",
+    "PlanStatus",
     "PointerEvent",
     "PointerMovement",
     "PointerMovementActivate",
@@ -27874,6 +28105,7 @@ __all__ = [
     "ProvisionedQuery",
     "ProvisionedUser",
     "PruneStats",
+    "PublishCurrentPlanRequest",
     "QuantScaleTag",
     "QuantisedValue",
     "QuantumExpectationResult",
@@ -28063,6 +28295,9 @@ __all__ = [
     "SealedRecordTombstone",
     "Secret",
     "SeedAttributionRow",
+    "SelectWebPagesAnswer",
+    "SelectWebPagesRequest",
+    "SelectedPage",
     "SemanticActivationTarget",
     "SemanticActivePointer",
     "SemanticAnnIndexIdentity",
@@ -28302,6 +28537,8 @@ __all__ = [
     "SkillOp",
     "SkillType",
     "SkillTypeSource",
+    "SkipReason",
+    "SkippedPage",
     "SlateAttribution",
     "SlateAttributionMethod",
     "SlateAttributionRequest",
@@ -28645,6 +28882,7 @@ __all__ = [
     "VolatilityClass",
     "WalkForward",
     "WatchBatch",
+    "WebCandidate",
     "WebauthnCredential",
     "WebauthnCredentialView",
     "WebauthnUse",

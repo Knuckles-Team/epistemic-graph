@@ -138,12 +138,13 @@ const GRAPH_GENERATIONS: [GraphGeneration; 2] = [
             "repository_enrichment_supersessions",
             "repository_enrichment_parks",
             "audit_requests",
+            "work_item_current_plans",
         ],
     },
     GraphGeneration {
         recorded: BEFORE_AUDIT_REQUESTS,
         source: GraphShardSource::BeforeAuditRequests,
-        added: &["audit_requests"],
+        added: &["audit_requests", "work_item_current_plans"],
     },
 ];
 
@@ -287,4 +288,59 @@ fn a_graph_upgrade_refuses_another_generation_and_another_stores_token() {
             .unwrap();
     assert!(upgrade_graph_shard(token).is_err());
     assert!(StorageKernel::open_owner::<AgentLibraryOwner>(&library, identity(), None).is_err());
+}
+
+// spec: EG-DURABLE-KERNEL-R028.5
+#[test]
+fn current_plan_upgrade_preserves_existing_graph_rows() {
+    let directory = private_local_tempdir();
+    let path = directory.path().join("graph-current-plan-predecessor.redb");
+    let predecessor = &super::super::lineage::GRAPH_SHARD_BEFORE_CURRENT_PLANS;
+    create_predecessor_owner_file(&path, identity(), predecessor).unwrap();
+    let recorded = RecordedLayout::read(&path);
+    assert_eq!(
+        recorded.manifest().layout_digest,
+        super::super::lineage::GRAPH_SHARD_PRE_CURRENT_PLANS_DIGEST
+    );
+    let database = Database::open(&path).unwrap();
+    let write = database.begin_write().unwrap();
+    write
+        .open_table(NODES)
+        .unwrap()
+        .insert(NODE_KEY, b"preserved native row".as_slice())
+        .unwrap();
+    write.commit().unwrap();
+    drop(database);
+    let refused = StorageKernel::open_owner::<GraphShardOwner>(&path, identity(), None)
+        .err()
+        .expect("normal open refuses old layout");
+    assert!(refused.starts_with("GRAPH_SHARD_FORMAT_UPGRADE_REQUIRED:"));
+    let token = inspect_graph_shard_upgrade(
+        &path,
+        identity(),
+        None,
+        options(&path),
+        GraphShardSource::BeforeCurrentPlans,
+    )
+    .unwrap();
+    drop(upgrade_graph_shard(token).unwrap());
+    drop(StorageKernel::open_owner::<GraphShardOwner>(&path, identity(), None).unwrap());
+    let database = Database::open(&path).unwrap();
+    let read = database.begin_read().unwrap();
+    assert_eq!(
+        read.open_table(NODES)
+            .unwrap()
+            .get(NODE_KEY)
+            .unwrap()
+            .unwrap()
+            .value(),
+        b"preserved native row"
+    );
+    assert_eq!(
+        read.open_table(super::super::graph_shard::CURRENT_PLANS)
+            .unwrap()
+            .len()
+            .unwrap(),
+        0
+    );
 }

@@ -160,45 +160,30 @@ fn graph_version(state: &test_support::SharedState) -> u64 {
         .version()
 }
 
-/// Run `test` on the engine's runtime shape and propagate its failure.
-fn on_engine<F: std::future::Future<Output = ()> + 'static>(test: fn() -> F) {
-    let driver = epistemic_graph::server::spawn_engine_driver(move || {
-        tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(2)
-            .thread_stack_size(epistemic_graph::server::ENGINE_WORKER_STACK_BYTES)
-            .enable_all()
-            .build()
-            .expect("build engine runtime")
-            .block_on(test());
-    })
-    .expect("spawn engine driver");
-    epistemic_graph::server::join_engine_driver(driver).expect("engine test body failed");
-}
-
 #[test]
 fn scoped_index_commits_replays_tombstones_and_survives_restart() {
-    on_engine(commit_replay_tombstone_restart);
+    test_support::on_engine(commit_replay_tombstone_restart);
 }
 
 #[test]
 fn repository_code_with_decorators_and_home_paths_commits() {
-    on_engine(code_with_decorators_and_home_paths);
+    test_support::on_engine(code_with_decorators_and_home_paths);
 }
 
 #[test]
 fn one_path_with_diverged_blobs_commits_in_one_batch() {
-    on_engine(one_path_diverged_across_refs);
+    test_support::on_engine(one_path_diverged_across_refs);
 }
 
 #[test]
 fn an_empty_source_file_commits() {
-    on_engine(empty_source_file);
+    test_support::on_engine(empty_source_file);
 }
 
 #[cfg(feature = "blob")]
 #[test]
 fn scoped_index_pins_source_content_in_blob_cas() {
-    on_engine(index_with_durable_source_refs);
+    test_support::on_engine(index_with_durable_source_refs);
 }
 
 #[cfg(feature = "blob")]

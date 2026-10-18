@@ -185,3 +185,46 @@ def test_tag_release_creates_the_github_release_after_pypi() -> None:
         assert package in script
     assert "https://pypi.org/project/$package/$version/" in script
     assert "--latest" in script
+
+
+@pytest.mark.spec("EG-CONTRACT-R053.9")
+def test_server_sdist_is_built_proven_published_and_verified() -> None:
+    jobs = _yaml(RELEASE)["jobs"]
+    steps = jobs["build-server"]["steps"]
+    names = [s.get("name", "") for s in steps]
+    build = steps[names.index("Build the server source distribution")]
+    proof = steps[
+        names.index("Prove the server source distribution by an isolated rebuild")
+    ]
+    publish = steps[names.index("Publish the server source distribution to PyPI")]
+    upload = next(
+        s for s in steps if (s.get("with") or {}).get("name") == "server-sdist"
+    )
+    for step in (build, proof, upload, publish):
+        assert "matrix.arch == 'x86_64'" in step["if"]
+    assert "maturin sdist" in build["run"]
+    assert "epistemic_graph_server-${VERSION}.tar.gz" in build["run"]
+    assert "pip wheel --isolated --no-deps" in proof["run"]
+    assert '"$work/venv/bin/epistemic-graph-server" --help' in proof["run"]
+    assert (
+        "twine upload --skip-existing source/dist-server-sdist/*.tar.gz"
+        in publish["run"]
+    )
+    order = [
+        names.index(n)
+        for n in (
+            "Smoke test the built wheel",
+            "Build the server source distribution",
+            "Prove the server source distribution by an isolated rebuild",
+            "Publish the server source distribution to PyPI",
+        )
+    ]
+    assert order == sorted(order)
+    assert steps.index(upload) < names.index(
+        "Publish the server source distribution to PyPI"
+    )
+    verify = jobs["verify-pypi"]["steps"]
+    assert any((s.get("with") or {}).get("name") == "server-sdist" for s in verify)
+    assert 'epistemic_graph_server-"${GITHUB_REF_NAME#v}".tar.gz' in _script(
+        jobs["verify-pypi"]
+    )

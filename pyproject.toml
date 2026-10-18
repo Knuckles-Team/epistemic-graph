@@ -79,7 +79,7 @@ datascience = []
 reasoning = []
 # The native server executable ships in its own package, versioned in lockstep with
 # this one (bumped by .config/bumpversion.cfg). `pip install "epistemic-graph[server]"`.
-server = ["epistemic-graph-server==2.27.3"]
+server = ["epistemic-graph-server==2.27.4"]
 # `full` is now a NO-OP ALIAS (2026-07-25): the unified binary is full-by-DEFAULT, so its
 # Python deps (pyoxigraph for owl and httpx for lmcache) live in the base
 # `dependencies`. `pip install epistemic-graph` (no tag) is now the complete engine;
@@ -235,6 +235,12 @@ jscpd_exclusions = [
     "**/Cargo.lock",
     "**/package-lock.json",
 ]
+
+# Source-checkout locks use the real server package before a release exists.
+# The published server extra keeps its exact version pin. Release wheel and
+# public-index validation remain separate from this development-only source.
+[tool.uv.sources]
+epistemic-graph-server = { path = "packaging/epistemic-graph-server" }
 
 [tool.maturin]
 python-source = "."

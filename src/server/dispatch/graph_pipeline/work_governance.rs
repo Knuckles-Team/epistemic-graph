@@ -443,13 +443,21 @@ pub(super) async fn dispatch_op_workitem_submission_or_resources(
     #[cfg(not(feature = "raft"))]
     let (placement_epoch, placement_fence) = (0, None);
 
+    // Run ownership belongs to the verified principal, even when a different
+    // effective agent carries the request. Preserve legacy mutation attribution.
+    let principal = match &method {
+        Method::SubmitWorkItem { request } if request.run_id.is_some() => {
+            Some(verified_context.principal())
+        }
+        _ => caller,
+    };
     return match crate::server::mutation_batch::commit_work_item(
         crate::server::mutation_batch::WorkItemCommitRequest::new(
             persistence.as_ref(),
             core,
             crate::server::mutation_batch::CommitOrigin {
                 request_id: req_id,
-                principal: caller,
+                principal,
             },
             Some(verified_context.idempotency_key()),
             graph_name,

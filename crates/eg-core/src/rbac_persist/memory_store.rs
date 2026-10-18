@@ -10,12 +10,12 @@ use super::{
 pub struct MemoryRbacStore {
     /// Policy, identities, bootstrap state, and the store revision under ONE
     /// lock so `authority_snapshot` cannot compose a revision with a policy
-    /// image from a different `save()`.
+    /// image from a different checked write.
     ///
     /// GRAPH-POLICY-LEASE-CONTRACT.md §2.4 (R5): this store has no
     /// mutation ledger to reuse an existing durable counter from
     /// (unlike `RbacStore`), so the fourth slot is a genuinely new counter,
-    /// incremented once per `save()` call -- the in-memory analogue of the
+    /// incremented once per successful checked write -- the in-memory analogue of the
     /// same "monotonic, bumped once per successful save" property.
     state: parking_lot::RwLock<(
         RbacPolicy,
@@ -46,23 +46,30 @@ impl RbacPolicyStore for MemoryRbacStore {
         Ok((state.0.clone(), state.1.clone(), state.2))
     }
 
-    fn save(
+    fn compare_and_save(
         &self,
+        expected_revision: u64,
         policy: &RbacPolicy,
         identities: &BTreeMap<String, AgentIdentity>,
         bootstrap: IdentityBootstrapState,
-    ) -> Result<(), RbacPersistError> {
+    ) -> Result<u64, RbacPersistError> {
         let mut state = self.state.write();
+        if state.3 != expected_revision {
+            return Err(RbacPersistError::StaleRevision {
+                expected: expected_revision,
+                actual: state.3,
+            });
+        }
         let revision = state.3.checked_add(1).ok_or_else(|| {
             RbacPersistError::Redb("identity/RBAC state version overflow".to_string())
         })?;
         *state = (policy.clone(), identities.clone(), bootstrap, revision);
-        Ok(())
+        Ok(revision)
     }
 
     fn authority_snapshot(&self) -> Result<RbacAuthoritySnapshot, RbacPersistError> {
         let state = self.state.read();
-        RbacAuthoritySnapshot::from_parts(state.3, state.0.clone(), state.1.clone())
+        RbacAuthoritySnapshot::from_parts(state.3, state.0.clone(), state.1.clone(), state.2)
     }
 
     fn current_version(&self) -> Result<u64, RbacPersistError> {

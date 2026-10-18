@@ -39,6 +39,7 @@ pub mod replay;
 pub mod request;
 pub mod statistical;
 pub mod topology;
+pub mod web_fetch_selection;
 
 /// Format identity (RF-ADR-006) of an assembly decision record.
 pub const DECISION_RECORD_SCHEMA_VERSION: u16 = 1;

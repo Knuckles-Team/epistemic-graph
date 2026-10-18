@@ -145,6 +145,8 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # The workspace PR selector must resolve the published base.
+          fetch-depth: ${{ github.job != 'gates-crates' && 1 || 0 }}
 
       # actions/setup-python downloads a prebuilt CPython that requires AVX2;
       # on the homelab self-hosted runners (no AVX2) it fails fast with
@@ -541,7 +543,7 @@ jobs:
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     env: *eg-validation-compiler-cache-backend
-    steps:
+    steps: &eg-native-crate-steps
       - *eg-gates-checkout
 
       - *eg-gates-python
@@ -566,6 +568,7 @@ jobs:
       # read-only redb locks. Isolate this crate's full suite, not just the
       # crash-test module: no sleeps, lock-error retries, or skipped assertions.
       - name: Test (storage crate, isolated crash-process lifecycle)
+        if: github.job == 'gates-storage'
         env: *eg-validation-compiler-cache-env
         run: python3 scripts/cargo_test_rescue.py cargo test --locked -p eg-storage --all-features --no-fail-fast -- --test-threads=1
 
@@ -574,7 +577,7 @@ jobs:
       # break, so a PR gate turns around in minutes; `push` to main and a
       # release tag keep running the unchanged full command below.
       - name: Resolve the published base
-        if: github.event_name == 'pull_request'
+        if: github.job == 'gates-crates' && github.event_name == 'pull_request'
         run: |
           set -euo pipefail
           BASE="${{ github.event.pull_request.base.sha }}"
@@ -583,7 +586,7 @@ jobs:
           fi
           echo "PRE_COMMIT_FROM_REF=$BASE" >> "$GITHUB_ENV"
       - name: Resolve pull-request test scope (workspace crates)
-        if: github.event_name == 'pull_request'
+        if: github.job == 'gates-crates' && github.event_name == 'pull_request'
         id: pr-test-scope
         run: |
           set -euo pipefail
@@ -598,10 +601,10 @@ jobs:
           } >> "$GITHUB_OUTPUT"
       - name: Test (every other workspace crate, all features; push to main / release tag)
         env: *eg-validation-compiler-cache-env
-        if: github.event_name != 'pull_request'
+        if: github.job == 'gates-crates' && github.event_name != 'pull_request'
         run: python3 scripts/cargo_test_rescue.py cargo test --locked --workspace --exclude epistemic-graph --exclude eg-types --exclude eg-core --exclude eg-compute --exclude eg-storage --exclude eg-tts-piper --exclude eg-numeric --exclude eg-pyengine --all-features --no-fail-fast
       - name: Test (every other workspace crate -- pull request fast subset)
-        if: github.event_name == 'pull_request'
+        if: github.job == 'gates-crates' && github.event_name == 'pull_request'
         env:
           RUSTC_WRAPPER: sccache
           SCOPE: ${{ steps.pr-test-scope.outputs.scope }}
@@ -640,9 +643,23 @@ jobs:
           printf '%s\n' "${args[@]}"
           python3 scripts/cargo_test_rescue.py cargo test --locked "${args[@]}" --all-features --no-fail-fast
 
-      - name: Report workspace-crate compiler cache reuse
+      - name: Test (pyo3 crates, every feature except python)
+        if: github.job == 'gates-pyo3'
+        env: *eg-validation-compiler-cache-env
+        run: python3 scripts/cargo_test_rescue.py cargo test --locked -p eg-numeric -p eg-pyengine --features eg-numeric/analytics,eg-numeric/contract,eg-numeric/complex,eg-numeric/decision,eg-numeric/motif,eg-pyengine/security,eg-pyengine/ml-pipeline,eg-pyengine/reasoning,eg-pyengine/query,eg-pyengine/cypher,eg-pyengine/tsdb,eg-pyengine/streaming,eg-pyengine/wasm-udf,eg-pyengine/rdf,eg-pyengine/blob,eg-pyengine/jobs,eg-pyengine/statechart,eg-pyengine/finance --no-fail-fast
+
+      - name: Report native-crate compiler cache reuse
         if: always()
         run: *eg-validation-compiler-cache-stats
+
+  gates-storage:
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
+    name: gates (storage crate)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    env: *eg-validation-compiler-cache-backend
+    steps: *eg-native-crate-steps
 
   # Keep pyo3 validation independent of storage and the workspace sweep.
   # Main warms the same profile; pull requests retain read-only caches.
@@ -653,23 +670,7 @@ jobs:
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     env: *eg-validation-compiler-cache-backend
-    steps:
-      - *eg-gates-checkout
-      - *eg-gates-python
-      - *eg-gates-pydeps
-      - *eg-gates-sasl
-      - *eg-gates-toolchain
-      - *eg-gates-cache
-      - *eg-validation-compiler-cache
-      - *eg-gates-sqlite
-      - *eg-gates-whisper
-      - name: Test (pyo3 crates, every feature except python)
-        env: *eg-validation-compiler-cache-env
-        run: python3 scripts/cargo_test_rescue.py cargo test --locked -p eg-numeric -p eg-pyengine --features eg-numeric/analytics,eg-numeric/contract,eg-numeric/complex,eg-numeric/decision,eg-numeric/motif,eg-pyengine/security,eg-pyengine/ml-pipeline,eg-pyengine/reasoning,eg-pyengine/query,eg-pyengine/cypher,eg-pyengine/tsdb,eg-pyengine/streaming,eg-pyengine/wasm-udf,eg-pyengine/rdf,eg-pyengine/blob,eg-pyengine/jobs,eg-pyengine/statechart,eg-pyengine/finance --no-fail-fast
-
-      - name: Report pyo3 compiler cache reuse
-        if: always()
-        run: *eg-validation-compiler-cache-stats
+    steps: *eg-native-crate-steps
 
   # ── EH-468: the root Python suite (`tests/*.py`, 2,800+ cases) previously had
   # NO release step at all. `gates` above only runs `crates/eg-numeric/tests/*`
@@ -1552,7 +1553,7 @@ jobs:
   engine-main-wheel:
     timeout-minutes: 360
     name: engine-main wheel (linux-x86_64)
-    needs: [gates, gates-plan-fuzz, gates-wheel, gates-facade, gates-whisper, gates-variants, gates-crates, gates-pyo3, python-suite, security, lint-and-architecture]
+    needs: [gates, gates-plan-fuzz, gates-wheel, gates-facade, gates-whisper, gates-variants, gates-crates, gates-storage, gates-pyo3, python-suite, security, lint-and-architecture]
     if: >-
       github.repository == 'Knuckles-Team/epistemic-graph'
       && github.event_name == 'push' && github.ref == 'refs/heads/main'

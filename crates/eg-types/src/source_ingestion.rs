@@ -17,6 +17,7 @@ use crate::contract::{
 
 #[cfg(test)]
 mod tests;
+pub mod web_document;
 
 pub const SOURCE_INGESTION_CONTRACT_VERSION: u16 = 3;
 pub const MAX_SOURCE_RECORDS: usize = 1_024;

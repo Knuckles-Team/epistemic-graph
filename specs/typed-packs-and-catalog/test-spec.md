@@ -47,7 +47,7 @@ Every cross-cutting pack-import-safety defect is a named rule (G1-G21) in `epist
 | Rule | Variants, each with its own regression case in `MUTATIONS` |
 |---|---|
 | G1 | connector_with_slash, invalid_connector, name_over_256_bytes, schema_version, scheme_mismatch, skill_file_traversal, two_servers, unknown_kind, unsorted_uris |
-| G2 | archive_over_16mib, body_over_2mib, entries_over_1024, index_over_1mib, iri_list_over_64, references_over_64, schema_over_1mib |
+| G2 | archive_over_16mib, body_over_2mib, entries_over_8192, index_over_16mib, iri_list_over_64, references_over_64, schema_over_1mib |
 | G3 | archive_length, archive_not_uploaded, archive_sha256 |
 | G4 | offset_overflow, overlapping_sections, uncovered_bytes |
 | G5 | flipped_body_byte, forged_pack_digest |
@@ -348,6 +348,7 @@ No test named here has run; names describe acceptance obligations, not evidence.
 - `EG-TYPED-PACKS-R101.6`: `src/server/handlers/admin/connector_pack/import/contract_tests.rs::contract_refusals_leave_state_unchanged`.
 - `EG-TYPED-PACKS-R101.7`: `src/server/handlers/source_ingestion/contract_receipt_tests.rs::receipt_binds_contract_digest_and_governed_by`.
 - `EG-TYPED-PACKS-R101.8`: `tests/typed_packs/test_ingest_contract_rdf_served.py::test_contract_import_governs_ingest`.
+- `EG-TYPED-PACKS-R101.9`: a served test imports a pack through `ConnectorPack.Import` and submits one mapped record through `SourceIngest`; the engine accepts it.
 - `EG-TYPED-PACKS-R102`: Rollup closes when every child `.1` to `.7` passes its proving test.
 - `EG-TYPED-PACKS-R102.1`: `crates/eg-shacl/tests/connector_pack_shapes.rs::surface_shapes_accept_valid_and_refuse_invalid`.
 - `EG-TYPED-PACKS-R102.2`: `src/server/connector_pack_projection/surface_tests.rs::surface_nodes_follow_pack_head`.

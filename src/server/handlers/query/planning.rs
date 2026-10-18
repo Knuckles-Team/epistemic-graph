@@ -10,16 +10,28 @@ use super::*;
 #[cfg(feature = "query")]
 pub(crate) fn uql_text_embedder() -> Option<&'static dyn eg_plan::TextEmbedder> {
     use std::sync::OnceLock;
-    static EMBEDDER: OnceLock<Option<eg_plan::HashEmbedder>> = OnceLock::new();
+    static EMBEDDER: OnceLock<Option<Box<dyn eg_plan::TextEmbedder>>> = OnceLock::new();
     EMBEDDER
-        .get_or_init(
-            || match std::env::var("EG_UQL_TEXT_EMBEDDER").ok().as_deref() {
-                Some("hash") => Some(eg_plan::HashEmbedder::default()),
+        .get_or_init(|| {
+            // The configured chunk embedder (EG-UNIFIED-DATA-PLANE-R651.7.2) when an
+            // endpoint is set, so query vectors share the stored chunks' space.
+            #[cfg(feature = "modality-serving")]
+            {
+                let config =
+                    crate::server::handlers::web_ingest::embedder::EmbedderConfig::from_env();
+                if config.name() == crate::server::handlers::web_ingest::embedder::REMOTE {
+                    return Some(Box::new(config) as Box<dyn eg_plan::TextEmbedder>);
+                }
+            }
+            match std::env::var("EG_UQL_TEXT_EMBEDDER").ok().as_deref() {
+                Some("hash") => {
+                    Some(Box::new(eg_plan::HashEmbedder::default())
+                        as Box<dyn eg_plan::TextEmbedder>)
+                }
                 _ => None,
-            },
-        )
-        .as_ref()
-        .map(|e| e as &dyn eg_plan::TextEmbedder)
+            }
+        })
+        .as_deref()
 }
 
 /// Bind the SQL `eg_embed(text)` function's process-wide embedder to the SAME

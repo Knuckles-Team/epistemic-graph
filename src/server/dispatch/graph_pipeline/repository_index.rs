@@ -178,6 +178,24 @@ async fn already_committed(ctx: &GraphOpRouting<'_>, envelope_id: &str) -> Resul
         .map_err(|error| Response::err(ctx.req_id, error))
 }
 
+/// The verified coordinates an engine-lowered envelope commits under, shared
+/// by the repository-index and document-enrichment routes.
+pub(super) fn commit_context<'a>(
+    ctx: &GraphOpRouting<'a>,
+    placement_epoch: u64,
+    fencing_token: Option<u64>,
+) -> handlers::repository_index::IndexCommitContext<'a> {
+    handlers::repository_index::IndexCommitContext {
+        request_id: ctx.req_id,
+        graph_name: ctx.graph_name,
+        tenant_scope: ctx.tenant_scope,
+        verified: ctx.verified_context,
+        graph_version: ctx.core.version(),
+        placement_epoch,
+        fencing_token,
+    }
+}
+
 /// Parse, project and durably commit one scoped `IndexRepository` batch.
 pub(super) async fn route_repository_index(
     ctx: GraphOpRouting<'_>,
@@ -220,15 +238,7 @@ pub(super) async fn route_repository_index(
         .collect();
     #[cfg(not(all(feature = "ast", feature = "redb")))]
     let outbox = Vec::new();
-    let commit_ctx = handlers::repository_index::IndexCommitContext {
-        request_id: ctx.req_id,
-        graph_name: ctx.graph_name,
-        tenant_scope: ctx.tenant_scope,
-        verified: ctx.verified_context,
-        graph_version: ctx.core.version(),
-        placement_epoch,
-        fencing_token,
-    };
+    let commit_ctx = commit_context(&ctx, placement_epoch, fencing_token);
     let envelope = match handlers::repository_index::build_envelope_with_outbox(
         &commit_ctx,
         write_set,

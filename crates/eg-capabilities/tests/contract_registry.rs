@@ -211,9 +211,12 @@ fn every_wire_variant_has_exactly_one_descriptor_and_vice_versa() {
     // 463 -> 464: EH-560's GovernedChange (two-person governed changes).
     // 464 -> 465: EG-DECISION-ENGINE-R126.2.1's read-only `CapabilityCoverage`.
     // 465 -> 466: EG-DECISION-ENGINE-R127.2.2 read-only guardrail entailment.
+    // 466 -> 468: EG-UNIFIED-DATA-PLANE-R651.7 `EnrichDocument` and
+    // EG-DECISION-ENGINE-R802 `SelectWebPages`.
+    // 468 -> 470: EG-DURABLE-KERNEL-R028.5 `PublishCurrentPlan` and `GetCurrentPlan`.
     assert_eq!(
         variants.len(),
-        466,
+        470,
         "the wire method census changed; update this exact count deliberately"
     );
 }

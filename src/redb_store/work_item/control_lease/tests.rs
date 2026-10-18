@@ -1,5 +1,7 @@
 //! Store-level proof of the control-lease lifecycle over a real shard.
 
+mod plan_consumption;
+
 use super::*;
 use eg_types::control_lease::ControlLeaseStatus;
 use eg_types::control_lease::ControlLeaseTarget;
@@ -49,9 +51,18 @@ fn native_call(
     tag: &str,
     method: &Method,
 ) -> Result<Option<crate::protocol::ResultPayload>, String> {
+    native_call_at(shard, tag, method, 2_000)
+}
+
+fn native_call_at(
+    shard: &Shard,
+    tag: &str,
+    method: &Method,
+    now_ms: u64,
+) -> Result<Option<crate::protocol::ResultPayload>, String> {
     use super::super::test_shard::with_write;
     use crate::redb_store::store_rows::GraphRowTables;
-    with_write(shard, tag, 2_000, |admitted| {
+    with_write(shard, tag, now_ms, |admitted| {
         let member = admitted.graph(GRAPH)?;
         let mut rows = GraphRowTables::open(member)?;
         apply_control_lease_rows(
@@ -59,7 +70,7 @@ fn native_call(
             method,
             &mut rows.nodes,
             &rows.native_work_items,
-            2_000,
+            now_ms,
             DurableCrypto::none(),
         )
     })
@@ -345,6 +356,7 @@ fn pending_nodes_fixture(shard: &Shard) -> IssueControlLeaseRequest {
     .unwrap()
     .clone();
     request.pending_call_registration = Some(PendingCallRegistration {
+        plan: None,
         work_item: PendingCallFence {
             work_item_id: "work-a".into(),
             expected_revision: 1,
@@ -372,21 +384,24 @@ fn pending_consume(issue: &IssueControlLeaseRequest) -> TransitionControlLeaseRe
         .clone();
     work_item.expected_revision = 2;
     request.pending_call_consumption = Some(eg_types::control_lease::PendingCallConsumption {
+        plan: issue
+            .pending_call_registration
+            .as_ref()
+            .unwrap()
+            .plan
+            .clone(),
         work_item,
         expected_grant: issue.grant.clone(),
     });
     request
 }
 
-/// Read the WorkItem row back. Each read is its own maintenance write with a
-/// per-attempt op id: a repeated op id is a first-wins replay, and a replayed
-/// member refuses owner rows.
+/// Read the WorkItem without allocating a maintenance mutation.
 fn stored_work(shard: &Shard) -> NodeRow {
-    static READS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let read = READS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    with_nodes(shard, &format!("read-pending-work-{read}"), |nodes| {
-        load_row(nodes, GRAPH, "work-a", DurableCrypto::none()).map(Option::unwrap)
-    })
+    super::super::read::snapshot_row(shard, GRAPH, "work-a", DurableCrypto::none())
+        .unwrap()
+        .1
+        .unwrap()
 }
 
 fn registered_pending_fixture(

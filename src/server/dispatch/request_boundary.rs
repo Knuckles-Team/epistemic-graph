@@ -85,6 +85,8 @@ pub(super) fn append_native_work_item_ops(ops: &mut Vec<&'static str>, available
             "SubmitWorkItem",
             "SubmitWorkItems",
             // EH-219: the typed caller-view reads over the same native rows.
+            "PublishCurrentPlan",
+            "GetCurrentPlan",
             "GetWorkItem",
             "ListWorkItems",
             "GetWorkItemOutcome",

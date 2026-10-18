@@ -389,6 +389,8 @@ fn resolve_mappings(
 ) -> Result<ResolvedIngestionMappings, String> {
     // The request has no tenant or mapping body. Both are resolved exclusively
     // through verified server authority, and every resolver error is terminal.
+    // Packs are keyed by the verified tenant, the same key import writes.
+    let pack_tenant = crate::server::persistence::connector_pack::pack_tenant_key(ctx.verified);
     let mut entities = BTreeMap::new();
     let mut relationships = BTreeMap::new();
     let mut receipts = Vec::new();
@@ -398,7 +400,7 @@ fn resolve_mappings(
             continue;
         }
         let resolved = resources.agent_library.resolve_connector_schema_mapping(
-            ctx.tenant_scope,
+            pack_tenant,
             &batch.connector,
             &record.mapping_reference,
         )?;
@@ -419,7 +421,7 @@ fn resolve_mappings(
         let resolved = resources
             .agent_library
             .resolve_connector_relationship_mapping(
-                ctx.tenant_scope,
+                pack_tenant,
                 &batch.connector,
                 &relationship.relation_reference,
             )?;
@@ -438,7 +440,7 @@ fn resolve_mappings(
         entry_revision = Some(
             resources
                 .agent_library
-                .resolve_connector_ingestion_revision(ctx.tenant_scope, &batch.connector)?,
+                .resolve_connector_ingestion_revision(pack_tenant, &batch.connector)?,
         );
     }
     Ok(ResolvedIngestionMappings {
@@ -1689,6 +1691,12 @@ pub(crate) fn finish(prepared: PreparedSourceIngestion, response: Response) -> R
         Some(ResultPayload::Raw(bytes)) => rmp_serde::from_slice::<
             eg_types::result_contract::transactions::ChangeEnvelopeApplied,
         >(&bytes)
+        .map_err(|error| format!("invalid native ingestion commit result: {error}")),
+        // `ApplyChangeEnvelope` declares a JSON result (F3d); a served commit
+        // answers in that form (EG-TYPED-PACKS-R101.9 regression test).
+        Some(ResultPayload::Json(value)) => serde_json::from_value::<
+            eg_types::result_contract::transactions::ChangeEnvelopeApplied,
+        >(value)
         .map_err(|error| format!("invalid native ingestion commit result: {error}")),
         _ => Err("native ingestion commit returned no typed result".into()),
     };

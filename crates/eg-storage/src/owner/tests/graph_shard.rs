@@ -90,6 +90,7 @@ fn the_graph_shard_census_is_exact_and_carries_no_private_mutation_ledger() {
             "&[u8]",
         ),
         ("native_work_item_authority", "(&str,&str)", "&[u8]"),
+        ("work_item_current_plans", "(&str,&str)", "&[u8]"),
         ("development_lane_holds", "(&str,&str)", "&[u8]"),
         ("development_lane_tenant_index", "(&str,&str,&str)", "&str"),
         ("development_lane_lane_index", "(&str,&str,&str)", "&str"),

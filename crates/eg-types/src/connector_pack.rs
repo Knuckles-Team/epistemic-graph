@@ -33,8 +33,10 @@ pub const CONNECTOR_PACK_SCHEMA_VERSION: u16 = 2;
 /// Format identity of [`record::PackImportRecord`].
 pub const PACK_IMPORT_RECORD_SCHEMA_VERSION: u16 = 2;
 
-/// Most entries one pack may carry.
-pub const MAX_PACK_ENTRIES: usize = 1024;
+/// Most entries one pack may carry. One MCP tool per API operation puts the
+/// largest fleet packs at about 1.6k entries (arr 1125, ciso-assistant 1569,
+/// atlassian 1614); 8192 leaves room for growth.
+pub const MAX_PACK_ENTRIES: usize = 8192;
 /// Most outgoing references one entry may declare.
 pub const MAX_PACK_REFERENCES: usize = 64;
 /// Most IRIs one annotation list may carry.
@@ -42,7 +44,7 @@ pub const MAX_PACK_IRI_ITEMS: usize = 64;
 /// Most violations one rejection may name.
 pub const MAX_PACK_VIOLATIONS: usize = 256;
 /// Largest encoded index the engine will read.
-pub const MAX_PACK_INDEX_BYTES: usize = 1 << 20;
+pub const MAX_PACK_INDEX_BYTES: usize = 16 << 20;
 /// Largest archive one pack may reference.
 pub const MAX_PACK_ARCHIVE_BYTES: u64 = 16 << 20;
 /// Largest single entry body.

@@ -77,6 +77,17 @@ fn same_answer(record: &StatisticalDecisionRecord, replayed: &Executed, derived:
         && derived
 }
 
+fn require_supported_replay(record: &StatisticalDecisionRecord) -> Result<(), String> {
+    require_supported_question_kind(record.question.kind)?;
+    if record.inputs.harness_evaluation.is_some() {
+        return Err(refusal(
+            StatisticalErrorCode::ParameterInvalid,
+            "harness_config evidence replay is not supported",
+        ));
+    }
+    Ok(())
+}
+
 /// Re-derive `record` and return the copy to log, with its seed revealed.
 pub(super) fn replay(
     ctx: &ExecutionContext,
@@ -85,13 +96,7 @@ pub(super) fn replay(
     if statistical_record_digest(record) != record.record_digest {
         return Err(mismatch("the record digest does not match its content"));
     }
-    require_supported_question_kind(record.question.kind)?;
-    if record.inputs.harness_evaluation.is_some() {
-        return Err(refusal(
-            StatisticalErrorCode::ParameterInvalid,
-            "harness_config evidence replay is not supported",
-        ));
-    }
+    require_supported_replay(record)?;
     if !loggable(&record.outcome) {
         return Err(refusal(
             StatisticalErrorCode::ParameterInvalid,

@@ -2271,6 +2271,71 @@
       ],
       "type": "object"
     },
+    "CurrentPlanPublished": {
+      "properties": {
+        "changed_work_item_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "payload_digest": {
+          "type": "string"
+        },
+        "revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "run_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "revision",
+        "payload_digest",
+        "changed_work_item_ids"
+      ],
+      "type": "object"
+    },
+    "CurrentPlanSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "expires_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "items": {
+          "items": {
+            "$ref": "#/$defs/PlanItem"
+          },
+          "type": "array"
+        },
+        "observed_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "run_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "revision",
+        "observed_at_ms",
+        "expires_at_ms",
+        "items"
+      ],
+      "type": "object"
+    },
     "DecisionEvalReceipt": {
       "additionalProperties": false,
       "description": "The receipt a head must carry before it may be published.",
@@ -5304,25 +5369,25 @@
       "description": "Q32 fractions reuse the checked unit rational with denominator 2^32.",
       "properties": {
         "action_space": {
-          "$ref": "#/$defs/HarnessPart4"
+          "$ref": "#/$defs/HarnessPart_ActionSpace"
         },
         "context_policy": {
-          "$ref": "#/$defs/HarnessPart"
+          "$ref": "#/$defs/HarnessPart_ContextPolicy"
         },
         "hard_threshold": {
-          "$ref": "#/$defs/HarnessPart2"
+          "$ref": "#/$defs/HarnessPart_UnitRationalWire"
         },
         "plan_scaffold": {
-          "$ref": "#/$defs/HarnessPart3"
+          "$ref": "#/$defs/HarnessPart_PlanScaffold"
         },
         "recent_window_fraction": {
-          "$ref": "#/$defs/HarnessPart2"
+          "$ref": "#/$defs/HarnessPart_UnitRationalWire"
         },
         "soft_threshold": {
-          "$ref": "#/$defs/HarnessPart2"
+          "$ref": "#/$defs/HarnessPart_UnitRationalWire"
         },
         "tool_subset": {
-          "$ref": "#/$defs/HarnessPart5"
+          "$ref": "#/$defs/HarnessPart_BoundedVec_string_256"
         }
       },
       "required": [
@@ -5392,136 +5457,7 @@
       ],
       "type": "object"
     },
-    "HarnessPart": {
-      "description": "Each part carries its own decision or conservative fallback.",
-      "oneOf": [
-        {
-          "additionalProperties": false,
-          "properties": {
-            "status": {
-              "const": "decided",
-              "type": "string"
-            },
-            "value": {
-              "$ref": "#/$defs/ContextPolicy"
-            }
-          },
-          "required": [
-            "status",
-            "value"
-          ],
-          "type": "object"
-        },
-        {
-          "additionalProperties": false,
-          "properties": {
-            "conservative_default": {
-              "$ref": "#/$defs/ContextPolicy"
-            },
-            "missing_fact": {
-              "$ref": "#/$defs/BoundedVec_string_64"
-            },
-            "status": {
-              "const": "abstained",
-              "type": "string"
-            }
-          },
-          "required": [
-            "status",
-            "missing_fact",
-            "conservative_default"
-          ],
-          "type": "object"
-        }
-      ]
-    },
-    "HarnessPart2": {
-      "description": "Each part carries its own decision or conservative fallback.",
-      "oneOf": [
-        {
-          "additionalProperties": false,
-          "properties": {
-            "status": {
-              "const": "decided",
-              "type": "string"
-            },
-            "value": {
-              "$ref": "#/$defs/UnitRationalWire"
-            }
-          },
-          "required": [
-            "status",
-            "value"
-          ],
-          "type": "object"
-        },
-        {
-          "additionalProperties": false,
-          "properties": {
-            "conservative_default": {
-              "$ref": "#/$defs/UnitRationalWire"
-            },
-            "missing_fact": {
-              "$ref": "#/$defs/BoundedVec_string_64"
-            },
-            "status": {
-              "const": "abstained",
-              "type": "string"
-            }
-          },
-          "required": [
-            "status",
-            "missing_fact",
-            "conservative_default"
-          ],
-          "type": "object"
-        }
-      ]
-    },
-    "HarnessPart3": {
-      "description": "Each part carries its own decision or conservative fallback.",
-      "oneOf": [
-        {
-          "additionalProperties": false,
-          "properties": {
-            "status": {
-              "const": "decided",
-              "type": "string"
-            },
-            "value": {
-              "$ref": "#/$defs/PlanScaffold"
-            }
-          },
-          "required": [
-            "status",
-            "value"
-          ],
-          "type": "object"
-        },
-        {
-          "additionalProperties": false,
-          "properties": {
-            "conservative_default": {
-              "$ref": "#/$defs/PlanScaffold"
-            },
-            "missing_fact": {
-              "$ref": "#/$defs/BoundedVec_string_64"
-            },
-            "status": {
-              "const": "abstained",
-              "type": "string"
-            }
-          },
-          "required": [
-            "status",
-            "missing_fact",
-            "conservative_default"
-          ],
-          "type": "object"
-        }
-      ]
-    },
-    "HarnessPart4": {
+    "HarnessPart_ActionSpace": {
       "description": "Each part carries its own decision or conservative fallback.",
       "oneOf": [
         {
@@ -5564,7 +5500,7 @@
         }
       ]
     },
-    "HarnessPart5": {
+    "HarnessPart_BoundedVec_string_256": {
       "description": "Each part carries its own decision or conservative fallback.",
       "oneOf": [
         {
@@ -5589,6 +5525,135 @@
           "properties": {
             "conservative_default": {
               "$ref": "#/$defs/BoundedVec_string_256"
+            },
+            "missing_fact": {
+              "$ref": "#/$defs/BoundedVec_string_64"
+            },
+            "status": {
+              "const": "abstained",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "missing_fact",
+            "conservative_default"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "HarnessPart_ContextPolicy": {
+      "description": "Each part carries its own decision or conservative fallback.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "status": {
+              "const": "decided",
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/$defs/ContextPolicy"
+            }
+          },
+          "required": [
+            "status",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "conservative_default": {
+              "$ref": "#/$defs/ContextPolicy"
+            },
+            "missing_fact": {
+              "$ref": "#/$defs/BoundedVec_string_64"
+            },
+            "status": {
+              "const": "abstained",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "missing_fact",
+            "conservative_default"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "HarnessPart_PlanScaffold": {
+      "description": "Each part carries its own decision or conservative fallback.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "status": {
+              "const": "decided",
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/$defs/PlanScaffold"
+            }
+          },
+          "required": [
+            "status",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "conservative_default": {
+              "$ref": "#/$defs/PlanScaffold"
+            },
+            "missing_fact": {
+              "$ref": "#/$defs/BoundedVec_string_64"
+            },
+            "status": {
+              "const": "abstained",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "missing_fact",
+            "conservative_default"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "HarnessPart_UnitRationalWire": {
+      "description": "Each part carries its own decision or conservative fallback.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "status": {
+              "const": "decided",
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/$defs/UnitRationalWire"
+            }
+          },
+          "required": [
+            "status",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "conservative_default": {
+              "$ref": "#/$defs/UnitRationalWire"
             },
             "missing_fact": {
               "$ref": "#/$defs/BoundedVec_string_64"
@@ -7151,10 +7216,34 @@
         }
       ]
     },
+    "PlanItem": {
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "$ref": "#/$defs/PlanStatus"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "text",
+        "status"
+      ],
+      "type": "object"
+    },
     "PlanScaffold": {
       "enum": [
         "on",
         "off"
+      ],
+      "type": "string"
+    },
+    "PlanStatus": {
+      "enum": [
+        "pending",
+        "in_progress",
+        "done"
       ],
       "type": "string"
     },
@@ -12101,6 +12190,25 @@
       },
       "selected_by": null
     },
+    "GetCurrentPlan": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/CurrentPlanSnapshot"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "selected_by": null
+    },
     "GetWorkItem": {
       "bodies": {
         "result": {
@@ -12206,6 +12314,18 @@
           "encoding": "Raw",
           "schema": {
             "$ref": "#/$defs/DevelopmentLaneObserveResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "PublishCurrentPlan": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/CurrentPlanPublished"
           }
         }
       },

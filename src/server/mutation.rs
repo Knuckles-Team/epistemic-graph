@@ -1954,6 +1954,7 @@ mod tests {
         ("CommitWorkItemResult", "dedicated engine-native MutationBatch result/dependency transition in mutation_batch.rs/redb_store.rs"),
         ("CancelWorkItem", "dedicated engine-native MutationBatch pending-cancellation transition in mutation_batch.rs/redb_store.rs"),
         ("DeferWorkItem", "dedicated engine-native MutationBatch fenced deferral transition in mutation_batch.rs/redb_store.rs"),
+        ("PublishCurrentPlan", "dedicated engine-native MutationBatch owner/fence/revision current-plan publication in store_native.rs"),
         ("CasWorkItemMetadata", "dedicated engine-native MutationBatch scheduling-metadata CAS transition in mutation_batch.rs/redb_store.rs (BUG-111)"),
         ("IssueControlLease", "dedicated engine-native MutationBatch control-lease issue (absence-guarded) in the WorkItem kernel, redb_store/work_item/control_lease.rs"),
         ("TransitionControlLease", "dedicated engine-native MutationBatch control-lease revision-CAS transition in the WorkItem kernel, redb_store/work_item/control_lease.rs"),
@@ -2086,6 +2087,7 @@ mod tests {
         ("ApplyChangeEnvelopeDrafts", "client draft batch compiled at the request boundary into ApplyChangeEnvelopes under the verified context, then committed by that same native coordinator"),
         ("SourceIngest", "RF-ADR-009 stages raw CAS and an authoritative Connector Manifest mapping, then delegates its sole canonical graph/provenance/cursor commit to ApplyChangeEnvelope"),
         ("IndexRepository", "EH-280 runtime-conditional: an unscoped batch is a stateless parse; a scoped batch lowers its :Blob/:FileVersion/:Branch projection and delegates its sole graph commit to ApplyChangeEnvelope, exactly like SourceIngest"),
+        ("EnrichDocument", "EG-UNIFIED-DATA-PLANE-R651.7 lowers chunk nodes, chunkOf edges, vectors and one enrichment record of a held Document and delegates its sole graph commit to ApplyChangeEnvelope, exactly like IndexRepository"),
         ("RecomputeMaterialization", "fenced reasoning-projection coordinator resolves authoritative graph provenance and fsyncs its projection watermark"),
         // ── Server lifecycle: TxnParticipation::None, not a graph mutation. ──
         ("Shutdown", "server-lifecycle control-plane action, not a graph mutation"),
@@ -2252,6 +2254,7 @@ mod tests {
         covered.insert("ApplyChangeEnvelopeDrafts");
         covered.insert("SourceIngest");
         covered.insert("IndexRepository");
+        covered.insert("EnrichDocument");
         covered.insert("ServedModality");
         covered.insert("Shutdown");
         covered.insert("KgDelegate");

@@ -67,6 +67,8 @@ _WORK_ITEM_METHODS = frozenset(
         # family after the base commit; every classifier selects them with it.
         "IssueControlLease",
         "TransitionControlLease",
+        # EG-DURABLE-KERNEL-R028.5: fenced snapshots use the WorkItem write family.
+        "PublishCurrentPlan",
         "PolicyEvolutionStore",
         "GapUpsert",
         "GapTransition",
@@ -130,6 +132,8 @@ _DURABLE_AT_BASE = (
         "CasWorkItemMetadata",
         "IssueControlLease",
         "TransitionControlLease",
+        # EG-DURABLE-KERNEL-R028.5: fenced snapshots use the WorkItem write family.
+        "PublishCurrentPlan",
         "PolicyEvolutionStore",
         "GapUpsert",
         "GapTransition",
@@ -165,6 +169,8 @@ _ATOMIC_BATCH_ROWS_AT_BASE = frozenset(
         "CasWorkItemMetadata",
         "IssueControlLease",
         "TransitionControlLease",
+        # EG-DURABLE-KERNEL-R028.5: fenced snapshots use the WorkItem write family.
+        "PublishCurrentPlan",
         "PolicyEvolutionStore",
         "GapUpsert",
         "GapTransition",
@@ -224,8 +230,10 @@ _UNCONDITIONAL_WRITES_AT_BASE = (
         # Declared writes (mutates=true in eg-capabilities) that joined the
         # unconditional tail after the family refactor, not family members:
         # DecisionCommit and GraphSchema (a4804f87c), SourceIngest (dcc5d53c0),
-        # TelemetryDerive (EH-408/EH-409, a self-translating declared write).
+        # TelemetryDerive (EH-408/EH-409, a self-translating declared write),
+        # EnrichDocument (EG-UNIFIED-DATA-PLANE-R651.7, a self-routed envelope write).
         "DecisionCommit",
+        "EnrichDocument",
         "GraphSchema",
         "SourceIngest",
         "TelemetryDerive",

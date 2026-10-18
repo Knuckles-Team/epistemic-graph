@@ -3,6 +3,9 @@ macro_rules! __eg_method_chunk_11 {
         __eg_method_finish!(@acc [
 $($variants)*
 
+    PublishCurrentPlan { request: crate::current_plan::PublishCurrentPlanRequest },
+    GetCurrentPlan { tenant: String, run_id: String },
+
     // ── Typed WorkItem reads (EH-219) ──────────────────────────────────────
     /// The caller's view of one native WorkItem row, or `null` when no row with
     /// this id is visible to `tenant`. `tenant` must equal the verified request
@@ -192,6 +195,24 @@ $($variants)*
     /// [`crate::sealed_record`].
     RetireSealedRecord {
         request: crate::sealed_record::RetireSealedRecordRequest,
+    },
+
+    // ── Web page ingest (EG-UNIFIED-DATA-PLANE-R651.7, EG-DECISION-ENGINE-R802) ──
+    /// Chunk one held Document of the request graph, embed the chunks and
+    /// commit the chunks, their `chunkOf` edges, their vectors and one
+    /// enrichment record as one governed ChangeEnvelope. Idempotent by the
+    /// Document's content digest; a new digest supersedes the earlier chunks.
+    /// See [`crate::source_ingestion::web_document`].
+    EnrichDocument {
+        request: Box<crate::source_ingestion::web_document::EnrichDocumentRequest>,
+    },
+    /// Choose which web search candidates to fetch: canonical-URL and digest
+    /// dedupe against each other and the request graph's held Documents,
+    /// held-fresh skips, deterministic relevance/rank/freshness scoring and a
+    /// fetch budget. Reads only; no model runs. See
+    /// [`crate::decision::web_fetch_selection`].
+    SelectWebPages {
+        request: Box<crate::decision::web_fetch_selection::SelectWebPagesRequest>,
     },
         ]);
     };

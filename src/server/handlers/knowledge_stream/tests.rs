@@ -391,7 +391,12 @@ pub(super) fn durable_read_lease(graph: &str, agent: &str) -> DurableReadLease {
         )
         .expect("open durable policy store");
         store
-            .save(&policy, &identities, IdentityBootstrapState::Consumed)
+            .compare_and_save(
+                store.authority_snapshot().unwrap().revision(),
+                &policy,
+                &identities,
+                IdentityBootstrapState::Consumed,
+            )
             .expect("save authorized policy");
     }
 
@@ -579,9 +584,15 @@ fn durable_lease_revocation_rejects_resume_before_any_cursor_metadata() {
     )
     .expect("serve initial page");
 
+    let expected_revision = policy_store.authority_snapshot().unwrap().revision();
     policy.remove_grant(&grant);
     policy_store
-        .save(&policy, &identities, IdentityBootstrapState::Consumed)
+        .compare_and_save(
+            expected_revision,
+            &policy,
+            &identities,
+            IdentityBootstrapState::Consumed,
+        )
         .expect("persist revocation");
     assert!(authority.validate_before().is_err());
     let error = serve_execution(

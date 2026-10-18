@@ -1,5 +1,4 @@
 //! Immutable run ownership is admitted with the new WorkItem row.
-use super::*;
 
 pub(super) fn work_item_id(graph: &str, tenant: &str, run_id: &str) -> Result<String, String> {
     use sha2::{Digest, Sha256};

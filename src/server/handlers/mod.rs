@@ -133,6 +133,10 @@ pub(crate) mod source_ingestion;
 // EH-280 — durable projection of a branch-aware IndexRepository batch,
 // committed through the same ChangeEnvelope authority as source ingestion.
 pub(crate) mod repository_index;
+// EG-UNIFIED-DATA-PLANE-R651.7 / EG-DECISION-ENGINE-R802 — Document enrichment
+// and web page selection; enrichment commits through the same envelope authority.
+#[cfg(all(feature = "query", feature = "modality-serving"))]
+pub(crate) mod web_ingest;
 
 // SQLite `.db` FILE import/export (CONCEPT:EG-KG.query.eg-feature/EG-332, feature `sqlite-file`). The
 // ImportSqliteFile/ExportSqliteFile methods move rows between an on-disk `sqlite3` `.db`

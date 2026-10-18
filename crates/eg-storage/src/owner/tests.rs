@@ -82,8 +82,9 @@ fn owner_layout_registry_has_frozen_cardinality() {
     // `storage_scrub_cursor` = 54, plus the four repository-enrichment
     // tables (`repository_enrichment_budgets`, `_policy_revisions`,
     // `_supersessions`, `_parks`) = 58, plus the tenant-scoped operation
-    // audit-append idempotency index `audit_requests` = 59.
-    assert_eq!(owner_table_names(OwnerLayout::GraphShard).len(), 59);
+    // audit-append idempotency index `audit_requests` = 59, plus the private
+    // `work_item_current_plans` snapshot table = 60.
+    assert_eq!(owner_table_names(OwnerLayout::GraphShard).len(), 60);
     assert_eq!(owner_layouts().len(), 18);
 }
 
@@ -160,7 +161,8 @@ fn every_owner_surface_has_one_closed_cutover_disposition() {
     // are DomainService, so SharedService remains the two CAS tables.
     // 151 -> 152: the tenant-scoped operation audit-append idempotency index
     // `audit_requests` in GraphShard, also DomainService: service 150 = 149 + 1.
-    assert_eq!((names.len(), service, shared), (152, 150, 2));
+    // 152 -> 153: private current-plan snapshots are DomainService rows.
+    assert_eq!((names.len(), service, shared), (153, 151, 2));
 }
 
 #[test]
@@ -829,7 +831,8 @@ fn plain_recovery_rejects_every_known_mutation_table_marker() {
     // `mcp_catalog_scopes`, both durable mutation tables.
     // 169 -> 170: the graph shard's tenant-scoped operation audit-append
     // idempotency index `audit_requests`, also a durable mutation table.
-    assert_eq!(names.len(), 170);
+    // 170 -> 171: the private current-plan table is also a mutation table.
+    assert_eq!(names.len(), 171);
     for (ordinal, name) in names.into_iter().enumerate() {
         assert!(is_known_mutation_table(name));
         let dir = tempfile::tempdir().unwrap();

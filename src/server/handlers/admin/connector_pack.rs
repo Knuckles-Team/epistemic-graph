@@ -99,7 +99,9 @@ async fn serve_status(
     }
     #[cfg(feature = "redb")]
     {
-        if request.tenant_id != verified.tenant() {
+        if request.tenant_id
+            != crate::server::persistence::connector_pack::pack_tenant_key(verified)
+        {
             return Response::err(
                 req_id,
                 "ACCESS_DENIED: connector pack tenant must match verified request tenant",
@@ -142,7 +144,11 @@ async fn serve_import(
     }
     #[cfg(all(feature = "redb", feature = "blob"))]
     {
-        let tenant_pack_guard = match tenant_pack_lock(verified.tenant()).await {
+        let tenant_pack_guard = match tenant_pack_lock(
+            crate::server::persistence::connector_pack::pack_tenant_key(verified),
+        )
+        .await
+        {
             Ok(guard) => guard,
             Err(cancelled) => return Response::err(req_id, cancelled),
         };
