@@ -1097,9 +1097,22 @@ mod secure_empty_policy_tests {
             )
         };
         assert!(check().is_ok());
+        assert!(require_admin_capability_with_policy(
+            &stale,
+            Some("revoked-system"),
+            "security:admin"
+        )
+        .is_ok());
         identity.role = AgentRole::Agent;
         writer.try_register_agent(identity).unwrap();
         assert!(check().unwrap_err().contains("ACCESS_DENIED"));
+        assert!(require_admin_capability_with_policy(
+            &stale,
+            Some("revoked-system"),
+            "security:admin"
+        )
+        .unwrap_err()
+        .contains("ACCESS_DENIED"));
     }
 
     #[test]
