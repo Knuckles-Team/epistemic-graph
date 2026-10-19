@@ -3357,8 +3357,10 @@
     {
       "id": "EG-DURABLE-KERNEL-R028.2",
       "title": "Read the committed terminal event through the existing WorkItem outcome read",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "6aa2533a8865"
+      ],
       "verified_by": [
         "src/redb_store.rs:6302",
         "src/redb_store/work_item/read/tests.rs:130",
