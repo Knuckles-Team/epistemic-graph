@@ -241,6 +241,12 @@
     "EG-DECISION-ENGINE-R128.11",
     "EG-DECISION-ENGINE-R128.12",
     "EG-DECISION-ENGINE-R128.13",
+    "EG-DECISION-ENGINE-R128.13.1",
+    "EG-DECISION-ENGINE-R128.13.1.1",
+    "EG-DECISION-ENGINE-R128.13.1.2",
+    "EG-DECISION-ENGINE-R128.13.2",
+    "EG-DECISION-ENGINE-R128.13.2.1",
+    "EG-DECISION-ENGINE-R128.13.2.2",
     "EG-DECISION-ENGINE-R128.14",
     "EG-DECISION-ENGINE-R128.15",
     "EG-DECISION-ENGINE-R129",
@@ -1417,7 +1423,7 @@
         "b23e8815f42c"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/statistical.rs:360"
+        "crates/eg-types/src/decision/statistical.rs:363"
       ]
     },
     {
@@ -1450,7 +1456,7 @@
         "b23e8815f42c"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/statistical.rs:367"
+        "crates/eg-types/src/decision/statistical.rs:370"
       ]
     },
     {
@@ -3712,7 +3718,7 @@
         "c7da75413a3c"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/statistical.rs:348",
+        "crates/eg-types/src/decision/statistical.rs:351",
         "src/server/handlers/decide/stat_tests/harness_config_tests.rs:57",
         "src/server/handlers/decide/stat_tests/harness_config_tests.rs:98"
       ]
@@ -3725,9 +3731,9 @@
         "5b6086e4075d"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/statistical/harness_config.rs:394",
-        "crates/eg-types/src/decision/statistical/harness_config.rs:421",
-        "crates/eg-types/src/decision/statistical/harness_config.rs:440"
+        "crates/eg-types/src/decision/statistical/harness_config.rs:407",
+        "crates/eg-types/src/decision/statistical/harness_config.rs:434",
+        "crates/eg-types/src/decision/statistical/harness_config.rs:453"
       ]
     },
     {
@@ -3739,9 +3745,9 @@
         "c0466b57ce04"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/statistical/harness_config.rs:523",
-        "crates/eg-types/src/decision/statistical/harness_config.rs:553",
-        "crates/eg-types/src/decision/statistical/harness_config.rs:580"
+        "crates/eg-types/src/decision/statistical/harness_config.rs:536",
+        "crates/eg-types/src/decision/statistical/harness_config.rs:566",
+        "crates/eg-types/src/decision/statistical/harness_config.rs:593"
       ]
     },
     {
@@ -3774,9 +3780,9 @@
         "4cd26ef35745"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/statistical/harness_config.rs:289",
-        "crates/eg-types/src/decision/statistical/harness_config.rs:332",
-        "crates/eg-types/src/decision/statistical/harness_config.rs:361"
+        "crates/eg-types/src/decision/statistical/harness_config.rs:302",
+        "crates/eg-types/src/decision/statistical/harness_config.rs:345",
+        "crates/eg-types/src/decision/statistical/harness_config.rs:374"
       ]
     },
     {
@@ -3787,7 +3793,7 @@
         "a565bdb085f2"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/statistical/harness_config.rs:626"
+        "crates/eg-types/src/decision/statistical/harness_config.rs:639"
       ]
     },
     {
@@ -3828,6 +3834,70 @@
     {
       "id": "EG-DECISION-ENGINE-R128.13",
       "title": "The committed answer is accepted by the commit path",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R128.13.1",
+        "EG-DECISION-ENGINE-R128.13.2"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R128.13.1",
+      "title": "Typed harness evaluation evidence is part of sealed statistical inputs (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [
+        "3e6b9bf0243d"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/decision/statistical/harness_config.rs:682",
+        "crates/eg-types/src/decision/statistical/harness_config.rs:695",
+        "src/server/handlers/decide/stat_tests/harness_config_tests.rs:99"
+      ],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R128.13.1.1",
+        "EG-DECISION-ENGINE-R128.13.1.2"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R128.13.1.1",
+      "title": "Evidence codec and commit-refusal functional acceptance",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "crates/eg-types/src/decision/statistical/harness_config.rs:683",
+        "crates/eg-types/src/decision/statistical/harness_config.rs:696",
+        "src/server/handlers/decide/stat_tests/harness_config_tests.rs:100"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R128.13.1.2",
+      "title": "Evidence codec and refusal resource qualification remains pending",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R128.13.2",
+      "title": "Re-derive and persist the complete HarnessConfig answer (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R128.13.2.1",
+        "EG-DECISION-ENGINE-R128.13.2.2"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R128.13.2.1",
+      "title": "Successful HarnessConfig replay and readback functional acceptance",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R128.13.2.2",
+      "title": "Persisted HarnessConfig replay resource qualification remains pending",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

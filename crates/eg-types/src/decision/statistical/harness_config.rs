@@ -31,6 +31,7 @@ pub struct HarnessConfigRequestBody {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case", deny_unknown_fields)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "contract-schema", schemars(rename = "HarnessPart_{T}"))]
 pub enum HarnessPart<T> {
     Decided {
         value: T,
@@ -101,6 +102,18 @@ pub enum PlanScaffold {
 pub enum ActionSpace {
     ToolSet,
     ShellOnly,
+}
+
+/// Exact evaluation data retained inside the statistical input digest.
+/// A stored answer is not approval or a verified replay result. The evaluator
+/// must resolve the profile pin and bind request fields to the outer params.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct HarnessConfigEvaluationEvidence {
+    pub model_profile: crate::agent_component::ComponentDependency,
+    pub request: HarnessConfigRequestBody,
+    pub answer: HarnessConfigAnswer,
 }
 
 /// Q32 fractions reuse the checked unit rational with denominator 2^32.
@@ -640,5 +653,78 @@ mod tests {
         }
         let malformed = measured(ShellProficiency::High, "");
         assert!(decide_action_space(Some(&malformed), Some(true)).is_err());
+    }
+
+    fn harness_input_digest(inputs: &super::super::StatisticalInputs) -> String {
+        use super::super::{QuestionKind, QuestionSafety, StatisticalQuestion};
+        let question = StatisticalQuestion {
+            question_id: "legacy-question".into(),
+            kind: QuestionKind::Route,
+            safety: QuestionSafety::Ordinary,
+        };
+        crate::decision::digest::digest_text(
+            "eg/decision-statistical-inputs/v1",
+            &(&question, inputs),
+        )
+    }
+
+    fn legacy_inputs() -> (&'static str, super::super::StatisticalInputs) {
+        let wire = concat!(
+            "{\"feature_schema\":{\"component_id\":\"schema\",\"kind\":\"feature_schema\",\"definition_digest\":\"sh",
+            "a256:old\"},\"head\":null,\"policy\":{\"policy\":\"default\"},\"policy_digest\":\"sha256:policy\",\"para",
+            "ms\":[],\"classification_rules\":null,\"feature_matrix\":{\"matrix\":\"inline\",\"candidate_ids\":[],",
+            "\"feature_names\":[],\"scale\":\"q32\",\"values\":[]},\"shortlist\":{\"ann_recall_mode\":null,\"now_ms\"",
+            ":1,\"embedder_model_digest\":null},\"exploration\":null}"
+        );
+        (wire, serde_json::from_str(wire).unwrap())
+    }
+
+    // spec: EG-DECISION-ENGINE-R128.13.1
+    // spec: EG-DECISION-ENGINE-R128.13.1.1
+    #[test]
+    fn absent_harness_evidence_preserves_legacy_bytes_and_digest() {
+        let (wire, inputs) = legacy_inputs();
+        assert!(inputs.harness_evaluation.is_none());
+        assert_eq!(serde_json::to_string(&inputs).unwrap(), wire);
+        assert_eq!(
+            harness_input_digest(&inputs),
+            "sha256:54f4cc951ca6be7ff7fbfc38b21c859705ef95bc79c38b9197be493377cc1bfe"
+        );
+    }
+
+    // spec: EG-DECISION-ENGINE-R128.13.1
+    // spec: EG-DECISION-ENGINE-R128.13.1.1
+    #[test]
+    fn harness_evidence_roundtrips_and_changes_input_digest() {
+        use crate::agent_component::{AgentComponentKind, ComponentDependency};
+        let (_, mut inputs) = legacy_inputs();
+        let before = harness_input_digest(&inputs);
+        let request: HarnessConfigRequestBody = serde_json::from_value(request_wire()).unwrap();
+        let mut full_answer = answer();
+        full_answer.tool_subset = HarnessPart::Abstained {
+            missing_fact: BoundedVec::new(vec!["required_capabilities".into()]).unwrap(),
+            conservative_default: BoundedVec::default(),
+        };
+        inputs.harness_evaluation = Some(HarnessConfigEvaluationEvidence {
+            model_profile: ComponentDependency {
+                component_id: request.model_profile_ref.clone(),
+                kind: AgentComponentKind::ModelProfile,
+                definition_digest: "sha256:pinned-profile".into(),
+            },
+            request,
+            answer: full_answer,
+        });
+        let wire = serde_json::to_vec(&inputs).unwrap();
+        let restored: super::super::StatisticalInputs = serde_json::from_slice(&wire).unwrap();
+        assert_eq!(inputs, restored);
+        let sealed = harness_input_digest(&inputs);
+        assert_ne!(before, sealed);
+        inputs
+            .harness_evaluation
+            .as_mut()
+            .unwrap()
+            .answer
+            .plan_scaffold = decided(PlanScaffold::On);
+        assert_ne!(sealed, harness_input_digest(&inputs));
     }
 }
