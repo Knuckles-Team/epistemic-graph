@@ -2700,16 +2700,28 @@
     {
       "id": "EG-TYPED-PACKS-R710",
       "title": "Schema drift classification, containment, repair proposal and activation: model and behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4e402b2ec8bf"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/graph_schema/drift.rs:645",
+        "crates/eg-types/src/graph_schema/drift.rs:681",
+        "crates/eg-types/src/graph_schema/drift.rs:712",
+        "crates/eg-types/src/graph_schema/drift.rs:752",
+        "crates/eg-types/src/graph_schema/drift.rs:776"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R712",
       "title": "Schema drift classification, containment, repair proposal and activation: refusal, evidence and hot-path proof",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "0305cbd4457e"
+      ],
+      "verified_by": [
+        "tests/packs/test_schema_drift_served.py:169"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R711",
