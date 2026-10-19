@@ -8841,7 +8841,7 @@
       ],
       "verified_by": [
         "crates/eg-capabilities/src/scopes/tests.rs:73",
-        "crates/eg-core/src/usage_ledger.rs:67",
+        "crates/eg-core/src/usage_ledger.rs:64",
         "crates/eg-core/tests/usage_ledger.rs:24"
       ]
     },
