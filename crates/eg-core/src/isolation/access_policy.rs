@@ -67,18 +67,37 @@ impl IsolationLayer {
     /// only when no standing grant decided: an explicit RBAC `Deny` is never
     /// overridden by an elevation.
     pub fn access_basis(&self, query: &AccessQuery<'_>) -> AccessBasis {
-        let Some(identity) = self.agents.get(query.agent_id) else {
-            return AccessBasis::Denied;
-        };
-        if identity.role == AgentRole::System {
-            return AccessBasis::Standing;
+        #[cfg(feature = "security")]
+        {
+            let Some(store) = self.persist.as_ref() else {
+                return AccessBasis::Denied;
+            };
+            let Ok(authority) = store.authority_snapshot() else {
+                return AccessBasis::Denied;
+            };
+            let Some(identity) = authority.identities().get(query.agent_id) else {
+                return AccessBasis::Denied;
+            };
+            if identity.role == AgentRole::System {
+                return AccessBasis::Standing;
+            }
+            Self::check_non_system_access(authority.policy(), identity, query)
         }
-        self.check_non_system_access(identity, query)
+        #[cfg(not(feature = "security"))]
+        {
+            let Some(identity) = self.agents.get(query.agent_id) else {
+                return AccessBasis::Denied;
+            };
+            if identity.role == AgentRole::System {
+                return AccessBasis::Standing;
+            }
+            self.check_non_system_access(identity, query)
+        }
     }
 
     #[cfg(feature = "security")]
     fn check_non_system_access(
-        &self,
+        policy: &crate::rbac::RbacPolicy,
         identity: &AgentIdentity,
         query: &AccessQuery<'_>,
     ) -> AccessBasis {
@@ -94,11 +113,10 @@ impl IsolationLayer {
                 eg_types::rbac_elevation::ElevationAction::Write,
             ),
         };
-        match self.rbac.evaluate(&identity.roles, &context, action) {
+        match policy.evaluate(&identity.roles, &context, action) {
             Some(crate::acl::GrantEffect::Allow) => AccessBasis::Standing,
             Some(crate::acl::GrantEffect::Deny) => AccessBasis::Denied,
-            None => self
-                .rbac
+            None => policy
                 .elevations()
                 .permitting(
                     query.agent_id,
@@ -211,22 +229,33 @@ impl IsolationLayer {
     }
 
     pub fn has_admin_capability(&self, agent_id: &str) -> bool {
-        let Some(identity) = self.agents.get(agent_id) else {
-            return false;
-        };
-        if identity.role == AgentRole::System {
-            return true;
-        }
         #[cfg(feature = "security")]
         {
+            let Some(store) = self.persist.as_ref() else {
+                return false;
+            };
+            let Ok(authority) = store.authority_snapshot() else {
+                return false;
+            };
+            let Some(identity) = authority.identities().get(agent_id) else {
+                return false;
+            };
+            if identity.role == AgentRole::System {
+                return true;
+            }
             let context = crate::acl::ResourceContext::graph("__admin__");
             matches!(
-                self.rbac
-                    .evaluate(&identity.roles, &context, crate::acl::RbacAction::Admin,),
+                authority.policy().evaluate(
+                    &identity.roles,
+                    &context,
+                    crate::acl::RbacAction::Admin,
+                ),
                 Some(crate::acl::GrantEffect::Allow)
             )
         }
         #[cfg(not(feature = "security"))]
-        false
+        self.agents
+            .get(agent_id)
+            .is_some_and(|identity| identity.role == AgentRole::System)
     }
 }

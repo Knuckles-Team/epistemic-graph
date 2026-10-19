@@ -326,12 +326,13 @@ impl RbacPolicyStore for FailingStore {
         Err(RbacPersistError::IncompleteState("test store"))
     }
 
-    fn save(
+    fn compare_and_save(
         &self,
+        _expected_revision: u64,
         _policy: &RbacPolicy,
         _identities: &BTreeMap<String, AgentIdentity>,
         _bootstrap: IdentityBootstrapState,
-    ) -> Result<(), RbacPersistError> {
+    ) -> Result<u64, RbacPersistError> {
         Err(RbacPersistError::IncompleteState("disk full"))
     }
 
@@ -344,7 +345,12 @@ impl RbacPolicyStore for FailingStore {
 fn a_failed_write_rolls_back_the_store_and_the_projection_together() {
     let mut layer = seeded();
     let before = serde_json::to_string(layer.rbac()).unwrap();
+    let working_store = layer.persist.clone();
     layer.persist = Some(Arc::new(FailingStore));
+    assert!(
+        !can_read(&layer),
+        "unreadable authority cannot allow access"
+    );
     let outcome = apply(
         &mut layer,
         unbind(BindingChange::Remove),
@@ -352,7 +358,7 @@ fn a_failed_write_rolls_back_the_store_and_the_projection_together() {
     );
     assert!(matches!(outcome, Err(IdentityStoreError::Persist(_))));
     assert_eq!(serde_json::to_string(layer.rbac()).unwrap(), before);
-    assert!(can_read(&layer), "neither half of the change was kept");
+    assert!(!can_read(&layer), "failed authority reads remain denied");
     let audited = layer.try_rbac_admin_audited(RbacAdminOp::AddRole(Role::new("ops")), actor());
     assert!(audited.is_err());
     assert_eq!(
@@ -360,6 +366,8 @@ fn a_failed_write_rolls_back_the_store_and_the_projection_together() {
         before,
         "nor its audit entry"
     );
+    layer.persist = working_store;
+    assert!(can_read(&layer), "the durable image was not changed");
 }
 
 #[test]
@@ -389,3 +397,80 @@ fn a_denial_sample_lands_in_the_trail() {
 
 #[path = "identity_store_tests/tenant_and_audit.rs"]
 mod tenant_and_audit;
+
+#[test]
+fn stale_policy_writer_cannot_restore_a_revoked_session() {
+    let layer = seeded();
+    let store = layer.policy_store().unwrap();
+    let snapshot = store.authority_snapshot().unwrap();
+    let hash = "0".repeat(64);
+    let mut value = serde_json::to_value(snapshot.policy()).unwrap();
+    value["identity"]["sessions"][&hash] = serde_json::to_value(SessionRecord {
+        session_hash: hash.clone(),
+        principal_id: "usr:alice".into(),
+        created_at_ms: NOW - 10,
+        last_seen_at_ms: NOW - 10,
+        idle_expires_at_ms: NOW + 100,
+        absolute_expires_at_ms: NOW + 1000,
+        auth_methods: vec!["pwd".into()],
+        mfa_pending: false,
+        mfa_at_ms: None,
+        ip_prefix: None,
+        revoked_at_ms: None,
+        revoke_reason: None,
+    })
+    .unwrap();
+    let policy = serde_json::from_value(value).unwrap();
+    store
+        .compare_and_save(
+            snapshot.revision(),
+            &policy,
+            snapshot.identities(),
+            snapshot.bootstrap(),
+        )
+        .unwrap();
+    let mut current = IsolationLayer::with_policy_store(Arc::clone(&store)).unwrap();
+    let mut stale = current.clone();
+    apply(
+        &mut current,
+        IdentityOp::Session(SessionOp::RevokeAll {
+            request: ObjectRef {
+                id: "usr:alice".into(),
+            },
+        }),
+        &stamp(IDENTITY_ADMIN_SCOPE),
+    )
+    .unwrap();
+    let committed = store.authority_snapshot().unwrap();
+    let persisted = serde_json::to_value(committed.policy()).unwrap();
+    assert_eq!(
+        persisted["identity"]["sessions"][&hash]["revoked_at_ms"],
+        NOW
+    );
+    assert!(stale
+        .try_add_role(Role::new("unrelated-role"))
+        .unwrap_err()
+        .contains("RBAC_STALE_REVISION"));
+    let after = store.authority_snapshot().unwrap();
+    assert_eq!(after.revision(), committed.revision());
+    assert_eq!(serde_json::to_value(after.policy()).unwrap(), persisted);
+    assert_eq!(after.bootstrap(), IdentityBootstrapState::Consumed);
+}
+
+#[test]
+fn admin_capability_refuses_missing_or_unreadable_authority() {
+    let mut layer = IsolationLayer::new();
+    layer
+        .try_register_agent(AgentIdentity {
+            agent_id: "system".into(),
+            role: AgentRole::System,
+            teams: vec![],
+            roles: vec![],
+        })
+        .unwrap();
+    assert!(layer.has_admin_capability("system"));
+    layer.persist = Some(Arc::new(FailingStore));
+    assert!(!layer.has_admin_capability("system"));
+    layer.persist = None;
+    assert!(!layer.has_admin_capability("system"));
+}

@@ -1141,10 +1141,12 @@ mod tests {
             &authority.proof(),
         )
         .expect("open rbac store");
-        let mut identities = std::collections::BTreeMap::new();
+        let snapshot = rbac.authority_snapshot().expect("read identity preimage");
+        let mut identities = snapshot.identities().clone();
         identities.insert(identity.agent_id.clone(), identity);
-        rbac.save(
-            &eg_core::rbac::RbacPolicy::new(),
+        rbac.compare_and_save(
+            snapshot.revision(),
+            snapshot.policy(),
             &identities,
             eg_core::rbac_persist::IdentityBootstrapState::Consumed,
         )

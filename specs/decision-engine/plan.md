@@ -54,7 +54,7 @@ Authenticated request + tenant scope
   -> optional snapshot-checked DecisionCommit
 ```
 
-The request carries a question kind, typed constraints, candidate source, policy reference and work budget. Candidate facts pin component ID, kind, definition digest, lifecycle, capability and model facts, provenance and evidence class. The input digest covers every value read by the decision function, including quantized feature matrix, time used for freshness, embedder/head/schema/policy digests, shortlist mode and exploration propensity when applicable. A live graph recomputation is a new decision, not replay of the old one. `verify-replay` runs the pure function over stored inputs and compares canonical bytes across supported targets. Integer `i128` arithmetic is checked; statistical math uses pinned deterministic implementations and quantizes once before digesting. `DecisionRecord` v1 is integer assembly, v2 statistical and v3 topology; decoder compatibility and golden vectors are versioned.
+The request carries a question kind, typed constraints, candidate source, policy reference and work budget. Candidate facts pin component ID, kind, definition digest, lifecycle, capability and model facts, provenance and evidence class. The input digest covers every value read by the decision function. These include the quantized feature matrix, freshness time, embedder/head/schema/policy digests, shortlist mode and applicable exploration propensity. A live graph recomputation is a new decision, not replay of the old one. `verify-replay` runs the pure function over stored inputs and compares canonical bytes across supported targets. Integer `i128` arithmetic is checked; statistical math uses pinned deterministic implementations and quantizes once before digesting. `DecisionRecord` v1 is integer assembly, v2 statistical and v3 topology; decoder compatibility and golden vectors are versioned.
 
 Policy order is monotone: a request may reduce risk, spending and latency budgets, increase minimum support, add denials and tighten the accepted optimality gap; a relaxation returns a typed error. Hard constraints cannot be bypassed by the scorer. The legal set comes from EG-held policy and facts rather than a caller-supplied arbitrary option list. A zero-cost unknown is prohibited; policy may exclude it, require a ceiling, or abstain. Visible constraints and derivations are returned; invisible candidates never appear in counts, digests, why-not or errors.
 
@@ -62,7 +62,7 @@ Policy order is monotone: a request may reduce risk, spending and latency budget
 
 Create binary selection variables for candidate components and, where required, template/slot choices. Constraints include the following. Each required capability is covered by an eligible selected component. Required dependencies imply selection. Incompatible options cannot coexist. Each required slot has exactly one assignment. Cardinality and integer budget bounds hold. Model and tool modality/schema constraints hold. The objective is a sequence of integer levels: first hard feasibility, then policy-defined utility, resource use and stable tie-break. Preprocess dominated or impossible options and seed an incumbent greedily. Then branch and bound with an admissible lower bound until optimality or node budget. A budget-exhausted answer may return an incumbent and proven gap only if policy permits that gap; otherwise abstain. No fixed maximum number of feasible assemblies substitutes for work budgeting.
 
-The independent certificate verifier checks input digest, sorted variable mapping, all constraints against the proposed assignment, objective recomputation, lower-bound validity, gap and solver version. It must not trust a claimed feasible assignment or bound. Why-not for a visible excluded option fixes that option on, re-solves under a separate bounded budget, and reports the resulting violation, worse objective, gap or budget exhaustion. A failed post-solve template/graph validator adds a no-good cut and re-solves within the original budget.
+The independent certificate verifier checks the input digest, sorted variable mapping and every constraint against the proposed assignment. It also checks objective recomputation, lower-bound validity, gap and solver version. It must not trust a claimed feasible assignment or bound. Why-not for a visible excluded option fixes that option on, re-solves under a separate bounded budget, and reports the resulting violation, worse objective, gap or budget exhaustion. A failed post-solve template/graph validator adds a no-good cut and re-solves within the original budget.
 
 ### 4. Statistical decision and evidence
 
@@ -620,7 +620,7 @@ References
 
 Consumers: AU-CONTROL-R040 (run trace), AU-CONTROL-R041 (runtime quota).
 
-Data flow: `Decide` wire method -> `handle_decide` (`src/server/handlers/decide/stat_decide.rs:48`) -> `runtime_quota_outcome` at `stat_decide.rs:134` -> `decide_runtime_quota` (`crates/eg-types/src/decision/run_governance.rs`, new) -> sealed `Advisory` with one option per value. Trace: harness run end -> new `RunTraceRecord` adapter -> served `CommitWorkItemResult` terminal outcome extension -> `lower_terminal_outcome_extensions` (`src/server/mutation_batch/terminal_outcome.rs:22`) -> `apply_commit_work_item_result_row` (`src/redb_store/work_item/commit.rs:211`) -> receipt materialization after the successful fenced terminal CAS (`commit.rs:343`) in the same transaction. New produced-link materialization reuses the pure descriptors from `project` (`crates/eg-durable/src/project.rs:68`); that function performs no writes. `Decide` remains read-only and cannot persist the trace. `outcome_bundle.rs:56` declares participant domains, not a write call.
+Data flow: `Decide` wire method -> `handle_decide` (`src/server/handlers/decide/stat_decide.rs:48`) -> `runtime_quota_outcome` at `stat_decide.rs:134` -> `decide_runtime_quota` (`crates/eg-types/src/decision/run_governance.rs`, new). The result is a sealed `Advisory` with one option per value. Trace: harness run end -> new `RunTraceRecord` adapter -> served `CommitWorkItemResult` terminal outcome extension -> `lower_terminal_outcome_extensions` (`src/server/mutation_batch/terminal_outcome.rs:22`). The trace continues through `apply_commit_work_item_result_row` (`src/redb_store/work_item/commit.rs:211`) -> receipt materialization after the successful fenced terminal CAS (`commit.rs:343`) in the same transaction. New produced-link materialization reuses the pure descriptors from `project` (`crates/eg-durable/src/project.rs:68`); that function performs no writes. `Decide` remains read-only and cannot persist the trace. `outcome_bundle.rs:56` declares participant domains, not a write call.
 
 Types: `RunTraceRecord`, `RuntimeQuota`, `QuotaDefaults`, `QuestionKind::RuntimeQuota`. Attach point: the dispatch match at `stat_decide.rs:134`. Production caller: the Wiring row creates the match arm. Failure behavior: resolve each effective default D and hard tenant ceiling C with D <= C. `decide_runtime_quota(task_class, policy, request)` first refuses any requested R > C, then returns min(D, R), or D on omission. Increases above D through C are ignored; lower requests tighten. A missing task class abstains to effective defaults under C only after the ceiling check.
 
@@ -702,7 +702,7 @@ Types: `ParallelMapLimits`, `WindowBudget`, `OverWindowPlan`; `ContextPolicy` is
 
 Moves from agent-utilities: `agent_utilities/rlm/config.py:60`, `agent_utilities/knowledge_graph/retrieval/context_knapsack.py:422`.
 
-Existing code: `crates/eg-types/src/decision/statistical/harness_config.rs:81`, `crates/eg-compute/src/assemble/eliminate.rs:97`, `crates/eg-compute/src/assemble/eliminate.rs:138`, `src/server/handlers/decide/candidates.rs:415`. Reachable today: yes for the window elimination in `eliminate.rs:97`, which discards a candidate whose window is too small; no for the over-window plan and the limits. `EG-DECISION-ENGINE-R128` owns the context policy and thresholds and is reused; this rollup adds the recursive plan and the limits that `EG-DECISION-ENGINE-R128` does not cover. Search terms used with no match: `over_window`, `window_fraction`, `max_items`, `OverWindow`.
+Existing code: `crates/eg-types/src/decision/statistical/harness_config.rs:81`, `crates/eg-compute/src/assemble/eliminate.rs:97`, `crates/eg-compute/src/assemble/eliminate.rs:138`, `src/server/handlers/decide/candidates.rs:415`. Window elimination in `eliminate.rs:97` is reachable today and discards candidates with insufficient windows. The over-window plan and limits are not reachable. `EG-DECISION-ENGINE-R128` owns the context policy and thresholds. This rollup reuses them and adds the recursive plan and remaining limits. Search terms used with no match: `over_window`, `window_fraction`, `max_items`, `OverWindow`.
 
 Decision: the engine returns the plan and the limits together, so the harness never exceeds a budget it did not receive. Rejected alternative: limits set in harness configuration, because they cannot follow the task class.
 
@@ -782,7 +782,7 @@ Certification requires an independently verified optimal, zero-gap result. R011 
 <!-- spec-definition-patch:comparative-analysis-r139 -->
 ## Comparative analysis plan producer (R139)
 
-The EG producer consumes only caller-supplied, revision-pinned `UnifiedQuery` results and vectors, filters to caller-visible candidates, caps the universe at 64, and emits stable order. Versioned default importance thresholds are 0.50 for selective synthesis and 0.80 for deep extraction. Stage budgets are exactly 0 discovery, 1 or 2 synthesis calls, and 0–64 extraction calls; the explicit total must cover their sum. No stage retries outside budget. The plan contains no model-generated text.
+The EG producer consumes only caller-supplied, revision-pinned `UnifiedQuery` results and vectors. It filters to caller-visible candidates, caps the universe at 64, and emits stable order. Versioned default importance thresholds are 0.50 for selective synthesis and 0.80 for deep extraction. Stage budgets are exactly 0 discovery, 1 or 2 synthesis calls, and 0–64 extraction calls; the explicit total must cover their sum. No stage retries outside budget. The plan contains no model-generated text.
 
 The real EG path is public `Method::Decide` through `src/server/handlers/decide/statistical.rs::handle_decide` and `src/server/handlers/decide/stat_decide.rs::handle_decide`; add the `ComparativeAnalysisPlan` arm and make zero model calls. The AU consumer may invoke only after receiving the plan, through `agent_utilities/knowledge_graph/retrieval/context_compiler_serving.py::compiled_chat_completion`; AU binds actual calls, run ID and request/result digests to a separate receipt. `AU-HARNESS-R024.3` is trace-digest support only. The AU consumer contract and served receipt remain an explicit external dependency, not covered by EG changes.
 
@@ -1605,6 +1605,30 @@ Budget: p95 under 50 ms for 5,000 tools across 100 packs. This is a starting def
 
 Usage guidance (R177) replaces static skill instructions as the authority. A skill asks the engine how and when to use a connector. The pack surface relationships come from `EG-TYPED-PACKS-R102`; the step vocabulary comes from `EG-CQ-ORCH-R001`.
 
+### Amendment: harness evaluation evidence contract
+
+R128.13.1 adds optional typed evidence to StatisticalInputs. Retain the exact
+profile dependency, typed request and full answer instead of encoding missing
+facts or thresholds into advisory option names. The existing input and record
+digests cover this evidence. Omit it when absent to preserve legacy bytes.
+Future evaluate and replay must resolve the profile pin and verify the request
+against params before trusting the answer. This slice enables neither executor
+dispatch nor advisory commit. Policy thresholds remain a separate increment.
+Commit replay rejects evidence on every currently supported question, so a
+caller cannot attach a fabricated answer to a rehashed ordinary record.
+
+R128.13.2 retains the parent commit and readback obligation. The evidence type
+and its refusal tests do not establish successful HarnessConfig replay.
+The status generator uses commit trailers and test bindings, not test results.
+Record native execution evidence separately before claiming acceptance.
+
+R128.13.1.1 owns the unchanged evidence codec and native refusal tests.
+R128.13.1.2 retains the undefined workload and performance acceptance.
+R128.13.2.1 retains successful replay and readback; R128.13.2.2 retains their resource qualification.
+The benchmark paths named in those rows are planned and unimplemented.
+Vector cardinalities and context-token bounds do not establish byte, latency or memory budgets.
+Generate status only from the canonical tool; record execution and measurement gaps separately.
+
 ## Amendment 2026-10-18: R036 profile-use admission ownership
 
 This amendment extends `EG-DECISION-ENGINE-R036`; it does not deliver runtime
@@ -1937,3 +1961,57 @@ proof, reservation coverage and visibility protocol with independent reviewers.
 Any change to issuer eligibility, grant reuse, revocation semantics or tenant
 isolation is a material security decision and must be surfaced explicitly.
 Source design authorizes neither those policy changes nor live migration.
+
+## Amendment 2026-10-18: R036 stale authority image writes
+
+The whole-image writer now carries the revision from the caller's atomic RBAC
+snapshot through persistence. The snapshot includes policy, registered identities
+and bootstrap state. Isolation-layer clones retain independent preimage revisions.
+A checked write compares that revision while the existing owner transaction holds
+the write lock, before admission or replay can return success. A successful write
+returns its committed revision; no later read supplies that receipt.
+
+The legacy unversioned save API remains callable but refuses writes. Existing
+production callers use the checked operation. Unsupported store adapters also
+refuse checked writes rather than falling back to an unconditional save. Each
+successful checked save advances the existing revision, including equal images;
+a stale equal image is still a conflict. Failed writes preserve the caller's
+rollback boundary and do not advance its revision. Recovery requires a fresh
+atomic snapshot and re-evaluation, not a blind retry with a newer counter.
+
+This is the stale-image prerequisite of R036, not participant reservation or
+multi-owner admission. This slice enables no storage format migration, new issuer, live grant or
+profile admission. Cached authorization reads, coordinator recovery
+and reservation enforcement remain separate obligations. Regression coverage
+must prove stale-clone refusal, one winner for concurrent writers, preservation
+of newer session state and bootstrap, and durable revision checks after reopen.
+
+
+## Amendment 2026-10-18: R036 graph access snapshot freshness
+
+A stale isolation clone can retain grants or a System identity after another
+writer revokes them. Revision checks on writes do not refresh access reads.
+The security graph access check must read identity, grants and elevations from
+one current authority snapshot. Missing or unreadable authority denies access.
+Preserve explicit deny precedence and the existing non-security ACL behavior.
+
+This slice covers access_basis and its check_access callers only. Row visibility,
+administrative capability checks and other cached readers need separate review.
+It does not reserve authority through a later effect or implement multi-owner
+admission. Participant reservations, recovery and visibility remain incomplete.
+
+## Amendment 2026-10-18: R036 administrative capability snapshot freshness
+
+The existing administrative capability decision must evaluate the registered
+identity and Admin grants from one current durable authority snapshot. Missing
+or unreadable authority denies the decision, including a cached System identity.
+Preserve the existing System role behavior, explicit deny precedence, and
+non-security registered-System rule. Elevations grant no administrative power.
+This repairs an existing decision over EG records; it adds no issuer, served
+operation, profile permission, or Arbora admission policy.
+
+Test stale-clone grant removal, System demotion, identity deletion, explicit
+deny and unavailable authority across memory and redb stores. Also test refusal
+through the existing administrative caller. This is
+snapshot-time freshness only. Other cached readers, conservative has_rules
+checks, effect-time reservations and performance qualification remain separate.
