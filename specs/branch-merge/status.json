@@ -1,0 +1,66 @@
+{
+  "schema_version": 2,
+  "spec_id": "EG-BRANCH-MERGE",
+  "owner_repo": "epistemic-graph",
+  "delivery_state": "SPECIFIED",
+  "requirement_ids": [
+    "EG-BRANCH-MERGE-R001",
+    "EG-BRANCH-MERGE-R002",
+    "EG-BRANCH-MERGE-R003",
+    "EG-BRANCH-MERGE-R004",
+    "EG-BRANCH-MERGE-R005",
+    "EG-BRANCH-MERGE-R006",
+    "EG-BRANCH-MERGE-R007"
+  ],
+  "requirements": [
+    {
+      "id": "EG-BRANCH-MERGE-R001",
+      "title": "Typed branch model and create",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-BRANCH-MERGE-R002",
+      "title": "Branch-scoped mutations",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-BRANCH-MERGE-R003",
+      "title": "Merge base and fast-forward",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-BRANCH-MERGE-R004",
+      "title": "Entity-level three-way merge",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-BRANCH-MERGE-R005",
+      "title": "Epistemic conflict resolution",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-BRANCH-MERGE-R006",
+      "title": "Branch diff and time-travel reads",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-BRANCH-MERGE-R007",
+      "title": "Atomic merge publication",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    }
+  ]
+}
