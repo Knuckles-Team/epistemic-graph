@@ -33,7 +33,10 @@ fn reader_sees_only_own_tenant() {
     let own = ledger.read_for_tenant("tenant-a");
     assert_eq!(own.len(), 2);
     assert!(own.iter().all(|r| r.tenant == "tenant-a"));
-    assert_eq!(own.iter().map(|r| r.run_id.as_str()).collect::<Vec<_>>(), vec!["run-1", "run-2"]);
+    assert_eq!(
+        own.iter().map(|r| r.run_id.as_str()).collect::<Vec<_>>(),
+        vec!["run-1", "run-2"]
+    );
 
     // A caller outside the tenant sees an empty result.
     assert!(ledger.read_for_tenant("tenant-c").is_empty());

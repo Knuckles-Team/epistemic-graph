@@ -36,10 +36,7 @@ impl UsageLedger {
     /// Tenant-scoped read for the verified tenant: only that tenant's records,
     /// in append order. A caller outside the tenant sees an empty result.
     pub fn read_for_tenant(&self, tenant: &str) -> Vec<UsageRecord> {
-        self.by_tenant
-            .get(tenant)
-            .cloned()
-            .unwrap_or_default()
+        self.by_tenant.get(tenant).cloned().unwrap_or_default()
     }
 }
 

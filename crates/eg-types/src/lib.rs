@@ -455,9 +455,9 @@ pub mod immich_pilot_phase;
 // (`src/server/handlers/viz.rs`, facade feature `viz-static-export`) is the one
 // place that parses `VizRenderRequest::spec_json` into a real
 // `eg_viz_core::ViewSpec` and resolves it.
+pub mod usage;
 #[cfg(feature = "viz")]
 pub mod viz;
-pub mod usage;
 pub mod wire;
 // RF-ADR-009 D18 — EG-owned versioned source change sets and append-only
 // write-back/reconciliation receipts. Connector transports remain in the SDK.
