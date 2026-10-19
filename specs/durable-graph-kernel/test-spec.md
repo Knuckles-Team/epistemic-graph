@@ -321,7 +321,7 @@ Hot-path proof for `EG-DURABLE-KERNEL-R099`: `tests/shard_write_fanout.rs::cross
 
 Hot-path proof for `EG-DURABLE-KERNEL-R100`: `tests/mirror_graph_sinks_served.rs::each_sink_replays_after_outage`.
 
-- EG-DURABLE-KERNEL-R028.2: terminal event readback, restart identity, tenant isolation, missing/corrupt binding refusal and legacy unavailability. Hosted and served acceptance remains pending until the tests run and pass.
+- EG-DURABLE-KERNEL-R028.2: terminal event readback, restart identity, tenant isolation, missing/corrupt binding refusal and legacy unavailability. Receipt 2026-10-19 UTC on main `ed1f25ba023c29a8da6734819005c38bb34f18b9`: the five wired native tests from `2835f06de` (PR #622) ran and all passed (5 passed, 0 failed): `redb_store::mutation_batch_tests::terminal_extension_commits_rows_outbox_and_replays_after_reopen`, `redb_store::work_item::read::tests::an_outcome_read_returns_only_digest_verified_provenance_of_the_tenants_item`, `redb_store::work_item::read::tests::event_bindings_cannot_be_forged_and_missing_bound_event_is_not_legacy`, `redb_store::work_item::read::tests::a_bound_event_read_refuses_a_committed_batch_without_its_event`, `redb_store::work_item::read::tests::present_event_payload_corruption_is_refused`; `tests/test_work_item_read_client.py` passed 14/14, including `test_get_outcome_returns_the_verified_provenance_view`. Every acceptance bullet of the row is proven by these tests, so the pending condition is cleared.
 ## EG-DURABLE-KERNEL-R101 acceptance
 
 | Case | Row | Proving test and observation |
