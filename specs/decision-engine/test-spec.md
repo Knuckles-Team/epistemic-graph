@@ -814,3 +814,16 @@ Hot-path proof for `EG-DECISION-ENGINE-R174.9`: `tests/decide/test_freshness_ref
 | Hot-path proof | `EG-DECISION-ENGINE-R802.6` | `tests/web_document_enrich_served.rs::test_web_page_enriches_once_for_both_backends`: The served test passes, and `web_fetch_selection` meets the budget. |
 
 Hot-path proof for `EG-DECISION-ENGINE-R802`: `tests/web_document_enrich_served.rs::test_web_page_enriches_once_for_both_backends`.
+
+## EG-DECISION-ENGINE-R803 acceptance
+
+| Case | Row | Proving test and observation |
+|---|---|---|
+| Model | `EG-DECISION-ENGINE-R803.1` | `crates/eg-types/src/decision/harness_contrast.rs::tests::decision_round_trips`: A serde round trip keeps every field. |
+| Behavior | `EG-DECISION-ENGINE-R803.2` | `crates/eg-types/src/decision/harness_contrast.rs::tests::adoption_requires_positive_delta`: Unit tests cover adoption, tie-break and abstention. |
+| Wiring | `EG-DECISION-ENGINE-R803.3` | `tests/decide/test_harness_contrast_served.py::test_contrast_decide_stores_record`: A served `Decide` call stores one record. |
+| Refusal | `EG-DECISION-ENGINE-R803.4` | `crates/eg-types/src/decision/harness_contrast.rs::tests::contrast_refusals`: Each case returns its code and stores nothing. |
+| Evidence | `EG-DECISION-ENGINE-R803.5` | `crates/eg-types/src/decision/harness_contrast.rs::tests::record_pins_evidence_and_replays`: The rerun digest matches, and the supersession citation resolves. |
+| Hot-path proof | `EG-DECISION-ENGINE-R803.6` | `tests/decide/test_harness_contrast_served.py::test_contrast_hot_path_served`: The served test passes, and the benchmark meets the budget. |
+
+Hot-path proof for `EG-DECISION-ENGINE-R803`: `tests/decide/test_harness_contrast_served.py::test_contrast_hot_path_served`.

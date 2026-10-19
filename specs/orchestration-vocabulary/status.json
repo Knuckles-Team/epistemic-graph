@@ -140,7 +140,21 @@
     "EG-ORCH-VOCAB-R004.700",
     "EG-ORCH-VOCAB-R004.701",
     "EG-ORCH-VOCAB-R009.700",
-    "EG-ORCH-VOCAB-R009.701"
+    "EG-ORCH-VOCAB-R009.701",
+    "EG-ORCH-VOCAB-R801",
+    "EG-ORCH-VOCAB-R801.1",
+    "EG-ORCH-VOCAB-R801.2",
+    "EG-ORCH-VOCAB-R801.3",
+    "EG-ORCH-VOCAB-R801.4",
+    "EG-ORCH-VOCAB-R801.5",
+    "EG-ORCH-VOCAB-R801.6",
+    "EG-ORCH-VOCAB-R802",
+    "EG-ORCH-VOCAB-R802.1",
+    "EG-ORCH-VOCAB-R802.2",
+    "EG-ORCH-VOCAB-R802.3",
+    "EG-ORCH-VOCAB-R802.4",
+    "EG-ORCH-VOCAB-R802.5",
+    "EG-ORCH-VOCAB-R802.6"
   ],
   "requirements": [
     {
@@ -1264,6 +1278,120 @@
     {
       "id": "EG-ORCH-VOCAB-R009.701",
       "title": "Durable execution units mirror into the run-trace vocabulary: refusal, evidence and hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R801",
+      "title": "Versioned harness components as graph facts (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-ORCH-VOCAB-R801.1",
+        "EG-ORCH-VOCAB-R801.2",
+        "EG-ORCH-VOCAB-R801.3",
+        "EG-ORCH-VOCAB-R801.4",
+        "EG-ORCH-VOCAB-R801.5",
+        "EG-ORCH-VOCAB-R801.6"
+      ]
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R801.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R801.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R801.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R801.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R801.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R801.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R802",
+      "title": "Improvement library: adopted harnesses, contrasts and lessons (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-ORCH-VOCAB-R802.1",
+        "EG-ORCH-VOCAB-R802.2",
+        "EG-ORCH-VOCAB-R802.3",
+        "EG-ORCH-VOCAB-R802.4",
+        "EG-ORCH-VOCAB-R802.5",
+        "EG-ORCH-VOCAB-R802.6"
+      ]
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R802.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R802.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R802.3",
+      "title": "Query",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R802.4",
+      "title": "Supersession",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R802.5",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R802.6",
+      "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

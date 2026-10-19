@@ -430,3 +430,36 @@ It does not run during decision abstention. Atomic event deduplication uses
 a different payload conflicts. Stale revisions, mismatched capability, missing
 review and denied authority store nothing. UnifiedQuery independently reads
 fields, edges and receipt revision after restart. No capability status changes.
+
+## Versioned harness components and the improvement library (R801, R802)
+
+Data flow, in call order:
+
+```text
+AU harness cycle (AU-HARNESS-CYCLE-R001)
+  -> ApplyChangeEnvelopes (component version, contrast, adopted harness, lesson)
+  -> ChangeEnvelope::validate (evidence refusal R801.4, R802.5)
+  -> durable write with bitemporal stamps (EG-DURABLE-KERNEL-R078/R081)
+  -> current_harness_component / retrieve_lessons / version-history queries
+  -> EG-DECISION-ENGINE-R803 reads the contrast for the composition decision
+```
+
+Reuse inventory:
+
+- `PromptTemplate` versioning (`EG-ORCH-VOCAB-R800.1`) supplies the content-digest and version pattern for the system_prompt component.
+- The guardrail scope ingest (`EG-ORCH-VOCAB-R004.700`) supplies the guardrails component.
+- The measured-fact evidence pattern (`EG-ORCH-VOCAB-R011.2` through `R011.5`) supplies evidence-only admission and supersede-by-edge.
+- The run-trace vocabulary (`EG-ORCH-VOCAB-R009`) supplies the trace ids a contrast and a lesson cite.
+- The bitemporal served method (`EG-DURABLE-KERNEL-R078`) and its generated client (`EG-DURABLE-KERNEL-R081`) supply the valid-time stamps and `AS OF` reads.
+
+Decisions:
+
+- One vocabulary, one writer. The harness cycle is the sole producer of all five record kinds. No second store or local cache exists.
+- Improvement without ground truth. A contrast compares two runs of the same task under identical conditions. No label or verifier participates. The evidence is the measured delta.
+- A lesson is a fact with applicability, not a rule. Rule promotion stays with `EG-DECISION-ENGINE-R129`. The decision record of `EG-DECISION-ENGINE-R803.5` refuses a lesson that contradicts a stored invariant.
+
+Consumers: `EG-DECISION-ENGINE-R803` composes from the contrast. `AU-HARNESS-CYCLE-R001.2` reads the lessons before proposing. `ARBORA-OPS-R068` serves the reads.
+
+References:
+
+- arXiv:2610.14224 — Xu et al., "Harness²: Recursive Agent Harnessing for an Open World" (2026)

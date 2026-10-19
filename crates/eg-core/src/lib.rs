@@ -128,3 +128,4 @@ pub(crate) mod rls_view_cache;
 pub mod scene;
 #[cfg(all(test, any(feature = "security", feature = "path-persist")))]
 pub(crate) mod test_scope_grant;
+pub mod usage_ledger;
