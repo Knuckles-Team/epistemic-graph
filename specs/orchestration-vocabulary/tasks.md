@@ -155,3 +155,20 @@ Producer first: terms, then shapes, then projection call sites, then query tests
 - [ ] Run `test_authority_bound_gap_admission_and_restart` with restart and independent durable readback.
 
 Status remains SPECIFIED. `landed_in` and `verified_by` remain empty.
+
+## Versioned harness components and improvement library (R801, R802)
+
+- [ ] **EG-ORCH-VOCAB-R801:** Versioned harness components as graph facts. Children `.1` through `.6` deliver model, supersession, wiring, refusal, evidence and hot-path proof.
+- [ ] **EG-ORCH-VOCAB-R801.1:** Model. Add the `HarnessComponentVersion` type with the closed kind set beside the `PromptTemplate` versioning of R800.1. Proving test: `crates/eg-types/tests/harness_components.rs::component_version_round_trips`.
+- [ ] **EG-ORCH-VOCAB-R801.2:** Behavior. New versions supersede by edge; the current-version query reads bitemporally; nothing deletes. Proving test: `crates/eg-types/tests/harness_components.rs::newer_version_supersedes_and_old_stays_readable`.
+- [ ] **EG-ORCH-VOCAB-R801.3:** Wiring. The write attaches in the ChangeEnvelope and AddNode path at `gateway_graph.rs:62`; stamps come from EG-DURABLE-KERNEL-R078/R081; `graph.assemble()` reads the current versions. Proving test: `src/server/handlers/graph_ops/gateway_graph.rs::tests::harness_component_write_stamps_and_links`.
+- [ ] **EG-ORCH-VOCAB-R801.4:** Refusal. No evidence, unknown kind, out-of-range confidence and published-version mutation each refuse with their typed code. Proving test: `crates/eg-types/tests/harness_components.rs::evidence_kind_confidence_and_immutability_refusals`.
+- [ ] **EG-ORCH-VOCAB-R801.5:** Evidence. The version-history query returns the supersession chain with evidence ids, confidence and valid intervals. Proving test: `crates/eg-types/tests/harness_components.rs::version_history_cites_evidence_and_digests`.
+- [ ] **EG-ORCH-VOCAB-R801.6:** Hot-path proof. Served write through the generated client, supersession and bitemporal readback; benchmark within budget. Proving test: `tests/orchestration/test_harness_components_served.py::test_two_versions_and_bitemporal_read`.
+- [ ] **EG-ORCH-VOCAB-R802:** Improvement library: adopted harnesses, contrasts and lessons. Children `.1` through `.6` deliver model, behavior, retrieval, supersession, refusal and hot-path proof.
+- [ ] **EG-ORCH-VOCAB-R802.1:** Model. Add `AdoptedHarness`, `HarnessContrast` and `HarnessLesson` beside the measured-fact types of R011. Proving test: `crates/eg-types/tests/harness_lessons.rs::improvement_records_round_trip`.
+- [ ] **EG-ORCH-VOCAB-R802.2:** Behavior. A lesson retains only on measurable improvement over its contrast. Proving test: `crates/eg-types/tests/harness_lessons.rs::lesson_requires_measurable_improvement`.
+- [ ] **EG-ORCH-VOCAB-R802.3:** Query. `retrieve_lessons` ranks by confidence, reads bitemporally and abstains when empty. Proving test: `crates/eg-types/tests/harness_lessons.rs::retrieval_ranks_by_confidence_and_abstains`.
+- [ ] **EG-ORCH-VOCAB-R802.4:** Supersession. Lessons and adoptions supersede by edge; superseded records stay readable. Proving test: `crates/eg-types/tests/harness_lessons.rs::supersession_keeps_old_readable`.
+- [ ] **EG-ORCH-VOCAB-R802.5:** Refusal. Missing evidence runs, mismatched conditions and a missing decision reference refuse with typed codes. Proving test: `crates/eg-types/tests/harness_lessons.rs::evidence_and_condition_refusals`.
+- [ ] **EG-ORCH-VOCAB-R802.6:** Hot-path proof. Served write and retrieval of contrast, adoption and lesson; three refusals; benchmark within budget. Proving test: `tests/orchestration/test_harness_lessons_served.py::test_contrast_lesson_and_retrieval_served`.
