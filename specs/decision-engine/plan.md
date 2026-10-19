@@ -2015,3 +2015,19 @@ deny and unavailable authority across memory and redb stores. Also test refusal
 through the existing administrative caller. This is
 snapshot-time freshness only. Other cached readers, conservative has_rules
 checks, effect-time reservations and performance qualification remain separate.
+
+## Harness contrast composition (R803)
+
+The engine composes the adopted harness for one task from the probed
+candidates, per the Propose-Probe-Compose design of arXiv:2610.14224.
+The caller — the harness cycle of AU-HARNESS-CYCLE-R001 — proposes k
+candidate component versions (EG-ORCH-VOCAB-R801). It probes each under
+an identical task, seed, model and budget. It then presents the probe
+traces and the measured contrasts (EG-ORCH-VOCAB-R802.2) as one served
+`Decide` call under the `HARNESS_CONTRAST` question kind. The engine adopts a
+candidate only on a positive measured delta and abstains otherwise; an
+abstention keeps the current harness. The answer stores as a
+`DecisionRecord` through `DecisionCommit`, and the arbora operation
+ARBORA-OPS-R068.4 adopts it service-only, beside the decide-commit
+pattern of ARBORA-OPS-R021.1. The engine runs no model and holds no
+local ranking: the measured contrast is the authority.
