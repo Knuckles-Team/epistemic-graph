@@ -457,6 +457,7 @@ pub mod immich_pilot_phase;
 // `eg_viz_core::ViewSpec` and resolves it.
 #[cfg(feature = "viz")]
 pub mod viz;
+pub mod usage;
 pub mod wire;
 // RF-ADR-009 D18 — EG-owned versioned source change sets and append-only
 // write-back/reconciliation receipts. Connector transports remain in the SDK.

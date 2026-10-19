@@ -70,6 +70,21 @@ fn the_rot_check_catches_an_unregistered_scope() {
     assert_eq!(ScopeRegistry.class_of("kg:read"), Some(ScopeClass::User));
 }
 
+// spec: EG-DECISION-ENGINE-R801.3
+#[test]
+fn usage_domain_registers_read_and_service_only_write_scopes() {
+    use eg_types::identity::UserKind;
+    let read = scope_entry("usage:read").expect("usage read scope");
+    assert_eq!(read.class, ScopeClass::User);
+    assert_eq!(read.owner, "graph-os");
+    let write = scope_entry("usage:write").expect("usage write scope");
+    assert_eq!(write.class, ScopeClass::ServiceOnly);
+    assert_eq!(write.owner, "engine");
+    // A service-only write is never reachable by a human.
+    assert!(!write.class.allows_kind(UserKind::Human));
+    assert!(write.class.allows_kind(UserKind::Service));
+}
+
 // spec: EG-IDENTITY-R004
 #[test]
 fn foreign_column_reads_register_their_existing_action() {
