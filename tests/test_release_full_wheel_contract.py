@@ -367,7 +367,10 @@ def _assert_runner_budget(workflow: Path, name: str, job: dict) -> None:
         # Only full-engine jobs retain the longer PR compilation budget.
         # Classification, lint, security and independently split jobs stay short.
         # python-server/python-suite build/run the full engine suite and exceed
-        # the short budget on cold hosted PR runners.
+        # the short budget on cold hosted PR runners; gates-crates' per-crate
+        # narrowing falls back to the FULL workspace on a broad/unmapped diff
+        # (release version bumps), which cold-builds past the short budget too
+        # (release PR #666 cancelled at ~10:15 on 3/3 runs).
         if workflow.name in {"ci.yml", "release.yml"} and name in {
             "gates",
             "gates-wheel",
@@ -377,6 +380,7 @@ def _assert_runner_budget(workflow: Path, name: str, job: dict) -> None:
             "python-server",
             "python-suite",
             "gates-pyo3",
+            "gates-crates",
         }:
             expected = "${{ github.event_name == 'pull_request' && 45 || 60 }}"
             assert job.get("timeout-minutes") == expected
