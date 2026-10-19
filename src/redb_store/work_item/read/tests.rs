@@ -290,3 +290,51 @@ fn present_event_payload_corruption_is_refused() {
     let actual_digest = hex::encode(Sha256::digest(&row.intent.payload));
     assert!(check(&actual_digest).contains("event is malformed"));
 }
+
+// spec: EG-DURABLE-KERNEL-R028.2
+#[test]
+fn a_generic_write_cannot_forge_the_outcome_digest_of_a_bound_item() {
+    use sha2::{Digest, Sha256};
+    let temp = open("forged-outcome-digest");
+    let evaluation = rmp_serde::to_vec_named(&serde_json::json!({
+        "node_type": "OutcomeEvaluation",
+        "status": "succeeded",
+    }))
+    .unwrap();
+    let mut item = work_item("tenant-a", "au.task", "succeeded");
+    item.insert("outcome_ref".into(), "oe".into());
+    item.insert(
+        "outcome_digest".into(),
+        hex::encode(Sha256::digest(&evaluation)).into(),
+    );
+    write_rows(&temp.shard, "seed", vec![("wi", item)]);
+    let receipt = evaluation.clone();
+    with_nodes(&temp.shard, "receipt", |nodes| {
+        nodes.insert((GRAPH, "oe"), receipt.as_slice())?;
+        Ok(())
+    });
+    let read = || {
+        read_work_item_outcome(&temp.shard, GRAPH, "tenant-a", "wi", DurableCrypto::none())
+    };
+    assert!(read().unwrap().is_some(), "the bound outcome reads verified");
+
+    // A generic field CAS cannot rewrite the digest the terminal commit bound.
+    let method = Method::CompareAndSetNodeFields {
+        node_id: "wi".into(),
+        conditions_msgpack: rmp_serde::to_vec_named(&serde_json::json!({})).unwrap(),
+        updates_msgpack: rmp_serde::to_vec_named(&serde_json::json!({
+            "outcome_digest": "f".repeat(64),
+        }))
+        .unwrap(),
+    };
+    let error =
+        super::super::test_shard::check_guard(&temp.shard, "outcome_digest", method).unwrap_err();
+    assert!(
+        error.contains("native WorkItem authority"),
+        "a generic CAS must refuse the kernel-owned digest field: {error}"
+    );
+    assert!(
+        read().unwrap().is_some(),
+        "the refusal leaves the committed outcome binding intact"
+    );
+}
