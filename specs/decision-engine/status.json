@@ -3846,9 +3846,7 @@
       "id": "EG-DECISION-ENGINE-R128.13.1",
       "title": "Typed harness evaluation evidence is part of sealed statistical inputs (rollup)",
       "delivery_state": "SPECIFIED",
-      "landed_in": [
-        "3e6b9bf0243d"
-      ],
+      "landed_in": [],
       "verified_by": [
         "crates/eg-types/src/decision/statistical/harness_config.rs:682",
         "crates/eg-types/src/decision/statistical/harness_config.rs:695",
@@ -8837,9 +8835,15 @@
     {
       "id": "EG-DECISION-ENGINE-R801.3",
       "title": "Wiring",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "52b574819aca"
+      ],
+      "verified_by": [
+        "crates/eg-capabilities/src/scopes/tests.rs:73",
+        "crates/eg-core/src/usage_ledger.rs:64",
+        "crates/eg-core/tests/usage_ledger.rs:24"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R801.4",

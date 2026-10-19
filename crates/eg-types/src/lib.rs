@@ -455,6 +455,7 @@ pub mod immich_pilot_phase;
 // (`src/server/handlers/viz.rs`, facade feature `viz-static-export`) is the one
 // place that parses `VizRenderRequest::spec_json` into a real
 // `eg_viz_core::ViewSpec` and resolves it.
+pub mod usage;
 #[cfg(feature = "viz")]
 pub mod viz;
 pub mod wire;
