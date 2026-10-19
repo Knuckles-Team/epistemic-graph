@@ -3080,7 +3080,7 @@ dependencies = [
 
 [[package]]
 name = "eg-pyengine"
-version = "2.27.4"
+version = "2.27.5"
 dependencies = [
  "eg-compute",
  "eg-core",
@@ -3502,7 +3502,7 @@ checksum = "34aa73646ffb006b8f5147f3dc182bd4bcb190227ce861fc4a4844bf8e3cb2c0"
 
 [[package]]
 name = "epistemic-graph"
-version = "2.27.4"
+version = "2.27.5"
 dependencies = [
  "ahash",
  "anyhow",
