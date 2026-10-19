@@ -313,10 +313,12 @@ fn a_generic_write_cannot_forge_the_outcome_digest_of_a_bound_item() {
         nodes.insert((GRAPH, "oe"), receipt.as_slice())?;
         Ok(())
     });
-    let read = || {
-        read_work_item_outcome(&temp.shard, GRAPH, "tenant-a", "wi", DurableCrypto::none())
-    };
-    assert!(read().unwrap().is_some(), "the bound outcome reads verified");
+    let read =
+        || read_work_item_outcome(&temp.shard, GRAPH, "tenant-a", "wi", DurableCrypto::none());
+    assert!(
+        read().unwrap().is_some(),
+        "the bound outcome reads verified"
+    );
 
     // A generic field CAS cannot rewrite the digest the terminal commit bound.
     let method = Method::CompareAndSetNodeFields {
