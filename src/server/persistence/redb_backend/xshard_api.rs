@@ -9,6 +9,47 @@ use tokio::sync::oneshot;
 // ── Durable cross-shard transaction records ────────────────────────────────
 #[cfg(any(feature = "raft", feature = "matview"))]
 impl RedbBackend {
+    /// Internal local-coordinator decision. Not an RPC or a caller-issued certificate.
+    #[cfg(feature = "raft")]
+    pub(crate) async fn xshard_certified_decision_put(
+        &self,
+        binding: eg_transaction::CoordinatorDecisionBinding,
+        commit: bool,
+    ) -> Result<eg_transaction::CoordinatorDecisionCertificate, String> {
+        binding.validate()?;
+        let (done, rx) = oneshot::channel();
+        let tx = self.shard0().tx.clone();
+        tokio::task::spawn_blocking(move || {
+            tx.send(Cmd::XshardCertifiedDecisionPut {
+                binding,
+                commit,
+                done,
+            })
+            .map_err(|_| ())
+        })
+        .await
+        .map_err(|e| format!("certified decision writer join: {e}"))?
+        .map_err(|_| "redb writer thread is gone".to_string())?;
+        rx.await
+            .map_err(|_| "certified decision outcome is uncertain".to_string())?
+    }
+
+    #[cfg(feature = "raft")]
+    pub(crate) fn xshard_decision_certificate_get(
+        &self,
+        txn_id: &str,
+    ) -> Result<Option<eg_transaction::CoordinatorDecisionCertificate>, String> {
+        let (reply, rx) = std::sync::mpsc::sync_channel(1);
+        self.shard0()
+            .tx
+            .send(Cmd::XshardDecisionCertificateGet {
+                txn_id: txn_id.into(),
+                reply,
+            })
+            .map_err(|_| "redb writer thread is gone".to_string())?;
+        await_writer_reply(&rx, "xshard decision certificate")?
+    }
+
     /// Durably persist one participant group's prepared slice. Awaits the fsync.
     #[cfg(feature = "raft")]
     pub async fn xshard_prepare_put(

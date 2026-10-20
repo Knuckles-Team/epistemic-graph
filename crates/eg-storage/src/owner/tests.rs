@@ -26,7 +26,7 @@ fn owner_layout_registry_has_frozen_cardinality() {
     // closed census.
     assert_eq!(ledger_table_names().len(), 18);
     assert_eq!(owner_table_names(OwnerLayout::LedgerOnly).len(), 0);
-    assert_eq!(owner_table_names(OwnerLayout::Rbac).len(), 1);
+    assert_eq!(owner_table_names(OwnerLayout::Rbac).len(), 2);
     assert_eq!(owner_table_names(OwnerLayout::Jobs).len(), 13);
     assert_eq!(owner_table_names(OwnerLayout::Statechart).len(), 2);
     assert_eq!(owner_table_names(OwnerLayout::TimeSeries).len(), 3);
@@ -70,7 +70,7 @@ fn owner_layout_registry_has_frozen_cardinality() {
     // reads its receipt from the authority that commits the head.
     // 18 -> 19: the Decide layer's `decision_records` (committed assembly
     // records, written in the same WTX as their `DecisionRecord` component).
-    assert_eq!(owner_table_names(OwnerLayout::AgentLibrary).len(), 21);
+    assert_eq!(owner_table_names(OwnerLayout::AgentLibrary).len(), 22);
     // The authoritative graph shard `graph-N.redb`: 54 tables. That is the
     // complete physical census of the shard file (39 in `redb_store.rs`, 4
     // capacity-lease, 3 work-item-capability, 10 development-lane, plus
@@ -84,7 +84,7 @@ fn owner_layout_registry_has_frozen_cardinality() {
     // `_supersessions`, `_parks`) = 58, plus the tenant-scoped operation
     // audit-append idempotency index `audit_requests` = 59, plus the private
     // `work_item_current_plans` snapshot table = 60.
-    assert_eq!(owner_table_names(OwnerLayout::GraphShard).len(), 60);
+    assert_eq!(owner_table_names(OwnerLayout::GraphShard).len(), 61);
     assert_eq!(owner_layouts().len(), 18);
 }
 
@@ -162,7 +162,8 @@ fn every_owner_surface_has_one_closed_cutover_disposition() {
     // 151 -> 152: the tenant-scoped operation audit-append idempotency index
     // `audit_requests` in GraphShard, also DomainService: service 150 = 149 + 1.
     // 152 -> 153: private current-plan snapshots are DomainService rows.
-    assert_eq!((names.len(), service, shared), (153, 151, 2));
+    // Three durable owner participant/certificate tables add three DomainService names.
+    assert_eq!((names.len(), service, shared), (156, 154, 2));
 }
 
 #[test]

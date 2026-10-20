@@ -30,6 +30,55 @@ use crate::owner::persisted_layout::LayoutPredecessor;
 use crate::physical::incarnation::STORAGE_KERNEL_SCHEMA_VERSION;
 use crate::physical::manifest::OwnerManifest;
 
+/// RBAC authority before durable coordinator read reservations.
+pub const RBAC_BEFORE_PARTICIPANTS: LayoutPredecessor = LayoutPredecessor {
+    layout: OwnerLayout::Rbac,
+    label: "RBAC before durable participant reservations",
+    owner_tables: &["rbac"],
+    data_lost:
+        "requires the explicit offline RBAC participant upgrade; authority rows are preserved",
+    file_name: "rbac.redb",
+};
+pub const RBAC_PRE_PARTICIPANTS_DIGEST: [u8; 32] = [
+    0x3c, 0x89, 0xb3, 0x20, 0x7f, 0xaa, 0x96, 0x2a, 0x94, 0xeb, 0x1c, 0xe7, 0x24, 0xf9, 0x44, 0xdd,
+    0xe5, 0xa4, 0xac, 0xf9, 0x48, 0x41, 0xa2, 0x3d, 0x9c, 0x41, 0x68, 0x55, 0x86, 0x6d, 0x4c, 0x8e,
+];
+
+/// Agent Library before durable participant reservations.
+pub const AGENT_LIBRARY_BEFORE_PARTICIPANTS: LayoutPredecessor = LayoutPredecessor {
+    layout: OwnerLayout::AgentLibrary,
+    label: "Agent Library before durable participant reservations",
+    owner_tables: &[
+        "agent_library",
+        "agent_library_heads",
+        "agent_graph",
+        "agent_graph_heads",
+        "agent_component",
+        "agent_component_heads",
+        "agent_template",
+        "agent_template_heads",
+        "connector_pack_heads",
+        "connector_pack_members",
+        "connector_pack_imports",
+        "connector_pack_body_holders",
+        "connector_pack_bindings",
+        "mcp_catalog_configs",
+        "mcp_catalog_scopes",
+        "decision_artifacts",
+        "decision_records",
+        "write_back_change_sets",
+        "write_back_idempotency",
+        "write_back_receipts",
+        "write_back_receipt_heads",
+    ],
+    data_lost: "requires the explicit offline participant upgrade; existing rows are preserved",
+    file_name: "agent_library.redb",
+};
+pub const AGENT_LIBRARY_PRE_PARTICIPANTS_DIGEST: [u8; 32] = [
+    0xe1, 0x12, 0xd8, 0x11, 0x8e, 0x4e, 0x62, 0xb0, 0x02, 0x79, 0x9b, 0x84, 0xbb, 0xa8, 0xc6, 0x91,
+    0x62, 0xe4, 0x77, 0x07, 0x18, 0x61, 0xa8, 0x1d, 0x38, 0x93, 0x27, 0x77, 0x36, 0x72, 0x7e, 0xa0,
+];
+
 /// `agent_library.redb` before connector packs and governed write-back.
 pub const AGENT_LIBRARY_BEFORE_CONNECTOR_PACKS: LayoutPredecessor = LayoutPredecessor {
     layout: OwnerLayout::AgentLibrary,
@@ -187,6 +236,26 @@ pub const GRAPH_SHARD_BEFORE_CURRENT_PLANS: LayoutPredecessor = LayoutPredecesso
     file_name: "graph-*.redb",
 };
 
+const GRAPH_SHARD_TABLES_BEFORE_DECISION_CERTIFICATE: &[&str] = super::graph_shard::graph_shard_table_names!(
+    "repository_enrichment_budgets",
+    "repository_enrichment_policy_revisions",
+    "repository_enrichment_supersessions",
+    "repository_enrichment_parks",
+    "audit_requests",
+    "work_item_current_plans",
+);
+pub const GRAPH_SHARD_PRE_DECISION_CERTIFICATE_DIGEST: [u8; 32] = [
+    0xcf, 0xc4, 0x7e, 0x43, 0x65, 0x4a, 0xbc, 0x32, 0xfb, 0xf6, 0x3c, 0xf3, 0xd9, 0xd7, 0xff, 0xd4,
+    0xe0, 0x4c, 0x74, 0x2e, 0x3c, 0x95, 0x5c, 0x25, 0x9d, 0x2d, 0x05, 0xf5, 0x31, 0x6e, 0x0a, 0x27,
+];
+pub const GRAPH_SHARD_BEFORE_DECISION_CERTIFICATE: LayoutPredecessor = LayoutPredecessor {
+    layout: OwnerLayout::GraphShard,
+    label: "graph shard before retained decision certificates",
+    owner_tables: GRAPH_SHARD_TABLES_BEFORE_DECISION_CERTIFICATE,
+    data_lost: "none after explicit offline decision-certificate layout upgrade. Normal open refuses this predecessor.",
+    file_name: "graph-*.redb",
+};
+
 /// Earlier graph-shard layout before the node-payload scrub cursor (EH-384).
 const GRAPH_SHARD_TABLES_BEFORE_STORAGE_SCRUB: &[&str] = GRAPH_SHARD_TABLES_BEFORE_ENRICHMENT
     .split_at(GRAPH_SHARD_TABLES_BEFORE_ENRICHMENT.len() - 1)
@@ -247,11 +316,12 @@ pub fn layout_predecessors(layout: OwnerLayout) -> &'static [LayoutPredecessor] 
         OwnerLayout::AgentLibrary => &[
             AGENT_LIBRARY_BEFORE_CONNECTOR_PACKS,
             AGENT_LIBRARY_BEFORE_MCP_CATALOG,
+            AGENT_LIBRARY_BEFORE_PARTICIPANTS,
         ],
+        OwnerLayout::Rbac => &[RBAC_BEFORE_PARTICIPANTS],
         OwnerLayout::Blob => &[BLOB_BEFORE_HOLDERS],
         OwnerLayout::Sql => &[SQL_BEFORE_SOURCE_CHECKPOINTS, SQL_BEFORE_DURABLE_ANN],
         OwnerLayout::LedgerOnly
-        | OwnerLayout::Rbac
         | OwnerLayout::Jobs
         | OwnerLayout::Statechart
         | OwnerLayout::TimeSeries
@@ -270,6 +340,7 @@ pub fn layout_predecessors(layout: OwnerLayout) -> &'static [LayoutPredecessor] 
             GRAPH_SHARD_BEFORE_POLICY_REVISIONS,
             GRAPH_SHARD_BEFORE_AUDIT_REQUESTS,
             GRAPH_SHARD_BEFORE_CURRENT_PLANS,
+            GRAPH_SHARD_BEFORE_DECISION_CERTIFICATE,
         ],
     }
 }
@@ -306,7 +377,7 @@ pub fn pinned_layout_digest(layout: OwnerLayout) -> &'static str {
         OwnerLayout::LedgerOnly => {
             "9faad03bf787a2a893618b7a8b386de30bdd5b4e09f3930448040c3e47c59e3e"
         }
-        OwnerLayout::Rbac => "3c89b3207faa962a94eb1ce724f944dde5a4acf94841a23d9c416855866d4c8e",
+        OwnerLayout::Rbac => "69c47a761ddd81faa55b41184b19d991b762f9567269840c3845338a4a05acd1",
         OwnerLayout::Jobs => "64eb7ffd327980a8269bc8cf61147bc269b4ee8eab1ae0f5de3a244bbec9dad4",
         OwnerLayout::Statechart => {
             "d8ab661d50af9249a342a101537f0ef92c13df6808b5fd149c037d8587cff8a7"
@@ -338,10 +409,10 @@ pub fn pinned_layout_digest(layout: OwnerLayout) -> &'static str {
             "0561a2a2ae13f067bf01a4c94d6cbaeb280aaefa56c68036a1f01da92cba8431"
         }
         OwnerLayout::GraphShard => {
-            "cfc47e43654abc32fbf63cf3d9d7ffd4e04c742e3c955c259d2d05f5316e0a27"
+            "f15681f52b9a627b214f592a10778adf368e7c5e11ea4ada92f3ce99f6f7b560"
         }
         OwnerLayout::AgentLibrary => {
-            "e112d8118e4e62b002799b84bba8c69162e477071861a81d3893277736727ea0"
+            "7512d7bc2f8bdbcf3dd243b52a35b91ee2b47621a8c7c5cc9d6b64ab37187b61"
         }
     }
 }

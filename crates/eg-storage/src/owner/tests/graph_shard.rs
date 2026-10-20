@@ -63,6 +63,7 @@ fn the_graph_shard_census_is_exact_and_carries_no_private_mutation_ledger() {
         ("raft_meta", "(u64,&str)", "&[u8]"),
         ("xshard_prepare", "(&str,u64)", "&[u8]"),
         ("xshard_decision", "&str", "u8"),
+        ("xshard_decision_certificate", "&str", "&[u8]"),
         ("matviews", "&str", "&[u8]"),
         ("plan_matviews", "&str", "&[u8]"),
         ("matview_operator_state", "&str", "&[u8]"),
@@ -179,6 +180,7 @@ fn the_shard_separates_graph_scoped_rows_from_file_wide_rows() {
         "raft_meta",
         "xshard_prepare",
         "xshard_decision",
+        "xshard_decision_certificate",
         "matviews",
         "plan_matviews",
         "matview_operator_state",
@@ -197,7 +199,13 @@ fn the_shard_separates_graph_scoped_rows_from_file_wide_rows() {
         .iter()
         .filter(|name| scope_of(name) == TableScope::StorePrivate)
         .count();
-    assert_eq!((private, 54 - private), (13, 41));
+    assert_eq!(
+        (
+            private,
+            owner_table_names(OwnerLayout::GraphShard).len() - private
+        ),
+        (14, 47)
+    );
 }
 
 /// The catalog is readable by the scope that exists before any graph is known,

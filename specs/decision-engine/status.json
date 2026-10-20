@@ -391,6 +391,7 @@
     "EG-DECISION-ENGINE-R136.102",
     "EG-DECISION-ENGINE-R138.101",
     "EG-DECISION-ENGINE-R036.101",
+    "EG-DECISION-ENGINE-R036.103",
     "EG-DECISION-ENGINE-R014.100",
     "EG-DECISION-ENGINE-R147",
     "EG-DECISION-ENGINE-R147.1",
@@ -873,7 +874,8 @@
     "EG-DECISION-ENGINE-R803.4",
     "EG-DECISION-ENGINE-R803.5",
     "EG-DECISION-ENGINE-R803.6",
-    "EG-DECISION-ENGINE-R036.102"
+    "EG-DECISION-ENGINE-R036.102",
+    "EG-DECISION-ENGINE-R036.105"
   ],
   "requirements": [
     {
@@ -1518,7 +1520,9 @@
       "rollup_of": [
         "EG-DECISION-ENGINE-R036.100",
         "EG-DECISION-ENGINE-R036.101",
-        "EG-DECISION-ENGINE-R036.102"
+        "EG-DECISION-ENGINE-R036.103",
+        "EG-DECISION-ENGINE-R036.102",
+        "EG-DECISION-ENGINE-R036.105"
       ]
     },
     {
@@ -5063,6 +5067,13 @@
     {
       "id": "EG-DECISION-ENGINE-R036.101",
       "title": "Compose discovered coding-agent facts with skill transformations",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R036.103",
+      "title": "Durable RBAC read reservation",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -9026,6 +9037,13 @@
     {
       "id": "EG-DECISION-ENGINE-R036.102",
       "title": "Bind graph participant prepare records to their recovery identity",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R036.105",
+      "title": "Persist a request-bound coordinator decision certificate",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

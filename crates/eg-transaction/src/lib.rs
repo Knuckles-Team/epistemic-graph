@@ -27,6 +27,7 @@ pub enum SagaBegin {
 mod admission;
 mod admitted;
 mod commit;
+mod decision_certificate;
 mod graft;
 mod group;
 mod kernel;
@@ -39,6 +40,7 @@ mod replay;
 mod saga;
 mod tables;
 
+pub use decision_certificate::{CoordinatorDecisionBinding, CoordinatorDecisionCertificate};
 pub use admitted::{AdmittedMutation, AdmittedOwnerWrite};
 pub use graft::{
     GraftDestination, GraftIntent, GraftOwnerWrite, GraftSource, GraftedScope,

@@ -2019,3 +2019,20 @@ This is one prerequisite for the adopted coordinated-owner protocol. RBAC and
 Agent Library reservations, decision-time expiry, visibility fencing and atomic
 SubmitWorkItem admission remain unimplemented. No profile-enabled receipt or
 public admission method is introduced. Native validation remains pending.
+### EG-DECISION-ENGINE-R036.103 implementation boundary — RBAC owner reservation
+
+Add a closed RBAC participant table and an inspected offline owner-layout upgrade. Existing policy, identities and bootstrap rows retain their keys and bytes. Normal opens refuse the predecessor format; old binaries refuse the successor manifest. No online migration or deployment is performed.
+
+The shared layout transition also declares the Agent Library participant table and the immutable GraphShard decision-certificate table. The certificate uses MessagePack with read and insert capabilities only. Explicit offline transitions preserve existing rows for all three owners. Their consumer operations remain separate dependent slices.
+
+Reserve one complete authority image per physical RBAC owner. Bind the transaction, coordinator request digest, owner identity, source revision and complete image digest. Reservation bookkeeping advances the mutation version without changing the authority image. Ordinary whole-image saves fail while a reservation is pending. Resolution uses existing mutation receipts for replay and never infers abort from elapsed time. Coordinator recovery must retain unresolved reservations.
+
+Native execution and generated census checks remain pending until the coordinated build slot is available. The profile-admission parent remains incomplete.
+
+## R036.105: durable decision evidence
+
+The local coordinator writer owns the decision timestamp. It persists the certificate and retained boolean outcome in one control-owner commit. The certificate pins the complete request digest, tenant, scope, transaction and earliest captured authority deadline. Recovery keeps the original decision timestamp; it does not grant new validity at recovery time.
+
+The closed certificate table retains certificates after legacy outcome cleanup. Cleanup of an uncertified terminal row writes a MessagePack nil tombstone. This prevents later certification under the same ID. Tombstones cannot reconstruct IDs deleted before this format; participant owners must also enforce stable transaction identity. Malformed certificates refuse under byte, item and depth limits.
+
+This is internal local-coordinator storage, not an authentication or grant issuer. It is not a replicated follower clock protocol. RBAC and AgentLibrary reservations must consume the exact native certificate. The profile authorization and WorkItem composition remains incomplete until those owners and graph mutations are qualified together. Rust tests are authored but have not run locally. No distributed admission, performance or served success is claimed.

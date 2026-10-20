@@ -258,3 +258,79 @@ fn competing_coordinator_decisions_have_one_winner() {
     drop(shard);
     std::fs::remove_file(path).unwrap();
 }
+
+#[test]
+fn certified_decision_is_immutable_and_survives_reopen_and_legacy_cleanup() {
+    use super::control::{get_xshard_decision_certificate, put_xshard_certified_decision};
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("certificate.redb");
+    let shard = bootstrap(&path);
+    let binding = eg_transaction::CoordinatorDecisionBinding {
+        transaction_id: "certificate-txn".into(),
+        tenant: "tenant".into(),
+        coordinator_scope: "graph-incarnation".into(),
+        request_digest: [7; 32],
+        authority_deadline_ms: u64::MAX,
+    };
+    let first = put_xshard_certified_decision(&shard, binding.clone(), true).unwrap();
+    assert_eq!(
+        get_xshard_decision(&shard, &binding.transaction_id).unwrap(),
+        Some(true)
+    );
+    assert_eq!(
+        put_xshard_certified_decision(&shard, binding.clone(), true).unwrap(),
+        first
+    );
+    let mut changed = binding.clone();
+    changed.request_digest = [8; 32];
+    assert!(put_xshard_certified_decision(&shard, changed, true).is_err());
+    assert!(put_xshard_certified_decision(&shard, binding.clone(), false).is_err());
+    clear_xshard_decision(&shard, &binding.transaction_id).unwrap();
+    assert!(put_xshard_decision(&shard, &binding.transaction_id, false, true).is_err());
+    assert!(put_xshard_recoverable_pending(&shard, &binding.transaction_id).is_err());
+    drop(shard);
+    let shard = bootstrap(&path);
+    assert_eq!(
+        get_xshard_decision_certificate(&shard, &binding.transaction_id).unwrap(),
+        Some(first.clone())
+    );
+    assert_eq!(
+        put_xshard_certified_decision(&shard, binding, true).unwrap(),
+        first
+    );
+}
+
+#[test]
+fn expired_or_legacy_decisions_cannot_mint_commit_evidence() {
+    use super::control::{get_xshard_decision_certificate, put_xshard_certified_decision};
+    let dir = tempfile::tempdir().unwrap();
+    let shard = bootstrap(&dir.path().join("expired.redb"));
+    let mut binding = eg_transaction::CoordinatorDecisionBinding {
+        transaction_id: "expired".into(),
+        tenant: "tenant".into(),
+        coordinator_scope: "graph-incarnation".into(),
+        request_digest: [7; 32],
+        authority_deadline_ms: 1,
+    };
+    assert!(put_xshard_certified_decision(&shard, binding.clone(), true).is_err());
+    assert_eq!(get_xshard_decision(&shard, "expired").unwrap(), None);
+    assert_eq!(
+        get_xshard_decision_certificate(&shard, "expired").unwrap(),
+        None
+    );
+    assert!(
+        !put_xshard_certified_decision(&shard, binding.clone(), false)
+            .unwrap()
+            .commit
+    );
+    binding.transaction_id = "legacy".into();
+    binding.authority_deadline_ms = u64::MAX;
+    put_xshard_decision(&shard, "legacy", true, true).unwrap();
+    assert!(put_xshard_certified_decision(&shard, binding.clone(), true).is_err());
+    clear_xshard_decision(&shard, "legacy").unwrap();
+    assert!(put_xshard_certified_decision(&shard, binding, true).is_err());
+    assert_eq!(
+        get_xshard_decision_certificate(&shard, "legacy").unwrap(),
+        None
+    );
+}

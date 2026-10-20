@@ -30,10 +30,12 @@ pub use codec::{
 pub use kernel::{MutationOwnerAuthority, StorageKernel, StoreOpenOptions};
 pub use owner::agent_library_upgrade::OwnerLayoutUpgradeReport;
 pub use owner::agent_library_upgrade::{
-    inspect_agent_library_mcp_catalog_upgrade, inspect_graph_shard_upgrade,
-    upgrade_agent_library_mcp_catalog, upgrade_graph_shard, AgentLibraryInspectionOptions,
-    AgentLibraryUpgradeReport, GraphShardInspectionOptions, GraphShardSource,
-    GraphShardUpgradeReport, ValidatedAgentLibraryUpgrade, ValidatedGraphShardUpgrade,
+    inspect_agent_library_mcp_catalog_upgrade, inspect_agent_library_participant_upgrade,
+    inspect_graph_shard_upgrade, inspect_rbac_participant_upgrade,
+    upgrade_agent_library_mcp_catalog, upgrade_agent_library_participant, upgrade_graph_shard,
+    upgrade_rbac_participant, AgentLibraryInspectionOptions, AgentLibraryUpgradeReport,
+    GraphShardInspectionOptions, GraphShardSource, GraphShardUpgradeReport,
+    ValidatedAgentLibraryUpgrade, ValidatedGraphShardUpgrade, ValidatedOwnerLayoutUpgrade,
 };
 pub use owner::blob_shared::{
     BlobSharedRead, BlobSharedServiceHandle, BlobSharedServiceVerifier, BlobSharedTable,
@@ -65,17 +67,17 @@ pub use owner::persisted_layout::{
 };
 pub use owner::registry::{
     declared_table_names, owner_table_names, AGENT_COMPONENT_HEADS, AGENT_COMPONENT_REVISIONS,
-    AGENT_GRAPH_HEADS, AGENT_GRAPH_REVISIONS, AGENT_LIBRARY_HEADS, AGENT_LIBRARY_REVISIONS,
-    AGENT_TEMPLATE_HEADS, AGENT_TEMPLATE_REVISIONS, ANN_CODES, CONNECTOR_PACK_BINDINGS,
-    CONNECTOR_PACK_BODY_HOLDERS, CONNECTOR_PACK_HEADS, CONNECTOR_PACK_IMPORTS,
-    CONNECTOR_PACK_MEMBERS, DECISION_ARTIFACTS, DECISION_RECORDS, MCP_CATALOG_CONFIGS,
-    MCP_CATALOG_SCOPES, SEMANTIC_ANN, SEMANTIC_AUTH_RECEIPTS, SEMANTIC_BINDINGS,
-    SEMANTIC_CHECKPOINTS, SEMANTIC_CHECKPOINT_HEADS, SEMANTIC_DEAD_LETTERS,
-    SEMANTIC_GRAPH_PROJECTIONS, SEMANTIC_HEADS, SEMANTIC_LEXICAL, SEMANTIC_POINTERS,
-    SEMANTIC_SOURCE_PROGRESS, SEMANTIC_SQL_SOURCES, SEMANTIC_STAGES, SEMANTIC_STATES,
-    SEMANTIC_TOMBSTONES, SEMANTIC_VECTORS, SQL_ANN_DIRTY, SQL_ANN_GENERATIONS, SQL_EDGE_INDEXES,
-    SQL_SOURCE_AUTHORITY, SQL_SOURCE_CHECKPOINTS, WRITE_BACK_CHANGE_SETS, WRITE_BACK_IDEMPOTENCY,
-    WRITE_BACK_RECEIPTS, WRITE_BACK_RECEIPT_HEADS,
+    AGENT_GRAPH_HEADS, AGENT_GRAPH_REVISIONS, AGENT_LIBRARY_HEADS, AGENT_LIBRARY_PARTICIPANTS,
+    AGENT_LIBRARY_REVISIONS, AGENT_TEMPLATE_HEADS, AGENT_TEMPLATE_REVISIONS, ANN_CODES,
+    CONNECTOR_PACK_BINDINGS, CONNECTOR_PACK_BODY_HOLDERS, CONNECTOR_PACK_HEADS,
+    CONNECTOR_PACK_IMPORTS, CONNECTOR_PACK_MEMBERS, DECISION_ARTIFACTS, DECISION_RECORDS,
+    MCP_CATALOG_CONFIGS, MCP_CATALOG_SCOPES, RBAC_PARTICIPANTS, SEMANTIC_ANN,
+    SEMANTIC_AUTH_RECEIPTS, SEMANTIC_BINDINGS, SEMANTIC_CHECKPOINTS, SEMANTIC_CHECKPOINT_HEADS,
+    SEMANTIC_DEAD_LETTERS, SEMANTIC_GRAPH_PROJECTIONS, SEMANTIC_HEADS, SEMANTIC_LEXICAL,
+    SEMANTIC_POINTERS, SEMANTIC_SOURCE_PROGRESS, SEMANTIC_SQL_SOURCES, SEMANTIC_STAGES,
+    SEMANTIC_STATES, SEMANTIC_TOMBSTONES, SEMANTIC_VECTORS, SQL_ANN_DIRTY, SQL_ANN_GENERATIONS,
+    SQL_EDGE_INDEXES, SQL_SOURCE_AUTHORITY, SQL_SOURCE_CHECKPOINTS, WRITE_BACK_CHANGE_SETS,
+    WRITE_BACK_IDEMPOTENCY, WRITE_BACK_RECEIPTS, WRITE_BACK_RECEIPT_HEADS,
 };
 pub use owner::row_key::{
     is_control_scope, owner_row_key, reserved_control_graph, OwnerRowScope, OwnerRowScopeStart,

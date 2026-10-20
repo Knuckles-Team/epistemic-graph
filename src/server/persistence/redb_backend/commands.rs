@@ -413,6 +413,17 @@ pub(crate) enum Cmd {
     },
     /// Durably write the coordinator's DECISION for a cross-shard txn (the atomic
     /// commit point), optionally retained until a separate parent is terminal.
+    XshardCertifiedDecisionPut {
+        binding: eg_transaction::CoordinatorDecisionBinding,
+        commit: bool,
+        done: oneshot::Sender<Result<eg_transaction::CoordinatorDecisionCertificate, String>>,
+    },
+    XshardDecisionCertificateGet {
+        txn_id: String,
+        reply: std::sync::mpsc::SyncSender<
+            Result<Option<eg_transaction::CoordinatorDecisionCertificate>, String>,
+        >,
+    },
     XshardDecisionPut {
         txn_id: String,
         commit: bool,

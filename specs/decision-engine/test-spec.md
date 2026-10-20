@@ -831,3 +831,10 @@ Hot-path proof for `EG-DECISION-ENGINE-R803`: `tests/decide/test_harness_contras
 ## EG-DECISION-ENGINE-R036.102
 
 `src/raft/cross_shard_txn/prepare_record.rs::tests` covers the production codec: canonical round trip, wrong transaction/group, modified payload, unsupported version/owner, malformed envelope and legacy array recovery. The existing cross-shard harness must pass with the new writer. Codec tests alone do not qualify heterogeneous-owner admission or distributed recovery.
+### EG-DECISION-ENGINE-R036.103 — RBAC reservation qualification
+
+Use a real owner file. Prepare an authority snapshot, reject a competing whole-image save, close and reopen, and retain the reservation without a terminal decision. Resolve a matching durable decision and permit a fresh save. Refuse changed request content, stale source revisions, corruption and mismatched resolution. Upgrade a pinned predecessor offline without losing authority rows; refuse ordinary opens of old format and reinspection of current format. Native evidence is pending.
+
+## EG-DECISION-ENGINE-R036.105
+
+`crates/eg-transaction/src/decision_certificate.rs::tests` checks exclusive expiry and complete intent matching. `src/redb_store/shard_control_tests.rs::certified_decision_is_immutable_and_survives_reopen_and_legacy_cleanup` exercises real owner persistence. `expired_or_legacy_decisions_cannot_mint_commit_evidence` checks no-write expiry refusal and legacy tombstones. These tests must execute with the shared storage-format change. Source review does not qualify native behavior.

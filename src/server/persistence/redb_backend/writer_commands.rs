@@ -596,6 +596,16 @@ macro_rules! writer_command_arms {
             let _ = reply.send(get_xshard_prepare(shard, &txn_id, group_id, crypto));
             false
         }
+        Cmd::XshardCertifiedDecisionPut { binding, commit, done } => {
+            flush(pending);
+            let _ = done.send(crate::redb_store::control::put_xshard_certified_decision(shard, binding, commit));
+            false
+        }
+        Cmd::XshardDecisionCertificateGet { txn_id, reply } => {
+            flush(pending);
+            let _ = reply.send(crate::redb_store::control::get_xshard_decision_certificate(shard, &txn_id));
+            false
+        }
         Cmd::XshardDecisionPut {
             txn_id,
             commit,

@@ -344,3 +344,155 @@ fn current_plan_upgrade_preserves_existing_graph_rows() {
         0
     );
 }
+
+#[test]
+fn rbac_reservation_upgrade_preserves_authority_rows_and_refuses_normal_old_open() {
+    let directory = private_local_tempdir();
+    let path = directory.path().join("rbac.redb");
+    let physical = PhysicalStoreIdentity::new("physical:test:rbac-reservation-upgrade").unwrap();
+    create_predecessor_owner_file(
+        &path,
+        physical.clone(),
+        &super::super::lineage::RBAC_BEFORE_PARTICIPANTS,
+    )
+    .unwrap();
+    {
+        let database = Database::open(&path).unwrap();
+        let write = database.begin_write().unwrap();
+        write
+            .open_table(redb::TableDefinition::<&str, &[u8]>::new("rbac"))
+            .unwrap()
+            .insert("policy", b"preserved-authority".as_slice())
+            .unwrap();
+        write.commit().unwrap();
+    }
+    assert!(StorageKernel::open_owner::<RbacOwner>(&path, physical.clone(), None).is_err());
+    let token =
+        inspect_rbac_participant_upgrade(&path, physical.clone(), None, options(&path)).unwrap();
+    let (kernel, report) = upgrade_rbac_participant(token).unwrap();
+    assert_eq!(
+        report.current_authority_epoch,
+        report.previous_authority_epoch + 1
+    );
+    drop(kernel);
+    {
+        let database = Database::open(&path).unwrap();
+        let read = database.begin_read().unwrap();
+        assert_eq!(
+            read.open_table(redb::TableDefinition::<&str, &[u8]>::new("rbac"))
+                .unwrap()
+                .get("policy")
+                .unwrap()
+                .unwrap()
+                .value(),
+            b"preserved-authority"
+        );
+        assert_eq!(
+            read.open_table(crate::owner::registry::RBAC_PARTICIPANTS)
+                .unwrap()
+                .len()
+                .unwrap(),
+            0
+        );
+    }
+    assert!(inspect_rbac_participant_upgrade(&path, physical, None, options(&path)).is_err());
+}
+
+#[test]
+fn agent_library_participant_upgrade_preserves_component_rows_and_fences_predecessor() {
+    let directory = private_local_tempdir();
+    let path = directory.path().join("agent_library.redb");
+    create_predecessor_owner_file(
+        &path,
+        identity(),
+        &super::super::lineage::AGENT_LIBRARY_BEFORE_PARTICIPANTS,
+    )
+    .unwrap();
+    write_agent_revision(&path, b"preserved immutable revision");
+    assert!(StorageKernel::open_owner::<AgentLibraryOwner>(&path, identity(), None).is_err());
+    let token =
+        inspect_agent_library_participant_upgrade(&path, identity(), None, options(&path)).unwrap();
+    let (kernel, report) = upgrade_agent_library_participant(token).unwrap();
+    assert_eq!(
+        report.current_authority_epoch,
+        report.previous_authority_epoch + 1
+    );
+    drop(kernel);
+    {
+        let database = Database::open(&path).unwrap();
+        let read = database.begin_read().unwrap();
+        assert_eq!(
+            read.open_table(AGENT_LIBRARY_REVISIONS)
+                .unwrap()
+                .get(("tenant-a", "agent-a", 1))
+                .unwrap()
+                .unwrap()
+                .value(),
+            b"preserved immutable revision"
+        );
+        assert_eq!(
+            read.open_table(crate::owner::registry::AGENT_LIBRARY_PARTICIPANTS)
+                .unwrap()
+                .len()
+                .unwrap(),
+            0
+        );
+    }
+    assert!(
+        inspect_agent_library_participant_upgrade(&path, identity(), None, options(&path)).is_err()
+    );
+}
+
+#[test]
+fn decision_certificate_upgrade_preserves_existing_graph_rows() {
+    let directory = private_local_tempdir();
+    let path = directory.path().join("graph-certificate-predecessor.redb");
+    let predecessor = &super::super::lineage::GRAPH_SHARD_BEFORE_DECISION_CERTIFICATE;
+    create_predecessor_owner_file(&path, identity(), predecessor).unwrap();
+    let recorded = RecordedLayout::read(&path);
+    assert_eq!(
+        recorded.manifest().layout_digest,
+        super::super::lineage::GRAPH_SHARD_PRE_DECISION_CERTIFICATE_DIGEST
+    );
+    let database = Database::open(&path).unwrap();
+    let write = database.begin_write().unwrap();
+    write
+        .open_table(NODES)
+        .unwrap()
+        .insert(NODE_KEY, b"preserved native row".as_slice())
+        .unwrap();
+    write.commit().unwrap();
+    drop(database);
+    let refused = StorageKernel::open_owner::<GraphShardOwner>(&path, identity(), None)
+        .err()
+        .expect("normal open refuses old layout");
+    assert!(refused.starts_with("GRAPH_SHARD_FORMAT_UPGRADE_REQUIRED:"));
+    let token = inspect_graph_shard_upgrade(
+        &path,
+        identity(),
+        None,
+        options(&path),
+        GraphShardSource::BeforeDecisionCertificate,
+    )
+    .unwrap();
+    drop(upgrade_graph_shard(token).unwrap());
+    drop(StorageKernel::open_owner::<GraphShardOwner>(&path, identity(), None).unwrap());
+    let database = Database::open(&path).unwrap();
+    let read = database.begin_read().unwrap();
+    assert_eq!(
+        read.open_table(NODES)
+            .unwrap()
+            .get(NODE_KEY)
+            .unwrap()
+            .unwrap()
+            .value(),
+        b"preserved native row"
+    );
+    assert_eq!(
+        read.open_table(super::super::graph_shard::XSHARD_DECISION_CERTIFICATE)
+            .unwrap()
+            .len()
+            .unwrap(),
+        0
+    );
+}

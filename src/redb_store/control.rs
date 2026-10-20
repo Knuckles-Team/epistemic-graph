@@ -121,6 +121,16 @@ pub(crate) fn put_xshard_decision(
 ) -> Result<(), String> {
     let op_id = format!("xshard/decision/{txn_id}");
     control_write!(shard, &op_id, |control| {
+        let certificates = control
+            .open_table::<&str, &[u8]>(XSHARD_DECISION_CERTIFICATE)
+            .map_err(|e| e.to_string())?;
+        if certificates
+            .get(txn_id)
+            .map_err(|e| e.to_string())?
+            .is_some_and(|row| row.value() != [0xc0])
+        {
+            return Err("certified transaction cannot use legacy decision writes".into());
+        }
         let mut table = control
             .open_table::<&str, u8>(XSHARD_DECISION)
             .map_err(|e| e.to_string())?;
@@ -146,6 +156,16 @@ pub(crate) fn put_xshard_decision(
 pub(crate) fn put_xshard_recoverable_pending(shard: &Shard, txn_id: &str) -> Result<(), String> {
     let op_id = format!("xshard/pending/{txn_id}");
     control_write!(shard, &op_id, |control| {
+        let certificates = control
+            .open_table::<&str, &[u8]>(XSHARD_DECISION_CERTIFICATE)
+            .map_err(|e| e.to_string())?;
+        if certificates
+            .get(txn_id)
+            .map_err(|e| e.to_string())?
+            .is_some_and(|row| row.value() != [0xc0])
+        {
+            return Err("certified transaction cannot use legacy decision writes".into());
+        }
         let mut table = control
             .open_table::<&str, u8>(XSHARD_DECISION)
             .map_err(|e| e.to_string())?;
@@ -178,6 +198,25 @@ pub(crate) fn clear_xshard_decision(shard: &Shard, txn_id: &str) -> Result<(), S
         let mut table = control
             .open_table::<&str, u8>(XSHARD_DECISION)
             .map_err(|e| e.to_string())?;
+        let prior = table
+            .get(txn_id)
+            .map_err(|e| e.to_string())?
+            .map(|row| row.value());
+        if matches!(prior, Some(0..=3)) {
+            let mut certificates = control
+                .open_table::<&str, &[u8]>(XSHARD_DECISION_CERTIFICATE)
+                .map_err(|e| e.to_string())?;
+            let absent = certificates
+                .get(txn_id)
+                .map_err(|e| e.to_string())?
+                .is_none();
+            if absent {
+                // MessagePack nil marks an uncertified legacy terminal outcome.
+                certificates
+                    .insert(txn_id, &[0xc0][..])
+                    .map_err(|e| e.to_string())?;
+            }
+        }
         table.remove(txn_id).map_err(|e| e.to_string())?;
         Ok(())
     })
@@ -373,4 +412,113 @@ pub(crate) fn scan_matview_operator_state(shard: &Shard) -> Result<Vec<(String, 
         out.push((key.value().to_string(), value.value().to_vec()));
     }
     Ok(out)
+}
+
+/// Persist a local coordinator certificate and its terminal outcome together.
+/// The writer samples time after admission; caller-provided clocks are forbidden.
+pub(crate) fn put_xshard_certified_decision(
+    shard: &Shard,
+    binding: eg_transaction::CoordinatorDecisionBinding,
+    commit: bool,
+) -> Result<eg_transaction::CoordinatorDecisionCertificate, String> {
+    binding.validate()?;
+    let op_id = format!("xshard/certified-decision/{}", binding.transaction_id);
+    control_write!(shard, &op_id, |control| {
+        let mut certificates = control
+            .open_table::<&str, &[u8]>(XSHARD_DECISION_CERTIFICATE)
+            .map_err(|e| e.to_string())?;
+        let prior = certificates
+            .get(binding.transaction_id.as_str())
+            .map_err(|e| e.to_string())?
+            .map(|row| row.value().to_vec());
+        if let Some(bytes) = prior {
+            if bytes == [0xc0] {
+                return Err("legacy terminal transaction cannot acquire a certificate".into());
+            }
+            let certificate = decode_decision_certificate(&bytes)?;
+            certificate.matches(&binding, commit)?;
+            return Ok(certificate);
+        }
+        let mut outcomes = control
+            .open_table::<&str, u8>(XSHARD_DECISION)
+            .map_err(|e| e.to_string())?;
+        let previous = outcomes
+            .get(binding.transaction_id.as_str())
+            .map_err(|e| e.to_string())?
+            .map(|row| row.value());
+        // A legacy terminal row has no timestamp or intent proof. Never upgrade it.
+        if previous.is_some_and(|value| value != 4) {
+            return Err("legacy terminal decision cannot acquire a certificate".into());
+        }
+        let decided_at_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|_| "coordinator clock unavailable".to_string())?
+            .as_millis()
+            .try_into()
+            .map_err(|_| "coordinator clock overflow".to_string())?;
+        let certificate = eg_transaction::CoordinatorDecisionCertificate {
+            version: 1,
+            binding,
+            commit,
+            decided_at_ms,
+        };
+        certificate.validate()?;
+        let bytes = rmp_serde::to_vec_named(&certificate).map_err(|e| e.to_string())?;
+        if bytes.len() > 4096 {
+            return Err("coordinator certificate exceeds bound".into());
+        }
+        let encoded =
+            eg_transaction::merge_coordinator_decision(previous, if commit { 3 } else { 2 })?;
+        outcomes
+            .insert(certificate.binding.transaction_id.as_str(), encoded)
+            .map_err(|e| e.to_string())?;
+        certificates
+            .insert(
+                certificate.binding.transaction_id.as_str(),
+                bytes.as_slice(),
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(certificate)
+    })
+}
+
+fn decode_decision_certificate(
+    bytes: &[u8],
+) -> Result<eg_transaction::CoordinatorDecisionCertificate, String> {
+    if bytes.len() > 4096 {
+        return Err("coordinator certificate exceeds bound".into());
+    }
+    let certificate: eg_transaction::CoordinatorDecisionCertificate =
+        eg_types::msgpack::decode_bounded(
+            bytes,
+            eg_types::msgpack::MsgpackLimits::new(4096, 128, 8),
+        )
+        .map_err(|_| "invalid bounded coordinator certificate".to_string())?;
+    certificate.validate()?;
+    Ok(certificate)
+}
+
+/// A legacy bool outcome is intentionally not returned as certified evidence.
+pub(crate) fn get_xshard_decision_certificate(
+    shard: &Shard,
+    txn_id: &str,
+) -> Result<Option<eg_transaction::CoordinatorDecisionCertificate>, String> {
+    let read = shard.control_read()?;
+    let table = read
+        .open_owner_table(XSHARD_DECISION_CERTIFICATE)
+        .map_err(|e| e.to_string())?;
+    let bytes = table
+        .get(txn_id)
+        .map_err(|e| e.to_string())?
+        .map(|row| row.value().to_vec());
+    bytes
+        .filter(|bytes| bytes.as_slice() != [0xc0])
+        .map(|bytes| {
+            let certificate = decode_decision_certificate(&bytes)?;
+            if certificate.binding.transaction_id != txn_id {
+                return Err("coordinator certificate key mismatch".into());
+            }
+            Ok(certificate)
+        })
+        .transpose()
 }

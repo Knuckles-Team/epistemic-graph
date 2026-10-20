@@ -603,3 +603,6 @@ fn open_sealed(
     }
     Ok(plaintext)
 }
+
+pub(crate) const XSHARD_DECISION_CERTIFICATE: TableDefinition<&str, &[u8]> =
+    TableDefinition::new("xshard_decision_certificate");

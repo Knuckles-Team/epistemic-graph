@@ -11,6 +11,10 @@ use redb::{
 use sha2::{Digest, Sha256};
 
 // Closed owner-table registry. These names and types are the manifest contract.
+pub const AGENT_LIBRARY_PARTICIPANTS: TableDefinition<'static, &str, &[u8]> =
+    TableDefinition::new("agent_library_participants");
+pub const RBAC_PARTICIPANTS: TableDefinition<'static, &str, &[u8]> =
+    TableDefinition::new("rbac_participants");
 const RBAC: TableDefinition<'static, &str, &[u8]> = TableDefinition::new("rbac");
 const JOB_TABLES_BYTES: [TableDefinition<'static, &str, &[u8]>; 3] = [
     TableDefinition::new("analytics_jobs"),
@@ -301,7 +305,10 @@ macro_rules! visit_owner_tables {
     ($layout:expr, $visit:ident) => {{
         match $layout {
             OwnerLayout::LedgerOnly => {}
-            OwnerLayout::Rbac => $visit!(RBAC),
+            OwnerLayout::Rbac => {
+                $visit!(RBAC);
+                $visit!(RBAC_PARTICIPANTS);
+            }
             OwnerLayout::Jobs => {
                 for table in JOB_TABLES_BYTES {
                     $visit!(table);
@@ -395,6 +402,7 @@ macro_rules! visit_owner_tables {
                 crate::owner::graph_shard::visit_graph_shard_tables!($visit)
             }
             OwnerLayout::AgentLibrary => {
+                $visit!(AGENT_LIBRARY_PARTICIPANTS);
                 $visit!(AGENT_LIBRARY_REVISIONS);
                 $visit!(AGENT_LIBRARY_HEADS);
                 $visit!(AGENT_GRAPH_REVISIONS);
@@ -652,7 +660,7 @@ pub fn declared_table_names(layout: OwnerLayout) -> Vec<&'static str> {
 pub fn owner_table_names(layout: OwnerLayout) -> &'static [&'static str] {
     match layout {
         OwnerLayout::LedgerOnly => &[],
-        OwnerLayout::Rbac => &["rbac"],
+        OwnerLayout::Rbac => &["rbac", "rbac_participants"],
         OwnerLayout::Jobs => &[
             "analytics_jobs",
             "analytics_job_committed_results",
@@ -732,6 +740,7 @@ pub fn owner_table_names(layout: OwnerLayout) -> &'static [&'static str] {
         OwnerLayout::ClusterHierarchy => &["cluster_hierarchy"],
         OwnerLayout::GraphShard => crate::owner::graph_shard::GRAPH_SHARD_TABLES,
         OwnerLayout::AgentLibrary => &[
+            "agent_library_participants",
             "agent_library",
             "agent_library_heads",
             "agent_graph",

@@ -7,6 +7,7 @@ use super::{
 use crate::owner::graph_shard::{
     AUDIT_REQUESTS, CURRENT_PLANS, REPOSITORY_ENRICHMENT_BUDGETS, REPOSITORY_ENRICHMENT_PARKS,
     REPOSITORY_ENRICHMENT_POLICY_REVISIONS, REPOSITORY_ENRICHMENT_SUPERSESSIONS,
+    XSHARD_DECISION_CERTIFICATE,
 };
 use crate::owner::registry::{predecessor_evidence, MCP_CATALOG_CONFIGS, MCP_CATALOG_SCOPES};
 use crate::owner::sql_checkpoint_upgrade::{
@@ -59,7 +60,20 @@ pub(super) fn commit_upgrade(
 
 fn open_successor_tables(write: &WriteTransaction, target: UpgradeTarget) -> Result<(), String> {
     match target {
+        UpgradeTarget::Rbac => {
+            write
+                .open_table(crate::owner::registry::RBAC_PARTICIPANTS)
+                .map_err(|error| error.to_string())?;
+        }
+        UpgradeTarget::AgentLibraryParticipants => {
+            write
+                .open_table(crate::owner::registry::AGENT_LIBRARY_PARTICIPANTS)
+                .map_err(|error| error.to_string())?;
+        }
         UpgradeTarget::AgentLibrary => {
+            write
+                .open_table(crate::owner::registry::AGENT_LIBRARY_PARTICIPANTS)
+                .map_err(|error| error.to_string())?;
             write
                 .open_table(MCP_CATALOG_CONFIGS)
                 .map_err(|error| error.to_string())?;
@@ -83,6 +97,9 @@ fn open_graph_shard_tables(
     if source == GraphShardSource::BeforeEnrichment {
         open_enrichment_tables(write)?;
     }
+    write
+        .open_table(XSHARD_DECISION_CERTIFICATE)
+        .map_err(|error| error.to_string())?;
     write
         .open_table(CURRENT_PLANS)
         .map_err(|error| error.to_string())?;
