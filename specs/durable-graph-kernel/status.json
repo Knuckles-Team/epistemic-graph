@@ -60,6 +60,7 @@
     "EG-DURABLE-KERNEL-R029",
     "EG-DURABLE-KERNEL-R030",
     "EG-DURABLE-KERNEL-R031",
+    "EG-DURABLE-KERNEL-R031.1",
     "EG-DURABLE-KERNEL-R032",
     "EG-DURABLE-KERNEL-R032.1",
     "EG-DURABLE-KERNEL-R033",
@@ -1142,6 +1143,20 @@
       ],
       "verified_by": [
         "src/redb_store/operation_audit_tests.rs:278"
+      ],
+      "rollup_of": [
+        "EG-DURABLE-KERNEL-R031.1"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R031.1",
+      "title": "The audit append accounts the serving write version",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "c4380005dee3"
+      ],
+      "verified_by": [
+        "src/server/dispatch/graph_pipeline/dispatch_helpers.rs:686"
       ]
     },
     {
