@@ -4387,6 +4387,8 @@ class WorkItemClient:
         outcome = await self.get_outcome(
             tenant=tenant, work_item_id=work_item_id, include_replay_cursor=True
         )
+        if outcome is None:
+            raise RuntimeError("native committed terminal replay is unavailable")
         event = _terminal_replay_event(outcome, tenant, work_item_id)
         cursor = event["replay_cursor"]
         if after_cursor is not None and after_cursor != cursor:
@@ -4448,10 +4450,8 @@ def _terminal_replay_cursor(value: Any) -> bool:
 
 
 def _terminal_replay_event(
-    outcome: dict[str, Any] | None, tenant: str, work_item_id: str
+    outcome: dict[str, Any], tenant: str, work_item_id: str
 ) -> dict[str, Any]:
-    if outcome is None:
-        raise RuntimeError("native committed terminal replay is unavailable")
     event = outcome.get("terminal_event")
     if not isinstance(event, dict) or event.get("status") != "available":
         raise RuntimeError("native committed terminal replay is unavailable")
