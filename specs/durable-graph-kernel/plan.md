@@ -800,14 +800,14 @@ execution and storage-fixture qualification must be reported separately.
 
 Extend `EG-DURABLE-KERNEL-R028.5`: a fresh authenticated attempt may carry new
 request/trace identifiers, issue/expiry times and placement observations. These
-are the existing native submission retry-context fields; all command, run,
+are the existing native submission retry-context fields. All command, run,
 principal, agent, tenant, graph, scope, audience, policy, metadata and input fields
 remain exact. Recover only the committed native admission operation and result
-under its stable batch identity, verifying the receipt's caller/tenant and the
+under its stable batch identity. Verify the receipt's caller/tenant and the
 immutable WorkItem run-owner binding. Recompile the retained operation under the
 fresh verified carrier and nonce through the ordinary ledger replay path. Do not
 change canonical digest rules, rewrite historical receipts, recover from metadata,
 or return an unverified stored result. Missing/corrupt ownership or retained
 receipt evidence refuses. Coverage must preserve original receipt/row/outbox bytes
-across refreshed-context replay and restart, including receipts made before this
-repair; changes to any non-attempt field still refuse.
+across refreshed-context replay and restart. Include receipts made before this
+repair. Changes to any non-attempt field still refuse.
