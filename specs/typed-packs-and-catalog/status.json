@@ -2702,7 +2702,8 @@
       "title": "Schema drift classification, containment, repair proposal and activation: model and behavior",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "4e402b2ec8bf"
+        "4e402b2ec8bf",
+        "dc810128a66d"
       ],
       "verified_by": [
         "crates/eg-types/src/graph_schema/drift.rs:645",
