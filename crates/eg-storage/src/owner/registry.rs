@@ -15,6 +15,8 @@ pub const AGENT_LIBRARY_PARTICIPANTS: TableDefinition<'static, &str, &[u8]> =
     TableDefinition::new("agent_library_participants");
 pub const RBAC_PARTICIPANTS: TableDefinition<'static, &str, &[u8]> =
     TableDefinition::new("rbac_participants");
+pub const PROFILE_USE_GRANTS: TableDefinition<'static, &str, &[u8]> =
+    TableDefinition::new("profile_use_grants");
 const RBAC: TableDefinition<'static, &str, &[u8]> = TableDefinition::new("rbac");
 const JOB_TABLES_BYTES: [TableDefinition<'static, &str, &[u8]>; 3] = [
     TableDefinition::new("analytics_jobs"),
@@ -308,6 +310,7 @@ macro_rules! visit_owner_tables {
             OwnerLayout::Rbac => {
                 $visit!(RBAC);
                 $visit!(RBAC_PARTICIPANTS);
+                $visit!(PROFILE_USE_GRANTS);
             }
             OwnerLayout::Jobs => {
                 for table in JOB_TABLES_BYTES {
@@ -660,7 +663,7 @@ pub fn declared_table_names(layout: OwnerLayout) -> Vec<&'static str> {
 pub fn owner_table_names(layout: OwnerLayout) -> &'static [&'static str] {
     match layout {
         OwnerLayout::LedgerOnly => &[],
-        OwnerLayout::Rbac => &["rbac", "rbac_participants"],
+        OwnerLayout::Rbac => &["rbac", "rbac_participants", "profile_use_grants"],
         OwnerLayout::Jobs => &[
             "analytics_jobs",
             "analytics_job_committed_results",

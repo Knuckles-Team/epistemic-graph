@@ -365,6 +365,7 @@ pub trait RbacPolicyStore: Send + Sync {
 
 mod durable_write;
 mod memory_store;
+pub mod profile_grants;
 #[cfg(test)]
 mod revision_tests;
 

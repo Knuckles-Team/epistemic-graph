@@ -196,6 +196,7 @@ fn domain_owner_key_type(name: &str) -> Option<&'static str> {
         }
         "rbac"
         | "rbac_participants"
+        | "profile_use_grants"
         | "agent_library_participants"
         | "path_index"
         | "statechart_defs"
@@ -318,6 +319,7 @@ fn value_type_id(name: &str) -> &'static str {
         | "mutation_classes"
         | "rbac"
         | "rbac_participants"
+        | "profile_use_grants"
         | "agent_library_participants"
         | "analytics_jobs"
         | "job_intents"
@@ -440,7 +442,9 @@ fn ledger_and_job_codec(name: &str) -> Option<&'static str> {
         | "write_back_idempotency"
         | "write_back_receipts" => "msgpack-v1",
         "decision_records" => "json-utf8-v1",
-        "rbac" | "rbac_participants" | "agent_library_participants" => "json-utf8-v1",
+        "rbac" | "rbac_participants" | "profile_use_grants" | "agent_library_participants" => {
+            "json-utf8-v1"
+        }
         "kv" | "cas_chunks" => "raw-bytes-v1",
         "series_chunks" => "packed-timeseries-chunk-v1",
         "ledger_maintenance"
@@ -565,6 +569,7 @@ fn ledger_and_job_capabilities(name: &str) -> Option<u16> {
         "cas_chunks" | "cas_blobs" => CAP_READ | CAP_INSERT | CAP_DELETE,
         "rbac"
         | "rbac_participants"
+        | "profile_use_grants"
         | "agent_library_participants"
         | "analytics_jobs"
         | "job_intents"

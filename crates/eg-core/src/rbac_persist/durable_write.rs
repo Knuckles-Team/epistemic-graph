@@ -184,7 +184,7 @@ pub(super) fn remove_authority_record(
 /// minted by the storage kernel's single mutation authority and is never
 /// reachable here: the only handle this crate is given is the layout-bounded
 /// [`AdmittedOwnerWrite`], valid between `owner_rows` and `finish_owner`.
-fn commit_authority_mutation<F>(
+pub(super) fn commit_authority_mutation<F>(
     store: &RbacStore,
     expected_revision: u64,
     digest: &str,

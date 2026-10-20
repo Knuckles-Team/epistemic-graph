@@ -42,6 +42,7 @@ enum UpgradeTarget {
     AgentLibrary,
     AgentLibraryParticipants,
     Rbac,
+    RbacProfileGrants,
     GraphShard(GraphShardSource),
 }
 
@@ -87,7 +88,7 @@ impl UpgradeTarget {
     fn layout(self) -> OwnerLayout {
         match self {
             Self::AgentLibrary | Self::AgentLibraryParticipants => OwnerLayout::AgentLibrary,
-            Self::Rbac => OwnerLayout::Rbac,
+            Self::Rbac | Self::RbacProfileGrants => OwnerLayout::Rbac,
             Self::GraphShard(_) => OwnerLayout::GraphShard,
         }
     }
@@ -97,6 +98,7 @@ impl UpgradeTarget {
             Self::AgentLibrary => &AGENT_LIBRARY_BEFORE_MCP_CATALOG,
             Self::AgentLibraryParticipants => &super::lineage::AGENT_LIBRARY_BEFORE_PARTICIPANTS,
             Self::Rbac => &super::lineage::RBAC_BEFORE_PARTICIPANTS,
+            Self::RbacProfileGrants => &super::lineage::RBAC_BEFORE_PROFILE_GRANTS,
             Self::GraphShard(source) => source.declared_generation(),
         }
     }
@@ -106,6 +108,7 @@ impl UpgradeTarget {
             Self::AgentLibrary => super::lineage::AGENT_LIBRARY_PRE_MCP_CATALOG_DIGEST,
             Self::AgentLibraryParticipants => super::lineage::AGENT_LIBRARY_PRE_PARTICIPANTS_DIGEST,
             Self::Rbac => super::lineage::RBAC_PRE_PARTICIPANTS_DIGEST,
+            Self::RbacProfileGrants => super::lineage::RBAC_PRE_PROFILE_GRANTS_DIGEST,
             Self::GraphShard(source) => source.frozen_digest(),
         }
     }
@@ -151,6 +154,29 @@ pub fn upgrade_rbac_participant(
     token: ValidatedOwnerLayoutUpgrade,
 ) -> Result<(StorageKernel, OwnerLayoutUpgradeReport), String> {
     upgrade_layout(token, UpgradeTarget::Rbac)
+}
+
+/// Inspect the exact RBAC predecessor that already holds reservations.
+pub fn inspect_rbac_profile_grants_upgrade(
+    path: &Path,
+    expected_physical_identity: PhysicalStoreIdentity,
+    private_integrity: Option<Arc<dyn PrivatePayloadIntegrity>>,
+    options: SqlSourceCheckpointInspectionOptions,
+) -> Result<ValidatedOwnerLayoutUpgrade, String> {
+    inspect_layout_upgrade(
+        path,
+        expected_physical_identity,
+        private_integrity,
+        options,
+        UpgradeTarget::RbacProfileGrants,
+    )
+}
+
+/// Add the empty grant table in the inspected offline owner transaction.
+pub fn upgrade_rbac_profile_grants(
+    token: ValidatedOwnerLayoutUpgrade,
+) -> Result<(StorageKernel, OwnerLayoutUpgradeReport), String> {
+    upgrade_layout(token, UpgradeTarget::RbacProfileGrants)
 }
 
 /// Inspect the exact Agent Library predecessor without participant records.
@@ -314,12 +340,14 @@ fn upgrade_layout(
                 options,
             )?
         }
-        UpgradeTarget::Rbac => StorageKernel::open_owner_with::<RbacOwner>(
-            &token.source.path,
-            current.physical_identity,
-            token.source.private_integrity,
-            options,
-        )?,
+        UpgradeTarget::Rbac | UpgradeTarget::RbacProfileGrants => {
+            StorageKernel::open_owner_with::<RbacOwner>(
+                &token.source.path,
+                current.physical_identity,
+                token.source.private_integrity,
+                options,
+            )?
+        }
         UpgradeTarget::GraphShard(_) => StorageKernel::open_owner_with::<GraphShardOwner>(
             &token.source.path,
             current.physical_identity,

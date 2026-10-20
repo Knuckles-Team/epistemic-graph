@@ -496,3 +496,139 @@ fn decision_certificate_upgrade_preserves_existing_graph_rows() {
         0
     );
 }
+
+#[test]
+fn profile_grant_upgrade_preserves_both_rbac_generations_and_reopens() {
+    use crate::owner::lineage::{RBAC_BEFORE_PARTICIPANTS, RBAC_BEFORE_PROFILE_GRANTS};
+    use crate::owner::registry::{PROFILE_USE_GRANTS, RBAC_PARTICIPANTS};
+    for predecessor in [&RBAC_BEFORE_PARTICIPANTS, &RBAC_BEFORE_PROFILE_GRANTS] {
+        let directory = private_local_tempdir();
+        let path = directory.path().join("rbac.redb");
+        create_predecessor_owner_file(&path, identity(), predecessor).unwrap();
+        {
+            let database = Database::open(&path).unwrap();
+            let write = database.begin_write().unwrap();
+            {
+                let mut table = write
+                    .open_table(redb::TableDefinition::<&str, &[u8]>::new("rbac"))
+                    .unwrap();
+                for key in ["policy", "identities", "bootstrap"] {
+                    table.insert(key, key.as_bytes()).unwrap();
+                }
+            }
+            if predecessor == &RBAC_BEFORE_PROFILE_GRANTS {
+                write
+                    .open_table(RBAC_PARTICIPANTS)
+                    .unwrap()
+                    .insert("pending", b"retained reservation".as_slice())
+                    .unwrap();
+            }
+            write.commit().unwrap();
+        }
+        let before = std::fs::read(&path).unwrap();
+        assert!(StorageKernel::open_owner::<RbacOwner>(&path, identity(), None).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        let upgrade =
+            super::super::offline_upgrade::registered_offline_upgrade(predecessor).unwrap();
+        let token = upgrade
+            .inspect(&path, identity(), None, options(&path))
+            .unwrap();
+        let report = token.apply().unwrap();
+        assert_eq!(
+            report.current_authority_epoch,
+            report.previous_authority_epoch + 1
+        );
+        drop(StorageKernel::open_owner::<RbacOwner>(&path, identity(), None).unwrap());
+        {
+            let database = Database::open(&path).unwrap();
+            let read = database.begin_read().unwrap();
+            let table = read
+                .open_table(redb::TableDefinition::<&str, &[u8]>::new("rbac"))
+                .unwrap();
+            for key in ["policy", "identities", "bootstrap"] {
+                assert_eq!(table.get(key).unwrap().unwrap().value(), key.as_bytes());
+            }
+            let reservations = read.open_table(RBAC_PARTICIPANTS).unwrap();
+            if predecessor == &RBAC_BEFORE_PROFILE_GRANTS {
+                assert_eq!(
+                    reservations.get("pending").unwrap().unwrap().value(),
+                    b"retained reservation"
+                );
+            } else {
+                assert_eq!(reservations.len().unwrap(), 0);
+            }
+            assert_eq!(
+                read.open_table(PROFILE_USE_GRANTS).unwrap().len().unwrap(),
+                0
+            );
+        }
+        assert!(upgrade
+            .inspect(&path, identity(), None, options(&path))
+            .is_err());
+    }
+}
+
+#[test]
+fn profile_grant_upgrade_rejects_changed_source_without_new_table() {
+    use crate::owner::lineage::RBAC_BEFORE_PROFILE_GRANTS;
+    let directory = private_local_tempdir();
+    let path = directory.path().join("rbac.redb");
+    create_predecessor_owner_file(&path, identity(), &RBAC_BEFORE_PROFILE_GRANTS).unwrap();
+    let token =
+        inspect_rbac_profile_grants_upgrade(&path, identity(), None, options(&path)).unwrap();
+    {
+        let database = Database::open(&path).unwrap();
+        let write = database.begin_write().unwrap();
+        write
+            .open_table(redb::TableDefinition::<&str, &[u8]>::new("rbac"))
+            .unwrap()
+            .insert("policy", b"changed".as_slice())
+            .unwrap();
+        write.commit().unwrap();
+    }
+    assert!(upgrade_rbac_profile_grants(token).is_err());
+    let database = Database::open(&path).unwrap();
+    let read = database.begin_read().unwrap();
+    assert!(read
+        .open_table(crate::owner::registry::PROFILE_USE_GRANTS)
+        .is_err());
+    assert_eq!(
+        read.open_table(redb::TableDefinition::<&str, &[u8]>::new("rbac"))
+            .unwrap()
+            .get("policy")
+            .unwrap()
+            .unwrap()
+            .value(),
+        b"changed"
+    );
+}
+
+#[test]
+fn profile_grant_layout_pins_current_and_frozen_predecessor() {
+    assert_eq!(
+        crate::owner::table_api::owner_table_access("profile_use_grants"),
+        crate::owner::table_api::OwnerTableAccess::DomainService
+    );
+    let contracts: Vec<_> = super::super::contract::expected_table_contracts(OwnerLayout::Rbac)
+        .into_iter()
+        .filter(|contract| {
+            contract.ownership == TableOwnership::Ledger
+                || super::super::lineage::RBAC_BEFORE_PROFILE_GRANTS
+                    .owner_tables
+                    .contains(&contract.table_id.as_str())
+        })
+        .collect();
+    assert_eq!(
+        layout_digest_over(OwnerLayout::Rbac, &contracts),
+        super::super::lineage::RBAC_PRE_PROFILE_GRANTS_DIGEST
+    );
+    let current: String = OwnerLayout::Rbac
+        .digest()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    assert_eq!(
+        current,
+        super::super::lineage::pinned_layout_digest(OwnerLayout::Rbac)
+    );
+}

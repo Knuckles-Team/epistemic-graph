@@ -44,6 +44,7 @@ declared_owner_tables!(
     KvRows: KvOwner => ((String, String), Vec<u8>, "kv"),
     AgentLibraryParticipantRows: AgentLibraryOwner => (String, Vec<u8>, "agent_library_participants"),
     RbacParticipantRows: RbacOwner => (String, Vec<u8>, "rbac_participants"),
+    ProfileUseGrantRows: RbacOwner => (String, Vec<u8>, "profile_use_grants"),
     RbacRows: RbacOwner => (String, Vec<u8>, "rbac"),
     AnalyticsJobsRows: JobsOwner => (String, Vec<u8>, "analytics_jobs"),
     AnalyticsCommittedRows: JobsOwner => (String, String, "analytics_job_committed_results"),
@@ -124,6 +125,7 @@ pub(crate) fn owner_table_access(table: &str) -> OwnerTableAccess {
         "kv"
         | "rbac"
         | "rbac_participants"
+        | "profile_use_grants"
         | "agent_library_participants"
         | "analytics_jobs"
         | "analytics_job_committed_results"
