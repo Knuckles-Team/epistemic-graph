@@ -55,6 +55,8 @@ bootstrap skill, together with the [SDD full lifecycle](https://github.com/Knuck
 
 ## Local specifications
 
+- [`EG-BRANCH-MERGE`](branch-merge/spec.md) — agent branching, three-way merge, and epistemic conflict resolution.
+- [`EG-OBJECT-STORAGE-BACKEND`](object-storage-backend/spec.md) — object-storage-native durable store and comparative cost gate.
 - [`EG-UNIFIED-DATA-PLANE`](unified-data-plane/spec.md) — EG attached-source, dialect and app-admission owner contract
 - [`EG-DECISION-ENGINE`](decision-engine/spec.md) — governed decision and calibration engine contract.
 - [`EG-DURABLE-KERNEL`](durable-graph-kernel/spec.md) — durable graph state and recovery contract.

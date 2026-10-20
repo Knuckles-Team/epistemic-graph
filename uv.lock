@@ -236,7 +236,7 @@ provides-extras = ["all", "ast", "datascience", "finance", "full", "lake-parity"
 
 [[package]]
 name = "epistemic-graph-server"
-version = "2.27.4"
+version = "2.27.5"
 source = { directory = "packaging/epistemic-graph-server" }
 
 [[package]]

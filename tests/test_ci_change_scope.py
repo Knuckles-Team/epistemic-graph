@@ -147,16 +147,28 @@ def test_pr_runtime_gates_do_not_wait_for_self_hosted_runners() -> None:
         assert jobs[name]["if"] == "needs.changes.outputs.code == 'true'"
 
 
-@pytest.mark.parametrize("job_name", ["gates-crates", "gates-storage"])
-def test_workspace_gates_use_hosted_runner_with_required_headers(job_name: str) -> None:
-    """EG-CONTRACT-R035: prerequisite installation must work on every event."""
+@pytest.mark.parametrize(
+    ("job_name", "pr_timeout"),
+    [("gates-crates", 45), ("gates-storage", 10)],
+)
+def test_workspace_gates_use_hosted_runner_with_required_headers(
+    job_name: str, pr_timeout: int
+) -> None:
+    """EG-CONTRACT-R035: prerequisite installation must work on every event.
+
+    gates-crates carries the heavy 45-minute PR budget: its per-crate narrowing
+    sweep falls back to the FULL workspace on a broad/unmapped diff (release
+    version bumps touch every crate), which cold-builds past the former
+    10-minute budget (release PR #666 cancelled at ~10:15 on 3/3 runs).
+    """
     jobs = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())["jobs"]
     job = jobs[job_name]
     assert job["runs-on"] == "ubuntu-latest"
     assert job["needs"] == "changes"
     assert job["if"] == "needs.changes.outputs.code == 'true'"
+    # GitHub expression braces are doubled inside f-strings.
     assert job["timeout-minutes"] == (
-        "${{ github.event_name == 'pull_request' && 10 || 60 }}"
+        f"${{{{ github.event_name == 'pull_request' && {pr_timeout} || 60 }}}}"
     )
     installs = [
         step

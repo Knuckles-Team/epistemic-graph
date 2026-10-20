@@ -766,3 +766,13 @@ Deliver these additive leaves in order; preserve R137.1–.6 and R128 unchanged.
 - [x] **EG-DECISION-ENGINE-R802.4 (Refusal):** Add the typed refusals.
 - [x] **EG-DECISION-ENGINE-R802.5 (Evidence):** Emit one premise per candidate.
 - [x] **EG-DECISION-ENGINE-R802.6 (Hot-path proof):** Add the served selection test and the benchmark.
+
+## Harness contrast composition (R803)
+
+- [ ] **EG-DECISION-ENGINE-R803 (rollup):** Compose the adopted harness from the probed candidates.
+- [ ] **EG-DECISION-ENGINE-R803.1 (Model):** Add the decision type and the closed abstain reasons.
+- [ ] **EG-DECISION-ENGINE-R803.2 (Behavior):** Implement adoption, tie-break and abstention.
+- [ ] **EG-DECISION-ENGINE-R803.3 (Wiring):** Serve the contrast question through `Decide` and `DecisionCommit`.
+- [ ] **EG-DECISION-ENGINE-R803.4 (Refusal):** Add the typed refusals.
+- [ ] **EG-DECISION-ENGINE-R803.5 (Evidence):** Pin the probe evidence in the decision record.
+- [ ] **EG-DECISION-ENGINE-R803.6 (Hot-path proof):** Add the served contrast test and the benchmark.

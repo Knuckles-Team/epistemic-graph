@@ -2717,7 +2717,8 @@
       "title": "Schema drift classification, containment, repair proposal and activation: refusal, evidence and hot-path proof",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "0305cbd4457e"
+        "0305cbd4457e",
+        "912a39a98afe"
       ],
       "verified_by": [
         "tests/packs/test_schema_drift_served.py:169"
