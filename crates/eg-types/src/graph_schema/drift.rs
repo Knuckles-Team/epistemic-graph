@@ -411,7 +411,7 @@ pub fn classify(
                         DriftClass::Widening => FieldDrift::Widened,
                         DriftClass::Narrowing => FieldDrift::Narrowed,
                         DriftClass::Breaking => FieldDrift::Retyped,
-                        _ => unreachable!("shared-field drift is never rename"),
+                        DriftClass::Rename => unreachable!("shared-field drift is never rename"),
                     },
                 });
                 class = worst(class, field_class);
