@@ -2015,4 +2015,15 @@ attribution; the context matches the admitted WorkItem metadata. Opt-in readback
 requires the verified principal. The existing terminal event schema stays unchanged.
 GetSessionUsage reads one bounded native MVCC snapshot and uses the run_usage
 helper to deduplicate committed run IDs and report per-count coverage. Scan
-limits make inventory_complete false. Arbora serves this canonical result for all clients. No new usage database or cache.
+limits of 10,000 examined graph rows or 32 MiB make inventory_complete false.
+The bounded scan has no continuation cursor yet, so large graphs can remain
+partial; omitted counters and runs are not observed zeroes. Native metadata CAS
+cannot change, introduce, or remove the admitted a2a_context_id.
+
+Arbora serves this canonical result for all clients. Direct usage observations
+are readable through GetSessionUsage without an OutcomeBundle. Existing
+GetWorkItemOutcome still requires a bundle, so direct-only per-turn replay
+remains an integration prerequisite. This slice persists counts only: measured
+client request/run timing stays in the separate AU/Arbora metrics receipt;
+provider generation time, queue wait, TTFT and cost are unavailable unless
+actually observed. No new usage database or cache.
