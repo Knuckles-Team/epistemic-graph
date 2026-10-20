@@ -3359,6 +3359,7 @@
       "title": "Read the committed terminal event through the existing WorkItem outcome read",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "2891a2058852",
         "604b272d88b1",
         "6aa2533a8865"
       ],
