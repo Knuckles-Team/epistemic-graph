@@ -63,7 +63,7 @@ fn encode_authority_state(
     })
 }
 
-fn authority_batch(
+pub(super) fn authority_batch(
     store: &RbacStore,
     expected: u64,
     target: u64,
@@ -224,6 +224,7 @@ where
         }
         Begin::Apply { source_version } => source_version,
     };
+    super::reservation::refuse_reserved(&write)?;
     let owner_write = write
         .owner_rows(&store.owner, &batch)
         .map_err(RbacPersistError::Redb)?;

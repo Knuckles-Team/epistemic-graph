@@ -391,6 +391,7 @@
     "EG-DECISION-ENGINE-R136.102",
     "EG-DECISION-ENGINE-R138.101",
     "EG-DECISION-ENGINE-R036.101",
+    "EG-DECISION-ENGINE-R036.103",
     "EG-DECISION-ENGINE-R014.100",
     "EG-DECISION-ENGINE-R147",
     "EG-DECISION-ENGINE-R147.1",
@@ -1516,7 +1517,8 @@
       ],
       "rollup_of": [
         "EG-DECISION-ENGINE-R036.100",
-        "EG-DECISION-ENGINE-R036.101"
+        "EG-DECISION-ENGINE-R036.101",
+        "EG-DECISION-ENGINE-R036.103"
       ]
     },
     {
@@ -5061,6 +5063,13 @@
     {
       "id": "EG-DECISION-ENGINE-R036.101",
       "title": "Compose discovered coding-agent facts with skill transformations",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R036.103",
+      "title": "Durable RBAC read reservation",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

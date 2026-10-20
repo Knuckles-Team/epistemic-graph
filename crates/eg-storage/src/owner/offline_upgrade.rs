@@ -9,16 +9,18 @@
 //! the classification and the operator document all follow from the row.
 
 use super::agent_library_upgrade::{
-    inspect_agent_library_mcp_catalog_upgrade, inspect_graph_shard_upgrade,
-    upgrade_agent_library_mcp_catalog, upgrade_graph_shard, GraphShardSource,
-    OwnerLayoutUpgradeReport,
+    inspect_agent_library_mcp_catalog_upgrade, inspect_agent_library_participant_upgrade,
+    inspect_graph_shard_upgrade, inspect_rbac_participant_upgrade,
+    upgrade_agent_library_mcp_catalog, upgrade_agent_library_participant, upgrade_graph_shard,
+    upgrade_rbac_participant, GraphShardSource, OwnerLayoutUpgradeReport,
 };
 use super::identity::PhysicalStoreIdentity;
 use super::layout::OwnerLayout;
 use super::lineage::{
-    layout_predecessors, AGENT_LIBRARY_BEFORE_MCP_CATALOG, GRAPH_SHARD_BEFORE_AUDIT_REQUESTS,
-    GRAPH_SHARD_BEFORE_CURRENT_PLANS, GRAPH_SHARD_BEFORE_ENRICHMENT, SQL_BEFORE_DURABLE_ANN,
-    SQL_BEFORE_SOURCE_CHECKPOINTS,
+    layout_predecessors, AGENT_LIBRARY_BEFORE_MCP_CATALOG, AGENT_LIBRARY_BEFORE_PARTICIPANTS,
+    GRAPH_SHARD_BEFORE_AUDIT_REQUESTS, GRAPH_SHARD_BEFORE_CURRENT_PLANS,
+    GRAPH_SHARD_BEFORE_DECISION_CERTIFICATE, GRAPH_SHARD_BEFORE_ENRICHMENT,
+    RBAC_BEFORE_PARTICIPANTS, SQL_BEFORE_DURABLE_ANN, SQL_BEFORE_SOURCE_CHECKPOINTS,
 };
 use super::persisted_layout::{read_persisted_manifest, LayoutPredecessor};
 use super::sql_checkpoint_upgrade::{
@@ -138,6 +140,27 @@ macro_rules! offline_upgrade {
 /// Every offline upgrade this build can run, in the order an operator command
 /// reports them.
 pub static OFFLINE_STORE_UPGRADES: &[OfflineStoreUpgrade] = &[
+    offline_upgrade!(
+        RBAC_BEFORE_PARTICIPANTS,
+        inspect_rbac_participant_upgrade,
+        upgrade_rbac_participant
+    ),
+    offline_upgrade!(
+        AGENT_LIBRARY_BEFORE_PARTICIPANTS,
+        inspect_agent_library_participant_upgrade,
+        upgrade_agent_library_participant
+    ),
+    offline_upgrade!(
+        GRAPH_SHARD_BEFORE_DECISION_CERTIFICATE,
+        |path, identity, integrity, options| inspect_graph_shard_upgrade(
+            path,
+            identity,
+            integrity,
+            options,
+            GraphShardSource::BeforeDecisionCertificate
+        ),
+        upgrade_graph_shard
+    ),
     offline_upgrade!(
         GRAPH_SHARD_BEFORE_CURRENT_PLANS,
         |path, identity, integrity, options| inspect_graph_shard_upgrade(

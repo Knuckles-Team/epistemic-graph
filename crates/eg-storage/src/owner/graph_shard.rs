@@ -109,6 +109,10 @@ pub(crate) const XSHARD_PREPARE: TableDefinition<'static, (&str, u64), &[u8]> =
     TableDefinition::new("xshard_prepare");
 pub(crate) const XSHARD_DECISION: TableDefinition<'static, &str, u8> =
     TableDefinition::new("xshard_decision");
+/// Immutable MessagePack decision certificate or legacy-retirement nil marker.
+/// Both survive outcome cleanup; a nil marker grants no decision authority.
+pub(crate) const XSHARD_DECISION_CERTIFICATE: TableDefinition<'static, &str, &[u8]> =
+    TableDefinition::new("xshard_decision_certificate");
 
 // -- materialized views (store-private: keyed by view name) ----------------
 pub(crate) const MATVIEWS: TableDefinition<'static, &str, &[u8]> = TableDefinition::new("matviews");
@@ -250,6 +254,7 @@ macro_rules! visit_graph_shard_tables {
         $visit!(shard::REPOSITORY_ENRICHMENT_PARKS);
         $visit!(shard::AUDIT_REQUESTS);
         $visit!(shard::CURRENT_PLANS);
+        $visit!(shard::XSHARD_DECISION_CERTIFICATE);
         $visit!(shard::WORK_ITEM_CLAIM_CAPABILITIES);
         $visit!(shard::WORK_ITEM_CLAIM_CAPABILITY_INVOCATIONS);
         $visit!(shard::NATIVE_WORK_ITEM_AUTHORITY);
@@ -350,6 +355,7 @@ pub(crate) const GRAPH_SHARD_TABLES: &[&str] = graph_shard_table_names!(
     "repository_enrichment_parks",
     "audit_requests",
     "work_item_current_plans",
+    "xshard_decision_certificate",
 );
 
 /// The eight tables of the shard's retired private mutation ledger.
@@ -389,6 +395,7 @@ fn key_type_scalar_or_narrow_tuple(name: &str) -> Option<&'static str> {
         | "graph_meta"
         | "work_item_command_sequence"
         | "xshard_decision"
+        | "xshard_decision_certificate"
         | "matviews"
         | "plan_matviews"
         | "matview_operator_state"
@@ -529,6 +536,7 @@ pub(crate) fn scope(name: &str) -> Option<TableScope> {
         | "raft_meta"
         | "xshard_prepare"
         | "xshard_decision"
+        | "xshard_decision_certificate"
         | "matviews"
         | "plan_matviews"
         | "matview_operator_state"
@@ -565,6 +573,7 @@ pub(crate) fn is_derived_index(name: &str) -> bool {
 pub(crate) fn capabilities(name: &str) -> Option<u16> {
     use crate::owner::contract::{CAP_DELETE, CAP_INSERT, CAP_READ, CAP_UPDATE};
     match name {
+        "xshard_decision_certificate" => Some(CAP_READ | CAP_INSERT),
         "raft_log" => Some(CAP_READ | CAP_INSERT | CAP_DELETE),
         name if GRAPH_SHARD_TABLES.contains(&name) => {
             Some(CAP_READ | CAP_INSERT | CAP_UPDATE | CAP_DELETE)

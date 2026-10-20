@@ -196,6 +196,8 @@ use serde::{Deserialize, Serialize};
 // in this submodule rather than as further items in this already-oversized file --
 // see `commit.rs`'s module doc for why.
 mod commit;
+#[cfg(feature = "security")]
+mod rbac_participant;
 
 use super::multi::MultiRaft;
 #[cfg(any(feature = "calvin", test, feature = "harness"))]

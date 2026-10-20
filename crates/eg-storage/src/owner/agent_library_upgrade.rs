@@ -5,7 +5,7 @@
 //! writer rechecks the pinned descriptor, byte fingerprint, table census and
 //! strict typed evidence before its one immediate durable commit.
 
-use super::domain::{AgentLibraryOwner, GraphShardOwner};
+use super::domain::{AgentLibraryOwner, GraphShardOwner, RbacOwner};
 use super::identity::PhysicalStoreIdentity;
 use super::layout::{layout_digest_over, OwnerLayout};
 use super::lineage::{
@@ -40,6 +40,8 @@ mod commit;
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum UpgradeTarget {
     AgentLibrary,
+    AgentLibraryParticipants,
+    Rbac,
     GraphShard(GraphShardSource),
 }
 
@@ -53,6 +55,8 @@ pub enum GraphShardSource {
     BeforeAuditRequests,
     /// Before private current-plan snapshots.
     BeforeCurrentPlans,
+    /// Before immutable request-bound decision certificates.
+    BeforeDecisionCertificate,
 }
 
 impl GraphShardSource {
@@ -61,6 +65,9 @@ impl GraphShardSource {
             Self::BeforeEnrichment => &GRAPH_SHARD_BEFORE_ENRICHMENT,
             Self::BeforeAuditRequests => &GRAPH_SHARD_BEFORE_AUDIT_REQUESTS,
             Self::BeforeCurrentPlans => &GRAPH_SHARD_BEFORE_CURRENT_PLANS,
+            Self::BeforeDecisionCertificate => {
+                &super::lineage::GRAPH_SHARD_BEFORE_DECISION_CERTIFICATE
+            }
         }
     }
 
@@ -69,6 +76,9 @@ impl GraphShardSource {
             Self::BeforeEnrichment => super::lineage::GRAPH_SHARD_PRE_ENRICHMENT_DIGEST,
             Self::BeforeAuditRequests => super::lineage::GRAPH_SHARD_PRE_AUDIT_REQUESTS_DIGEST,
             Self::BeforeCurrentPlans => super::lineage::GRAPH_SHARD_PRE_CURRENT_PLANS_DIGEST,
+            Self::BeforeDecisionCertificate => {
+                super::lineage::GRAPH_SHARD_PRE_DECISION_CERTIFICATE_DIGEST
+            }
         }
     }
 }
@@ -76,7 +86,8 @@ impl GraphShardSource {
 impl UpgradeTarget {
     fn layout(self) -> OwnerLayout {
         match self {
-            Self::AgentLibrary => OwnerLayout::AgentLibrary,
+            Self::AgentLibrary | Self::AgentLibraryParticipants => OwnerLayout::AgentLibrary,
+            Self::Rbac => OwnerLayout::Rbac,
             Self::GraphShard(_) => OwnerLayout::GraphShard,
         }
     }
@@ -84,6 +95,8 @@ impl UpgradeTarget {
     fn predecessor(self) -> &'static LayoutPredecessor {
         match self {
             Self::AgentLibrary => &AGENT_LIBRARY_BEFORE_MCP_CATALOG,
+            Self::AgentLibraryParticipants => &super::lineage::AGENT_LIBRARY_BEFORE_PARTICIPANTS,
+            Self::Rbac => &super::lineage::RBAC_BEFORE_PARTICIPANTS,
             Self::GraphShard(source) => source.declared_generation(),
         }
     }
@@ -91,6 +104,8 @@ impl UpgradeTarget {
     fn pinned(self) -> [u8; 32] {
         match self {
             Self::AgentLibrary => super::lineage::AGENT_LIBRARY_PRE_MCP_CATALOG_DIGEST,
+            Self::AgentLibraryParticipants => super::lineage::AGENT_LIBRARY_PRE_PARTICIPANTS_DIGEST,
+            Self::Rbac => super::lineage::RBAC_PRE_PARTICIPANTS_DIGEST,
             Self::GraphShard(source) => source.frozen_digest(),
         }
     }
@@ -114,6 +129,51 @@ pub struct OwnerLayoutUpgradeReport {
 }
 pub type AgentLibraryUpgradeReport = OwnerLayoutUpgradeReport;
 pub type GraphShardUpgradeReport = OwnerLayoutUpgradeReport;
+
+/// Inspect the exact RBAC predecessor without modifying its authority rows.
+pub fn inspect_rbac_participant_upgrade(
+    path: &Path,
+    expected_physical_identity: PhysicalStoreIdentity,
+    private_integrity: Option<Arc<dyn PrivatePayloadIntegrity>>,
+    options: SqlSourceCheckpointInspectionOptions,
+) -> Result<ValidatedOwnerLayoutUpgrade, String> {
+    inspect_layout_upgrade(
+        path,
+        expected_physical_identity,
+        private_integrity,
+        options,
+        UpgradeTarget::Rbac,
+    )
+}
+
+/// Offline-only transition. Ordinary opens never upgrade authority storage.
+pub fn upgrade_rbac_participant(
+    token: ValidatedOwnerLayoutUpgrade,
+) -> Result<(StorageKernel, OwnerLayoutUpgradeReport), String> {
+    upgrade_layout(token, UpgradeTarget::Rbac)
+}
+
+/// Inspect the exact Agent Library predecessor without participant records.
+pub fn inspect_agent_library_participant_upgrade(
+    path: &Path,
+    expected_physical_identity: PhysicalStoreIdentity,
+    private_integrity: Option<Arc<dyn PrivatePayloadIntegrity>>,
+    options: SqlSourceCheckpointInspectionOptions,
+) -> Result<ValidatedOwnerLayoutUpgrade, String> {
+    inspect_layout_upgrade(
+        path,
+        expected_physical_identity,
+        private_integrity,
+        options,
+        UpgradeTarget::AgentLibraryParticipants,
+    )
+}
+
+pub fn upgrade_agent_library_participant(
+    token: ValidatedOwnerLayoutUpgrade,
+) -> Result<(StorageKernel, OwnerLayoutUpgradeReport), String> {
+    upgrade_layout(token, UpgradeTarget::AgentLibraryParticipants)
+}
 
 pub fn inspect_agent_library_mcp_catalog_upgrade(
     path: &Path,
@@ -246,7 +306,15 @@ fn upgrade_layout(
     drop(opened_file);
     let options = StoreOpenOptions::default().with_cache_bytes(UPGRADE_CACHE_BYTES)?;
     let kernel = match target {
-        UpgradeTarget::AgentLibrary => StorageKernel::open_owner_with::<AgentLibraryOwner>(
+        UpgradeTarget::AgentLibrary | UpgradeTarget::AgentLibraryParticipants => {
+            StorageKernel::open_owner_with::<AgentLibraryOwner>(
+                &token.source.path,
+                current.physical_identity,
+                token.source.private_integrity,
+                options,
+            )?
+        }
+        UpgradeTarget::Rbac => StorageKernel::open_owner_with::<RbacOwner>(
             &token.source.path,
             current.physical_identity,
             token.source.private_integrity,

@@ -108,6 +108,8 @@ pub enum RbacPersistError {
     IncompleteState(&'static str),
     /// The image was derived from a revision that is no longer current.
     StaleRevision { expected: u64, actual: u64 },
+    /// A native coordinator still owns the whole-image reservation.
+    Reserved { transaction_id: String },
 }
 
 impl fmt::Display for RbacPersistError {
@@ -121,6 +123,9 @@ impl fmt::Display for RbacPersistError {
                     f,
                     "RBAC_STALE_REVISION: expected {expected}, current {actual}"
                 )
+            }
+            RbacPersistError::Reserved { transaction_id } => {
+                write!(f, "RBAC_RESERVED: transaction {transaction_id}")
             }
             RbacPersistError::IncompleteState(message) => {
                 write!(f, "rbac persist current-state error: {message}")
@@ -337,6 +342,38 @@ pub trait RbacPolicyStore: Send + Sync {
     /// lease; separate reads are intentionally insufficient.
     fn authority_snapshot(&self) -> Result<RbacAuthoritySnapshot, RbacPersistError>;
 
+    /// Native participant support is explicit; alternate adapters fail closed.
+    fn prepare_reservation(
+        &self,
+        _request: RbacReservationRequest,
+    ) -> Result<RbacReservation, RbacPersistError> {
+        Err(RbacPersistError::IncompleteState(
+            "RBAC_PARTICIPANT_UNSUPPORTED",
+        ))
+    }
+    fn pending_reservation(&self) -> Result<Option<RbacReservation>, RbacPersistError> {
+        Err(RbacPersistError::IncompleteState(
+            "RBAC_PARTICIPANT_UNSUPPORTED",
+        ))
+    }
+    fn resolve_reservation(
+        &self,
+        _record: &RbacReservation,
+        _source: &dyn RbacReservationDecisionSource,
+    ) -> Result<bool, RbacPersistError> {
+        Err(RbacPersistError::IncompleteState(
+            "RBAC_PARTICIPANT_UNSUPPORTED",
+        ))
+    }
+    fn reservation_outcome(
+        &self,
+        _request: &RbacReservationRequest,
+    ) -> Result<Option<bool>, RbacPersistError> {
+        Err(RbacPersistError::IncompleteState(
+            "RBAC_PARTICIPANT_UNSUPPORTED",
+        ))
+    }
+
     /// Copy this store's durable image verbatim into a FRESH bundle file at
     /// `destination`, returning the number of rows copied.
     ///
@@ -364,7 +401,11 @@ pub trait RbacPolicyStore: Send + Sync {
 }
 
 mod durable_write;
+mod reservation;
+pub use reservation::{RbacReservation, RbacReservationDecisionSource, RbacReservationRequest};
 mod memory_store;
+#[cfg(test)]
+mod reservation_tests;
 #[cfg(test)]
 mod revision_tests;
 
@@ -645,6 +686,29 @@ impl RbacPolicyStore for RbacStore {
 
     fn authority_snapshot(&self) -> Result<RbacAuthoritySnapshot, RbacPersistError> {
         RbacStore::authority_snapshot(self)
+    }
+
+    fn prepare_reservation(
+        &self,
+        request: RbacReservationRequest,
+    ) -> Result<RbacReservation, RbacPersistError> {
+        RbacStore::prepare_reservation(self, request)
+    }
+    fn pending_reservation(&self) -> Result<Option<RbacReservation>, RbacPersistError> {
+        RbacStore::pending_reservation(self)
+    }
+    fn resolve_reservation(
+        &self,
+        record: &RbacReservation,
+        source: &dyn RbacReservationDecisionSource,
+    ) -> Result<bool, RbacPersistError> {
+        RbacStore::resolve_reservation(self, record, source)
+    }
+    fn reservation_outcome(
+        &self,
+        request: &RbacReservationRequest,
+    ) -> Result<Option<bool>, RbacPersistError> {
+        RbacStore::reservation_outcome(self, request)
     }
 
     fn backup_into(&self, destination: &Path) -> Option<Result<u64, String>> {

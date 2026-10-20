@@ -2005,3 +2005,15 @@ abstention keeps the current harness. The answer stores as a
 ARBORA-OPS-R068.4 adopts it service-only, beside the decide-commit
 pattern of ARBORA-OPS-R021.1. The engine runs no model and holds no
 local ranking: the measured contrast is the authority.
+
+### EG-DECISION-ENGINE-R036.103 implementation boundary — RBAC owner reservation
+
+Add a closed RBAC participant table and an inspected offline owner-layout upgrade. Existing policy, identities and bootstrap rows retain their keys and bytes. Normal opens refuse the predecessor format; old binaries refuse the successor manifest. No online migration or deployment is performed.
+
+The shared layout transition also declares the Agent Library participant table and the immutable GraphShard decision-certificate table. The certificate uses MessagePack with read and insert capabilities only. Explicit offline transitions preserve existing rows for all three owners. Their consumer operations remain separate dependent slices.
+
+Reserve one complete authority image per physical RBAC owner. Bind the transaction, coordinator request digest, owner identity, source revision and complete image digest. Reservation bookkeeping advances the mutation version without changing the authority image. Ordinary whole-image saves fail while a reservation is pending. Resolution uses existing mutation receipts for replay and never infers abort from elapsed time. Coordinator recovery must retain unresolved reservations.
+
+Native execution and generated census checks remain pending until the coordinated build slot is available. The profile-admission parent remains incomplete.
+
+The RBAC receipt stores the complete coordinator decision binding before prepare. Resolution reads the native coordinator certificate and compares tenant, physical scope, intent digest and exclusive authority deadline. The coordinator samples its own clock inside the durable decision write. Missing certificates retain the reservation; legacy boolean outcomes confer no authority. Stable maintenance claims prevent transaction-ID reuse after receipt cleanup. This local coordinator path does not claim replicated decision timing or complete profile admission.

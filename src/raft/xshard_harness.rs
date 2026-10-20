@@ -2083,3 +2083,6 @@ async fn cross_group_2pc_survives_crash_mid_prepare_across_distinct_shards() {
     multi2.shutdown().await;
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[cfg(feature = "security")]
+mod rbac_reservation;

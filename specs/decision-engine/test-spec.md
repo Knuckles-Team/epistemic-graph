@@ -827,3 +827,7 @@ Hot-path proof for `EG-DECISION-ENGINE-R802`: `tests/web_document_enrich_served.
 | Hot-path proof | `EG-DECISION-ENGINE-R803.6` | `tests/decide/test_harness_contrast_served.py::test_contrast_hot_path_served`: The served test passes, and the benchmark meets the budget. |
 
 Hot-path proof for `EG-DECISION-ENGINE-R803`: `tests/decide/test_harness_contrast_served.py::test_contrast_hot_path_served`.
+
+### EG-DECISION-ENGINE-R036.103 — RBAC reservation qualification
+
+Use a real owner file. Prepare an authority snapshot, reject a competing whole-image save, close and reopen, and retain the reservation without a terminal decision. Resolve a matching durable decision and permit a fresh save. Refuse changed request content, stale source revisions, corruption and mismatched resolution. Upgrade a pinned predecessor offline without losing authority rows; refuse ordinary opens of old format and reinspection of current format. Native evidence is pending.
