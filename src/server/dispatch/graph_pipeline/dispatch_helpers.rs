@@ -613,7 +613,7 @@ mod tests {
     use crate::graph::GraphCore;
     use crate::protocol::Method;
     use crate::redb_store::operation_audit::tests::{event, TENANT};
-    use crate::server::persistence::redb_backend::RedbBackend;
+    use crate::server::persistence::redb_backend::audit_append_tests::seeded;
     use crate::server::persistence::PersistenceBackend;
 
     const GRAPH: &str = "audit_skew_graph";
@@ -688,18 +688,10 @@ mod tests {
     async fn an_audit_append_accounts_the_serving_version_for_stamped_writes() {
         let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let dir = tempfile::tempdir().expect("tempdir");
-        let backend = Arc::new(
-            RedbBackend::open_with_shards(dir.path().to_string_lossy().to_string(), 64, 1)
-                .expect("open"),
-        );
 
         // One ordinary audited write creates the graph: the authoritative
         // scope version and the serving projection agree at 1.
-        let seed = Method::AddNode {
-            node_id: "seed".to_string(),
-            properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({})).expect("encode"),
-        };
-        backend.record_durable(GRAPH, &seed).await.expect("seed");
+        let backend = Arc::new(seeded(&dir.path().to_string_lossy(), GRAPH).await);
         let core = Arc::new(GraphCore::new());
         core.adopt_materialized_version(1)
             .expect("adopt the watermark");
