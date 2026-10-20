@@ -1,0 +1,106 @@
+{
+  "schema_version": 2,
+  "spec_id": "EG-SCM",
+  "owner_repo": "epistemic-graph",
+  "delivery_state": "SPECIFIED",
+  "requirement_ids": [
+    "EG-SCM-R001",
+    "EG-SCM-R002",
+    "EG-SCM-R003",
+    "EG-SCM-R004",
+    "EG-SCM-R005",
+    "EG-SCM-R006",
+    "EG-SCM-R007",
+    "EG-SCM-R008",
+    "EG-SCM-R009",
+    "EG-SCM-R010",
+    "EG-SCM-R011",
+    "EG-SCM-R012"
+  ],
+  "requirements": [
+    {
+      "id": "EG-SCM-R001",
+      "title": "Content-addressed blob store",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SCM-R002",
+      "title": "Changeset record",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SCM-R003",
+      "title": "Lock-free acceptance",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SCM-R004",
+      "title": "Tree materialization by query",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SCM-R005",
+      "title": "Derived history indexes",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SCM-R006",
+      "title": "Code graph stays live with changesets",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SCM-R007",
+      "title": "Path-scoped access control",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SCM-R008",
+      "title": "Gate verdicts are records",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SCM-R009",
+      "title": "Bisect and revert decisions",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SCM-R010",
+      "title": "Git import and export fidelity",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SCM-R011",
+      "title": "Simulation harness",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-SCM-R012",
+      "title": "Agent-only principals and run provenance",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    }
+  ]
+}
