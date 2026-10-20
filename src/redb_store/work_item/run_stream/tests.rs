@@ -9,7 +9,7 @@ fn seed(shard: &Shard) -> String {
     with_write(shard, "seed-run-stream", 1000, |admitted| {
         let member = admitted.graph(GRAPH)?;
         let mut tables = crate::redb_store::store_rows::GraphRowTables::open(member)?;
-        let mut row = serde_json::json!({"node_type":"WorkItem","tenant":"tenant","kind":"orchestrator_task","status":"running","lease_owner":"worker","lease_epoch":1,"fencing_token":2,"lease_expires_at":10.0,"run_owner_binding":{"graph":GRAPH,"tenant":"tenant","run_id":"run","work_item_id":id,"principal":actor()}}).as_object().unwrap().clone();
+        let mut row = serde_json::json!({"node_type":"WorkItem","tenant":"tenant","kind":"orchestrator_task","status":"running","lease_owner":"worker","lease_epoch":1,"fencing_token":2,"lease_expires_at":10.0,"attempt":1,"max_attempts":1,"run_owner_binding":{"graph":GRAPH,"tenant":"tenant","run_id":"run","work_item_id":id,"principal":actor()}}).as_object().unwrap().clone();
         work_item_capability::record_native_claim_in_wtx(&mut tables.native_work_items, GRAPH, &id, &row, 1000, DurableCrypto::none())?;
         write_work_item_props(&mut tables.nodes, GRAPH, &id, &mut row, DurableCrypto::none())
     }).unwrap();
@@ -329,4 +329,37 @@ fn terminal_wrong_stream_cas_rolls_back_work_item_transition() {
     .unwrap()
     .unwrap();
     assert_eq!(page.events[0].event.content, r#"{"state":"dead_letter"}"#);
+}
+
+// spec: EG-DURABLE-KERNEL-R028.2
+#[test]
+fn retry_scheduled_is_persisted_from_actual_result() {
+    let tmp = open("durable-stream-retry-state");
+    let id = seed(&tmp.shard);
+    super::super::test_shard::with_nodes(&tmp.shard, "more-attempts", |nodes| {
+        let bytes = nodes.get((GRAPH, id.as_str()))?.unwrap();
+        let mut row: Row = decode_durable(bytes.value())?;
+        drop(bytes);
+        row.insert("max_attempts".into(), 2.into());
+        write_work_item_props(nodes, GRAPH, &id, &mut row, DurableCrypto::none())
+    });
+    let terminal = terminal_batch(&tmp.shard, &id, 0, "retry-terminal", 2, true);
+    commit(&tmp.shard, &terminal).unwrap();
+    let page = read_events(
+        &tmp.shard,
+        GRAPH,
+        &read_request(&id),
+        &actor(),
+        DurableCrypto::none(),
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(
+        page.events[0].event.content,
+        r#"{"state":"retry_scheduled"}"#
+    );
+    assert_eq!(
+        page.work_item.status,
+        eg_types::work_item_read::WorkItemStatus::Ready
+    );
 }
