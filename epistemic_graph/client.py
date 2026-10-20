@@ -4023,6 +4023,7 @@ class WorkItemClient:
         error_ref: str | None = None,
         retryable: bool = False,
         outcome_extension: dict[str, Any] | None = None,
+        usage_observation: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Commit a leased item's terminal result under its fence.
 
@@ -4046,6 +4047,8 @@ class WorkItemClient:
         }
         if outcome_extension is not None:
             params["outcome_extension"] = outcome_extension
+        if usage_observation is not None:
+            params["usage_observation"] = usage_observation
         return (
             await _gen.coordination.send_commit_work_item_result(
                 self._client, params, idempotency_key=idempotency_key
@@ -4400,6 +4403,71 @@ class WorkItemClient:
             raise TypeError("receipt properties must be a mapping")
         return bytes(msgpack.packb(properties, use_bin_type=True))
 
+    async def session_usage(self, *, tenant: str, context_id: str) -> dict[str, Any]:
+        """Canonical caller-owned committed counts from one bounded MVCC snapshot.
+
+        Missing counters and incomplete inventory remain explicit coverage. This
+        client never computes totals, costs or generation speed.
+        """
+        value = (
+            await _gen.coordination.send_get_session_usage(
+                self._client,
+                {
+                    "tenant": _string("GetSessionUsage.tenant", tenant),
+                    "context_id": _string("GetSessionUsage.context_id", context_id),
+                },
+            )
+        ).payload
+        fields = {
+            "context_id",
+            "counts",
+            "expected_runs",
+            "recorded_runs",
+            "missing_runs",
+            "count_coverage",
+            "inventory_complete",
+        }
+        if (
+            not isinstance(value, dict)
+            or set(value) != fields
+            or value["context_id"] != context_id
+        ):
+            raise RuntimeError("Session usage does not match the typed contract")
+        if type(value["inventory_complete"]) is not bool:
+            raise RuntimeError("Session usage inventory coverage is invalid")
+        for name in ("expected_runs", "recorded_runs", "missing_runs"):
+            if type(value[name]) is not int or not 0 <= value[name] <= 10_000:
+                raise RuntimeError("Session usage run coverage is invalid")
+        if value["recorded_runs"] + value["missing_runs"] != value["expected_runs"]:
+            raise RuntimeError("Session usage run coverage is inconsistent")
+        counts, coverage = value["counts"], value["count_coverage"]
+        if (
+            not isinstance(counts, dict)
+            or not isinstance(coverage, dict)
+            or set(counts) != set(coverage)
+        ):
+            raise RuntimeError("Session usage counter coverage is invalid")
+        allowed = {
+            "requests",
+            "tool_calls",
+            "input_tokens",
+            "output_tokens",
+            "total_tokens",
+        }
+        for key, count in counts.items():
+            if (
+                key not in allowed
+                or type(count) is not int
+                or not 0 <= count <= 9_007_199_254_740_991
+            ):
+                raise RuntimeError("Session usage count is invalid")
+            if (
+                type(coverage[key]) is not int
+                or not 1 <= coverage[key] <= value["recorded_runs"]
+            ):
+                raise RuntimeError("Session usage counter coverage is inconsistent")
+        return value
+
     async def get_outcome(
         self, *, tenant: str, work_item_id: str, include_replay_cursor: bool = False
     ) -> dict[str, Any] | None:
@@ -4429,7 +4497,14 @@ class WorkItemClient:
         ).payload
         if value is None:
             return None
-        if not isinstance(value, dict) or set(value) != _WORK_ITEM_OUTCOME_FIELDS:
+        allowed = _WORK_ITEM_OUTCOME_FIELDS | (
+            {"committed_run_usage"} if include_replay_cursor else set()
+        )
+        if (
+            not isinstance(value, dict)
+            or not _WORK_ITEM_OUTCOME_FIELDS <= set(value)
+            or not set(value) <= allowed
+        ):
             raise RuntimeError("WorkItem outcome does not match the typed contract")
         _work_item_view(value["work_item"])
         return value
@@ -4571,6 +4646,11 @@ class WorkItemClient:
             "work_item": outcome["work_item"],
             "events": [] if after_cursor is not None else [event],
             "next_cursor": cursor,
+            **(
+                {"committed_run_usage": outcome["committed_run_usage"]}
+                if "committed_run_usage" in outcome
+                else {}
+            ),
         }
 
     async def list(

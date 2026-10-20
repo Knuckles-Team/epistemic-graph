@@ -144,6 +144,7 @@ fn native_public_owner_cas_drift_rolls_back_before_terminal_lane_transition() {
                 outcome: "succeeded".into(),
                 result_ref: None,
                 outcome_extension: None,
+                usage_observation: None,
                 error_ref: None,
                 retryable: false,
                 now_ms: 200,

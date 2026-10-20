@@ -872,7 +872,8 @@
     "EG-DECISION-ENGINE-R803.3",
     "EG-DECISION-ENGINE-R803.4",
     "EG-DECISION-ENGINE-R803.5",
-    "EG-DECISION-ENGINE-R803.6"
+    "EG-DECISION-ENGINE-R803.6",
+    "EG-DECISION-ENGINE-R801.7"
   ],
   "requirements": [
     {
@@ -8822,7 +8823,8 @@
         "EG-DECISION-ENGINE-R801.3",
         "EG-DECISION-ENGINE-R801.4",
         "EG-DECISION-ENGINE-R801.5",
-        "EG-DECISION-ENGINE-R801.6"
+        "EG-DECISION-ENGINE-R801.6",
+        "EG-DECISION-ENGINE-R801.7"
       ]
     },
     {
@@ -9020,6 +9022,19 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R801.7",
+      "title": "Fenced committed-run usage and caller-context aggregation",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "crates/eg-types/src/run_usage.rs:170",
+        "crates/eg-types/src/run_usage.rs:188",
+        "crates/eg-types/src/run_usage.rs:226",
+        "src/redb_store/work_item/usage_tests.rs:114",
+        "src/redb_store/work_item/usage_tests.rs:78"
+      ]
     }
   ]
 }

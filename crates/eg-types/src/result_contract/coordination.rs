@@ -71,6 +71,7 @@ method_results! {
     GetRunEvents(GetRunEvents) => Raw<Option<crate::run_stream::RunEventPage>>;
     PublishRunCheckpoint(PublishRunCheckpoint) => Raw<crate::run_checkpoint::RunCheckpointPublished>;
     GetRunCheckpoint(GetRunCheckpoint) => Raw<Option<crate::run_checkpoint::RunCheckpointRead>>;
+    GetSessionUsage(GetSessionUsage) => Raw<crate::run_usage::SessionUsage>;
     GetCurrentPlan(GetCurrentPlan) => Raw<Option<crate::current_plan::CurrentPlanSnapshot>>;
     GetWorkItem(GetWorkItem) => Raw<Option<WorkItemView>>;
     ListWorkItems(ListWorkItems) => Raw<WorkItemPage>;

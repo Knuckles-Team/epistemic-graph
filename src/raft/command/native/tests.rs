@@ -125,6 +125,7 @@ fn work_item_mutations() -> Vec<Method> {
             outcome: "succeeded".to_string(),
             result_ref: Some("result-ref".to_string()),
             outcome_extension: None,
+            usage_observation: None,
             error_ref: None,
             retryable: false,
             now_ms: 30,

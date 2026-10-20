@@ -232,13 +232,23 @@ pub struct TerminalOutcomeExtension {
     pub receipt_nodes: Vec<ReceiptNode>,
     /// The one durable RunEvent carried by the native mutation outbox.
     pub run_event: RunEvent,
+    /// Observations bound to this exact terminal run, absent for legacy callers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub committed_run_usage: Option<crate::run_usage::RunUsageObservation>,
 }
 
 impl TerminalOutcomeExtension {
     pub fn validate(&self) -> Result<(), String> {
         self.outcome_bundle
             .validate_receipt_nodes(&self.receipt_nodes)?;
-        self.run_event.validate_for_bundle(&self.outcome_bundle)
+        self.run_event.validate_for_bundle(&self.outcome_bundle)?;
+        if let Some(usage) = &self.committed_run_usage {
+            usage.validate()?;
+            if usage.run_id != self.outcome_bundle.run_id {
+                return Err("committed usage run does not match outcome bundle".into());
+            }
+        }
+        Ok(())
     }
 }
 
@@ -1116,6 +1126,7 @@ mod tests {
             ),
         ];
         let mut extension = TerminalOutcomeExtension {
+            committed_run_usage: None,
             outcome_bundle: bundle,
             receipt_nodes,
             run_event: valid_event(),

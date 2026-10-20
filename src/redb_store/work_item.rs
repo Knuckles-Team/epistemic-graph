@@ -90,9 +90,13 @@ pub(crate) use dispatch::*;
 pub(crate) use lease::*;
 pub(crate) use market::{apply_native_record_rows, list_gaps, read_gap, NativeRecordRequest};
 pub(crate) use policy_record::apply_policy_record_rows;
-pub(crate) use read::{list_work_items, read_work_item, read_work_item_outcome};
+pub(crate) use read::{
+    list_work_items, read_session_usage, read_work_item, read_work_item_outcome,
+};
 pub(crate) use row_guard::refuse_generic_native_row_write;
 pub(crate) use sealed_record::apply_retire_sealed_record_row;
 pub(crate) use submit::*;
 
 pub(crate) mod run_stream;
+#[cfg(test)]
+mod usage_tests;

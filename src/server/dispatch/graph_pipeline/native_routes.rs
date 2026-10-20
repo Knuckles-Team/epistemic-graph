@@ -246,6 +246,13 @@ async fn route_work_item_reads(
                 actor: ctx.verified_context.principal().to_string(),
             }
         }
+        Method::GetSessionUsage { tenant, context_id } => {
+            handlers::work_item_read::WorkItemRead::SessionUsage {
+                tenant,
+                context_id,
+                actor: ctx.verified_context.principal().to_string(),
+            }
+        }
         Method::GetCurrentPlan { tenant, run_id } => {
             handlers::work_item_read::WorkItemRead::CurrentPlan {
                 tenant,
@@ -280,6 +287,7 @@ async fn route_work_item_reads(
             work_item_id,
             include_replay_cursor,
         } => handlers::work_item_read::WorkItemRead::Outcome {
+            actor: ctx.verified_context.principal().to_string(),
             tenant,
             work_item_id,
             include_replay_cursor,

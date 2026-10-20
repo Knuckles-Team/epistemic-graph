@@ -643,6 +643,7 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         | Method::GetCurrentPlan { .. }
         | Method::GetRunCheckpoint { .. }
         | Method::GetRunEvents { .. }
+        | Method::GetSessionUsage { .. }
         | Method::GetWorkItem { .. }
         | Method::ListWorkItems { .. }
         | Method::GetWorkItemOutcome { .. }

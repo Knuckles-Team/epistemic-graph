@@ -361,3 +361,57 @@ def test_terminal_replay_acknowledges_only_exact_native_event_without_writes() -
                     tenant="t", work_item_id="wi-1"
                 )
             )
+
+
+@pytest.mark.spec("EG-DECISION-ENGINE-R801.7")
+def test_session_usage_preserves_native_counts_and_partial_coverage() -> None:
+    result = {
+        "context_id": "context",
+        "counts": {"input_tokens": 17},
+        "expected_runs": 2,
+        "recorded_runs": 1,
+        "missing_runs": 1,
+        "count_coverage": {"input_tokens": 1},
+        "inventory_complete": False,
+    }
+    engine = FakeEngine(result)
+    assert (
+        asyncio.run(
+            _work_items(engine).session_usage(tenant="tenant", context_id="context")
+        )
+        == result
+    )
+    assert engine.sent == [
+        ("GetSessionUsage", {"tenant": "tenant", "context_id": "context"})
+    ]
+
+
+@pytest.mark.spec("EG-DECISION-ENGINE-R801.7")
+@pytest.mark.parametrize(
+    "patch",
+    [
+        {"context_id": "foreign"},
+        {"counts": {"input_tokens": True}},
+        {"counts": {"input_tokens": -1}},
+        {"recorded_runs": 3},
+        {"count_coverage": {"input_tokens": 2}},
+        {"inventory_complete": "yes"},
+    ],
+)
+def test_session_usage_rejects_malformed_native_receipts(patch: dict[str, Any]) -> None:
+    result = {
+        "context_id": "context",
+        "counts": {"input_tokens": 17},
+        "expected_runs": 2,
+        "recorded_runs": 1,
+        "missing_runs": 1,
+        "count_coverage": {"input_tokens": 1},
+        "inventory_complete": False,
+        **patch,
+    }
+    with pytest.raises(RuntimeError):
+        asyncio.run(
+            _work_items(FakeEngine(result)).session_usage(
+                tenant="tenant", context_id="context"
+            )
+        )

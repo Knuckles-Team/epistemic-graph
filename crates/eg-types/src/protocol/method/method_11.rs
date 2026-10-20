@@ -11,6 +11,8 @@ $($variants)*
 
     PublishCurrentPlan { request: crate::current_plan::PublishCurrentPlanRequest },
     GetCurrentPlan { tenant: String, run_id: String },
+    /// Bounded owner-context committed usage from one native MVCC snapshot.
+    GetSessionUsage { tenant: String, context_id: String },
 
     // ── Typed WorkItem reads (EH-219) ──────────────────────────────────────
     /// The caller's view of one native WorkItem row, or `null` when no row with

@@ -217,7 +217,7 @@ fn every_wire_variant_has_exactly_one_descriptor_and_vice_versa() {
     // 470 -> 474: R028.1/R028.2 private fenced checkpoints and event replay.
     assert_eq!(
         variants.len(),
-        474,
+        475,
         "the wire method census changed; update this exact count deliberately"
     );
 }

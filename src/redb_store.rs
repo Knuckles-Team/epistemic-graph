@@ -1282,6 +1282,7 @@ mod mutation_batch_tests {
             ),
         ];
         TerminalOutcomeExtension {
+            committed_run_usage: None,
             outcome_bundle: bundle,
             receipt_nodes,
             run_event: RunEvent {
@@ -1360,6 +1361,7 @@ mod mutation_batch_tests {
                 outcome: outcome.into(),
                 result_ref: Some("cas:result:terminal".into()),
                 outcome_extension: Some(Box::new(extension.clone())),
+                usage_observation: None,
                 error_ref: None,
                 retryable,
                 now_ms: 1_000,
@@ -2751,6 +2753,7 @@ mod mutation_batch_tests {
             outcome: "succeeded".into(),
             result_ref: Some("result:sha256:one".into()),
             outcome_extension: None,
+            usage_observation: None,
             error_ref: None,
             retryable: false,
             now_ms: 1_000,
@@ -2931,6 +2934,7 @@ mod mutation_batch_tests {
             outcome: "succeeded".into(),
             result_ref: Some("result:sha256:bundled".into()),
             outcome_extension: None,
+            usage_observation: None,
             error_ref: None,
             retryable: false,
             now_ms: 1_000,
@@ -3037,6 +3041,7 @@ mod mutation_batch_tests {
             outcome: "succeeded".into(),
             result_ref: Some("result:sha256:disallowed".into()),
             outcome_extension: None,
+            usage_observation: None,
             error_ref: None,
             retryable: false,
             now_ms: 1_000,
@@ -3162,6 +3167,7 @@ mod mutation_batch_tests {
                     outcome: "succeeded".into(),
                     result_ref: Some("result:sha256:double-one".into()),
                     outcome_extension: None,
+                    usage_observation: None,
                     error_ref: None,
                     retryable: false,
                     now_ms: 1_000,
@@ -3181,6 +3187,7 @@ mod mutation_batch_tests {
                     outcome: "succeeded".into(),
                     result_ref: Some("result:sha256:double-two".into()),
                     outcome_extension: None,
+                    usage_observation: None,
                     error_ref: None,
                     retryable: false,
                     now_ms: 1_000,
@@ -6629,6 +6636,7 @@ mod mutation_batch_tests {
         let degraded_event = {
             let Method::CommitWorkItemResult {
                 outcome_extension: Some(extension),
+                usage_observation: None,
                 ..
             } = &mut terminal.operations[0].method
             else {

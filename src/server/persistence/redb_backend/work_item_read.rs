@@ -32,6 +32,30 @@ type TenantListRead<Q, T> = for<'a> fn(
 ) -> Result<T, String>;
 
 impl RedbBackend {
+    pub(crate) async fn read_session_usage(
+        &self,
+        graph_fname: &str,
+        tenant: &str,
+        context_id: &str,
+        principal: &str,
+    ) -> Result<eg_types::run_usage::SessionUsage, String> {
+        let graph = graph_fname.to_owned();
+        let tenant = tenant.to_owned();
+        let context_id = context_id.to_owned();
+        let principal = principal.to_owned();
+        self.read_snapshot(graph_fname, move |shard, crypto| {
+            crate::redb_store::work_item::read_session_usage(
+                shard,
+                &graph,
+                &tenant,
+                &context_id,
+                &principal,
+                crypto,
+            )
+        })
+        .await
+    }
+
     async fn tenant_point_read<T: Send + 'static>(
         &self,
         graph_fname: &str,

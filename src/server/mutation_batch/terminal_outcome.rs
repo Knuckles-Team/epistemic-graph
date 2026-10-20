@@ -347,6 +347,7 @@ mod tests {
             carrier_digest: digest('0'),
         };
         TerminalOutcomeExtension {
+            committed_run_usage: None,
             outcome_bundle: bundle,
             receipt_nodes,
             run_event,
@@ -364,6 +365,7 @@ mod tests {
             outcome: "succeeded".into(),
             result_ref: Some("cas:result:test".into()),
             outcome_extension: Some(Box::new(extension)),
+            usage_observation: None,
             error_ref: None,
             retryable: false,
             now_ms: 10,

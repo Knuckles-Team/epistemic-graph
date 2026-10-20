@@ -50,11 +50,13 @@ pub const WORK_ITEM_CHECKPOINT_REF: &str = "run_checkpoint_ref";
 pub const WORK_ITEM_CHECKPOINT_REVISION: &str = "run_checkpoint_revision";
 pub const WORK_ITEM_CHECKPOINT_DIGEST: &str = "run_checkpoint_digest";
 pub const WORK_ITEM_RUN_EVENT_INDEX: &str = "run_event_index";
-pub const NATIVE_WORK_ITEM_ROW_KEYS: [&str; 13] = [
+pub const WORK_ITEM_COMMITTED_USAGE: &str = "committed_run_usage";
+pub const NATIVE_WORK_ITEM_ROW_KEYS: [&str; 14] = [
     WORK_ITEM_CHECKPOINT_REF,
     WORK_ITEM_CHECKPOINT_REVISION,
     WORK_ITEM_CHECKPOINT_DIGEST,
     WORK_ITEM_RUN_EVENT_INDEX,
+    WORK_ITEM_COMMITTED_USAGE,
     "run_owner_binding",
     WORK_ITEM_ROW_REVISION,
     WORK_ITEM_EVENT_BATCH,
@@ -224,6 +226,8 @@ pub struct WorkItemOutcomeView {
     pub outcome: Option<Map<String, Value>>,
     #[serde(default)]
     pub terminal_event: TerminalEventRead,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub committed_run_usage: Option<crate::run_usage::CommittedRunUsage>,
 }
 
 /// Safe readback of one committed terminal event, never worker authority.

@@ -113,7 +113,18 @@ pub(crate) fn read_work_item_outcome(
         }
         _ => return Err("incomplete terminal event binding".into()),
     };
+    let committed_run_usage = row
+        .get(eg_types::work_item_read::WORK_ITEM_COMMITTED_USAGE)
+        .map(|value| {
+            serde_json::from_value::<eg_types::run_usage::CommittedRunUsage>(value.clone())
+                .map_err(|e| e.to_string())
+        })
+        .transpose()?;
+    if let Some(usage) = &committed_run_usage {
+        usage.validate()?;
+    }
     Ok(Some(WorkItemOutcomeView {
+        committed_run_usage,
         work_item,
         trace_ref: refs.trace_ref,
         tool_call_refs: refs.tool_call_refs,
@@ -194,3 +205,92 @@ pub(super) fn scan_keyset_page<L: KeysetListing>(
 mod tests;
 
 mod terminal_event;
+
+/// Canonical bounded caller-context usage from one snapshot. The scan bound is
+/// explicit coverage, not permission to treat an unscanned run as zero usage.
+pub(crate) fn read_session_usage(
+    shard: &Shard,
+    graph: &str,
+    tenant: &str,
+    context_id: &str,
+    principal: &str,
+    crypto: DurableCrypto<'_>,
+) -> Result<eg_types::run_usage::SessionUsage, String> {
+    use eg_types::run_usage::{aggregate_session_usage, CommittedRunUsage, MAX_SESSION_USAGE_RUNS};
+    validate_work_item_get(tenant, context_id)?;
+    if principal.is_empty() {
+        return Err("ACCESS_DENIED: usage owner required".into());
+    }
+    let handle = shard.graph(graph)?;
+    let read = shard.read(&handle)?;
+    let nodes = read.scoped_owner_table(NODES)?;
+    let mut expected = Vec::new();
+    let mut records = Vec::new();
+    let mut complete = true;
+    let mut bytes = 0usize;
+    for (examined, item) in nodes.scope_rows_from((graph, ""))?.enumerate() {
+        if examined >= MAX_SESSION_USAGE_RUNS {
+            complete = false;
+            break;
+        }
+        let (key, value) = item?;
+        bytes = bytes.saturating_add(value.value().len());
+        if bytes > 32 * 1024 * 1024 {
+            complete = false;
+            break;
+        }
+        let row: NodeRow = decode_durable(&crypto.unseal(value.value())?)?;
+        let owner = row
+            .get("run_owner_binding")
+            .and_then(serde_json::Value::as_object);
+        let Some(owner) = owner else {
+            continue;
+        };
+        if property_string(&row, "tenant") != tenant
+            || property_string(&row, "node_type") != "WorkItem"
+            || owner.get("tenant").and_then(serde_json::Value::as_str) != Some(tenant)
+            || owner.get("principal").and_then(serde_json::Value::as_str) != Some(principal)
+            || owner
+                .get("work_item_id")
+                .and_then(serde_json::Value::as_str)
+                != Some(key.value().1)
+            || owner.get("graph").and_then(serde_json::Value::as_str) != Some(graph)
+        {
+            continue;
+        }
+        if !matches!(
+            property_string(&row, "status"),
+            "succeeded" | "failed" | "cancelled" | "dead_letter"
+        ) {
+            continue;
+        }
+        let run_id = owner
+            .get("run_id")
+            .and_then(serde_json::Value::as_str)
+            .ok_or("native run owner identity missing")?;
+        if let Some(value) = row.get(eg_types::work_item_read::WORK_ITEM_COMMITTED_USAGE) {
+            let record: CommittedRunUsage =
+                serde_json::from_value(value.clone()).map_err(|e| e.to_string())?;
+            record.validate()?;
+            if record.run_id != run_id || record.tenant != tenant || record.principal != principal {
+                return Err("committed usage native attribution mismatch".into());
+            }
+            if record.context_id != context_id {
+                continue;
+            }
+            expected.push(run_id.to_string());
+            records.push(record);
+        } else if row
+            .get("metadata")
+            .and_then(serde_json::Value::as_object)
+            .and_then(|metadata| metadata.get("a2a_context_id"))
+            .and_then(serde_json::Value::as_str)
+            == Some(context_id)
+        {
+            expected.push(run_id.to_string());
+        }
+    }
+    let mut summary = aggregate_session_usage(tenant, principal, context_id, &expected, &records)?;
+    summary.inventory_complete = complete;
+    Ok(summary)
+}

@@ -2005,3 +2005,14 @@ abstention keeps the current harness. The answer stores as a
 ARBORA-OPS-R068.4 adopts it service-only, beside the decide-commit
 pattern of ARBORA-OPS-R021.1. The engine runs no model and holds no
 local ranking: the measured contrast is the authority.
+
+### Amendment 2026-10-20: committed session usage
+
+R801.7 adds optional usage_observation to CommitWorkItemResult and reuses the fenced native WorkItem terminal
+writer and same-snapshot outcome reader. A protected native row property carries
+observed counts, never prompts or prices. The run owner binding supplies immutable
+attribution; the context matches the admitted WorkItem metadata. Opt-in readback
+requires the verified principal. The existing terminal event schema stays unchanged.
+GetSessionUsage reads one bounded native MVCC snapshot and uses the run_usage
+helper to deduplicate committed run IDs and report per-count coverage. Scan
+limits make inventory_complete false. Arbora serves this canonical result for all clients. No new usage database or cache.

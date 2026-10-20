@@ -91,6 +91,7 @@ pub(super) fn append_native_work_item_ops(ops: &mut Vec<&'static str>, available
             "PublishRunCheckpoint",
             "AppendRunEvent",
             "GetRunEvents",
+            "GetSessionUsage",
             "GetWorkItem",
             "ListWorkItems",
             "GetWorkItemOutcome",

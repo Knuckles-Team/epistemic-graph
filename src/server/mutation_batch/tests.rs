@@ -235,6 +235,7 @@ fn terminal_work_item_retry_identity_is_transport_independent_and_scope_bound() 
         outcome: "succeeded".into(),
         result_ref: Some("result:sha256:one".into()),
         outcome_extension: None,
+        usage_observation: None,
         error_ref: None,
         retryable: false,
         now_ms: 1_000,

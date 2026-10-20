@@ -505,7 +505,7 @@
         "b43f33569dd4"
       ],
       "verified_by": [
-        "src/raft/command/native/tests.rs:179"
+        "src/raft/command/native/tests.rs:180"
       ]
     },
     {
@@ -1089,7 +1089,7 @@
         "cd899a5c8c20"
       ],
       "verified_by": [
-        "src/raft/command/native/tests.rs:279"
+        "src/raft/command/native/tests.rs:280"
       ]
     },
     {
@@ -3366,7 +3366,7 @@
       "verified_by": [
         "crates/eg-types/src/work_item_read/tests.rs:217",
         "crates/eg-types/src/work_item_read/tests.rs:249",
-        "src/redb_store.rs:6302",
+        "src/redb_store.rs:6309",
         "src/redb_store/work_item/read/terminal_event.rs:122",
         "src/redb_store/work_item/read/tests.rs:130"
       ]

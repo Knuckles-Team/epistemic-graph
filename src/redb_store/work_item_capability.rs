@@ -1344,6 +1344,7 @@ mod tests {
                 outcome: outcome.to_string(),
                 result_ref: None,
                 outcome_extension: None,
+                usage_observation: None,
                 error_ref: None,
                 retryable,
                 now_ms,

@@ -182,6 +182,7 @@ pub(crate) struct CommitWorkItemResultInput<'args, 'table, 'crypto> {
     pub(crate) retryable: bool,
     pub(crate) now_ms: u64,
     pub(crate) outcome_extension: Option<&'args eg_types::outcome_bundle::TerminalOutcomeExtension>,
+    pub(crate) usage_observation: Option<&'args eg_types::run_usage::RunUsageObservation>,
     pub(crate) batch_id: &'args str,
     pub(crate) nodes:
         &'args mut ScopedOwnerTableMut<'table, (&'static str, &'static str), &'static [u8]>,
@@ -254,6 +255,24 @@ pub(crate) fn apply_commit_work_item_result_row(
         )?;
         ensure_receipt_rows_absent(input.graph, &extension.receipt_nodes, input.nodes)?;
     }
+    let usage = input.usage_observation.or_else(|| {
+        input
+            .outcome_extension
+            .and_then(|ext| ext.committed_run_usage.as_ref())
+    });
+    if let (Some(direct), Some(bundled)) = (
+        input.usage_observation,
+        input
+            .outcome_extension
+            .and_then(|ext| ext.committed_run_usage.as_ref()),
+    ) {
+        if direct != bundled {
+            return Err("conflicting committed usage observations".into());
+        }
+    }
+    let committed_usage = usage
+        .map(|observation| validate_usage_owner(&props, observation))
+        .transpose()?;
     let now_s = input.now_ms as f64 / 1000.0;
     // Phase-1 mirror inputs: pre-status (leased|running, validated above) + the
     // DLQ-threshold policy boolean (retryable && attempt < max_attempts) that the
@@ -321,6 +340,14 @@ pub(crate) fn apply_commit_work_item_result_row(
         );
     }
     record_outcome_refs(&mut props, committed_status, input.outcome_extension)?;
+    if committed_status != "retry_scheduled" {
+        if let Some(usage) = committed_usage {
+            props.insert(
+                eg_types::work_item_read::WORK_ITEM_COMMITTED_USAGE.into(),
+                serde_json::to_value(usage).map_err(|e| e.to_string())?,
+            );
+        }
+    }
     write_work_item_props(
         input.nodes,
         input.graph,
@@ -398,6 +425,9 @@ fn validate_terminal_extension_binding(
         batch_id,
     } = claim;
     extension.validate()?;
+    if let Some(usage) = &extension.committed_run_usage {
+        validate_usage_owner(props, usage)?;
+    }
     let bundle = &extension.outcome_bundle;
     if bundle.outcome != outcome {
         return Err(
@@ -456,6 +486,33 @@ fn validate_terminal_extension_binding(
         props.get("policy_digest"),
         &bundle.policy_digest,
     )
+}
+
+/// Attribution comes from the native admission binding, never caller metadata.
+fn validate_usage_owner(
+    props: &serde_json::Map<String, serde_json::Value>,
+    usage: &eg_types::run_usage::RunUsageObservation,
+) -> Result<eg_types::run_usage::CommittedRunUsage, String> {
+    let owner = props
+        .get("run_owner_binding")
+        .and_then(serde_json::Value::as_object)
+        .ok_or("committed usage requires a native run owner")?;
+    require_binding("run_id", owner.get("run_id"), &usage.run_id)?;
+    let tenant = owner
+        .get("tenant")
+        .and_then(serde_json::Value::as_str)
+        .ok_or("usage owner tenant missing")?;
+    let principal = owner
+        .get("principal")
+        .and_then(serde_json::Value::as_str)
+        .ok_or("usage owner principal missing")?;
+    require_binding("tenant", props.get("tenant"), tenant)?;
+    let context = props
+        .get("metadata")
+        .and_then(serde_json::Value::as_object)
+        .and_then(|metadata| metadata.get("a2a_context_id"));
+    require_binding("a2a_context_id", context, &usage.context_id)?;
+    usage.bind_owner(tenant, principal)
 }
 
 fn require_binding(
@@ -526,6 +583,12 @@ fn record_outcome_refs(
     };
     use eg_types::work_item_read::{WORK_ITEM_EVENT_BATCH, WORK_ITEM_EVENT_DIGEST};
     use sha2::{Digest, Sha256};
+    if let Some(usage) = &extension.committed_run_usage {
+        props.insert(
+            eg_types::work_item_read::WORK_ITEM_COMMITTED_USAGE.into(),
+            serde_json::to_value(validate_usage_owner(props, usage)?).map_err(|e| e.to_string())?,
+        );
+    }
     let bundle = &extension.outcome_bundle;
     let event_bytes = rmp_serde::to_vec_named(&extension.run_event)
         .map_err(|error| format!("terminal event encoding failed: {error}"))?;

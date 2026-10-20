@@ -33,6 +33,11 @@ pub(crate) enum WorkItemRead {
         request: eg_types::run_checkpoint::GetRunCheckpointRequest,
         actor: String,
     },
+    SessionUsage {
+        tenant: String,
+        context_id: String,
+        actor: String,
+    },
     CurrentPlan {
         tenant: String,
         run_id: String,
@@ -48,6 +53,7 @@ pub(crate) enum WorkItemRead {
         tenant: String,
         work_item_id: String,
         include_replay_cursor: bool,
+        actor: String,
     },
     /// graph-os EG-5: one page of control leases.
     ControlLeases(eg_types::control_lease::ListControlLeasesRequest),
@@ -69,7 +75,7 @@ impl WorkItemRead {
     fn tenant(&self) -> &str {
         match self {
             Self::Get { tenant, .. } | Self::Outcome { tenant, .. } => tenant,
-            Self::CurrentPlan { tenant, .. } => tenant,
+            Self::CurrentPlan { tenant, .. } | Self::SessionUsage { tenant, .. } => tenant,
             Self::Checkpoint { request, .. } => &request.tenant,
             Self::RunEvents { request, .. } => &request.tenant,
             Self::List(request) => &request.tenant,
@@ -127,6 +133,18 @@ async fn serve_native(
                 backend.read_run_checkpoint(graph, request, &actor).await?,
             )
         }
+        WorkItemRead::SessionUsage {
+            tenant,
+            context_id,
+            actor,
+        } => {
+            let principal = crate::server::mutation_batch::principal_fingerprint(&actor)?;
+            ResultPayload::of::<eg_types::result_contract::coordination::GetSessionUsage>(
+                backend
+                    .read_session_usage(graph, &tenant, &context_id, &principal)
+                    .await?,
+            )
+        }
         WorkItemRead::CurrentPlan {
             tenant,
             run_id,
@@ -154,12 +172,22 @@ async fn serve_native(
             tenant,
             work_item_id,
             include_replay_cursor,
+            actor,
         } => {
             let mut outcome = backend
                 .read_work_item_outcome(graph, &tenant, &work_item_id)
                 .await?;
             if let (false, Some(view)) = (include_replay_cursor, outcome.as_mut()) {
                 view.terminal_event.without_replay_identity();
+                view.committed_run_usage = None;
+            }
+            if let Some(view) = outcome.as_mut() {
+                if let Some(usage) = &view.committed_run_usage {
+                    let principal = crate::server::mutation_batch::principal_fingerprint(&actor)?;
+                    if usage.tenant != tenant || usage.principal != principal {
+                        return Err("ACCESS_DENIED: committed run usage owner mismatch".into());
+                    }
+                }
             }
             ResultPayload::of::<GetWorkItemOutcome>(outcome)
         }

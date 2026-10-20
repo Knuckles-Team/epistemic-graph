@@ -331,6 +331,7 @@ impl NativeLaneFixture {
                 outcome: outcome.into(),
                 result_ref: None,
                 outcome_extension: None,
+                usage_observation: None,
                 error_ref: None,
                 retryable,
                 now_ms: committed_at_ms,
