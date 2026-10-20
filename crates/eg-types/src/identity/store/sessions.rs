@@ -22,6 +22,8 @@ pub(crate) enum PendingSession {
 /// How a new session starts.
 pub(crate) struct SessionOpen<'a> {
     pub(crate) session_hash: &'a str,
+    pub(crate) session_ref: Option<&'a str>,
+    pub(crate) session_tenant: Option<&'a str>,
     pub(crate) principal_id: &'a str,
     pub(crate) method: String,
     pub(crate) mfa_pending: bool,
@@ -129,6 +131,16 @@ impl IdentityStore {
                 session.idle_expires_at_ms = now_ms.saturating_add(idle);
             }
         }
+        resolution.session_record = self.sessions.get(hash).and_then(|session| {
+            Some(super::super::projection::SessionRecordProjection {
+                session_ref: session.session_ref.clone()?,
+                tenant: session.session_tenant.clone()?,
+                principal_id: session.principal_id.clone(),
+                absolute_expires_at_ms: session.absolute_expires_at_ms,
+                idle_expires_at_ms: session.idle_expires_at_ms,
+                mfa_at_ms: session.mfa_at_ms,
+            })
+        });
         Ok(IdentityReply::Resolution(resolution))
     }
 
@@ -197,6 +209,8 @@ impl IdentityStore {
             open.session_hash.to_string(),
             SessionRecord {
                 session_hash: open.session_hash.to_string(),
+                session_ref: open.session_ref.map(str::to_string),
+                session_tenant: open.session_tenant.map(str::to_string),
                 principal_id: open.principal_id.to_string(),
                 created_at_ms: now_ms,
                 last_seen_at_ms: now_ms,

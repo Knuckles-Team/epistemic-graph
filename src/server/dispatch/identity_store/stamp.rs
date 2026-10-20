@@ -204,6 +204,14 @@ fn derive_credential(
     stamp: &mut IdentityStamp,
     env: &StampEnv<'_>,
 ) -> Derived {
+    if stamp.session_tenant.is_some()
+        && matches!(
+            op,
+            CredentialOp::Authenticate { .. } | CredentialOp::ExternalLogin { .. }
+        )
+    {
+        stamp.minted_session_ref = Some(format!("ses:{}", uuid::Uuid::new_v4()));
+    }
     match op {
         CredentialOp::SetPassword { request } => {
             let (account, credential) = account_of(env, &request.principal_id)?;

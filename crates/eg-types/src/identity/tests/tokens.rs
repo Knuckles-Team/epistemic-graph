@@ -363,3 +363,22 @@ fn stale_reset_policy_verdicts_leave_the_token_and_store_untouched() {
         }
     }
 }
+
+// spec: EG-TYPED-PACKS-R085.1
+#[test]
+fn verified_api_key_resolution_omits_session_record() {
+    let mut store = store_in(AuthMode::Local);
+    with_admin_session(&mut store);
+    let alice = create(&mut store, "alice", UserKind::Human).unwrap();
+    let (issue, issue_stamp) = api_key(&alice, "projection-key", &["kg:read"]);
+    apply_kept(&mut store, &issue, &issue_stamp, NOW).unwrap();
+    let (verify, verify_stamp) = verify_key("projection-key", "projection-key-secret");
+    let reply = apply_kept(&mut store, &verify, &verify_stamp, NOW).unwrap();
+    let IdentityReply::Resolution(resolution) = &reply else {
+        panic!("expected verified key resolution");
+    };
+    assert!(resolution.session_record.is_none());
+    assert!(serde_json::to_value(reply).unwrap()["value"]
+        .get("session_record")
+        .is_none());
+}

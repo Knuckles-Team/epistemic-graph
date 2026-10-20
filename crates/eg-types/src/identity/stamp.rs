@@ -101,6 +101,10 @@ pub struct IdentityStamp {
     /// A principal id minted for a new user.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub minted_principal_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub minted_session_ref: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_tenant: Option<String>,
     /// The argon2id PHC hash of a new password.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub password_hash: Option<String>,
@@ -129,6 +133,8 @@ impl IdentityStamp {
         Self {
             actor,
             minted_principal_id: None,
+            minted_session_ref: None,
+            session_tenant: None,
             password_hash: None,
             password_check: None,
             token_hashes: Vec::new(),

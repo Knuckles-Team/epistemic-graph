@@ -8,7 +8,7 @@ The order below minimizes incompatible intermediate states. A step may be a veri
 
 1. **Freeze contract and baseline.** Record the exact default-branch revision, current pack schema version and generated receipt. Run contract generation in check mode, full test inventory, CCCC, jscpd, Dupehound and KISS scans. Compare committed artifact *content* across all output directories. Classify findings as fixed, open or unrelated with exact evidence.
 2. **Type and encoding proof.** Audit `eg-types` bounds, kinds, digest framing, sorted lists, optionals and canonical fixture vectors. Make the SDK's JSON serialization and deterministic idempotency key a shared TCK contract. Extend generated method/result descriptors rather than hand-writing client DTO copies.
-3. **Admission and atomicity proof.** Audit G1–G21, tenant/importer checks, reserved IDs, preflight size checks and stable codes. Ensure the import planner resolves staged pins, stages engine bodies with holder/refcount invariants, and commits all owner rows plus N outbox intents atomically. Test all crash windows and replay identities.
+3. **Admission and atomicity proof.** Audit G1–G21, tenant/importer checks, reserved IDs, preflight size checks and stable codes. The import planner resolves staged pins and stages engine bodies with holder/refcount invariants. It commits all owner rows plus N outbox intents atomically. Test all crash windows and replay identities.
 4. **Lifecycle and catalog proof.** Verify carry-forward, changed pin cascade, reversible withdrawal, permanent retirement, content reads, no-op import and mass-withdrawal override. Confirm typed ServerRegistry owns liveness and component/pack owner owns content; remove any shadow catalog after consumer migration.
 5. **Schema and projection proof.** Reuse one G13–G16/K1–K7 validator for operator, pack and ingestion sources. Attach current pack schema in one graph commit. Mark visibility only after attach; use durable failure/retry and least-privilege row-scoped graph grant. Verify static `AttachPack` staleness and `GraphSchemaClasses` output. Preserve exact `IcvConfigure` behavior.
 6. **Consumer and release proof.** Run an end-to-end connector fixture from SDK package creation through Import, projection, GraphOS typed read and an authorized body read. Run Go/JS/Python/Rust contract vectors and full integration suites on the exact commit. Include scanner and architecture gates, release workflow parity, and a crash/restart restore check. Record exact evidence for each required outcome.
@@ -46,7 +46,7 @@ For each PACK requirement, attach a PR/merged commit link and contract receipt d
 ### Turtle parse identity repair
 
 - EG-TYPED-PACKS-R093.1: Scope the public bounded/unbounded Turtle readers per invocation. Keep the existing label-preserving reader for catalogue composition, whose callers already apply document namespaces.
-- EG-TYPED-PACKS-R093.2: Validate the served connector-pack reproject path with colliding member labels and repeatable composed digests before claiming the parent requirement complete.
+- EG-TYPED-PACKS-R093.2: Validate the served connector-pack reproject path with colliding member labels and repeatable composed digests. Complete this before claiming parent acceptance.
 
 ## Architecture
 
@@ -82,9 +82,9 @@ Entries are a closed kind set: `mcp_server`, `tool`, `skill`, `prompt`, `ontolog
 
 ### Identity, lifecycle and reads
 
-The pack head is keyed by `(tenant, connector)` and includes binding revision, content digest, server pin, package provenance, record ID and projection state. Membership is keyed by pack URI and has a component ID, revision, content digest and lifecycle. Bodies are keyed by SHA-256 with holder rows to protect live content. A same-digest import produces no write. A changed entry or pinned server revision creates a new component revision; a removed entry is `Withdrawn`. Historical pinned records may resolve withdrawn revisions; new publication, search, assembly and candidate selection cannot. `Retired` is explicit and permanent, and a later return is refused. Pack-generated `mcp:` IDs cannot be directly published by the generic component method.
+The pack head uses `(tenant, connector)` as its key. It includes binding revision, content digest, server pin, package provenance, record ID and projection state. Membership is keyed by pack URI and has a component ID, revision, content digest and lifecycle. Bodies are keyed by SHA-256 with holder rows to protect live content. A same-digest import produces no write. A changed entry or pinned server revision creates a new component revision; a removed entry is `Withdrawn`. Historical pinned records may resolve withdrawn revisions; new publication, search, assembly and candidate selection cannot. `Retired` is explicit and permanent, and a later return is refused. Pack-generated `mcp:` IDs cannot be directly published by the generic component method.
 
-`Status` is a snapshot read and has no reap/write side effects. `Content` checks component-read authority and the exact revision and returns verified bytes. Bind/Unbind/Retire/Reproject and body reconciliation require admin rights. Import requires `agent:pack-control`, matching verified principal and tenant, an expected head, and a deterministic operation identity. A mass withdrawal (empty pack or over half of published members) requires an explicit override and admin capability.
+`Status` is a snapshot read and has no reap/write side effects. `Content` checks component-read authority and the exact revision and returns verified bytes. Bind/Unbind/Retire/Reproject and body reconciliation require admin rights. Import requires `agent:pack-control` and a matching verified principal and tenant. It also requires an expected head and deterministic operation identity. A mass withdrawal requires an explicit override and admin capability. This means an empty pack or over half of published members.
 
 ### Validation table
 
@@ -559,7 +559,7 @@ Neither accepted input supplies a research paper or arXiv identifier; no researc
 - Extend existing parent `R072` without removing its existing behavior.
 - Specify: Extend the typed fleet catalog with workflow registration identity, version/content digest, owner/tenant scope, schema and lifecycle state. Persist registration through the existing SourceIngest authority. Resolve invocation by registry id and exact admitted revision, not a caller-supplied body. Unknown, withdrawn, stale or unauthorized workflow ids refuse before execution. Keep engine/client initialization lazy at the AU first-use boundary. Do not initialize it at registration or process startup.
 - Producer/consumer boundary: EG typed registry and SourceIngest R002 own durable registration; AU owns lazy client initialization/execution; preserve ARBORA-HOST-R022 workflow-store semantics.
-- Owner prerequisite: AU-CONTROL-R037.5 only fills a requirement gap; it does not define lazy initialization timing, the first-use operation, or the execution receipt. No exact AU companion requirement ID is identified. Keep that consumer as an explicit hold until its owner publishes the operation and receipt; no invocation evidence is claimed.
+- Owner prerequisite: AU-CONTROL-R037.5 only fills a requirement gap. It does not define initialization timing, the first-use operation, or the execution receipt. No exact AU companion requirement ID is identified. Keep that consumer as an explicit hold until its owner publishes the operation and receipt; no invocation evidence is claimed.
 - Source record SHA-256: `f73767d1a3fdba29a702254ed1db2c9904158b6136f6f4b38a3c9a0d3e4fcb03`.
 - Keep status SPECIFIED until the EG served producer and each separately owned consumer are implemented, served-tested and independently read back.
 
@@ -617,3 +617,52 @@ Budget: 50,000 triples and 8 MiB per seed graph. Engine time stays under 200 ms 
 Tenant isolation: the seed graph resolves inside the importing tenant.
 
 No bulk data: the seed graph names objects and their references. Entity rows stay at the source and answer through virtual mappings (`EG-UNIFIED-DATA-PLANE-R038`).
+
+## 2026-10-18 amendment — R085.1 durable session facts
+
+Reuse the existing session record and Resolve path. Persist an opaque storage
+reference and deployment tenant only when the existing verified request context
+matches the configured owner policy at creation. No current caller backfills old
+records. Project six fields after the existing touch; publication follows
+successful persistence. No new operation, read surface or authority verdict is
+introduced. Arbora consumes the optional projection and owns admission.
+
+Canonical generation and focused native execution are separate qualification steps.
+
+R085.2 retains the original parent operation, redaction and catalogue acceptance.
+The projection fixtures bind only R085.1; their presence does not qualify the
+whole identity domain or Arbora's served admission and host lifecycle.
+
+## 2026-10-18 current-main session evidence reconciliation
+
+R085.1 is reconciled onto c27048bc, preserving the checked-RBAC stale-writer
+revocation regression alongside the failed-touch rollback fixture. Source review
+added a real redb reopen test. It persists exact session facts, touches and closes. It then reopens without changing the reference or MFA timestamp. It revokes the session and reopens to verify refusal. Separate tests require positive configured creation, refuse
+creation metadata for mismatched context, and preserve the creation tenant when
+a later stamp supplies different metadata. These tests exist in source. Native tests remain pending.
+
+Compatibility is asymmetric. New readers accept legacy records without binding
+metadata. Old readers deny unknown SessionRecord fields and cannot reopen an
+image populated with the new fields. This change does not establish rollback
+compatibility or authorize a production image migration.
+
+Publication requires spec-status regeneration, normal hooks and exact-head hosted tests.
+The canonical contract and WASM checks now pass; native tests remain pending.
+The generator owns contract schemas/receipts, Rust catalog metadata and Python
+client/package mirrors; no generated bytes are edited by hand. Both Go and JS
+codec artifacts and their ledger hashes require the existing WASM builder.
+No local native command runs below the 10 GiB resource floor. The separately
+denied timestamp-refresh/shared-target command remains prohibited.
+
+
+### Canonical generation evidence
+
+The authorized single-job sequence completed in 404.11 seconds. Contract write
+and check exited zero in 166.02 and 28.01 seconds. The check matched 73 artifacts.
+WASM write and check exited zero in 208.03 and 2.00 seconds. Both client copies
+and the generated-artifact ledger matched. Independent review verified schema
+mirrors, receipt hashes, nullable MFA and optional legacy session metadata.
+
+No native tests ran. Hosted CI must qualify the durable reopen, refusal and
+served-resolution tests before merge. Generation alone does not qualify R085.1
+runtime behavior, Arbora admission or live host startup.
