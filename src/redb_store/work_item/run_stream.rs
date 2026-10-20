@@ -373,7 +373,12 @@ fn terminal_content(
     {
         return Err("terminal stream result binding mismatch".into());
     }
-    serde_json::to_string(&serde_json::json!({"state": status}))
+    let state = if status == "retry_scheduled" {
+        "ready"
+    } else {
+        status
+    };
+    serde_json::to_string(&serde_json::json!({"state": state}))
         .map(Some)
         .map_err(|e| e.to_string())
 }
@@ -448,6 +453,12 @@ pub(crate) fn append_terminal(
         work_item_id,
         crypto,
     )?;
+    let state: serde_json::Value = serde_json::from_str(&content).map_err(|e| e.to_string())?;
+    if state.get("state").and_then(serde_json::Value::as_str)
+        != Some(property_string(&row, "status"))
+    {
+        return Err("terminal stream state disagrees with native WorkItem".into());
+    }
     if head(&row)? != stream.expected_index {
         return Err("terminal stream expected index conflict".into());
     }

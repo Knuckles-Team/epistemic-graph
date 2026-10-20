@@ -223,7 +223,7 @@ fn terminal_batch(
                 error_ref: None,
                 retryable,
                 outcome_extension: None,
-                observed_usage: None,
+                usage_observation: None,
                 terminal_stream: Some(TerminalRunStream {
                     run_id: "run".into(),
                     expected_index,
@@ -354,10 +354,7 @@ fn retry_scheduled_is_persisted_from_actual_result() {
     )
     .unwrap()
     .unwrap();
-    assert_eq!(
-        page.events[0].event.content,
-        r#"{"state":"retry_scheduled"}"#
-    );
+    assert_eq!(page.events[0].event.content, r#"{"state":"ready"}"#);
     assert_eq!(
         page.work_item.status,
         eg_types::work_item_read::WorkItemStatus::Ready
