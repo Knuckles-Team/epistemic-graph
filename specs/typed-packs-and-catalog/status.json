@@ -2895,8 +2895,10 @@
     {
       "id": "EG-TYPED-PACKS-R085.3.1",
       "title": "Pure reference inspection",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "98d285d4840c"
+      ],
       "verified_by": [
         "crates/eg-types/src/identity/tests/session_evidence.rs:168",
         "crates/eg-types/src/identity/tests/session_evidence.rs:211"
@@ -2921,8 +2923,10 @@
     {
       "id": "EG-TYPED-PACKS-R085.4.1",
       "title": "Pure renewal ceiling transitions",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "98d285d4840c"
+      ],
       "verified_by": [
         "crates/eg-types/src/identity/tests/session_evidence.rs:234"
       ]
@@ -2946,8 +2950,10 @@
     {
       "id": "EG-TYPED-PACKS-R085.5.1",
       "title": "Pure registered approval-key transitions",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "98d285d4840c"
+      ],
       "verified_by": [
         "crates/eg-types/src/identity/tests/approval_keys.rs:112",
         "crates/eg-types/src/identity/tests/approval_keys.rs:150",
@@ -2984,8 +2990,10 @@
     {
       "id": "EG-TYPED-PACKS-R085.6.1",
       "title": "Pure credential observation",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "98d285d4840c"
+      ],
       "verified_by": [
         "crates/eg-types/src/identity/tests/session_evidence.rs:293",
         "crates/eg-types/src/identity/tests/session_evidence.rs:324"
