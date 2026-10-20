@@ -40,8 +40,8 @@ mod replay;
 mod saga;
 mod tables;
 
-pub use decision_certificate::{CoordinatorDecisionBinding, CoordinatorDecisionCertificate};
 pub use admitted::{AdmittedMutation, AdmittedOwnerWrite};
+pub use decision_certificate::{CoordinatorDecisionBinding, CoordinatorDecisionCertificate};
 pub use graft::{
     GraftDestination, GraftIntent, GraftOwnerWrite, GraftSource, GraftedScope,
     OwnerPayloadTransfer, OwnerPayloadWrite,
