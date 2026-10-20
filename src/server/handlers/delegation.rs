@@ -60,9 +60,9 @@ pub(crate) use validation::provenance_refs;
 use validation::unprefixed_digest;
 #[cfg(feature = "redb")]
 pub(crate) use validation::{
-    bind_request, decode_submit_result, lower_work_item, placement_authority,
-    replay_request_matches, result_from_submit, retained_agent, retained_graph,
-    validate_request_binding,
+    bind_request, decode_submit_result, lower_work_item, normalize_replay_context,
+    placement_authority, replay_request_matches, result_from_submit, retained_agent,
+    retained_graph, validate_request_binding,
 };
 
 /// Shared identity comparison for request-boundary and delegation validation.

@@ -485,14 +485,58 @@ async fn run_admission_binds_verified_owner_and_replays_without_row_changes() {
             hex::encode(Sha256::digest(common::TEST_AGENT.as_bytes()))
         )
     );
+    // The first admission uses the unchanged pre-repair compilation/digest path.
+    // Retain its exact receipt/outbox bytes, including its original context.
+    let receipt_id = run_admission_receipt_id("work-item-inner-key");
+    let receipt_before = serde_json::to_vec(
+        &concrete
+            .read_mutation_batch(GRAPH, &receipt_id)
+            .await
+            .unwrap()
+            .unwrap(),
+    )
+    .unwrap();
+    let outbox_before = serde_json::to_vec(
+        &concrete
+            .read_mutation_outbox(GRAPH, &receipt_id)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    let version_before = concrete.read_mutation_graph_version(GRAPH).await.unwrap();
     let replay = test_support::dispatch(
         &state,
-        signed_run_request(402, run_submit_method(), "run-admit-key"),
+        signed_run_request(402, refreshed_run_submit_method(), "run-admit-key"),
     )
     .await;
     let replay: SubmitWorkItemResult = decode_raw(&replay, "run admission replay");
     assert!(replay.replayed);
     assert_eq!(replay.work_item_id, admitted.work_item_id);
+    assert_eq!(
+        concrete.read_mutation_graph_version(GRAPH).await.unwrap(),
+        version_before
+    );
+    assert_eq!(
+        serde_json::to_vec(
+            &concrete
+                .read_mutation_batch(GRAPH, &receipt_id)
+                .await
+                .unwrap()
+                .unwrap()
+        )
+        .unwrap(),
+        receipt_before
+    );
+    assert_eq!(
+        serde_json::to_vec(
+            &concrete
+                .read_mutation_outbox(GRAPH, &receipt_id)
+                .await
+                .unwrap()
+        )
+        .unwrap(),
+        outbox_before
+    );
     assert_eq!(
         concrete
             .read_node(GRAPH, &admitted.work_item_id)
@@ -517,9 +561,18 @@ async fn run_admission_binds_verified_owner_and_replays_without_row_changes() {
         Some("IDEMPOTENCY_CONFLICT"),
         "foreign owner receipt refusal: {foreign:?}"
     );
-    for (index, case) in ["changed", "new-key", "attach", "tenant", "empty-run"]
-        .into_iter()
-        .enumerate()
+    for (index, case) in [
+        "changed",
+        "new-key",
+        "attach",
+        "tenant",
+        "empty-run",
+        "policy",
+        "input",
+        "command",
+    ]
+    .into_iter()
+    .enumerate()
     {
         let mut method = run_submit_method();
         if let Method::SubmitWorkItem { request } = &mut method {
@@ -529,6 +582,9 @@ async fn run_admission_binds_verified_owner_and_replays_without_row_changes() {
                 "attach" => request.work_item_id = Some(admitted.work_item_id.clone()),
                 "tenant" => request.context.tenant_id = "foreign-tenant".into(),
                 "empty-run" => request.run_id = Some(String::new()),
+                "policy" => request.policy_digest = "e".repeat(64),
+                "input" => request.input_ref = "changed-input".into(),
+                "command" => request.command_digest = "f".repeat(64),
                 _ => unreachable!(),
             }
         }
@@ -559,10 +615,31 @@ async fn run_admission_binds_verified_owner_and_replays_without_row_changes() {
     let (reopened, restarted) = reopen_run_state(state, concrete, &dir).await;
     let replay = test_support::dispatch(
         &restarted,
-        signed_run_request(440, run_submit_method(), "run-admit-key"),
+        signed_run_request(440, refreshed_run_submit_method(), "run-admit-key"),
     )
     .await;
     let replay: SubmitWorkItemResult = decode_raw(&replay, "reopened admission replay");
+    assert_eq!(
+        serde_json::to_vec(
+            &reopened
+                .read_mutation_batch(GRAPH, &receipt_id)
+                .await
+                .unwrap()
+                .unwrap()
+        )
+        .unwrap(),
+        receipt_before
+    );
+    assert_eq!(
+        serde_json::to_vec(
+            &reopened
+                .read_mutation_outbox(GRAPH, &receipt_id)
+                .await
+                .unwrap()
+        )
+        .unwrap(),
+        outbox_before
+    );
     assert!(replay.replayed);
     assert_eq!(replay.work_item_id, admitted.work_item_id);
     drop(restarted);
@@ -885,4 +962,34 @@ async fn current_plan_expired_replay(
         .unwrap(),
         outbox
     );
+}
+
+fn refreshed_run_submit_method() -> Method {
+    let mut method = run_submit_method();
+    if let Method::SubmitWorkItem { request } = &mut method {
+        request.context.request_id = "fresh-request".into();
+        request.context.trace_id = "fresh-trace".into();
+        request.context.issued_at_ms = 2_000;
+        request.context.expires_at_ms = 62_000;
+        request.context.placement_epoch = Some(1);
+    }
+    method
+}
+
+fn run_admission_receipt_id(key: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hash = Sha256::new();
+    hash.update(b"epistemic-graph.work-item-terminal.v1");
+    for field in [
+        GRAPH,
+        TENANT,
+        key,
+        "admit",
+        "admission",
+        "run-owner-admission",
+    ] {
+        hash.update((field.len() as u64).to_be_bytes());
+        hash.update(field.as_bytes());
+    }
+    format!("work:{}", hex::encode(hash.finalize()))
 }

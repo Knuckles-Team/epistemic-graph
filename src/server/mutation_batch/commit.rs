@@ -3,6 +3,8 @@
 mod envelope;
 mod internal;
 mod lifecycle;
+#[cfg(feature = "redb")]
+mod run_admission_replay;
 mod work_item;
 
 #[cfg(feature = "program-optimization")]

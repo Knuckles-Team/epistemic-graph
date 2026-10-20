@@ -251,6 +251,15 @@ async fn commit_work_item_plan(plan: WorkItemCommitPlan<'_>) -> Result<ResultPay
     // Keep version discovery, durable commit, and RAM publication inside the
     // shared per-graph lane so a ChangeEnvelope cannot pass its version fence.
     let _mutation_guard = lock_graph(graph).await;
+    #[cfg(feature = "redb")]
+    let method = super::run_admission_replay::retain_original_admission(
+        persistence,
+        graph,
+        &identity.batch_id,
+        principal,
+        method,
+    )
+    .await?;
     let flags = work_item_output_flags(&method);
     let created_at_ms = crate::server::dispatch::authoritative_now_ms();
     let fname = crate::persist::sanitize(graph);
