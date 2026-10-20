@@ -67,9 +67,6 @@ Decision: admit only after scoring. Rejected: admitting at once and repairing la
 Cross-repository dependency: `SDK-SOURCE-INGEST-R010` specifies the planned `run_ingest_worker` producer.
 That SDK row remains `SPECIFIED`; it does not establish a live worker runtime.
 
-References
-- arXiv:2511.11017 — Peshevski et al., "AI Agent-Driven Framework for Automated Product Knowledge Graph Construction in E-Commerce" (2025)
-
 ## EG-INGEST-WORKER-R003 knowledge atoms
 
 Data flow: claim → `ingest_document` body (`crates/eg-capabilities/src/ingest_queue.rs`, created by R002.3) → `decompose` → atom store; query → `select_atoms` → context.
@@ -81,10 +78,6 @@ Reuses document chunks. New: the atom type, decomposition and selection.
 Decision: select atoms per query. Rejected: sending whole documents as context, which spends budget on irrelevant text.
 Cross-repository dependency: `SDK-SOURCE-INGEST-R010` specifies the planned `run_ingest_worker` producer.
 That SDK row remains `SPECIFIED`; it does not establish a live worker runtime.
-
-References
-- arXiv:2606.12400 — Diao et al., "Doc-to-Atom: Learning to Compile and Compose Memory Atoms" (2026)
-- arXiv:2606.19847 — Yao et al., "AtomMem" (2026)
 
 ## Document and transcript producers within R003
 

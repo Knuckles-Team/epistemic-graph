@@ -55,7 +55,7 @@ existing benchmark entry points. It forms a new scenario family.
 - **Bounded re-fetch for cold open.** A cold node fetches the current version's closure. It
   skips full history. History stays reachable by version. The engine fetches it on demand.
 - **The cost gate is a release gate, not a per-PR gate.** One bounded regression guard covers
-  the fixed open cost. That failure mode motivated the comparator's RFC 0031.
+  the fixed open cost.
 
 ## Quality gates
 

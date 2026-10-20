@@ -495,7 +495,7 @@ The structured-prompt source motivates schema validation, graph storage, renderi
 Its performance claims and historical backend descriptions do not establish current implementation or measured quality.
 The blueprint source requests complete custom-field preservation across load, modification and persistence.
 Its earlier direct-file-write proposal does not override the separate approved-effect boundary.
-Neither accepted input supplies a research paper or arXiv identifier; no research result is claimed here.
+Neither accepted input supplies a research citation; no research result is claimed here.
 
 <!-- spec-definition-patch:owner-batch-20261012-typed-packs-and-catalog -->
 ## Owner implementation plan — 2026-10-12
@@ -516,7 +516,7 @@ Neither accepted input supplies a research paper or arXiv identifier; no researc
 
 - Define `ExportWorkflowRdfV1` and `ImportWorkflowRdfV1`. Bind their receipt to the workflow, committed workflow/graph revisions, byte/dataset digests and importer. Export canonical N-Quads workflow data. Return a byte/dataset-digest and revision-bound `WorkflowRdfDocumentV1` with `workflow_version` and `stored_version_ref`. Import the inverse document and restore an isomorphic dataset. Preserve unknown predicates, named graphs, typed/language-tagged literals and ontology refs. Keep the strict-newer comparison at export.
 - Attach to the existing R100 render/package owner and existing graph write boundary; preserve R051/R090/R100.1-.6. Source hash `620b1ae05d8e35696c7522f207672ef6f374525004d5488fe62fb4b27fc6cf5a`.
-- **Hold:** exact stored workflow version record/order grammar and the existing consumer import operation are absent in reviewed evidence. Resolve those before declaring the comparator or positive end-to-end path complete.
+- **Hold:** exact stored workflow version record/order grammar and the existing consumer import operation are absent in reviewed evidence. Resolve those before declaring the round-trip comparison or positive end-to-end path complete.
 <!-- /spec-definition-patch -->
 
 <!-- spec-definition-patch:reviewed-mapped-subsets-20261012 -->

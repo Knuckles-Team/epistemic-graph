@@ -52,9 +52,9 @@ Ship read and replay contracts before imports. Add tenant-scoped migrations with
 
 ## R013 fixture completion sequence
 
-R013.1 validates only the figure shape and provenance refusal gate. Preserve its executed unit proof without treating it as independent accounting/risk fixture acceptance. R013.2.1 currently exercises the broker-statement comparator with synthetic values; independent broker-statement dataset qualification remains necessary for the complete fixture family.
+R013.1 validates only the figure shape and provenance refusal gate. Preserve its executed unit proof without treating it as independent accounting/risk fixture acceptance. R013.2.1 currently exercises the broker-statement comparison fixture with synthetic values; independent broker-statement dataset qualification remains necessary for the complete fixture family.
 
-Deliver R013.2.2 (corporate actions), R013.2.3 (DST/session boundaries), R013.2.4 (daily-reset ETF decay) and R013.2.5 (futures rolls) as separate, still-open fixture slices. Each first checks in an independently published, redistributable reference and a manifest with source URL, publication/version, content digest, as-of time, session, and applicable currency/scale/rounding assumptions. Then compare the existing Rust authority's output with independently transcribed expected values, execute its negative/provenance cases, and record exact-head evidence. Do not introduce a second accounting implementation or derive expected values from the implementation under test. Only a fully qualified fixture family can close R013/R013.2; a generic comparator does not close the missing children.
+Deliver R013.2.2 (corporate actions), R013.2.3 (DST/session boundaries), R013.2.4 (daily-reset ETF decay) and R013.2.5 (futures rolls) as separate, still-open fixture slices. Each first checks in an independently published, redistributable reference and a manifest with source URL, publication/version, content digest, as-of time, session, and applicable currency/scale/rounding assumptions. Then compare the existing Rust authority's output with independently transcribed expected values, execute its negative/provenance cases, and record exact-head evidence. Do not introduce a second accounting implementation or derive expected values from the implementation under test. Only a fully qualified fixture family can close R013/R013.2; a generic comparison fixture does not close the missing children.
 
 ## Architecture
 
@@ -342,14 +342,6 @@ Clipping affects detection only; the robust state update uses the original innov
 This limits isolated tail contamination while retaining persistent-shift detection in the declared profile.
 The clipping threshold and warmup/cooldown state belong to the checkpoint revision.
 Unbounded errors, invalid covariance and work exhaustion produce typed outcomes without publishing a new derived checkpoint.
-
-### References
-
-R. E. Kalman, "A New Approach to Linear Filtering and Prediction Problems" (1960), sections "Optimal Estimates" and "Orthogonal Projections".
-The [primary paper reproduction](https://scispace.com/pdf/a-new-approach-to-linear-filtering-and-prediction-problems-1f1lkk9j5b.pdf) supports the linear estimation assumptions.
-The accepted source provides no arXiv identifier; none is assigned here.
-The bounded retuning and robust qualification profiles above are engineering requirements, not results attributed to that paper.
-The source method requests innovation adaptation and tail downweighting but provides no validated numerical policy for either.
 
 
 ### 2026-10-12: preserve acceptance through smaller R002 units
