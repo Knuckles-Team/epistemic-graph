@@ -470,3 +470,7 @@ Explicit job and event conditions preserve their separate test commands.
 The PyO3 budget remains unchanged.
 Storage never evaluates workspace scope output.
 Workflow tests establish routing; exact-head hosted tests establish acceptance.
+
+### Wasmtime patch update — 2026-10-20
+
+The Rust advisory gate must reject RUSTSEC-2026-0378 and RUSTSEC-2026-0379 without policy exceptions. Move the existing Wasmtime 49.0.3 dependency family to the compatible 49.0.4 patch and retain the same enabled features. Validate the unchanged advisory gate and lockfile; full native compilation remains hosted CI work when the local compiler slot is limited to leaf contract crates.
