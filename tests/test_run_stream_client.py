@@ -111,7 +111,7 @@ def test_append_preserves_exact_native_retry_request_and_replayed_receipt() -> N
         "changed_work_item_ids": ["wi"],
     }
     engine = Engine(receipt)
-    request = {
+    request: dict[str, Any] = {
         "tenant": "t",
         "work_item_id": "wi",
         "run_id": "run",
