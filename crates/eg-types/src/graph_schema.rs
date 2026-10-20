@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 use crate::contract::{closed_error_codes, BoundedVec, ResourceId};
 
 pub mod approval;
+pub mod drift;
 pub mod repair;
 pub mod shadow_branch;
 mod terms;

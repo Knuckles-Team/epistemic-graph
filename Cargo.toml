@@ -1922,6 +1922,19 @@ path = "benches/redb_write_latency_bench.rs"
 harness = false
 required-features = ["full"]
 
+# Schema-drift classification hot-path receipt (EG-TYPED-PACKS-R712): the
+# five-way classifier of `eg_types::graph_schema::drift` over a 1,000-field
+# approved contract, rotated over deterministic drift shapes; prints p50/p99
+# and the process RSS growth (budget: p50 < 0.5 ms, p99 < 3 ms, memory < 16
+# MiB). Touches only the unconditional `eg-types` `graph_schema` surface, so
+# it builds under any feature set; run with
+# `cargo bench --features full --bench schema_drift_classify`. DEV-only;
+# never linked into the engine binary.
+[[bench]]
+name = "schema_drift_classify"
+path = "benches/schema_drift_classify.rs"
+harness = false
+
 # Massive-scale core micro-benchmark harness (CONCEPT:EG-096): in-process node/edge
 # write throughput, in-process query latency (single-hop + label lookup), and IVF-PQ
 # kNN search latency. Feature-LIGHT — builds under DEFAULT features (no server/redb),
