@@ -139,12 +139,19 @@ const GRAPH_GENERATIONS: [GraphGeneration; 2] = [
             "repository_enrichment_parks",
             "audit_requests",
             "work_item_current_plans",
+            "work_item_run_checkpoints",
+            "work_item_run_events",
         ],
     },
     GraphGeneration {
         recorded: BEFORE_AUDIT_REQUESTS,
         source: GraphShardSource::BeforeAuditRequests,
-        added: &["audit_requests", "work_item_current_plans"],
+        added: &[
+            "audit_requests",
+            "work_item_current_plans",
+            "work_item_run_checkpoints",
+            "work_item_run_events",
+        ],
     },
 ];
 

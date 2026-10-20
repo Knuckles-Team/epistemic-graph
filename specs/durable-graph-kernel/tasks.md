@@ -252,3 +252,5 @@ This batch defines the slices; it runs none of their runtime tests.
 - [ ] **EG-DURABLE-KERNEL-R028.5:** Implement private native plan publication/readback. Native and served tests, replay/expiry/restart and performance acceptance remain pending.
 
 - [ ] **EG-DURABLE-KERNEL-R028.2 terminal cursor increment:** Validate native cursor stability after reopen and scope/task/commit isolation; Python adapter must read only, suppress an exactly acknowledged event and refuse unknown or legacy cursors. Native execution evidence remains pending the build slot.
+
+- [ ] **R028.1 native checkpoint increment:** verify atomic snapshot/head commit and rollback, stale head/fence/owner/tenant refusal, immutable prior revisions, claim-bound read, digest validation, private storage (generic reads contain no content), reopen and replayed receipt distinction. AU completed/inflight resume and live cross-process acceptance must pass before closure.

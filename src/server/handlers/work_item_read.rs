@@ -25,6 +25,14 @@ use crate::server::persistence::PersistenceBackend;
 
 /// One decoded WorkItem read.
 pub(crate) enum WorkItemRead {
+    RunEvents {
+        request: eg_types::run_stream::GetRunEventsRequest,
+        actor: String,
+    },
+    Checkpoint {
+        request: eg_types::run_checkpoint::GetRunCheckpointRequest,
+        actor: String,
+    },
     CurrentPlan {
         tenant: String,
         run_id: String,
@@ -62,6 +70,8 @@ impl WorkItemRead {
         match self {
             Self::Get { tenant, .. } | Self::Outcome { tenant, .. } => tenant,
             Self::CurrentPlan { tenant, .. } => tenant,
+            Self::Checkpoint { request, .. } => &request.tenant,
+            Self::RunEvents { request, .. } => &request.tenant,
             Self::List(request) => &request.tenant,
             Self::ControlLeases(request) => &request.tenant,
             Self::ControlLease { tenant, .. } | Self::Gap { tenant, .. } => tenant,
@@ -105,6 +115,18 @@ async fn serve_native(
         .and_then(|backend| backend.as_redb())
         .ok_or_else(|| NATIVE_UNAVAILABLE.to_string())?;
     match read {
+        WorkItemRead::RunEvents { request, actor } => {
+            let actor = crate::server::mutation_batch::principal_fingerprint(&actor)?;
+            ResultPayload::of::<eg_types::result_contract::coordination::GetRunEvents>(
+                backend.read_run_events(graph, request, &actor).await?,
+            )
+        }
+        WorkItemRead::Checkpoint { request, actor } => {
+            let actor = crate::server::mutation_batch::principal_fingerprint(&actor)?;
+            ResultPayload::of::<eg_types::result_contract::coordination::GetRunCheckpoint>(
+                backend.read_run_checkpoint(graph, request, &actor).await?,
+            )
+        }
         WorkItemRead::CurrentPlan {
             tenant,
             run_id,

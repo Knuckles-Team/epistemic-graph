@@ -45,6 +45,8 @@ pub(crate) async fn try_handle(ctx: HandleContext<'_>, method: Method) -> Result
         | Method::DeferWorkItem { .. }
         | Method::CasWorkItemMetadata { .. }
         | Method::PublishCurrentPlan { .. }
+        | Method::PublishRunCheckpoint { .. }
+        | Method::AppendRunEvent { .. }
         | Method::IssueControlLease { .. }
         | Method::TransitionControlLease { .. }
         | Method::PolicyEvolutionStore { .. }
@@ -102,9 +104,16 @@ pub(crate) async fn commit_verified_work_item(
     placement_fence: Option<u64>,
     method: Method,
 ) -> Result<crate::protocol::ResultPayload, String> {
-    let is_plan = matches!(&method, Method::PublishCurrentPlan { .. });
+    let owner_bound = matches!(
+        &method,
+        Method::PublishCurrentPlan { .. }
+            | Method::PublishRunCheckpoint { .. }
+            | Method::AppendRunEvent { .. }
+    );
+    let method = prepare_run_event(ctx, method).await?;
+    let method = prepare_checkpoint(ctx, method).await?;
     let method = prepare_current_plan(ctx, method).await?;
-    let principal = if is_plan {
+    let principal = if owner_bound {
         Some(ctx.verified_context.principal())
     } else {
         ctx.caller
@@ -172,4 +181,76 @@ async fn prepare_current_plan(ctx: &HandleContext<'_>, method: Method) -> Result
     }
     #[cfg(not(feature = "redb"))]
     Err("current-plan publication requires native persistence".into())
+}
+
+/// Owner authorization precedes the native retry ledger, including old receipts.
+async fn prepare_checkpoint(ctx: &HandleContext<'_>, method: Method) -> Result<Method, String> {
+    let Method::PublishRunCheckpoint { mut request } = method else {
+        return Ok(method);
+    };
+    super::native_write_authority::require_carrier_tenant(
+        &request.tenant,
+        ctx.verified_context.tenant(),
+    )?;
+    request.idempotency_key = ctx.verified_context.idempotency_key().to_string();
+    request.validate()?;
+    #[cfg(feature = "redb")]
+    {
+        let backend = ctx
+            .persistence
+            .as_ref()
+            .and_then(|backend| backend.as_redb())
+            .ok_or("checkpoint publication requires native persistence")?;
+        let actor =
+            crate::server::mutation_batch::principal_fingerprint(ctx.verified_context.principal())?;
+        let graph = crate::persist::sanitize(ctx.graph_name);
+        let read = eg_types::run_checkpoint::GetRunCheckpointRequest {
+            tenant: request.tenant.clone(),
+            work_item_id: request.work_item_id.clone(),
+            run_id: request.run_id.clone(),
+            current_claim: None,
+        };
+        if !backend.checkpoint_owner(&graph, read, &actor).await? {
+            return Err("ACCESS_DENIED: checkpoint owner unavailable".into());
+        }
+        Ok(Method::PublishRunCheckpoint { request })
+    }
+    #[cfg(not(feature = "redb"))]
+    Err("checkpoint publication requires native persistence".into())
+}
+
+async fn prepare_run_event(ctx: &HandleContext<'_>, method: Method) -> Result<Method, String> {
+    let Method::AppendRunEvent { mut request } = method else {
+        return Ok(method);
+    };
+    super::native_write_authority::require_carrier_tenant(
+        &request.tenant,
+        ctx.verified_context.tenant(),
+    )?;
+    request.idempotency_key = ctx.verified_context.idempotency_key().to_string();
+    request.validate()?;
+    #[cfg(feature = "redb")]
+    {
+        let backend = ctx
+            .persistence
+            .as_ref()
+            .and_then(|backend| backend.as_redb())
+            .ok_or("run event publication requires native persistence")?;
+        let actor =
+            crate::server::mutation_batch::principal_fingerprint(ctx.verified_context.principal())?;
+        let graph = crate::persist::sanitize(ctx.graph_name);
+        let read = eg_types::run_stream::GetRunEventsRequest {
+            tenant: request.tenant.clone(),
+            work_item_id: request.work_item_id.clone(),
+            run_id: request.run_id.clone(),
+            after_cursor: None,
+            limit: 1,
+        };
+        if !backend.run_event_owner(&graph, read, &actor).await? {
+            return Err("ACCESS_DENIED: run event owner unavailable".into());
+        }
+        Ok(Method::AppendRunEvent { request })
+    }
+    #[cfg(not(feature = "redb"))]
+    Err("run event publication requires native persistence".into())
 }

@@ -6,7 +6,8 @@ use super::{
 };
 use crate::owner::graph_shard::{
     AUDIT_REQUESTS, CURRENT_PLANS, REPOSITORY_ENRICHMENT_BUDGETS, REPOSITORY_ENRICHMENT_PARKS,
-    REPOSITORY_ENRICHMENT_POLICY_REVISIONS, REPOSITORY_ENRICHMENT_SUPERSESSIONS,
+    REPOSITORY_ENRICHMENT_POLICY_REVISIONS, REPOSITORY_ENRICHMENT_SUPERSESSIONS, RUN_CHECKPOINTS,
+    RUN_EVENTS,
 };
 use crate::owner::registry::{predecessor_evidence, MCP_CATALOG_CONFIGS, MCP_CATALOG_SCOPES};
 use crate::owner::sql_checkpoint_upgrade::{
@@ -83,6 +84,12 @@ fn open_graph_shard_tables(
     if source == GraphShardSource::BeforeEnrichment {
         open_enrichment_tables(write)?;
     }
+    write
+        .open_table(RUN_EVENTS)
+        .map_err(|error| error.to_string())?;
+    write
+        .open_table(RUN_CHECKPOINTS)
+        .map_err(|error| error.to_string())?;
     write
         .open_table(CURRENT_PLANS)
         .map_err(|error| error.to_string())?;

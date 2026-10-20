@@ -236,6 +236,16 @@ async fn route_work_item_reads(
     method: Method,
 ) -> Result<Response, Method> {
     let read = match method {
+        Method::GetRunEvents { request } => handlers::work_item_read::WorkItemRead::RunEvents {
+            request,
+            actor: ctx.verified_context.principal().to_string(),
+        },
+        Method::GetRunCheckpoint { request } => {
+            handlers::work_item_read::WorkItemRead::Checkpoint {
+                request,
+                actor: ctx.verified_context.principal().to_string(),
+            }
+        }
         Method::GetCurrentPlan { tenant, run_id } => {
             handlers::work_item_read::WorkItemRead::CurrentPlan {
                 tenant,

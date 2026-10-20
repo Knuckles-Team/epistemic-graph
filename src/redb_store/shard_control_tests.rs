@@ -112,8 +112,8 @@ fn the_canonical_bootstrap_matches_the_declared_shard_census() {
     let declared = eg_storage::owner_table_names(eg_storage::OwnerLayout::GraphShard);
     // 58 -> 59: the tenant-scoped operation audit-append idempotency index
     // `audit_requests`.
-    // 59 -> 60: the private current-plan snapshot table `work_item_current_plans`.
-    assert_eq!(declared.len(), 60);
+    // 60 -> 62: private sealed run checkpoints and lifecycle events.
+    assert_eq!(declared.len(), 62);
 
     for retired in [
         "mutation_batches",

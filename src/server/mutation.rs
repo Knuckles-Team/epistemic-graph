@@ -1955,6 +1955,8 @@ mod tests {
         ("CancelWorkItem", "dedicated engine-native MutationBatch pending-cancellation transition in mutation_batch.rs/redb_store.rs"),
         ("DeferWorkItem", "dedicated engine-native MutationBatch fenced deferral transition in mutation_batch.rs/redb_store.rs"),
         ("PublishCurrentPlan", "dedicated engine-native MutationBatch owner/fence/revision current-plan publication in store_native.rs"),
+        ("PublishRunCheckpoint", "dedicated engine-native MutationBatch owner/fence/CAS checkpoint publication in store_native.rs"),
+        ("AppendRunEvent", "dedicated engine-native MutationBatch owner/fence/CAS private event append in store_native.rs"),
         ("CasWorkItemMetadata", "dedicated engine-native MutationBatch scheduling-metadata CAS transition in mutation_batch.rs/redb_store.rs (BUG-111)"),
         ("IssueControlLease", "dedicated engine-native MutationBatch control-lease issue (absence-guarded) in the WorkItem kernel, redb_store/work_item/control_lease.rs"),
         ("TransitionControlLease", "dedicated engine-native MutationBatch control-lease revision-CAS transition in the WorkItem kernel, redb_store/work_item/control_lease.rs"),

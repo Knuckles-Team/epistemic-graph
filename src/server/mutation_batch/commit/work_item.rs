@@ -75,6 +75,8 @@ fn work_item_tenant_value(method: &Method) -> Result<String, String> {
         Method::SubmitWorkItems { request } => request.context.tenant_id.clone(),
         Method::ClaimWorkItem { request } => request.tenant_ref.clone(),
         Method::PublishCurrentPlan { request } => request.tenant.clone(),
+        Method::PublishRunCheckpoint { request } => request.tenant.clone(),
+        Method::AppendRunEvent { request } => request.tenant.clone(),
         Method::CasWorkItemMetadata { request } => request.tenant_ref.clone(),
         Method::RenewWorkItemLease { tenant, .. }
         | Method::CommitWorkItemResult { tenant, .. }
@@ -173,12 +175,16 @@ struct WorkItemCommitOutcome<'a> {
     publishes_work_item_rows: bool,
     submit: bool,
     submit_batch: bool,
+    checkpoint: bool,
+    run_event: bool,
 }
 
 #[derive(Clone, Copy)]
 struct WorkItemOutputFlags {
     submit: bool,
     submit_batch: bool,
+    checkpoint: bool,
+    run_event: bool,
     publishes_work_item_rows: bool,
 }
 
@@ -188,6 +194,8 @@ fn work_item_output_flags(method: &Method) -> WorkItemOutputFlags {
     WorkItemOutputFlags {
         submit,
         submit_batch,
+        checkpoint: matches!(method, Method::PublishRunCheckpoint { .. }),
+        run_event: matches!(method, Method::AppendRunEvent { .. }),
         publishes_work_item_rows: !matches!(method, Method::UpdateResourceHost { .. }),
     }
 }
@@ -284,6 +292,8 @@ async fn commit_work_item_plan(plan: WorkItemCommitPlan<'_>) -> Result<ResultPay
         publishes_work_item_rows: flags.publishes_work_item_rows,
         submit: flags.submit,
         submit_batch: flags.submit_batch,
+        checkpoint: flags.checkpoint,
+        run_event: flags.run_event,
     };
     publish_work_item_outcome(outcome).await
 }
@@ -299,6 +309,8 @@ async fn publish_work_item_outcome(
         publishes_work_item_rows,
         submit,
         submit_batch,
+        checkpoint,
+        run_event,
     } = outcome;
     let result = publish_committed_work_item(
         persistence,
@@ -310,6 +322,18 @@ async fn publish_work_item_outcome(
     .await;
     match result {
         Ok(result) if committed.replayed && submit => mark_submit_replayed(result, submit_batch),
+        Ok(result) if committed.replayed && checkpoint => {
+            let mut body: eg_types::run_checkpoint::RunCheckpointPublished =
+                decode_work_item_receipt(result)?;
+            body.replayed = true;
+            ResultPayload::of::<eg_types::result_contract::coordination::PublishRunCheckpoint>(body)
+        }
+        Ok(result) if committed.replayed && run_event => {
+            let mut body: eg_types::run_stream::RunEventAppended =
+                decode_work_item_receipt(result)?;
+            body.replayed = true;
+            ResultPayload::of::<eg_types::result_contract::coordination::AppendRunEvent>(body)
+        }
         Ok(result) => Ok(result),
         Err(error) => {
             match reconcile_projection_from_authority(persistence, &graph_fname, core).await {
@@ -330,8 +354,8 @@ pub(crate) async fn commit_work_item(
 ) -> Result<ResultPayload, String> {
     commit_work_item_inner(request).await
 }
-/// The durably committed submit result a replay re-answers, as its declared body.
-fn decode_submit_receipt<T: serde::de::DeserializeOwned>(
+/// Decode a durably committed WorkItem receipt before marking a replay acknowledgement.
+fn decode_work_item_receipt<T: serde::de::DeserializeOwned>(
     result: ResultPayload,
 ) -> Result<T, String> {
     match result {
@@ -339,10 +363,10 @@ fn decode_submit_receipt<T: serde::de::DeserializeOwned>(
             &bytes,
             eg_types::msgpack::MsgpackLimits::new(4 * 1024 * 1024, 100_000, 64),
         )
-        .map_err(|_| "replayed SubmitWorkItem result is corrupt".to_string()),
+        .map_err(|_| "replayed WorkItem result is corrupt".to_string()),
         ResultPayload::Json(value) => serde_json::from_value(value)
-            .map_err(|_| "replayed SubmitWorkItem result is corrupt".to_string()),
-        _ => Err("replayed SubmitWorkItem result has an invalid payload shape".to_string()),
+            .map_err(|_| "replayed WorkItem result is corrupt".to_string()),
+        _ => Err("replayed WorkItem result has an invalid payload shape".to_string()),
     }
 }
 
@@ -354,7 +378,8 @@ fn mark_submit_replayed(result: ResultPayload, batch: bool) -> Result<ResultPayl
 }
 
 fn replayed_submit_batch(result: ResultPayload) -> Result<ResultPayload, String> {
-    let mut body: eg_types::native_control::SubmitWorkItemsResult = decode_submit_receipt(result)?;
+    let mut body: eg_types::native_control::SubmitWorkItemsResult =
+        decode_work_item_receipt(result)?;
     body.replayed = true;
     for child in &mut body.results {
         child.created = false;
@@ -364,7 +389,8 @@ fn replayed_submit_batch(result: ResultPayload) -> Result<ResultPayload, String>
 }
 
 fn replayed_submit(result: ResultPayload) -> Result<ResultPayload, String> {
-    let mut body: eg_types::native_control::SubmitWorkItemResult = decode_submit_receipt(result)?;
+    let mut body: eg_types::native_control::SubmitWorkItemResult =
+        decode_work_item_receipt(result)?;
     body.created = false;
     body.replayed = true;
     ResultPayload::of::<eg_types::result_contract::coordination::SubmitWorkItem>(body)

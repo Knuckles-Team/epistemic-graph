@@ -161,6 +161,35 @@ pub(crate) fn work_item_batch_identity(
             );
         }
     }
+    if let Method::AppendRunEvent { request } = method {
+        return scoped_work_item_identity(
+            graph,
+            tenant,
+            &request.idempotency_key,
+            &[
+                "run-event",
+                &request.work_item_id,
+                &request.run_id,
+                &request.expected_index.to_string(),
+            ],
+        );
+    }
+    if let Method::PublishRunCheckpoint { request } = method {
+        return scoped_work_item_identity(
+            graph,
+            tenant,
+            &request.idempotency_key,
+            &[
+                "checkpoint",
+                &request.work_item_id,
+                &request.run_id,
+                &request
+                    .expected_revision
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "initial".into()),
+            ],
+        );
+    }
     if let Method::PublishCurrentPlan { request } = method {
         return scoped_work_item_identity(
             graph,

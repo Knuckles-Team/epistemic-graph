@@ -187,6 +187,27 @@ pub const GRAPH_SHARD_BEFORE_CURRENT_PLANS: LayoutPredecessor = LayoutPredecesso
     file_name: "graph-*.redb",
 };
 
+// Frozen census of the last layout before sealed run checkpoints.
+const GRAPH_SHARD_TABLES_BEFORE_RUN_CHECKPOINTS: &[&str] = super::graph_shard::graph_shard_table_names!(
+    "repository_enrichment_budgets",
+    "repository_enrichment_policy_revisions",
+    "repository_enrichment_supersessions",
+    "repository_enrichment_parks",
+    "audit_requests",
+    "work_item_current_plans",
+);
+pub const GRAPH_SHARD_PRE_RUN_CHECKPOINTS_DIGEST: [u8; 32] = [
+    0xcf, 0xc4, 0x7e, 0x43, 0x65, 0x4a, 0xbc, 0x32, 0xfb, 0xf6, 0x3c, 0xf3, 0xd9, 0xd7, 0xff, 0xd4,
+    0xe0, 0x4c, 0x74, 0x2e, 0x3c, 0x95, 0x5c, 0x25, 0x9d, 0x2d, 0x05, 0xf5, 0x31, 0x6e, 0x0a, 0x27,
+];
+pub const GRAPH_SHARD_BEFORE_RUN_CHECKPOINTS: LayoutPredecessor = LayoutPredecessor {
+    layout: OwnerLayout::GraphShard,
+    label: "graph shard before private run checkpoints",
+    owner_tables: GRAPH_SHARD_TABLES_BEFORE_RUN_CHECKPOINTS,
+    data_lost: "none; an explicit offline layout upgrade is required. Normal open refuses this predecessor.",
+    file_name: "graph-*.redb",
+};
+
 /// Earlier graph-shard layout before the node-payload scrub cursor (EH-384).
 const GRAPH_SHARD_TABLES_BEFORE_STORAGE_SCRUB: &[&str] = GRAPH_SHARD_TABLES_BEFORE_ENRICHMENT
     .split_at(GRAPH_SHARD_TABLES_BEFORE_ENRICHMENT.len() - 1)
@@ -270,6 +291,7 @@ pub fn layout_predecessors(layout: OwnerLayout) -> &'static [LayoutPredecessor] 
             GRAPH_SHARD_BEFORE_POLICY_REVISIONS,
             GRAPH_SHARD_BEFORE_AUDIT_REQUESTS,
             GRAPH_SHARD_BEFORE_CURRENT_PLANS,
+            GRAPH_SHARD_BEFORE_RUN_CHECKPOINTS,
         ],
     }
 }
@@ -338,7 +360,7 @@ pub fn pinned_layout_digest(layout: OwnerLayout) -> &'static str {
             "0561a2a2ae13f067bf01a4c94d6cbaeb280aaefa56c68036a1f01da92cba8431"
         }
         OwnerLayout::GraphShard => {
-            "cfc47e43654abc32fbf63cf3d9d7ffd4e04c742e3c955c259d2d05f5316e0a27"
+            "47b56ca3d85557cb58066dec0ba82a975b8dd1e60079a88003d312712e10a9a9"
         }
         OwnerLayout::AgentLibrary => {
             "e112d8118e4e62b002799b84bba8c69162e477071861a81d3893277736727ea0"

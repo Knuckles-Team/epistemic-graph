@@ -155,6 +155,14 @@ pub(crate) const NATIVE_WORK_ITEM_AUTHORITY: TableDefinition<'static, (&str, &st
 pub(crate) const CURRENT_PLANS: TableDefinition<'static, (&str, &str), &[u8]> =
     TableDefinition::new("work_item_current_plans");
 
+/// Sealed immutable run snapshots; never generic graph nodes.
+pub(crate) const RUN_CHECKPOINTS: TableDefinition<'static, (&str, &str), &[u8]> =
+    TableDefinition::new("work_item_run_checkpoints");
+
+/// Sealed ordered lifecycle payloads; never generic graph nodes.
+pub(crate) const RUN_EVENTS: TableDefinition<'static, (&str, &str, u64), &[u8]> =
+    TableDefinition::new("work_item_run_events");
+
 // -- development lane -----------------------------------------------------
 pub(crate) const DEVELOPMENT_LANE_HOLDS: TableDefinition<'static, (&str, &str), &[u8]> =
     TableDefinition::new("development_lane_holds");
@@ -250,6 +258,8 @@ macro_rules! visit_graph_shard_tables {
         $visit!(shard::REPOSITORY_ENRICHMENT_PARKS);
         $visit!(shard::AUDIT_REQUESTS);
         $visit!(shard::CURRENT_PLANS);
+        $visit!(shard::RUN_CHECKPOINTS);
+        $visit!(shard::RUN_EVENTS);
         $visit!(shard::WORK_ITEM_CLAIM_CAPABILITIES);
         $visit!(shard::WORK_ITEM_CLAIM_CAPABILITY_INVOCATIONS);
         $visit!(shard::NATIVE_WORK_ITEM_AUTHORITY);
@@ -350,6 +360,8 @@ pub(crate) const GRAPH_SHARD_TABLES: &[&str] = graph_shard_table_names!(
     "repository_enrichment_parks",
     "audit_requests",
     "work_item_current_plans",
+    "work_item_run_checkpoints",
+    "work_item_run_events",
 );
 
 /// The eight tables of the shard's retired private mutation ledger.
@@ -403,9 +415,9 @@ fn key_type_scalar_or_narrow_tuple(name: &str) -> Option<&'static str> {
         "raft_meta" => Some("(u64,&str)"),
         "change_cursors" => Some("(&str,&str,&str,&str)"),
         "development_lane_pressure_index" => Some("(&str,&str,&str,&str,u64,&str)"),
-        "resource_reservation_attempts" | "development_lane_work_item_index" => {
-            Some("(&str,&str,u64)")
-        }
+        "resource_reservation_attempts"
+        | "development_lane_work_item_index"
+        | "work_item_run_events" => Some("(&str,&str,u64)"),
         _ => None,
     }
 }
@@ -445,6 +457,7 @@ fn key_type_wide_tuple(name: &str) -> Option<&'static str> {
         | "work_item_claim_capability_invocations"
         | "native_work_item_authority"
         | "work_item_current_plans"
+        | "work_item_run_checkpoints"
         | "development_lane_holds"
         | "development_lane_counters"
         | "development_lane_policies"

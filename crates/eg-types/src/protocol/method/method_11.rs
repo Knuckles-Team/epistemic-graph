@@ -3,6 +3,12 @@ macro_rules! __eg_method_chunk_11 {
         __eg_method_finish!(@acc [
 $($variants)*
 
+    AppendRunEvent { request: crate::run_stream::AppendRunEventRequest },
+    GetRunEvents { request: crate::run_stream::GetRunEventsRequest },
+
+    PublishRunCheckpoint { request: crate::run_checkpoint::PublishRunCheckpointRequest },
+    GetRunCheckpoint { request: crate::run_checkpoint::GetRunCheckpointRequest },
+
     PublishCurrentPlan { request: crate::current_plan::PublishCurrentPlanRequest },
     GetCurrentPlan { tenant: String, run_id: String },
 

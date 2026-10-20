@@ -58,6 +58,8 @@ macro_rules! work_item_kernel_writes {
             | $crate::protocol::Method::DeferWorkItem { .. }
             | $crate::protocol::Method::CasWorkItemMetadata { .. }
             | $crate::protocol::Method::PublishCurrentPlan { .. }
+            | $crate::protocol::Method::PublishRunCheckpoint { .. }
+            | $crate::protocol::Method::AppendRunEvent { .. }
             | $crate::protocol::Method::IssueControlLease { .. }
             | $crate::protocol::Method::TransitionControlLease { .. }
             | $crate::protocol::Method::PolicyEvolutionStore { .. }

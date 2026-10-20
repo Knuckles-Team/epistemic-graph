@@ -62,6 +62,8 @@ impl Method {
             | Self::DeferWorkItem { .. }
             | Self::CasWorkItemMetadata { .. }
             | Self::PublishCurrentPlan { .. }
+            | Self::PublishRunCheckpoint { .. }
+            | Self::AppendRunEvent { .. }
             | Self::IssueControlLease { .. }
             | Self::TransitionControlLease { .. }
             | Self::PolicyEvolutionStore { .. }

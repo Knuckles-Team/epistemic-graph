@@ -33,3 +33,31 @@ pub(super) fn admit_owner(
         "run_id": run_id, "work_item_id": work_item_id, "principal": actor}),
     ))
 }
+
+use super::{property_f64, property_string};
+type Row = serde_json::Map<String, serde_json::Value>;
+
+pub(super) fn is_owned(
+    row: &Row,
+    graph: &str,
+    tenant: &str,
+    run_id: &str,
+    id: &str,
+    actor: &str,
+) -> bool {
+    row.get("run_owner_binding")
+        == Some(&serde_json::json!({
+            "graph": graph, "tenant": tenant, "run_id": run_id, "work_item_id": id, "principal": actor
+        }))
+        && property_string(row, "tenant") == tenant
+        && !actor.is_empty()
+}
+
+pub(super) fn has_live_claim(row: &Row, worker: &str, epoch: u64, token: u64, now_ms: u64) -> bool {
+    matches!(property_string(row, "status"), "leased" | "running")
+        && row.get("lease_epoch").and_then(serde_json::Value::as_u64) == Some(epoch)
+        && row.get("fencing_token").and_then(serde_json::Value::as_u64) == Some(token)
+        && property_string(row, "lease_owner") == worker
+        && !worker.is_empty()
+        && property_f64(row, "lease_expires_at") > now_ms as f64 / 1000.0
+}
