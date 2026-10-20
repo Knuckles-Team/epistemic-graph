@@ -526,3 +526,5 @@ macro_rules! capacity_lease_writes {
             | $crate::protocol::Method::ThrottleCapacityCell { .. }
     };
 }
+
+pub mod run_stream;

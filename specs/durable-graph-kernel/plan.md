@@ -807,3 +807,15 @@ R028.1 uses a new private sealed graph-owner table `work_item_run_checkpoints`, 
 `PublishRunCheckpoint` accepts verified-tenant-bound `tenant`, `work_item_id`, `run_id`, worker/epoch/fence, optional `expected_revision`, `snapshot` (UTF-8 JSON content, SHA-256 digest, separate short/long memory references) and retry key. First revision is one; later revisions increment exactly once. The result includes work-item/run, revision, digest and authoritative `replayed`. The Python `work_items.publish_checkpoint` facade preserves this contract.
 
 `GetRunCheckpoint` and `work_items.get_checkpoint` return the exact accepted safe snapshot and revision only to the immutable owner. An optional `current_claim` additionally checks the live claim in the same read snapshot; no lease authority is returned. AU owns canonical message/history/usage representation and completed/inflight phases. A host must publish inflight under the returned expected head before effects and refuse an uncertain inflight resume. Replaying a publication receipt cannot grant a second effect execution. Old snapshots remain retained; explicit release and full step-event streaming remain separate pending implementation and acceptance.
+### 2026-10-20 — R028.2 lifecycle event append and replay
+
+The approved native replay authority extends to bounded lifecycle events. A native
+`AppendRunEvent` operation checks the admitted immutable owner, current claim and
+fence, then CAS-advances a private event index in the same MutationBatch as a
+sealed payload and a reference-only outbox intent. `GetRunEvents` reads the owner
+WorkItem, private payload, committed receipt and outbox from one MVCC snapshot.
+An engine cursor binds tenant, graph incarnation, task, run, committed sequence,
+ordinal and payload digest. Cursor indices are lookup hints only: exact receipt
+validation is mandatory. Replay never dispatches work. Generic graph readers
+cannot read model/tool payloads. Active and finished history remains retained;
+this increment does not introduce implicit garbage collection or release.

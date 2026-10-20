@@ -129,6 +129,7 @@ pub(crate) fn compile_methods_with_outbox(
     additional_outbox: Vec<MutationOutboxIntent>,
 ) -> Result<MutationBatch, String> {
     let (methods, mut terminal_outbox) = lower_terminal_outcome_extensions(ctx.batch_id, methods)?;
+    terminal_outbox.extend(super::run_stream::lower_run_events(ctx.batch_id, &methods)?);
     terminal_outbox.extend(additional_outbox);
     #[cfg(feature = "epistemic-tms")]
     let reasoning_events = eg_epistemic::ReasoningProjectionWakeup::events_for_methods(&methods);

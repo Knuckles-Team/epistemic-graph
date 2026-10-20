@@ -7,7 +7,7 @@ use super::*;
 pub(super) const GRAPH: &str = "graph-a";
 
 pub(super) struct TempShard {
-    path: std::path::PathBuf,
+    pub(super) path: std::path::PathBuf,
     pub(super) shard: Shard,
 }
 

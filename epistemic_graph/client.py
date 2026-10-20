@@ -4434,6 +4434,88 @@ class WorkItemClient:
         _work_item_view(value["work_item"])
         return value
 
+    async def run_events_supported(self) -> bool:
+        """Whether both native durable lifecycle methods are advertised."""
+        supports = getattr(self._client, "supports", None)
+        return supports is not None and all(
+            [
+                await supports(name) is True
+                for name in ("AppendRunEvent", "GetRunEvents")
+            ]
+        )
+
+    async def append_event(
+        self,
+        *,
+        tenant: str,
+        work_item_id: str,
+        run_id: str,
+        worker_id: str,
+        lease_epoch: int,
+        fencing_token: int,
+        expected_index: int,
+        event: dict[str, Any],
+        idempotency_key: str,
+    ) -> dict[str, Any]:
+        """Append once under the current native owner/claim and exact tail CAS."""
+        if not await self.run_events_supported():
+            raise RuntimeError("native durable run events are unavailable")
+        value = (
+            await _gen.coordination.send_append_run_event(
+                self._client,
+                {
+                    "request": {
+                        "tenant": tenant,
+                        "work_item_id": work_item_id,
+                        "run_id": run_id,
+                        "worker_id": worker_id,
+                        "lease_epoch": lease_epoch,
+                        "fencing_token": fencing_token,
+                        "expected_index": expected_index,
+                        "event": event,
+                        "idempotency_key": idempotency_key,
+                    }
+                },
+                idempotency_key=idempotency_key,
+            )
+        ).payload
+        if not isinstance(value, dict):
+            raise RuntimeError("native append event receipt is malformed")
+        return value
+
+    async def get_events(
+        self,
+        *,
+        tenant: str,
+        work_item_id: str,
+        run_id: str,
+        after_cursor: str | None = None,
+        limit: int = 128,
+    ) -> dict[str, Any] | None:
+        """Read a bounded owner-scoped page without dispatching any work."""
+        supports = getattr(self._client, "supports", None)
+        if supports is None or await supports("GetRunEvents") is not True:
+            raise RuntimeError("native durable run events are unavailable")
+        value = (
+            await _gen.coordination.send_get_run_events(
+                self._client,
+                {
+                    "request": {
+                        "tenant": tenant,
+                        "work_item_id": work_item_id,
+                        "run_id": run_id,
+                        "after_cursor": after_cursor,
+                        "limit": limit,
+                    }
+                },
+            )
+        ).payload
+        if value is not None:
+            if not isinstance(value, dict):
+                raise RuntimeError("native run event page is malformed")
+            _work_item_view(value["work_item"])
+        return value
+
     async def replay_terminal(
         self,
         *,

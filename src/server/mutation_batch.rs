@@ -11,6 +11,7 @@ mod commit;
 mod compile;
 mod digest;
 mod terminal_outcome;
+mod run_stream;
 
 #[cfg(feature = "raft")]
 pub(crate) use canonical::is_work_item_method;
