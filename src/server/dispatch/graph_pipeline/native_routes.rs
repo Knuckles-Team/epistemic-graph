@@ -637,6 +637,7 @@ async fn route_graph_audit_and_modality(
             return Ok(dispatch_op_audit_append(
                 ctx.req_id,
                 ctx.graph_name,
+                ctx.core.clone(),
                 ctx.persistence.clone(),
                 event,
             )
