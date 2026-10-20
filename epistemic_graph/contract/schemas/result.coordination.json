@@ -10668,6 +10668,13 @@
             "payload_digest": {
               "type": "string"
             },
+            "replay_cursor": {
+              "description": "Opaque acknowledgement of this exact durable event, not authorization.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "result_ref": {
               "type": [
                 "string",
@@ -10686,6 +10693,12 @@
             },
             "tenant": {
               "type": "string"
+            },
+            "work_item_id": {
+              "type": [
+                "string",
+                "null"
+              ]
             }
           },
           "required": [

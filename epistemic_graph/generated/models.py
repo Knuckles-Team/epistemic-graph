@@ -14193,6 +14193,7 @@ class MethodGetSuccessorsParams(BaseModel):
 class MethodGetWorkItemOutcomeParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
+    include_replay_cursor: bool | None = None
     tenant: str
     work_item_id: str
 
@@ -22667,11 +22668,13 @@ class TerminalEventReadAvailable(BaseModel):
     ordinal: Annotated[int, Field(ge=0)]
     outcome: str
     payload_digest: str
+    replay_cursor: str | None = None
     result_ref: str | None = None
     run_id: str
     scope: MutationScopeIdentity
     status: Literal["available"]
     tenant: str
+    work_item_id: str | None = None
 
 
 TerminalEventRead = Annotated[

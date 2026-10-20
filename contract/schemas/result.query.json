@@ -37391,6 +37391,11 @@
             "params": {
               "additionalProperties": false,
               "properties": {
+                "include_replay_cursor": {
+                  "default": false,
+                  "description": "Opt in to exact terminal replay identity; legacy projection is unchanged.",
+                  "type": "boolean"
+                },
                 "tenant": {
                   "type": "string"
                 },
