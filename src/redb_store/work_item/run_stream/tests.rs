@@ -312,7 +312,10 @@ fn terminal_wrong_stream_cas_rolls_back_work_item_transition() {
     )
     .unwrap()
     .unwrap();
-    assert_eq!(page.work_item.status, "running");
+    assert_eq!(
+        page.work_item.status,
+        eg_types::work_item_read::WorkItemStatus::Running
+    );
     assert_eq!(page.next_index, 0);
     let actual = terminal_batch(&tmp.shard, &id, 0, "actual-terminal", 2, true);
     commit(&tmp.shard, &actual).unwrap();
