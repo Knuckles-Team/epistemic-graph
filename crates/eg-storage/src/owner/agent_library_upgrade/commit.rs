@@ -64,6 +64,14 @@ fn open_successor_tables(write: &WriteTransaction, target: UpgradeTarget) -> Res
             write
                 .open_table(crate::owner::registry::RBAC_PARTICIPANTS)
                 .map_err(|error| error.to_string())?;
+            write
+                .open_table(crate::owner::registry::PROFILE_USE_GRANTS)
+                .map_err(|error| error.to_string())?;
+        }
+        UpgradeTarget::RbacProfileGrants => {
+            write
+                .open_table(crate::owner::registry::PROFILE_USE_GRANTS)
+                .map_err(|error| error.to_string())?;
         }
         UpgradeTarget::AgentLibraryParticipants => {
             write

@@ -35,13 +35,25 @@ pub const RBAC_BEFORE_PARTICIPANTS: LayoutPredecessor = LayoutPredecessor {
     layout: OwnerLayout::Rbac,
     label: "RBAC before durable participant reservations",
     owner_tables: &["rbac"],
-    data_lost:
-        "requires the explicit offline RBAC participant upgrade; authority rows are preserved",
+    data_lost: "none after offline upgrade. The upgrade preserves existing rows.",
     file_name: "rbac.redb",
 };
 pub const RBAC_PRE_PARTICIPANTS_DIGEST: [u8; 32] = [
     0x3c, 0x89, 0xb3, 0x20, 0x7f, 0xaa, 0x96, 0x2a, 0x94, 0xeb, 0x1c, 0xe7, 0x24, 0xf9, 0x44, 0xdd,
     0xe5, 0xa4, 0xac, 0xf9, 0x48, 0x41, 0xa2, 0x3d, 0x9c, 0x41, 0x68, 0x55, 0x86, 0x6d, 0x4c, 0x8e,
+];
+
+/// RBAC authority and reservations before the profile grant table.
+pub const RBAC_BEFORE_PROFILE_GRANTS: LayoutPredecessor = LayoutPredecessor {
+    layout: OwnerLayout::Rbac,
+    label: "RBAC before profile grant records",
+    owner_tables: &["rbac", "rbac_participants"],
+    data_lost: "none after offline upgrade. The upgrade preserves existing rows.",
+    file_name: "rbac.redb",
+};
+pub const RBAC_PRE_PROFILE_GRANTS_DIGEST: [u8; 32] = [
+    0x69, 0xc4, 0x7a, 0x76, 0x1d, 0xdd, 0x81, 0xfa, 0xa5, 0x5b, 0x41, 0x18, 0x4b, 0x19, 0xd9, 0x91,
+    0xb7, 0x62, 0xf9, 0x56, 0x72, 0x69, 0x84, 0x0c, 0x38, 0x45, 0x33, 0x8a, 0x4a, 0x05, 0xac, 0xd1,
 ];
 
 /// Agent Library before durable participant reservations.
@@ -71,7 +83,7 @@ pub const AGENT_LIBRARY_BEFORE_PARTICIPANTS: LayoutPredecessor = LayoutPredecess
         "write_back_receipts",
         "write_back_receipt_heads",
     ],
-    data_lost: "requires the explicit offline participant upgrade; existing rows are preserved",
+    data_lost: "none after offline upgrade. The upgrade preserves existing rows.",
     file_name: "agent_library.redb",
 };
 pub const AGENT_LIBRARY_PRE_PARTICIPANTS_DIGEST: [u8; 32] = [
@@ -318,7 +330,7 @@ pub fn layout_predecessors(layout: OwnerLayout) -> &'static [LayoutPredecessor] 
             AGENT_LIBRARY_BEFORE_MCP_CATALOG,
             AGENT_LIBRARY_BEFORE_PARTICIPANTS,
         ],
-        OwnerLayout::Rbac => &[RBAC_BEFORE_PARTICIPANTS],
+        OwnerLayout::Rbac => &[RBAC_BEFORE_PARTICIPANTS, RBAC_BEFORE_PROFILE_GRANTS],
         OwnerLayout::Blob => &[BLOB_BEFORE_HOLDERS],
         OwnerLayout::Sql => &[SQL_BEFORE_SOURCE_CHECKPOINTS, SQL_BEFORE_DURABLE_ANN],
         OwnerLayout::LedgerOnly
@@ -377,7 +389,7 @@ pub fn pinned_layout_digest(layout: OwnerLayout) -> &'static str {
         OwnerLayout::LedgerOnly => {
             "9faad03bf787a2a893618b7a8b386de30bdd5b4e09f3930448040c3e47c59e3e"
         }
-        OwnerLayout::Rbac => "69c47a761ddd81faa55b41184b19d991b762f9567269840c3845338a4a05acd1",
+        OwnerLayout::Rbac => "808f322442d111c7c03c9f5fb2a297adb8aebab3eb3843328ced469d3723c339",
         OwnerLayout::Jobs => "64eb7ffd327980a8269bc8cf61147bc269b4ee8eab1ae0f5de3a244bbec9dad4",
         OwnerLayout::Statechart => {
             "d8ab661d50af9249a342a101537f0ef92c13df6808b5fd149c037d8587cff8a7"

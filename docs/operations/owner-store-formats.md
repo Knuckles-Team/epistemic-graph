@@ -8,7 +8,7 @@ Every durable owner file records the digest of its exact table layout. A file wh
 | Store | Current layout digest | Refused predecessors |
 |---|---|---|
 | `ledger_only` | `9faad03bf787a2a893618b7a8b386de30bdd5b4e09f3930448040c3e47c59e3e` | none |
-| `rbac` | `3c89b3207faa962a94eb1ce724f944dde5a4acf94841a23d9c416855866d4c8e` | none |
+| `rbac` | `808f322442d111c7c03c9f5fb2a297adb8aebab3eb3843328ced469d3723c339` | `RBAC_FORMAT_UPGRADE_REQUIRED` |
 | `jobs` | `64eb7ffd327980a8269bc8cf61147bc269b4ee8eab1ae0f5de3a244bbec9dad4` | none |
 | `statechart` | `d8ab661d50af9249a342a101537f0ef92c13df6808b5fd149c037d8587cff8a7` | none |
 | `time_series` | `5f2b379c6ea02f36f38bcfd2fd8f6277e5174467f3c81b309fffdf87ec1a1581` | none |
@@ -23,8 +23,24 @@ Every durable owner file records the digest of its exact table layout. A file wh
 | `tenant_catalog` | `01b945d16fa187e69ca3dd5777a27066310b64a8b351380af1ba810f5dcd57aa` | none |
 | `node_info` | `02e5ca262822f4de0a1507780b2e908e605655d3a758e78c2a75f205ffa80347` | none |
 | `cluster_hierarchy` | `0561a2a2ae13f067bf01a4c94d6cbaeb280aaefa56c68036a1f01da92cba8431` | none |
-| `graph_shard` | `cfc47e43654abc32fbf63cf3d9d7ffd4e04c742e3c955c259d2d05f5316e0a27` | `GRAPH_SHARD_FORMAT_UPGRADE_REQUIRED` |
-| `agent_library` | `e112d8118e4e62b002799b84bba8c69162e477071861a81d3893277736727ea0` | `AGENT_LIBRARY_FORMAT_UPGRADE_REQUIRED` |
+| `graph_shard` | `f15681f52b9a627b214f592a10778adf368e7c5e11ea4ada92f3ce99f6f7b560` | `GRAPH_SHARD_FORMAT_UPGRADE_REQUIRED` |
+| `agent_library` | `7512d7bc2f8bdbcf3dd243b52a35b91ee2b47621a8c7c5cc9d6b64ab37187b61` | `AGENT_LIBRARY_FORMAT_UPGRADE_REQUIRED` |
+
+## `RBAC_FORMAT_UPGRADE_REQUIRED`: RBAC before durable participant reservations
+
+* Store file: `rbac.redb`
+* Refused generation: RBAC before durable participant reservations
+* Data lost: none after offline upgrade. The upgrade preserves existing rows.
+* Owner tables of the refused generation: `rbac`
+* Removal step: none. Stop the engine. Run `epistemic-graph-server store-upgrade apply <data-dir> --confirm` to upgrade this generation in place. See the procedure below. Moving the file aside instead loses its rows.
+
+## `RBAC_FORMAT_UPGRADE_REQUIRED`: RBAC before profile grant records
+
+* Store file: `rbac.redb`
+* Refused generation: RBAC before profile grant records
+* Data lost: none after offline upgrade. The upgrade preserves existing rows.
+* Owner tables of the refused generation: `rbac`, `rbac_participants`
+* Removal step: none. Stop the engine. Run `epistemic-graph-server store-upgrade apply <data-dir> --confirm` to upgrade this generation in place. See the procedure below. Moving the file aside instead loses its rows.
 
 ## `BLOB_FORMAT_UPGRADE_REQUIRED`: blob store from before holder-scoped references
 
@@ -40,7 +56,7 @@ Every durable owner file records the digest of its exact table layout. A file wh
 * Refused generation: SQL catalog store before durable source checkpoints
 * Data lost: its SQL catalog and rows require an explicit offline upgrade before normal open, or re-ingestion after moving the file aside
 * Owner tables of the refused generation: `__sql_catalog__`, `__sql_functions__`, `__sql_ann_indexes__`, `__sql_secondary_indexes__`, `__sql_secondary_index_entries__`, `__sql_hypertables__`, `__sql_source_authority__`, `__sql_views__`, `__sql_extensions__`, `__sql_rows__`, `__sql_seq__`, `__sql_schema_catalog_versions__`, `__sql_schema_versions__`, `__sql_schema_migrations__`, `__sql_schema_migration_order__`, `__sql_schema_catalog_order__`, `__sql_property_graphs__`, `__sql_property_graph_seq__`
-* Removal step: none. This generation is upgraded in place with `epistemic-graph-server store-upgrade apply <data-dir> --confirm` while the engine is stopped; see the procedure below. Moving the file aside instead loses its rows.
+* Removal step: none. Stop the engine. Run `epistemic-graph-server store-upgrade apply <data-dir> --confirm` to upgrade this generation in place. See the procedure below. Moving the file aside instead loses its rows.
 
 ## `SQL_FORMAT_UPGRADE_REQUIRED`: SQL catalog store before durable ANN and edge index generations
 
@@ -48,7 +64,7 @@ Every durable owner file records the digest of its exact table layout. A file wh
 * Refused generation: SQL catalog store before durable ANN and edge index generations
 * Data lost: its SQL catalog and rows require an explicit offline upgrade before normal open, or re-ingestion after moving the file aside
 * Owner tables of the refused generation: `__sql_catalog__`, `__sql_functions__`, `__sql_ann_indexes__`, `__sql_secondary_indexes__`, `__sql_secondary_index_entries__`, `__sql_hypertables__`, `__sql_source_authority__`, `__sql_views__`, `__sql_extensions__`, `__sql_rows__`, `__sql_seq__`, `__sql_schema_catalog_versions__`, `__sql_schema_versions__`, `__sql_schema_migrations__`, `__sql_schema_migration_order__`, `__sql_schema_catalog_order__`, `__sql_property_graphs__`, `__sql_property_graph_seq__`, `__sql_source_checkpoints__`
-* Removal step: none. This generation is upgraded in place with `epistemic-graph-server store-upgrade apply <data-dir> --confirm` while the engine is stopped; see the procedure below. Moving the file aside instead loses its rows.
+* Removal step: none. Stop the engine. Run `epistemic-graph-server store-upgrade apply <data-dir> --confirm` to upgrade this generation in place. See the procedure below. Moving the file aside instead loses its rows.
 
 ## `GRAPH_SHARD_FORMAT_UPGRADE_REQUIRED`: graph shard store before the background node-payload scrub
 
@@ -64,7 +80,7 @@ Every durable owner file records the digest of its exact table layout. A file wh
 * Refused generation: graph shard before repository enrichment budgets and supersession
 * Data lost: its graph rows require the explicit offline enrichment layout upgrade before normal open, or re-ingestion after moving the file aside
 * Owner tables of the refused generation: `nodes`, `edges`, `ledger`, `semantic_store`, `audit_chain`, `provenance_anchor_members`, `graph_meta`, `work_item_command_sequence`, `resource_reservations`, `resource_reservation_tenant_index`, `resource_reservation_attempts`, `resource_hosts`, `resource_exclusivity`, `resource_fairness`, `resource_concurrency`, `resource_anti_affinity`, `resource_disk_policies`, `change_envelopes`, `content_versions`, `change_cursors`, `change_blobs`, `change_features`, `change_evidence`, `change_policies`, `change_lineage`, `raft_log`, `raft_meta`, `xshard_prepare`, `xshard_decision`, `matviews`, `plan_matviews`, `matview_operator_state`, `capacity_cells`, `capacity_leases`, `capacity_usage`, `capacity_idempotency`, `work_item_claim_capabilities`, `work_item_claim_capability_invocations`, `native_work_item_authority`, `development_lane_holds`, `development_lane_tenant_index`, `development_lane_lane_index`, `development_lane_repository_branch_index`, `development_lane_worktree_index`, `development_lane_work_item_index`, `development_lane_counters`, `development_lane_pressure_index`, `development_lane_policies`, `development_lane_invocations`, `encryption_canary`, `series_chunks`, `series_meta`, `series_projection_state`, `storage_scrub_cursor`
-* Removal step: none. This generation is upgraded in place with `epistemic-graph-server store-upgrade apply <data-dir> --confirm` while the engine is stopped; see the procedure below. Moving the file aside instead loses its rows.
+* Removal step: none. Stop the engine. Run `epistemic-graph-server store-upgrade apply <data-dir> --confirm` to upgrade this generation in place. See the procedure below. Moving the file aside instead loses its rows.
 
 ## `GRAPH_SHARD_FORMAT_UPGRADE_REQUIRED`: graph shard before repository enrichment policy revisions
 
@@ -80,7 +96,7 @@ Every durable owner file records the digest of its exact table layout. A file wh
 * Refused generation: graph shard before the operation audit-append idempotency index
 * Data lost: its graph rows require the explicit offline audit-request-index layout upgrade before normal open, or re-ingestion after moving the file aside
 * Owner tables of the refused generation: `nodes`, `edges`, `ledger`, `semantic_store`, `audit_chain`, `provenance_anchor_members`, `graph_meta`, `work_item_command_sequence`, `resource_reservations`, `resource_reservation_tenant_index`, `resource_reservation_attempts`, `resource_hosts`, `resource_exclusivity`, `resource_fairness`, `resource_concurrency`, `resource_anti_affinity`, `resource_disk_policies`, `change_envelopes`, `content_versions`, `change_cursors`, `change_blobs`, `change_features`, `change_evidence`, `change_policies`, `change_lineage`, `raft_log`, `raft_meta`, `xshard_prepare`, `xshard_decision`, `matviews`, `plan_matviews`, `matview_operator_state`, `capacity_cells`, `capacity_leases`, `capacity_usage`, `capacity_idempotency`, `repository_enrichment_budgets`, `repository_enrichment_policy_revisions`, `repository_enrichment_supersessions`, `repository_enrichment_parks`, `work_item_claim_capabilities`, `work_item_claim_capability_invocations`, `native_work_item_authority`, `development_lane_holds`, `development_lane_tenant_index`, `development_lane_lane_index`, `development_lane_repository_branch_index`, `development_lane_worktree_index`, `development_lane_work_item_index`, `development_lane_counters`, `development_lane_pressure_index`, `development_lane_policies`, `development_lane_invocations`, `encryption_canary`, `series_chunks`, `series_meta`, `series_projection_state`, `storage_scrub_cursor`
-* Removal step: none. This generation is upgraded in place with `epistemic-graph-server store-upgrade apply <data-dir> --confirm` while the engine is stopped; see the procedure below. Moving the file aside instead loses its rows.
+* Removal step: none. Stop the engine. Run `epistemic-graph-server store-upgrade apply <data-dir> --confirm` to upgrade this generation in place. See the procedure below. Moving the file aside instead loses its rows.
 
 ## `GRAPH_SHARD_FORMAT_UPGRADE_REQUIRED`: graph shard before private current-plan snapshots
 
@@ -88,7 +104,15 @@ Every durable owner file records the digest of its exact table layout. A file wh
 * Refused generation: graph shard before private current-plan snapshots
 * Data lost: none after the explicit offline current-plan layout upgrade. Normal open refuses this predecessor.
 * Owner tables of the refused generation: `nodes`, `edges`, `ledger`, `semantic_store`, `audit_chain`, `provenance_anchor_members`, `graph_meta`, `work_item_command_sequence`, `resource_reservations`, `resource_reservation_tenant_index`, `resource_reservation_attempts`, `resource_hosts`, `resource_exclusivity`, `resource_fairness`, `resource_concurrency`, `resource_anti_affinity`, `resource_disk_policies`, `change_envelopes`, `content_versions`, `change_cursors`, `change_blobs`, `change_features`, `change_evidence`, `change_policies`, `change_lineage`, `raft_log`, `raft_meta`, `xshard_prepare`, `xshard_decision`, `matviews`, `plan_matviews`, `matview_operator_state`, `capacity_cells`, `capacity_leases`, `capacity_usage`, `capacity_idempotency`, `repository_enrichment_budgets`, `repository_enrichment_policy_revisions`, `repository_enrichment_supersessions`, `repository_enrichment_parks`, `audit_requests`, `work_item_claim_capabilities`, `work_item_claim_capability_invocations`, `native_work_item_authority`, `development_lane_holds`, `development_lane_tenant_index`, `development_lane_lane_index`, `development_lane_repository_branch_index`, `development_lane_worktree_index`, `development_lane_work_item_index`, `development_lane_counters`, `development_lane_pressure_index`, `development_lane_policies`, `development_lane_invocations`, `encryption_canary`, `series_chunks`, `series_meta`, `series_projection_state`, `storage_scrub_cursor`
-* Removal step: none. This generation is upgraded in place with `epistemic-graph-server store-upgrade apply <data-dir> --confirm` while the engine is stopped; see the procedure below. Moving the file aside instead loses its rows.
+* Removal step: none. Stop the engine. Run `epistemic-graph-server store-upgrade apply <data-dir> --confirm` to upgrade this generation in place. See the procedure below. Moving the file aside instead loses its rows.
+
+## `GRAPH_SHARD_FORMAT_UPGRADE_REQUIRED`: graph shard before retained decision certificates
+
+* Store file: `graph-*.redb`
+* Refused generation: graph shard before retained decision certificates
+* Data lost: none after explicit offline decision-certificate layout upgrade. Normal open refuses this predecessor.
+* Owner tables of the refused generation: `nodes`, `edges`, `ledger`, `semantic_store`, `audit_chain`, `provenance_anchor_members`, `graph_meta`, `work_item_command_sequence`, `resource_reservations`, `resource_reservation_tenant_index`, `resource_reservation_attempts`, `resource_hosts`, `resource_exclusivity`, `resource_fairness`, `resource_concurrency`, `resource_anti_affinity`, `resource_disk_policies`, `change_envelopes`, `content_versions`, `change_cursors`, `change_blobs`, `change_features`, `change_evidence`, `change_policies`, `change_lineage`, `raft_log`, `raft_meta`, `xshard_prepare`, `xshard_decision`, `matviews`, `plan_matviews`, `matview_operator_state`, `capacity_cells`, `capacity_leases`, `capacity_usage`, `capacity_idempotency`, `repository_enrichment_budgets`, `repository_enrichment_policy_revisions`, `repository_enrichment_supersessions`, `repository_enrichment_parks`, `audit_requests`, `work_item_current_plans`, `work_item_claim_capabilities`, `work_item_claim_capability_invocations`, `native_work_item_authority`, `development_lane_holds`, `development_lane_tenant_index`, `development_lane_lane_index`, `development_lane_repository_branch_index`, `development_lane_worktree_index`, `development_lane_work_item_index`, `development_lane_counters`, `development_lane_pressure_index`, `development_lane_policies`, `development_lane_invocations`, `encryption_canary`, `series_chunks`, `series_meta`, `series_projection_state`, `storage_scrub_cursor`
+* Removal step: none. Stop the engine. Run `epistemic-graph-server store-upgrade apply <data-dir> --confirm` to upgrade this generation in place. See the procedure below. Moving the file aside instead loses its rows.
 
 ## `AGENT_LIBRARY_FORMAT_UPGRADE_REQUIRED`: Agent Library before connector packs and governed write-back
 
@@ -104,7 +128,15 @@ Every durable owner file records the digest of its exact table layout. A file wh
 * Refused generation: Agent Library before served MCP catalog authority
 * Data lost: its rows require the explicit offline MCP catalog layout upgrade before normal open, or republishing after moving the file aside
 * Owner tables of the refused generation: `agent_library`, `agent_library_heads`, `agent_graph`, `agent_graph_heads`, `agent_component`, `agent_component_heads`, `agent_template`, `agent_template_heads`, `connector_pack_heads`, `connector_pack_members`, `connector_pack_imports`, `connector_pack_body_holders`, `connector_pack_bindings`, `decision_artifacts`, `decision_records`, `write_back_change_sets`, `write_back_idempotency`, `write_back_receipts`, `write_back_receipt_heads`
-* Removal step: none. This generation is upgraded in place with `epistemic-graph-server store-upgrade apply <data-dir> --confirm` while the engine is stopped; see the procedure below. Moving the file aside instead loses its rows.
+* Removal step: none. Stop the engine. Run `epistemic-graph-server store-upgrade apply <data-dir> --confirm` to upgrade this generation in place. See the procedure below. Moving the file aside instead loses its rows.
+
+## `AGENT_LIBRARY_FORMAT_UPGRADE_REQUIRED`: Agent Library before durable participant reservations
+
+* Store file: `agent_library.redb`
+* Refused generation: Agent Library before durable participant reservations
+* Data lost: none after offline upgrade. The upgrade preserves existing rows.
+* Owner tables of the refused generation: `agent_library`, `agent_library_heads`, `agent_graph`, `agent_graph_heads`, `agent_component`, `agent_component_heads`, `agent_template`, `agent_template_heads`, `connector_pack_heads`, `connector_pack_members`, `connector_pack_imports`, `connector_pack_body_holders`, `connector_pack_bindings`, `mcp_catalog_configs`, `mcp_catalog_scopes`, `decision_artifacts`, `decision_records`, `write_back_change_sets`, `write_back_idempotency`, `write_back_receipts`, `write_back_receipt_heads`
+* Removal step: none. Stop the engine. Run `epistemic-graph-server store-upgrade apply <data-dir> --confirm` to upgrade this generation in place. See the procedure below. Moving the file aside instead loses its rows.
 
 ## Offline upgrade procedure
 
@@ -121,6 +153,10 @@ The last output line of both verbs is one JSON object with the outcome, the exit
 
 | Store | Predecessor generation | Store file |
 |---|---|---|
+| `rbac` | RBAC before profile grant records | `rbac.redb` |
+| `rbac` | RBAC before durable participant reservations | `rbac.redb` |
+| `agent_library` | Agent Library before durable participant reservations | `agent_library.redb` |
+| `graph_shard` | graph shard before retained decision certificates | `graph-*.redb` |
 | `graph_shard` | graph shard before private current-plan snapshots | `graph-*.redb` |
 | `sql` | SQL catalog store before durable source checkpoints | `sql.redb` |
 | `sql` | SQL catalog store before durable ANN and edge index generations | `sql.redb` |

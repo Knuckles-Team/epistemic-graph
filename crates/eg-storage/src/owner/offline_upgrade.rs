@@ -11,8 +11,9 @@
 use super::agent_library_upgrade::{
     inspect_agent_library_mcp_catalog_upgrade, inspect_agent_library_participant_upgrade,
     inspect_graph_shard_upgrade, inspect_rbac_participant_upgrade,
-    upgrade_agent_library_mcp_catalog, upgrade_agent_library_participant, upgrade_graph_shard,
-    upgrade_rbac_participant, GraphShardSource, OwnerLayoutUpgradeReport,
+    inspect_rbac_profile_grants_upgrade, upgrade_agent_library_mcp_catalog,
+    upgrade_agent_library_participant, upgrade_graph_shard, upgrade_rbac_participant,
+    upgrade_rbac_profile_grants, GraphShardSource, OwnerLayoutUpgradeReport,
 };
 use super::identity::PhysicalStoreIdentity;
 use super::layout::OwnerLayout;
@@ -20,7 +21,8 @@ use super::lineage::{
     layout_predecessors, AGENT_LIBRARY_BEFORE_MCP_CATALOG, AGENT_LIBRARY_BEFORE_PARTICIPANTS,
     GRAPH_SHARD_BEFORE_AUDIT_REQUESTS, GRAPH_SHARD_BEFORE_CURRENT_PLANS,
     GRAPH_SHARD_BEFORE_DECISION_CERTIFICATE, GRAPH_SHARD_BEFORE_ENRICHMENT,
-    RBAC_BEFORE_PARTICIPANTS, SQL_BEFORE_DURABLE_ANN, SQL_BEFORE_SOURCE_CHECKPOINTS,
+    RBAC_BEFORE_PARTICIPANTS, RBAC_BEFORE_PROFILE_GRANTS, SQL_BEFORE_DURABLE_ANN,
+    SQL_BEFORE_SOURCE_CHECKPOINTS,
 };
 use super::persisted_layout::{read_persisted_manifest, LayoutPredecessor};
 use super::sql_checkpoint_upgrade::{
@@ -140,6 +142,11 @@ macro_rules! offline_upgrade {
 /// Every offline upgrade this build can run, in the order an operator command
 /// reports them.
 pub static OFFLINE_STORE_UPGRADES: &[OfflineStoreUpgrade] = &[
+    offline_upgrade!(
+        RBAC_BEFORE_PROFILE_GRANTS,
+        inspect_rbac_profile_grants_upgrade,
+        upgrade_rbac_profile_grants
+    ),
     offline_upgrade!(
         RBAC_BEFORE_PARTICIPANTS,
         inspect_rbac_participant_upgrade,
@@ -272,9 +279,8 @@ fn classify_manifest(manifest: &OwnerManifest) -> OwnerStoreFormat {
 pub(crate) fn render_removal_step(predecessor: &LayoutPredecessor) -> String {
     match registered_offline_upgrade(predecessor) {
         Some(_) => format!(
-            "none. This generation is upgraded in place with `{OFFLINE_UPGRADE_APPLY_COMMAND}` \
-             while the engine is stopped; see the procedure below. Moving the file aside \
-             instead loses its rows."
+            "none. Stop the engine. Run `{OFFLINE_UPGRADE_APPLY_COMMAND}` to upgrade this generation in place. \
+             See the procedure below. Moving the file aside instead loses its rows."
         ),
         None => format!(
             "stop the engine, move `{}` aside (keep it until the restarted engine is confirmed \

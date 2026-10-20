@@ -15,6 +15,8 @@
 //! mandatory authorization layer used by `IsolationLayer`. An empty policy is a valid
 //! fail-closed bootstrap image: it grants no action to any non-System identity.
 
+pub mod profile_grants;
+
 use std::collections::{HashMap, HashSet};
 
 use crate::acl::{Grant, GrantEffect, RbacAction, ResourceContext, Role};
