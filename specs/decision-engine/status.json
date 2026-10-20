@@ -8842,8 +8842,10 @@
     {
       "id": "EG-DECISION-ENGINE-R801.3",
       "title": "Wiring",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "52b574819aca"
+      ],
       "verified_by": [
         "crates/eg-capabilities/src/scopes/tests.rs:73",
         "crates/eg-core/src/usage_ledger.rs:64",
