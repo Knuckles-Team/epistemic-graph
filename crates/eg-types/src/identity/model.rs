@@ -91,6 +91,10 @@ pub struct PasswordCredential {
 #[serde(deny_unknown_fields)]
 pub struct SessionRecord {
     pub session_hash: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_ref: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_tenant: Option<String>,
     pub principal_id: String,
     pub created_at_ms: u64,
     pub last_seen_at_ms: u64,

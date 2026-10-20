@@ -73,6 +73,14 @@ pub(super) fn apply_and_compose(
     })
 }
 
+// Metadata provenance only: failure omits the record binding and does not
+// change the credential operation's existing validation or result.
+pub(super) fn record_tenant(context: &VerifiedRequestContext) -> Option<String> {
+    let policy = request_context_policy().ok()?;
+    validate_policy(context.claims(), policy).ok()?;
+    Some(policy.expected_tenant.clone())
+}
+
 fn is_credential_resolution(op: &IdentityOp) -> bool {
     matches!(
         op,

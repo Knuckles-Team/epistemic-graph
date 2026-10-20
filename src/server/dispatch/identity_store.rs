@@ -48,6 +48,7 @@ pub(crate) async fn stamp_identity(
         return Ok(());
     };
     let mut derived = IdentityStamp::for_actor(identity_actor(context));
+    derived.session_tenant = resolution_context::record_tenant(context);
     let (store, service_secret) = {
         let guard = super::timed_read(state).await;
         (
