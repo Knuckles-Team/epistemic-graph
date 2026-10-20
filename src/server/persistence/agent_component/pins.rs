@@ -13,7 +13,7 @@ use super::{
 type PackHeadTable<'a> =
     eg_storage::OwnerReadTable<'a, (&'static str, &'static str), &'static [u8]>;
 
-pub(super) fn resolve_component_pins_in_write(
+pub(in crate::server::persistence) fn resolve_component_pins_in_write(
     write: &eg_transaction::AdmittedMutation<'_, eg_storage::AgentLibraryOwner>,
     tenant_id: &str,
     subject: &str,

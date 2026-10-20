@@ -2005,3 +2005,20 @@ abstention keeps the current harness. The answer stores as a
 ARBORA-OPS-R068.4 adopts it service-only, beside the decide-commit
 pattern of ARBORA-OPS-R021.1. The engine runs no model and holds no
 local ranking: the measured contrast is the authority.
+
+### R036.104 implementation boundary — Agent Library participant
+
+The #662 record map's component rows mean `agent_component` and
+`agent_component_heads`, owned by AgentLibraryOwner; ModelProfile is an
+AgentComponentKind, not an Agent Library agent definition. Reserve the exact
+component revisions and mutable heads, pack visibility and decision-record
+absence predicates in the admitting transaction. Start with one durable
+reservation per physical owner; all ordinary owner-row writers refuse while
+it remains pending. The sealed intent retains the decision body and its native
+mutation context. Commit consumes the reservation beside the decision component,
+record body and receipt in one owner transaction. Missing coordinator evidence
+retains the reservation across reopen; elapsed time never manufactures abort.
+Native execution, expiry certificates and cross-owner visibility qualification
+remain separately reported; this implementation does not itself grant authority.
+
+R036.104 seals the full native coordinator binding at prepare: transaction, tenant, coordinator incarnation/scope, complete intent digest and authority deadline. Resolution reads a typed certificate from the trusted owner adapter and validates all fields and the original decision timestamp. Commit at or after expiry refuses; delayed recovery does not substitute its clock for the stored stamp. Abort may resolve after expiry. Caller-supplied certificate bytes are not authority.

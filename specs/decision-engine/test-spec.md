@@ -48,10 +48,10 @@ Pass an empty contract version and a bespoke call path through the real runtime 
 
 | ID | Positive fixture | Refusal and boundary fixture |
 |---|---|---|
-| EG-DECISION-ENGINE-R118 | Two source pools with independently labeled successes/failures, one sparse pool and two tenant scopes yield reproducible posterior, Brier/log/decomposition/calibration scores; the governed value agrees in decision policy, retrieval rank and UQL. | Self-reported labels, invisible outcomes and missing pool history cannot improve another tenant's score; a caller-supplied weight cannot override the materialization; sparse history abstains. |
+| EG-DECISION-ENGINE-R118 | Use two source pools with independently labeled successes/failures, one sparse pool and two tenant scopes. They yield reproducible posterior and Brier/log/decomposition/calibration scores. The governed value agrees in decision policy, retrieval rank and UQL. | Self-reported labels, invisible outcomes and missing pool history cannot improve another tenant's score; a caller-supplied weight cannot override the materialization; sparse history abstains. |
 | EG-DECISION-ENGINE-R119 | A fixed bitemporal series produces exact purged/embargoed walk-forward folds, proportional shared-cap allocations, real trial-count DSR, split PBO, incumbent DM, option contributions and byte-identical sealed replay after checkpoint resume. | Future-known rows, overlap, changed source/head/policy digest, over-cap allocation, policy-dependent environment, bad supersedes digest and malformed `REPLAY WALK FORWARD` refuse without a sealed run or head promotion. |
 
-For each changed code path run focused Rust/Python/client tests, `cargo fmt --check`, workspace Clippy with applicable features, generated contract freshness, CCCC, KISS, Dupehound and jscpd differential with zero new pairs. Hosted CI runs build/package tests for affected features and the locally provisioned served journey. Optional cloud/cluster/identity-provider tests run in a separate deployment qualification and cannot block normal external PRs merely because no live environment exists. An acceptance record is complete only when every relevant A–E case and gate has a result tied to the same published commit; `SOURCE_LANDED` stays distinct from `ACCEPTED`.
+For each changed code path, run focused Rust/Python/client tests, `cargo fmt --check`, and workspace Clippy with applicable features. Check generated contract freshness. Run CCCC, KISS, Dupehound and jscpd differential with zero new pairs. Hosted CI runs build/package tests for affected features and the locally provisioned served journey. Optional cloud/cluster/identity-provider tests run in a separate deployment qualification. A missing live environment cannot block normal external PRs. Every relevant A–E case and gate must have a result tied to the same published commit. Only then is the acceptance record complete. `SOURCE_LANDED` stays distinct from `ACCEPTED`.
 
 ### EG-DECISION-ENGINE-R113.1: capacity commit type
 
@@ -827,3 +827,13 @@ Hot-path proof for `EG-DECISION-ENGINE-R802`: `tests/web_document_enrich_served.
 | Hot-path proof | `EG-DECISION-ENGINE-R803.6` | `tests/decide/test_harness_contrast_served.py::test_contrast_hot_path_served`: The served test passes, and the benchmark meets the budget. |
 
 Hot-path proof for `EG-DECISION-ENGINE-R803`: `tests/decide/test_harness_contrast_served.py::test_contrast_hot_path_served`.
+
+## EG-DECISION-ENGINE-R036.104 — Agent Library owner participant
+
+Run native tests in `src/server/persistence/agent_library/participant/tests.rs` against real owner storage. Prove pending reservation survives reopen and blocks component retirement; unavailable decision retains it; abort preserves absent decision rows; committed resolution materializes the sealed decision and consumes prepare atomically; changed intent and stale prepare refuse. Coordinator certificate, cross-owner visibility and concurrent qualification remain required before parent completion.
+
+R036.104 also covers write-back and decision-artifact maintenance: a pending reservation refuses the shared maintenance writer without advancing the native version, then a proven abort permits maintenance again. Decode the prepare receipt with the ledger MessagePack codec. Fixture-dependent tests run under the `decide` feature; no native execution is claimed by source presence.
+
+R036.104 certificate tests reject mismatched transaction, tenant, coordinator scope, intent digest, deadline and an expired commit stamp without releasing prepare. Accept the original pre-expiry commit stamp on delayed recovery, and permit a proven post-expiry abort.
+
+R036.104 also proves a terminal transaction cannot claim a changed context or intent at a fresh owner version. Stable per-transaction maintenance receipt keys retain the original prepare claim after the active row clears. Resolution checks exact receipt payloads; valid old certificates cannot authorize a different sealed intent.

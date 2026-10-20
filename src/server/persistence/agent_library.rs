@@ -37,6 +37,7 @@ mod batch;
 mod history;
 #[cfg(test)]
 mod open_tests;
+pub(crate) mod participant;
 mod receipt;
 mod replay;
 mod write;

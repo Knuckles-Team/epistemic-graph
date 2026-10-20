@@ -159,3 +159,31 @@ fn pinned_in_write(
         format!("policy '{}' has no such revision", pin.component_id),
     ))
 }
+
+/// A new coordinated admission cannot use a retired or superseded template head.
+pub(super) fn validate_reservation_template_heads(
+    txn: &Write<'_>,
+    record: &DecisionRecord,
+) -> Result<(), String> {
+    let heads = txn.open_read_table(eg_storage::AGENT_GRAPH_HEADS)?;
+    let revisions = txn.open_read_table(eg_storage::AGENT_GRAPH_REVISIONS)?;
+    for template in &record.inputs.templates {
+        let tenant = record.tenant_id.as_str();
+        let id = template.graph_id.as_str();
+        let head = heads
+            .get((tenant, id))?
+            .ok_or("reserved template head missing")?
+            .value();
+        if head != template.entry_revision {
+            return Err("reserved template head changed".into());
+        }
+        let row = revisions
+            .get((tenant, id, head))?
+            .ok_or("reserved template revision missing")?;
+        let entry = decode_revision::<GraphLayer>(row.value())?;
+        if entry.lifecycle != eg_types::AgentLibraryLifecycle::Published {
+            return Err("reserved template is not published".into());
+        }
+    }
+    Ok(())
+}

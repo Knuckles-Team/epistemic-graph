@@ -35,7 +35,7 @@ use super::agent_revision::{
     decode_committed, decode_revision, ledger_status_record, status_result_bytes,
     RevisionDefinition, RevisionLayer, RevisionTables, RevisionVerb,
 };
-mod pins;
+pub(super) mod pins;
 mod write;
 
 const AGENT_COMPONENT_OUTBOX_TOPIC: &str = "eg.agent-component.revision.v1";

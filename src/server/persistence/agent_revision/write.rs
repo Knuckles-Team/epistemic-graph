@@ -138,6 +138,19 @@ pub(in crate::server::persistence) fn write_revision_with_rows<'a, L: RevisionLa
     prepare: impl FnOnce(&Write<'a>, u64, &AgentLibraryMutationContext) -> Result<L::Entry, String>,
     side_rows: impl FnOnce(&AdmittedOwnerWrite<'_, Owner>) -> Result<(), String>,
 ) -> Result<L::WriteResult, String> {
+    write_revision_reserved::<L>(store, txn, owner, (tables, write), prepare, side_rows, None)
+}
+
+/// The only reserved write path takes a permit minted from a terminal decision.
+pub(in crate::server::persistence) fn write_revision_reserved<'a, L: RevisionLayer>(
+    store: &AgentLibraryStore,
+    txn: Write<'a>,
+    owner: &OwnedStoreHandle<Owner>,
+    (tables, write): (RevisionTables, RevisionWrite<'_, L>),
+    prepare: impl FnOnce(&Write<'a>, u64, &AgentLibraryMutationContext) -> Result<L::Entry, String>,
+    side_rows: impl FnOnce(&AdmittedOwnerWrite<'_, Owner>) -> Result<(), String>,
+    reservation: Option<&super::super::agent_library::participant::ResolutionPermit<'_>>,
+) -> Result<L::WriteResult, String> {
     let (txn, admission) = within_write(txn, |txn| {
         admit_revision::<L>(&store.mutations, txn, owner, &write)
     })?;
@@ -165,7 +178,7 @@ pub(in crate::server::persistence) fn write_revision_with_rows<'a, L: RevisionLa
             operation: &operation,
             nonce: &nonce,
         },
-        side_rows,
+        (side_rows, reservation),
     )
 }
 
@@ -249,12 +262,15 @@ fn commit_revision_in_write<L: RevisionLayer>(
     owner: &OwnedStoreHandle<Owner>,
     tables: RevisionTables,
     commit: RevisionCommit<'_, L>,
-    side_rows: impl FnOnce(&AdmittedOwnerWrite<'_, Owner>) -> Result<(), String>,
+    (side_rows, reservation): (
+        impl FnOnce(&AdmittedOwnerWrite<'_, Owner>) -> Result<(), String>,
+        Option<&super::super::agent_library::participant::ResolutionPermit<'_>>,
+    ),
 ) -> Result<L::WriteResult, String> {
     let (operation, nonce) = (commit.operation, commit.nonce);
     let (txn, plan) = within_write(txn, |txn| {
         let plan = build_commit_plan::<L>(store, txn, owner, commit)?;
-        apply_owner_rows(txn, owner, &plan.staged.batch, |owner_write| {
+        apply_reserved_owner_rows(txn, owner, &plan.staged.batch, reservation, |owner_write| {
             apply_revision_rows::<L>(
                 owner_write,
                 tables,
@@ -442,8 +458,22 @@ pub(in crate::server::persistence) fn apply_owner_rows(
     batch: &MutationBatch,
     apply: impl FnOnce(&AdmittedOwnerWrite<'_, Owner>) -> Result<(), String>,
 ) -> Result<(), String> {
+    apply_reserved_owner_rows(txn, owner, batch, None, apply)
+}
+
+fn apply_reserved_owner_rows(
+    txn: &Write<'_>,
+    owner: &OwnedStoreHandle<Owner>,
+    batch: &MutationBatch,
+    reservation: Option<&super::super::agent_library::participant::ResolutionPermit<'_>>,
+    apply: impl FnOnce(&AdmittedOwnerWrite<'_, Owner>) -> Result<(), String>,
+) -> Result<(), String> {
+    super::super::agent_library::participant::check_write(txn, reservation)?;
     let owner_write = txn.owner_rows(owner, batch)?;
     apply(&owner_write)?;
+    if let Some(permit) = reservation {
+        permit.consume(&owner_write)?;
+    }
     owner_write.finish_owner()
 }
 

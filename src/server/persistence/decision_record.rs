@@ -42,7 +42,7 @@ use eg_types::decision::{
 use super::agent_component::{component_tables, AgentComponentWriteResult, ComponentLayer};
 use super::agent_library::{validate_context, AgentLibraryStore};
 use super::agent_revision::{
-    decode_revision, revision_scope, write_revision_with_rows, RevisionWrite,
+    decode_revision, revision_scope, write_revision_reserved, RevisionWrite,
 };
 
 /// Media type a committed record's body is served under.
@@ -244,11 +244,24 @@ impl AgentLibraryStore {
     /// must already have passed the engine's re-derivation.
     pub fn commit_decision_record(
         &self,
-        mut context: AgentLibraryMutationContext,
+        context: AgentLibraryMutationContext,
         record: &DecisionRecord,
         expected_catalog_digest: &str,
     ) -> Result<AgentComponentWriteResult, String> {
+        self.commit_reserved_decision(context, record, expected_catalog_digest, None)
+    }
+
+    pub(crate) fn commit_reserved_decision(
+        &self,
+        mut context: AgentLibraryMutationContext,
+        record: &DecisionRecord,
+        expected_catalog_digest: &str,
+        reservation: Option<&super::agent_library::participant::ResolutionPermit<'_>>,
+    ) -> Result<AgentComponentWriteResult, String> {
         validate_context(self, &context)?;
+        if let Some(permit) = reservation {
+            permit.validate_decision(&context, record)?;
+        }
         if record.tenant_id != context.tenant_id {
             return Err("ACCESS_DENIED: the record belongs to another tenant".to_string());
         }
@@ -268,7 +281,7 @@ impl AgentLibraryStore {
         let txn = self.mutations.open_write(&owner)?;
         let tenant = context.tenant_id.clone();
         let record_id = record.record_id.clone();
-        write_revision_with_rows::<ComponentLayer>(
+        write_revision_reserved::<ComponentLayer>(
             self,
             txn,
             &owner,
@@ -300,6 +313,7 @@ impl AgentLibraryStore {
                     .map_err(|error| error.to_string())?;
                 Ok(())
             },
+            reservation,
         )
     }
 }
@@ -388,3 +402,24 @@ mod sources;
 
 #[cfg(all(test, feature = "decide"))]
 pub(crate) mod tests;
+
+/// Validate exactly the existing decision dependencies before durable prepare.
+pub(super) fn validate_reservation_inputs(
+    txn: &eg_transaction::AdmittedMutation<'_, eg_storage::AgentLibraryOwner>,
+    record: &DecisionRecord,
+) -> Result<(), String> {
+    snapshot_check(txn, record)?;
+    sources::check_sources(txn, record)?;
+    sources::validate_reservation_template_heads(txn, record)?;
+    if let eg_types::decision::DecisionPolicyRef::Pinned { component } =
+        &record.inputs.request.policy
+    {
+        super::agent_component::pins::resolve_component_pins_in_write(
+            txn,
+            &record.tenant_id,
+            "reserved decision policy",
+            &[component],
+        )?;
+    }
+    Ok(())
+}

@@ -50,13 +50,10 @@ impl AgentLibraryStore {
             Begin::Replay(_) => return txn.abort(),
             Begin::Apply { source_version } => source_version,
         };
-        let owner_write = txn.owner_rows(&owner, &batch)?;
-        if let Err(error) = apply(&owner_write) {
-            drop(owner_write);
+        if let Err(error) = super::agent_revision::apply_owner_rows(&txn, &owner, &batch, apply) {
             txn.abort()?;
             return Err(error);
         }
-        owner_write.finish_owner()?;
         self.mutations
             .finish(&txn, &batch, None, 0, source_version)?;
         self.mutations.commit(txn, &batch)

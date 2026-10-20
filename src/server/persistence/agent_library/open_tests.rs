@@ -14,7 +14,7 @@ fn fresh_open_initializes_all_pack_tables_and_reopens_empty() {
         let read = store.read().unwrap();
         assert_eq!(
             eg_storage::owner_table_names(eg_storage::OwnerLayout::AgentLibrary).len(),
-            21
+            22
         );
         macro_rules! empty_table {
             ($table:ident) => {
@@ -28,6 +28,7 @@ fn fresh_open_initializes_all_pack_tables_and_reopens_empty() {
                 );
             };
         }
+        empty_table!(AGENT_LIBRARY_PARTICIPANTS);
         empty_table!(CONNECTOR_PACK_HEADS);
         empty_table!(CONNECTOR_PACK_MEMBERS);
         empty_table!(CONNECTOR_PACK_IMPORTS);
