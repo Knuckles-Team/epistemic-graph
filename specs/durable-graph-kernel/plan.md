@@ -819,3 +819,11 @@ ordinal and payload digest. Cursor indices are lookup hints only: exact receipt
 validation is mandatory. Replay never dispatches work. Generic graph readers
 cannot read model/tool payloads. Active and finished history remains retained;
 this increment does not introduce implicit garbage collection or release.
+
+The terminal stream extension carries only run identity and expected tail. Native
+commit builds state from its actual result (`retry_scheduled` projects the row's
+`ready` state); replay verifies that content against the committed result. A
+failed tail CAS rolls back the transition. Fenced, missing and no-op commits do
+not append. Pages enforce both 128-event and 1 MiB serialized-payload bounds.
+Implementation and fixtures are present; release acceptance still requires the
+combined generated contract, native runtime execution and served host evidence.
