@@ -62,3 +62,23 @@ No test in this section has run; these are future acceptance requirements.
 Test unknown-equal IRIs, forbidden/unlisted extensions and descendant proof pinning. Request-local abstention must create no durable gap; separately admit and read the gap and reviewed enhancement.
 
 Test equal admitted endpoints in exact and descendant modes. Test distinct candidate-child/requested-ancestor endpoints only in descendant mode. Refuse reversed, disconnected, mismatched and unknown-equal endpoints. Independently read both endpoints and match mode from resolver output and durable admission receipt after restart.
+
+### EG-ORCH-VOCAB-R801 tests
+
+- `EG-ORCH-VOCAB-R801.1`: `crates/eg-types/tests/harness_components.rs::component_version_round_trips`.
+- `EG-ORCH-VOCAB-R801.2`: `crates/eg-types/tests/harness_components.rs::newer_version_supersedes_and_old_stays_readable`.
+- `EG-ORCH-VOCAB-R801.3`: `src/server/handlers/graph_ops/gateway_graph.rs::tests::harness_component_write_stamps_and_links`.
+- `EG-ORCH-VOCAB-R801.4`: `crates/eg-types/tests/harness_components.rs::evidence_kind_confidence_and_immutability_refusals`.
+- `EG-ORCH-VOCAB-R801.5`: `crates/eg-types/tests/harness_components.rs::version_history_cites_evidence_and_digests`.
+- `EG-ORCH-VOCAB-R801.6`: `tests/orchestration/test_harness_components_served.py::test_two_versions_and_bitemporal_read`.
+
+### EG-ORCH-VOCAB-R802 tests
+
+- `EG-ORCH-VOCAB-R802.1`: `crates/eg-types/tests/harness_lessons.rs::improvement_records_round_trip`.
+- `EG-ORCH-VOCAB-R802.2`: `crates/eg-types/tests/harness_lessons.rs::lesson_requires_measurable_improvement`.
+- `EG-ORCH-VOCAB-R802.3`: `crates/eg-types/tests/harness_lessons.rs::retrieval_ranks_by_confidence_and_abstains`.
+- `EG-ORCH-VOCAB-R802.4`: `crates/eg-types/tests/harness_lessons.rs::supersession_keeps_old_readable`.
+- `EG-ORCH-VOCAB-R802.5`: `crates/eg-types/tests/harness_lessons.rs::evidence_and_condition_refusals`.
+- `EG-ORCH-VOCAB-R802.6`: `tests/orchestration/test_harness_lessons_served.py::test_contrast_lesson_and_retrieval_served`.
+
+Status remains SPECIFIED. `landed_in` and `verified_by` remain empty.

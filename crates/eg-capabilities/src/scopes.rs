@@ -232,6 +232,7 @@ pub const SCOPES: &[ScopeEntry] = &[
     entry("udf:admin", Admin, "engine"),
     entry("udf:exec", User, "engine"),
     entry("usage:read", User, "graph-os"),
+    entry("usage:write", ServiceOnly, "engine"),
     entry("validation:read", User, "engine"),
     entry("viz:render", User, "engine"),
     entry("webui:admin", Admin, "graph-os"),

@@ -1096,6 +1096,12 @@
     },
     {
       "approver_group": null,
+      "class": "service-only",
+      "owner": "engine",
+      "scope": "usage:write"
+    },
+    {
+      "approver_group": null,
       "class": "user",
       "owner": "engine",
       "scope": "validation:read"

@@ -378,6 +378,7 @@ fn seal(
     nl: Option<NlBinding>,
 ) -> Result<StatisticalDecisionRecord, String> {
     let inputs = StatisticalInputs {
+        harness_evaluation: None,
         feature_schema: sealing.request.feature_schema.clone(),
         head: sealing.request.head.clone(),
         policy: sealing.request.policy.clone(),

@@ -504,3 +504,21 @@ fn failed_session_touch_persistence_publishes_no_record_projection() {
 
 #[path = "identity_store_tests/session_evidence.rs"]
 mod session_evidence;
+
+#[test]
+fn admin_capability_refuses_missing_or_unreadable_authority() {
+    let mut layer = IsolationLayer::new();
+    layer
+        .try_register_agent(AgentIdentity {
+            agent_id: "system".into(),
+            role: AgentRole::System,
+            teams: vec![],
+            roles: vec![],
+        })
+        .unwrap();
+    assert!(layer.has_admin_capability("system"));
+    layer.persist = Some(Arc::new(FailingStore));
+    assert!(!layer.has_admin_capability("system"));
+    layer.persist = None;
+    assert!(!layer.has_admin_capability("system"));
+}

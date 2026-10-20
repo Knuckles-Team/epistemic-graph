@@ -252,6 +252,9 @@ pub struct ExplorationRecord {
 #[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct StatisticalInputs {
+    /// Optional exact harness evidence; omission preserves existing record bytes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub harness_evaluation: Option<harness_config::HarnessConfigEvaluationEvidence>,
     pub feature_schema: ComponentDependency,
     #[serde(default)]
     pub head: Option<ComponentDependency>,

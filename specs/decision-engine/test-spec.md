@@ -313,6 +313,12 @@ These acceptance tests require the consumer prerequisites described in the plan.
 - `EG-DECISION-ENGINE-R128.11`: `src/server/handlers/decide/stat_tests/harness_config_tests.rs::premises_and_why_not_cover_each_part`.
 - `EG-DECISION-ENGINE-R128.12`: `src/server/handlers/decide/stat_tests/harness_config_tests.rs::all_parts_abstained_seals_abstention`.
 - `EG-DECISION-ENGINE-R128.13`: `src/server/handlers/decide/stat_tests/harness_config_tests.rs::harness_config_record_commits`.
+- `EG-DECISION-ENGINE-R128.13.1`: roll up the functional evidence/refusal tests and pending resource qualification below. This does not establish successful HarnessConfig replay.
+- `EG-DECISION-ENGINE-R128.13.1.1`: run `absent_harness_evidence_preserves_legacy_bytes_and_digest` and `harness_evidence_roundtrips_and_changes_input_digest` in the producer module. Run `src/server/handlers/decide/stat_tests/harness_config_tests.rs::harness_config_replay_refuses_a_relabelled_generic_record` through native dispatch. Require a valid route control commit, rehashed injected-evidence refusal and absence of the mutated record. Both groups must execute on the exact source; the native dispatch result remains pending.
+- `EG-DECISION-ENGINE-R128.13.1.2`: planned benchmarks are `crates/eg-types/benches/harness_evaluation_evidence.rs::evidence_codec_and_digest_budget` and `benches/harness_config_replay.rs::refuses_attached_evidence_budget`. These benchmarks are unimplemented. Define workload byte/cardinality ceilings and latency/memory limits, then retain exact-source optimized-build measurements. Existing token and vector bounds do not prove these limits.
+- `EG-DECISION-ENGINE-R128.13.2`: roll up successful shared replay/readback and its pending resource qualification. No implementation or execution result is claimed.
+- `EG-DECISION-ENGINE-R128.13.2.1`: planned `src/server/handlers/decide/stat_tests/harness_config_tests.rs::harness_config_record_commits` must prove full answer re-derivation and independent stored-record readback. Include changed-premise and forged-answer refusal cases. All remain pending.
+- `EG-DECISION-ENGINE-R128.13.2.2`: planned, unimplemented `benches/harness_config_replay.rs::commits_rederived_harness_config_budget` measures complete replay, persistence and readback. Define workload and resource limits before acceptance; retain exact-source optimized-build measurements. No limits or measurements are invented here.
 - `EG-DECISION-ENGINE-R128.14`: `crates/eg-capabilities/tests/contract_generated.rs::question_kind_lists_harness_config`.
 - `EG-DECISION-ENGINE-R128.15`: `tests/decide/test_harness_config_served.py::test_harness_config_end_to_end`.
 
@@ -808,3 +814,16 @@ Hot-path proof for `EG-DECISION-ENGINE-R174.9`: `tests/decide/test_freshness_ref
 | Hot-path proof | `EG-DECISION-ENGINE-R802.6` | `tests/web_document_enrich_served.rs::test_web_page_enriches_once_for_both_backends`: The served test passes, and `web_fetch_selection` meets the budget. |
 
 Hot-path proof for `EG-DECISION-ENGINE-R802`: `tests/web_document_enrich_served.rs::test_web_page_enriches_once_for_both_backends`.
+
+## EG-DECISION-ENGINE-R803 acceptance
+
+| Case | Row | Proving test and observation |
+|---|---|---|
+| Model | `EG-DECISION-ENGINE-R803.1` | `crates/eg-types/src/decision/harness_contrast.rs::tests::decision_round_trips`: A serde round trip keeps every field. |
+| Behavior | `EG-DECISION-ENGINE-R803.2` | `crates/eg-types/src/decision/harness_contrast.rs::tests::adoption_requires_positive_delta`: Unit tests cover adoption, tie-break and abstention. |
+| Wiring | `EG-DECISION-ENGINE-R803.3` | `tests/decide/test_harness_contrast_served.py::test_contrast_decide_stores_record`: A served `Decide` call stores one record. |
+| Refusal | `EG-DECISION-ENGINE-R803.4` | `crates/eg-types/src/decision/harness_contrast.rs::tests::contrast_refusals`: Each case returns its code and stores nothing. |
+| Evidence | `EG-DECISION-ENGINE-R803.5` | `crates/eg-types/src/decision/harness_contrast.rs::tests::record_pins_evidence_and_replays`: The rerun digest matches, and the supersession citation resolves. |
+| Hot-path proof | `EG-DECISION-ENGINE-R803.6` | `tests/decide/test_harness_contrast_served.py::test_contrast_hot_path_served`: The served test passes, and the benchmark meets the budget. |
+
+Hot-path proof for `EG-DECISION-ENGINE-R803`: `tests/decide/test_harness_contrast_served.py::test_contrast_hot_path_served`.

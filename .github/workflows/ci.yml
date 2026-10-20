@@ -537,7 +537,14 @@ jobs:
   # pyo3 crates get every feature except `python` (pyo3 extension-module cannot
   # link a test binary).
   gates-crates:
-    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
+    # PR budget: the per-crate narrowing sweep usually lands in minutes, but a
+    # broad or unmapped diff (e.g., a release-branch version bump touching every
+    # crate's Cargo.toml) falls back to the FULL workspace sweep, which
+    # cold-builds far past 10 minutes and was deterministically cancelled at
+    # ~10:15 elapsed on every run (release PR #666, 3/3 — a workflow timeout,
+    # not runner preemption). 45 minutes matches the sibling heavy PR jobs
+    # (gates, gates-pyo3, gates-plan-fuzz); push/tag keep the 60-minute budget.
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 60 }}
     name: gates (workspace crates)
     needs: changes
     if: needs.changes.outputs.code == 'true'

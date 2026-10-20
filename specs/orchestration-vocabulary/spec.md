@@ -6,6 +6,7 @@
 - `AU-HARNESS-R019.5-.7` are the existing study-gap producer/consumer prerequisites for `EG-CQ-ORCH-R010.7`; they must carry the same repository and revision as `EG-CQ-ORCH-R010.1-.6`. If the AU rows lack a stable proposal id/revision, that missing producer field remains a hold.
 - `WEBUI-APPS-R004.7` and `.8` are named consumers for R010.100 and R010.101. AU progress-source and SDK harness-manifest/sync-receipt producer IDs remain unknown. Exact GraphOS served-adapter IDs are also unknown. These remain explicit holds.
 - Existing `EG-DECISION-ENGINE-R036`, `R135.2`, `R135.4`, and `EG-TYPED-PACKS-R006` are prerequisites for `EG-ORCH-VOCAB-R003.8`; they define the assembly authority, program store, and Agent Library projection.
+- `EG-ORCH-VOCAB-R801` and `-R802` define the versioned harness component and the improvement library. `EG-DURABLE-KERNEL-R078` and `-R081` own the bitemporal stamps they use. `EG-DECISION-ENGINE-R803` consumes the contrast. `AU-HARNESS-CYCLE-R001` is the producer. `ARBORA-OPS-R068` serves the reads.
 
 Owner: epistemic-graph. Cross-repo IDs: none required (consumer is graph-os intent tools via `EG-CQ-ORCH-R009`).
 Public provenance: closes the MISSING-term lists in `specs/orchestration-competency` (`EG-CQ-ORCH-001`); spec-only change.
