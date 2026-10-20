@@ -4382,39 +4382,13 @@ class WorkItemClient:
         than silently skipping output. Pending, legacy and older-engine rows
         explicitly lack replay; this API does not provide step history.
         """
-        if after_cursor is not None and (
-            not isinstance(after_cursor, str)
-            or not after_cursor.startswith("eg-terminal-v1:")
-            or len(after_cursor) != len("eg-terminal-v1:") + 64
-            or any(
-                char not in "0123456789abcdef"
-                for char in after_cursor[len("eg-terminal-v1:") :]
-            )
-        ):
+        if after_cursor is not None and not _terminal_replay_cursor(after_cursor):
             raise ValueError("terminal replay cursor is malformed")
         outcome = await self.get_outcome(
             tenant=tenant, work_item_id=work_item_id, include_replay_cursor=True
         )
-        if outcome is None:
-            raise RuntimeError("native committed terminal replay is unavailable")
-        event = outcome.get("terminal_event")
-        if not isinstance(event, dict) or event.get("status") != "available":
-            raise RuntimeError("native committed terminal replay is unavailable")
-        cursor = event.get("replay_cursor")
-        if (
-            not isinstance(cursor, str)
-            or not cursor.startswith("eg-terminal-v1:")
-            or len(cursor) != len("eg-terminal-v1:") + 64
-            or any(
-                char not in "0123456789abcdef"
-                for char in cursor[len("eg-terminal-v1:") :]
-            )
-            or event.get("tenant") != tenant
-            or event.get("work_item_id") != work_item_id
-        ):
-            raise RuntimeError(
-                "native terminal replay identity is unavailable or invalid"
-            )
+        event = _terminal_replay_event(outcome, tenant, work_item_id)
+        cursor = event["replay_cursor"]
         if after_cursor is not None and after_cursor != cursor:
             raise ValueError(
                 "terminal replay cursor does not match the committed event"
@@ -4462,6 +4436,32 @@ class WorkItemClient:
             "items": [_work_item_view(item) for item in value["items"]],
             "next_cursor": value.get("next_cursor"),
         }
+
+
+def _terminal_replay_cursor(value: Any) -> bool:
+    return (
+        isinstance(value, str)
+        and value.startswith("eg-terminal-v1:")
+        and len(value) == len("eg-terminal-v1:") + 64
+        and all(char in "0123456789abcdef" for char in value[len("eg-terminal-v1:") :])
+    )
+
+
+def _terminal_replay_event(
+    outcome: dict[str, Any] | None, tenant: str, work_item_id: str
+) -> dict[str, Any]:
+    if outcome is None:
+        raise RuntimeError("native committed terminal replay is unavailable")
+    event = outcome.get("terminal_event")
+    if not isinstance(event, dict) or event.get("status") != "available":
+        raise RuntimeError("native committed terminal replay is unavailable")
+    if (
+        not _terminal_replay_cursor(event.get("replay_cursor"))
+        or event.get("tenant") != tenant
+        or event.get("work_item_id") != work_item_id
+    ):
+        raise RuntimeError("native terminal replay identity is unavailable or invalid")
+    return event
 
 
 _WORK_ITEM_OUTCOME_FIELDS = frozenset(
