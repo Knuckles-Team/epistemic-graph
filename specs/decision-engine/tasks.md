@@ -776,3 +776,5 @@ Deliver these additive leaves in order; preserve R137.1–.6 and R128 unchanged.
 - [ ] **EG-DECISION-ENGINE-R803.4 (Refusal):** Add the typed refusals.
 - [ ] **EG-DECISION-ENGINE-R803.5 (Evidence):** Pin the probe evidence in the decision record.
 - [ ] **EG-DECISION-ENGINE-R803.6 (Hot-path proof):** Add the served contrast test and the benchmark.
+
+- [ ] **EG-DECISION-ENGINE-R036.102:** Bind the existing graph prepare writer and recovery readers to versioned transaction/participant identity; qualify refusal and legacy recovery.
