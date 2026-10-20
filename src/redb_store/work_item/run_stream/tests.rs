@@ -360,3 +360,48 @@ fn retry_scheduled_is_persisted_from_actual_result() {
         eg_types::work_item_read::WorkItemStatus::Ready
     );
 }
+
+// spec: EG-DURABLE-KERNEL-R028.2
+#[test]
+fn terminal_replay_returns_same_snapshot_usage_without_audit_bundle() {
+    let tmp = open("durable-stream-direct-usage");
+    let id = seed(&tmp.shard);
+    super::super::test_shard::with_nodes(&tmp.shard, "context", |nodes| {
+        let bytes = nodes.get((GRAPH, id.as_str()))?.unwrap();
+        let mut row: Row = decode_durable(bytes.value())?;
+        drop(bytes);
+        row.insert(
+            "metadata".into(),
+            serde_json::json!({"a2a_context_id":"context"}),
+        );
+        write_work_item_props(nodes, GRAPH, &id, &mut row, DurableCrypto::none())
+    });
+    let mut batch = terminal_batch(&tmp.shard, &id, 0, "terminal-usage", 2, false);
+    if let Method::CommitWorkItemResult {
+        usage_observation, ..
+    } = &mut batch.operations[0].method
+    {
+        *usage_observation = Some(Box::new(eg_types::run_usage::RunUsageObservation {
+            run_id: "run".into(),
+            context_id: "context".into(),
+            counts: std::collections::BTreeMap::from([("input_tokens".into(), 7)]),
+        }));
+    }
+    batch
+        .reseal_envelope(eg_types::contract::Digest256::from_bytes([1; 32]))
+        .unwrap();
+    commit(&tmp.shard, &batch).unwrap();
+    let mut request = read_request(&id);
+    let first = read_events(&tmp.shard, GRAPH, &request, &actor(), DurableCrypto::none())
+        .unwrap()
+        .unwrap();
+    let usage = first.committed_run_usage.clone().unwrap();
+    assert_eq!(usage.counts["input_tokens"], 7);
+    assert_eq!(usage.context_id, "context");
+    request.after_cursor = first.next_cursor;
+    let replay = read_events(&tmp.shard, GRAPH, &request, &actor(), DurableCrypto::none())
+        .unwrap()
+        .unwrap();
+    assert!(replay.events.is_empty());
+    assert_eq!(replay.committed_run_usage, Some(usage));
+}

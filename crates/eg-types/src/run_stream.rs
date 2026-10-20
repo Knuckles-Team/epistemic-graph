@@ -168,6 +168,8 @@ pub struct CommittedRunStreamEvent {
 #[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct RunEventPage {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub committed_run_usage: Option<crate::run_usage::CommittedRunUsage>,
     pub work_item: crate::work_item_read::WorkItemView,
     pub events: Vec<CommittedRunStreamEvent>,
     pub next_cursor: Option<String>,

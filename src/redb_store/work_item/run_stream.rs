@@ -337,7 +337,9 @@ pub(crate) fn read_events(
         &request.tenant,
     )?
     .ok_or("run event WorkItem projection unavailable")?;
+    let committed_run_usage = committed_usage(&row, request, actor)?;
     Ok(Some(RunEventPage {
+        committed_run_usage,
         work_item,
         events,
         next_cursor,
@@ -516,4 +518,34 @@ pub(crate) fn append_terminal(
         event_index.into(),
     );
     write_work_item_props(&mut tables.nodes, graph, work_item_id, &mut row, crypto)
+}
+
+fn committed_usage(
+    row: &Row,
+    request: &GetRunEventsRequest,
+    actor: &str,
+) -> Result<Option<eg_types::run_usage::CommittedRunUsage>, String> {
+    let usage = row
+        .get(eg_types::work_item_read::WORK_ITEM_COMMITTED_USAGE)
+        .map(|value| {
+            serde_json::from_value::<eg_types::run_usage::CommittedRunUsage>(value.clone())
+                .map_err(|error| error.to_string())
+        })
+        .transpose()?;
+    if let Some(record) = &usage {
+        record.validate()?;
+        let context = row
+            .get("metadata")
+            .and_then(serde_json::Value::as_object)
+            .and_then(|metadata| metadata.get("a2a_context_id"))
+            .and_then(serde_json::Value::as_str);
+        if record.tenant != request.tenant
+            || record.principal != actor
+            || record.run_id != request.run_id
+            || context != Some(record.context_id.as_str())
+        {
+            return Err("committed stream usage attribution mismatch".into());
+        }
+    }
+    Ok(usage)
 }

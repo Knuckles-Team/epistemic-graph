@@ -827,3 +827,5 @@ failed tail CAS rolls back the transition. Fenced, missing and no-op commits do
 not append. Pages enforce both 128-event and 1 MiB serialized-payload bounds.
 Implementation and fixtures are present; release acceptance still requires the
 combined generated contract, native runtime execution and served host evidence.
+
+The lifecycle page also projects optional committed usage from the same WorkItem snapshot. It validates tenant, principal, run and admitted context. This direct receipt needs no audited OutcomeBundle and remains available after event acknowledgement. Missing observations stay absent.
