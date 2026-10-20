@@ -41,6 +41,9 @@ $($variants)*
     GetWorkItemOutcome {
         tenant: String,
         work_item_id: String,
+        /// Opt in to exact terminal replay identity; legacy projection is unchanged.
+        #[serde(default)]
+        include_replay_cursor: bool,
     },
 
     // ── Native control leases (graph-os EG-2) ──────────────────────────────

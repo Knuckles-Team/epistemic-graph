@@ -3002,7 +3002,7 @@
     },
     {
       "id": "EG-DURABLE-KERNEL-R028.1",
-      "title": "Run checkpoint and memory binding. Owner decisions remain open",
+      "title": "Run checkpoint and memory binding. Owner decisions approved 2026-10-20; implementation remains incomplete",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -3362,11 +3362,11 @@
         "6aa2533a8865"
       ],
       "verified_by": [
+        "crates/eg-types/src/work_item_read/tests.rs:217",
+        "crates/eg-types/src/work_item_read/tests.rs:249",
         "src/redb_store.rs:6302",
-        "src/redb_store/work_item/read/tests.rs:130",
-        "src/redb_store/work_item/read/tests.rs:182",
-        "src/redb_store/work_item/read/tests.rs:221",
-        "src/redb_store/work_item/read/tests.rs:246"
+        "src/redb_store/work_item/read/terminal_event.rs:122",
+        "src/redb_store/work_item/read/tests.rs:130"
       ]
     },
     {

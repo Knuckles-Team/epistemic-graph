@@ -293,3 +293,71 @@ def test_control_lease_list_sends_the_typed_filter_and_validates_views() -> None
         asyncio.run(
             _leases(FakeEngine({"leases": [{**LEASE, "x": 1}]})).list(tenant="tenant-a")
         )
+
+
+@pytest.mark.spec("EG-DURABLE-KERNEL-R028.2")
+def test_terminal_replay_acknowledges_only_exact_native_event_without_writes() -> None:
+    cursor = "eg-terminal-v1:" + "a" * 64
+    event = {
+        "status": "available",
+        "tenant": "t",
+        "work_item_id": "wi-1",
+        "replay_cursor": cursor,
+    }
+    outcome: dict[str, Any] = {
+        "work_item": VIEW,
+        "trace_ref": "rt-1",
+        "tool_call_refs": [],
+        "outcome_ref": "oe-1",
+        "outcome": None,
+        "terminal_event": event,
+    }
+    engine = FakeEngine(outcome)
+    items = _work_items(engine)
+    assert asyncio.run(items.replay_terminal(tenant="t", work_item_id="wi-1")) == {
+        "work_item": VIEW,
+        "events": [event],
+        "next_cursor": cursor,
+    }
+    assert asyncio.run(
+        items.replay_terminal(tenant="t", work_item_id="wi-1", after_cursor=cursor)
+    ) == {"work_item": VIEW, "events": [], "next_cursor": cursor}
+    with pytest.raises(ValueError, match="does not match"):
+        asyncio.run(
+            items.replay_terminal(
+                tenant="t",
+                work_item_id="wi-1",
+                after_cursor="eg-terminal-v1:" + "b" * 64,
+            )
+        )
+    assert (
+        engine.sent
+        == [
+            (
+                "GetWorkItemOutcome",
+                {"tenant": "t", "work_item_id": "wi-1", "include_replay_cursor": True},
+            )
+        ]
+        * 3
+    )
+    for invalid in ["", "eg-terminal-v1:" + "g" * 64, "x" * 10000]:
+        with pytest.raises(ValueError, match="malformed"):
+            asyncio.run(
+                items.replay_terminal(
+                    tenant="t", work_item_id="wi-1", after_cursor=invalid
+                )
+            )
+    assert len(engine.sent) == 3
+    for unavailable in [
+        None,
+        {**outcome, "terminal_event": {"status": "unavailable"}},
+        {**outcome, "terminal_event": {**event, "tenant": "foreign"}},
+        {**outcome, "terminal_event": {**event, "work_item_id": "other"}},
+        {**outcome, "terminal_event": {**event, "replay_cursor": None}},
+    ]:
+        with pytest.raises(RuntimeError, match="unavailable|invalid"):
+            asyncio.run(
+                _work_items(FakeEngine(unavailable)).replay_terminal(
+                    tenant="t", work_item_id="wi-1"
+                )
+            )

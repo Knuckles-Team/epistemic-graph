@@ -227,11 +227,26 @@ pub enum TerminalEventRead {
     Available(Box<CommittedTerminalEvent>),
 }
 
+impl TerminalEventRead {
+    /// Preserve the original R028.2 wire projection for readers that did not opt in.
+    pub fn without_replay_identity(&mut self) {
+        if let Self::Available(event) = self {
+            event.work_item_id = None;
+            event.replay_cursor = None;
+        }
+    }
+}
+
 /// Durable terminal event identity projected without worker authority.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct CommittedTerminalEvent {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub work_item_id: Option<String>,
+    /// Opaque acknowledgement of this exact durable event, not authorization.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub replay_cursor: Option<String>,
     pub tenant: String,
     pub scope: crate::MutationScopeIdentity,
     pub batch_id: String,

@@ -4335,7 +4335,7 @@ class WorkItemClient:
         return bytes(msgpack.packb(properties, use_bin_type=True))
 
     async def get_outcome(
-        self, *, tenant: str, work_item_id: str
+        self, *, tenant: str, work_item_id: str, include_replay_cursor: bool = False
     ) -> dict[str, Any] | None:
         """Return a terminal WorkItem and the provenance its commit bound:
         ``{"work_item", "trace_ref", "tool_call_refs", "outcome_ref",
@@ -4343,6 +4343,8 @@ class WorkItemClient:
         OutcomeEvaluation properties, verified against the committed digest.
         ``terminal_event`` is safe committed readback or explicit legacy unavailability;
         it does not provide lifecycle streaming or worker lease authority.
+        Opt in with ``include_replay_cursor`` for the exact native replay identity;
+        default requests preserve the original wire projection.
         ``None`` when the item is not visible to ``tenant`` or has no bundle.
         """
         value = (
@@ -4353,6 +4355,9 @@ class WorkItemClient:
                     "work_item_id": _string(
                         "GetWorkItemOutcome.work_item_id", work_item_id
                     ),
+                    **(
+                        {"include_replay_cursor": True} if include_replay_cursor else {}
+                    ),
                 },
             )
         ).payload
@@ -4362,6 +4367,63 @@ class WorkItemClient:
             raise RuntimeError("WorkItem outcome does not match the typed contract")
         _work_item_view(value["work_item"])
         return value
+
+    async def replay_terminal(
+        self,
+        *,
+        tenant: str,
+        work_item_id: str,
+        after_cursor: str | None = None,
+    ) -> dict[str, Any]:
+        """Read at most one committed terminal event without dispatching work.
+
+        The cursor acknowledges this exact durable event. It is not authority
+        and cannot seek to an arbitrary offset. Unknown cursors refuse rather
+        than silently skipping output. Pending, legacy and older-engine rows
+        explicitly lack replay; this API does not provide step history.
+        """
+        if after_cursor is not None and (
+            not isinstance(after_cursor, str)
+            or not after_cursor.startswith("eg-terminal-v1:")
+            or len(after_cursor) != len("eg-terminal-v1:") + 64
+            or any(
+                char not in "0123456789abcdef"
+                for char in after_cursor[len("eg-terminal-v1:") :]
+            )
+        ):
+            raise ValueError("terminal replay cursor is malformed")
+        outcome = await self.get_outcome(
+            tenant=tenant, work_item_id=work_item_id, include_replay_cursor=True
+        )
+        if outcome is None:
+            raise RuntimeError("native committed terminal replay is unavailable")
+        event = outcome.get("terminal_event")
+        if not isinstance(event, dict) or event.get("status") != "available":
+            raise RuntimeError("native committed terminal replay is unavailable")
+        cursor = event.get("replay_cursor")
+        if (
+            not isinstance(cursor, str)
+            or not cursor.startswith("eg-terminal-v1:")
+            or len(cursor) != len("eg-terminal-v1:") + 64
+            or any(
+                char not in "0123456789abcdef"
+                for char in cursor[len("eg-terminal-v1:") :]
+            )
+            or event.get("tenant") != tenant
+            or event.get("work_item_id") != work_item_id
+        ):
+            raise RuntimeError(
+                "native terminal replay identity is unavailable or invalid"
+            )
+        if after_cursor is not None and after_cursor != cursor:
+            raise ValueError(
+                "terminal replay cursor does not match the committed event"
+            )
+        return {
+            "work_item": outcome["work_item"],
+            "events": [] if after_cursor is not None else [event],
+            "next_cursor": cursor,
+        }
 
     async def list(
         self,

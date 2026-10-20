@@ -268,9 +268,11 @@ async fn route_work_item_reads(
         Method::GetWorkItemOutcome {
             tenant,
             work_item_id,
+            include_replay_cursor,
         } => handlers::work_item_read::WorkItemRead::Outcome {
             tenant,
             work_item_id,
+            include_replay_cursor,
         },
         Method::ListControlLeases { request } => {
             handlers::work_item_read::WorkItemRead::ControlLeases(request)

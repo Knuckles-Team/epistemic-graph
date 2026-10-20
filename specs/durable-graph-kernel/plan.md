@@ -795,3 +795,7 @@ This repairs a prerequisite in the existing coordinator. It does not establish
 heterogeneous-owner reservations, revocation fencing, visibility or profile
 admission. R034 and EG-DECISION-ENGINE-R036 remain incomplete. Native test
 execution and storage-fixture qualification must be reported separately.
+
+### Approved replay/checkpoint decision — 2026-10-20
+
+R028.1 owner approval selects native durable events, scoped engine cursors, read-only replay without redispatch, atomic checkpoint/ownership/fence publication, and retention until explicit owner release. These choices resolve the definition holds, not implementation acceptance. The first R028.2 increment adds an opt-in terminal replay cursor (`include_replay_cursor=true`) to the existing committed outcome projection and a Python read-only adapter. Default requests retain the original wire projection. The adapter returns the same-snapshot WorkItem view beside events and next_cursor so the caller can validate owner metadata against the same durable read. The cursor hashes a domain-separated canonical tuple of verified tenant, graph incarnation, WorkItem, run, batch, commit sequence, ordinal and committed payload digest. Exact equality against the freshly read durable identity is mandatory; the token is not authorization and is never decoded into an arbitrary offset. No step replay, memory restoration or checkpoint atomicity is claimed by this increment.

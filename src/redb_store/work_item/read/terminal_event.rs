@@ -45,6 +45,15 @@ pub(super) fn project(
     }
     Ok(TerminalEventRead::Available(Box::new(
         CommittedTerminalEvent {
+            work_item_id: Some(work_item_id.to_owned()),
+            replay_cursor: Some(replay_cursor(
+                scope,
+                tenant,
+                work_item_id,
+                &event.run_id,
+                row,
+                digest,
+            )?),
             tenant: tenant.to_owned(),
             scope: row.identity.clone(),
             batch_id: row.batch_id.clone(),
@@ -75,4 +84,105 @@ fn validate_receipt(
         return Err("terminal event is not bound to its committed receipt".into());
     }
     Ok(())
+}
+
+/// Bind an acknowledgement to the exact committed event. This is not a bearer
+/// credential: readers must authorize the request and compare with the freshly
+/// projected durable cursor, never trust a decoded caller-supplied offset.
+fn replay_cursor(
+    scope: &MutationScopeIdentity,
+    tenant: &str,
+    work_item_id: &str,
+    run_id: &str,
+    row: &MutationOutboxRecord,
+    digest: &str,
+) -> Result<String, String> {
+    let identity = serde_json::to_vec(&(
+        "eg/terminal-replay/v1",
+        scope,
+        tenant,
+        work_item_id,
+        run_id,
+        &row.batch_id,
+        row.commit_sequence,
+        row.ordinal,
+        digest,
+    ))
+    .map_err(|error| error.to_string())?;
+    Ok(format!(
+        "eg-terminal-v1:{}",
+        hex::encode(Sha256::digest(identity))
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // spec: EG-DURABLE-KERNEL-R028.2
+    #[test]
+    fn replay_cursor_binds_scope_task_run_and_committed_position() {
+        let scope = MutationScopeIdentity::fixed_graph("tenant", "graph", "incarnation").unwrap();
+        let row = MutationOutboxRecord {
+            schema_version: 1,
+            batch_id: "batch".into(),
+            ordinal: 2,
+            identity: scope.clone(),
+            committed_version: eg_types::CommittedVersion::Graph {
+                source: 6,
+                target: 7,
+            },
+            commit_sequence: Some(7),
+            intent: eg_types::MutationOutboxIntent {
+                topic: RUN_EVENT_OUTBOX_TOPIC.into(),
+                key: "task".into(),
+                payload: vec![],
+                headers: Default::default(),
+            },
+            created_at_ms: 1,
+        };
+        let cursor = replay_cursor(&scope, "tenant", "task", "run", &row, "digest").unwrap();
+        assert_eq!(
+            cursor,
+            replay_cursor(&scope, "tenant", "task", "run", &row, "digest").unwrap()
+        );
+        for other in [
+            replay_cursor(&scope, "other", "task", "run", &row, "digest"),
+            replay_cursor(&scope, "tenant", "other", "run", &row, "digest"),
+            replay_cursor(&scope, "tenant", "task", "other", &row, "digest"),
+            replay_cursor(&scope, "tenant", "task", "run", &row, "other"),
+        ] {
+            assert_ne!(cursor, other.unwrap());
+        }
+        let other_scope =
+            MutationScopeIdentity::fixed_graph("tenant", "graph", "new-incarnation").unwrap();
+        assert_ne!(
+            cursor,
+            replay_cursor(&other_scope, "tenant", "task", "run", &row, "digest").unwrap()
+        );
+        let mut next = row.clone();
+        next.commit_sequence = Some(8);
+        assert_ne!(
+            cursor,
+            replay_cursor(&scope, "tenant", "task", "run", &next, "digest").unwrap()
+        );
+        next = row.clone();
+        next.ordinal = 3;
+        assert_ne!(
+            cursor,
+            replay_cursor(&scope, "tenant", "task", "run", &next, "digest").unwrap()
+        );
+        next = row.clone();
+        next.batch_id = "other".into();
+        assert_ne!(
+            cursor,
+            replay_cursor(&scope, "tenant", "task", "run", &next, "digest").unwrap()
+        );
+        next = row;
+        next.created_at_ms = 999;
+        assert_eq!(
+            cursor,
+            replay_cursor(&scope, "tenant", "task", "run", &next, "digest").unwrap()
+        );
+    }
 }

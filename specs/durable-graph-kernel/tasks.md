@@ -149,7 +149,7 @@ This batch defines the slices; it runs none of their runtime tests.
 ## Durable-kernel owner definition tasks — 2026-10-12
 
 - [ ] **EG-DURABLE-KERNEL-R028.1:** Implement the R085-backed checkpoint snapshot with run/work-item/fence/checkpoint identity and separate short-/long-term memory references. Enforce verified scope, digest and expected-head refusal rules. Preserve `EG-DURABLE-KERNEL-R028`, `EG-IDENTITY-R006`, and existing ARBORA-A2A/OPS streaming requirements.
-- [ ] **EG-DURABLE-KERNEL-R028.1 acceptance:** Checkpoint acceptance covers restart/readback and refusal of wrong scope or stale fence/revision. Also refuse digest mismatch, changed-body replay and unavailable storage. Test recovery from interruption between snapshot and pointer update. AU resume/GraphOS stream continuation remain blocked until transaction/recovery, resume-binding and retention decisions are defined.
+- [ ] **EG-DURABLE-KERNEL-R028.1 acceptance:** Checkpoint acceptance covers restart/readback and refusal of wrong scope or stale fence/revision. Also refuse digest mismatch, changed-body replay and unavailable storage. Test recovery from interruption between snapshot and pointer update. Owner decisions approved 2026-10-20; AU resume/GraphOS stream continuation still requires the native atomic checkpoint implementation and real companion acceptance.
 - [ ] **EG-DURABLE-KERNEL-R028.1 status:** Keep SPECIFIED. No runtime or consumer receipt is claimed.
 
 - [ ] **EG-DURABLE-KERNEL-R085.9:** Store complete canonical search state under R085 `active_context`, requiring `search_run_id`, `state_revision`, `transcript`, `evidence`, `constraints`, and `open_claims`. Preserve AU R013.13/R020.1 and EG R085.1/.4/.7.
@@ -250,3 +250,5 @@ This batch defines the slices; it runs none of their runtime tests.
 - [ ] **EG-DURABLE-KERNEL-R028.4:** Bind verified run ownership during single WorkItem admission and prove transaction refusals.
 
 - [ ] **EG-DURABLE-KERNEL-R028.5:** Implement private native plan publication/readback. Native and served tests, replay/expiry/restart and performance acceptance remain pending.
+
+- [ ] **EG-DURABLE-KERNEL-R028.2 terminal cursor increment:** Validate native cursor stability after reopen and scope/task/commit isolation; Python adapter must read only, suppress an exactly acknowledged event and refuse unknown or legacy cursors. Native execution evidence remains pending the build slot.

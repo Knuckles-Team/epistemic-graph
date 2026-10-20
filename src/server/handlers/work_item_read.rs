@@ -39,6 +39,7 @@ pub(crate) enum WorkItemRead {
     Outcome {
         tenant: String,
         work_item_id: String,
+        include_replay_cursor: bool,
     },
     /// graph-os EG-5: one page of control leases.
     ControlLeases(eg_types::control_lease::ListControlLeasesRequest),
@@ -130,11 +131,16 @@ async fn serve_native(
         WorkItemRead::Outcome {
             tenant,
             work_item_id,
-        } => ResultPayload::of::<GetWorkItemOutcome>(
-            backend
+            include_replay_cursor,
+        } => {
+            let mut outcome = backend
                 .read_work_item_outcome(graph, &tenant, &work_item_id)
-                .await?,
-        ),
+                .await?;
+            if let (false, Some(view)) = (include_replay_cursor, outcome.as_mut()) {
+                view.terminal_event.without_replay_identity();
+            }
+            ResultPayload::of::<GetWorkItemOutcome>(outcome)
+        }
         WorkItemRead::ControlLeases(request) => ResultPayload::of::<ListControlLeases>(
             backend.list_control_leases(graph, request).await?,
         ),

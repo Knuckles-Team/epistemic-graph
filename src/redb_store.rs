@@ -6396,6 +6396,10 @@ mod mutation_batch_tests {
             outbox[0].commit_sequence.unwrap()
         );
         assert_eq!(event_json["ordinal"], outbox[0].ordinal);
+        assert_eq!(event_json["work_item_id"], "work-extension-success");
+        let replay_cursor = event_json["replay_cursor"].as_str().unwrap();
+        assert!(replay_cursor.starts_with("eg-terminal-v1:"));
+        assert_eq!(replay_cursor.len(), "eg-terminal-v1:".len() + 64);
         assert!(event_json.get("fence_token").is_none());
         assert!(event_json.get("cursor_token").is_none());
         assert!(work_item::read_work_item_outcome(

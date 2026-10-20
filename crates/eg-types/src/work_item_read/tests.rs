@@ -213,3 +213,64 @@ fn a_metadata_match_selects_exact_top_level_pairs_and_is_bounded() {
     request.metadata_match = Some(too_many);
     assert!(request.validate().is_err());
 }
+
+// spec: EG-DURABLE-KERNEL-R028.2
+#[test]
+fn terminal_replay_identity_is_an_explicit_compatible_projection() {
+    let event = CommittedTerminalEvent {
+        tenant: "tenant".into(),
+        scope: crate::MutationScopeIdentity::fixed_graph("tenant", "graph", "incarnation").unwrap(),
+        work_item_id: Some("task".into()),
+        replay_cursor: Some("eg-terminal-v1:cursor".into()),
+        batch_id: "batch".into(),
+        commit_sequence: 1,
+        ordinal: 0,
+        run_id: "run".into(),
+        kind: "terminal".into(),
+        outcome: "succeeded".into(),
+        result_ref: None,
+        payload_digest: "digest".into(),
+    };
+    let mut read = TerminalEventRead::Available(Box::new(event));
+    let opt_in = serde_json::to_value(&read).unwrap();
+    assert_eq!(opt_in["work_item_id"], "task");
+    assert_eq!(opt_in["replay_cursor"], "eg-terminal-v1:cursor");
+    read.without_replay_identity();
+    let legacy = serde_json::to_value(&read).unwrap();
+    assert!(legacy.get("work_item_id").is_none());
+    assert!(legacy.get("replay_cursor").is_none());
+    assert_eq!(legacy["commit_sequence"], opt_in["commit_sequence"]);
+    assert_eq!(
+        serde_json::from_value::<TerminalEventRead>(legacy).unwrap(),
+        read
+    );
+}
+
+// spec: EG-DURABLE-KERNEL-R028.2
+#[test]
+fn terminal_replay_request_defaults_to_legacy_projection() {
+    let legacy = serde_json::json!({
+        "method": "GetWorkItemOutcome", "params": {"tenant": "t", "work_item_id": "w"}
+    });
+    let method: crate::protocol::Method = serde_json::from_value(legacy).unwrap();
+    assert!(matches!(
+        method,
+        crate::protocol::Method::GetWorkItemOutcome {
+            include_replay_cursor: false,
+            ..
+        }
+    ));
+    let opt_in = serde_json::json!({
+        "method": "GetWorkItemOutcome", "params": {
+            "tenant": "t", "work_item_id": "w", "include_replay_cursor": true
+        }
+    });
+    let method: crate::protocol::Method = serde_json::from_value(opt_in).unwrap();
+    assert!(matches!(
+        method,
+        crate::protocol::Method::GetWorkItemOutcome {
+            include_replay_cursor: true,
+            ..
+        }
+    ));
+}
