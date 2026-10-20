@@ -407,6 +407,7 @@ fn stale_policy_writer_cannot_restore_a_revoked_session() {
     let mut value = serde_json::to_value(snapshot.policy()).unwrap();
     value["identity"]["sessions"][&hash] = serde_json::to_value(SessionRecord {
         session_hash: hash.clone(),
+        original_scopes: None,
         session_ref: None,
         session_tenant: None,
         principal_id: "usr:alice".into(),
@@ -469,6 +470,7 @@ fn failed_session_touch_persistence_publishes_no_record_projection() {
     owner_stamp.minted_session_ref = Some("ses:stored-record".into());
     owner_stamp.session_tenant = Some("tenant-record".into());
     let request = SessionTouch {
+        refresh: None,
         session_token: Secret::default(),
         code: Secret::default(),
     };
@@ -502,6 +504,7 @@ fn failed_session_touch_persistence_publishes_no_record_projection() {
     );
 }
 
+mod approval_keys;
 #[path = "identity_store_tests/session_evidence.rs"]
 mod session_evidence;
 

@@ -620,9 +620,7 @@ No bulk data: the seed graph names objects and their references. Entity rows sta
 
 ## 2026-10-18 amendment — R085.1 durable session facts
 
-Reuse the existing session record and Resolve path. Persist an opaque storage
-reference and deployment tenant only when the existing verified request context
-matches the configured owner policy at creation. No current caller backfills old
+Reuse the existing session record and Resolve path. Persist an opaque storage reference and deployment tenant at creation. Require the existing verified request context to match the configured owner policy. No current caller backfills old
 records. Project six fields after the existing touch; publication follows
 successful persistence. No new operation, read surface or authority verdict is
 introduced. Arbora consumes the optional projection and owns admission.
@@ -666,3 +664,48 @@ mirrors, receipt hashes, nullable MFA and optional legacy session metadata.
 No native tests ran. Hosted CI must qualify the durable reopen, refusal and
 served-resolution tests before merge. Generation alone does not qualify R085.1
 runtime behavior, Arbora admission or live host startup.
+
+## 2026-10-20 amendment — R085.5 registered approval keys
+
+Add a purpose-bound public Ed25519 key lifecycle to the existing identity
+credential family and durable store. The existing identity broker attests that
+Arbora verified possession of the key against canonical registration bytes.
+EG derives the human subject from a live, non-pending native session and binds
+the record to the stamped deployment tenant. Registration and revocation use
+exact revision CAS. Broker lookup returns only public key facts and grants no
+human authority. Arbora must separately validate the current human session.
+
+The source slice includes create, rotation, read, revoke, expiry and refusal
+fixtures. It adds no crypto dependency, privilege, live enrollment or adapter.
+The final combined unit run and canonical generation passed, as recorded below.
+Core durable execution, server tests, served broker proof verification and full
+signed approval acceptance remain pending owner integration and gates.
+
+Registration and revocation require a direct broker; delegated brokers may
+read public facts under the existing broker policy. Storage is capped at 32
+key records per principal, including tombstones. Measure create, lookup and
+revoke latency and allocation at this cap in the qualifying native job; retain
+pending benchmark status until measured. The current fixture tests a serialized
+image round trip, not durable reopen or concurrent commit CAS. Those acceptance
+checks remain pending the integrated native owner test.
+
+## 2026-10-20 combined producer qualification update
+
+The final combined identity producer source passed 108 `eg-types`
+`identity::tests` tests in 159.02 seconds. Canonical generation passed in
+219.05 seconds. These results supersede earlier pending statements only for
+the unit test run and canonical generation on this candidate. Historical
+receipts above remain unchanged and do not qualify the newer source.
+
+Canonical WASM generation passed in 255.04 seconds. Contract freshness passed in 45.01 seconds and WASM freshness passed in 3.00 seconds. The unchanged Rust dependency advisory gate passed. No core
+durable, server or served tests ran for this candidate. R085.3–R085.6 retain
+separate pure-store, durable and served acceptance children. Unit success does
+not complete a durable or served child. The combined generated/served children
+remain SPECIFIED until their full acceptance runs. Preserve the original parent
+criteria and complete normal gates before publication.
+
+## 2026-10-20 unpublished approval format naming
+
+The candidate key records were absent from upstream main at `1242b7dd`. They had no published native commit or release. The paired Arbora consumer remains draft PR395. Rename the new purpose to `signed_approval` and attestation to `broker_verified_ed25519` before publication. Update generated contracts and exact registration bytes together. Keep the existing signature domain, field order, length encoding and verification unchanged. This candidate does not migrate a deployed format or enroll a live key. Earlier native evidence applies before this naming correction; record targeted regeneration and test results separately. Durable core, server and served approval qualification remain pending.
+
+Publication-only checks passed after the rename: five native key tests and canonical contract generation. The stable-source contract freshness check passed, followed by WASM generation and freshness. A codec attempt interrupted during temporary hook stashing provides no qualification evidence. The completed stable-source sequence replaces it. No durable core, server, benchmark or served acceptance test ran.

@@ -28,6 +28,7 @@
 use serde::{Deserialize, Serialize};
 
 mod access;
+mod approval_key;
 mod audit;
 mod config;
 mod denials;
@@ -47,6 +48,10 @@ mod text;
 mod views;
 
 pub use access::{GroupRecord, IdpConfig, IdpKind, JitPolicy, MappingRule, RoleRecord};
+pub use approval_key::{
+    ApprovalKeyAttestation, ApprovalKeyBinding, ApprovalKeyLookup, ApprovalKeyPurpose,
+    ApprovalKeyRecord, ApprovalKeyRegistration, ApprovalKeyRevocation,
+};
 pub use audit::{
     AuditRecord, AuditTrail, IdentityAuditEntry, IdentityEvent, MAX_IDENTITY_AUDIT_ENTRIES,
 };

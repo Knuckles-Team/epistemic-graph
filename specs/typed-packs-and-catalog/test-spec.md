@@ -409,3 +409,44 @@ refuses to overwrite stored provenance with a later stamp's metadata.
 `successful_session_resolution_runs_boundary_store_and_public_response` requires
 creation-to-resolution reference continuity. Existing pending-MFA served refusal
 requires an error response with no result. Canonical artifact freshness passes. Newly added native cases remain pending execution.
+
+## R085.3 original session reference inspection
+
+`original_reference_inspection_is_owner_bound_and_does_not_touch` checks exact stored reference, stamped principal/tenant, expiry and revocation refusals. The durable R085.1 reopen fixture also inspects the original record through `SessionOp::InspectReference`. Neither fixture proves served admission. The unit fixture passed in the 2026-10-20 run recorded below. Durable execution remains pending; canonical generation passed.
+
+## R085.4 global authority revision renewal
+
+`renewal_uses_global_revision_and_survives_reopen_without_resurrection` exercises the durable owner. The expected revision is global, so unrelated authority mutations also require a fresh read. Renewal never extends absolute authentication lifetime. This durable fixture remains unexecuted. Canonical generation passed; see the evidence below.
+
+`renewal_preserves_original_scope_ceiling_and_refuses_legacy_evidence` checks that the captured ceiling survives serialization. Missing legacy evidence and expanded scopes refuse. Narrowed scopes can renew without changing the ceiling. Existing credential resolution behavior is unchanged.
+
+## R085.5 approval key lifecycle
+
+Source fixtures cover create/read/persistence, rotation/revocation CAS and exact subject/tenant/purpose. They also cover expired or pending sessions, disabled/service subjects and absent broker authority. Canonical proof bytes are deterministic; native tests do not verify broker proof or served enrollment. The pure store tests passed in the run below. Durable, server and served qualification remain pending.
+
+## R085.6 non-touch credential resolution
+
+The existing Resolve operation accepts optional `refresh`. False preserves the current credential authority checks and returns the existing resolution without touching session state. Native test sources cover no mutation, exact expiry, revoke despite false, missing authority and omitted-field compatibility. The durable session fixture checks unchanged revision and policy image. The unit tests and canonical generation passed. Durable execution, codec checks and served qualification remain pending.
+
+## R085 acceptance qualification layers
+
+R085.3–R085.6 preserve their parent obligations as rollups. Their .1 children cover pure store transitions; .2 children require durable owner execution. R085.5.3 covers request stamping only. R085.3.3, R085.4.3, R085.5.4 and R085.6.3 retain generated/served qualification. A passing unit filter is not evidence for unexecuted durable or served acceptance. Source markers bind only their matching layer.
+
+## 2026-10-20 combined identity producer evidence
+
+The final combined `eg-types` `identity::tests` run passed all 108 tests in
+159.02 seconds. This includes the reference inspection, renewal ceiling,
+approval-key lifecycle and non-touch credential unit fixtures. The result
+supports R085.3.1, R085.4.1, R085.5.1 and R085.6.1 only within their stated
+pure-store acceptance. It does not execute the core durable or server fixtures.
+
+Canonical contract generation completed successfully in 219.05 seconds against
+the combined source. Codec generation/checks and remaining artifact checks are
+pending. A generator result does not prove execution of its generated routes.
+
+Core durable tests, server tests and served acceptance have not run for this
+candidate. Keep R085.3.2, R085.4.2, R085.5.2, R085.5.3 and R085.6.2 pending.
+The combined generated/served children R085.3.3, R085.4.3, R085.5.4 and R085.6.3
+remain SPECIFIED because their served acceptance is unexecuted. The parent
+criteria remain intact. These receipts do not qualify live enrollment, host
+admission or full signed-approval consumption.

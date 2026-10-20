@@ -197,6 +197,7 @@ pub struct ResetDelivery {
 #[serde(tag = "kind", content = "value", rename_all = "snake_case")]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum IdentityReply<C = ()> {
+    ApprovalKey(super::approval_key::ApprovalKeyRecord),
     /// A write that answers nothing but whether it changed state.
     Done {
         changed: bool,
@@ -210,6 +211,14 @@ pub enum IdentityReply<C = ()> {
     Resolution(PrincipalResolution<C>),
     Authenticate(AuthenticateResult),
     Sessions(Vec<SessionView>),
+    /// Original durable session facts; never an admission credential.
+    SessionRecord(super::projection::SessionRecordProjection),
+    /// Facts from one GLOBAL identity/RBAC authority revision, not a per-session counter.
+    SessionAuthority {
+        record: super::projection::SessionRecordProjection,
+        scopes: BTreeSet<String>,
+        authority_revision: u64,
+    },
     Roles(Vec<RoleRecord>),
     Groups(Vec<GroupRecord>),
     Idps(Vec<IdpConfig>),
@@ -234,11 +243,22 @@ impl IdentityReply {
         compose: impl FnOnce(PrincipalResolution) -> Result<PrincipalResolution<C>, E>,
     ) -> Result<IdentityReply<C>, E> {
         Ok(match self {
+            Self::ApprovalKey(value) => IdentityReply::ApprovalKey(value),
             Self::Config(value) => IdentityReply::Config(value),
             Self::User(value) => IdentityReply::User(value),
             Self::Users(value) => IdentityReply::Users(value),
             Self::Authenticate(value) => IdentityReply::Authenticate(value),
             Self::Sessions(value) => IdentityReply::Sessions(value),
+            Self::SessionRecord(value) => IdentityReply::SessionRecord(value),
+            Self::SessionAuthority {
+                record,
+                scopes,
+                authority_revision,
+            } => IdentityReply::SessionAuthority {
+                record,
+                scopes,
+                authority_revision,
+            },
             Self::Roles(value) => IdentityReply::Roles(value),
             Self::Groups(value) => IdentityReply::Groups(value),
             Self::Idps(value) => IdentityReply::Idps(value),

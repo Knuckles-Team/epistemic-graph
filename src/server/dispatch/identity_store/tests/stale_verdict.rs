@@ -147,6 +147,7 @@ async fn a_totp_confirmation_verified_before_secret_replacement_is_refused() {
     let held = pause::arm(&state);
     let op = IdentityOp::Mfa(MfaOp::ConfirmTotp {
         request: SessionTouch {
+            refresh: None,
             session_token: Secret::new(SESSION),
             code: Secret::new(current_totp(&original)),
         },
@@ -172,6 +173,7 @@ async fn a_totp_confirmation_verified_before_secret_replacement_is_refused() {
     );
     let fresh = IdentityOp::Mfa(MfaOp::ConfirmTotp {
         request: SessionTouch {
+            refresh: None,
             session_token: Secret::new(SESSION),
             code: Secret::new(current_totp(&replacement_secret)),
         },
@@ -204,6 +206,7 @@ async fn stamped_totp_methods_keep_only_the_sealed_binding_and_clear_plaintext()
     for confirm in [true, false] {
         let code = current_totp(&secret);
         let request = SessionTouch {
+            refresh: None,
             session_token: Secret::new(SESSION),
             code: Secret::new(&code),
         };

@@ -76,6 +76,25 @@ impl IsolationLayer {
         now_ms: u64,
         classifier: &dyn ScopeClassifier,
     ) -> Result<IdentityReply, IdentityStoreError> {
+        if matches!(
+            op,
+            IdentityOp::Session(
+                eg_types::identity::SessionOp::InspectReference { .. }
+                    | eg_types::identity::SessionOp::RenewReference { .. }
+            )
+        ) {
+            return self.apply_session_authority(op, stamp, now_ms, classifier);
+        }
+        self.apply_identity_image(op, stamp, now_ms, classifier)
+    }
+
+    pub(super) fn apply_identity_image(
+        &mut self,
+        op: &IdentityOp,
+        stamp: &IdentityStamp,
+        now_ms: u64,
+        classifier: &dyn ScopeClassifier,
+    ) -> Result<IdentityReply, IdentityStoreError> {
         let mut next = self.rbac.identity_store().clone();
         let ctx = ApplyContext { now_ms, classifier };
         let reply = next
@@ -313,3 +332,6 @@ fn owned_role(role: &Role) -> bool {
 fn owned_grant(grant: &Grant) -> bool {
     grant.role.starts_with(RBAC_ROLE_PREFIX)
 }
+
+#[path = "identity_store_admin/session_authority.rs"]
+mod session_authority;

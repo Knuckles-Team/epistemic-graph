@@ -35,6 +35,7 @@ fn resolution() -> PrincipalResolution {
 fn session_op() -> IdentityOp {
     IdentityOp::Session(SessionOp::Resolve {
         request: SessionTouch {
+            refresh: None,
             session_token: Secret::default(),
             code: Secret::default(),
         },
@@ -361,6 +362,7 @@ async fn send_op(
 fn session_request() -> IdentityOp {
     IdentityOp::Session(SessionOp::Resolve {
         request: SessionTouch {
+            refresh: None,
             session_token: Secret::new(SESSION),
             code: Secret::default(),
         },
@@ -629,6 +631,7 @@ async fn pending_mfa_refusal_preserves_a_completable_ceremony_after_touch() {
         live_broker(),
         IdentityOp::Mfa(MfaOp::ConsumeRecoveryCode {
             request: SessionTouch {
+                refresh: None,
                 session_token: Secret::new(SESSION),
                 code: Secret::new(code),
             },

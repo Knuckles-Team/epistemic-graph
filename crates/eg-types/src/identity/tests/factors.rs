@@ -40,6 +40,7 @@ fn verify(credential_id: &str, new_sign_count: u32) -> IdentityOp {
 fn credentials() -> IdentityOp {
     IdentityOp::Mfa(MfaOp::WebauthnCredentials {
         request: SessionTouch {
+            refresh: None,
             session_token: Secret::default(),
             code: Secret::default(),
         },
