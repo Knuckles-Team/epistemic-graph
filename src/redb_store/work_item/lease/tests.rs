@@ -84,3 +84,49 @@ fn fenced_metadata_cas_uses_mutation_time_and_preserves_refused_rows() {
         }
     }
 }
+
+// spec: EG-DECISION-ENGINE-R801.7
+#[test]
+fn native_context_metadata_cas_preserves_admitted_session() {
+    for (before, after, allowed) in [
+        (
+            serde_json::json!({"a2a_context_id":"a"}),
+            serde_json::json!({"a2a_context_id":"b"}),
+            false,
+        ),
+        (
+            serde_json::json!({"a2a_context_id":"a"}),
+            serde_json::json!({}),
+            false,
+        ),
+        (
+            serde_json::json!({}),
+            serde_json::json!({"a2a_context_id":"a"}),
+            false,
+        ),
+        (
+            serde_json::json!({"a2a_context_id":"a"}),
+            serde_json::json!({"a2a_context_id":"a","note":"updated"}),
+            true,
+        ),
+    ] {
+        let mut props = serde_json::json!({"run_owner_binding":{},"metadata":before})
+            .as_object()
+            .unwrap()
+            .clone();
+        let original = props.clone();
+        let mut req = request(false);
+        req.expected_prio_bucket = None;
+        req.set_prio_bucket = None;
+        req.expected_metadata_msgpack = Some(rmp_serde::to_vec_named(&before).unwrap());
+        req.set_metadata_msgpack = Some(rmp_serde::to_vec_named(&after).unwrap());
+        let result = apply_cas_work_item_metadata_field(&req, &mut props);
+        if allowed {
+            assert_eq!(result, Ok(true));
+            assert_eq!(props["metadata"], after);
+        } else {
+            assert!(result.is_err());
+            assert_eq!(props, original);
+        }
+    }
+}

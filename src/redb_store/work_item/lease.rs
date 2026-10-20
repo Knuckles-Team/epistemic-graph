@@ -276,6 +276,13 @@ pub(crate) fn apply_cas_work_item_metadata_field(
         }
         let set_metadata = decode_durable::<serde_json::Value>(set_metadata_bytes)
             .map_err(|_| "invalid set_metadata_msgpack".to_string())?;
+        // Native admission fixes the run's context. Metadata CAS may update
+        // unrelated annotations, but cannot move usage or missing coverage.
+        if props.contains_key("run_owner_binding")
+            && current_metadata.get("a2a_context_id") != set_metadata.get("a2a_context_id")
+        {
+            return Err("native run context is immutable".into());
+        }
         props.insert("metadata".into(), set_metadata);
     } else if let Some(set_prio_bucket) = request.set_prio_bucket {
         let expected_prio_bucket = request.expected_prio_bucket.unwrap_or(0);
