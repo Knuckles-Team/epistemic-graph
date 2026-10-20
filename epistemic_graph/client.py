@@ -4024,6 +4024,7 @@ class WorkItemClient:
         retryable: bool = False,
         outcome_extension: dict[str, Any] | None = None,
         usage_observation: dict[str, Any] | None = None,
+        terminal_stream: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Commit a leased item's terminal result under its fence.
 
@@ -4049,6 +4050,8 @@ class WorkItemClient:
             params["outcome_extension"] = outcome_extension
         if usage_observation is not None:
             params["usage_observation"] = usage_observation
+        if terminal_stream is not None:
+            params["terminal_stream"] = terminal_stream
         return (
             await _gen.coordination.send_commit_work_item_result(
                 self._client, params, idempotency_key=idempotency_key

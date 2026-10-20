@@ -135,6 +135,7 @@ fn native_public_owner_cas_drift_rolls_back_before_terminal_lane_transition() {
     let foreign_commit = fixture
         .commit_work_item(
             Method::CommitWorkItemResult {
+                terminal_stream: None,
                 tenant: hold.tenant_ref.clone(),
                 work_item_id: hold.work_item_id.clone(),
                 worker_id: "owner:foreign".into(),

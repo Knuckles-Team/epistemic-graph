@@ -462,6 +462,14 @@ pub(crate) fn apply_native_work_item_family_operation(
         crypto,
     })?
     .ok_or_else(|| "WorkItem mutation produced no durable result".to_string())?;
+    super::work_item::run_stream::append_terminal(
+        graph_fname,
+        method,
+        batch,
+        &result,
+        &mut tables.graph,
+        crypto,
+    )?;
     // CommitWorkItemResult may co-commit provenance AddNode rows. Its shape is
     // checked before the operation loop; every other WorkItem write is singular.
     let is_terminal = matches!(method, Method::CommitWorkItemResult { .. });

@@ -226,6 +226,7 @@ fn resource_host_result_requires_no_work_item_projection_ids() {
 #[test]
 fn terminal_work_item_retry_identity_is_transport_independent_and_scope_bound() {
     let method = Method::CommitWorkItemResult {
+        terminal_stream: None,
         tenant: "tenant-a".into(),
         work_item_id: "work-1".into(),
         worker_id: "worker-a".into(),

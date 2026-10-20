@@ -116,6 +116,7 @@ fn work_item_mutations() -> Vec<Method> {
             lease_ms: 100,
         },
         Method::CommitWorkItemResult {
+            terminal_stream: None,
             tenant: "tenant-ref".to_string(),
             work_item_id: "work-item".to_string(),
             worker_id: "worker".to_string(),

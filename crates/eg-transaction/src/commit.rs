@@ -625,7 +625,10 @@ fn write_outbox<D: OwnerDomain>(
     // iterates `0..n`.
     let mut effective_outbox = Vec::with_capacity(batch.outbox.len());
     for (ordinal, intent) in batch.outbox.iter().enumerate() {
-        if terminal_batch && intent.topic != eg_types::outcome_bundle::RUN_EVENT_OUTBOX_TOPIC {
+        if terminal_batch
+            && intent.topic != eg_types::outcome_bundle::RUN_EVENT_OUTBOX_TOPIC
+            && intent.topic != eg_types::run_stream::TERMINAL_STREAM_TOPIC
+        {
             continue;
         }
         if terminal_outbox_intent_applies(intent, result_msgpack)? {
@@ -681,7 +684,9 @@ fn terminal_outbox_intent_applies(
     intent: &eg_types::mutation_batch::MutationOutboxIntent,
     result_msgpack: Option<&[u8]>,
 ) -> Result<bool, String> {
-    if intent.topic != eg_types::outcome_bundle::RUN_EVENT_OUTBOX_TOPIC {
+    if intent.topic != eg_types::outcome_bundle::RUN_EVENT_OUTBOX_TOPIC
+        && intent.topic != eg_types::run_stream::TERMINAL_STREAM_TOPIC
+    {
         return Ok(true);
     }
     let Some(result_msgpack) = result_msgpack else {
@@ -693,7 +698,8 @@ fn terminal_outbox_intent_applies(
         return Err("terminal WorkItem result does not carry a status object".to_string());
     };
     match value.get("status").and_then(|status| status.as_str()) {
-        Some("missing" | "noop" | "fenced" | "retry_scheduled") => Ok(false),
+        Some("missing" | "noop" | "fenced") => Ok(false),
+        Some("retry_scheduled") => Ok(intent.topic == eg_types::run_stream::TERMINAL_STREAM_TOPIC),
         Some("succeeded" | "failed" | "cancelled" | "dead_letter") => Ok(true),
         _ => Err("terminal WorkItem result has an unknown status".to_string()),
     }

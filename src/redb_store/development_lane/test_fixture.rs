@@ -322,6 +322,7 @@ impl NativeLaneFixture {
     ) -> Result<MutationBatchCommit, String> {
         self.commit_work_item(
             Method::CommitWorkItemResult {
+                terminal_stream: None,
                 tenant: self.reserve.tenant_ref.clone(),
                 work_item_id: self.reserve.work_item_id.clone(),
                 worker_id: self.reserve.owner_id.clone(),

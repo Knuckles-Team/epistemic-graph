@@ -1335,6 +1335,7 @@ mod tests {
             .expect("read mutation graph version");
         let batch = sealed_work_item_batch(
             Method::CommitWorkItemResult {
+                terminal_stream: None,
                 tenant: "tenant-a".to_string(),
                 work_item_id: item.to_string(),
                 worker_id: "worker-a".to_string(),

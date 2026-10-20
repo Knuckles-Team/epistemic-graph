@@ -300,6 +300,7 @@ fn an_offer_is_versioned_derived_state_citing_only_held_evidence() {
 
 fn commit(shard: &Shard, work_item_id: &str, hold: &ClaimWorkItemResult, outcome: &str) {
     let method = Method::CommitWorkItemResult {
+        terminal_stream: None,
         tenant: "tenant-a".into(),
         work_item_id: work_item_id.into(),
         worker_id: "worker-1".into(),

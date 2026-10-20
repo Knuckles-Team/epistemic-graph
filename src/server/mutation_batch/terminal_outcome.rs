@@ -356,6 +356,7 @@ mod tests {
 
     fn terminal(extension: TerminalOutcomeExtension) -> Method {
         Method::CommitWorkItemResult {
+            terminal_stream: None,
             tenant: "tenant:test".into(),
             work_item_id: "work:test".into(),
             worker_id: "worker:test".into(),

@@ -1352,6 +1352,7 @@ mod mutation_batch_tests {
             surface: MutationSurface::Job,
             domain: DurabilityDomain::ControlPlane,
             method: Method::CommitWorkItemResult {
+                terminal_stream: None,
                 tenant: "tenant-a".into(),
                 work_item_id: work_item_id.into(),
                 worker_id: worker_id.into(),
@@ -2744,6 +2745,7 @@ mod mutation_batch_tests {
         assert_eq!(claimed.fencing_token, Some(1));
 
         let terminal_method = Method::CommitWorkItemResult {
+            terminal_stream: None,
             tenant: "tenant-a".into(),
             work_item_id: "work-1".into(),
             worker_id: "worker-a".into(),
@@ -2925,6 +2927,7 @@ mod mutation_batch_tests {
         assert!(claimed.claimed);
 
         let terminal_method = Method::CommitWorkItemResult {
+            terminal_stream: None,
             tenant: "tenant-a".into(),
             work_item_id: "work-bundle-1".into(),
             worker_id: "worker-a".into(),
@@ -3032,6 +3035,7 @@ mod mutation_batch_tests {
         assert!(claimed.claimed);
 
         let terminal_method = Method::CommitWorkItemResult {
+            terminal_stream: None,
             tenant: "tenant-a".into(),
             work_item_id: "work-disallowed-1".into(),
             worker_id: "worker-a".into(),
@@ -3158,6 +3162,7 @@ mod mutation_batch_tests {
                 surface: MutationSurface::Job,
                 domain: DurabilityDomain::ControlPlane,
                 method: Method::CommitWorkItemResult {
+                    terminal_stream: None,
                     tenant: "tenant-a".into(),
                     work_item_id: "work-double-1".into(),
                     worker_id: "worker-a".into(),
@@ -3178,6 +3183,7 @@ mod mutation_batch_tests {
                 surface: MutationSurface::Job,
                 domain: DurabilityDomain::ControlPlane,
                 method: Method::CommitWorkItemResult {
+                    terminal_stream: None,
                     tenant: "tenant-a".into(),
                     work_item_id: "work-double-2".into(),
                     worker_id: "worker-b".into(),

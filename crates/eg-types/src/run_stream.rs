@@ -145,6 +145,7 @@ pub struct RunEventAppended {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RunEventReference {
+    pub kind: RunStreamKind,
     pub work_item_id: String,
     pub run_id: String,
     pub event_index: u64,
@@ -176,3 +177,21 @@ pub struct RunEventPage {
 
 #[cfg(test)]
 mod tests;
+
+/// Optional canonical terminal state emission; the engine derives content from its result.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct TerminalRunStream {
+    pub run_id: String,
+    pub expected_index: u64,
+}
+
+pub const TERMINAL_STREAM_TOPIC: &str = "engine.run.terminal-state.v1";
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TerminalStreamReference {
+    pub work_item_id: String,
+    pub run_id: String,
+    pub event_index: u64,
+}

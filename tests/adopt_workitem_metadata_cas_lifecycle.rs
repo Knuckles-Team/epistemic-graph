@@ -418,6 +418,7 @@ async fn workitem_metadata_cas_full_lifecycle_survives_restart() {
         req(
             9,
             Method::CommitWorkItemResult {
+                terminal_stream: None,
                 tenant: TENANT.to_string(),
                 work_item_id: WORK_ITEM.to_string(),
                 worker_id: WORKER_B.to_string(),
