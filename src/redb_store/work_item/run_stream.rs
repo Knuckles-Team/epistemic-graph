@@ -311,11 +311,22 @@ pub(crate) fn read_events(
         .saturating_add(u64::from(request.limit))
         .min(next_index);
     let mut events = Vec::new();
+    let mut page_bytes = 0usize;
     if after < end {
         for index in after + 1..=end {
-            events.push(read_event(index)?);
+            let event = read_event(index)?;
+            let bytes = serde_json::to_vec(&event).map_err(|e| e.to_string())?.len();
+            if !events.is_empty() && page_bytes.saturating_add(bytes) > MAX_RUN_EVENT_PAGE_BYTES {
+                break;
+            }
+            page_bytes = page_bytes.saturating_add(bytes);
+            events.push(event);
         }
     }
+    let last_index = events
+        .last()
+        .map(|event| event.event_index)
+        .unwrap_or(after);
     let next_cursor = events
         .last()
         .map(|event| event.cursor.clone())
@@ -330,7 +341,7 @@ pub(crate) fn read_events(
         work_item,
         events,
         next_cursor,
-        has_more: end < next_index,
+        has_more: last_index < next_index,
         next_index,
     }))
 }

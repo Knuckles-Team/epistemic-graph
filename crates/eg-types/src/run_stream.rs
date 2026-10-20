@@ -5,6 +5,7 @@ use sha2::{Digest, Sha256};
 pub const RUN_STREAM_TOPIC: &str = "engine.run.event.v1";
 pub const MAX_RUN_EVENT_BYTES: usize = 65_536;
 pub const MAX_RUN_EVENT_PAGE: u16 = 128;
+pub const MAX_RUN_EVENT_PAGE_BYTES: usize = 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
