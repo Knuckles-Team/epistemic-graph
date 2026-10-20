@@ -201,9 +201,6 @@ Reuses: the round history sent by the caller. New: the table, the rule, the verd
 Decision: One fixed rule over a calibration table with no learned part. Rejected alternative: a learned stopping classifier, because it needs labelled data and drifts without notice.
 Cross-repository: `AU-RETRIEVAL-R005` consumes the verdict and ends the loop. `EG-FEDERATED-QUERY-R081` supplies the round limit.
 
-References
-- arXiv:2606.13814 — Kieback et al., "TASR: Training-Free Adaptive Stopping for Iterative Retrieval" (2026)
-
 ## EG-FEDERATED-QUERY-R083 Arbitration between model prior and evidence
 
 Data flow: harness prior probe -> served cross-modal query carrying the prior `Candidate` -> `eg_plan::execute` (`crates/eg-plan/src/exec.rs:536`) -> `arbitrate` -> `ArbitrationVerdict` -> harness answers or reports the abstention.
@@ -217,9 +214,6 @@ Existing-code search: no arbitration exists in the engine. Search terms: `arbitr
 Reuses: the typed abstention pattern and the ranked evidence side. New: the candidate type, the margin rule, the verdict.
 Decision: One margin rule in the engine over two candidates. Rejected alternative: a learned arbiter, because it needs labelled disagreement data.
 Cross-repository: `AU-RETRIEVAL-R006` runs the prior probe and applies the verdict. `EG-FEDERATED-QUERY-R081` and `R082` share the premise record.
-
-References
-- arXiv:2606.08397 — Xu et al., "TrustMargin: Training-Free Arbitration between Parametric Memory and Retrieved Evidence in Large Language Models" (2026)
 
 ## R081.7 through R081.9: retrieval synthesis
 
@@ -237,14 +231,14 @@ Activation acceptance pins corpus, labels, model artifacts, policy and baseline.
 
 ### Source-to-requirement mapping
 
-| Inputs | Owner extension | Preserved residual clauses | Primary research |
-|---|---|---|---|
-| AU:72, AU:73 | R081.7 | Adaptive count, score fusion, reranker rescue, dual-low rejection and no added selection inference. | [arXiv:2606.14269v1](https://arxiv.org/abs/2606.14269v1) |
-| AU:74, AU:75 | R081.8 | Corpus-grounded term feedback, diverse perspectives and reinforce/missing/suppress tiers. | [arXiv:2606.13905v1](https://arxiv.org/abs/2606.13905v1), [arXiv:2606.17209v1](https://arxiv.org/abs/2606.17209v1) |
-| AU:76 | R081.9 | Community-to-entity descent, stage reranking and breadth/cost control. | [arXiv:2601.11144v3](https://arxiv.org/abs/2601.11144v3) |
-| AU:127 | R081.8 | Traceable natural-language critique can guide another retrieval step without replacing measured relevance. | [arXiv:2606.00590v1](https://arxiv.org/abs/2606.00590v1) |
+| Inputs | Owner extension | Preserved residual clauses |
+|---|---|---|
+| AU:72, AU:73 | R081.7 | Adaptive count, score fusion, reranker rescue, dual-low rejection and no added selection inference. |
+| AU:74, AU:75 | R081.8 | Corpus-grounded term feedback, diverse perspectives and reinforce/missing/suppress tiers. |
+| AU:76 | R081.9 | Community-to-entity descent, stage reranking and breadth/cost control. |
+| AU:127 | R081.8 | Traceable natural-language critique can guide another retrieval step without replacing measured relevance. |
 
-Primary research informs the mechanisms; EG-specific policies and acceptance remain requirements, not measured results. The source of diverse query initialization has verified authors Murali et al.; the earlier generic author label is not authoritative. The critique source includes additional training mechanisms outside this assigned residual scope.
+EG-specific policies and acceptance remain requirements, not measured results.
 
 ### R081.8 and R082 termination precedence
 
@@ -472,15 +466,6 @@ Each leaf is an implementation checkpoint: model, behavior, wiring, refusal, evi
 Chunk encoding separates window construction, independent inference and aggregation into individual leaves.
 Cross-owner worker, harness and hosting work must land through their existing contracts.
 No row becomes delivered merely because its definition or planned test path exists.
-
-### References
-
-- arXiv:2605.08384v2 — Hönicke et al., "jina-embeddings-v5-omni: Geometry-preserving Embeddings via Locked Aligned Towers" (2026).
-- arXiv:2606.18781v1 — Lyu et al., "Lost in a Single Vector: Improving Long-Document Retrieval with Chunk Evidence Aggregation" (2026).
-
-These papers inspire the space-alignment and chunk-aggregation mechanisms.
-The requirements remain product-neutral and require independent served measurements.
-
 
 ### R039.4 and R040.4: retained parent acceptance
 
@@ -876,9 +861,6 @@ Persistence: none. The method is read-only.
 Tenant isolation: every arm and every hop applies row visibility before fusion.
 
 Budget: p99 under 15 ms in `standard` mode at 1,000,000 vectors, and engine overhead under 40 ms in `deep` mode.
-
-References
-- arXiv:2508.06600 — "BrowseComp-Plus" (2025)
 
 ## EG-FEDERATED-QUERY-R073.2 — connection-protocol pushdown matrix
 

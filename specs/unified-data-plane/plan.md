@@ -120,9 +120,6 @@ Decision: gate on each modality separately, so an average cannot hide one regres
 
 Cross-repository: none.
 
-References
-- arXiv:2606.09331 — Li et al., "Conan-embedding-v3: Fusing Modality-Specific Models for Omni-Modal Embedding" (2026)
-
 <!-- spec-definition-patch:owner-batch-20261012-unified-data-plane -->
 ## Implementation plan — `EG-UNIFIED-DATA-PLANE-R026.4`
 

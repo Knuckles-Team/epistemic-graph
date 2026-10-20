@@ -574,9 +574,6 @@ Decision: tie-break by an item-level score. Rejected alternative: share one scor
 
 Cross-repository: `AU-` rows may show the premises; they own no ranking rule.
 
-References:
-- arXiv:2606.08604 — Tikhonovich et al., "Gryphon: A Unified Architecture for Semantic-ID Generation and Item-Level Scoring in Industrial Recommendations" (2026)
-
 ## Limit guard pipeline (R131)
 
 Data flow: `Decide` wire method -> `conclude.rs` chokepoint -> `check_limits` (`crates/eg-types/src/decision/limit_guard.rs`) -> abstention `limit_breach` plus an observation node linked to the signal.
@@ -649,10 +646,6 @@ Decision: one `TaskPlan` question kind returns subtasks, skills and operator tog
 
 Cross-repository: `AU-CONTROL-R042` and `AU-CONTROL-R043` receive the tool list and the plan and apply them.
 
-References
-- arXiv:2605.15132 — Rose et al., "APWA: A Distributed Architecture for Parallelizable Agentic Workflows" (2026)
-- arXiv:2606.18051 — Gao, "Compositional Skill Routing for LLM Agents: Decompose, Retrieve, and Compose" (2026)
-
 ## Compiled program store (R135)
 
 Consumers: AU-HARNESS-R023.
@@ -668,9 +661,6 @@ Existing code: `src/server/handlers/decide/candidates.rs:415`, `src/server/handl
 Decision: the engine owns the program store, so every harness replica shares one program per signature. Rejected alternative: a harness-local cache, because replicas compile and store duplicates.
 
 Cross-repository: `AU-HARNESS-R023` replays the returned program; it does not store or choose one.
-
-References
-- arXiv:2606.17929 — Li, "PreAct: Computer-Using Agents that Get Faster on Repeated Tasks" (2026)
 
 ## Evolution round verdict and stage model allocation (R136)
 
@@ -688,10 +678,6 @@ Decision: the engine returns a verdict and an allocation as records, so the harn
 
 Cross-repository: `AU-HARNESS-R025` keeps or reverts on the verdict; `AU-SEMANTIC-R029` applies the allocation and the limit.
 
-References
-- arXiv:2604.25850 — Lin et al., "Agentic Harness Engineering: Observability-Driven Automatic Evolution of Coding-Agent Harnesses" (2026)
-- arXiv:2604.07725 — Maheswaran et al., "Squeeze Evolve: Unified Multi-Model Orchestration for Verifier-Free Evolution" (2026)
-
 ## Context budget and parallel-map limits (R137)
 
 Consumers: AU-CONTEXT-R004 (context budget and plan), AU-HARNESS-R026 (parallel-map limits).
@@ -707,9 +693,6 @@ Existing code: `crates/eg-types/src/decision/statistical/harness_config.rs:81`, 
 Decision: the engine returns the plan and the limits together, so the harness never exceeds a budget it did not receive. Rejected alternative: limits set in harness configuration, because they cannot follow the task class.
 
 Cross-repository: `AU-CONTEXT-R004` assembles context from the plan; `AU-HARNESS-R026` enforces the limits in fan-out.
-
-References
-- arXiv:2512.24601 — Zhang et al., "Recursive Language Models" (2026)
 
 ### R137.13–R137.16: Consumer binding and cross-package constraints
 
@@ -730,10 +713,6 @@ Existing code: `src/server/handlers/decide/candidates.rs:415`, `src/server/handl
 Decision: the engine decides the verdict from stored records, so every harness reads one result for one probe. Rejected alternative: scoring in the harness, because the records and thresholds differ per harness.
 
 Cross-repository: `AU-QUAL-R009` runs the probe, submits the scorer results and reports the verdict.
-
-References
-- arXiv:2605.04019 — Dheekonda et al., "Redefining AI Red Teaming in the Agentic Era: From Weeks to Hours" (2026)
-
 
 ### 2026-10-12: R128 question-kind contract
 
@@ -819,7 +798,7 @@ Dependency order: typed request/plan/refusal/evidence round trip; deterministic 
 - Original objective. Select multiple relevant skills from a tree for each task. Tune selection from run outcomes, so exploration can use more than one skill.
 - Missing EG obligation. An explicit skill tree and outcome-tuned EG exploration over that tree are absent. AU-HARNESS-R022.3 says retrieval ranks locally, while AU-CONTEXT-R001 assigns ranking/feedback to EG. Resolve this authority conflict.
 - Producer/consumer route. EG plan_over_skills -> AgentLibraryStore -> served TaskPlan; AU experience feedback lacks a named EG selection-policy update consumer.
-- Proposed definition. Define TaskPlanSkillNodeV1. Bind task_plan_id/revision/digest, skill_id and nullable parent_skill_id. Bind context_match_policy_revision and evidence refs. Bind prior_outcome_refs with source revisions/digests. Record score, rank and ranking_policy_revision. EG emits relevant skills in a deterministic tree. A versioned score/rank policy binds the comparator and tie rule. Missing or unpinned policy refuses. Outcome feedback changes later breadth only through R140.102 and its pinned policy/outcome set.
+- Proposed definition. Define TaskPlanSkillNodeV1. Bind task_plan_id/revision/digest, skill_id and nullable parent_skill_id. Bind context_match_policy_revision and evidence refs. Bind prior_outcome_refs with source revisions/digests. Record score, rank and ranking_policy_revision. EG emits relevant skills in a deterministic tree. A versioned score/rank policy binds the comparison operator and tie rule. Missing or unpinned policy refuses. Outcome feedback changes later breadth only through R140.102 and its pinned policy/outcome set.
 - Planned acceptance and owner hold. Case R134.9-ranked-plan. Served Decide(TaskPlan) returns multiple skill nodes. Each has stable parent links, cited context matches, pinned outcome refs, score/rank and plan digest. Equal scores use the declared tie-break. Refuse missing/stale context or outcome evidence and malformed/cyclic parent links. AU application of this rank is not asserted. Attach the proposed result at plan_over_skills -> AgentLibraryStore -> served TaskPlan. AU-HARNESS-R022.3 local ranking and AU-CONTEXT-R001 feedback authority remain existing adjacent obligations. The AU consumer that applies EG rank and the feedback-to-R140.102 receipt contract are not yet specified. Keep SPECIFIED pending those owner definitions and served evidence. No implementation, served test, or receipt is claimed by this SPECIFIED definition.
 - Preserve covered clauses: `EG-DECISION-ENGINE-R134.4`, `EG-DECISION-ENGINE-R134.5`, `AU-HARNESS-R022.3`, `AU-CONTEXT-R001`.
 - Source review. `ced4d0bb75fa260e4291aea5f71c28b407a95fc3e06047666e1278b043a3cdbd`. Evidence: epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:283. Epistemic-graph:21a11ecc04e95ed3e297ddd762f29b7fa5524254:specs/decision-engine/requirements.md:284. Agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/harness-evolution/requirements.md:112. Agent-utilities:50c313ab01871ff7e10aee2a9d0254fa55d71f07:specs/agent-context-and-finance/requirements.md:5.
@@ -1458,9 +1437,6 @@ Tenant isolation: a catalog reference resolves only inside the caller's tenant.
 
 Budget: p50 under 5 ms and p99 under 20 ms for 100,000 items at `top_k = 10`.
 
-References
-- arXiv:2606.14142 — He et al., "PauseRec: Implicit Reasoning for LLM-based Generative Recommendation" (2026)
-
 ## EG-DECISION-ENGINE-R173 — cross-round edit concentration cap
 
 Replaces: `agent_utilities/harness/harness_gate.py` (`_link_coupling_windows` and the gate), `HarnessConcentrationShape` in `agent_utilities/knowledge_graph/shapes/harness.shapes.ttl` and `_bench_concentration` in `agent_utilities/harness/harness_foundry_benchmark.py`.
@@ -1480,9 +1456,6 @@ Persistence: edit facts and the policy node are graph nodes in the redb store.
 Tenant isolation: facts and the policy resolve only inside the caller's tenant.
 
 Budget: p99 under 2 ms for 10,000 edit facts.
-
-References
-- arXiv:2606.14249 — "HarnessX" (2026)
 
 ## EG-DECISION-ENGINE-R134.110 — tool relevance index and task-to-tool assignment
 
@@ -2019,7 +1992,8 @@ checks, effect-time reservations and performance qualification remain separate.
 ## Harness contrast composition (R803)
 
 The engine composes the adopted harness for one task from the probed
-candidates, per the Propose-Probe-Compose design of arXiv:2610.14224.
+candidates, per the Propose-Probe-Compose design. Propose k candidate versions, probe each
+under identical conditions, and compose the adopted version on a measured decision.
 The caller — the harness cycle of AU-HARNESS-CYCLE-R001 — proposes k
 candidate component versions (EG-ORCH-VOCAB-R801). It probes each under
 an identical task, seed, model and budget. It then presents the probe

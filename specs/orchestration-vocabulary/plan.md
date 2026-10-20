@@ -459,7 +459,3 @@ Decisions:
 - A lesson is a fact with applicability, not a rule. Rule promotion stays with `EG-DECISION-ENGINE-R129`. The decision record of `EG-DECISION-ENGINE-R803.5` refuses a lesson that contradicts a stored invariant.
 
 Consumers: `EG-DECISION-ENGINE-R803` composes from the contrast. `AU-HARNESS-CYCLE-R001.2` reads the lessons before proposing. `ARBORA-OPS-R068` serves the reads.
-
-References:
-
-- arXiv:2610.14224 — Xu et al., "Harness²: Recursive Agent Harnessing for an Open World" (2026)

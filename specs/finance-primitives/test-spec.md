@@ -43,7 +43,7 @@ A train-level result does not close unproven scenarios.
 
 ## R013 decomposed fixture acceptance
 
-The R013.1 production-module unit gate admits a fully-provenanced figure and refuses each absent source, as-of time and session. It does not establish the broader fixture rows below. R013.2.1 currently has synthetic comparator tests only; independent broker-statement data is not claimed as validated.
+The R013.1 production-module unit gate admits a fully-provenanced figure and refuses each absent source, as-of time and session. It does not establish the broader fixture rows below. R013.2.1 currently has synthetic comparison tests only; independent broker-statement data is not claimed as validated.
 
 | ID | Positive proof | Negative / boundary proof |
 |---|---|---|

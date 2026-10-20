@@ -10,12 +10,11 @@ Commits are commit-before-ack over immutable versioned segments. Every storage o
 measured cost across releases. A comparative gate carries the numbers. The local store remains
 the default. Object storage is a declared, typed backend. It is not a second engine.
 
-This answers the object-storage-native posture of the comparator (ModernRelay/omnigraph,
-surveyed 2026-10-19 at `0a62bb7b`). That engine stores Lance datasets on S3-compatible object
-storage as its primary substrate. The stated advantage is the control plane. EG's object-store
-backend stays under the existing multi-raft consensus, placement, and resharding authorities. Its
-comparative cost gate also counts cross-shard federation actions. A single-store harness cannot
-express those.
+This answers an object-storage-native posture in which a columnar dataset store on
+S3-compatible object storage is the primary substrate. The stated advantage is the control
+plane. EG's object-store backend stays under the existing multi-raft consensus, placement, and
+resharding authorities. Its comparative cost gate also counts cross-shard federation actions.
+A single-store harness cannot express those.
 
 ## Requirements
 

@@ -13,10 +13,10 @@ uses evidence weights under an owner-pinned policy. An unresolved conflict stays
 queryable state. It is never a silent last-write-wins overwrite.
 
 This gives long-horizon agents a reviewable write path. Each agent or task gets its own branch.
-Merge happens on review. Time travel spans the whole graph. The stated advantage over the
-git-style comparator (ModernRelay/omnigraph, surveyed 2026-10-19 at `0a62bb7b`) is the merge
-model. Its merge is entity-level last-write-wins with constraint checks. EG's merge is
-evidence-weighted and validity-aware. Its conflict receipts are first-class epistemic records.
+Merge happens on review. Time travel spans the whole graph. A git-style engine keeps
+entity-level last-write-wins merges with constraint checks. The stated advantage is the merge
+model: EG's merge is evidence-weighted and validity-aware. Its conflict receipts are
+first-class epistemic records.
 
 ## Requirements
 

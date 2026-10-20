@@ -634,7 +634,7 @@ No test in this section has run.
 ## Planned served acceptance — grounded answers and safety bounds
 
 - `EG-DECISION-ENGINE-R100.101`: use a complete pinned expected-topic set and separately labeled coverage/support records. Verify exact expected/covered topic ids and summed per-scope counts. Supply one label-blind prediction per scored claim and independent non-unanimous votes. Independently recompute `sum(n_i*(p_i-q_i)^2)/sum(n_i)` and verify the denominator is positive. Hold labels fixed and vary `p_i`; Brier changes exactly while coverage does not. Refuse missing/extra predictions, claims, labels or topics, duplicate annotators, empty denominator, out-of-range probabilities and stale source/scorer/policy digests.
-- `EG-DECISION-ENGINE-R001.100`: pass an in-bound recommendation and withhold one for each out-of-bound metric. Assert metric units, bound id, limit and measured value. Refuse absent/stale/non-finite/unit-incompatible facts and invalid comparator. The GraphOS pre-surface served receipt is separately required and is not claimed by this EG test.
+- `EG-DECISION-ENGINE-R001.100`: pass an in-bound recommendation and withhold one for each out-of-bound metric. Assert metric units, bound id, limit and measured value. Refuse absent/stale/non-finite/unit-incompatible facts and invalid comparison operator. The GraphOS pre-surface served receipt is separately required and is not claimed by this EG test.
 
 ### EG-DECISION-ENGINE-R172 tests
 

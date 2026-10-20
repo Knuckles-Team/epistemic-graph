@@ -2237,7 +2237,7 @@
     },
     {
       "id": "EG-FEDERATED-QUERY-R039.2",
-      "title": "Independent document-chunk encoding and aggregation [arXiv:2606.18781] (rollup)",
+      "title": "Independent document-chunk encoding and aggregation (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
