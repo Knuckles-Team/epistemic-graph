@@ -33,6 +33,7 @@ from typing import TYPE_CHECKING, Any, Literal, NamedTuple, NoReturn, TypedDict,
 import msgpack
 
 from . import generated as _gen
+from ._run_usage import validate_committed_run_usage
 from .connector_pack import ConnectorPackClient
 from .fleet_catalog import FleetCatalogClient
 from .generated.server_registry import (
@@ -4591,7 +4592,17 @@ class WorkItemClient:
         if value is not None:
             if not isinstance(value, dict):
                 raise RuntimeError("native run event page is malformed")
-            _work_item_view(value["work_item"])
+            view = _work_item_view(value["work_item"])
+            if view["work_item_id"] != work_item_id:
+                raise RuntimeError("native run event WorkItem attribution mismatch")
+            usage = value.get("committed_run_usage")
+            if usage is not None:
+                validate_committed_run_usage(
+                    usage,
+                    tenant=tenant,
+                    run_id=run_id,
+                    context_id=view["metadata"].get("a2a_context_id"),
+                )
         return value
 
     async def replay_terminal(
