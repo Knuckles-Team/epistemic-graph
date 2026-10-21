@@ -90,7 +90,8 @@ fn migrated_http_json_rejects_oversized_content_length() {
     use eg_types::wire::{ForeignSourceSpec, HttpFieldMap};
     let server = TcpListener::bind("127.0.0.1:0").unwrap();
     let url = format!("http://{}/data", server.local_addr().unwrap());
-    let _allow = crate::federation_tests::MockHttpAllowGuard::new(&url);
+    let origin = format!("http://{}/", server.local_addr().unwrap());
+    let _allow = crate::federation_tests::MockHttpAllowGuard::new(&origin);
     let peer = std::thread::spawn(move || {
         let (mut socket, _) = read_request(server);
         socket
