@@ -163,10 +163,7 @@ pub fn query_opensearch(
     let body = build_search_body(query_dsl)?;
     let endpoint = format!("{base}/{index}/_search");
 
-    let agent = ureq::Agent::config_builder()
-        .proxy(None)
-        .max_redirects(5)
-        .timeout_connect(Some(std::time::Duration::from_secs(30)))
+    let agent = crate::server::outbound_http_config()
         .timeout_connect(Some(Duration::from_secs(super::CONNECT_TIMEOUT_SECS)))
         .timeout_recv_response(Some(Duration::from_secs(super::READ_TIMEOUT_SECS)))
         .timeout_recv_body(Some(Duration::from_secs(super::READ_TIMEOUT_SECS)))

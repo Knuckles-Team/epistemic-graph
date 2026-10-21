@@ -368,10 +368,7 @@ impl JwtValidator {
 
     /// Fetch the realm JWKS and rebuild the `kid -> DecodingKey` cache.
     fn refresh(&self) -> Result<(), String> {
-        let body = ureq::Agent::config_builder()
-            .proxy(None)
-            .max_redirects(5)
-            .timeout_connect(Some(std::time::Duration::from_secs(30)))
+        let body = crate::server::outbound_http_config()
             .build()
             .new_agent()
             .get(&self.jwks_url)

@@ -280,9 +280,6 @@ impl Transport for HttpTransport {
     ) -> Result<(Value, usize), String> {
         let target = validate_http_json_target(url)?;
         let builder = ureq::Agent::config_builder()
-            .proxy(None)
-            .max_redirects(5)
-            .timeout_connect(Some(std::time::Duration::from_secs(30)))
             .timeout_connect(Some(Duration::from_secs(10)))
             .timeout_recv_response(Some(Duration::from_secs(30)))
             .timeout_recv_body(Some(Duration::from_secs(30)))

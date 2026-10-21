@@ -262,9 +262,6 @@ fn fetch_one_peer(
     let endpoint = format!("{peer}/federated?local=1");
     let body = serde_json::json!({ "query": query, "lang": lang }).to_string();
     let builder = ureq::Agent::config_builder()
-        .proxy(None)
-        .max_redirects(5)
-        .timeout_connect(Some(std::time::Duration::from_secs(30)))
         .timeout_connect(Some(Duration::from_secs(CONNECT_TIMEOUT_SECS)))
         .timeout_recv_response(Some(Duration::from_secs(READ_TIMEOUT_SECS)))
         .timeout_recv_body(Some(Duration::from_secs(READ_TIMEOUT_SECS)));

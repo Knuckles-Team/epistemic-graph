@@ -22,6 +22,19 @@ fn accept_bounded(server: TcpListener) -> std::net::TcpStream {
     }
 }
 
+fn read_request(server: TcpListener) -> (std::net::TcpStream, String) {
+    let mut socket = accept_bounded(server);
+    socket
+        .set_read_timeout(Some(Duration::from_secs(3)))
+        .unwrap();
+    let mut request = [0; 2048];
+    let size = socket.read(&mut request).unwrap();
+    (
+        socket,
+        String::from_utf8_lossy(&request[..size]).into_owned(),
+    )
+}
+
 #[test]
 fn pinned_destination_ignores_dns_and_proxy_and_refuses_redirects() {
     let server = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -33,13 +46,8 @@ fn pinned_destination_ignores_dns_and_proxy_and_refuses_redirects() {
     };
     let destination = redirected.local_addr().unwrap();
     let peer = std::thread::spawn(move || {
-        let mut socket = accept_bounded(server);
-        socket
-            .set_read_timeout(Some(Duration::from_secs(3)))
-            .unwrap();
-        let mut request = [0; 2048];
-        let size = socket.read(&mut request).unwrap();
-        assert!(String::from_utf8_lossy(&request[..size]).starts_with("GET /pinned HTTP/1.1"));
+        let (mut socket, request) = read_request(server);
+        assert!(request.starts_with("GET /pinned HTTP/1.1"));
         write!(socket, "HTTP/1.1 302 Found\r\nLocation: http://{destination}/escape\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").unwrap();
     });
     let config = ureq::Agent::config_builder()
@@ -84,12 +92,7 @@ fn migrated_http_json_rejects_oversized_content_length() {
     let url = format!("http://{}/data", server.local_addr().unwrap());
     let _allow = crate::federation_tests::MockHttpAllowGuard::new(&url);
     let peer = std::thread::spawn(move || {
-        let mut socket = accept_bounded(server);
-        socket
-            .set_read_timeout(Some(Duration::from_secs(3)))
-            .unwrap();
-        let mut request = [0; 2048];
-        socket.read(&mut request).unwrap();
+        let (mut socket, _) = read_request(server);
         socket
             .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 67108865\r\nConnection: close\r\n\r\n")
             .unwrap();

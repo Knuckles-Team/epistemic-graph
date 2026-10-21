@@ -111,10 +111,7 @@ impl EmbedderConfig {
         if let Some(model) = &self.model {
             body["model"] = serde_json::Value::String(model.clone());
         }
-        let mut request = ureq::Agent::config_builder()
-            .proxy(None)
-            .max_redirects(5)
-            .timeout_connect(Some(std::time::Duration::from_secs(30)))
+        let mut request = crate::server::outbound_http_config()
             .build()
             .new_agent()
             .post(url)

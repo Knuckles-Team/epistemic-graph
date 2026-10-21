@@ -402,7 +402,6 @@ impl UreqNlPlanner {
         let mut builder = ureq::Agent::config_builder()
             .proxy(None)
             .max_redirects(5)
-            .timeout_connect(Some(std::time::Duration::from_secs(30)))
             .timeout_connect(Some(self.connect_timeout))
             .timeout_recv_response(Some(self.read_timeout))
             .timeout_recv_body(Some(self.read_timeout));
@@ -501,7 +500,7 @@ impl UreqNlPlanner {
             form.push(("scope", scope));
         }
 
-        let resp = req.send_form(&form).map_err(|e| {
+        let resp = req.send_form(form).map_err(|e| {
             format!(
                 "nl-query: OAuth2 token POST {} failed: {e}",
                 oauth.token_url
