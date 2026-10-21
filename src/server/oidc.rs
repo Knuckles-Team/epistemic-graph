@@ -368,10 +368,17 @@ impl JwtValidator {
 
     /// Fetch the realm JWKS and rebuild the `kid -> DecodingKey` cache.
     fn refresh(&self) -> Result<(), String> {
-        let body = ureq::get(&self.jwks_url)
+        let body = ureq::Agent::config_builder()
+            .proxy(None)
+            .max_redirects(5)
+            .timeout_connect(Some(std::time::Duration::from_secs(30)))
+            .build()
+            .new_agent()
+            .get(&self.jwks_url)
             .call()
             .map_err(|e| format!("jwks fetch: {e}"))?
-            .into_string()
+            .into_body()
+            .read_to_string()
             .map_err(|e| format!("jwks read: {e}"))?;
         let set: JwkSet = serde_json::from_str(&body).map_err(|e| format!("jwks parse: {e}"))?;
         let mut map = HashMap::new();

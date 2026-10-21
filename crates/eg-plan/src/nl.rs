@@ -396,27 +396,34 @@ impl UreqNlPlanner {
     }
 
     /// Build the bounded, timeout-guarded `ureq` agent, applying per-endpoint TLS
-    /// (custom CA / insecure) when configured. With neither TLS override set the agent
-    /// uses ureq's default rustls + webpki-roots verification (byte-for-byte the prior
-    /// behaviour), so only an explicit opt-in changes TLS.
+    /// (custom CA) when configured. With neither TLS override set the agent
+    /// uses ureq's default rustls verification and patched root certificates.
     fn build_agent(&self) -> Result<ureq::Agent, String> {
-        let mut builder = ureq::AgentBuilder::new()
-            .timeout_connect(self.connect_timeout)
-            .timeout_read(self.read_timeout);
+        let mut builder = ureq::Agent::config_builder()
+            .proxy(None)
+            .max_redirects(5)
+            .timeout_connect(Some(std::time::Duration::from_secs(30)))
+            .timeout_connect(Some(self.connect_timeout))
+            .timeout_recv_response(Some(self.read_timeout))
+            .timeout_recv_body(Some(self.read_timeout));
         if self.tls_ca_path.is_some() {
-            builder = builder.tls_config(std::sync::Arc::new(self.rustls_config()?));
+            builder = builder.tls_config(self.tls_config()?);
         }
-        Ok(builder.build())
+        Ok(builder.build().new_agent())
     }
 
-    /// Build a rustls `ClientConfig` for the per-endpoint TLS policy. Uses the SAME `ring`
+    /// Build a verified TLS configuration for the per-endpoint TLS policy. Uses the SAME `ring`
     /// crypto provider ureq already links (no aws-lc / no C toolchain — the Pi-tier
     /// pure-Rust contract). Certificate and hostname verification are mandatory; the
     /// configured PEM CA bundle augments the standard webpki roots.
-    fn rustls_config(&self) -> Result<rustls::ClientConfig, String> {
+    fn tls_config(&self) -> Result<ureq::tls::TlsConfig, String> {
         let provider = std::sync::Arc::new(rustls::crypto::ring::default_provider());
         let mut roots = rustls::RootCertStore::empty();
-        roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+        let mut certs: Vec<ureq::tls::Certificate<'static>> =
+            webpki_root_certs::TLS_SERVER_ROOT_CERTS
+                .iter()
+                .map(|cert| ureq::tls::Certificate::from_der(cert.as_ref()).to_owned())
+                .collect();
         if let Some(path) = &self.tls_ca_path {
             use rustls::pki_types::{pem::PemObject, CertificateDer};
 
@@ -425,15 +432,15 @@ impl UreqNlPlanner {
             for cert in CertificateDer::pem_slice_iter(&pem) {
                 let cert = cert.map_err(|_| "nl-query: TLS CA bundle invalid".to_string())?;
                 roots
-                    .add(cert)
+                    .add(cert.clone())
                     .map_err(|_| "nl-query: TLS CA bundle invalid".to_string())?;
+                certs.push(ureq::tls::Certificate::from_der(cert.as_ref()).to_owned());
             }
         }
-        Ok(rustls::ClientConfig::builder_with_provider(provider)
-            .with_safe_default_protocol_versions()
-            .map_err(|e| format!("nl-query: rustls protocol versions: {e}"))?
-            .with_root_certificates(roots)
-            .with_no_client_auth())
+        Ok(ureq::tls::TlsConfig::builder()
+            .unversioned_rustls_crypto_provider(provider)
+            .root_certs(ureq::tls::RootCerts::new_with_certs(&certs))
+            .build())
     }
 
     /// Resolve the bearer to present to the LLM endpoint: a freshly-minted (cached) OAuth2
@@ -471,7 +478,7 @@ impl UreqNlPlanner {
         let agent = self.build_agent()?;
         let mut req = agent
             .post(&oauth.token_url)
-            .set("content-type", "application/x-www-form-urlencoded");
+            .header("content-type", "application/x-www-form-urlencoded");
         let mut form: Vec<(&str, &str)> = vec![("grant_type", "client_credentials")];
         // Built outside the match so the `&str` pushed into `form` outlives the send.
         let basic_header;
@@ -483,7 +490,7 @@ impl UreqNlPlanner {
                     "Basic {}",
                     base64::engine::general_purpose::STANDARD.encode(raw)
                 );
-                req = req.set("authorization", &basic_header);
+                req = req.header("authorization", &basic_header);
             }
             TokenAuthStyle::Body => {
                 form.push(("client_id", &oauth.client_id));
@@ -502,7 +509,8 @@ impl UreqNlPlanner {
         })?;
         // SAFETY: cap the token-endpoint response like the chat response (OOM guard).
         let mut buf = String::new();
-        resp.into_reader()
+        resp.into_body()
+            .into_reader()
             .take(self.max_response_bytes)
             .read_to_string(&mut buf)
             .map_err(|e| format!("nl-query: read OAuth2 token response: {e}"))?;
@@ -559,22 +567,33 @@ impl NlPlanner for UreqNlPlanner {
 
         let mut req = agent
             .post(&self.endpoint)
-            .set("content-type", "application/json");
+            .header("content-type", "application/json");
         // Static headers (e.g. a gateway client-id) — sent regardless of the auth mode.
         for (name, value) in &self.headers {
-            req = req.set(name, value);
+            let name = ureq::http::HeaderName::try_from(name.as_str())
+                .map_err(|_| "nl-query: invalid header name".to_string())?;
+            let value = ureq::http::HeaderValue::try_from(value.as_str())
+                .map_err(|_| "nl-query: invalid header value".to_string())?;
+            req.headers_mut()
+                .ok_or("nl-query: invalid request")?
+                .insert(name, value);
         }
         // Bearer: a minted+cached OAuth2 token when configured, else the static api_key.
         if let Some(bearer) = self.resolve_bearer()? {
-            req = req.set("authorization", &format!("Bearer {bearer}"));
+            let value = ureq::http::HeaderValue::try_from(format!("Bearer {bearer}"))
+                .map_err(|_| "nl-query: invalid bearer header".to_string())?;
+            req.headers_mut()
+                .ok_or("nl-query: invalid request")?
+                .insert("authorization", value);
         }
         let resp = req
-            .send_string(&body)
+            .send(&body)
             .map_err(|e| format!("nl-query: LLM POST {} failed: {e}", self.endpoint))?;
 
         // SAFETY: cap the bytes read so a hostile/huge response cannot OOM the engine.
         let mut buf = String::new();
-        resp.into_reader()
+        resp.into_body()
+            .into_reader()
             .take(self.max_response_bytes)
             .read_to_string(&mut buf)
             .map_err(|e| format!("nl-query: read LLM response: {e}"))?;
@@ -865,7 +884,7 @@ mod tests {
             .to_string_lossy()
             .into_owned();
         let p = planner().with_tls_ca_path(Some(missing));
-        assert!(p.rustls_config().is_err());
+        assert!(p.tls_config().is_err());
     }
 
     /// With neither TLS override the agent still builds (default webpki verification path).

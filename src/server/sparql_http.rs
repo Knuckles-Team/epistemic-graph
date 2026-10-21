@@ -493,7 +493,7 @@ impl ServiceClient {
 impl eg_rdf::sparql::RemoteSparql for ServiceClient {
     fn select(&self, endpoint: &str, query: &str) -> Result<SparqlResult, String> {
         use eg_plan::federation_ssrf::{
-            pinned_agent_builder, validate_outbound_http_target, OutboundAllowPolicy,
+            pinned_agent, validate_outbound_http_target, OutboundAllowPolicy,
         };
         use std::io::Read;
         let target = validate_outbound_http_target(
@@ -501,18 +501,29 @@ impl eg_rdf::sparql::RemoteSparql for ServiceClient {
             &self.allow,
             OutboundAllowPolicy::ExplicitOnly,
         )?;
-        let agent = pinned_agent_builder(&target)
-            .timeout_connect(std::time::Duration::from_secs(Self::CONNECT_TIMEOUT_SECS))
-            .timeout_read(std::time::Duration::from_secs(Self::READ_TIMEOUT_SECS))
-            .build();
+        let builder = ureq::Agent::config_builder()
+            .proxy(None)
+            .max_redirects(5)
+            .timeout_connect(Some(std::time::Duration::from_secs(30)))
+            .timeout_connect(Some(std::time::Duration::from_secs(
+                Self::CONNECT_TIMEOUT_SECS,
+            )))
+            .timeout_recv_response(Some(std::time::Duration::from_secs(
+                Self::READ_TIMEOUT_SECS,
+            )))
+            .timeout_recv_body(Some(std::time::Duration::from_secs(
+                Self::READ_TIMEOUT_SECS,
+            )));
+        let agent = pinned_agent(&target, builder);
         let resp = agent
             .post(endpoint)
-            .set("Content-Type", "application/sparql-query")
-            .set("Accept", "application/sparql-results+json")
-            .send_string(query)
+            .header("Content-Type", "application/sparql-query")
+            .header("Accept", "application/sparql-results+json")
+            .send(query)
             .map_err(|_| "SPARQL SERVICE request failed".to_string())?;
         let mut body = String::new();
-        resp.into_reader()
+        resp.into_body()
+            .into_reader()
             .take(Self::MAX_RESPONSE_BYTES)
             .read_to_string(&mut body)
             .map_err(|_| "SPARQL SERVICE response read failed".to_string())?;

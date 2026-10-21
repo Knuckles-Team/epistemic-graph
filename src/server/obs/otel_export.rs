@@ -331,9 +331,15 @@ pub async fn export_once(state: Arc<ObsState>, endpoint: String) -> Result<(bool
 
     tokio::task::spawn_blocking(move || {
         let post = |url: String, body: String| -> bool {
-            ureq::post(&url)
-                .set("content-type", "application/json")
-                .send_string(&body)
+            ureq::Agent::config_builder()
+                .proxy(None)
+                .max_redirects(5)
+                .timeout_connect(Some(std::time::Duration::from_secs(30)))
+                .build()
+                .new_agent()
+                .post(&url)
+                .header("content-type", "application/json")
+                .send(&body)
                 .is_ok()
         };
         let m = post(format!("{endpoint}/v1/metrics"), metrics_body);
