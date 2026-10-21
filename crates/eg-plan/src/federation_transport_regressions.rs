@@ -45,10 +45,12 @@ fn pinned_destination_ignores_dns_and_proxy_and_refuses_redirects() {
         https_only: false,
     };
     let destination = redirected.local_addr().unwrap();
-    let peer = std::thread::spawn(move || {
+    let (finished, completion) = std::sync::mpsc::sync_channel(1);
+    std::thread::spawn(move || {
         let (mut socket, request) = read_request(server);
         assert!(request.starts_with("GET /pinned HTTP/1.1"));
         write!(socket, "HTTP/1.1 302 Found\r\nLocation: http://{destination}/escape\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").unwrap();
+        finished.send(()).unwrap();
     });
     let config = ureq::Agent::config_builder()
         .proxy(Some(ureq::Proxy::new("http://127.0.0.1:1").unwrap()))
@@ -59,7 +61,9 @@ fn pinned_destination_ignores_dns_and_proxy_and_refuses_redirects() {
     assert_eq!(agent.config().max_redirects(), 0);
     let response = agent.get("http://must-not-resolve.invalid/pinned").call();
     assert!(response.is_err() || response.unwrap().status().is_redirection());
-    peer.join().unwrap();
+    completion
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .expect("local HTTP peer must finish");
     assert_eq!(
         redirected.accept().unwrap_err().kind(),
         std::io::ErrorKind::WouldBlock
@@ -92,11 +96,13 @@ fn migrated_http_json_rejects_oversized_content_length() {
     let url = format!("http://{}/data", server.local_addr().unwrap());
     let origin = format!("http://{}/", server.local_addr().unwrap());
     let _allow = crate::federation_tests::MockHttpAllowGuard::new(&origin);
-    let peer = std::thread::spawn(move || {
+    let (finished, completion) = std::sync::mpsc::sync_channel(1);
+    std::thread::spawn(move || {
         let (mut socket, _) = read_request(server);
         socket
             .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 67108865\r\nConnection: close\r\n\r\n")
             .unwrap();
+        finished.send(()).unwrap();
     });
     let spec = ForeignSourceSpec::HttpJson {
         url,
@@ -108,6 +114,8 @@ fn migrated_http_json_rejects_oversized_content_length() {
         },
     };
     let result = crate::federation::source_for(&spec).fetch();
-    peer.join().unwrap();
+    completion
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .expect("local HTTP peer must finish");
     assert!(result.unwrap_err().contains("response exceeds limit"));
 }

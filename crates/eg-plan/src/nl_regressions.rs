@@ -92,7 +92,8 @@ fn http_migration_keeps_single_authoritative_bearer_and_body() {
     use std::io::{Read, Write};
     let server = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let endpoint = format!("http://{}/chat", server.local_addr().unwrap());
-    let peer = std::thread::spawn(move || {
+    let (finished, completion) = std::sync::mpsc::sync_channel(1);
+    std::thread::spawn(move || {
         let (mut socket, _) = server.accept().unwrap();
         socket
             .set_read_timeout(Some(std::time::Duration::from_secs(3)))
@@ -143,6 +144,7 @@ fn http_migration_keeps_single_authoritative_bearer_and_body() {
             response
         )
         .unwrap();
+        finished.send(()).unwrap();
     });
     let planner =
         UreqNlPlanner::new(endpoint, "test-model".into(), "actual-test-token".into()).with_headers(
@@ -152,7 +154,9 @@ fn http_migration_keeps_single_authoritative_bearer_and_body() {
         planner.plan("find one", "").unwrap(),
         "MATCH (:Doc) |> LIMIT 1"
     );
-    peer.join().unwrap();
+    completion
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .expect("local HTTP peer must finish");
 }
 
 #[test]
