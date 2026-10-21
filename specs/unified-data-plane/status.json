@@ -2745,7 +2745,7 @@
         "crates/eg-document/src/processing.rs:269",
         "crates/eg-document/src/processing.rs:282",
         "crates/eg-document/src/processing.rs:301",
-        "src/server/handlers/web_ingest/embedder.rs:215",
+        "src/server/handlers/web_ingest/embedder.rs:212",
         "src/server/handlers/web_ingest_tests.rs:44"
       ]
     },

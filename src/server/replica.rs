@@ -499,10 +499,7 @@ pub fn pull_replication_tail(
 ) -> Result<Vec<ReplicationOp>, String> {
     use std::io::Read;
     let endpoint = format!("{}/replicate?since={}", cfg.primary_url, cursor);
-    let agent = ureq::Agent::config_builder()
-        .proxy(None)
-        .max_redirects(5)
-        .timeout_connect(Some(std::time::Duration::from_secs(30)))
+    let agent = crate::server::outbound_http_config()
         .timeout_connect(Some(Duration::from_secs(cfg.timeout_secs)))
         .timeout_recv_response(Some(Duration::from_secs(cfg.timeout_secs)))
         .timeout_recv_body(Some(Duration::from_secs(cfg.timeout_secs)))

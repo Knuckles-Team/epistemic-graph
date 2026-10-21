@@ -627,6 +627,21 @@ pub mod kvcache_http;
 /// tied to the graph `ServerState`.
 #[cfg(feature = "obs")]
 pub mod obs;
+
+/// Preserve the existing outbound HTTP defaults during the ureq migration.
+#[cfg(any(
+    feature = "federation-search",
+    feature = "otel-export",
+    feature = "lake",
+    feature = "oidc"
+))]
+pub(crate) fn outbound_http_config() -> ureq::config::ConfigBuilder<ureq::typestate::AgentScope> {
+    ureq::Agent::config_builder()
+        .proxy(None)
+        .max_redirects(5)
+        .timeout_connect(Some(std::time::Duration::from_secs(30)))
+}
+
 /// Shared OIDC/JWKS bearer-token verification core (feature `oidc`, pulled in by
 /// both `security` and `kvcache-server`): one RSA-signature-against-JWKS
 /// verifier reused by the KV-cache HTTP bearer guard AND `auth`'s primary

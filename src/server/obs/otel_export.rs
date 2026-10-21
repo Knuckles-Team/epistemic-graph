@@ -331,10 +331,7 @@ pub async fn export_once(state: Arc<ObsState>, endpoint: String) -> Result<(bool
 
     tokio::task::spawn_blocking(move || {
         let post = |url: String, body: String| -> bool {
-            ureq::Agent::config_builder()
-                .proxy(None)
-                .max_redirects(5)
-                .timeout_connect(Some(std::time::Duration::from_secs(30)))
+            crate::server::outbound_http_config()
                 .build()
                 .new_agent()
                 .post(&url)

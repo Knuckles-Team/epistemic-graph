@@ -744,9 +744,6 @@ impl HttpJsonSource<'_> {
         // validate-then-resolve DNS rebinding gap.
         let target = validate_http_json_target(self.url)?;
         let builder = ureq::Agent::config_builder()
-            .proxy(None)
-            .max_redirects(5)
-            .timeout_connect(Some(std::time::Duration::from_secs(30)))
             .timeout_connect(Some(HTTP_JSON_CONNECT_TIMEOUT))
             .timeout_recv_response(Some(HTTP_JSON_IO_TIMEOUT))
             .timeout_recv_body(Some(HTTP_JSON_IO_TIMEOUT))

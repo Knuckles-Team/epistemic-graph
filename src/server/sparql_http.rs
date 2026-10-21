@@ -502,9 +502,6 @@ impl eg_rdf::sparql::RemoteSparql for ServiceClient {
             OutboundAllowPolicy::ExplicitOnly,
         )?;
         let builder = ureq::Agent::config_builder()
-            .proxy(None)
-            .max_redirects(5)
-            .timeout_connect(Some(std::time::Duration::from_secs(30)))
             .timeout_connect(Some(std::time::Duration::from_secs(
                 Self::CONNECT_TIMEOUT_SECS,
             )))
