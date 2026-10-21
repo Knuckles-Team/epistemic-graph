@@ -8,7 +8,7 @@ Tests are keyed to the published commit and record command, result, fixture vers
 |---|---|
 | A1 method/profile parity | Generate Rust/Python/contract descriptors. `AgentAssemble`, `DecisionCommit`, `Decide`, `DecisionFit`, `DecisionEval`, pack import and content reads have exactly one reachable handler, stated scope, stability and feature profile. Generated files are fresh. |
 | A2 canonical replay | Commit v1, v2 and v3 records with golden byte vectors on all supported release targets. Decode, re-encode, verify and compare digest/answer bytes. Unknown future version fails closed. Replaying stored inputs is stable even when live catalog changes. |
-| A3 forged record | Mutate a candidate fact, premise class, solver bound, objective, policy digest or outcome while retaining an old digest. `DecisionCommit` refuses; no record/component/outbox write occurs. |
+| A3 forged record | Mutate a candidate fact, premise class, solver bound, objective, policy digest or outcome. Retain the old digest. `DecisionCommit` refuses; no record/component/outbox write occurs. |
 | A4 snapshot race | Publish or withdraw a candidate after evaluate and before commit. Expected catalog digest mismatch returns stale-catalog; unrelated publish outside the candidate universe does not. Retry same committed record is idempotent. |
 | A5 limits | 64 KiB/64 candidate/32 capability limits accept boundary values and return typed `RecordTooLarge` or bounded refusal above them. Check no partial write. |
 
@@ -827,3 +827,7 @@ Hot-path proof for `EG-DECISION-ENGINE-R802`: `tests/web_document_enrich_served.
 | Hot-path proof | `EG-DECISION-ENGINE-R803.6` | `tests/decide/test_harness_contrast_served.py::test_contrast_hot_path_served`: The served test passes, and the benchmark meets the budget. |
 
 Hot-path proof for `EG-DECISION-ENGINE-R803`: `tests/decide/test_harness_contrast_served.py::test_contrast_hot_path_served`.
+
+## EG-DECISION-ENGINE-R036.102
+
+`src/raft/cross_shard_txn/prepare_record.rs::tests` covers the production codec: canonical round trip, wrong transaction/group, modified payload, unsupported version/owner, malformed envelope and legacy array recovery. The existing cross-shard harness must pass with the new writer. Codec tests alone do not qualify heterogeneous-owner admission or distributed recovery.
