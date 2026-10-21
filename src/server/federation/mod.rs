@@ -256,23 +256,28 @@ fn fetch_one_peer(
     query: &str,
     lang: &str,
 ) -> Result<Vec<FedRow>, String> {
-    use eg_plan::federation_ssrf::pinned_agent_builder;
+    use eg_plan::federation_ssrf::pinned_agent;
     use std::io::Read;
     let target = allow.check_target(peer)?;
     let endpoint = format!("{peer}/federated?local=1");
     let body = serde_json::json!({ "query": query, "lang": lang }).to_string();
-    let agent = pinned_agent_builder(&target)
-        .timeout_connect(Duration::from_secs(CONNECT_TIMEOUT_SECS))
-        .timeout_read(Duration::from_secs(READ_TIMEOUT_SECS))
-        .build();
+    let builder = ureq::Agent::config_builder()
+        .proxy(None)
+        .max_redirects(5)
+        .timeout_connect(Some(std::time::Duration::from_secs(30)))
+        .timeout_connect(Some(Duration::from_secs(CONNECT_TIMEOUT_SECS)))
+        .timeout_recv_response(Some(Duration::from_secs(READ_TIMEOUT_SECS)))
+        .timeout_recv_body(Some(Duration::from_secs(READ_TIMEOUT_SECS)));
+    let agent = pinned_agent(&target, builder);
     let resp = agent
         .post(&endpoint)
-        .set("Content-Type", "application/json")
-        .set("Accept", "application/json")
-        .send_string(&body)
+        .header("Content-Type", "application/json")
+        .header("Accept", "application/json")
+        .send(&body)
         .map_err(|_| "peer POST failed".to_string())?;
     let mut text = String::new();
-    resp.into_reader()
+    resp.into_body()
+        .into_reader()
         .take(MAX_RESPONSE_BYTES)
         .read_to_string(&mut text)
         .map_err(|e| format!("reading peer response: {e}"))?;

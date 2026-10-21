@@ -222,9 +222,15 @@ pub fn maybe_push_http(event: &Value) {
     }
     let url = format!("{}/api/v1/lineage", endpoint.trim_end_matches('/'));
     let body = event.to_string();
-    let _ = ureq::post(&url)
-        .set("content-type", "application/json")
-        .send_string(&body);
+    let _ = ureq::Agent::config_builder()
+        .proxy(None)
+        .max_redirects(5)
+        .timeout_connect(Some(std::time::Duration::from_secs(30)))
+        .build()
+        .new_agent()
+        .post(&url)
+        .header("content-type", "application/json")
+        .send(&body);
 }
 
 #[cfg(test)]

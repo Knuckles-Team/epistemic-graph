@@ -279,39 +279,39 @@ impl Transport for HttpTransport {
         statement: Option<&str>,
     ) -> Result<(Value, usize), String> {
         let target = validate_http_json_target(url)?;
-        let pinned = target.addresses;
-        let agent = ureq::AgentBuilder::new()
-            .try_proxy_from_env(false)
-            .resolver(
-                move |_: &str| -> std::io::Result<Vec<std::net::SocketAddr>> { Ok(pinned.clone()) },
-            )
-            .https_only(target.https_only)
-            .redirects(0)
-            .timeout_connect(Duration::from_secs(10))
-            .timeout_read(Duration::from_secs(30))
-            .timeout_write(Duration::from_secs(30))
-            .timeout(Duration::from_secs(60))
-            .build();
-        let request = if statement.is_some() {
-            agent.post(url)
-        } else {
-            agent.get(url)
-        }
-        .set("Authorization", &format!("Bearer {}", source.bearer))
-        .set("X-Trino-User", &source.user)
-        .set("X-Trino-Catalog", &source.catalog)
-        .set("X-Trino-Schema", &source.schema)
-        .set("X-Trino-Source", "epistemic-graph");
+        let builder = ureq::Agent::config_builder()
+            .proxy(None)
+            .max_redirects(5)
+            .timeout_connect(Some(std::time::Duration::from_secs(30)))
+            .timeout_connect(Some(Duration::from_secs(10)))
+            .timeout_recv_response(Some(Duration::from_secs(30)))
+            .timeout_recv_body(Some(Duration::from_secs(30)))
+            .timeout_send_request(Some(Duration::from_secs(30)))
+            .timeout_send_body(Some(Duration::from_secs(30)))
+            .timeout_global(Some(Duration::from_secs(60)));
+        let agent = crate::federation_ssrf::pinned_agent(&target, builder);
+        let request = ureq::http::Request::builder()
+            .method(if statement.is_some() { "POST" } else { "GET" })
+            .uri(url)
+            .header("Authorization", format!("Bearer {}", source.bearer))
+            .header("X-Trino-User", &source.user)
+            .header("X-Trino-Catalog", &source.catalog)
+            .header("X-Trino-Schema", &source.schema)
+            .header("X-Trino-Source", "epistemic-graph")
+            .body(())
+            .map_err(|_| "federation: Trino request failed".to_string())?;
         let response = match statement {
-            Some(sql) => request.send_string(sql),
-            None => request.call(),
+            Some(sql) => agent.run(request.map(|()| sql)),
+            None => agent.run(request),
         }
         .map_err(|_| "federation: Trino request failed".to_string())?;
         if response.status() != 200 {
             return Err("federation: Trino request failed".into());
         }
         if response
-            .header("Content-Length")
+            .headers()
+            .get("Content-Length")
+            .and_then(|value| value.to_str().ok())
             .and_then(|v| v.parse::<usize>().ok())
             .is_some_and(|n| n > MAX_PAGE_BYTES)
         {
@@ -319,6 +319,7 @@ impl Transport for HttpTransport {
         }
         let mut body = Vec::new();
         response
+            .into_body()
             .into_reader()
             .take((MAX_PAGE_BYTES + 1) as u64)
             .read_to_end(&mut body)
