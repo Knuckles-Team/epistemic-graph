@@ -282,6 +282,7 @@ async fn delete_purges_receipts_of_a_prior_incarnation() {
             "delete",
             crate::server::mutation_batch::CommitOrigin {
                 request_id: 2,
+                attempt_nonce: None,
                 principal,
             },
             "delete-key",
@@ -452,6 +453,7 @@ async fn lifecycle_receipt_is_not_replayed_across_tenants() {
                 tenant_scope,
                 graph,
                 request_id: 2,
+                attempt_nonce: None,
                 principal,
                 idempotency_key: "same-key",
             },
@@ -570,6 +572,7 @@ async fn lifecycle_replay_compares_identity_not_recompiled_bytes() {
                 tenant_scope: TENANT,
                 graph,
                 request_id: 2,
+                attempt_nonce: None,
                 principal,
                 idempotency_key: "identity-key",
             },
@@ -578,6 +581,29 @@ async fn lifecycle_replay_compares_identity_not_recompiled_bytes() {
     };
     assert!(probe(GraphType::Global).await.expect("retry probe"));
     assert!(probe(GraphType::Team).await.is_err());
+
+    // A reused attempt nonce is refused before the identity replay: only a fresh
+    // attempt under the same key replays the stored outcome.
+    let nonce_probe = |nonce: u8| {
+        lifecycle_was_committed(
+            &persistence,
+            crate::server::mutation::LifecycleAttempt {
+                action: "create",
+                tenant_scope: TENANT,
+                graph,
+                request_id: 3,
+                attempt_nonce: Some(Nonce::from_bytes([nonce; 32])),
+                principal,
+                idempotency_key: "identity-key",
+            },
+            create(GraphType::Global),
+        )
+    };
+    let reused = nonce_probe(7)
+        .await
+        .expect_err("the consumed nonce is refused");
+    assert!(reused.starts_with("REPLAY_NONCE_CONSUMED:"), "{reused}");
+    assert!(nonce_probe(8).await.expect("a fresh nonce replays"));
     persistence.shutdown();
     drop(persistence);
     let _ = std::fs::remove_dir_all(dir);
