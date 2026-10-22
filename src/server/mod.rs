@@ -456,6 +456,12 @@ pub mod udf_catalog;
 // the GATEWAY_ROUTED mutation set from ONE call site. See its module docs for scope.
 pub(crate) mod mutation;
 pub(crate) mod mutation_batch;
+// EG-ORCH-VOCAB-R801 — engine-side admission of the versioned
+// harness-component writes on both write paths (direct AddNode and
+// ChangeEnvelope). `pub` (not `pub(crate)`) so the hot-path receipt
+// (`benches/harness_components.rs`, EG-ORCH-VOCAB-R801.6) measures the
+// engine's real per-write path. See the module docs for the shared rules.
+pub mod harness_admission;
 // Per-graph batching worker for the five coalescable GATEWAY_ROUTED structural
 // writes (CONCEPT:EG-KG.sharding.per-graph-write-coalescer, L18 rewrite). See its module
 // docs and `mutation::commit_coalescable_mutation` for why the durable commit, not

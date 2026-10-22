@@ -560,6 +560,18 @@ pub(super) async fn route_change_envelope_ops(
     }
 }
 
+/// EG-ORCH-VOCAB-R801.3 — the request-boundary check of one envelope's
+/// harness-component writes against the live graph (see
+/// `crate::server::harness_admission` for the rules). Runs under the graph
+/// write lock, before the durable commit.
+fn harness_boundary_envelope(
+    envelope: &eg_types::change_envelope::ChangeEnvelope,
+    core: &Arc<crate::graph::GraphCore>,
+) -> Result<(), String> {
+    let mut state = crate::server::harness_admission::HarnessBoundaryState::default();
+    state.check_envelope(envelope, core)
+}
+
 pub(super) async fn apply_one_change_envelope(
     ctx: GraphOpRouting<'_>,
     envelope: eg_types::change_envelope::ChangeEnvelope,
@@ -624,6 +636,13 @@ async fn apply_one_change_envelope_inner(
     }
 
     let _mutation_guard = crate::server::mutation_batch::lock_graph(graph_name).await;
+    // EG-ORCH-VOCAB-R801.3: the harness-component writes of this envelope are
+    // graph-relative (a supersession must name the CURRENT version, a
+    // published version must not mutate), so they are verified under the
+    // write lock, before any durable work.
+    if let Err(error) = harness_boundary_envelope(&envelope, core) {
+        return Response::err(req_id, error);
+    }
     let fname = crate::persist::sanitize(graph_name);
     let (backend, known_replay) = match prepare_change_envelope_commit(
         persistence.as_ref(),
@@ -798,6 +817,25 @@ async fn apply_change_envelope_batch(
             return Response::err(
                 req_id,
                 "ChangeEnvelope carries a placement fence in a single-node build",
+            );
+        }
+    }
+    // EG-ORCH-VOCAB-R801.3: the harness-component writes of the batch are
+    // graph-relative, so they are verified under the write lock, before the
+    // atomic commit. ONE boundary state spans the batch, in envelope order,
+    // so a supersession may name a version written by an earlier envelope of
+    // the same write.
+    let mut harness = crate::server::harness_admission::HarnessBoundaryState::default();
+    for (index, envelope) in envelopes.iter().enumerate() {
+        if let Err(error) = harness.check_envelope(envelope, &core) {
+            // The check error already carries its declared refusal code
+            // first (`CODE: detail`); keep it there, so `Response::err`
+            // serves the code verbatim instead of classifying the wrapped
+            // message as an unclassified refusal. The batch context rides
+            // in the detail.
+            return Response::err(
+                req_id,
+                format!("{error} (envelope {index}: {})", envelope.envelope_id),
             );
         }
     }

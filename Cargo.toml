@@ -1988,6 +1988,21 @@ path = "benches/pyo3_inprocess_vs_uds_bench.rs"
 harness = false
 required-features = ["server"]
 
+# EG-ORCH-VOCAB-R801.6 hot-path receipt: the engine's per-write path for the
+# versioned harness components — pre-commit admission (strict decode,
+# evidence checks, immutability + head-relative supersession checks, the
+# bitemporal stamp and the supersession link) plus the RAM projection — over
+# a growing 1,000-version chain; prints p50/p99 against the spec budget (p99
+# under 5 ms) and exits nonzero on a regression. Needs the server module the
+# admission lives in; a default `cargo check --benches` skips it. DEV-only;
+# never linked into the engine binary.
+[[bench]]
+name = "harness_components"
+path = "benches/harness_components.rs"
+harness = false
+required-features = ["server"]
+
+
 [profile.release]
 opt-level = 3
 # thin (not fat) LTO. EVIDENCED: the aarch64 wheel cross-build (zig/qemu under

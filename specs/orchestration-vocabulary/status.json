@@ -108,7 +108,6 @@
     "EG-ORCH-VOCAB-R012.7",
     "EG-ORCH-VOCAB-R004.6",
     "EG-ORCH-VOCAB-R012.8",
-    "EG-ORCH-VOCAB-R012.9",
     "EG-ORCH-VOCAB-R005.100",
     "EG-ORCH-VOCAB-R009.100",
     "EG-ORCH-VOCAB-R009.101",
@@ -548,15 +547,9 @@
     {
       "id": "EG-ORCH-VOCAB-R008.1",
       "title": "Register `orchestration-v1.shapes.ttl` with the shape loader",
-      "delivery_state": "VERIFIED",
-      "landed_in": [
-        "6ff9f3cda295",
-        "99743823dcfa",
-        "fb545f2289df"
-      ],
-      "verified_by": [
-        "crates/eg-rdf/tests/orchestration_vocabulary.rs:168"
-      ]
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R008.2",
@@ -599,91 +592,58 @@
     {
       "id": "EG-ORCH-VOCAB-R009.1",
       "title": "Add property `:terminationReason`",
-      "delivery_state": "VERIFIED",
-      "landed_in": [
-        "6ff9f3cda295"
-      ],
-      "verified_by": [
-        "crates/eg-rdf/tests/orchestration_vocabulary.rs:126",
-        "crates/eg-rdf/tests/orchestration_vocabulary.rs:178"
-      ]
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R009.2",
       "title": "Add property `:peakContextTokens`",
-      "delivery_state": "VERIFIED",
-      "landed_in": [
-        "6ff9f3cda295"
-      ],
-      "verified_by": [
-        "crates/eg-rdf/tests/orchestration_vocabulary.rs:127"
-      ]
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R009.3",
       "title": "Add property `:contextBudgetTokens`",
-      "delivery_state": "VERIFIED",
-      "landed_in": [
-        "6ff9f3cda295"
-      ],
-      "verified_by": [
-        "crates/eg-rdf/tests/orchestration_vocabulary.rs:128"
-      ]
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R009.4",
       "title": "Add property `:elisionCount`",
-      "delivery_state": "VERIFIED",
-      "landed_in": [
-        "6ff9f3cda295"
-      ],
-      "verified_by": [
-        "crates/eg-rdf/tests/orchestration_vocabulary.rs:129"
-      ]
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R009.5",
       "title": "Add property `:summarizationCount`",
-      "delivery_state": "VERIFIED",
-      "landed_in": [
-        "6ff9f3cda295"
-      ],
-      "verified_by": [
-        "crates/eg-rdf/tests/orchestration_vocabulary.rs:130"
-      ]
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R009.6",
       "title": "Add property `:turnCount`",
-      "delivery_state": "VERIFIED",
-      "landed_in": [
-        "6ff9f3cda295"
-      ],
-      "verified_by": [
-        "crates/eg-rdf/tests/orchestration_vocabulary.rs:131"
-      ]
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R009.7",
       "title": "Add property `:toolCallCount`",
-      "delivery_state": "VERIFIED",
-      "landed_in": [
-        "6ff9f3cda295"
-      ],
-      "verified_by": [
-        "crates/eg-rdf/tests/orchestration_vocabulary.rs:132"
-      ]
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R009.8",
       "title": "Add property `:costUsd`",
-      "delivery_state": "VERIFIED",
-      "landed_in": [
-        "6ff9f3cda295"
-      ],
-      "verified_by": [
-        "crates/eg-rdf/tests/orchestration_vocabulary.rs:133"
-      ]
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R009.9",
@@ -709,28 +669,16 @@
     {
       "id": "EG-ORCH-VOCAB-R009.12",
       "title": "Add counter shape",
-      "delivery_state": "VERIFIED",
-      "landed_in": [
-        "4039e99f3a6e",
-        "6ff9f3cda295",
-        "de7ab65f3ee0",
-        "f27723c2b36c"
-      ],
-      "verified_by": [
-        "crates/eg-rdf/tests/orchestration_vocabulary.rs:194"
-      ]
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R009.13",
       "title": "Add context-budget shape",
-      "delivery_state": "VERIFIED",
-      "landed_in": [
-        "6ff9f3cda295",
-        "de7ab65f3ee0"
-      ],
-      "verified_by": [
-        "crates/eg-rdf/tests/orchestration_vocabulary.rs:226"
-      ]
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "EG-ORCH-VOCAB-R009.14",
@@ -930,8 +878,7 @@
         "EG-ORCH-VOCAB-R012.5",
         "EG-ORCH-VOCAB-R012.6",
         "EG-ORCH-VOCAB-R012.7",
-        "EG-ORCH-VOCAB-R012.8",
-        "EG-ORCH-VOCAB-R012.9"
+        "EG-ORCH-VOCAB-R012.8"
       ]
     },
     {
@@ -1072,13 +1019,6 @@
     {
       "id": "EG-ORCH-VOCAB-R012.8",
       "title": "Bind active policy to reviewed normative files without graph writes",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "EG-ORCH-VOCAB-R012.9",
-      "title": "Requirement rows become typed nodes",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -1362,42 +1302,55 @@
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/src/orchestration/mod.rs:457",
+        "crates/eg-types/tests/harness_components.rs:32"
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R801.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/tests/harness_components.rs:70"
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R801.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "src/server/handlers/graph_ops/gateway_graph.rs:684"
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R801.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/tests/harness_components.rs:141"
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R801.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/tests/harness_components.rs:209"
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R801.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "tests/orchestration/test_harness_components_served.py:119"
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R802",

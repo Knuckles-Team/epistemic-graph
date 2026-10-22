@@ -13,8 +13,6 @@
     "EG-CONTRACT-R004",
     "EG-CONTRACT-R005",
     "EG-CONTRACT-R006",
-    "EG-CONTRACT-R006.1",
-    "EG-CONTRACT-R006.2",
     "EG-CONTRACT-R007",
     "EG-CONTRACT-R008",
     "EG-CONTRACT-R008.1",
@@ -26,9 +24,7 @@
     "EG-CONTRACT-R012",
     "EG-CONTRACT-R013",
     "EG-CONTRACT-R014",
-    "EG-CONTRACT-R014.1",
     "EG-CONTRACT-R015",
-    "EG-CONTRACT-R015.1",
     "EG-CONTRACT-R016",
     "EG-CONTRACT-R017",
     "EG-CONTRACT-R018",
@@ -88,9 +84,7 @@
     "EG-CONTRACT-R053.9",
     "EG-CONTRACT-R053.10",
     "EG-CONTRACT-R053.11",
-    "EG-CONTRACT-R053.12",
-    "EG-CONTRACT-R006.3",
-    "EG-CONTRACT-R053.13"
+    "EG-CONTRACT-R053.12"
   ],
   "requirements": [
     {
@@ -117,17 +111,11 @@
       "title": "Served Agent Library tests cover pack import and Decide",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "37a29ee3fe0e",
         "4f364b55e0dc",
         "52f2f3e347a3",
         "c047e6602b42"
       ],
-      "verified_by": [
-        "tests/test_decide_auth_boundary.py:100",
-        "tests/test_decide_auth_boundary.py:145",
-        "tests/test_decide_auth_boundary.py:81",
-        "tests/test_installed_wheel_decision_client_boundary.py:60"
-      ],
+      "verified_by": [],
       "rollup_of": [
         "EG-CONTRACT-R002.1",
         "EG-CONTRACT-R002.2",
@@ -208,11 +196,10 @@
         "37a29ee3fe0e",
         "6cd6c7ea0c87",
         "72c7dfa478ba",
-        "924601ce5495",
         "e2b2f1cfa8ee"
       ],
       "verified_by": [
-        "crates/eg-capabilities/src/contract/python/surfaces/tests.rs:121",
+        "crates/eg-capabilities/src/contract/python/surfaces/tests.rs:116",
         "tests/test_generated_models.py:123",
         "tests/test_generated_union_variants.py:25",
         "tests/test_generated_union_variants.py:27"
@@ -221,42 +208,11 @@
     {
       "id": "EG-CONTRACT-R006",
       "title": "Deterministic, size-budgeted WASM codec artifact",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "2b681e1a159c",
         "6cd6c7ea0c87"
       ],
-      "verified_by": [],
-      "rollup_of": [
-        "EG-CONTRACT-R006.1",
-        "EG-CONTRACT-R006.2",
-        "EG-CONTRACT-R006.3"
-      ]
-    },
-    {
-      "id": "EG-CONTRACT-R006.1",
-      "title": "Fresh canonical codec export with provenance",
-      "delivery_state": "VERIFIED",
-      "landed_in": [
-        "2b8dd458b459",
-        "79c49c6fc412",
-        "7e09becc533e",
-        "a32000c55c4e",
-        "b6d6bdedcd35"
-      ],
-      "verified_by": [
-        "tests/test_build_method_codec_wasm.py:248",
-        "tests/test_build_method_codec_wasm.py:276",
-        "tests/test_build_method_codec_wasm.py:297",
-        "tests/test_build_method_codec_wasm.py:305",
-        "tests/test_build_method_codec_wasm.py:315"
-      ]
-    },
-    {
-      "id": "EG-CONTRACT-R006.2",
-      "title": "Complete canonical WASM qualification",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
       "verified_by": []
     },
     {
@@ -277,17 +233,9 @@
       "title": "Repo-parity check validates the resolved checkout",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "1e48414f9e58",
-        "72c7dfa478ba",
-        "8baee8a94894",
-        "fb6841592a83"
+        "1e48414f9e58"
       ],
-      "verified_by": [
-        "scripts/tests/test_check_five_repo_parity.py:10",
-        "scripts/tests/test_repo_root_parity.py:10",
-        "scripts/tests/test_repo_root_parity.py:21",
-        "scripts/tests/test_repo_root_parity.py:31"
-      ],
+      "verified_by": [],
       "rollup_of": [
         "EG-CONTRACT-R008.1",
         "EG-CONTRACT-R008.2"
@@ -334,11 +282,11 @@
         "8baee8a94894"
       ],
       "verified_by": [
-        "tests/test_release_python_suite_contract.py:104",
-        "tests/test_release_python_suite_contract.py:121",
-        "tests/test_release_python_suite_contract.py:132",
-        "tests/test_release_python_suite_contract.py:360",
-        "tests/test_release_python_suite_contract.py:379"
+        "tests/test_release_python_suite_contract.py:103",
+        "tests/test_release_python_suite_contract.py:120",
+        "tests/test_release_python_suite_contract.py:131",
+        "tests/test_release_python_suite_contract.py:354",
+        "tests/test_release_python_suite_contract.py:371"
       ]
     },
     {
@@ -359,16 +307,8 @@
       "id": "EG-CONTRACT-R011",
       "title": "Parallel fan-out for the land gate across build hosts",
       "delivery_state": "VERIFIED",
-      "landed_in": [
-        "a3e3d9924822"
-      ],
-      "verified_by": [
-        "tests/test_check_fanout_host_groups.py:118",
-        "tests/test_check_fanout_host_groups.py:25",
-        "tests/test_check_fanout_host_groups.py:48",
-        "tests/test_check_fanout_host_groups.py:75",
-        "tests/test_check_fanout_host_groups.py:92"
-      ],
+      "landed_in": [],
+      "verified_by": [],
       "rollup_of": [
         "EG-CONTRACT-R011.1"
       ]
@@ -421,33 +361,13 @@
         "15acf1a959e5",
         "19d0663aaf5c",
         "2a4982e949a3",
-        "2f8fb1af4fac",
-        "394f82a01e83"
+        "394f82a01e83",
+        "4c25220f6e1b"
       ],
       "verified_by": [
-        "crates/eg-capabilities/src/contract/errors.rs:478",
-        "crates/eg-capabilities/src/error_routing.rs:354",
-        "crates/eg-types/src/governed_change/tests.rs:183",
-        "src/server/auth.rs:2053",
-        "src/server/transport/tests.rs:145"
-      ],
-      "rollup_of": [
-        "EG-CONTRACT-R014.1"
-      ]
-    },
-    {
-      "id": "EG-CONTRACT-R014.1",
-      "title": "Authentication refusals name a safe cause class",
-      "delivery_state": "VERIFIED",
-      "landed_in": [
-        "2f8fb1af4fac",
-        "789efa66dea1",
-        "896e0af67310",
-        "ef81c8ba3a08"
-      ],
-      "verified_by": [
-        "src/server/auth.rs:2053",
-        "src/server/transport/tests.rs:145"
+        "crates/eg-capabilities/src/contract/errors.rs:470",
+        "crates/eg-capabilities/src/error_routing.rs:367",
+        "crates/eg-types/src/governed_change/tests.rs:183"
       ]
     },
     {
@@ -457,26 +377,10 @@
       "landed_in": [
         "26a77bc6a6c4",
         "37a29ee3fe0e",
-        "5738b6093ea7",
-        "5b9a62ad05e9"
+        "5738b6093ea7"
       ],
       "verified_by": [
-        "tests/test_ontology_package.py:14",
         "tests/test_wheel_contract_surface.py:475"
-      ],
-      "rollup_of": [
-        "EG-CONTRACT-R015.1"
-      ]
-    },
-    {
-      "id": "EG-CONTRACT-R015.1",
-      "title": "Wheel ships the core ontology, shapes and catalog",
-      "delivery_state": "VERIFIED",
-      "landed_in": [
-        "5b9a62ad05e9"
-      ],
-      "verified_by": [
-        "tests/test_ontology_package.py:14"
       ]
     },
     {
@@ -570,15 +474,8 @@
       "id": "EG-CONTRACT-R023",
       "title": "Pre-commit hooks pass clean without bypass flags",
       "delivery_state": "VERIFIED",
-      "landed_in": [
-        "2598a0697e5a",
-        "85ce2ac73a96",
-        "a3e3d9924822"
-      ],
-      "verified_by": [
-        "tests/test_check_registry_test_ownership_completeness.py:24",
-        "tests/test_check_registry_test_ownership_completeness.py:31"
-      ],
+      "landed_in": [],
+      "verified_by": [],
       "rollup_of": [
         "EG-CONTRACT-R023.1"
       ]
@@ -614,7 +511,7 @@
         "b43f33569dd4"
       ],
       "verified_by": [
-        "src/server/transport/tests.rs:371"
+        "src/server/transport/tests.rs:323"
       ]
     },
     {
@@ -644,7 +541,7 @@
         "9ed0560ea093"
       ],
       "verified_by": [
-        "tests/test_release_python_suite_contract.py:768"
+        "tests/test_release_python_suite_contract.py:726"
       ]
     },
     {
@@ -673,14 +570,12 @@
       "title": "Complexity, duplication and architecture censuses pass at zero backlog",
       "delivery_state": "SPECIFIED",
       "landed_in": [
-        "2b1bcdda23e6",
-        "924601ce5495",
         "a0da67babeae",
         "be0f1acb05c6",
-        "cd7bf0364ebd"
+        "e729dc1650b6"
       ],
       "verified_by": [
-        "tests/test_ci_change_scope.py:215"
+        "tests/test_ci_change_scope.py:188"
       ],
       "rollup_of": [
         "EG-CONTRACT-R031.1",
@@ -695,7 +590,7 @@
         "733e1766936b"
       ],
       "verified_by": [
-        "tests/test_ci_change_scope.py:216"
+        "tests/test_ci_change_scope.py:189"
       ]
     },
     {
@@ -714,7 +609,7 @@
         "9ed0560ea093"
       ],
       "verified_by": [
-        "tests/test_release_feature_matrix.py:329"
+        "tests/test_release_feature_matrix.py:327"
       ]
     },
     {
@@ -742,15 +637,14 @@
       "title": "Release workflow executes end to end with all declared targets",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "0000ded7b740",
         "16c35404ef56",
         "4342dc5bc1c6",
         "4d1920f636e7",
-        "66e652687765"
+        "66e652687765",
+        "69411a23a248"
       ],
       "verified_by": [
-        "tests/test_ci_change_scope.py:497",
-        "tests/test_ci_change_scope.py:846",
+        "tests/test_ci_change_scope.py:470",
         "tests/test_release_gates_test_target_coverage.py:62"
       ]
     },
@@ -774,8 +668,7 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "04a134298236",
-        "4342dc5bc1c6",
-        "cbad9fe59fba"
+        "4342dc5bc1c6"
       ],
       "verified_by": [
         "tests/test_release_feature_matrix.py:219"
@@ -885,7 +778,7 @@
         "5bf5b719de7e"
       ],
       "verified_by": [
-        "tests/test_release_feature_matrix.py:308"
+        "tests/test_release_feature_matrix.py:306"
       ]
     },
     {
@@ -1022,8 +915,7 @@
         "EG-CONTRACT-R053.9",
         "EG-CONTRACT-R053.10",
         "EG-CONTRACT-R053.11",
-        "EG-CONTRACT-R053.12",
-        "EG-CONTRACT-R053.13"
+        "EG-CONTRACT-R053.12"
       ]
     },
     {
@@ -1087,16 +979,14 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [
-        "tests/test_release_full_wheel_contract.py:750"
+        "tests/test_release_full_wheel_contract.py:688"
       ]
     },
     {
       "id": "EG-CONTRACT-R053.8",
       "title": "The public wheel compiles only the extension modules; each platform publishes independently",
-      "delivery_state": "VERIFIED",
-      "landed_in": [
-        "d969ffcfaaad"
-      ],
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": [
         "tests/test_wheel_extensions_only.py:23",
         "tests/test_wheel_extensions_only.py:41",
@@ -1109,12 +999,10 @@
       "title": "The server wheel builds and publishes from this repository",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "baf9a680a4c4",
-        "dede203bdd50"
+        "baf9a680a4c4"
       ],
       "verified_by": [
         "tests/test_server_package.py:190",
-        "tests/test_server_package.py:246",
         "tests/test_server_package.py:34",
         "tests/test_server_package.py:47",
         "tests/test_server_package.py:88"
@@ -1146,38 +1034,6 @@
       "verified_by": [
         "tests/test_server_package.py:139",
         "tests/test_server_package.py:157"
-      ]
-    },
-    {
-      "id": "EG-CONTRACT-R006.3",
-      "title": "Export fresh typed contracts for parity repair",
-      "delivery_state": "VERIFIED",
-      "landed_in": [
-        "2a1515f6e252",
-        "2b8dd458b459",
-        "7e09becc533e",
-        "82c10dffe69e",
-        "8b5cbc59e851"
-      ],
-      "verified_by": [
-        "tests/test_export_canonical_contract.py:11"
-      ]
-    },
-    {
-      "id": "EG-CONTRACT-R053.13",
-      "title": "Retain the validated wheel for installed acceptance",
-      "delivery_state": "VERIFIED",
-      "landed_in": [
-        "42376299456f",
-        "701e8e498e07",
-        "88b8c1a73156",
-        "b286edc1b3bf",
-        "be072c1cf996"
-      ],
-      "verified_by": [
-        "tests/test_ci_change_scope.py:649",
-        "tests/test_ci_change_scope.py:693",
-        "tests/test_ci_change_scope.py:822"
       ]
     }
   ]
