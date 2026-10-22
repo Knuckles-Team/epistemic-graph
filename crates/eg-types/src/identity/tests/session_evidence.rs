@@ -344,3 +344,163 @@ fn omitted_refresh_preserves_legacy_touch_and_authority() {
     caller.actor.scopes.clear();
     assert!(apply_kept(&mut store, &observe, &caller, NOW + 61_001).is_err());
 }
+
+// spec: EG-TYPED-PACKS-R085.3.1
+// spec: EG-TYPED-PACKS-R085.4.1
+#[test]
+fn reference_operations_refuse_service_principal_substitution_without_mutation() {
+    let mut store = opened();
+    store.users.get_mut("usr:alice").unwrap().kind = UserKind::Service;
+    let mut owner = IdentityStamp::for_actor(actor("usr:alice", &[IDENTITY_SELF_SCOPE]));
+    owner.session_tenant = Some("tenant-one".into());
+    let scopes = store.resolve("usr:alice", &TestRegistry).unwrap().scopes;
+    let before = store.clone();
+    for op in [
+        IdentityOp::Session(SessionOp::InspectReference {
+            session_ref: "ses:one".into(),
+            tenant: "tenant-one".into(),
+        }),
+        IdentityOp::Session(SessionOp::RenewReference {
+            session_ref: "ses:one".into(),
+            tenant: "tenant-one".into(),
+            expected_authority_revision: 0,
+            expected_scopes: scopes,
+        }),
+    ] {
+        assert_eq!(
+            apply_kept(&mut store, &op, &owner, NOW + 1),
+            Err(IdentityRefusal::NotAuthorized)
+        );
+        assert_eq!(store, before);
+    }
+}
+
+// spec: EG-TYPED-PACKS-R085.4.1
+#[test]
+fn renewal_clamps_idle_to_original_absolute_expiry_and_preserves_subject_mfa() {
+    let mut store = opened();
+    let session = store.sessions.get_mut("hash-one").unwrap();
+    session.absolute_expires_at_ms = NOW + 120_000;
+    session.idle_expires_at_ms = NOW + 90_000;
+    session.mfa_at_ms = Some(NOW - 17);
+    let before = session.clone();
+    let mut owner = IdentityStamp::for_actor(actor("usr:alice", &[IDENTITY_SELF_SCOPE]));
+    owner.session_tenant = Some("tenant-one".into());
+    let op = IdentityOp::Session(SessionOp::RenewReference {
+        session_ref: "ses:one".into(),
+        tenant: "tenant-one".into(),
+        expected_authority_revision: 0,
+        expected_scopes: store.resolve("usr:alice", &TestRegistry).unwrap().scopes,
+    });
+    apply_kept(&mut store, &op, &owner, NOW + 1).unwrap();
+    let after = &store.sessions["hash-one"];
+    let mut expected = before;
+    expected.last_seen_at_ms = NOW + 1;
+    expected.idle_expires_at_ms = expected.absolute_expires_at_ms;
+    assert_eq!(after, &expected);
+    let renewed = store.clone();
+    assert!(apply_kept(&mut store, &op, &owner, NOW + 120_000).is_err());
+    assert_eq!(store, renewed);
+}
+
+// spec: EG-TYPED-PACKS-R085.4.1
+#[test]
+fn renewal_refuses_invalid_authority_without_mutation() {
+    for reason in [
+        "revoked",
+        "idle",
+        "absolute",
+        "pending",
+        "disabled",
+        "ambiguous",
+        "owner",
+        "tenant",
+        "delegated",
+        "scopes",
+    ] {
+        let mut store = opened();
+        let mut owner = IdentityStamp::for_actor(actor("usr:alice", &[IDENTITY_SELF_SCOPE]));
+        owner.session_tenant = Some("tenant-one".into());
+        let mut scopes = store.resolve("usr:alice", &TestRegistry).unwrap().scopes;
+        match reason {
+            "revoked" => store.sessions.get_mut("hash-one").unwrap().revoked_at_ms = Some(NOW),
+            "idle" => {
+                store
+                    .sessions
+                    .get_mut("hash-one")
+                    .unwrap()
+                    .idle_expires_at_ms = NOW + 1
+            }
+            "absolute" => {
+                store
+                    .sessions
+                    .get_mut("hash-one")
+                    .unwrap()
+                    .absolute_expires_at_ms = NOW + 1
+            }
+            "pending" => store.sessions.get_mut("hash-one").unwrap().mfa_pending = true,
+            "disabled" => store.users.get_mut("usr:alice").unwrap().status = UserStatus::Disabled,
+            "ambiguous" => {
+                store.sessions.get_mut("hash-two").unwrap().session_ref = Some("ses:one".into())
+            }
+            "owner" => owner.actor.principal_id = "usr:other".into(),
+            "tenant" => owner.session_tenant = Some("tenant-other".into()),
+            "delegated" => owner.actor.delegated = true,
+            "scopes" => {
+                scopes.remove("kg:read");
+            }
+            _ => unreachable!(),
+        }
+        let op = IdentityOp::Session(SessionOp::RenewReference {
+            session_ref: "ses:one".into(),
+            tenant: "tenant-one".into(),
+            expected_authority_revision: 0,
+            expected_scopes: scopes,
+        });
+        let before = store.clone();
+        assert!(
+            apply_kept(&mut store, &op, &owner, NOW + 1).is_err(),
+            "{reason}"
+        );
+        assert_eq!(store, before, "{reason}");
+    }
+}
+
+// spec: EG-TYPED-PACKS-R085.4.1
+#[test]
+fn repeated_renewal_never_becomes_issuer_reauthentication() {
+    let mut store = opened();
+    store.sessions.get_mut("hash-one").unwrap().mfa_at_ms = Some(NOW - 17);
+    let original = store.sessions["hash-one"].clone();
+    let idle = original.idle_expires_at_ms - NOW;
+    assert!(idle > 1);
+    let mut owner = IdentityStamp::for_actor(actor("usr:alice", &[IDENTITY_SELF_SCOPE]));
+    owner.session_tenant = Some("tenant-one".into());
+    let op = IdentityOp::Session(SessionOp::RenewReference {
+        session_ref: "ses:one".into(),
+        tenant: "tenant-one".into(),
+        expected_authority_revision: 0,
+        expected_scopes: store.resolve("usr:alice", &TestRegistry).unwrap().scopes,
+    });
+    let mut now = NOW;
+    let mut renewals = 0;
+    while store.sessions["hash-one"].idle_expires_at_ms < original.absolute_expires_at_ms {
+        now += idle / 2;
+        let mut expected = store.sessions["hash-one"].clone();
+        expected.last_seen_at_ms = now;
+        expected.idle_expires_at_ms = (now + idle).min(original.absolute_expires_at_ms);
+        apply_kept(&mut store, &op, &owner, now).unwrap();
+        assert_eq!(store.sessions["hash-one"], expected);
+        renewals += 1;
+    }
+    assert!(renewals > 1);
+    let before = store.clone();
+    for time in [
+        now + 1,
+        original.absolute_expires_at_ms,
+        original.absolute_expires_at_ms + 1,
+    ] {
+        assert!(apply_kept(&mut store, &op, &owner, time).is_err());
+        assert_eq!(store, before);
+    }
+}

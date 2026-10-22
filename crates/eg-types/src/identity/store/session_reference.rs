@@ -1,7 +1,9 @@
 //! Inspection of the original durable reference, without credential issuance.
 
 use super::{ApplyContext, IdentityStore};
-use crate::identity::{IdentityRefusal, IdentityReply, IdentityStamp, SessionRecordProjection};
+use crate::identity::{
+    IdentityRefusal, IdentityReply, IdentityStamp, SessionRecordProjection, UserKind,
+};
 
 impl IdentityStore {
     pub(super) fn renew_session_reference(
@@ -66,6 +68,10 @@ impl IdentityStore {
         if matches.next().is_some()
             || session.session_tenant.as_deref() != Some(tenant)
             || session.principal_id != stamp.actor.principal_id
+            || self
+                .users
+                .get(&session.principal_id)
+                .is_none_or(|user| user.kind != UserKind::Human)
         {
             return Err(IdentityRefusal::NotAuthorized);
         }

@@ -2901,7 +2901,8 @@
       ],
       "verified_by": [
         "crates/eg-types/src/identity/tests/session_evidence.rs:168",
-        "crates/eg-types/src/identity/tests/session_evidence.rs:211"
+        "crates/eg-types/src/identity/tests/session_evidence.rs:211",
+        "crates/eg-types/src/identity/tests/session_evidence.rs:348"
       ]
     },
     {
@@ -2928,7 +2929,11 @@
         "98d285d4840c"
       ],
       "verified_by": [
-        "crates/eg-types/src/identity/tests/session_evidence.rs:234"
+        "crates/eg-types/src/identity/tests/session_evidence.rs:234",
+        "crates/eg-types/src/identity/tests/session_evidence.rs:349",
+        "crates/eg-types/src/identity/tests/session_evidence.rs:378",
+        "crates/eg-types/src/identity/tests/session_evidence.rs:406",
+        "crates/eg-types/src/identity/tests/session_evidence.rs:469"
       ]
     },
     {
@@ -2945,7 +2950,9 @@
       "title": "Renewal contract and served qualification",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "src/server/dispatch/identity_store/resolution_context/tests.rs:681"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R085.5.1",

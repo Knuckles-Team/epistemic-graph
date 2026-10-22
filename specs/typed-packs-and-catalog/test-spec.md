@@ -72,7 +72,7 @@ Every row's regression test must pass against an exact merged head, as PACK-06/0
 
 | Repair | Requirement | Regression | Acceptance |
 | --- | --- | --- | --- |
-| TP-PARSE-IDENTITY | EG-TYPED-PACKS-R093.1 | Native public and bounded Turtle readers parse the same explicit and anonymous blank nodes independently, then union the results. | Six subjects stay distinct across three parses; same-document references remain equal; composition retains explicit source labels; existing bounded refusal tests pass. |
+| TP-PARSE-IDENTITY | EG-TYPED-PACKS-R093.1 | Native public and bounded Turtle readers parse the same explicit and anonymous blank nodes independently. They then union the results. | Six subjects stay distinct across three parses; same-document references remain equal; composition retains explicit source labels; existing bounded refusal tests pass. |
 | TP-REPROJECT-IDENTITY | EG-TYPED-PACKS-R093.2 | Served reproject combines independent connector-pack members with reused blank labels. | Isolated member identities and repeatable composed digests; remains open until the served regression executes. |
 
 ## Capability annotation evidence
@@ -450,3 +450,29 @@ The combined generated/served children R085.3.3, R085.4.3, R085.5.4 and R085.6.3
 remain SPECIFIED because their served acceptance is unexecuted. The parent
 criteria remain intact. These receipts do not qualify live enrollment, host
 admission or full signed-approval consumption.
+
+Reconciliation fixtures (2026-10-22, authored but not executed):
+- `reference_operations_refuse_service_principal_substitution_without_mutation`
+  refuses both reference operations for a service principal without mutation.
+- `renewal_clamps_idle_to_original_absolute_expiry_and_preserves_subject_mfa`
+  proves only last-seen and idle expiry change, clamps at the original absolute
+  deadline, and refuses renewal at that deadline without mutation.
+
+Additional R085.4.1 renewal regressions (authored 2026-10-22; execution pending):
+- Renewal refuses revoked, idle/absolute-expired, pending-MFA, disabled,
+  ambiguous, wrong-owner, wrong-tenant and delegated authority without mutation.
+- Repeated idle renewals retain the original principal, tenant, MFA timestamp,
+  scope ceiling and absolute deadline. Reaching the deadline requires issuer
+  reauthentication, not another renewal; a saturated idle window refuses.
+
+The additional R085.4.3 `reference_renewal_rechecks_boundary_and_global_revision`
+fixture is source-only until server execution. It covers caller-stamp replacement,
+delegation refusal, unrelated authority revision changes, and original expiry/MFA
+preservation. It does not qualify installed brokers or the TUI scheduler.
+
+2026-10-22 isolated reconciliation attempt: pinned Rust 1.96.0,
+`cargo test --locked --offline -p eg-types identity::tests::session_evidence`,
+no features, one build job, test/dev debuginfo disabled, incremental disabled,
+test opt-level 0. SIGKILL stopped the compiler process for `eg-types` before test execution. This provides no native pass evidence. The earlier
+2026-10-20 receipts above describe the old candidate, not this reconciled tree.
+Durable, server, generated and end-to-end renewal qualification remain pending.
