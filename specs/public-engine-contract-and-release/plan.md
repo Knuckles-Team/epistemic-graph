@@ -474,3 +474,15 @@ Workflow tests establish routing; exact-head hosted tests establish acceptance.
 ### Wasmtime patch update — 2026-10-20
 
 The Rust advisory gate must reject RUSTSEC-2026-0378 and RUSTSEC-2026-0379 without policy exceptions. Move the existing Wasmtime 49.0.3 dependency family to the compatible 49.0.4 patch and retain the same enabled features. Validate the unchanged advisory gate and lockfile; full native compilation remains hosted CI work when the local compiler slot is limited to leaf contract crates.
+
+### 2026-10-22: reject distrusted TLS intermediates
+
+EG-CONTRACT-R031 retains the existing Rust advisory policy without new exceptions.
+Update rustls-webpki from 0.103.15 to 0.103.16.
+Update webpki-roots and webpki-root-certs from 1.0.9 to 1.0.10.
+These patches address RUSTSEC-2026-0381, RUSTSEC-2026-0382 and RUSTSEC-2026-0383.
+They reject the distrusted emSign certificate paths; default TLS behavior otherwise stays unchanged.
+Canonical Cargo resolution also rebinds eight Windows-only dependency edges to compatible versions already in the lock.
+No other package version changes, and no package is added or removed outside those three replacements.
+Validate the locked graph, the unchanged advisory gate and the affected client and server paths.
+Raw cargo-audit findings covered by existing, dated policy exceptions remain separate from these fixes.
