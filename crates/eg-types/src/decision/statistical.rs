@@ -97,6 +97,8 @@ pub enum QuestionKind {
     /// Evaluate-only harness configuration advice (EG-DECISION-ENGINE-R128).
     /// Returns proposed context, scaffold and action-space choices; never runs them.
     HarnessConfig,
+    /// Bounded explicit dependency planning; admission belongs to the host.
+    TaskPlan,
 }
 
 /// What is at stake. Exploration is permitted only for
@@ -149,8 +151,8 @@ pub enum CandidateSource {
     },
 }
 
-/// A typed question parameter. Values are typed, never substituted into text:
-/// a parameter cannot become part of a prompt or a query string.
+/// A typed question parameter. Scalar values are never interpolated into queries.
+/// An explicit task proposal carries prompts as data for the host executor.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "value", rename_all = "snake_case")]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
@@ -161,6 +163,8 @@ pub enum TypedValue {
     Iri(String),
     IriList(BoundedVec<String, 64>),
     Rational(UnitRationalWire),
+    /// Explicit task claims, never policy or authorization.
+    TaskPlan(Box<super::task_plan::TaskPlanProposal>),
 }
 
 /// One named parameter of a question.
@@ -297,6 +301,9 @@ pub struct StatisticalDecisionRecord {
     pub trace_fidelity: TraceFidelity,
     pub premises: BoundedVec<PremiseRef, 1024>,
     pub outcome: StatisticalOutcome,
+    /// Evaluate-only explicit task DAG. Absent on every other question kind.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_plan: Option<super::task_plan::TaskPlan>,
     #[serde(default)]
     pub calibration: Option<CalibrationStatement>,
     /// Per-feature logit contributions of the chosen or top option; exact for

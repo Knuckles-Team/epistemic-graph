@@ -71,11 +71,20 @@ pub(crate) fn publish(
         .map(|bytes| decode_durable::<StoredPlan>(&crypto.unseal(bytes.value())?))
         .transpose()?;
     validate_publication(&row, previous.as_ref(), request, now_ms)?;
+    // Scaffold-only publishers cannot erase an already bound executable plan.
+    // Bind the effective snapshot in the publication receipt, while the native
+    // MutationBatch separately binds the exact submitted request for replay.
+    let mut resolved = request.clone();
+    if resolved.snapshot.task_plan.is_none() {
+        resolved.snapshot.task_plan = previous
+            .as_ref()
+            .and_then(|old| old.snapshot.task_plan.clone());
+    }
     let digest = hex::encode(Sha256::digest(
-        serde_json::to_vec(request).map_err(|e| e.to_string())?,
+        serde_json::to_vec(&resolved).map_err(|e| e.to_string())?,
     ));
     let stored = StoredPlan {
-        snapshot: request.snapshot.clone(),
+        snapshot: resolved.snapshot,
         worker_id: request.worker_id.clone(),
         lease_epoch: request.lease_epoch,
         fencing_token: request.fencing_token,
@@ -110,6 +119,16 @@ fn validate_publication(
         || snapshot.expires_at_ms as f64 / 1000.0 > property_f64(row, "lease_expires_at")
     {
         return Err("current-plan fence or validity conflict".into());
+    }
+    if let (Some(bound), Some(proposed)) = (
+        previous.and_then(|old| old.snapshot.task_plan.as_ref()),
+        snapshot.task_plan.as_ref(),
+    ) {
+        // Equality includes input_digest: declaration reordering cannot replace
+        // immutable provenance even if the executable plan_digest is unchanged.
+        if bound != proposed {
+            return Err("current-plan executable attachment is immutable".into());
+        }
     }
     match previous {
         None if snapshot.revision == 0 && snapshot.items.is_empty() => Ok(()),

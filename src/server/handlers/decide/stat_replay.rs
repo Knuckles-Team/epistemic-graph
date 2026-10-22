@@ -79,6 +79,14 @@ fn same_answer(record: &StatisticalDecisionRecord, replayed: &Executed, derived:
 
 fn require_supported_replay(record: &StatisticalDecisionRecord) -> Result<(), String> {
     require_supported_question_kind(record.question.kind)?;
+    if record.task_plan.is_some()
+        || record.question.kind == eg_types::decision::QuestionKind::TaskPlan
+    {
+        return Err(refusal(
+            StatisticalErrorCode::ParameterInvalid,
+            "task plans are evaluate-only and cannot use statistical score replay",
+        ));
+    }
     if record.inputs.harness_evaluation.is_some() {
         return Err(refusal(
             StatisticalErrorCode::ParameterInvalid,
