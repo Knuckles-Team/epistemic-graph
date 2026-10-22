@@ -224,7 +224,20 @@ jobs:
       - name: Epistemic Operations manifest ⇄ Rust DTO parity
         run: python3 scripts/check_epistemic_operations_protocol.py
       - name: Engine contract parity (registry ⇄ Method enum ⇄ generated client)
+        id: engine-contract-parity
+        if: ${{ !cancelled() }}
         run: cargo run -q --locked -p eg-capabilities --features contract --bin gen_contract -- --check
+      - name: Export fresh canonical contracts after parity failure
+        id: engine-contract-export
+        if: ${{ failure() && steps.engine-contract-parity.outcome == 'failure' }}
+        run: python3 scripts/export_canonical_contract.py --export-dir target/canonical-engine-contract
+      - name: Upload fresh canonical contract repair evidence
+        if: ${{ !cancelled() && steps.engine-contract-export.outputs.fresh_export == 'true' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: canonical-engine-contract-${{ github.sha }}
+          path: target/canonical-engine-contract/
+          if-no-files-found: error
       - name: Generated Python client contract
         run: python3 tests/test_generated_client_contract.py
 
@@ -1007,7 +1020,17 @@ jobs:
       - name: Install the pinned toolchain's wasm32 target
         run: rustup target add wasm32-unknown-unknown
       - name: Rebuild the embedded method-body codec and require the committed copies
-        run: python3 scripts/build_method_codec_wasm.py --check
+        id: method-codec
+        run: python3 scripts/build_method_codec_wasm.py --check --export-dir target/canonical-method-codec
+      - name: Upload freshly built canonical method codec
+        if: ${{ !cancelled() && steps.method-codec.outputs.fresh_export == 'true' && hashFiles('target/canonical-method-codec/eg_method_codec.provenance.json') != '' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: canonical-method-codec-${{ github.sha }}
+          path: |
+            target/canonical-method-codec/eg_method_codec.wasm
+            target/canonical-method-codec/eg_method_codec.provenance.json
+          if-no-files-found: error
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: clients/go/go.mod

@@ -215,3 +215,136 @@ def test_write_refuses_invalid_module_without_changing_files(codec, codec_repo):
     assert ledger.read_bytes() == original
     for client in codec.CLIENT_DIRS:
         assert (root / client / codec.MODULE).read_bytes() == WASM
+
+
+@pytest.fixture
+def export_repo(codec, codec_repo, monkeypatch):
+    root, _ = codec_repo
+    for name in (
+        "Cargo.lock",
+        "Cargo.toml",
+        "rust-toolchain.toml",
+        "scripts/build_method_codec_wasm.py",
+        "scripts/configure_rust_path_remap.py",
+    ):
+        path = root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes((ROOT / name).read_bytes())
+    monkeypatch.setattr(codec, "ROOT", root)
+
+    def provenance_command(command, **_kwargs):
+        if command[0] == "rustc":
+            return "rustc pinned test version\n"
+        return {"HEAD": "a" * 40, "HEAD^{tree}": "b" * 40, "--untracked-files=no": ""}[
+            command[-1]
+        ]
+
+    monkeypatch.setattr(codec.subprocess, "check_output", provenance_command)
+    output = root / "step-output"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output))
+    return root, root / "target" / "canonical-method-codec", output
+
+
+@pytest.mark.spec("EG-CONTRACT-R006.1")
+def test_export_precedes_failing_freshness_check(codec, export_repo, monkeypatch):
+    import json
+
+    root, directory, output = export_repo
+    fresh = WASM + b"\x00\x01x"
+    monkeypatch.setattr(codec, "build", lambda *_args: fresh)
+    assert codec.main(["--check", "--export-dir", str(directory)]) == 1
+    assert (directory / codec.MODULE).read_bytes() == fresh
+    provenance = json.loads((directory / codec.PROVENANCE).read_text())
+    assert provenance["sha256"] == hashlib.sha256(fresh).hexdigest()
+    assert provenance["size_bytes"] == len(fresh)
+    assert provenance["source_revision"] == "a" * 40
+    assert provenance["source_tree"] == "b" * 40
+    assert provenance["source_dirty"] is False
+    assert provenance["build_command"] == list(codec.BUILD_COMMAND)
+    assert provenance["target"] == codec.TARGET
+    assert provenance["profile"] == codec.PROFILE
+    assert provenance["rustc_version"] == "rustc pinned test version"
+    assert (
+        provenance["recipe_sha256"]["Cargo.lock"]
+        == hashlib.sha256((root / "Cargo.lock").read_bytes()).hexdigest()
+    )
+    assert output.read_text() == "fresh_export=true\n"
+    for client in codec.CLIENT_DIRS:
+        assert (root / client / codec.MODULE).read_bytes() == WASM
+
+
+@pytest.mark.spec("EG-CONTRACT-R006.1")
+def test_failed_build_never_exports_cached_module(codec, export_repo, monkeypatch):
+    root, directory, output = export_repo
+    directory.mkdir(parents=True)
+    for name in (codec.MODULE, codec.PROVENANCE):
+        (directory / name).write_bytes(b"stale previous export")
+    cached = root / "target" / codec.TARGET / codec.PROFILE / codec.MODULE
+    cached.parent.mkdir(parents=True)
+    cached.write_bytes(WASM)
+
+    def fail(*_args, **_kwargs):
+        raise codec.subprocess.CalledProcessError(1, ["cargo", "build"])
+
+    monkeypatch.setattr(codec.subprocess, "run", fail)
+    with pytest.raises(codec.subprocess.CalledProcessError):
+        codec.main(["--check", "--export-dir", str(directory)])
+    assert list(directory.iterdir()) == []
+    assert not output.exists()
+    assert cached.read_bytes() == WASM
+
+
+@pytest.mark.spec("EG-CONTRACT-R006.1")
+def test_export_success_preserves_passing_check(codec, export_repo, monkeypatch):
+    _, directory, output = export_repo
+    monkeypatch.setattr(codec, "build", lambda *_args: WASM)
+    assert codec.main(["--check", "--export-dir", str(directory)]) == 0
+    assert output.read_text() == "fresh_export=true\n"
+
+
+@pytest.mark.spec("EG-CONTRACT-R006.1")
+def test_invalid_fresh_module_has_no_export_signal(codec, export_repo, monkeypatch):
+    _, directory, output = export_repo
+    monkeypatch.setattr(codec, "build", lambda *_args: b"invalid")
+    with pytest.raises(ValueError, match="WebAssembly"):
+        codec.main(["--check", "--export-dir", str(directory)])
+    assert not output.exists()
+    assert not (directory / codec.PROVENANCE).exists()
+
+
+@pytest.mark.spec("EG-CONTRACT-R006.1")
+def test_failed_provenance_has_no_export_signal(codec, export_repo, monkeypatch):
+    _, directory, output = export_repo
+    monkeypatch.setattr(codec, "build", lambda *_args: WASM)
+
+    def fail(*_args, **_kwargs):
+        raise codec.subprocess.CalledProcessError(1, ["git", "rev-parse"])
+
+    monkeypatch.setattr(codec.subprocess, "check_output", fail)
+    with pytest.raises(codec.subprocess.CalledProcessError):
+        codec.main(["--check", "--export-dir", str(directory)])
+    assert not output.exists()
+    assert not (directory / codec.PROVENANCE).exists()
+
+
+@pytest.mark.spec("EG-CONTRACT-R006.1")
+def test_ci_upload_requires_fresh_step_signal_and_keeps_check():
+    import yaml
+
+    workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
+    steps = workflow["jobs"]["language-clients"]["steps"]
+    build = next(step for step in steps if step.get("id") == "method-codec")
+    assert "--check --export-dir target/canonical-method-codec" in build["run"]
+    assert not build.get("continue-on-error", False)
+    upload = steps[steps.index(build) + 1]
+    assert "!cancelled()" in upload["if"]
+    assert "steps.method-codec.outputs.fresh_export == 'true'" in upload["if"]
+    assert (
+        "hashFiles('target/canonical-method-codec/"
+        "eg_method_codec.provenance.json') != ''" in upload["if"]
+    )
+    assert (
+        upload["uses"]
+        == "actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9"
+    )
+    assert upload["with"]["if-no-files-found"] == "error"

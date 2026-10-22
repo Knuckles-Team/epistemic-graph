@@ -430,6 +430,30 @@ fn ordinary_completion_native_fence_and_terminal_noop_preserve_binding() {
             .unwrap()
     };
     let before = row(&shard);
+    for tag in ["wrong-worker", "wrong-epoch", "expired"] {
+        let mut method = commit(hold.fencing_token.unwrap(), None);
+        if let Method::CommitWorkItemResult {
+            worker_id,
+            lease_epoch,
+            ..
+        } = &mut method
+        {
+            if tag == "wrong-worker" {
+                *worker_id = "intruder".into();
+            }
+            if tag == "wrong-epoch" {
+                *lease_epoch += 1;
+            }
+        }
+        apply(
+            &shard,
+            tag,
+            method,
+            if tag == "expired" { 62_001 } else { 3000 },
+        )
+        .unwrap();
+        assert_eq!(row(&shard), before, "{tag} must not alter terminal binding");
+    }
     apply(
         &shard,
         "stale",
