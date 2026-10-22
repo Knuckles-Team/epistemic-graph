@@ -244,6 +244,13 @@ pub(crate) async fn prepare(
         reconciliation.entry_revision,
     ));
     let mutation = compile_mutation(&ctx, &batch_id, admitted.methods)?;
+    let previous_stream_digest = stream_content_digest(
+        persistence.as_ref(),
+        &graph_fname,
+        &mutation,
+        &reconciliation.marker_id,
+    )
+    .await?;
     let envelope = build_envelope(
         batch,
         &batch_id,
@@ -254,7 +261,8 @@ pub(crate) async fn prepare(
             policies: admitted.policies,
             lineage: admitted.lineage,
             mapping_revision: reconciliation.entry_revision,
-            previous_batch_digest: reconciliation.previous_batch_digest,
+            stream_object_id: reconciliation.marker_id.clone(),
+            previous_stream_digest,
         },
     )?;
     Ok(PreparedSourceIngestion {
@@ -354,7 +362,6 @@ struct ReconciliationPlan {
     marker: Option<Method>,
     marker_id: String,
     entry_revision: u64,
-    previous_batch_digest: Option<Digest256>,
 }
 
 #[cfg(all(feature = "redb", feature = "blob"))]
@@ -599,8 +606,30 @@ async fn reconcile_batch(
         }),
         marker_id,
         entry_revision,
-        previous_batch_digest: prior.as_ref().map(|marker| marker.batch_digest),
     })
+}
+
+/// The stream's durable content-version digest, which the next batch must
+/// chain from. The content version is keyed by the stream's live-set marker
+/// identity (one object per tenant, connector and stream), not by the
+/// per-batch receipt id, so a second batch to the same stream finds the prior
+/// version the commit precondition checks. A stream with no stored version
+/// (its first batch, or batches committed before this keying) chains from none.
+#[cfg(all(feature = "redb", feature = "blob"))]
+async fn stream_content_digest(
+    persistence: &dyn crate::server::persistence::PersistenceBackend,
+    graph_fname: &str,
+    mutation: &eg_types::mutation_batch::MutationBatch,
+    stream_object_id: &str,
+) -> Result<Option<String>, String> {
+    Ok(persistence
+        .read_content_version(
+            graph_fname,
+            mutation.identity.tenant().as_str(),
+            stream_object_id,
+        )
+        .await?
+        .map(|version| version.digest))
 }
 
 #[cfg(all(feature = "redb", feature = "blob"))]
@@ -1595,7 +1624,10 @@ struct EnvelopeContents {
     policies: Vec<eg_types::change_envelope::PolicyRecord>,
     lineage: Vec<eg_types::change_envelope::LineageRecord>,
     mapping_revision: u64,
-    previous_batch_digest: Option<Digest256>,
+    /// The stream's live-set marker id: the content-version object every batch
+    /// to this stream advances.
+    stream_object_id: String,
+    previous_stream_digest: Option<String>,
 }
 
 #[cfg(all(feature = "redb", feature = "blob"))]
@@ -1611,7 +1643,8 @@ fn build_envelope(
         policies,
         lineage,
         mapping_revision,
-        previous_batch_digest,
+        stream_object_id,
+        previous_stream_digest,
     } = contents;
     let checkpoint_digest = batch.provider_checkpoint.digest()?;
     let expected_previous = batch
@@ -1624,10 +1657,10 @@ fn build_envelope(
         envelope_id: batch_id.into(),
         mutation,
         content_version: eg_types::change_envelope::ContentVersion {
-            object_id: batch_id.into(),
+            object_id: stream_object_id,
             digest_algorithm: "sha256".into(),
             digest: batch_digest.to_hex(),
-            previous_digest: previous_batch_digest.map(Digest256::to_hex),
+            previous_digest: previous_stream_digest,
             source_version: eg_types::change_envelope::ContentVersionPosition::Opaque {
                 version_type: "source-cursor-sha256".into(),
                 value: checkpoint_digest.to_hex(),
