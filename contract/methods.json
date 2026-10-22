@@ -1,7 +1,7 @@
 {
   "contract_version": 1,
   "generator": "eg-capabilities/gen_contract",
-  "method_count": 470,
+  "method_count": 471,
   "methods": [
     {
       "consumer_profiles": [
@@ -11748,6 +11748,65 @@
         },
         "kind": "declared",
         "schema": "contract/schemas/result.coordination.json#/methods/GetCurrentPlan",
+        "selected_by": null
+      },
+      "stability": "stable"
+    },
+    {
+      "consumer_profiles": [
+        "python"
+      ],
+      "domain": "coordination",
+      "error_set": [
+        "ACCESS_DENIED",
+        "AUTHENTICATION_REQUIRED",
+        "AUTH_AUDIENCE_MISMATCH",
+        "AUTH_POLICY_VERSION_MISMATCH",
+        "AUTH_TENANT_MISMATCH",
+        "BUSY",
+        "CANCELLED",
+        "CAPACITY_DENIED",
+        "ENGINE_DEADLINE_EXCEEDED",
+        "ENGINE_INTERNAL_METHOD",
+        "ENGINE_RESOURCE_EXHAUSTED",
+        "ENGINE_UNAVAILABLE",
+        "INTERNAL",
+        "INVALID_ARGUMENT",
+        "METHOD_NOT_YET_SERVED",
+        "NODE_MISMATCH",
+        "OPERATION_REDIRECTED",
+        "RUN_ADMISSION_UNAVAILABLE",
+        "STALE_OUTBOX_LEASE",
+        "STALE_ROUTE",
+        "TIMEOUT"
+      ],
+      "format_identities": [],
+      "id": "GetRunWorkItem",
+      "is_wire_callable": true,
+      "note": "owner-bound immutable run admission and current caller-safe WorkItem snapshot",
+      "policy": {
+        "audited": false,
+        "authz_action": "work:read",
+        "durability_domain": "None",
+        "emits_cdc": false,
+        "idempotent": true,
+        "mutates": false,
+        "txn_participation": "Snapshot"
+      },
+      "replay_class": "NotReplayable",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/GetRunWorkItem"
+      },
+      "result_schema": {
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.coordination.json#/methods/GetRunWorkItem",
         "selected_by": null
       },
       "stability": "stable"

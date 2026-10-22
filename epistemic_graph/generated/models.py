@@ -3025,6 +3025,7 @@ class CurrentPlanSnapshot(BaseModel):
     observed_at_ms: Annotated[int, Field(ge=0)]
     revision: Annotated[int, Field(ge=0)]
     run_id: str
+    task_plan: TaskPlan | None = None
 
 
 class CursorPositionSequence(BaseModel):
@@ -11848,6 +11849,13 @@ class MethodGetCurrentPlan(BaseModel):
     params: MethodGetCurrentPlanParams
 
 
+class MethodGetRunWorkItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["GetRunWorkItem"]
+    params: MethodGetRunWorkItemParams
+
+
 class MethodGetWorkItem(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -12451,6 +12459,7 @@ Method = Annotated[
     | MethodEdgeSearch
     | MethodPublishCurrentPlan
     | MethodGetCurrentPlan
+    | MethodGetRunWorkItem
     | MethodGetWorkItem
     | MethodListWorkItems
     | MethodGetWorkItemOutcome
@@ -14169,6 +14178,13 @@ class MethodGetPredecessorsParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     node_id: str
+
+
+class MethodGetRunWorkItemParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    run_id: str
+    tenant: str
 
 
 class MethodGetShortestPathParams(BaseModel):
@@ -18026,6 +18042,7 @@ class PublishCurrentPlanRequest(BaseModel):
     idempotency_key: str
     lease_epoch: Annotated[int, Field(ge=0)]
     snapshot: CurrentPlanSnapshot
+    task_plan_proposal: TaskPlanProposal | None = None
     tenant: str
     worker_id: str
 
@@ -19412,6 +19429,13 @@ class RunEvent(BaseModel):
     timestamp_ms: Annotated[int, Field(ge=0)]
     tool_call_ref: str | None = None
     work_item_id: str
+
+
+class RunWorkItemView(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    admission: SubmitWorkItemRequest
+    work_item: WorkItemView
 
 
 class SabrFit(BaseModel):
@@ -22298,6 +22322,7 @@ class StatisticalDecisionRecord(BaseModel):
     resolution_kind: ResolutionKind
     schema_version: Annotated[int, Field(ge=0, le=65535)]
     synthetic_evidence: bool
+    task_plan: TaskPlan | None = None
     tenant_id: str
     trace_fidelity: TraceFidelity
 
@@ -22551,6 +22576,37 @@ class SurveillanceRisk(BaseModel):
 class SvmKernel(str, Enum):
     RBF = "rbf"
     LINEAR = "linear"
+
+
+class TaskPlan(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    input_digest: str
+    max_concurrency: Annotated[int, Field(ge=0, le=65535)]
+    max_steps: Annotated[int, Field(ge=0, le=65535)]
+    output_task_id: str
+    plan_digest: str
+    policy_digest: str
+    policy_revision: str
+    tasks: BoundedVec_TaskPlanTask_64
+    total_tasks: Annotated[int, Field(ge=0, le=65535)]
+
+
+class TaskPlanProposal(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    max_concurrency: Annotated[int, Field(ge=0, le=65535)]
+    max_steps: Annotated[int, Field(ge=0, le=65535)]
+    output_task_id: str
+    tasks: BoundedVec_TaskPlanTask_64
+
+
+class TaskPlanTask(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    depends_on: BoundedVec_string_64 = Field(default_factory=list)
+    prompt: str
+    task_id: str
 
 
 class TelemetryDeriveReceipt(BaseModel):
@@ -22981,13 +23037,21 @@ class TypedValueRational(BaseModel):
     value: UnitRationalWire
 
 
+class TypedValueTaskPlan(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    type: Literal["task_plan"]
+    value: TaskPlanProposal
+
+
 TypedValue = Annotated[
     TypedValueBool
     | TypedValueInt
     | TypedValueText
     | TypedValueIri
     | TypedValueIriList
-    | TypedValueRational,
+    | TypedValueRational
+    | TypedValueTaskPlan,
     Field(discriminator="type"),
 ]
 
@@ -23946,6 +24010,9 @@ BoundedVec_StatisticalDecisionRecord_256 = Annotated[
 ]
 
 
+BoundedVec_TaskPlanTask_64 = Annotated[list[TaskPlanTask], Field(max_length=64)]
+
+
 BoundedVec_TypedParam_16 = Annotated[list[TypedParam], Field(max_length=16)]
 
 
@@ -24553,6 +24620,9 @@ GetNodePropertiesBatchResult = list[GetNodePropertiesBatchResultValueItem]
 GetRdfResult = str
 
 
+GetRunWorkItemResult = RunWorkItemView | None
+
+
 GetShortestPathResult = list[str] | None
 
 
@@ -25066,6 +25136,7 @@ QuestionKind = (
     | Literal["connector_write_back"]
     | Literal["tool_subset"]
     | Literal["harness_config"]
+    | Literal["task_plan"]
 )
 
 
@@ -25633,6 +25704,7 @@ __all__ = [
     "BoundedVec_SqlSourceCell_256",
     "BoundedVec_StatisticalDecisionRecord_256",
     "BoundedVec_SubagentAllowance_6",
+    "BoundedVec_TaskPlanTask_64",
     "BoundedVec_TemplateFacts_8",
     "BoundedVec_TopologyAdmission_64",
     "BoundedVec_TypedParam_16",
@@ -26410,6 +26482,7 @@ __all__ = [
     "GetNodePropertiesBatchResult",
     "GetNodePropertiesBatchResultValueItem",
     "GetRdfResult",
+    "GetRunWorkItemResult",
     "GetShortestPathResult",
     "GetWorkItemOutcomeResult",
     "GetWorkItemResult",
@@ -27268,6 +27341,8 @@ __all__ = [
     "MethodGetPredecessors",
     "MethodGetPredecessorsParams",
     "MethodGetRdf",
+    "MethodGetRunWorkItem",
+    "MethodGetRunWorkItemParams",
     "MethodGetShortestPath",
     "MethodGetShortestPathParams",
     "MethodGetSubgraph",
@@ -28283,6 +28358,7 @@ __all__ = [
     "RuleReasonResponse",
     "RuleReasonResponseSameAsItem",
     "RunEvent",
+    "RunWorkItemView",
     "SabrFit",
     "SafetyOutcome",
     "Scalar",
@@ -28716,6 +28792,9 @@ __all__ = [
     "SuperTrendCheckpoint",
     "SurveillanceRisk",
     "SvmKernel",
+    "TaskPlan",
+    "TaskPlanProposal",
+    "TaskPlanTask",
     "TelemetryDeriveReceipt",
     "TemplateFacts",
     "TemplateInstanceRef",
@@ -28811,6 +28890,7 @@ __all__ = [
     "TypedValueIri",
     "TypedValueIriList",
     "TypedValueRational",
+    "TypedValueTaskPlan",
     "TypedValueText",
     "UnifiedQueryResult",
     "UnifiedQueryResultValueItem",
