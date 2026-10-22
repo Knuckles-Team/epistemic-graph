@@ -1,34 +1,38 @@
-//! EG-ORCH-VOCAB-R801 — engine-side admission of the versioned
-//! harness-component writes on BOTH write paths.
+//! EG-ORCH-VOCAB-R801/R802 — engine-side admission of the harness
+//! vocabulary's five record kinds — component versions (R801), lessons,
+//! adoptions, contrasts and probe runs (R802) — on BOTH write paths.
 //!
 //! The two paths differ in one thing only: whether the engine may MUTATE the
 //! write before commit.
 //!
 //! * The direct `AddNode` path (the graph-ops gateway) may mutate: the engine
 //!   stamps the transaction time (`tx_from`, EG-DURABLE-KERNEL-R078/R081) and
-//!   fills the `supersedes_id` pointer when the writer left it absent (the
-//!   version names the current one). The mutation happens before the durable
-//!   commit and before the apply closure clones the method, so durable and
-//!   serving state cannot diverge.
+//!   fills the `supersedes_id` pointer when the writer left it absent (versions
+//!   and lessons). The mutation happens before the durable commit and before
+//!   the apply closure clones the method, so durable and serving state cannot
+//!   diverge.
 //! * The `ChangeEnvelope` path is byte-stable for replay (the replay check
 //!   compares reserialized bytes) and its digest covers the operations, so the
 //!   engine only VERIFIES: the generated client stamps `tx_from` itself
 //!   (EG-DURABLE-KERNEL-R081) and composes the real supersession edge and the
 //!   head-window-close ops, naming the superseded record in `supersedes_id`.
-//!   A supersession that leaves the pointer absent while a current version
-//!   exists is refused, because such a version would supersede nothing.
+//!   A supersession that leaves the pointer absent while a current record
+//!   exists is refused, because such a record would supersede nothing.
 //!
-//! The shared rules: the record decodes strictly (the closed kind set, the
+//! The shared rules: the record decodes strictly (the closed kind sets, the
 //! typed evidence and interval checks), the node id is the record's own
-//! content address, a published version never mutates (the same writer fields
-//! are an idempotent replay; anything else is `HarnessVersionImmutable`), and
-//! a supersession names the CURRENT version (`HarnessSupersessionStale` when
-//! it names an older one, `HarnessSupersessionUnknown` when it names nothing
-//! the graph holds).
+//! identity (content address for versions, lessons, adoptions and contrasts;
+//! the trace id for probe runs), a published record never mutates (the same
+//! writer fields are an idempotent replay; anything else is
+//! `HarnessVersionImmutable` / `HarnessRecordImmutable`), a supersession
+//! names the CURRENT record (`HarnessSupersessionStale` when it names an
+//! older one, `HarnessSupersessionUnknown` when it names nothing the graph
+//! holds), and a contrast agrees with its probe runs (same trace ids, same
+//! conditions digest — `ContrastConditionsMismatch` otherwise).
 //!
 //! The envelope check runs under the graph write lock, before any durable
 //! work. A batch commits atomically, so one [`HarnessBoundaryState`] spans
-//! the batch's envelopes in order: a supersession may name a version written
+//! the batch's envelopes in order: a supersession may name a record written
 //! by an EARLIER envelope of the same write (it is pending, not yet in the
 //! graph), and a head-window-close CAS in one op is visible to the
 //! supersession check of a later op.
@@ -38,8 +42,13 @@ use std::collections::BTreeMap;
 use crate::graph::GraphCore;
 use crate::protocol::Method;
 use eg_types::change_envelope::ChangeEnvelope;
+use eg_types::orchestration::improvement::{
+    decode_adopted_harness_write, decode_harness_contrast_write, decode_harness_probe_run_write,
+    decode_lesson_write, is_adopted_harness_write, is_harness_contrast_write,
+    is_harness_lesson_write, is_harness_probe_run_write, ImprovementLibraryRefusal,
+};
 use eg_types::orchestration::{
-    HarnessComponentRefusal, decode_component_write, is_harness_component_write,
+    decode_component_write, is_harness_component_write, HarnessComponentRefusal,
 };
 
 type Props = serde_json::Map<String, serde_json::Value>;
@@ -52,8 +61,12 @@ fn refuse_component(refusal: HarnessComponentRefusal, detail: String) -> String 
     format!("{}: {}", refusal.code(), detail)
 }
 
-/// The transaction-time stamp a harness record must carry (R801.3): `tx_from`
-/// set, and a positive number.
+fn refuse_improvement(refusal: ImprovementLibraryRefusal, detail: String) -> String {
+    format!("{}: {}", refusal.code(), detail)
+}
+
+/// The transaction-time stamp a harness record must carry (R801.3/R802.4):
+/// `tx_from` set, and a positive number.
 fn tx_stamp(props: &Props) -> Option<u64> {
     props
         .get("tx_from")
@@ -77,6 +90,19 @@ struct ComponentHeadProbe {
     valid_from: u64,
     /// Valid time: until when; absent while the version is still current.
     valid_to: Option<u64>,
+}
+
+/// The fields the lesson head-scan reads off every candidate: the marker,
+/// the identity the head is scoped by, and the transaction stamp the head
+/// orders by.
+#[derive(serde::Deserialize, Default)]
+#[serde(default)]
+struct LessonHeadProbe {
+    #[serde(rename = "_harness_lesson")]
+    marker: bool,
+    task_class: String,
+    deficiency: String,
+    tx_from: u64,
 }
 
 /// The harness records as a write sees them: the live graph, plus the nodes
@@ -139,6 +165,45 @@ impl<'a> HarnessView<'a> {
         self.probe(node_id)
     }
 
+    /// The effective `(marker, task_class, deficiency, tx_from)` of one
+    /// candidate lesson.
+    fn lesson_probe(&self, node_id: &str) -> Option<LessonHeadProbe> {
+        if let Some(props) = self.pending.get(node_id) {
+            return Some(LessonHeadProbe {
+                marker: props
+                    .get("_harness_lesson")
+                    .and_then(|value| value.as_bool())
+                    .unwrap_or(false),
+                task_class: props
+                    .get("task_class")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                deficiency: props
+                    .get("deficiency")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                tx_from: props
+                    .get("tx_from")
+                    .and_then(|value| value.as_u64())
+                    .unwrap_or(0),
+            });
+        }
+        self.probe(node_id)
+    }
+
+    /// The probe run stored at `harness-probe-run:<trace_id>`, when the write
+    /// sees one (pending first, then the graph).
+    fn probe_run(
+        &self,
+        trace_id: &str,
+    ) -> Option<eg_types::orchestration::improvement::HarnessProbeRun> {
+        let node_id = format!("harness-probe-run:{trace_id}");
+        self.props(&node_id)
+            .and_then(|props| decode_harness_probe_run_write(&props).ok())
+    }
+
     /// The current (window-open) version node id of one harness component, by
     /// newest `valid_from` — the supersession target of a new version
     /// (R801.2).
@@ -175,6 +240,35 @@ impl<'a> HarnessView<'a> {
         }
         best.map(|(_, node_id)| node_id)
     }
+
+    /// The current lesson of one task class and deficiency, by newest
+    /// `tx_from` — the supersession target of a new lesson (R802.4). The
+    /// record's own task class and deficiency are re-checked off the probe:
+    /// two identity fields in one node id can alias across colons.
+    fn lesson_head(&self, task_class: &str, deficiency: &str) -> Option<String> {
+        let prefix = format!("harness-lesson:{task_class}:{deficiency}:");
+        let mut best: Option<(u64, String)> = None;
+        for node_id in self
+            .core
+            .node_ids()
+            .into_iter()
+            .chain(self.pending.keys().cloned())
+        {
+            if !node_id.starts_with(&prefix) {
+                continue;
+            }
+            let Some(probe) = self.lesson_probe(&node_id) else {
+                continue;
+            };
+            if !probe.marker || probe.task_class != task_class || probe.deficiency != deficiency {
+                continue;
+            }
+            if best.as_ref().is_none_or(|(tx, _)| probe.tx_from >= *tx) {
+                best = Some((probe.tx_from, node_id));
+            }
+        }
+        best.map(|(_, node_id)| node_id)
+    }
 }
 
 /// The graph-relative admission of one harness-record write. `New` when the
@@ -187,7 +281,7 @@ impl<'a> HarnessView<'a> {
 /// fill an absent pointer from the current record (so "absent with a live
 /// head" is legal), while on the ChangeEnvelope path the bytes are
 /// byte-stable for replay and the writer MUST name the current record
-/// itself (so "absent with a live head" would publish a version that
+/// itself (so "absent with a live head" would publish a record that
 /// supersedes nothing — refused).
 enum Admission {
     New { head: Option<String> },
@@ -204,7 +298,7 @@ fn stored_record<T: std::fmt::Debug + PartialEq>(
     view: &HarnessView<'_>,
     node_id: &str,
     is_kind: fn(&Props) -> bool,
-    decode: fn(&Props) -> Result<T, String>,
+    decode: fn(&Props) -> Result<T, ImprovementLibraryRefusal>,
     same: fn(&T, &T) -> bool,
     record: &T,
     immutable_code: &str,
@@ -258,9 +352,7 @@ fn component_admission(
         node_id,
         is_harness_component_write,
         |stored| {
-            decode_component_write(stored).map_err(|refusal| {
-                refuse_component(refusal, "harness component version record".to_string())
-            })
+            decode_component_write(stored).map_err(|_| ImprovementLibraryRefusal::RecordMalformed)
         },
         |a, b| a.same_writer_fields(b),
         &record,
@@ -283,7 +375,7 @@ fn component_admission(
                         "component '{}' is current at version '{current}', not '{superseded}'",
                         record.component_id
                     ),
-                ));
+                ))
             }
             None => {
                 if !view.has(superseded) {
@@ -312,6 +404,250 @@ fn component_admission(
     Ok(Admission::New { head })
 }
 
+/// The graph-relative admission of one harness-lesson write (R802.4).
+fn lesson_admission(
+    view: &HarnessView<'_>,
+    node_id: &str,
+    props: &Props,
+    engine_fills_pointer: bool,
+) -> Result<Admission, String> {
+    let record = decode_lesson_write(props)
+        .map_err(|refusal| refuse_improvement(refusal, "harness lesson record".to_string()))?;
+    if record.node_id() != node_id {
+        return Err(refuse_improvement(
+            ImprovementLibraryRefusal::ContentDigestMismatch,
+            format!(
+                "node id '{node_id}' does not match the lesson's content address '{}'",
+                record.node_id()
+            ),
+        ));
+    }
+    record.validate().map_err(|refusal| {
+        refuse_improvement(
+            refusal,
+            format!(
+                "task class '{}', deficiency '{}'",
+                record.task_class, record.deficiency
+            ),
+        )
+    })?;
+    match stored_record(
+        view,
+        node_id,
+        is_harness_lesson_write,
+        decode_lesson_write,
+        |a, b| a.same_writer_fields(b),
+        &record,
+        "HarnessRecordImmutable",
+    )? {
+        Some(true) => return Ok(Admission::Replay),
+        Some(false) => unreachable!("stored_record refuses a mutable rewrite"),
+        None => {}
+    }
+    // The lesson's evidence runs are the run nodes the graph (or this same
+    // write) holds; a lesson that cites a run the store does not have has no
+    // evidence (R802.5).
+    for trace in record.evidence_run_ids.iter() {
+        if !view.has(&format!("harness-probe-run:{trace}")) {
+            return Err(refuse_improvement(
+                ImprovementLibraryRefusal::LessonWithoutEvidence,
+                format!("lesson '{node_id}' cites evidence run '{trace}' the graph does not hold"),
+            ));
+        }
+    }
+    // The supersession pointer names the current lesson of the same task
+    // class and deficiency, or nothing when the class and deficiency are new.
+    let head = view.lesson_head(&record.task_class, &record.deficiency);
+    match record.supersedes_id.as_deref() {
+        Some(superseded) => match head.as_deref() {
+            Some(current) if current == superseded => {}
+            Some(current) => {
+                return Err(refuse_improvement(
+                    ImprovementLibraryRefusal::SupersessionStale,
+                    format!(
+                        "task class '{}' deficiency '{}' is current at lesson '{current}', not '{superseded}'",
+                        record.task_class, record.deficiency
+                    ),
+                ))
+            }
+            None => {
+                if !view.has(superseded) {
+                    return Err(refuse_improvement(
+                        ImprovementLibraryRefusal::SupersessionUnknown,
+                        format!(
+                            "lesson '{node_id}' supersedes '{superseded}' the graph does not hold"
+                        ),
+                    ));
+                }
+            }
+        },
+        None if !engine_fills_pointer && head.is_some() => {
+            return Err(refuse_improvement(
+                ImprovementLibraryRefusal::SupersessionStale,
+                format!(
+                    "task class '{}' deficiency '{}' is current at lesson '{}'; a new lesson must name it in `supersedes_id`",
+                    record.task_class,
+                    record.deficiency,
+                    head.expect("head is Some")
+                ),
+            ));
+        }
+        None => {}
+    }
+    Ok(Admission::New { head })
+}
+
+/// The graph-relative admission of one adopted-harness write (R802.4).
+fn adoption_admission(
+    view: &HarnessView<'_>,
+    node_id: &str,
+    props: &Props,
+) -> Result<Admission, String> {
+    let record = decode_adopted_harness_write(props)
+        .map_err(|refusal| refuse_improvement(refusal, "adopted harness record".to_string()))?;
+    if record.node_id() != node_id {
+        return Err(refuse_improvement(
+            ImprovementLibraryRefusal::ContentDigestMismatch,
+            format!(
+                "node id '{node_id}' does not match the adoption's content address '{}'",
+                record.node_id()
+            ),
+        ));
+    }
+    record.validate().map_err(|refusal| {
+        refuse_improvement(
+            refusal,
+            format!(
+                "agent '{}', task class '{}'",
+                record.agent_ref, record.task_class
+            ),
+        )
+    })?;
+    match stored_record(
+        view,
+        node_id,
+        is_adopted_harness_write,
+        decode_adopted_harness_write,
+        |a, b| *a == *b,
+        &record,
+        "HarnessRecordImmutable",
+    )? {
+        Some(true) => return Ok(Admission::Replay),
+        Some(false) => unreachable!("stored_record refuses a mutable rewrite"),
+        None => {}
+    }
+    // An adoption supersedes the previous adoption of the same agent and task
+    // class by edge (the caller composes it); the record itself carries no
+    // pointer, so there is nothing to verify head-relative here.
+    Ok(Admission::New { head: None })
+}
+
+/// The graph-relative admission of one harness-contrast write (R802.5).
+fn contrast_admission(
+    view: &HarnessView<'_>,
+    node_id: &str,
+    props: &Props,
+) -> Result<Admission, String> {
+    let record = decode_harness_contrast_write(props)
+        .map_err(|refusal| refuse_improvement(refusal, "harness contrast record".to_string()))?;
+    if record.node_id() != node_id {
+        return Err(refuse_improvement(
+            ImprovementLibraryRefusal::ContentDigestMismatch,
+            format!(
+                "node id '{node_id}' does not match the contrast's content address '{}'",
+                record.node_id()
+            ),
+        ));
+    }
+    if record.task_ref.trim().is_empty()
+        || record.run_a_trace_id.trim().is_empty()
+        || record.run_b_trace_id.trim().is_empty()
+    {
+        return Err(refuse_improvement(
+            ImprovementLibraryRefusal::IdentityMissing,
+            format!("contrast '{node_id}' names no task or no probe run"),
+        ));
+    }
+    match stored_record(
+        view,
+        node_id,
+        is_harness_contrast_write,
+        decode_harness_contrast_write,
+        |a, b| *a == *b,
+        &record,
+        "HarnessRecordImmutable",
+    )? {
+        Some(true) => return Ok(Admission::Replay),
+        Some(false) => unreachable!("stored_record refuses a mutable rewrite"),
+        None => {}
+    }
+    // The contrast's probe runs must be held — by the graph or by this same
+    // write — and agree with it: same trace ids, same conditions digest
+    // (R802.5).
+    let run_a = view.probe_run(&record.run_a_trace_id).ok_or_else(|| {
+        refuse_improvement(
+            ImprovementLibraryRefusal::ContrastConditionsMismatch,
+            format!(
+                "contrast '{node_id}' cites probe run '{}' the graph does not hold",
+                record.run_a_trace_id
+            ),
+        )
+    })?;
+    let run_b = view.probe_run(&record.run_b_trace_id).ok_or_else(|| {
+        refuse_improvement(
+            ImprovementLibraryRefusal::ContrastConditionsMismatch,
+            format!(
+                "contrast '{node_id}' cites probe run '{}' the graph does not hold",
+                record.run_b_trace_id
+            ),
+        )
+    })?;
+    record.validate_against(&run_a, &run_b).map_err(|refusal| {
+        refuse_improvement(
+            refusal,
+            format!("contrast '{node_id}' disagrees with its probe runs"),
+        )
+    })?;
+    Ok(Admission::New { head: None })
+}
+
+/// The graph-relative admission of one harness-probe-run write (R802.5).
+fn probe_run_admission(
+    view: &HarnessView<'_>,
+    node_id: &str,
+    props: &Props,
+) -> Result<Admission, String> {
+    let record = decode_harness_probe_run_write(props)
+        .map_err(|refusal| refuse_improvement(refusal, "harness probe run record".to_string()))?;
+    if record.node_id() != node_id {
+        return Err(refuse_improvement(
+            ImprovementLibraryRefusal::RecordMalformed,
+            format!(
+                "node id '{node_id}' does not match probe run '{}' trace identity '{}'",
+                record.trace_id,
+                record.node_id()
+            ),
+        ));
+    }
+    record.validate().map_err(|refusal| {
+        refuse_improvement(refusal, format!("probe run '{node_id}' names no trace"))
+    })?;
+    match stored_record(
+        view,
+        node_id,
+        is_harness_probe_run_write,
+        decode_harness_probe_run_write,
+        |a, b| *a == *b,
+        &record,
+        "HarnessRecordImmutable",
+    )? {
+        Some(true) => return Ok(Admission::Replay),
+        Some(false) => unreachable!("stored_record refuses a mutable rewrite"),
+        None => {}
+    }
+    Ok(Admission::New { head: None })
+}
+
 /// The graph-relative admission of one AddNode of ANY harness-record kind.
 /// `None` when the node is not a harness record (the write passes through).
 fn harness_add_node_admission(
@@ -328,14 +664,31 @@ fn harness_add_node_admission(
             engine_fills_pointer,
         )?));
     }
+    if is_harness_lesson_write(props) {
+        return Ok(Some(lesson_admission(
+            view,
+            node_id,
+            props,
+            engine_fills_pointer,
+        )?));
+    }
+    if is_adopted_harness_write(props) {
+        return Ok(Some(adoption_admission(view, node_id, props)?));
+    }
+    if is_harness_contrast_write(props) {
+        return Ok(Some(contrast_admission(view, node_id, props)?));
+    }
+    if is_harness_probe_run_write(props) {
+        return Ok(Some(probe_run_admission(view, node_id, props)?));
+    }
     Ok(None)
 }
 
-/// EG-ORCH-VOCAB-R801.3 — the harness-component write attaches to the
+/// EG-ORCH-VOCAB-R801.3/R802.4 — the harness-record write attaches to the
 /// existing AddNode path at the pre-commit point, beside the owner-id stamp.
 /// A non-harness `AddNode` passes through untouched; a harness write comes
 /// back stamped with the transaction time and (when the writer left the
-/// pointer absent) linked to the current version; an idempotent replay comes
+/// pointer absent) linked to the current record; an idempotent replay comes
 /// back as the stored blob, byte-exact.
 pub fn direct_add_node(method: &Method, core: &GraphCore, tx_now: u64) -> Result<Method, String> {
     let Method::AddNode {
@@ -367,18 +720,28 @@ pub fn direct_add_node(method: &Method, core: &GraphCore, tx_now: u64) -> Result
         }
         Admission::New { head } => {
             // Stamp the transaction time and, when the writer left the
-            // pointer absent, link the new version to the current one. The
+            // pointer absent, link the new record to the current one. The
             // record already decoded and validated above.
+            let component = is_harness_component_write(&props);
+            let lesson = is_harness_lesson_write(&props);
             let mut stamped = props;
             stamped.insert("tx_from".into(), serde_json::json!(tx_now));
-            if let Some(head) = head {
-                // `tx_from` is an engine-owned key the decoders strip, so the
-                // stamped object decodes to the same record.
-                let pointer_absent = decode_component_write(&stamped)
-                    .map(|record| record.supersedes_id.is_none())
-                    .unwrap_or(false);
-                if pointer_absent {
-                    stamped.insert("supersedes_id".into(), serde_json::json!(head));
+            if component || lesson {
+                if let Some(pointer_target) = &head {
+                    // `tx_from` is an engine-owned key the decoders strip, so
+                    // the stamped object decodes to the same record.
+                    let pointer_absent = if component {
+                        decode_component_write(&stamped)
+                            .map(|record| record.supersedes_id.is_none())
+                            .unwrap_or(false)
+                    } else {
+                        decode_lesson_write(&stamped)
+                            .map(|record| record.supersedes_id.is_none())
+                            .unwrap_or(false)
+                    };
+                    if pointer_absent {
+                        stamped.insert("supersedes_id".into(), serde_json::json!(pointer_target));
+                    }
                 }
             }
             let blob =
@@ -403,18 +766,23 @@ pub struct HarnessBoundaryState {
 }
 
 impl HarnessBoundaryState {
-    /// The engine-owned write marker of the harness-component record.
+    /// The engine-owned write markers, by record kind — the admission
+    /// dispatch key.
     fn is_harness_record(props: &Props) -> bool {
         is_harness_component_write(props)
+            || is_harness_lesson_write(props)
+            || is_adopted_harness_write(props)
+            || is_harness_contrast_write(props)
+            || is_harness_probe_run_write(props)
     }
 
-    /// EG-ORCH-VOCAB-R801.3 — check one envelope's harness-component writes
-    /// op by op, in application order, against the graph as the write sees
-    /// it. The envelope bytes are byte-stable for replay, so the engine
+    /// EG-ORCH-VOCAB-R801.3/R802.4 — check one envelope's harness-record
+    /// writes op by op, in application order, against the graph as the write
+    /// sees it. The envelope bytes are byte-stable for replay, so the engine
     /// verifies instead of mutating: each record decodes and validates,
     /// carries its `tx_from` stamp (the generated client stamps it,
     /// EG-DURABLE-KERNEL-R078/R081), and its supersession pointer names the
-    /// current version — which may itself be a PENDING write of this same
+    /// current record — which may itself be a PENDING write of this same
     /// batch. Non-harness ops pass through.
     pub fn check_envelope(
         &mut self,
@@ -441,8 +809,13 @@ impl HarnessBoundaryState {
                         continue;
                     };
                     if matches!(admission, Admission::New { .. }) && tx_stamp(&props).is_none() {
+                        let code = if is_harness_component_write(&props) {
+                            "HarnessVersionWithoutStamp"
+                        } else {
+                            "HarnessRecordWithoutStamp"
+                        };
                         return Err(format!(
-                            "HarnessVersionWithoutStamp: harness record '{node_id}' must carry its transaction-time stamp `tx_from`"
+                            "{code}: harness record '{node_id}' must carry its transaction-time stamp `tx_from`"
                         ));
                     }
                     self.pending.insert(node_id.clone(), props);
