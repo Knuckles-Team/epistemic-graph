@@ -383,9 +383,9 @@
       "landed_in": [
         "15acf1a959e5",
         "19d0663aaf5c",
+        "223a8f0b64c0",
         "2a4982e949a3",
-        "394f82a01e83",
-        "4c25220f6e1b"
+        "394f82a01e83"
       ],
       "verified_by": [
         "crates/eg-capabilities/src/contract/errors.rs:476",
@@ -403,9 +403,10 @@
       "title": "Authentication refusals name a safe cause class",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "6309d2bb3095",
-        "e0267060cec8",
-        "e2b5a1e42c45"
+        "223a8f0b64c0",
+        "96c425e02d30",
+        "acddcf47fd0c",
+        "cbf95f45d8d0"
       ],
       "verified_by": [
         "src/server/auth.rs:2053",
