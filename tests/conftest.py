@@ -350,8 +350,14 @@ def selection_needs_engine(items) -> bool:
     )
 
 
+@pytest.fixture(scope="session")
+def test_auth_secret() -> str:
+    """Shared synthetic HMAC material for authenticated loopback fixtures."""
+    return "test-epistemic-graph-secret"
+
+
 @pytest.fixture(scope="session", autouse=True)
-def start_epistemic_graph_server(request, tmp_path_factory):
+def start_epistemic_graph_server(request, tmp_path_factory, test_auth_secret):
     # When no selected test needs the shared engine (see
     # `selection_needs_engine`: exact_artifact / no_engine only), never
     # start (or implicitly Cargo-build) the shared engine.
@@ -366,9 +372,9 @@ def start_epistemic_graph_server(request, tmp_path_factory):
     state_dir = str(runtime_dir / "security")
     persist_dir = str(runtime_dir / "persist")
     os.makedirs(persist_dir, exist_ok=True)
-    # Real secret so the suite exercises the HMAC auth path end-to-end
+    # Nonempty synthetic material exercises the HMAC auth path end-to-end
     # (an empty secret makes the server refuse to start by design).
-    auth_secret = "test-epistemic-graph-secret"
+    auth_secret = test_auth_secret
     # Both branches independently found the same defect: `main.rs` exits(2)
     # before opening the listener when no durable-state dir is configured, so the
     # shared session engine silently never started and every dependent test failed

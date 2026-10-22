@@ -19,15 +19,6 @@ struct StoredPlan {
     payload_digest: String,
 }
 
-fn owned(row: &Row, graph: &str, tenant: &str, run_id: &str, id: &str, actor: &str) -> bool {
-    row.get("run_owner_binding")
-        == Some(&serde_json::json!({
-            "graph": graph, "tenant": tenant, "run_id": run_id, "work_item_id": id, "principal": actor
-        }))
-        && property_string(row, "tenant") == tenant
-        && !actor.is_empty()
-}
-
 fn live(row: &Row, worker: &str, epoch: u64, token: u64, now_ms: u64) -> bool {
     matches!(property_string(row, "status"), "leased" | "running")
         && row.get("lease_epoch").and_then(serde_json::Value::as_u64) == Some(epoch)
@@ -55,7 +46,7 @@ pub(crate) fn publish(
         .ok_or("current-plan owner unavailable")?;
     let row: Row = decode_durable(&crypto.unseal(bytes.value())?)?;
     drop(bytes);
-    if !owned(
+    if !run_owner::owned(
         &row,
         graph,
         &request.tenant,
@@ -71,11 +62,20 @@ pub(crate) fn publish(
         .map(|bytes| decode_durable::<StoredPlan>(&crypto.unseal(bytes.value())?))
         .transpose()?;
     validate_publication(&row, previous.as_ref(), request, now_ms)?;
+    // Scaffold-only publishers cannot erase an already bound executable plan.
+    // Bind the effective snapshot in the publication receipt, while the native
+    // MutationBatch separately binds the exact submitted request for replay.
+    let mut resolved = request.clone();
+    if resolved.snapshot.task_plan.is_none() {
+        resolved.snapshot.task_plan = previous
+            .as_ref()
+            .and_then(|old| old.snapshot.task_plan.clone());
+    }
     let digest = hex::encode(Sha256::digest(
-        serde_json::to_vec(request).map_err(|e| e.to_string())?,
+        serde_json::to_vec(&resolved).map_err(|e| e.to_string())?,
     ));
     let stored = StoredPlan {
-        snapshot: request.snapshot.clone(),
+        snapshot: resolved.snapshot,
         worker_id: request.worker_id.clone(),
         lease_epoch: request.lease_epoch,
         fencing_token: request.fencing_token,
@@ -111,6 +111,16 @@ fn validate_publication(
     {
         return Err("current-plan fence or validity conflict".into());
     }
+    if let (Some(bound), Some(proposed)) = (
+        previous.and_then(|old| old.snapshot.task_plan.as_ref()),
+        snapshot.task_plan.as_ref(),
+    ) {
+        // Equality includes input_digest: declaration reordering cannot replace
+        // immutable provenance even if the executable plan_digest is unchanged.
+        if bound != proposed {
+            return Err("current-plan executable attachment is immutable".into());
+        }
+    }
     match previous {
         None if snapshot.revision == 0 && snapshot.items.is_empty() => Ok(()),
         Some(old) if snapshot.revision > old.snapshot.revision => Ok(()),
@@ -131,7 +141,7 @@ pub(crate) fn is_owner(
 ) -> Result<bool, String> {
     let id = run_owner::work_item_id(graph, tenant, run_id)?;
     let (_, row) = read::snapshot_row(shard, graph, &id, crypto)?;
-    Ok(row.is_some_and(|row| owned(&row, graph, tenant, run_id, &id, actor)))
+    Ok(row.is_some_and(|row| run_owner::owned(&row, graph, tenant, run_id, &id, actor)))
 }
 
 /// Owner, snapshot and lease are decoded from one authoritative MVCC row.
@@ -155,7 +165,7 @@ pub(crate) fn read_current(
     let Some(row) = row else {
         return Ok(None);
     };
-    if !owned(&row, graph, tenant, run_id, &id, actor) {
+    if !run_owner::owned(&row, graph, tenant, run_id, &id, actor) {
         return Ok(None);
     }
     let plans = read.scoped_owner_table(CURRENT_PLANS)?;

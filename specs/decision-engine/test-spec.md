@@ -831,3 +831,26 @@ Hot-path proof for `EG-DECISION-ENGINE-R803`: `tests/decide/test_harness_contras
 ## EG-DECISION-ENGINE-R036.102
 
 `src/raft/cross_shard_txn/prepare_record.rs::tests` covers the production codec: canonical round trip, wrong transaction/group, modified payload, unsupported version/owner, malformed envelope and legacy array recovery. The existing cross-shard harness must pass with the new writer. Codec tests alone do not qualify heterogeneous-owner admission or distributed recovery.
+
+## Bounded explicit task graphs (R134.111)
+
+`crates/eg-types/src/decision/task_plan/tests.rs` covers canonical ordering, round trips and unknown fields.
+It covers invalid ids and edges, cycles, output coverage, byte limits and task/concurrency ceilings.
+The four-task fixture has independent A and B. C depends only on B. The final task depends on A and C. Type tests do not claim scheduler execution.
+
+`src/server/handlers/decide/stat_tests/task_plan_tests.rs` enters `handle_decide`
+with a published feature schema. It verifies the typed plan, caller-claim
+premises, fixed-policy provenance, digest binding and strict request refusals.
+`tests/decide/test_task_plan_served.py::test_explicit_plan_end_to_end` uses the
+actual wire client and a disposable published schema. No external model is used.
+AU owns rolling execution evidence; Arbora owns authenticated admission evidence.
+
+The shared `verify_task_plan_receipt` helper checks typed content and request bindings.
+The served test refuses changed prompts, bounds, tenant, question, caller and digest.
+`expected_principal` is required and uses the native persistence-id conversion.
+`test_anonymous_task_plan_publication_and_restart` covers explicit isolated no-auth
+Decide, local/anonymous provenance, native run ownership, paired publication and
+live-owner readback after restart. It does not fabricate authenticated identity.
+These checks do not authenticate a caller-supplied receipt or authorize execution.
+
+The `bounded_task_plan` performance receipt for R134.111.6 remains pending.

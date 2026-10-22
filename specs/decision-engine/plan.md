@@ -2019,3 +2019,34 @@ This is one prerequisite for the adopted coordinated-owner protocol. RBAC and
 Agent Library reservations, decision-time expiry, visibility fencing and atomic
 SubmitWorkItem admission remain unimplemented. No profile-enabled receipt or
 public admission method is introduced. Native validation remains pending.
+
+### 2026-10-22 amendment: bounded explicit task graphs (R134.111)
+
+The first executable slice accepts explicit task proposals. It does not claim
+natural-language decomposition, skill retrieval or published AgentGraph admission.
+Those broader R134.1-.8 obligations remain open. The result is an executable task
+DAG for one already-bound agent, not a replacement AgentGraph Library record.
+
+Data flow: `Method::Decide` -> `stat_decide` -> `stat_task_plan` ->
+`decision::task_plan::plan_explicit_tasks` -> sealed `StatisticalDecisionRecord.task_plan`.
+Arbora requests the plan, checks the receipt and applies its own admission limits.
+AU executes ready tasks and refills slots. No model chooses policy or grants access.
+
+The engine rule `bounded-explicit-dag-v1` permits 64 tasks and eight concurrent tasks.
+It permits 16 KiB per prompt and 64 KiB of prompt text in total.
+It uses lexical ready-task ties and sorts dependency ids. It permits no retry or cycle expansion.
+Every task must reach one output sink. Caller limits may tighten these ceilings, not raise them. Each task
+executes at most once. Model request and token budgets remain separate AU limits.
+
+The request uses one `TypedValue::TaskPlan` parameter named `task_plan`. Its declared
+candidate ids equal the task ids, without candidate facts. It carries a published
+feature-schema pin and the existing decision policy reference. The specialized
+path refuses model heads, belief slices and nonordinary safety classes. The
+returned advisory record retains verified tenant and principal provenance. Its
+plan field is omitted on other kinds to preserve their serialized digest input.
+A digest is an integrity binding, not an authentication credential. Admission
+must use the direct response from the configured engine, not a caller receipt.
+
+Validation uses deterministic local fixtures only. The served fixture publishes
+its own feature schema through the authenticated mutation path.
+An authorized isolated fixture may instead use explicit no-auth mode. It never changes live auth.

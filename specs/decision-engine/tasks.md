@@ -778,3 +778,9 @@ Deliver these additive leaves in order; preserve R137.1–.6 and R128 unchanged.
 - [ ] **EG-DECISION-ENGINE-R803.6 (Hot-path proof):** Add the served contrast test and the benchmark.
 
 - [ ] **EG-DECISION-ENGINE-R036.102:** Bind the existing graph prepare writer and recovery readers to versioned transaction/participant identity; qualify refusal and legacy recovery.
+
+- [ ] **EG-DECISION-ENGINE-R134.111.1-.5:** Add and verify the bounded explicit-task
+  Decide path. Keep semantic decomposition, skill search, durable graph publish,
+  and cross-owner admission/execution acceptance separate and open.
+
+- [ ] **EG-DECISION-ENGINE-R134.111.6:** Qualify the named maximum-input benchmark; record the profile, hardware and latency/memory results before claiming the performance budget.

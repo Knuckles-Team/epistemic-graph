@@ -67,7 +67,7 @@ def library(
 
 
 def param(name: str, kind: str, value: Any) -> dict[str, Any]:
-    """One ``TypedParam``: ``kind`` is ``bool|int|text|iri|iri_list|rational``."""
+    """One ``TypedParam``, including the typed ``task_plan`` proposal variant."""
     return {"name": name, "value": {"type": kind, "value": value}}
 
 
@@ -94,6 +94,168 @@ def decide_request(
         "params": sorted((dict(p) for p in params), key=lambda p: str(p["name"])),
         "max_records": max_records,
     }
+
+
+def task_plan_request(
+    tenant_id: str,
+    question_id: str,
+    proposal: Mapping[str, Any],
+    feature_schema: Mapping[str, Any],
+    *,
+    policy: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build an evaluate-only explicit plan request, never an admission grant.
+
+    The caller supplies host-selected limits and a real published schema pin.
+    Model proposals must not provide the tenant, pin, policy or limits. Graph
+    validity and effective bounds are computed by the engine, not this helper.
+    """
+    from epistemic_graph.generated.models import TaskPlanProposal
+
+    typed = TaskPlanProposal.model_validate(dict(proposal), strict=True)
+    body = typed.model_dump(mode="json")
+    return decide_request(
+        tenant_id,
+        (question_id, "task_plan", "ordinary"),
+        declared(DeclaredOption(task["task_id"]) for task in body["tasks"]),
+        feature_schema,
+        policy=policy,
+        params=[param("task_plan", "task_plan", body)],
+        max_records=1,
+    )
+
+
+def _task_plan_body(value: Mapping[str, Any]) -> dict[str, Any]:
+    """A validated proposal in Rust declaration order, for its digest."""
+    return {
+        "tasks": [
+            {
+                "task_id": task["task_id"],
+                "prompt": task["prompt"],
+                "depends_on": task["depends_on"],
+            }
+            for task in value["tasks"]
+        ],
+        "output_task_id": value["output_task_id"],
+        "max_concurrency": value["max_concurrency"],
+        "max_steps": value["max_steps"],
+    }
+
+
+def verify_task_plan_receipt(
+    record: Mapping[str, Any], request: Mapping[str, Any], *, expected_principal: str
+) -> dict[str, Any]:
+    """Check a direct engine response's plan/request bindings; return its plan.
+
+    ``expected_principal`` is the raw host caller principal. EG stores its
+    domain-prefixed SHA-256 identifier, including for anonymous/local callers.
+    This checks typed content and input/plan digests, not the full statistical
+    record digest or transport authentication. A self-consistent caller receipt
+    is NOT trustworthy. Use only a direct response from the configured engine.
+    The host still owns authorization, policy acceptance and durable admission.
+    No plan is persisted or admitted by this function.
+    """
+    import hashlib
+
+    from epistemic_graph.decision._digest import digest_text
+    from epistemic_graph.decision_stat import canonical_body_bytes
+    from epistemic_graph.generated.models import (
+        DecideRequest,
+        StatisticalDecisionRecord,
+    )
+
+    # Strict JSON mode admits the wire strings of Rust enums, while refusing
+    # coercions such as a quoted integer or boolean budget.
+    asked = DecideRequest.model_validate_json(
+        canonical_body_bytes(dict(request)), strict=True
+    ).model_dump(mode="json", by_alias=True)
+    received = StatisticalDecisionRecord.model_validate_json(
+        canonical_body_bytes(dict(record)), strict=True
+    ).model_dump(mode="json", by_alias=True)
+
+    def require(condition: bool, detail: str) -> None:
+        if not condition:
+            raise ValueError("task_plan receipt mismatch: " + detail)
+
+    require(
+        asked["question"]["kind"] == "task_plan"
+        and asked["question"]["safety"] == "ordinary"
+        and asked["head"] is None
+        and not asked["belief_as_of"],
+        "question",
+    )
+    require(
+        len(asked["params"]) == 1
+        and asked["params"][0]["name"] == "task_plan"
+        and asked["params"][0]["value"]["type"] == "task_plan",
+        "proposal parameter",
+    )
+    require(
+        isinstance(expected_principal, str) and bool(expected_principal.strip()),
+        "expected caller principal",
+    )
+    # Same byte-for-byte binding as VerifiedRequestContext::principal_persistence_id;
+    # this does not turn AnonymousLocal into authenticated provenance.
+    expected_caller = (
+        "principal:sha256:"
+        + hashlib.sha256(expected_principal.encode("utf-8")).hexdigest()
+    )
+    require(received["caller_principal"] == expected_caller, "caller principal")
+    require(
+        received["schema_version"] == 2
+        and received["tenant_id"] == asked["tenant_id"]
+        and received["question"] == asked["question"]
+        and bool(received["caller_principal"])
+        and bool(received["record_id"])
+        and bool(received["record_digest"]),
+        "identity",
+    )
+    require(
+        received["evidence_class"] == "claim"
+        and received["resolution_kind"] == "constraint"
+        and received["outcome"]
+        == {"outcome": "advisory", "scores": [], "calibrated": False},
+        "evaluate-only evidence",
+    )
+    for key in ("params", "feature_schema", "head", "policy"):
+        require(received["inputs"][key] == asked[key], key)
+    plan = received["task_plan"]
+    require(plan is not None, "missing plan")
+    proposal = _task_plan_body(asked["params"][0]["value"]["value"])
+    body = _task_plan_body(plan)
+    for key in ("output_task_id", "max_concurrency", "max_steps"):
+        require(body[key] == proposal[key], key)
+    expected_tasks = [
+        {**task, "depends_on": sorted(task["depends_on"])} for task in proposal["tasks"]
+    ]
+    require(
+        sorted(body["tasks"], key=lambda task: task["task_id"])
+        == sorted(expected_tasks, key=lambda task: task["task_id"])
+        and plan["total_tasks"] == len(expected_tasks),
+        "task claims",
+    )
+    require(bool(plan["policy_revision"]) and bool(plan["policy_digest"]), "policy")
+    require(
+        plan["input_digest"] == digest_text("eg/task-plan-input/v1", proposal),
+        "input digest",
+    )
+    require(
+        plan["plan_digest"]
+        == digest_text(
+            "eg/task-plan/v1",
+            [
+                body["tasks"],
+                body["output_task_id"],
+                body["max_concurrency"],
+                body["max_steps"],
+                plan["total_tasks"],
+                plan["policy_revision"],
+                plan["policy_digest"],
+            ],
+        ),
+        "plan digest",
+    )
+    return plan
 
 
 def named_evaluator(
@@ -248,4 +410,6 @@ __all__ = [
     "q32_of",
     "record_outcome_op",
     "resolve_op",
+    "task_plan_request",
+    "verify_task_plan_receipt",
 ]

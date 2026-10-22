@@ -34,7 +34,7 @@ def clean_env():
 
 
 @contextlib.contextmanager
-def server(tmp_path, *, mode="none"):
+def server(tmp_path, *, mode="none", extra_env=None):
     with socket.socket(socket.AF_INET) as probe:
         probe.bind(("127.0.0.1", 0))
         sock = probe.getsockname()
@@ -52,7 +52,7 @@ def server(tmp_path, *, mode="none"):
                 "--tcp-addr",
                 address,
             ],
-            env=clean_env(),
+            env=clean_env() | (extra_env or {}),
             stdout=log,
             stderr=log,
         )

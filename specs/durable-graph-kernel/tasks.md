@@ -250,3 +250,7 @@ This batch defines the slices; it runs none of their runtime tests.
 - [ ] **EG-DURABLE-KERNEL-R028.4:** Bind verified run ownership during single WorkItem admission and prove transaction refusals.
 
 - [ ] **EG-DURABLE-KERNEL-R028.5:** Implement private native plan publication/readback. Native and served tests, replay/expiry/restart and performance acceptance remain pending.
+- [ ] **EG-DURABLE-KERNEL-R028.5.1:** Add paired typed proposal and executable attachment fields; recompute exact plan equality and retain legacy codecs.
+- [ ] **EG-DURABLE-KERNEL-R028.5.2:** Bind the first attachment immutably through the existing owner transaction; preserve omitted attachments and refuse conflicts.
+- [ ] **EG-DURABLE-KERNEL-R028.5.3:** Verify native attachment replay, restart and scoped availability.
+- [ ] **EG-DURABLE-KERNEL-R028.5.4:** Implement and measure the attached-plan publication/readback benchmark; preserve this performance residual until a reproducible receipt exists.
