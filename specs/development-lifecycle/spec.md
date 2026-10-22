@@ -6,7 +6,7 @@ Depends-on: EG-SCM-R002, EG-SCM-R008, EG-ORCH-VOCAB-R012
 References: [EG-SCM](../source-changesets/spec.md), [EG-REPO-INGEST](../repository-index-and-ingestion/spec.md), [EG-ORCH-VOCAB](../orchestration-vocabulary/spec.md), [EG-UNIFIED-DATA-PLANE](../unified-data-plane/spec.md)
 
 Cross-repo IDs: `ARBORA-OPS-R853` serves the lifecycle operations. `PIPE-GATES-R004` and
-`PIPE-CONNSPEC-R003` publish gate verdicts and read the derived status. `AU-SCM-R002` applies
+`PIPE-CONNSPEC-R009` publish gate verdicts and read the derived status. `AU-SCM-R002` applies
 graph-native edits inside a run. Each owner files its own row.
 
 ## Purpose and user stories
