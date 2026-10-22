@@ -4443,7 +4443,8 @@
       "title": "Lifecycle replay compares the stored identity",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "283817e82fd0"
+        "283817e82fd0",
+        "554dc9bac245"
       ],
       "verified_by": [
         "src/server/mutation_batch/lifecycle_tests.rs:481"
