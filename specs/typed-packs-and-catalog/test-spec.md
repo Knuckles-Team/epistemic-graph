@@ -387,7 +387,7 @@ Hot-path proof for `EG-TYPED-PACKS-R104`: `tests/connector_pack/test_seed_graph_
 
 ## R085.3 session-liveness check
 
-`EG-TYPED-PACKS-R085.3`: served tests cover live, revoked (single and revoke_all), expired (idle and absolute, fake clock), `not_session_bound` for API-key and external-identity callers, refusal of unknown and cross-tenant references, no token text on the wire, and no idle-expiry extension from the check. Pending until the operation exists.
+`EG-TYPED-PACKS-R085.3`: served tests cover live, revoked and expired answers. Revoked covers single and revoke_all. Expired covers idle and absolute expiry under a fake clock. Further tests cover `not_session_bound` for API-key and external-identity callers. Others cover refusal of unknown and cross-tenant references, no token text on the wire, and no idle-expiry extension. All stay pending until the operation exists.
 
 ## R085.1 durable session projection
 
