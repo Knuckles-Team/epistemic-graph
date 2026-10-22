@@ -153,6 +153,7 @@ pub(crate) async fn lifecycle_was_committed(
         graph,
         principal,
         idempotency_key,
+        attempt_nonce,
         request_id: _,
     } = attempt;
     let fname = crate::persist::sanitize(graph);
@@ -163,12 +164,38 @@ pub(crate) async fn lifecycle_was_committed(
     if record.status != eg_types::mutation_batch::MutationBatchStatus::Committed {
         return Ok(false);
     }
+    // A reused attempt nonce is refused before any identity question is asked:
+    // re-presenting the envelope that committed this receipt is a duplicated
+    // attempt, not a retry. Only a fresh attempt under the same idempotency key
+    // replays the stored outcome (the upgrade case, R861.1).
+    refuse_consumed_nonce(&record, attempt_nonce, idempotency_key)?;
     lifecycle_identity_matches(&record, &batch_id, principal, idempotency_key, &method)?;
     // The stored receipt IS the answer. Stale retries across a delete/recreate are
     // fenced by the kernel: purging a graph retires its scope binding and its
     // receipts, so an old incarnation's batch is no longer readable above
     // (`store_cleanup::purge_graph_rows`, RF-RULING-004).
     Ok(true)
+}
+
+/// `REPLAY_NONCE_CONSUMED` when the attempt re-presents the nonce the stored
+/// receipt's committing envelope consumed.
+pub(crate) fn refuse_consumed_nonce(
+    record: &crate::mutation_batch::MutationBatchRecord,
+    attempt_nonce: Option<Nonce>,
+    idempotency_key: &str,
+) -> Result<(), String> {
+    let consumed = record
+        .batch
+        .envelope
+        .operation()
+        .map(|operation| operation.authority.nonce);
+    match (attempt_nonce, consumed) {
+        (Some(attempt), Some(consumed)) if attempt == consumed => Err(format!(
+            "REPLAY_NONCE_CONSUMED: this attempt nonce was already consumed by idempotency key \
+             '{idempotency_key}'"
+        )),
+        _ => Ok(()),
+    }
 }
 
 /// Refuse a stored lifecycle receipt whose retained identity differs from the

@@ -796,7 +796,7 @@
         "a676823d2b54"
       ],
       "verified_by": [
-        "src/server/mutation/context.rs:564",
+        "src/server/mutation/context.rs:567",
         "src/server/udf_catalog.rs:126"
       ]
     },
@@ -810,7 +810,7 @@
         "a676823d2b54"
       ],
       "verified_by": [
-        "src/server/mutation_batch/lifecycle_tests.rs:411"
+        "src/server/mutation_batch/lifecycle_tests.rs:412"
       ]
     },
     {
@@ -4446,7 +4446,7 @@
         "283817e82fd0"
       ],
       "verified_by": [
-        "src/server/mutation_batch/lifecycle_tests.rs:479"
+        "src/server/mutation_batch/lifecycle_tests.rs:481"
       ]
     },
     {
