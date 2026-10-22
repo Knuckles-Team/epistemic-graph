@@ -9045,8 +9045,8 @@
         "50ee57133655"
       ],
       "verified_by": [
-        "tests/decide/test_harness_contrast_served.py:433",
-        "tests/decide/test_harness_contrast_served.py:434"
+        "tests/decide/test_harness_contrast_served.py:435",
+        "tests/decide/test_harness_contrast_served.py:436"
       ]
     },
     {
