@@ -18,7 +18,7 @@ integration, quality and release proof), `tasks.md` (ordered implementation and 
 entry per requirement ID with its own `delivery_state` and evidence).
 Start from [`_template/`](_template/). Keep status and evidence explicit; a planned or tested item
 is not a landed item. Put durable evidence links in the spec directory, never local scratch output.
-This follows GitHub Spec Kit's specify/plan/tasks flow with an explicit test contract. The tracked [constitution](../.specify/memory/constitution.md) records this repository's governing principles.
+This follows a specify, plan and tasks flow with an explicit test contract. The tracked [constitution](../.specify/memory/constitution.md) records this repository's governing principles.
 
 Each spec must name its stable ID and sole owner. Cross-repository work links the other owners'
 public specs by stable ID and GitHub URL; each repository documents the complete contracts and
