@@ -523,3 +523,7 @@ Preserve every profile, all targets, locked dependencies and warnings-as-errors.
 Keep the isolated target path and main-only cache writes unchanged.
 Workflow regression tests verify the budget expression and unchanged job inputs.
 Static tests do not establish native lint acceptance or complete EG-CONTRACT-R031.2.
+
+The release runner-budget contract also validates this exact matrix expression.
+Negative cases reject broader limits and reuse of the expression by other jobs.
+This test repair changes neither workflow limits nor runtime acceptance states.
