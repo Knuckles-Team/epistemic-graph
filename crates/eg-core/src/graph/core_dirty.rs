@@ -28,6 +28,23 @@ impl GraphCore {
         self.mark_dirty_inner(false);
     }
 
+    /// Raise the serving write version to `durable`, the mutation scope's
+    /// authoritative version, when a durable commit in the scope advanced it
+    /// without passing through this projection. The caches retire once, as for
+    /// any write, and the version then equals the authority. Returns whether
+    /// the version moved. A durable version at or below the serving one is
+    /// left alone: a projection ahead of its authority is a divergence the
+    /// caller reports, not one this call hides.
+    pub fn account_durable_version(&self, durable: u64) -> bool {
+        if self.version() >= durable {
+            return false;
+        }
+        self.mark_dirty();
+        self.version
+            .fetch_max(durable, std::sync::atomic::Ordering::AcqRel);
+        true
+    }
+
     pub(super) fn mark_dirty_inner(&self, invalidate_node_indexes: bool) {
         self.dirty.store(true, std::sync::atomic::Ordering::Relaxed);
         // Bump the OCC write-version (CONCEPT:EG-KG.txn.occ-graph-core): every committed write —

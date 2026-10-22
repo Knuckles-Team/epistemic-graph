@@ -61,6 +61,7 @@
     "EG-DURABLE-KERNEL-R030",
     "EG-DURABLE-KERNEL-R031",
     "EG-DURABLE-KERNEL-R031.1",
+    "EG-DURABLE-KERNEL-R031.2",
     "EG-DURABLE-KERNEL-R032",
     "EG-DURABLE-KERNEL-R032.1",
     "EG-DURABLE-KERNEL-R033",
@@ -1161,7 +1162,8 @@
         "src/redb_store/operation_audit_tests.rs:278"
       ],
       "rollup_of": [
-        "EG-DURABLE-KERNEL-R031.1"
+        "EG-DURABLE-KERNEL-R031.1",
+        "EG-DURABLE-KERNEL-R031.2"
       ]
     },
     {
@@ -1173,6 +1175,18 @@
       ],
       "verified_by": [
         "src/server/dispatch/graph_pipeline/dispatch_helpers.rs:687"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R031.2",
+      "title": "Writes are stamped from the authoritative scope version",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "5c83a1967042",
+        "aeb9c998476a"
+      ],
+      "verified_by": [
+        "src/server/mutation_batch/tests.rs:1407"
       ]
     },
     {
