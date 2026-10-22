@@ -499,17 +499,20 @@ pub fn pull_replication_tail(
 ) -> Result<Vec<ReplicationOp>, String> {
     use std::io::Read;
     let endpoint = format!("{}/replicate?since={}", cfg.primary_url, cursor);
-    let agent = ureq::AgentBuilder::new()
-        .timeout_connect(Duration::from_secs(cfg.timeout_secs))
-        .timeout_read(Duration::from_secs(cfg.timeout_secs))
-        .build();
+    let agent = crate::server::outbound_http_config()
+        .timeout_connect(Some(Duration::from_secs(cfg.timeout_secs)))
+        .timeout_recv_response(Some(Duration::from_secs(cfg.timeout_secs)))
+        .timeout_recv_body(Some(Duration::from_secs(cfg.timeout_secs)))
+        .build()
+        .new_agent();
     let resp = agent
         .get(&endpoint)
-        .set("Accept", "application/json")
+        .header("Accept", "application/json")
         .call()
         .map_err(|e| format!("GET {endpoint} failed: {e}"))?;
     let mut text = String::new();
-    resp.into_reader()
+    resp.into_body()
+        .into_reader()
         .take(64 * 1024 * 1024)
         .read_to_string(&mut text)
         .map_err(|e| format!("reading {endpoint}: {e}"))?;

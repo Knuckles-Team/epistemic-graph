@@ -149,7 +149,7 @@ pub(super) fn prepares_by_txn(
 ) -> Result<BTreeMap<String, BTreeMap<GroupId, Vec<GraphSlice>>>, String> {
     let mut by_txn: BTreeMap<String, BTreeMap<GroupId, Vec<GraphSlice>>> = BTreeMap::new();
     for (txn_id, gid, blob) in redb.xshard_scan_prepares()? {
-        let slices = decode_prepared_slices(&blob)?;
+        let slices = decode_prepared_slices(&blob, &txn_id, gid)?;
         by_txn.entry(txn_id).or_default().insert(gid, slices);
     }
     Ok(by_txn)

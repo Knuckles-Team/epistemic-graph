@@ -111,20 +111,26 @@ impl EmbedderConfig {
         if let Some(model) = &self.model {
             body["model"] = serde_json::Value::String(model.clone());
         }
-        let mut request = ureq::post(url)
-            .timeout(std::time::Duration::from_secs(TIMEOUT_S))
-            .set("content-type", "application/json");
+        let mut request = crate::server::outbound_http_config()
+            .build()
+            .new_agent()
+            .post(url)
+            .config()
+            .timeout_global(Some(std::time::Duration::from_secs(TIMEOUT_S)))
+            .build()
+            .header("content-type", "application/json");
         if let Some(key) = &self.api_key {
-            request = request.set("authorization", &format!("Bearer {key}"));
+            request = request.header("authorization", &format!("Bearer {key}"));
         }
         let mut text = String::new();
         std::io::Read::read_to_string(
             &mut std::io::Read::take(
                 request
-                    .send_string(&body.to_string())
+                    .send(&body.to_string())
                     .map_err(|error| {
                         format!("EMBEDDING_UNAVAILABLE: {}", redact(&error.to_string()))
                     })?
+                    .into_body()
                     .into_reader(),
                 MAX_RESPONSE_BYTES,
             ),
