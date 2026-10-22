@@ -1,0 +1,618 @@
+{
+  "schema_version": 2,
+  "spec_id": "EG-HYBRID-STORAGE",
+  "owner_repo": "epistemic-graph",
+  "delivery_state": "SPECIFIED",
+  "requirement_ids": [
+    "EG-HYBRID-STORAGE-R001",
+    "EG-HYBRID-STORAGE-R002",
+    "EG-HYBRID-STORAGE-R003",
+    "EG-HYBRID-STORAGE-R004",
+    "EG-HYBRID-STORAGE-R005",
+    "EG-HYBRID-STORAGE-R006",
+    "EG-HYBRID-STORAGE-R007",
+    "EG-HYBRID-STORAGE-R008",
+    "EG-HYBRID-STORAGE-R009",
+    "EG-HYBRID-STORAGE-R010",
+    "EG-HYBRID-STORAGE-R011",
+    "EG-HYBRID-STORAGE-R012",
+    "EG-HYBRID-STORAGE-R013",
+    "EG-HYBRID-STORAGE-R013.1",
+    "EG-HYBRID-STORAGE-R013.2",
+    "EG-HYBRID-STORAGE-R013.3",
+    "EG-HYBRID-STORAGE-R013.4",
+    "EG-HYBRID-STORAGE-R013.5",
+    "EG-HYBRID-STORAGE-R013.6",
+    "EG-HYBRID-STORAGE-R014",
+    "EG-HYBRID-STORAGE-R014.1",
+    "EG-HYBRID-STORAGE-R014.2",
+    "EG-HYBRID-STORAGE-R014.3",
+    "EG-HYBRID-STORAGE-R014.4",
+    "EG-HYBRID-STORAGE-R014.5",
+    "EG-HYBRID-STORAGE-R014.6",
+    "EG-HYBRID-STORAGE-R015",
+    "EG-HYBRID-STORAGE-R015.1",
+    "EG-HYBRID-STORAGE-R015.2",
+    "EG-HYBRID-STORAGE-R015.3",
+    "EG-HYBRID-STORAGE-R015.4",
+    "EG-HYBRID-STORAGE-R015.5",
+    "EG-HYBRID-STORAGE-R015.6",
+    "EG-HYBRID-STORAGE-R016",
+    "EG-HYBRID-STORAGE-R016.1",
+    "EG-HYBRID-STORAGE-R016.2",
+    "EG-HYBRID-STORAGE-R016.3",
+    "EG-HYBRID-STORAGE-R016.4",
+    "EG-HYBRID-STORAGE-R016.5",
+    "EG-HYBRID-STORAGE-R016.6",
+    "EG-HYBRID-STORAGE-R017",
+    "EG-HYBRID-STORAGE-R017.1",
+    "EG-HYBRID-STORAGE-R017.2",
+    "EG-HYBRID-STORAGE-R017.3",
+    "EG-HYBRID-STORAGE-R017.4",
+    "EG-HYBRID-STORAGE-R017.5",
+    "EG-HYBRID-STORAGE-R017.6",
+    "EG-HYBRID-STORAGE-R018",
+    "EG-HYBRID-STORAGE-R018.1",
+    "EG-HYBRID-STORAGE-R018.2",
+    "EG-HYBRID-STORAGE-R018.3",
+    "EG-HYBRID-STORAGE-R018.4",
+    "EG-HYBRID-STORAGE-R018.5",
+    "EG-HYBRID-STORAGE-R018.6",
+    "EG-HYBRID-STORAGE-R019",
+    "EG-HYBRID-STORAGE-R019.1",
+    "EG-HYBRID-STORAGE-R019.2",
+    "EG-HYBRID-STORAGE-R019.3",
+    "EG-HYBRID-STORAGE-R019.4",
+    "EG-HYBRID-STORAGE-R019.5",
+    "EG-HYBRID-STORAGE-R019.6",
+    "EG-HYBRID-STORAGE-R020",
+    "EG-HYBRID-STORAGE-R020.1",
+    "EG-HYBRID-STORAGE-R020.2",
+    "EG-HYBRID-STORAGE-R020.3",
+    "EG-HYBRID-STORAGE-R020.4",
+    "EG-HYBRID-STORAGE-R020.5",
+    "EG-HYBRID-STORAGE-R020.6"
+  ],
+  "requirements": [
+    {
+      "id": "EG-HYBRID-STORAGE-R001",
+      "title": "Capability partition taxonomy",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-HYBRID-STORAGE-R002",
+      "title": "Plan-level query router",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-HYBRID-STORAGE-R003",
+      "title": "Placement catalog and single DDL authority",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-HYBRID-STORAGE-R004",
+      "title": "Single admission authority for row writes",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-HYBRID-STORAGE-R005",
+      "title": "Fence record and cross-engine consistency",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-HYBRID-STORAGE-R006",
+      "title": "Secondary-index contract",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-HYBRID-STORAGE-R007",
+      "title": "Projection pipeline over the committed stream",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-HYBRID-STORAGE-R008",
+      "title": "Backfill and row-ready gate",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-HYBRID-STORAGE-R009",
+      "title": "Shadow-read parity before cutover",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-HYBRID-STORAGE-R010",
+      "title": "Degradation and failover semantics",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-HYBRID-STORAGE-R011",
+      "title": "Workload-class extension and per-listener route gate",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-HYBRID-STORAGE-R012",
+      "title": "Mixed-batch boundary: typed refusal and coordinated-commit seam",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-HYBRID-STORAGE-R013",
+      "title": "Storage-provider capability negotiation (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-HYBRID-STORAGE-R013.1",
+        "EG-HYBRID-STORAGE-R013.2",
+        "EG-HYBRID-STORAGE-R013.3",
+        "EG-HYBRID-STORAGE-R013.4",
+        "EG-HYBRID-STORAGE-R013.5",
+        "EG-HYBRID-STORAGE-R013.6"
+      ]
+    },
+    {
+      "id": "EG-HYBRID-STORAGE-R013.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-HYBRID-STORAGE-R013.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-HYBRID-STORAGE-R013.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-HYBRID-STORAGE-R013.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-HYBRID-STORAGE-R013.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-HYBRID-STORAGE-R013.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-HYBRID-STORAGE-R014",
+      "title": "Placement policy by record class (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-HYBRID-STORAGE-R014.1",
+        "EG-HYBRID-STORAGE-R014.2",
+        "EG-HYBRID-STORAGE-R014.3",
+        "EG-HYBRID-STORAGE-R014.4",
+        "EG-HYBRID-STORAGE-R014.5",
+        "EG-HYBRID-STORAGE-R014.6"
+      ]
+    },
+    {
+      "id": "EG-HYBRID-STORAGE-R014.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-HYBRID-STORAGE-R014.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-HYBRID-STORAGE-R014.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-HYBRID-STORAGE-R014.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-HYBRID-STORAGE-R014.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-HYBRID-STORAGE-R014.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-HYBRID-STORAGE-R015",
+      "title": "Own-write reads, idempotency and replay across engines (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-HYBRID-STORAGE-R015.1",
+        "EG-HYBRID-STORAGE-R015.2",
+        "EG-HYBRID-STORAGE-R015.3",
+        "EG-HYBRID-STORAGE-R015.4",
+        "EG-HYBRID-STORAGE-R015.5",
+        "EG-HYBRID-STORAGE-R015.6"
+      ]
+    },
+    {
+      "id": "EG-HYBRID-STORAGE-R015.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-HYBRID-STORAGE-R015.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-HYBRID-STORAGE-R015.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-HYBRID-STORAGE-R015.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-HYBRID-STORAGE-R015.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-HYBRID-STORAGE-R015.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-HYBRID-STORAGE-R016",
+      "title": "Federated plans with pushdown to the row engine (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-HYBRID-STORAGE-R016.1",
+        "EG-HYBRID-STORAGE-R016.2",
+        "EG-HYBRID-STORAGE-R016.3",
+        "EG-HYBRID-STORAGE-R016.4",
+        "EG-HYBRID-STORAGE-R016.5",
+        "EG-HYBRID-STORAGE-R016.6"
+      ]
+    },
+    {
+      "id": "EG-HYBRID-STORAGE-R016.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-HYBRID-STORAGE-R016.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-HYBRID-STORAGE-R016.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-HYBRID-STORAGE-R016.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-HYBRID-STORAGE-R016.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-HYBRID-STORAGE-R016.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-HYBRID-STORAGE-R017",
+      "title": "Tenancy and row-level security on the row engine (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-HYBRID-STORAGE-R017.1",
+        "EG-HYBRID-STORAGE-R017.2",
+        "EG-HYBRID-STORAGE-R017.3",
+        "EG-HYBRID-STORAGE-R017.4",
+        "EG-HYBRID-STORAGE-R017.5",
+        "EG-HYBRID-STORAGE-R017.6"
+      ]
+    },
+    {
+      "id": "EG-HYBRID-STORAGE-R017.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-HYBRID-STORAGE-R017.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-HYBRID-STORAGE-R017.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-HYBRID-STORAGE-R017.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-HYBRID-STORAGE-R017.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-HYBRID-STORAGE-R017.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-HYBRID-STORAGE-R018",
+      "title": "Backup, restore and placement migration (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-HYBRID-STORAGE-R018.1",
+        "EG-HYBRID-STORAGE-R018.2",
+        "EG-HYBRID-STORAGE-R018.3",
+        "EG-HYBRID-STORAGE-R018.4",
+        "EG-HYBRID-STORAGE-R018.5",
+        "EG-HYBRID-STORAGE-R018.6"
+      ]
+    },
+    {
+      "id": "EG-HYBRID-STORAGE-R018.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-HYBRID-STORAGE-R018.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-HYBRID-STORAGE-R018.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-HYBRID-STORAGE-R018.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-HYBRID-STORAGE-R018.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-HYBRID-STORAGE-R018.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-HYBRID-STORAGE-R019",
+      "title": "Performance budget and placement benchmarks (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-HYBRID-STORAGE-R019.1",
+        "EG-HYBRID-STORAGE-R019.2",
+        "EG-HYBRID-STORAGE-R019.3",
+        "EG-HYBRID-STORAGE-R019.4",
+        "EG-HYBRID-STORAGE-R019.5",
+        "EG-HYBRID-STORAGE-R019.6"
+      ]
+    },
+    {
+      "id": "EG-HYBRID-STORAGE-R019.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-HYBRID-STORAGE-R019.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-HYBRID-STORAGE-R019.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-HYBRID-STORAGE-R019.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-HYBRID-STORAGE-R019.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-HYBRID-STORAGE-R019.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-HYBRID-STORAGE-R020",
+      "title": "Row-engine deployment contract (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-HYBRID-STORAGE-R020.1",
+        "EG-HYBRID-STORAGE-R020.2",
+        "EG-HYBRID-STORAGE-R020.3",
+        "EG-HYBRID-STORAGE-R020.4",
+        "EG-HYBRID-STORAGE-R020.5",
+        "EG-HYBRID-STORAGE-R020.6"
+      ]
+    },
+    {
+      "id": "EG-HYBRID-STORAGE-R020.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-HYBRID-STORAGE-R020.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-HYBRID-STORAGE-R020.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-HYBRID-STORAGE-R020.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-HYBRID-STORAGE-R020.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-HYBRID-STORAGE-R020.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    }
+  ]
+}

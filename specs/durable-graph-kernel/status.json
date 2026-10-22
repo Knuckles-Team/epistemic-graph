@@ -60,6 +60,7 @@
     "EG-DURABLE-KERNEL-R029",
     "EG-DURABLE-KERNEL-R030",
     "EG-DURABLE-KERNEL-R031",
+    "EG-DURABLE-KERNEL-R031.1",
     "EG-DURABLE-KERNEL-R032",
     "EG-DURABLE-KERNEL-R032.1",
     "EG-DURABLE-KERNEL-R033",
@@ -380,7 +381,23 @@
     "EG-DURABLE-KERNEL-R852.6",
     "EG-DURABLE-KERNEL-R028.4",
     "EG-DURABLE-KERNEL-R028.5",
-    "EG-DURABLE-KERNEL-R030.1"
+    "EG-DURABLE-KERNEL-R030.1",
+    "EG-DURABLE-KERNEL-R083.5",
+    "EG-DURABLE-KERNEL-R083.6",
+    "EG-DURABLE-KERNEL-R083.7",
+    "EG-DURABLE-KERNEL-R083.8",
+    "EG-DURABLE-KERNEL-R042.2",
+    "EG-DURABLE-KERNEL-R042.3",
+    "EG-DURABLE-KERNEL-R042.4",
+    "EG-DURABLE-KERNEL-R042.5",
+    "EG-DURABLE-KERNEL-R042.6",
+    "EG-DURABLE-KERNEL-R860",
+    "EG-DURABLE-KERNEL-R860.1",
+    "EG-DURABLE-KERNEL-R860.2",
+    "EG-DURABLE-KERNEL-R860.3",
+    "EG-DURABLE-KERNEL-R860.4",
+    "EG-DURABLE-KERNEL-R860.5",
+    "EG-DURABLE-KERNEL-R860.6"
   ],
   "requirements": [
     {
@@ -1136,7 +1153,7 @@
     {
       "id": "EG-DURABLE-KERNEL-R031",
       "title": "Audit append supports tenant-scoped idempotent reservation",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "1ef84395fa69",
         "2cc878fb8938",
@@ -1146,6 +1163,18 @@
       ],
       "verified_by": [
         "src/redb_store/operation_audit_tests.rs:278"
+      ],
+      "rollup_of": [
+        "EG-DURABLE-KERNEL-R031.1"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R031.1",
+      "title": "The audit append accounts the serving write version",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "src/server/dispatch/graph_pipeline/dispatch_helpers.rs:686"
       ]
     },
     {
@@ -1593,7 +1622,12 @@
       "verified_by": [],
       "rollup_of": [
         "EG-DURABLE-KERNEL-R042.1",
-        "EG-DURABLE-KERNEL-R042.100"
+        "EG-DURABLE-KERNEL-R042.100",
+        "EG-DURABLE-KERNEL-R042.2",
+        "EG-DURABLE-KERNEL-R042.3",
+        "EG-DURABLE-KERNEL-R042.4",
+        "EG-DURABLE-KERNEL-R042.5",
+        "EG-DURABLE-KERNEL-R042.6"
       ]
     },
     {
@@ -2258,7 +2292,11 @@
         "EG-DURABLE-KERNEL-R083.1",
         "EG-DURABLE-KERNEL-R083.2",
         "EG-DURABLE-KERNEL-R083.3",
-        "EG-DURABLE-KERNEL-R083.4"
+        "EG-DURABLE-KERNEL-R083.4",
+        "EG-DURABLE-KERNEL-R083.5",
+        "EG-DURABLE-KERNEL-R083.6",
+        "EG-DURABLE-KERNEL-R083.7",
+        "EG-DURABLE-KERNEL-R083.8"
       ]
     },
     {
@@ -4134,6 +4172,126 @@
     {
       "id": "EG-DURABLE-KERNEL-R030.1",
       "title": "Issuer-bound host-start record",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R083.5",
+      "title": "Tier ladder from accelerator memory to durable storage",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R083.6",
+      "title": "Graph-guided paging policy",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R083.7",
+      "title": "Long-context coherence across tiers",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R083.8",
+      "title": "Tier refusals",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R042.2",
+      "title": "Cross-modal query latency benchmark",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R042.3",
+      "title": "KV-cache tiering benchmark",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R042.4",
+      "title": "Ingest throughput benchmark",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R042.5",
+      "title": "Wire protocol benchmark",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R042.6",
+      "title": "Benchmark publication and regression gate",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R860",
+      "title": "Served wire protocol listeners (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DURABLE-KERNEL-R860.1",
+        "EG-DURABLE-KERNEL-R860.2",
+        "EG-DURABLE-KERNEL-R860.3",
+        "EG-DURABLE-KERNEL-R860.4",
+        "EG-DURABLE-KERNEL-R860.5",
+        "EG-DURABLE-KERNEL-R860.6"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R860.1",
+      "title": "PostgreSQL wire listener",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R860.2",
+      "title": "Bolt listener",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R860.3",
+      "title": "RESP listener",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R860.4",
+      "title": "S3-compatible object API",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R860.5",
+      "title": "Listener refusals",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R860.6",
+      "title": "Hot-path proof: one store behind four protocols",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

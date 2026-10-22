@@ -141,3 +141,20 @@ Code and deduplication base: EG commit `2e44b8af87ec9681ab0f45d13b37fab38d45c7c2
 | 48 | Observational memory design; temporal update design | None supplied | Extend R003 with R003.13 through R003.18: timestamped threads, messages, concept links and format refusal. |
 
 These inputs add no paper citation. Existing R003 research references inspire atom design only; they do not prove served acceptance.
+
+
+## Source permission sync, deletion reconciliation and hierarchy (R902 to R904)
+
+These rows complete the connector-sourced knowledge path. R900 writes the ACL at first ingest.
+Three more batch kinds keep the held copy true to the source:
+
+| Batch kind | Row | Effect |
+|---|---|---|
+| `access` | R902 | Replaces the ACL of named records. Content, vectors and edges stay unchanged. |
+| `groups` | R902 | Replaces group member sets. The read-RLS gate expands groups at query time. |
+| `enumeration` | R903 | Lists every source identifier. Missing records delete after a grace window. |
+| `containers` | R904 | Upserts the container tree. Scope filters name subtrees. |
+
+All four enter through `admit_records` in `src/server/handlers/source_ingestion.rs`. The SDK
+connector contract `SDK-SOURCE-INGEST-R805` produces them. A restricted record whose access
+snapshot is older than its bound fails closed at retrieval.

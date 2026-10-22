@@ -243,3 +243,37 @@ For each row, add a subentry containing its merged commit, exact-head test run, 
 - [x] **EG-UNIFIED-DATA-PLANE-R651.7.5 (Evidence):** Emit the enrichment receipt and record.
 - [x] **EG-UNIFIED-DATA-PLANE-R651.7.6 (Hot-path proof):** Add the served two-backend test and the chunking benchmark.
 - [ ] **EG-UNIFIED-DATA-PLANE-R651.7.7 (Extraction):** Extract entities, relations and claims from the enriched chunks.
+
+- [ ] **EG-UNIFIED-DATA-PLANE-R761:** Dataset and column profiling (rollup).
+- [ ] **EG-UNIFIED-DATA-PLANE-R761.1:** Model.
+- [ ] **EG-UNIFIED-DATA-PLANE-R761.2:** Behavior.
+- [ ] **EG-UNIFIED-DATA-PLANE-R761.3:** Wiring.
+- [ ] **EG-UNIFIED-DATA-PLANE-R761.4:** Refusal.
+- [ ] **EG-UNIFIED-DATA-PLANE-R761.5:** Evidence.
+- [ ] **EG-UNIFIED-DATA-PLANE-R761.6:** Hot-path proof.
+- [ ] **EG-UNIFIED-DATA-PLANE-R762:** Data quality rules, scores and quality incidents (rollup).
+- [ ] **EG-UNIFIED-DATA-PLANE-R762.1:** Model.
+- [ ] **EG-UNIFIED-DATA-PLANE-R762.2:** Behavior.
+- [ ] **EG-UNIFIED-DATA-PLANE-R762.3:** Wiring.
+- [ ] **EG-UNIFIED-DATA-PLANE-R762.4:** Refusal.
+- [ ] **EG-UNIFIED-DATA-PLANE-R762.5:** Evidence.
+- [ ] **EG-UNIFIED-DATA-PLANE-R762.6:** Hot-path proof.
+- [ ] **EG-UNIFIED-DATA-PLANE-R763:** Column-level lineage from SQL text (rollup).
+- [ ] **EG-UNIFIED-DATA-PLANE-R763.1:** Model.
+- [ ] **EG-UNIFIED-DATA-PLANE-R763.2:** Behavior.
+- [ ] **EG-UNIFIED-DATA-PLANE-R763.3:** Wiring.
+- [ ] **EG-UNIFIED-DATA-PLANE-R763.4:** Refusal.
+- [ ] **EG-UNIFIED-DATA-PLANE-R763.5:** Evidence.
+- [ ] **EG-UNIFIED-DATA-PLANE-R763.6:** Hot-path proof.
+- [ ] **EG-UNIFIED-DATA-PLANE-R764:** Asset usage statistics and catalog search (rollup).
+- [ ] **EG-UNIFIED-DATA-PLANE-R764.1:** Model.
+- [ ] **EG-UNIFIED-DATA-PLANE-R764.2:** Behavior.
+- [ ] **EG-UNIFIED-DATA-PLANE-R764.3:** Wiring.
+- [ ] **EG-UNIFIED-DATA-PLANE-R764.4:** Refusal.
+- [ ] **EG-UNIFIED-DATA-PLANE-R764.5:** Evidence.
+- [ ] **EG-UNIFIED-DATA-PLANE-R764.6:** Hot-path proof.
+
+- [ ] **EG-UNIFIED-DATA-PLANE-R762.7:** Rule proposals from profiles.
+- [ ] **EG-UNIFIED-DATA-PLANE-R762.8:** Quality results from outside checkers.
+- [ ] **EG-UNIFIED-DATA-PLANE-R764.7:** Usage from attached-source query logs.
+- [ ] **EG-UNIFIED-DATA-PLANE-R764.8:** Frequent users and usage suggestions.

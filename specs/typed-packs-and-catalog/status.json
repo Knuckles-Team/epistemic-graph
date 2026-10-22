@@ -284,7 +284,46 @@
     "EG-TYPED-PACKS-R085.5.4",
     "EG-TYPED-PACKS-R085.6.1",
     "EG-TYPED-PACKS-R085.6.2",
-    "EG-TYPED-PACKS-R085.6.3"
+    "EG-TYPED-PACKS-R085.6.3",
+    "EG-TYPED-PACKS-R801",
+    "EG-TYPED-PACKS-R801.1",
+    "EG-TYPED-PACKS-R801.2",
+    "EG-TYPED-PACKS-R801.3",
+    "EG-TYPED-PACKS-R801.4",
+    "EG-TYPED-PACKS-R801.5",
+    "EG-TYPED-PACKS-R801.6",
+    "EG-TYPED-PACKS-R801.7",
+    "EG-TYPED-PACKS-R802",
+    "EG-TYPED-PACKS-R802.1",
+    "EG-TYPED-PACKS-R802.2",
+    "EG-TYPED-PACKS-R802.3",
+    "EG-TYPED-PACKS-R802.4",
+    "EG-TYPED-PACKS-R802.5",
+    "EG-TYPED-PACKS-R802.6",
+    "EG-TYPED-PACKS-R802.7",
+    "EG-TYPED-PACKS-R802.8",
+    "EG-TYPED-PACKS-R803",
+    "EG-TYPED-PACKS-R803.1",
+    "EG-TYPED-PACKS-R803.2",
+    "EG-TYPED-PACKS-R803.3",
+    "EG-TYPED-PACKS-R803.4",
+    "EG-TYPED-PACKS-R803.5",
+    "EG-TYPED-PACKS-R803.6",
+    "EG-TYPED-PACKS-R804",
+    "EG-TYPED-PACKS-R804.1",
+    "EG-TYPED-PACKS-R804.2",
+    "EG-TYPED-PACKS-R804.3",
+    "EG-TYPED-PACKS-R804.4",
+    "EG-TYPED-PACKS-R804.5",
+    "EG-TYPED-PACKS-R804.6",
+    "EG-TYPED-PACKS-R805",
+    "EG-TYPED-PACKS-R805.1",
+    "EG-TYPED-PACKS-R805.2",
+    "EG-TYPED-PACKS-R805.3",
+    "EG-TYPED-PACKS-R805.4",
+    "EG-TYPED-PACKS-R805.5",
+    "EG-TYPED-PACKS-R805.6",
+    "EG-TYPED-PACKS-R805.7"
   ],
   "requirements": [
     {
@@ -2979,6 +3018,323 @@
     {
       "id": "EG-TYPED-PACKS-R085.6.3",
       "title": "Observation contract and served qualification",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R801",
+      "title": "Business glossary as SKOS concept schemes (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-TYPED-PACKS-R801.1",
+        "EG-TYPED-PACKS-R801.2",
+        "EG-TYPED-PACKS-R801.3",
+        "EG-TYPED-PACKS-R801.4",
+        "EG-TYPED-PACKS-R801.5",
+        "EG-TYPED-PACKS-R801.6",
+        "EG-TYPED-PACKS-R801.7"
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R801.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R801.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R801.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R801.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R801.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R801.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R801.7",
+      "title": "Proposed descriptions for terms and assets",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R802",
+      "title": "Stewardship roles, change requests and certification (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-TYPED-PACKS-R802.1",
+        "EG-TYPED-PACKS-R802.2",
+        "EG-TYPED-PACKS-R802.3",
+        "EG-TYPED-PACKS-R802.4",
+        "EG-TYPED-PACKS-R802.5",
+        "EG-TYPED-PACKS-R802.6",
+        "EG-TYPED-PACKS-R802.7",
+        "EG-TYPED-PACKS-R802.8"
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R802.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R802.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R802.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R802.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R802.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R802.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R802.7",
+      "title": "Trust flags on assets",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R802.8",
+      "title": "Critical data elements",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R803",
+      "title": "Sensitive data detection proposes classification claims (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-TYPED-PACKS-R803.1",
+        "EG-TYPED-PACKS-R803.2",
+        "EG-TYPED-PACKS-R803.3",
+        "EG-TYPED-PACKS-R803.4",
+        "EG-TYPED-PACKS-R803.5",
+        "EG-TYPED-PACKS-R803.6"
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R803.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R803.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R803.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R803.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R803.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R803.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R804",
+      "title": "Ontology revision diff and change impact (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-TYPED-PACKS-R804.1",
+        "EG-TYPED-PACKS-R804.2",
+        "EG-TYPED-PACKS-R804.3",
+        "EG-TYPED-PACKS-R804.4",
+        "EG-TYPED-PACKS-R804.5",
+        "EG-TYPED-PACKS-R804.6"
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R804.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R804.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R804.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R804.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R804.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R804.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R805",
+      "title": "Data products and data contracts (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-TYPED-PACKS-R805.1",
+        "EG-TYPED-PACKS-R805.2",
+        "EG-TYPED-PACKS-R805.3",
+        "EG-TYPED-PACKS-R805.4",
+        "EG-TYPED-PACKS-R805.5",
+        "EG-TYPED-PACKS-R805.6",
+        "EG-TYPED-PACKS-R805.7"
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R805.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R805.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R805.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R805.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R805.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R805.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R805.7",
+      "title": "Data product proposals",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

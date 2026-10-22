@@ -338,3 +338,70 @@ Preserve all previous acceptance and receipts. Deliver producer leaves before th
 - [ ] **EG-FEDERATED-QUERY-R090.7 (Wiring):** Apply the scoped adapter to expansion arms and list refresh provenance.
 
 - [ ] **EG-FEDERATED-QUERY-R653.7:** Cite the source URL, retrieval time, digest, backend and query on a web Document hit.
+
+- [ ] **EG-FEDERATED-QUERY-R703:** Query-time access check for dynamic-access sources (rollup).
+- [ ] **EG-FEDERATED-QUERY-R703.1:** Model.
+- [ ] **EG-FEDERATED-QUERY-R703.2:** Behavior.
+- [ ] **EG-FEDERATED-QUERY-R703.3:** Wiring.
+- [ ] **EG-FEDERATED-QUERY-R703.4:** Refusal.
+- [ ] **EG-FEDERATED-QUERY-R703.5:** Evidence.
+- [ ] **EG-FEDERATED-QUERY-R703.6:** Hot-path proof.
+- [ ] **EG-FEDERATED-QUERY-R704:** Agent knowledge scope (rollup).
+- [ ] **EG-FEDERATED-QUERY-R704.1:** Model.
+- [ ] **EG-FEDERATED-QUERY-R704.2:** Behavior.
+- [ ] **EG-FEDERATED-QUERY-R704.3:** Wiring.
+- [ ] **EG-FEDERATED-QUERY-R704.4:** Refusal.
+- [ ] **EG-FEDERATED-QUERY-R704.5:** Evidence.
+- [ ] **EG-FEDERATED-QUERY-R704.6:** Hot-path proof.
+- [ ] **EG-FEDERATED-QUERY-R705:** Feedback-adjusted document rank (rollup).
+- [ ] **EG-FEDERATED-QUERY-R705.1:** Model.
+- [ ] **EG-FEDERATED-QUERY-R705.2:** Behavior.
+- [ ] **EG-FEDERATED-QUERY-R705.3:** Wiring.
+- [ ] **EG-FEDERATED-QUERY-R705.4:** Refusal.
+- [ ] **EG-FEDERATED-QUERY-R705.5:** Evidence.
+- [ ] **EG-FEDERATED-QUERY-R705.6:** Hot-path proof.
+- [ ] **EG-FEDERATED-QUERY-R706:** Tag-based column masking and row filters (rollup).
+- [ ] **EG-FEDERATED-QUERY-R706.1:** Model.
+- [ ] **EG-FEDERATED-QUERY-R706.2:** Behavior.
+- [ ] **EG-FEDERATED-QUERY-R706.3:** Wiring.
+- [ ] **EG-FEDERATED-QUERY-R706.4:** Refusal.
+- [ ] **EG-FEDERATED-QUERY-R706.5:** Evidence.
+- [ ] **EG-FEDERATED-QUERY-R706.6:** Hot-path proof.
+- [ ] **EG-FEDERATED-QUERY-R707:** SPARQL 1.1 Update and Graph Store semantics (rollup).
+- [ ] **EG-FEDERATED-QUERY-R707.1:** Model.
+- [ ] **EG-FEDERATED-QUERY-R707.2:** Behavior.
+- [ ] **EG-FEDERATED-QUERY-R707.3:** Wiring.
+- [ ] **EG-FEDERATED-QUERY-R707.4:** Refusal.
+- [ ] **EG-FEDERATED-QUERY-R707.5:** Evidence.
+- [ ] **EG-FEDERATED-QUERY-R707.6:** Hot-path proof.
+- [ ] **EG-FEDERATED-QUERY-R708:** Named stored queries and materialized results (rollup).
+- [ ] **EG-FEDERATED-QUERY-R708.1:** Model.
+- [ ] **EG-FEDERATED-QUERY-R708.2:** Behavior.
+- [ ] **EG-FEDERATED-QUERY-R708.3:** Wiring.
+- [ ] **EG-FEDERATED-QUERY-R708.4:** Refusal.
+- [ ] **EG-FEDERATED-QUERY-R708.5:** Evidence.
+- [ ] **EG-FEDERATED-QUERY-R708.6:** Hot-path proof.
+- [ ] **EG-FEDERATED-QUERY-R709:** GeoSPARQL query functions (rollup).
+- [ ] **EG-FEDERATED-QUERY-R709.1:** Model.
+- [ ] **EG-FEDERATED-QUERY-R709.2:** Behavior.
+- [ ] **EG-FEDERATED-QUERY-R709.3:** Wiring.
+- [ ] **EG-FEDERATED-QUERY-R709.4:** Refusal.
+- [ ] **EG-FEDERATED-QUERY-R709.5:** Evidence.
+- [ ] **EG-FEDERATED-QUERY-R709.6:** Hot-path proof.
+
+- [ ] **EG-FEDERATED-QUERY-R708.7:** Shared query workspace.
+
+## Agent-memory substrate claims (2026-10-22)
+
+- [ ] **EG-FEDERATED-QUERY-R720:** One UQL plan across graph, vector, SQL, SPARQL and epistemic stages (rollup).
+  - [ ] **EG-FEDERATED-QUERY-R720.1:** Epistemic row fields.
+  - [ ] **EG-FEDERATED-QUERY-R720.2:** Confidence, bitemporal and time-decay stages.
+  - [ ] **EG-FEDERATED-QUERY-R720.3:** Embedding-similarity clustering stage.
+  - [ ] **EG-FEDERATED-QUERY-R720.4:** Wiring.
+  - [ ] **EG-FEDERATED-QUERY-R720.5:** Refusal.
+  - [ ] **EG-FEDERATED-QUERY-R720.6:** Hot-path proof.
+- [ ] **EG-FEDERATED-QUERY-R721:** Modalities are views over one RowSet algebra in one store (rollup).
+  - [ ] **EG-FEDERATED-QUERY-R721.1:** Each modality implements the modality contract.
+  - [ ] **EG-FEDERATED-QUERY-R721.2:** Wiring and store authority.
+  - [ ] **EG-FEDERATED-QUERY-R721.3:** Refusal.
+  - [ ] **EG-FEDERATED-QUERY-R721.4:** Hot-path proof: cross-modal queries with default configuration.

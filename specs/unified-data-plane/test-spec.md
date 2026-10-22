@@ -214,3 +214,45 @@ Hot-path proof for `EG-UNIFIED-DATA-PLANE-R038.7`: `tests/federation/test_web_me
 | Extraction | `EG-UNIFIED-DATA-PLANE-R651.7.7` | `tests/web_document_enrich_served.rs::test_enriched_chunks_extract_facts`: Each extracted fact links to a chunk of the Document. |
 
 Hot-path proof for `EG-UNIFIED-DATA-PLANE-R651.7`: `tests/web_document_enrich_served.rs::test_web_page_enriches_once_for_both_backends`.
+
+## Profiling, data quality, column lineage and asset usage
+
+| Row | Proving test |
+|---|---|
+| `EG-UNIFIED-DATA-PLANE-R761` | See each child. |
+| `EG-UNIFIED-DATA-PLANE-R761.1` | `crates/eg-types/tests/profile.rs::profile_round_trips` |
+| `EG-UNIFIED-DATA-PLANE-R761.2` | `crates/eg-core/tests/profile.rs::distinct_estimate_within_error` |
+| `EG-UNIFIED-DATA-PLANE-R761.3` | `tests/test_profile_served.py::test_profile_job_attaches_to_catalog` |
+| `EG-UNIFIED-DATA-PLANE-R761.4` | `tests/test_profile_served.py::test_profile_refusals` |
+| `EG-UNIFIED-DATA-PLANE-R761.5` | `tests/test_profile_served.py::test_profile_method_recorded` |
+| `EG-UNIFIED-DATA-PLANE-R761.6` | `cargo bench --bench column_profile` |
+| `EG-UNIFIED-DATA-PLANE-R762` | See each child. |
+| `EG-UNIFIED-DATA-PLANE-R762.1` | `crates/eg-types/tests/quality.rs::rule_round_trips` |
+| `EG-UNIFIED-DATA-PLANE-R762.2` | `crates/eg-core/tests/quality.rs::three_failures_open_one_incident` |
+| `EG-UNIFIED-DATA-PLANE-R762.3` | `tests/test_quality_served.py::test_rule_scores_and_incident` |
+| `EG-UNIFIED-DATA-PLANE-R762.4` | `tests/test_quality_served.py::test_quality_refusals` |
+| `EG-UNIFIED-DATA-PLANE-R762.5` | `tests/test_quality_served.py::test_score_evidence_reads_back` |
+| `EG-UNIFIED-DATA-PLANE-R762.6` | `cargo bench --bench quality_evaluate` |
+| `EG-UNIFIED-DATA-PLANE-R763` | See each child. |
+| `EG-UNIFIED-DATA-PLANE-R763.1` | `crates/eg-types/tests/lineage.rs::column_edge_round_trips` |
+| `EG-UNIFIED-DATA-PLANE-R763.2` | `crates/eg-core/tests/column_lineage.rs::view_columns_resolve` |
+| `EG-UNIFIED-DATA-PLANE-R763.3` | `tests/test_column_lineage_served.py::test_view_lineage_and_impact` |
+| `EG-UNIFIED-DATA-PLANE-R763.4` | `tests/test_column_lineage_served.py::test_unparseable_sql_quarantines` |
+| `EG-UNIFIED-DATA-PLANE-R763.5` | `tests/test_column_lineage_served.py::test_edge_evidence_reads_back` |
+| `EG-UNIFIED-DATA-PLANE-R763.6` | `cargo bench --bench column_lineage` |
+| `EG-UNIFIED-DATA-PLANE-R764` | See each child. |
+| `EG-UNIFIED-DATA-PLANE-R764.1` | `crates/eg-types/tests/asset_usage.rs::usage_round_trips` |
+| `EG-UNIFIED-DATA-PLANE-R764.2` | `crates/eg-core/tests/catalog_search.rs::usage_prior_is_capped` |
+| `EG-UNIFIED-DATA-PLANE-R764.3` | `tests/test_catalog_search_served.py::test_search_ranks_used_asset_higher` |
+| `EG-UNIFIED-DATA-PLANE-R764.4` | `tests/test_catalog_search_served.py::test_search_refusals` |
+| `EG-UNIFIED-DATA-PLANE-R764.5` | `tests/test_catalog_search_served.py::test_hit_components_listed` |
+| `EG-UNIFIED-DATA-PLANE-R764.6` | `cargo bench --bench catalog_search` |
+
+## Source query-log intelligence, rule proposals and outside quality results
+
+| Row | Proving test |
+|---|---|
+| `EG-UNIFIED-DATA-PLANE-R762.7` | `crates/eg-core/tests/quality.rs::profile_yields_proposed_rules` |
+| `EG-UNIFIED-DATA-PLANE-R762.8` | `tests/test_quality_served.py::test_outside_scores_open_incident` |
+| `EG-UNIFIED-DATA-PLANE-R764.7` | `tests/test_catalog_search_served.py::test_source_query_log_feeds_usage` |
+| `EG-UNIFIED-DATA-PLANE-R764.8` | `tests/test_catalog_search_served.py::test_frequent_users_and_join_suggestions` |

@@ -183,3 +183,12 @@ Call path: arbora `research.web` (`ARBORA-OPS-R067`) -> SDK fetch through `webar
 `EnrichDocument` chunks with `eg_document::processing` (`EG-REPO-INGEST-R652`). It embeds through the configured OpenAI-compatible endpoint (`EPISTEMIC_GRAPH_EMBEDDING_URL`, `_MODEL`, `_DIMS`, optional `_API_KEY`), or through the hash embedder, which it records as `embedder = hash`. The vectors use the `AddEmbedding` path, so `SemanticSearch` and hybrid retrieval find them. Extraction is `EG-INGEST-WORKER-R701` (`R651.7.7`). Citations are `EG-FEDERATED-QUERY-R653.7`. Refresh is `EG-DECISION-ENGINE-R174.9.7`.
 
 Budget: 50 ms p99 enrichment overhead per 100 KiB page and 64 MiB peak memory. These are starting defaults. A measurement on this platform replaces them.
+
+
+## Profiling, quality, column lineage and usage (R761 to R764)
+
+R761 and R762 are two new `AnalyticsJob` kinds. Both push aggregates to attached sources through
+R006 where the dialect allows it. R762 compiles graph rules to SHACL through `crates/eg-shacl`.
+Three consecutive failures of one rule open one incident through R760. R763 extends the dataset
+lineage of R702 to columns by parsing SQL text with the shared planner parser. R764 counts asset
+use from the query audit and fuses a capped usage prior into catalog search.
