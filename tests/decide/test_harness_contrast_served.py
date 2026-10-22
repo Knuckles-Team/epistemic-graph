@@ -418,7 +418,9 @@ def test_contrast_decide_stores_record(clean_graph):
     # The record commits through the decision log (the commit runs the
     # contrast's verify-replay) and reads back under its record id.
     assert committed["record_id"] == record["record_id"]
-    assert committed["replayed"] is True
+    # A first commit is fresh: replayed flips to true only when an identical
+    # commit has already landed under the same record id.
+    assert committed["replayed"] is False
     assert committed["record_digest"] == record["record_digest"]
     assert entry["record"]["record_id"] == record["record_id"]
     assert entry["record"]["outcome"] == record["outcome"]
@@ -468,7 +470,9 @@ def test_contrast_hot_path_served(clean_graph):
         "propensity": {"numerator": 1, "denominator": 1},
     }
     assert record["inputs"]["harness_contrast"]["abstain_reason"] is None
-    assert committed["replayed"] is True
+    # A first commit is fresh: replayed flips to true only when an identical
+    # commit has already landed under the same record id.
+    assert committed["replayed"] is False
 
     flat = candidate(a_ref, "trace:hot-c", 0, 0, 0, -Q32)
     worse = candidate(b_ref, "trace:hot-d", Q32, 0, -Q32, Q32)
@@ -485,7 +489,9 @@ def test_contrast_hot_path_served(clean_graph):
     assert decision.get("adopted_version_ref") is None
     # The abstention commits and reads back with its closed reason.
     assert committed["record_id"] == record["record_id"]
-    assert committed["replayed"] is True
+    # A first commit is fresh: replayed flips to true only when an identical
+    # commit has already landed under the same record id.
+    assert committed["replayed"] is False
     assert entry["record"]["inputs"]["harness_contrast"]["abstain_reason"] == (
         "no_improvement"
     )
