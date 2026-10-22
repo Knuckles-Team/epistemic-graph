@@ -916,6 +916,13 @@
       "maxItems": 8,
       "type": "array"
     },
+    "BoundedVec_TaskPlanTask_64": {
+      "items": {
+        "$ref": "#/$defs/TaskPlanTask"
+      },
+      "maxItems": 64,
+      "type": "array"
+    },
     "BoundedVec_TypedParam_16": {
       "items": {
         "$ref": "#/$defs/TypedParam"
@@ -2325,6 +2332,17 @@
         },
         "run_id": {
           "type": "string"
+        },
+        "task_plan": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TaskPlan"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Immutable executable attachment, not scaffold text or authority. The\nnative owner transaction verifies the original proposal before binding."
         }
       },
       "required": [
@@ -7787,6 +7805,11 @@
           "const": "harness_config",
           "description": "Evaluate-only harness configuration advice (EG-DECISION-ENGINE-R128).\nReturns proposed context, scaffold and action-space choices; never runs them.",
           "type": "string"
+        },
+        {
+          "const": "task_plan",
+          "description": "Bounded explicit dependency planning; admission belongs to the host.",
+          "type": "string"
         }
       ]
     },
@@ -10172,6 +10195,17 @@
           "description": "Synthetic evidence is labelled as such, always.",
           "type": "boolean"
         },
+        "task_plan": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TaskPlan"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Evaluate-only explicit task DAG. Absent on every other question kind."
+        },
         "tenant_id": {
           "type": "string"
         },
@@ -10562,6 +10596,111 @@
       ],
       "type": "object"
     },
+    "TaskPlan": {
+      "additionalProperties": false,
+      "description": "Canonical task order is a topological order with lexical ready-task ties.\nThe input digest retains the submitted order; the plan digest binds the\ncanonical executable body and policy, independent of declaration order.",
+      "properties": {
+        "input_digest": {
+          "type": "string"
+        },
+        "max_concurrency": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max_steps": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "output_task_id": {
+          "type": "string"
+        },
+        "plan_digest": {
+          "type": "string"
+        },
+        "policy_digest": {
+          "type": "string"
+        },
+        "policy_revision": {
+          "type": "string"
+        },
+        "tasks": {
+          "$ref": "#/$defs/BoundedVec_TaskPlanTask_64"
+        },
+        "total_tasks": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "tasks",
+        "output_task_id",
+        "max_concurrency",
+        "max_steps",
+        "total_tasks",
+        "policy_revision",
+        "policy_digest",
+        "input_digest",
+        "plan_digest"
+      ],
+      "type": "object"
+    },
+    "TaskPlanProposal": {
+      "additionalProperties": false,
+      "properties": {
+        "max_concurrency": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max_steps": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "output_task_id": {
+          "type": "string"
+        },
+        "tasks": {
+          "$ref": "#/$defs/BoundedVec_TaskPlanTask_64"
+        }
+      },
+      "required": [
+        "tasks",
+        "output_task_id",
+        "max_concurrency",
+        "max_steps"
+      ],
+      "type": "object"
+    },
+    "TaskPlanTask": {
+      "additionalProperties": false,
+      "description": "A task uses the host's already-bound agent. It cannot select credentials,\ntools, models or a different principal.",
+      "properties": {
+        "depends_on": {
+          "$ref": "#/$defs/BoundedVec_string_64",
+          "default": []
+        },
+        "prompt": {
+          "type": "string"
+        },
+        "task_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id",
+        "prompt"
+      ],
+      "type": "object"
+    },
     "TenantResourceStats": {
       "description": "Per-tenant rollup (CONCEPT:EG-KG.compute.lane-v).",
       "properties": {
@@ -10867,7 +11006,7 @@
       "type": "object"
     },
     "TypedValue": {
-      "description": "A typed question parameter. Values are typed, never substituted into text:\na parameter cannot become part of a prompt or a query string.",
+      "description": "A typed question parameter. Scalar values are never interpolated into queries.\nAn explicit task proposal carries prompts as data for the host executor.",
       "oneOf": [
         {
           "properties": {
@@ -10958,6 +11097,23 @@
             },
             "value": {
               "$ref": "#/$defs/UnitRationalWire"
+            }
+          },
+          "required": [
+            "type",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Explicit task claims, never policy or authorization.",
+          "properties": {
+            "type": {
+              "const": "task_plan",
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/$defs/TaskPlanProposal"
             }
           },
           "required": [

@@ -1236,3 +1236,5 @@ mod scorer_tests;
 // EH-528: replay evaluation (its validation kernels are finance's).
 #[cfg(feature = "finance")]
 mod replay_tests;
+
+mod task_plan_tests;

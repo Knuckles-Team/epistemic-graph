@@ -2,6 +2,8 @@
 //! mutation context, never by a principal field in the request.
 use serde::{Deserialize, Serialize};
 
+use crate::decision::task_plan::{plan_explicit_tasks, TaskPlan, TaskPlanProposal};
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
@@ -28,6 +30,10 @@ pub struct CurrentPlanSnapshot {
     pub observed_at_ms: u64,
     pub expires_at_ms: u64,
     pub items: Vec<PlanItem>,
+    /// Immutable executable attachment, not scaffold text or authority. The
+    /// native owner transaction verifies the original proposal before binding.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_plan: Option<TaskPlan>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -40,6 +46,11 @@ pub struct PublishCurrentPlanRequest {
     pub lease_epoch: u64,
     pub fencing_token: u64,
     pub idempotency_key: String,
+    /// Required only with an explicit `snapshot.task_plan`. Recomputing from
+    /// the original declaration order verifies even the plan's input digest.
+    /// Omit both fields on later scaffold updates to retain the bound plan.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_plan_proposal: Option<TaskPlanProposal>,
 }
 impl PublishCurrentPlanRequest {
     pub fn validate(&self) -> Result<(), String> {
@@ -68,6 +79,17 @@ impl PublishCurrentPlanRequest {
         if self.snapshot.items.len() > 1024 || bytes > 1024 * 1024 {
             return Err("current-plan payload exceeds bounds".into());
         }
+        match (&self.task_plan_proposal, &self.snapshot.task_plan) {
+            (None, None) => {}
+            (Some(proposal), Some(plan)) => {
+                if &plan_explicit_tasks(proposal)? != plan {
+                    return Err("current-plan task plan does not match canonical proposal".into());
+                }
+            }
+            _ => {
+                return Err("current-plan task plan and proposal must be supplied together".into())
+            }
+        }
         Ok(())
     }
 }
@@ -90,33 +112,35 @@ pub fn sample_publish_request() -> PublishCurrentPlanRequest {
         lease_epoch: 1,
         fencing_token: 1,
         idempotency_key: "key".into(),
+        task_plan_proposal: None,
         snapshot: CurrentPlanSnapshot {
             run_id: "run".into(),
             revision: 0,
             observed_at_ms: 1,
             expires_at_ms: 2,
             items: vec![],
+            task_plan: None,
         },
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    // spec: EG-DURABLE-KERNEL-R028.5
-    #[test]
-    fn current_plan_status_matches_scaffold_contract() {
-        assert_eq!(
-            serde_json::to_string(&PlanStatus::Done).unwrap(),
-            "\"done\""
-        );
-        assert!(serde_json::from_str::<PlanStatus>("\"completed\"").is_err());
-        let mut request = sample_publish_request();
-        assert!(request.validate().is_ok());
-        request.snapshot.items.push(PlanItem {
-            text: " ".into(),
-            status: PlanStatus::Pending,
-        });
-        assert!(request.validate().is_err());
-    }
+/// Original proposal order intentionally differs from canonical task order.
+#[cfg(any(test, feature = "test-support"))]
+pub fn sample_task_plan_publish_request() -> PublishCurrentPlanRequest {
+    let proposal: TaskPlanProposal = serde_json::from_value(serde_json::json!({
+        "tasks": [
+            {"task_id": "join", "prompt": "Combine evidence", "depends_on": ["b", "a"]},
+            {"task_id": "b", "prompt": "Analyze source b"},
+            {"task_id": "a", "prompt": "Analyze source a"}
+        ],
+        "output_task_id": "join", "max_concurrency": 2, "max_steps": 3
+    }))
+    .expect("valid task plan fixture");
+    let mut request = sample_publish_request();
+    request.snapshot.task_plan = Some(plan_explicit_tasks(&proposal).expect("valid task plan"));
+    request.task_plan_proposal = Some(proposal);
+    request
 }
+
+#[cfg(test)]
+mod tests;

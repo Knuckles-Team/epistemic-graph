@@ -1,6 +1,8 @@
 use super::super::test_shard::{open, with_nodes, GRAPH};
 use super::*;
 
+mod attachment;
+
 fn request(revision: u64) -> PublishCurrentPlanRequest {
     PublishCurrentPlanRequest {
         tenant: "tenant".into(),
@@ -8,12 +10,14 @@ fn request(revision: u64) -> PublishCurrentPlanRequest {
         lease_epoch: 1,
         fencing_token: 2,
         idempotency_key: format!("publish-{revision}"),
+        task_plan_proposal: None,
         snapshot: CurrentPlanSnapshot {
             run_id: "run".into(),
             revision,
             observed_at_ms: 1000,
             expires_at_ms: 9000,
             items: vec![],
+            task_plan: None,
         },
     }
 }
