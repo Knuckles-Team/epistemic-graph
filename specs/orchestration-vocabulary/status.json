@@ -108,6 +108,7 @@
     "EG-ORCH-VOCAB-R012.7",
     "EG-ORCH-VOCAB-R004.6",
     "EG-ORCH-VOCAB-R012.8",
+    "EG-ORCH-VOCAB-R012.9",
     "EG-ORCH-VOCAB-R005.100",
     "EG-ORCH-VOCAB-R009.100",
     "EG-ORCH-VOCAB-R009.101",
@@ -878,7 +879,8 @@
         "EG-ORCH-VOCAB-R012.5",
         "EG-ORCH-VOCAB-R012.6",
         "EG-ORCH-VOCAB-R012.7",
-        "EG-ORCH-VOCAB-R012.8"
+        "EG-ORCH-VOCAB-R012.8",
+        "EG-ORCH-VOCAB-R012.9"
       ]
     },
     {
@@ -1019,6 +1021,13 @@
     {
       "id": "EG-ORCH-VOCAB-R012.8",
       "title": "Bind active policy to reviewed normative files without graph writes",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-ORCH-VOCAB-R012.9",
+      "title": "Requirement rows become typed nodes",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -1328,7 +1337,7 @@
         "c54aa624a21c"
       ],
       "verified_by": [
-        "src/server/handlers/graph_ops/gateway_graph.rs:684"
+        "src/server/harness_admission/tests.rs:58"
       ]
     },
     {
@@ -1361,7 +1370,7 @@
         "c54aa624a21c"
       ],
       "verified_by": [
-        "tests/orchestration/test_harness_components_served.py:119"
+        "tests/orchestration/test_harness_components_served.py:63"
       ]
     },
     {
@@ -1420,7 +1429,7 @@
         "2be15ffa3021"
       ],
       "verified_by": [
-        "crates/eg-types/tests/harness_lessons.rs:400"
+        "crates/eg-types/tests/harness_lessons.rs:408"
       ]
     },
     {
@@ -1431,7 +1440,7 @@
         "2be15ffa3021"
       ],
       "verified_by": [
-        "crates/eg-types/tests/harness_lessons.rs:562"
+        "crates/eg-types/tests/harness_lessons.rs:568"
       ]
     },
     {
@@ -1442,7 +1451,7 @@
         "2be15ffa3021"
       ],
       "verified_by": [
-        "tests/orchestration/test_harness_lessons_served.py:210"
+        "tests/orchestration/test_harness_lessons_served.py:154"
       ]
     }
   ]

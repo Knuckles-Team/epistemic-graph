@@ -294,11 +294,16 @@ enum Admission {
 /// (or not a harness record at all). `stored_matches` reports whether the
 /// stored record is one of the given kinds and carries the same
 /// writer-supplied fields.
+/// Whether stored properties are one harness record kind.
+type IsKind = fn(&Props) -> bool;
+/// Decode stored properties as one harness record kind.
+type Decode<T> = fn(&Props) -> Result<T, ImprovementLibraryRefusal>;
+
 fn stored_record<T: std::fmt::Debug + PartialEq>(
     view: &HarnessView<'_>,
     node_id: &str,
-    is_kind: fn(&Props) -> bool,
-    decode: fn(&Props) -> Result<T, ImprovementLibraryRefusal>,
+    is_kind: IsKind,
+    decode: Decode<T>,
     same: fn(&T, &T) -> bool,
     record: &T,
     immutable_code: &str,
@@ -322,6 +327,29 @@ fn stored_record<T: std::fmt::Debug + PartialEq>(
     Err(format!(
         "HarnessRecordMalformed: node '{node_id}' already exists and is not the expected record"
     ))
+}
+
+/// `true` when `node_id` already holds exactly `record` (an idempotent
+/// replay), `false` when no node is stored there. Any other stored node
+/// refuses: a different record of the kind is immutable, and a node of
+/// another kind is malformed.
+fn stored_replay<T: std::fmt::Debug + PartialEq>(
+    view: &HarnessView<'_>,
+    node_id: &str,
+    is_kind: IsKind,
+    decode: Decode<T>,
+    record: &T,
+) -> Result<bool, String> {
+    Ok(stored_record(
+        view,
+        node_id,
+        is_kind,
+        decode,
+        |a, b| *a == *b,
+        record,
+        "HarnessRecordImmutable",
+    )?
+    .is_some())
 }
 
 /// The graph-relative admission of one harness-component version write
@@ -523,18 +551,14 @@ fn adoption_admission(
             ),
         )
     })?;
-    match stored_record(
+    if stored_replay(
         view,
         node_id,
         is_adopted_harness_write,
         decode_adopted_harness_write,
-        |a, b| *a == *b,
         &record,
-        "HarnessRecordImmutable",
     )? {
-        Some(true) => return Ok(Admission::Replay),
-        Some(false) => unreachable!("stored_record refuses a mutable rewrite"),
-        None => {}
+        return Ok(Admission::Replay);
     }
     // An adoption supersedes the previous adoption of the same agent and task
     // class by edge (the caller composes it); the record itself carries no
@@ -568,18 +592,14 @@ fn contrast_admission(
             format!("contrast '{node_id}' names no task or no probe run"),
         ));
     }
-    match stored_record(
+    if stored_replay(
         view,
         node_id,
         is_harness_contrast_write,
         decode_harness_contrast_write,
-        |a, b| *a == *b,
         &record,
-        "HarnessRecordImmutable",
     )? {
-        Some(true) => return Ok(Admission::Replay),
-        Some(false) => unreachable!("stored_record refuses a mutable rewrite"),
-        None => {}
+        return Ok(Admission::Replay);
     }
     // The contrast's probe runs must be held — by the graph or by this same
     // write — and agree with it: same trace ids, same conditions digest
@@ -632,18 +652,14 @@ fn probe_run_admission(
     record.validate().map_err(|refusal| {
         refuse_improvement(refusal, format!("probe run '{node_id}' names no trace"))
     })?;
-    match stored_record(
+    if stored_replay(
         view,
         node_id,
         is_harness_probe_run_write,
         decode_harness_probe_run_write,
-        |a, b| *a == *b,
         &record,
-        "HarnessRecordImmutable",
     )? {
-        Some(true) => return Ok(Admission::Replay),
-        Some(false) => unreachable!("stored_record refuses a mutable rewrite"),
-        None => {}
+        return Ok(Admission::Replay);
     }
     Ok(Admission::New { head: None })
 }

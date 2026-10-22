@@ -485,6 +485,37 @@ mod tests {
         }
     }
 
+    /// The decision's view over one fixture evidence set.
+    fn evidence_of<'a>(
+        held: &'a BTreeSet<String>,
+        runs: &'a BTreeMap<String, HarnessProbeRun>,
+        stored: &'a BTreeMap<String, HarnessContrast>,
+    ) -> ContrastEvidence<'a> {
+        ContrastEvidence {
+            held_versions: held,
+            probe_runs: runs,
+            stored_contrasts: stored,
+        }
+    }
+
+    /// Versions a and b held, the baseline and both probe traces run under
+    /// one condition set, and no stored contrast.
+    fn two_candidate_evidence() -> (
+        BTreeSet<String>,
+        BTreeMap<String, HarnessProbeRun>,
+        BTreeMap<String, HarnessContrast>,
+    ) {
+        evidence_set(
+            &["harness-component:prompt:a", "harness-component:prompt:b"],
+            &[
+                ("trace:baseline", "sha256:conditions"),
+                ("trace:a", "sha256:conditions"),
+                ("trace:b", "sha256:conditions"),
+            ],
+            &[],
+        )
+    }
+
     fn evidence_set(
         held: &[&str],
         runs: &[(&str, &str)],
@@ -528,20 +559,8 @@ mod tests {
     // spec: EG-DECISION-ENGINE-R803.1
     #[test]
     fn decision_round_trips() {
-        let (held, runs, stored) = evidence_set(
-            &["harness-component:prompt:a", "harness-component:prompt:b"],
-            &[
-                ("trace:baseline", "sha256:conditions"),
-                ("trace:a", "sha256:conditions"),
-                ("trace:b", "sha256:conditions"),
-            ],
-            &[],
-        );
-        let evidence = ContrastEvidence {
-            held_versions: &held,
-            probe_runs: &runs,
-            stored_contrasts: &stored,
-        };
+        let (held, runs, stored) = two_candidate_evidence();
+        let evidence = evidence_of(&held, &runs, &stored);
         let candidates = [
             ContrastCandidate {
                 version_ref: "harness-component:prompt:a",
@@ -606,11 +625,7 @@ mod tests {
             ],
             &[],
         );
-        let evidence = ContrastEvidence {
-            held_versions: &held,
-            probe_runs: &runs,
-            stored_contrasts: &stored,
-        };
+        let evidence = evidence_of(&held, &runs, &stored);
         let improving = contrast("trace:baseline", "trace:a", 0, 0, 2 << 32, 1 << 30);
         let neutral = contrast("trace:baseline", "trace:b", 0, 0, 0, -1 << 30);
         let worse = contrast("trace:baseline", "trace:c", 0, 0, -(1 << 32), -(1 << 30));
@@ -701,11 +716,7 @@ mod tests {
             &[("trace:a", "sha256:conditions")],
             &[],
         );
-        let evidence = ContrastEvidence {
-            held_versions: &held,
-            probe_runs: &runs,
-            stored_contrasts: &stored,
-        };
+        let evidence = evidence_of(&held, &runs, &stored);
         assert_eq!(
             decide(&one, &evidence).unwrap_err(),
             HarnessContrastRefusal::MinCandidates
@@ -916,20 +927,8 @@ mod tests {
     fn record_pins_evidence_and_replays() {
         let improving = contrast("trace:baseline", "trace:a", -1 << 32, 0, 2 << 32, -1 << 30);
         let neutral = contrast("trace:baseline", "trace:b", 0, 0, 0, 0);
-        let (held, runs, stored) = evidence_set(
-            &["harness-component:prompt:a", "harness-component:prompt:b"],
-            &[
-                ("trace:baseline", "sha256:conditions"),
-                ("trace:a", "sha256:conditions"),
-                ("trace:b", "sha256:conditions"),
-            ],
-            &[],
-        );
-        let evidence = ContrastEvidence {
-            held_versions: &held,
-            probe_runs: &runs,
-            stored_contrasts: &stored,
-        };
+        let (held, runs, stored) = two_candidate_evidence();
+        let evidence = evidence_of(&held, &runs, &stored);
         let candidates = [
             ContrastCandidate {
                 version_ref: "harness-component:prompt:a",

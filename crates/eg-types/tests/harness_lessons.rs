@@ -333,9 +333,7 @@ fn retrieval_ranks_by_confidence_and_abstains() {
     // Bitemporally with AS OF: the read abstains before the first write,
     // returns the current lesson of each window, and drops the superseded
     // one from its window on.
-    let run_a = probe_run("trace-a");
-    let run_b = probe_run("trace-b");
-    let improving = contrast(-1, 0, 0, 0);
+    let (run_a, run_b, improving) = improving_probe_pair();
     let mut stored = Vec::new();
     let mut stored_supersessions = Vec::new();
     register_lesson(
@@ -397,6 +395,16 @@ fn retrieval_ranks_by_confidence_and_abstains() {
     assert_eq!(second_window, vec![&stored[1]]);
 }
 
+/// The two probe runs every lesson cites and the improving contrast between
+/// them.
+fn improving_probe_pair() -> (HarnessProbeRun, HarnessProbeRun, HarnessContrast) {
+    (
+        probe_run("trace-a"),
+        probe_run("trace-b"),
+        contrast(-1, 0, 0, 0),
+    )
+}
+
 // spec: EG-ORCH-VOCAB-R802.4
 #[test]
 fn supersession_keeps_old_readable() {
@@ -405,9 +413,7 @@ fn supersession_keeps_old_readable() {
     // current at its own time.
     let mut lessons = Vec::new();
     let mut supersessions = Vec::new();
-    let run_a = probe_run("trace-a");
-    let run_b = probe_run("trace-b");
-    let improving = contrast(-1, 0, 0, 0);
+    let (run_a, run_b, improving) = improving_probe_pair();
 
     let first = lesson(0.5, "first fix", vec![]);
     register_lesson(
@@ -564,9 +570,7 @@ fn supersession_keeps_old_readable() {
 fn evidence_and_condition_refusals() {
     let mut lessons = Vec::new();
     let mut supersessions = Vec::new();
-    let run_a = probe_run("trace-a");
-    let run_b = probe_run("trace-b");
-    let improving = contrast(-1, 0, 0, 0);
+    let (run_a, run_b, improving) = improving_probe_pair();
 
     // A lesson without evidence runs refuses, and nothing is stored.
     let mut no_evidence = lesson(0.8, "change", vec![]);

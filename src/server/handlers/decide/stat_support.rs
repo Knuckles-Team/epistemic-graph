@@ -23,6 +23,32 @@ use eg_types::decision::{
 
 use crate::server::persistence::agent_library::AgentLibraryStore;
 
+/// Open `graph` for one caller and return its analysis snapshot filtered by
+/// that caller's row-level isolation, before any statistical read.
+pub(super) async fn filtered_view(
+    state: &Arc<tokio::sync::RwLock<crate::server::state::ServerState>>,
+    agent_id: &str,
+    graph: &str,
+) -> Result<eg_core::graph::GraphView, String> {
+    let (core, isolation) = readable_graph(
+        state,
+        agent_id,
+        graph,
+        StatisticalErrorCode::CandidatePlanRefused,
+    )
+    .await?;
+    #[cfg(not(feature = "security"))]
+    let _ = isolation;
+    let view = core.analysis_snapshot();
+    #[cfg(feature = "security")]
+    let view = {
+        let mut view = view;
+        isolation.filter_view(agent_id, &mut view);
+        view
+    };
+    Ok(view)
+}
+
 /// Open a graph for one caller before exposing its data to a statistical read.
 pub(super) async fn readable_graph(
     state: &Arc<tokio::sync::RwLock<crate::server::state::ServerState>>,

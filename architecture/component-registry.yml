@@ -3806,6 +3806,7 @@ components:
       - "tests/decide"
       - "tests/_client_fixtures.py"
       - "tests/_decision_resident_fixture.py"
+      - "tests/_harness_envelope.py"
       - "tests/_method_vectors.py"
       - "tests/_script_loader.py"
       - "tests/_untyped.py"

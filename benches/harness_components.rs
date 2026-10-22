@@ -15,12 +15,12 @@
 //!
 //! Run: cargo bench --features server --bench harness_components
 
-use std::time::Instant;
+#[path = "common/harness_admission.rs"]
+mod harness_bench;
 
 use eg_types::orchestration::HarnessComponentVersion;
 use epistemic_graph::graph::GraphCore;
 use epistemic_graph::protocol::Method;
-use epistemic_graph::server::harness_admission::direct_add_node;
 
 const COMPONENT: &str = "comp:bench-prompt";
 const KIND: &str = "system_prompt";
@@ -80,18 +80,12 @@ fn main() {
     // engine fills the pointer) and projects into the same graph.
     for index in 1..=CHAIN {
         let (_node_id, method) = version_write(index, index as u64 * 1_000);
-        let started = Instant::now();
-        let admitted = direct_add_node(&method, &core, index as u64 * 1_000)
-            .unwrap_or_else(|error| panic!("write {index} refused: {error}"));
-        let Method::AddNode {
-            node_id: stored_id,
-            properties_msgpack,
-        } = &admitted
-        else {
-            panic!("admission must keep the AddNode method");
-        };
-        core.add_node(stored_id.clone(), properties_msgpack.clone());
-        latencies_ns.push(started.elapsed().as_nanos());
+        latencies_ns.push(harness_bench::admit_and_project(
+            &core,
+            index,
+            &method,
+            index as u64 * 1_000,
+        ));
     }
 
     // The chain is what the spec measures: 1,000 versions, each linked to
@@ -111,19 +105,9 @@ fn main() {
         "the newest version links the previous one"
     );
 
-    let mut sorted = latencies_ns.clone();
-    sorted.sort_unstable();
-    let p50 = sorted[sorted.len() / 2];
-    let p99 = sorted[(sorted.len() as f64 * 0.99) as usize];
-    let max = *sorted.last().unwrap();
-    println!("harness component writes over a {CHAIN}-version chain:");
-    println!("  p50 = {p50} ns");
-    println!("  p99 = {p99} ns");
-    println!("  max = {max} ns");
-    if p99 < BUDGET_P99_NS {
-        println!("  PASS (budget: p99 under {BUDGET_P99_NS} ns)");
-    } else {
-        println!("  FAIL (budget: p99 under {BUDGET_P99_NS} ns)");
-        std::process::exit(1);
-    }
+    harness_bench::report(
+        &format!("harness component writes over a {CHAIN}-version chain"),
+        &latencies_ns,
+        BUDGET_P99_NS,
+    );
 }
