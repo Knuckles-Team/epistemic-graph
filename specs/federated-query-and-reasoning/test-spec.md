@@ -482,3 +482,20 @@ Hot-path proof for `EG-FEDERATED-QUERY-R091`: `tests/federation/test_plan_evolut
 | Row | Proving test |
 |---|---|
 | `EG-FEDERATED-QUERY-R708.7` | `tests/test_stored_query_served.py::test_workspace_share_schedule_and_lint` |
+
+## Agent-memory substrate claims (2026-10-22)
+
+| Case | Requirement | Proving test |
+|---|---|---|
+| One UQL plan across graph, vector, SQL, SPARQL and epistemic stages (rollup) | `EG-FEDERATED-QUERY-R720` | Rollup: satisfied when the test of every child passes. |
+| Epistemic row fields | `EG-FEDERATED-QUERY-R720.1` | `crates/eg-plan/src/rowset.rs::tests::epistemic_fields_pass_through` |
+| Confidence, bitemporal and time-decay stages | `EG-FEDERATED-QUERY-R720.2` | `crates/eg-plan/tests/uql_epistemic_stages.rs::confidence_asof_decay` |
+| Embedding-similarity clustering stage | `EG-FEDERATED-QUERY-R720.3` | `crates/eg-plan/tests/uql_epistemic_stages.rs::cluster_by_embedding_is_deterministic` |
+| Wiring | `EG-FEDERATED-QUERY-R720.4` | `tests/uql_single_plan_all_modalities.rs::served_program_runs_one_plan` |
+| Refusal | `EG-FEDERATED-QUERY-R720.5` | `crates/eg-plan/tests/uql_epistemic_stages.rs::decay_and_cluster_refusals` |
+| Hot-path proof | `EG-FEDERATED-QUERY-R720.6` | `tests/uql_single_plan_all_modalities.rs::five_stage_kinds_one_plan` |
+| Modalities are views over one RowSet algebra in one store (rollup) | `EG-FEDERATED-QUERY-R721` | Rollup: satisfied when the test of every child passes. |
+| Each modality implements the modality contract | `EG-FEDERATED-QUERY-R721.1` | `crates/eg-modality/tests/rowset_views.rs::seven_modalities_implement_contract` |
+| Wiring and store authority | `EG-FEDERATED-QUERY-R721.2` | `tests/test_store_registry_modalities.py::test_every_modality_has_one_redb_authority` |
+| Refusal | `EG-FEDERATED-QUERY-R721.3` | `crates/eg-plan/tests/uql_epistemic_stages.rs::unknown_modality_refuses` |
+| Hot-path proof: cross-modal queries with default configuration | `EG-FEDERATED-QUERY-R721.4` | `tests/advanced_crossmodal_roundtrip.rs::fresh_engine_answers_cross_modal_query` |

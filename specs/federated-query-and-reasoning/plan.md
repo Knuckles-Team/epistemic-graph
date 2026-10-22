@@ -935,3 +935,7 @@ R706 adds tag-based masking and row filters as one plan rewrite for every query 
 adds SPARQL 1.1 Update and Graph Store semantics; arbora serves the protocol endpoint. R708
 adds named stored queries with materialized results. R709 adds the GeoSPARQL function set over
 `crates/eg-geo`.
+
+## One plan and one RowSet algebra (R720, R721)
+
+`crates/eg-plan/src/rowset.rs` defines `RowSet`, the one currency between plan operators. `crates/eg-modality/src/rowset.rs` defines `RowSetShape` for each modality. The UQL grammar already holds the `CONFIDENCE`, `BELIEF AS OF`, `CONTRADICTS` and `EVIDENCE FOR` stages. R720 adds the `DECAY` and `CLUSTER BY EMBEDDING` stages and the epistemic row fields. `CLUSTER BY EMBEDDING` reuses `crates/eg-compute/src/mining/cluster.rs`. R721 binds every modality to the contract, the planner and the redb store registry.

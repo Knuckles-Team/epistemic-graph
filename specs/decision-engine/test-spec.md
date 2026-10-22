@@ -850,3 +850,11 @@ Hot-path proof for `EG-DECISION-ENGINE-R803`: `tests/decide/test_harness_contras
 | `EG-DECISION-ENGINE-R805.4` | `tests/decide/test_harness_promotion_served.py::test_promotion_refusals` |
 | `EG-DECISION-ENGINE-R805.5` | `tests/decide/test_harness_promotion_served.py::test_pointer_history_replays` |
 | `EG-DECISION-ENGINE-R805.6` | `cargo bench -p eg-numeric --bench harness_promotion` |
+
+## Agent-memory substrate claims (2026-10-22)
+
+| Case | Requirement | Proving test |
+|---|---|---|
+| Episodic-to-semantic promotion | `EG-DECISION-ENGINE-R651.7` | `tests/memory/test_consolidate_served.py::test_episodes_promote_to_semantic_fact` |
+| Reinforce and decay share one salience update | `EG-DECISION-ENGINE-R651.8` | `tests/memory/test_consolidate_served.py::test_reinforce_and_decay_share_salience` |
+| Contradiction records are tracked | `EG-DECISION-ENGINE-R700.7` | `tests/decision/test_contradiction_records.py::test_detected_contradiction_is_tracked` |

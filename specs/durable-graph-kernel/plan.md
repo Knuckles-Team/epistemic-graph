@@ -795,3 +795,11 @@ This repairs a prerequisite in the existing coordinator. It does not establish
 heterogeneous-owner reservations, revocation fencing, visibility or profile
 admission. R034 and EG-DECISION-ENGINE-R036 remain incomplete. Native test
 execution and storage-fixture qualification must be reported separately.
+
+## Agent-memory substrate: KV-cache tiers, benchmarks and wire listeners (R083.5–R083.8, R042.2–R042.6, R860)
+
+The KV-cache tier ladder reuses `crates/eg-kvcache`. `tiered.rs` holds the hot, warm and cold tiers. `cold.rs` holds the durable redb cold store. `graph_importance.rs` holds the centrality scores. The inference connector in `epistemic_graph/kvcache/connector.py` moves blocks between accelerator memory and the engine. R083.5 to R083.8 bind this code to tests; graph-neighbor prefetch is new code.
+
+The benchmark rows R042.2 to R042.6 publish each result as the `BenchmarkClaim` of R042.1. Each target is a starting default. A measurement on this platform replaces it.
+
+The four wire listeners already start in `src/main.rs`. R860 binds them to one admission path and to round-trip tests. R035 keeps the PostgreSQL operational parity work.

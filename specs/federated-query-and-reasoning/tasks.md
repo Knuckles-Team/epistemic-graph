@@ -390,3 +390,18 @@ Preserve all previous acceptance and receipts. Deliver producer leaves before th
 - [ ] **EG-FEDERATED-QUERY-R709.6:** Hot-path proof.
 
 - [ ] **EG-FEDERATED-QUERY-R708.7:** Shared query workspace.
+
+## Agent-memory substrate claims (2026-10-22)
+
+- [ ] **EG-FEDERATED-QUERY-R720:** One UQL plan across graph, vector, SQL, SPARQL and epistemic stages (rollup).
+  - [ ] **EG-FEDERATED-QUERY-R720.1:** Epistemic row fields.
+  - [ ] **EG-FEDERATED-QUERY-R720.2:** Confidence, bitemporal and time-decay stages.
+  - [ ] **EG-FEDERATED-QUERY-R720.3:** Embedding-similarity clustering stage.
+  - [ ] **EG-FEDERATED-QUERY-R720.4:** Wiring.
+  - [ ] **EG-FEDERATED-QUERY-R720.5:** Refusal.
+  - [ ] **EG-FEDERATED-QUERY-R720.6:** Hot-path proof.
+- [ ] **EG-FEDERATED-QUERY-R721:** Modalities are views over one RowSet algebra in one store (rollup).
+  - [ ] **EG-FEDERATED-QUERY-R721.1:** Each modality implements the modality contract.
+  - [ ] **EG-FEDERATED-QUERY-R721.2:** Wiring and store authority.
+  - [ ] **EG-FEDERATED-QUERY-R721.3:** Refusal.
+  - [ ] **EG-FEDERATED-QUERY-R721.4:** Hot-path proof: cross-modal queries with default configuration.
