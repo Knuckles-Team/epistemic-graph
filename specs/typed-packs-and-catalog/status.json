@@ -2897,6 +2897,7 @@
       "title": "Pure reference inspection",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "54eb7fded5cc",
         "98d285d4840c"
       ],
       "verified_by": [
@@ -2926,6 +2927,7 @@
       "title": "Pure renewal ceiling transitions",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "54eb7fded5cc",
         "98d285d4840c"
       ],
       "verified_by": [
