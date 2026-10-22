@@ -1,4 +1,6 @@
-//! Versioned harness components as graph facts (EG-ORCH-VOCAB-R801).
+//! Versioned harness components as graph facts (EG-ORCH-VOCAB-R801), and the
+//! improvement library that stores what a task learned from them (R802, in
+//! [`improvement`]).
 //!
 //! A harness component is one of the eight editable pieces of an agent's
 //! harness: system_prompt, guardrails, memory, tool_guidance, subagent,
@@ -13,6 +15,7 @@
 //! vocabulary, one writer.
 
 pub mod errors;
+pub mod improvement;
 
 use serde::{Deserialize, Serialize};
 

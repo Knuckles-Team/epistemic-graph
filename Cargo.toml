@@ -2002,6 +2002,11 @@ path = "benches/harness_components.rs"
 harness = false
 required-features = ["server"]
 
+[[bench]]
+name = "harness_lessons"
+path = "benches/harness_lessons.rs"
+harness = false
+required-features = ["server"]
 
 [profile.release]
 opt-level = 3

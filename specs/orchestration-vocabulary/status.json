@@ -1305,7 +1305,7 @@
         "c54aa624a21c"
       ],
       "verified_by": [
-        "crates/eg-types/src/orchestration/mod.rs:457",
+        "crates/eg-types/src/orchestration/mod.rs:460",
         "crates/eg-types/tests/harness_components.rs:32"
       ]
     },
@@ -1384,42 +1384,54 @@
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/tests/harness_lessons.rs:76"
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R802.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/tests/harness_lessons.rs:176"
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R802.3",
       "title": "Query",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/tests/harness_lessons.rs:253"
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R802.4",
       "title": "Supersession",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/tests/harness_lessons.rs:400"
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R802.5",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "crates/eg-types/tests/harness_lessons.rs:562"
+      ]
     },
     {
       "id": "EG-ORCH-VOCAB-R802.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "tests/orchestration/test_harness_lessons_served.py:210"
+      ]
     }
   ]
 }
