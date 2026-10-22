@@ -86,3 +86,16 @@ Forged tenant or policy identities must never broaden access or commit a project
 | `EG-INGEST-WORKER-R904.4` | `tests/test_source_hierarchy_served.py::test_container_refusals` |
 | `EG-INGEST-WORKER-R904.5` | `tests/test_source_hierarchy_served.py::test_container_tree_reads_back` |
 | `EG-INGEST-WORKER-R904.6` | `cargo bench --bench source_hierarchy` |
+
+## EG-INGEST-WORKER-R910 acceptance
+
+| Area | Requirement | Test and pass condition |
+|---|---|---|
+| Model | `EG-INGEST-WORKER-R910.1` | `stream_content_version_id_is_stable`: Two batches of one stream share one object id. |
+| Behavior | `EG-INGEST-WORKER-R910.2` | `tests/test_source_stream_versions_served.py::test_three_batches_admit_admit_unchanged`: The third equal batch writes nothing. |
+| Wiring | `EG-INGEST-WORKER-R910.3` | `tests/test_source_stream_versions_served.py::test_second_batch_on_one_stream_admits`: No `STALE_CONTENT_VERSION` occurs. |
+| Refusal | `EG-INGEST-WORKER-R910.4` | `tests/test_source_stream_versions_served.py::test_stream_head_race_refuses_one`: One writer refuses and writes nothing. |
+| Evidence | `EG-INGEST-WORKER-R910.5` | `tests/test_source_stream_versions_served.py::test_receipt_names_digest_chain`: The receipt digests chain. |
+| Hot-path proof | `EG-INGEST-WORKER-R910.6` | `tests/test_source_stream_versions_served.py::test_second_batch_on_one_stream_admits`: The served test passes, and the benchmark meets the budget. |
+
+Hot-path proof for `EG-INGEST-WORKER-R910`: `tests/test_source_stream_versions_served.py::test_second_batch_on_one_stream_admits`.
