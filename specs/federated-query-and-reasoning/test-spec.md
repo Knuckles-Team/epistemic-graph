@@ -422,3 +422,57 @@ Hot-path proof for `EG-FEDERATED-QUERY-R091`: `tests/federation/test_plan_evolut
 | Case | Row | Proving test and observation |
 |---|---|---|
 | Citation | `EG-FEDERATED-QUERY-R653.7` | `tests/retrieval/test_web_citation_served.py::test_hybrid_hit_cites_source_url`: A served fused hit cites the URL, the retrieval time and the query. |
+
+## Context engine and governance query rows
+
+| Row | Proving test |
+|---|---|
+| `EG-FEDERATED-QUERY-R703` | See each child. |
+| `EG-FEDERATED-QUERY-R703.1` | `crates/eg-plan/tests/access_check.rs::request_round_trips` |
+| `EG-FEDERATED-QUERY-R703.2` | `crates/eg-plan/tests/access_check.rs::timeout_drops_hits` |
+| `EG-FEDERATED-QUERY-R703.3` | `tests/retrieval/test_access_check_served.py::test_denied_hit_never_enters_bundle` |
+| `EG-FEDERATED-QUERY-R703.4` | `tests/retrieval/test_access_check_served.py::test_missing_port_fails_closed` |
+| `EG-FEDERATED-QUERY-R703.5` | `tests/retrieval/test_access_check_served.py::test_drop_reasons_read_back` |
+| `EG-FEDERATED-QUERY-R703.6` | `cargo bench -p eg-plan --bench access_check` |
+| `EG-FEDERATED-QUERY-R704` | See each child. |
+| `EG-FEDERATED-QUERY-R704.1` | `crates/eg-plan/tests/knowledge_scope.rs::scope_round_trips` |
+| `EG-FEDERATED-QUERY-R704.2` | `crates/eg-plan/tests/knowledge_scope.rs::scope_prefilters_before_truncation` |
+| `EG-FEDERATED-QUERY-R704.3` | `tests/retrieval/test_knowledge_scope_served.py::test_agent_sees_only_scoped_sources` |
+| `EG-FEDERATED-QUERY-R704.4` | `tests/retrieval/test_knowledge_scope_served.py::test_scope_refusals` |
+| `EG-FEDERATED-QUERY-R704.5` | `tests/retrieval/test_knowledge_scope_served.py::test_scope_digest_recorded` |
+| `EG-FEDERATED-QUERY-R704.6` | `cargo bench -p eg-plan --bench knowledge_scope` |
+| `EG-FEDERATED-QUERY-R705` | See each child. |
+| `EG-FEDERATED-QUERY-R705.1` | `crates/eg-plan/tests/feedback_boost.rs::feedback_round_trips` |
+| `EG-FEDERATED-QUERY-R705.2` | `crates/eg-plan/tests/feedback_boost.rs::boost_decays_and_clamps` |
+| `EG-FEDERATED-QUERY-R705.3` | `tests/retrieval/test_feedback_boost_served.py::test_upvote_raises_rank` |
+| `EG-FEDERATED-QUERY-R705.4` | `tests/retrieval/test_feedback_boost_served.py::test_feedback_refusals` |
+| `EG-FEDERATED-QUERY-R705.5` | `tests/retrieval/test_feedback_boost_served.py::test_boost_listed_per_hit` |
+| `EG-FEDERATED-QUERY-R705.6` | `cargo bench -p eg-plan --bench feedback_boost` |
+| `EG-FEDERATED-QUERY-R706` | See each child. |
+| `EG-FEDERATED-QUERY-R706.1` | `crates/eg-plan/tests/policy_mask.rs::policies_round_trip` |
+| `EG-FEDERATED-QUERY-R706.2` | `crates/eg-plan/tests/policy_mask.rs::one_rewrite_serves_every_language` |
+| `EG-FEDERATED-QUERY-R706.3` | `tests/test_policy_mask_served.py::test_masked_column_over_sql_and_uql` |
+| `EG-FEDERATED-QUERY-R706.4` | `tests/test_policy_mask_served.py::test_mask_refusals` |
+| `EG-FEDERATED-QUERY-R706.5` | `tests/test_policy_mask_served.py::test_explain_lists_policies` |
+| `EG-FEDERATED-QUERY-R706.6` | `cargo bench -p eg-plan --bench policy_mask` |
+| `EG-FEDERATED-QUERY-R707` | See each child. |
+| `EG-FEDERATED-QUERY-R707.1` | `crates/eg-rdf/tests/sparql_update.rs::update_forms_parse` |
+| `EG-FEDERATED-QUERY-R707.2` | `crates/eg-rdf/tests/sparql_update.rs::multi_operation_update_is_atomic` |
+| `EG-FEDERATED-QUERY-R707.3` | `tests/test_sparql_update_served.py::test_insert_then_select` |
+| `EG-FEDERATED-QUERY-R707.4` | `tests/test_sparql_update_served.py::test_update_refusals` |
+| `EG-FEDERATED-QUERY-R707.5` | `tests/test_sparql_update_served.py::test_update_receipt_reads_back` |
+| `EG-FEDERATED-QUERY-R707.6` | `cargo bench -p eg-rdf --bench sparql_update` |
+| `EG-FEDERATED-QUERY-R708` | See each child. |
+| `EG-FEDERATED-QUERY-R708.1` | `crates/eg-plan/tests/stored_query.rs::stored_query_round_trips` |
+| `EG-FEDERATED-QUERY-R708.2` | `crates/eg-plan/tests/stored_query.rs::on_change_refreshes` |
+| `EG-FEDERATED-QUERY-R708.3` | `tests/test_stored_query_served.py::test_put_then_call` |
+| `EG-FEDERATED-QUERY-R708.4` | `tests/test_stored_query_served.py::test_stored_query_refusals` |
+| `EG-FEDERATED-QUERY-R708.5` | `tests/test_stored_query_served.py::test_staleness_reported` |
+| `EG-FEDERATED-QUERY-R708.6` | `cargo bench -p eg-plan --bench stored_query` |
+| `EG-FEDERATED-QUERY-R709` | See each child. |
+| `EG-FEDERATED-QUERY-R709.1` | `crates/eg-rdf/tests/geosparql.rs::functions_registered` |
+| `EG-FEDERATED-QUERY-R709.2` | `crates/eg-rdf/tests/geosparql.rs::topology_matches_kernel` |
+| `EG-FEDERATED-QUERY-R709.3` | `tests/test_geosparql_served.py::test_within_query` |
+| `EG-FEDERATED-QUERY-R709.4` | `tests/test_geosparql_served.py::test_geo_refusals` |
+| `EG-FEDERATED-QUERY-R709.5` | `tests/test_geosparql_served.py::test_explain_names_spatial_index` |
+| `EG-FEDERATED-QUERY-R709.6` | `cargo bench -p eg-rdf --bench geosparql` |

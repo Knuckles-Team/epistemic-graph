@@ -83,3 +83,17 @@ homes now. The spec-trailers gate resolves the spec PR's trailer. No delivery is
 - `# spec: EG-SCM-R010` — `tests/test_scm_git_round_trip.py`
 - `# spec: EG-SCM-R011` — `tests/simulation/source_changesets.rs`
 - `# spec: EG-SCM-R012` — `tests/test_scm_provenance.py`
+
+## Graph-native edits and structured trailers
+
+| Row | Proving test |
+|---|---|
+| `EG-SCM-R002.1` | `tests/test_scm_changeset.py::test_trailers_round_trip_through_git` |
+| `EG-SCM-R013` | See each child. |
+| `EG-SCM-R013.1` | `crates/eg-types/tests/source_symbol_edit.rs::edit_round_trips_and_kinds_are_closed` |
+| `EG-SCM-R013.2` | `crates/eg-compute/tests/source_symbol_edit.rs::bytes_outside_spans_are_unchanged` |
+| `EG-SCM-R013.3` | `crates/eg-compute/tests/source_symbol_edit.rs::reparse_confirms_edit_and_untouched_symbols` |
+| `EG-SCM-R013.4` | `tests/test_scm_symbol_edit_served.py::test_symbol_edit_lands_and_reindexes` |
+| `EG-SCM-R013.5` | `tests/test_scm_symbol_edit_served.py::test_symbol_edit_refusals` |
+| `EG-SCM-R013.6` | `tests/test_scm_symbol_edit_served.py::test_symbol_edit_evidence_reads_back` |
+| `EG-SCM-R013.7` | `cargo bench --bench source_symbol_edit` |

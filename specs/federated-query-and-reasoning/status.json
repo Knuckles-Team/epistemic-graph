@@ -374,7 +374,56 @@
     "EG-FEDERATED-QUERY-R053.700",
     "EG-FEDERATED-QUERY-R053.701",
     "EG-FEDERATED-QUERY-R005.700",
-    "EG-FEDERATED-QUERY-R005.701"
+    "EG-FEDERATED-QUERY-R005.701",
+    "EG-FEDERATED-QUERY-R703",
+    "EG-FEDERATED-QUERY-R703.1",
+    "EG-FEDERATED-QUERY-R703.2",
+    "EG-FEDERATED-QUERY-R703.3",
+    "EG-FEDERATED-QUERY-R703.4",
+    "EG-FEDERATED-QUERY-R703.5",
+    "EG-FEDERATED-QUERY-R703.6",
+    "EG-FEDERATED-QUERY-R704",
+    "EG-FEDERATED-QUERY-R704.1",
+    "EG-FEDERATED-QUERY-R704.2",
+    "EG-FEDERATED-QUERY-R704.3",
+    "EG-FEDERATED-QUERY-R704.4",
+    "EG-FEDERATED-QUERY-R704.5",
+    "EG-FEDERATED-QUERY-R704.6",
+    "EG-FEDERATED-QUERY-R705",
+    "EG-FEDERATED-QUERY-R705.1",
+    "EG-FEDERATED-QUERY-R705.2",
+    "EG-FEDERATED-QUERY-R705.3",
+    "EG-FEDERATED-QUERY-R705.4",
+    "EG-FEDERATED-QUERY-R705.5",
+    "EG-FEDERATED-QUERY-R705.6",
+    "EG-FEDERATED-QUERY-R706",
+    "EG-FEDERATED-QUERY-R706.1",
+    "EG-FEDERATED-QUERY-R706.2",
+    "EG-FEDERATED-QUERY-R706.3",
+    "EG-FEDERATED-QUERY-R706.4",
+    "EG-FEDERATED-QUERY-R706.5",
+    "EG-FEDERATED-QUERY-R706.6",
+    "EG-FEDERATED-QUERY-R707",
+    "EG-FEDERATED-QUERY-R707.1",
+    "EG-FEDERATED-QUERY-R707.2",
+    "EG-FEDERATED-QUERY-R707.3",
+    "EG-FEDERATED-QUERY-R707.4",
+    "EG-FEDERATED-QUERY-R707.5",
+    "EG-FEDERATED-QUERY-R707.6",
+    "EG-FEDERATED-QUERY-R708",
+    "EG-FEDERATED-QUERY-R708.1",
+    "EG-FEDERATED-QUERY-R708.2",
+    "EG-FEDERATED-QUERY-R708.3",
+    "EG-FEDERATED-QUERY-R708.4",
+    "EG-FEDERATED-QUERY-R708.5",
+    "EG-FEDERATED-QUERY-R708.6",
+    "EG-FEDERATED-QUERY-R709",
+    "EG-FEDERATED-QUERY-R709.1",
+    "EG-FEDERATED-QUERY-R709.2",
+    "EG-FEDERATED-QUERY-R709.3",
+    "EG-FEDERATED-QUERY-R709.4",
+    "EG-FEDERATED-QUERY-R709.5",
+    "EG-FEDERATED-QUERY-R709.6"
   ],
   "requirements": [
     {
@@ -3764,6 +3813,405 @@
     {
       "id": "EG-FEDERATED-QUERY-R005.701",
       "title": "Graph integrity validation as shape checks: refusal, evidence and hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R703",
+      "title": "Query-time access check for dynamic-access sources (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-FEDERATED-QUERY-R703.1",
+        "EG-FEDERATED-QUERY-R703.2",
+        "EG-FEDERATED-QUERY-R703.3",
+        "EG-FEDERATED-QUERY-R703.4",
+        "EG-FEDERATED-QUERY-R703.5",
+        "EG-FEDERATED-QUERY-R703.6"
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R703.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R703.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R703.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R703.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R703.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R703.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R704",
+      "title": "Agent knowledge scope (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-FEDERATED-QUERY-R704.1",
+        "EG-FEDERATED-QUERY-R704.2",
+        "EG-FEDERATED-QUERY-R704.3",
+        "EG-FEDERATED-QUERY-R704.4",
+        "EG-FEDERATED-QUERY-R704.5",
+        "EG-FEDERATED-QUERY-R704.6"
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R704.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R704.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R704.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R704.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R704.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R704.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R705",
+      "title": "Feedback-adjusted document rank (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-FEDERATED-QUERY-R705.1",
+        "EG-FEDERATED-QUERY-R705.2",
+        "EG-FEDERATED-QUERY-R705.3",
+        "EG-FEDERATED-QUERY-R705.4",
+        "EG-FEDERATED-QUERY-R705.5",
+        "EG-FEDERATED-QUERY-R705.6"
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R705.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R705.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R705.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R705.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R705.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R705.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R706",
+      "title": "Tag-based column masking and row filters (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-FEDERATED-QUERY-R706.1",
+        "EG-FEDERATED-QUERY-R706.2",
+        "EG-FEDERATED-QUERY-R706.3",
+        "EG-FEDERATED-QUERY-R706.4",
+        "EG-FEDERATED-QUERY-R706.5",
+        "EG-FEDERATED-QUERY-R706.6"
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R706.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R706.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R706.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R706.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R706.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R706.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R707",
+      "title": "SPARQL 1.1 Update and Graph Store semantics (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-FEDERATED-QUERY-R707.1",
+        "EG-FEDERATED-QUERY-R707.2",
+        "EG-FEDERATED-QUERY-R707.3",
+        "EG-FEDERATED-QUERY-R707.4",
+        "EG-FEDERATED-QUERY-R707.5",
+        "EG-FEDERATED-QUERY-R707.6"
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R707.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R707.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R707.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R707.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R707.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R707.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R708",
+      "title": "Named stored queries and materialized results (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-FEDERATED-QUERY-R708.1",
+        "EG-FEDERATED-QUERY-R708.2",
+        "EG-FEDERATED-QUERY-R708.3",
+        "EG-FEDERATED-QUERY-R708.4",
+        "EG-FEDERATED-QUERY-R708.5",
+        "EG-FEDERATED-QUERY-R708.6"
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R708.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R708.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R708.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R708.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R708.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R708.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R709",
+      "title": "GeoSPARQL query functions (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-FEDERATED-QUERY-R709.1",
+        "EG-FEDERATED-QUERY-R709.2",
+        "EG-FEDERATED-QUERY-R709.3",
+        "EG-FEDERATED-QUERY-R709.4",
+        "EG-FEDERATED-QUERY-R709.5",
+        "EG-FEDERATED-QUERY-R709.6"
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R709.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R709.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R709.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R709.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R709.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R709.6",
+      "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

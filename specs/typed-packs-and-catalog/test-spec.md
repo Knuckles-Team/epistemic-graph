@@ -409,3 +409,43 @@ refuses to overwrite stored provenance with a later stamp's metadata.
 `successful_session_resolution_runs_boundary_store_and_public_response` requires
 creation-to-resolution reference continuity. Existing pending-MFA served refusal
 requires an error response with no result. Canonical artifact freshness passes. Newly added native cases remain pending execution.
+
+## Glossary, stewardship, sensitive data detection, ontology change impact and data products
+
+| Row | Proving test |
+|---|---|
+| `EG-TYPED-PACKS-R801` | See each child. |
+| `EG-TYPED-PACKS-R801.1` | `crates/eg-types/tests/glossary.rs::term_round_trips_and_maps_to_skos` |
+| `EG-TYPED-PACKS-R801.2` | `crates/eg-core/tests/glossary.rs::alt_label_search_finds_term` |
+| `EG-TYPED-PACKS-R801.3` | `tests/test_glossary_served.py::test_import_scheme_and_bind_term` |
+| `EG-TYPED-PACKS-R801.4` | `tests/test_glossary_served.py::test_glossary_refusals` |
+| `EG-TYPED-PACKS-R801.5` | `tests/test_glossary_served.py::test_status_history_reads_back` |
+| `EG-TYPED-PACKS-R801.6` | `cargo bench --bench glossary_search` |
+| `EG-TYPED-PACKS-R802` | See each child. |
+| `EG-TYPED-PACKS-R802.1` | `crates/eg-types/tests/stewardship.rs::records_round_trip` |
+| `EG-TYPED-PACKS-R802.2` | `crates/eg-core/tests/stewardship.rs::most_specific_assignment_wins` |
+| `EG-TYPED-PACKS-R802.3` | `tests/test_stewardship_served.py::test_change_request_flow` |
+| `EG-TYPED-PACKS-R802.4` | `tests/test_stewardship_served.py::test_stewardship_refusals` |
+| `EG-TYPED-PACKS-R802.5` | `tests/test_stewardship_served.py::test_request_evidence_reads_back` |
+| `EG-TYPED-PACKS-R802.6` | `cargo bench --bench stewardship_resolve` |
+| `EG-TYPED-PACKS-R803` | See each child. |
+| `EG-TYPED-PACKS-R803.1` | `crates/eg-types/tests/sensitive_detect.rs::records_round_trip` |
+| `EG-TYPED-PACKS-R803.2` | `crates/eg-core/tests/sensitive_detect.rs::scan_proposes_claim_without_values` |
+| `EG-TYPED-PACKS-R803.3` | `tests/test_sensitive_detect_served.py::test_profile_job_proposes_claims` |
+| `EG-TYPED-PACKS-R803.4` | `tests/test_sensitive_detect_served.py::test_detector_refusals` |
+| `EG-TYPED-PACKS-R803.5` | `tests/test_sensitive_detect_served.py::test_claim_evidence_reads_back` |
+| `EG-TYPED-PACKS-R803.6` | `cargo bench --bench sensitive_detect` |
+| `EG-TYPED-PACKS-R804` | See each child. |
+| `EG-TYPED-PACKS-R804.1` | `crates/eg-types/tests/ontology_diff.rs::diff_round_trips` |
+| `EG-TYPED-PACKS-R804.2` | `crates/eg-core/tests/ontology_diff.rs::removed_class_reports_impact` |
+| `EG-TYPED-PACKS-R804.3` | `tests/test_ontology_diff_served.py::test_import_reports_impact` |
+| `EG-TYPED-PACKS-R804.4` | `tests/test_ontology_diff_served.py::test_diff_refusals` |
+| `EG-TYPED-PACKS-R804.5` | `tests/test_ontology_diff_served.py::test_impact_names_items` |
+| `EG-TYPED-PACKS-R804.6` | `cargo bench --bench ontology_diff` |
+| `EG-TYPED-PACKS-R805` | See each child. |
+| `EG-TYPED-PACKS-R805.1` | `crates/eg-types/tests/data_product.rs::records_round_trip` |
+| `EG-TYPED-PACKS-R805.2` | `crates/eg-core/tests/data_product.rs::breach_records_violation` |
+| `EG-TYPED-PACKS-R805.3` | `tests/test_data_product_served.py::test_request_grants_access` |
+| `EG-TYPED-PACKS-R805.4` | `tests/test_data_product_served.py::test_product_refusals` |
+| `EG-TYPED-PACKS-R805.5` | `tests/test_data_product_served.py::test_violation_evidence_reads_back` |
+| `EG-TYPED-PACKS-R805.6` | `cargo bench --bench data_contract_check` |

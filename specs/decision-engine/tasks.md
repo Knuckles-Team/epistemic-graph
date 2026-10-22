@@ -778,3 +778,18 @@ Deliver these additive leaves in order; preserve R137.1–.6 and R128 unchanged.
 - [ ] **EG-DECISION-ENGINE-R803.6 (Hot-path proof):** Add the served contrast test and the benchmark.
 
 - [ ] **EG-DECISION-ENGINE-R036.102:** Bind the existing graph prepare writer and recovery readers to versioned transaction/participant identity; qualify refusal and legacy recovery.
+
+- [ ] **EG-DECISION-ENGINE-R804:** Evaluation sets and the program optimizer loop (rollup).
+- [ ] **EG-DECISION-ENGINE-R804.1:** Model.
+- [ ] **EG-DECISION-ENGINE-R804.2:** Behavior.
+- [ ] **EG-DECISION-ENGINE-R804.3:** Wiring.
+- [ ] **EG-DECISION-ENGINE-R804.4:** Refusal.
+- [ ] **EG-DECISION-ENGINE-R804.5:** Evidence.
+- [ ] **EG-DECISION-ENGINE-R804.6:** Hot-path proof.
+- [ ] **EG-DECISION-ENGINE-R805:** Harness promotion and rollback (rollup).
+- [ ] **EG-DECISION-ENGINE-R805.1:** Model.
+- [ ] **EG-DECISION-ENGINE-R805.2:** Behavior.
+- [ ] **EG-DECISION-ENGINE-R805.3:** Wiring.
+- [ ] **EG-DECISION-ENGINE-R805.4:** Refusal.
+- [ ] **EG-DECISION-ENGINE-R805.5:** Evidence.
+- [ ] **EG-DECISION-ENGINE-R805.6:** Hot-path proof.

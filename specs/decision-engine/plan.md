@@ -2019,3 +2019,23 @@ This is one prerequisite for the adopted coordinated-owner protocol. RBAC and
 Agent Library reservations, decision-time expiry, visibility fencing and atomic
 SubmitWorkItem admission remain unimplemented. No profile-enabled receipt or
 public admission method is introduced. Native validation remains pending.
+
+
+## Harness self-improvement: R804 and R805
+
+This section completes the self-improvement loop beside R803. It does not repeat it.
+
+| Stage | Owning rows |
+|---|---|
+| Versioned components | EG-ORCH-VOCAB-R801 |
+| Improvement library | EG-ORCH-VOCAB-R802 |
+| Contrastive composition | R803, AU-HARNESS-CYCLE-R001 |
+| Evaluation sets and optimizer loop | R804 |
+| Promotion and rollback | R805, R040, R016 |
+| Skill evolution and spec proposals | R654 |
+| Round verdict | R136 |
+
+R804 binds code that exists today: `crates/eg-program` and the `JobKind::ProgramOptimize` arm at
+`src/server/handlers/jobs/submit.rs:419`. R805 composes the promotion compare-and-swap at
+`src/server/mutation_batch/commit/program.rs:64`. Rollback re-promotes the parent revision. A
+model-judge-only test split never drives promotion, per R016.

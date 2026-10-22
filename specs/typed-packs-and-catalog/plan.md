@@ -666,3 +666,18 @@ mirrors, receipt hashes, nullable MFA and optional legacy session metadata.
 No native tests ran. Hosted CI must qualify the durable reopen, refusal and
 served-resolution tests before merge. Generation alone does not qualify R085.1
 runtime behavior, Arbora admission or live host startup.
+
+
+## Catalog and governance records (R801 to R805)
+
+| Row | Record set | Producer | Served through |
+|---|---|---|---|
+| R801 | Glossary terms in SKOS schemes | Glossary pack import, `GlossaryTermPut` | `ARBORA-OPS-R855` |
+| R802 | Stewardship roles, change requests, certification | R801, R805 changes | `ARBORA-OPS-R855` |
+| R803 | Sensitive data detections as R652 claims | EG-UNIFIED-DATA-PLANE-R761 profiling | claims of R652 |
+| R804 | Ontology revision diff and change impact | R103 import | `OntologyDiff` |
+| R805 | Data products, contracts and access requests | Product registration | `ARBORA-OPS-R855` |
+
+Masking enforcement lives in EG-FEDERATED-QUERY-R706. Quality scores live in
+EG-UNIFIED-DATA-PLANE-R762. Approval admission lives in arbora; the record and the reviewer
+choice stay here.
