@@ -18589,6 +18589,7 @@ class RequestContextAuthenticationMethod(str, Enum):
     OIDC = "oidc"
     MUTUAL_TLS = "mutual_tls"
     LOCAL_PROCESS = "local_process"
+    NONE = "none"
 
 
 class RequestContextClaims(BaseModel):

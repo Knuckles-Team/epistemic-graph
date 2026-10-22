@@ -17,6 +17,7 @@ import hashlib
 import hmac
 import importlib
 import inspect
+import ipaddress
 import json
 import logging
 import math
@@ -6086,7 +6087,7 @@ class ChangeEnvelopeClient:
         return results if isinstance(results, list) else []
 
     async def get(self, envelope_id: str) -> dict[str, Any] | None:
-        tenant = self._client._verified_tenant()
+        tenant = self._client._request_tenant()
         return (
             await _gen.query.send_get_change_envelope(
                 self._client, {"envelope_id": envelope_id, "tenant": tenant}
@@ -6094,7 +6095,7 @@ class ChangeEnvelopeClient:
         ).payload
 
     async def content_version(self, object_id: str) -> dict[str, Any] | None:
-        tenant = self._client._verified_tenant()
+        tenant = self._client._request_tenant()
         return (
             await _gen.query.send_get_content_version(
                 self._client, {"object_id": object_id, "tenant": tenant}
@@ -6102,7 +6103,7 @@ class ChangeEnvelopeClient:
         ).payload
 
     async def cursor(self, source: str, partition: str = "") -> dict[str, Any] | None:
-        tenant = self._client._verified_tenant()
+        tenant = self._client._request_tenant()
         return (
             await _gen.query.send_get_change_cursor(
                 self._client,
@@ -14975,6 +14976,69 @@ def _retrieve_pending_failure(fut: asyncio.Future[dict[str, Any]]) -> None:
         fut.exception()
 
 
+def _validate_anonymous_target(tcp_addr: str | None) -> None:
+    """Anonymous native TCP is deliberately limited to literal loopback IPs."""
+    if tcp_addr is None:
+        return
+    try:
+        host, port = _split_tcp_addr(tcp_addr)
+        local = ipaddress.ip_address(host).is_loopback
+        valid_port = 0 < int(port) < 65536
+    except (ValueError, TypeError):
+        local = valid_port = False
+    if not local or not valid_port:
+        raise ValueError("auth_mode='none' requires UDS or literal loopback TCP")
+
+
+def _validate_anonymous_peer(writer: asyncio.StreamWriter) -> None:
+    """Check the actual transport too, including directly constructed clients."""
+    sock = writer.get_extra_info("socket")
+    if sock is not None and sock.family == socket.AF_UNIX:
+        return
+    peer = writer.get_extra_info("peername")
+    if isinstance(peer, tuple) and peer:
+        try:
+            if ipaddress.ip_address(peer[0]).is_loopback:
+                return
+        except ValueError:
+            pass
+    raise ValueError("auth_mode='none' requires a local transport peer")
+
+
+def _validate_auth_mode(
+    auth_mode: str,
+    auth_secret: str | None,
+    verified_context: RequestContextClaims | dict[str, Any] | None,
+) -> None:
+    if auth_mode not in ("authenticated", "none"):
+        raise ValueError("auth_mode must be 'authenticated' or 'none'")
+    if auth_mode == "none" and (
+        auth_secret is not None or verified_context is not None
+    ):
+        raise ValueError("auth_mode='none' cannot be combined with credentials")
+
+
+def _authenticated_connection_authority(
+    auth_secret: str | None,
+    verified_context: RequestContextClaims | dict[str, Any] | None,
+) -> tuple[str, RequestContextClaims]:
+    secret = auth_secret or os.environ.get("GRAPH_SERVICE_AUTH_SECRET", "")
+    if not secret:
+        raise ValueError("a non-empty authentication secret is required")
+    if verified_context is None:
+        raise TypeError("verified_context must be a mapping")
+    return secret, validate_request_context(verified_context)
+
+
+def _connection_tls_server_hostname(server_hostname: str | None) -> str | None:
+    return (
+        str(
+            server_hostname or os.environ.get("GRAPH_SERVICE_TLS_SERVER_NAME", "") or ""
+        ).strip()
+        or None
+    )
+
+
 class EpistemicGraphClient:
     """CONCEPT:EG-KG.query.wire-protocol — Epistemic Graph Core Client
 
@@ -15007,19 +15071,26 @@ class EpistemicGraphClient:
         self,
         reader: asyncio.StreamReader,
         writer: asyncio.StreamWriter,
-        auth_secret: str,
+        auth_secret: str | None,
         graph_name: str,
         *,
-        verified_context: RequestContextClaims | dict[str, Any],
+        verified_context: RequestContextClaims | dict[str, Any] | None = None,
+        auth_mode: Literal["authenticated", "none"] = "authenticated",
         timeout: float | None = _DEFAULT_RPC_TIMEOUT,
         heavy_timeout: float | None = _HEAVY_RPC_TIMEOUT,
         node_id: str | None = None,
     ) -> None:
-        if not isinstance(auth_secret, str) or not auth_secret:
+        _validate_auth_mode(auth_mode, auth_secret, verified_context)
+        if auth_mode == "none":
+            if node_id is not None:
+                raise ValueError("auth_mode='none' cannot use verified authority")
+            _validate_anonymous_peer(writer)
+        elif not isinstance(auth_secret, str) or not auth_secret:
             raise ValueError("a non-empty authentication secret is required")
         self._reader = reader
         self._writer = writer
-        self._auth_secret = auth_secret
+        self._auth_mode = auth_mode
+        self._auth_secret = auth_secret or ""
         self._graph_name = graph_name
         # Per-RPC read timeouts (0/None disables). Heavy ops use heavy_timeout.
         self._timeout = timeout if timeout else None
@@ -15031,7 +15102,11 @@ class EpistemicGraphClient:
         # `node` claim entirely, exactly like a client built before node
         # binding existed. See `_compute_verified_token`.
         self._node_id = node_id
-        self._verified_context = validate_request_context(verified_context)
+        self._verified_context: RequestContextClaims | None = None
+        if auth_mode == "authenticated":
+            if verified_context is None:
+                raise TypeError("verified_context must be a mapping")
+            self._verified_context = validate_request_context(verified_context)
         self._write_admission: _WriteAdmission | None = None
         self._verified_context_override: contextvars.ContextVar[
             _VerifiedWriteBinding | None
@@ -15304,7 +15379,8 @@ class EpistemicGraphClient:
         auth_secret: str | None = None,
         graph_name: str = "__commons__",
         *,
-        verified_context: RequestContextClaims | dict[str, Any],
+        verified_context: RequestContextClaims | dict[str, Any] | None = None,
+        auth_mode: Literal["authenticated", "none"] = "authenticated",
         timeout: float | None = _DEFAULT_RPC_TIMEOUT,
         heavy_timeout: float | None = _HEAVY_RPC_TIMEOUT,
         connect_timeout: float | None = _CONNECT_TIMEOUT,
@@ -15316,21 +15392,24 @@ class EpistemicGraphClient:
         required_socket_path: str | None = None,
         write_admission: _WriteAdmission | None = None,
     ) -> EpistemicGraphClient:
-        _secret = auth_secret or os.environ.get("GRAPH_SERVICE_AUTH_SECRET", "")
-        if not _secret:
-            raise ValueError("a non-empty authentication secret is required")
-        context = validate_request_context(verified_context)
+        _validate_auth_mode(auth_mode, auth_secret, verified_context)
+        if auth_mode == "none":
+            _validate_anonymous_target(tcp_addr)
+            if write_admission is not None or node_id is not None:
+                raise ValueError("auth_mode='none' cannot use verified authority")
+            _secret = None
+            context = None
+        else:
+            _secret, context = _authenticated_connection_authority(
+                auth_secret, verified_context
+            )
         socket_path, required_socket_path = _bound_socket_paths(
             socket_path, required_socket_path
         )
-        _validate_write_admission(context, required_socket_path, write_admission)
-        resolved_tls_server_hostname = (
-            str(
-                tls_server_hostname
-                or os.environ.get("GRAPH_SERVICE_TLS_SERVER_NAME", "")
-                or ""
-            ).strip()
-            or None
+        if context is not None:
+            _validate_write_admission(context, required_socket_path, write_admission)
+        resolved_tls_server_hostname = _connection_tls_server_hostname(
+            tls_server_hostname
         )
         tls_context = cls._resolve_tls(
             tls,
@@ -15338,6 +15417,11 @@ class EpistemicGraphClient:
             client_key=tls_client_key,
             server_hostname=resolved_tls_server_hostname,
         )
+
+        if auth_mode == "none" and tls_context is not None:
+            raise ValueError(
+                "auth_mode='none' requires local plaintext native transport"
+            )
 
         reader, writer, resolved_socket = await cls._open_streams(
             socket_path,
@@ -15348,12 +15432,21 @@ class EpistemicGraphClient:
             **_recipient_options(required_socket_path),
         )
 
+        if auth_mode == "none":
+            try:
+                _validate_anonymous_peer(writer)
+            except ValueError:
+                writer.close()
+                with contextlib.suppress(Exception):
+                    await asyncio.wait_for(writer.wait_closed(), _CLOSE_TIMEOUT)
+                raise
         client = cls(
             reader,
             writer,
             _secret,
             graph_name,
             verified_context=context,
+            auth_mode=auth_mode,
             timeout=timeout,
             heavy_timeout=heavy_timeout,
             node_id=node_id,
@@ -15368,6 +15461,15 @@ class EpistemicGraphClient:
         client._write_admission = write_admission
         client._remember_recipient()
         return client
+
+    @property
+    def authenticated(self) -> bool:
+        """Whether this client sends verified envelopes, not an anonymous identity."""
+        return self._auth_mode == "authenticated"
+
+    @property
+    def auth_mode(self) -> str:
+        return self._auth_mode
 
     def _remember_recipient(self, resolved_socket: str | None = None) -> None:
         self._socket_path = resolved_socket or self._socket_path
@@ -15407,6 +15509,8 @@ class EpistemicGraphClient:
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await asyncio.wait_for(old_task, _CLOSE_TIMEOUT)
         self._close_writer_once()  # discard the poisoned stream
+        if not self.authenticated:
+            _validate_anonymous_target(self._tcp_addr)
         self._reader, self._writer, resolved_socket = await self._open_streams(
             self._socket_path,
             self._tcp_addr,
@@ -15418,6 +15522,12 @@ class EpistemicGraphClient:
         # New lifecycle generation: a reader task bound to the OLD generation
         # (already awaited above, but kept as a hard guard) can never mark
         # THIS connection dead.
+        if not self.authenticated:
+            try:
+                _validate_anonymous_peer(self._writer)
+            except ValueError:
+                self._close_writer_once()
+                raise
         self._generation += 1
         self._remember_recipient(resolved_socket)
         self._closed = False
@@ -15463,6 +15573,8 @@ class EpistemicGraphClient:
             raise ValueError("recipient-bound clients cannot export Bolt credentials")
 
     def _effective_verified_context(self) -> RequestContextClaims:
+        if self._verified_context is None:
+            raise ValueError("auth_mode='none' has no verified identity")
         binding = self._verified_context_override.get()
         return binding.claims if binding is not None else self._verified_context
 
@@ -15481,6 +15593,8 @@ class EpistemicGraphClient:
         restored even when the routed operation raises.
         """
 
+        if not self.authenticated:
+            raise ValueError("auth_mode='none' cannot use verified context")
         self._check_context_recipient(required_socket_path)
         value = validate_request_context(context)
         _validate_write_admission(value, self._required_socket_path, write_admission)
@@ -15500,6 +15614,10 @@ class EpistemicGraphClient:
             raise ValueError(
                 "verified context requires a client bound to required_socket_path"
             )
+
+    def _request_tenant(self) -> str:
+        """Route within the isolated local namespace, without asserting identity."""
+        return self._verified_tenant() if self.authenticated else "local"
 
     def _verified_tenant(self) -> str:
         context = self._effective_verified_context()
@@ -15587,7 +15705,7 @@ class EpistemicGraphClient:
         return bound
 
     def _stamp_policy_tenant(self, drafts: list[dict[str, Any]]) -> None:
-        tenant = str(self._effective_verified_context()["tenant"])
+        tenant = self._request_tenant()
         for draft in drafts:
             for policy in draft.get("policies", []):
                 policy["tenant"] = tenant
@@ -15802,6 +15920,26 @@ class EpistemicGraphClient:
             raise ValueError(f"{method} requires an envelope")
         return getattr(self, binder)(params, request_id=req_id, graph=target_graph)
 
+    @staticmethod
+    def _anonymous_correlation(key: str) -> str:
+        """Unsigned replay metadata in the legacy auth_token slot, NOT a credential.
+
+        Only an explicitly anonymous server accepts this marker. It contains no
+        identity, secret, signature or authentication claim.
+        """
+        if (
+            not isinstance(key, str)
+            or not key.strip()
+            or not 1 <= len(key.encode("utf-8")) <= 256
+            or any(ord(char) < 32 or 127 <= ord(char) <= 159 for char in key)
+        ):
+            raise ValueError(
+                "anonymous idempotency key must be 1..256 UTF-8 bytes without controls"
+            )
+        return "anon1." + json.dumps(
+            {"idempotency_key": key}, ensure_ascii=False, separators=(",", ":")
+        )
+
     def _build_send_request(
         self,
         method: str,
@@ -15811,11 +15949,26 @@ class EpistemicGraphClient:
         target_graph: str,
         idempotency_key: str | None,
     ) -> dict[str, Any]:
-        """The complete, signed wire request for one RPC."""
+        """Build an authenticated envelope or an explicitly anonymous request."""
         params = self._bind_send_params(
             method, params, req_id=req_id, target_graph=target_graph
         )
-        request: dict[str, Any] = {
+        request: dict[str, Any]
+        if not self.authenticated:
+            request = {
+                "id": req_id,
+                "graph": target_graph,
+                # Required empty legacy carrier in none mode, not a secret.
+                "auth_token": "",  # nosec B105
+                "agent_id": None,
+                "method": method,
+            }
+            if idempotency_key is not None:
+                request["auth_token"] = self._anonymous_correlation(idempotency_key)
+            if params:
+                request["params"] = params
+            return request
+        request = {
             "id": req_id,
             "graph": target_graph,
             "auth_token": "",  # nosec B105 - token is computed below
@@ -15897,6 +16050,8 @@ class EpistemicGraphClient:
                 self._check_recipient(
                     required_socket_path, admitted_writer, admitted_generation
                 )
+            if not self.authenticated:
+                _validate_anonymous_peer(self._writer)
             # No await between current-proof/recipient validation and either write.
             self._writer.write(length_prefix)
             self._writer.write(payload)
@@ -16104,12 +16259,17 @@ class EpistemicGraphClient:
         )
         return msgpack.packb(request, use_bin_type=True)
 
-    def _capture_verified_binding(self, required: str | None) -> _VerifiedWriteBinding:
+    def _capture_verified_binding(
+        self, required: str | None
+    ) -> _VerifiedWriteBinding | None:
+        if not self.authenticated:
+            return None
         active = self._verified_context_override.get()
+        claims = active.claims if active is not None else self._verified_context
+        if claims is None:
+            raise ValueError("authenticated mode requires verified context")
         binding = _VerifiedWriteBinding(
-            validate_request_context(
-                active.claims if active is not None else self._verified_context
-            ),
+            validate_request_context(claims),
             active.admission if active is not None else self._write_admission,
         )
         _validate_write_admission(binding.claims, required, binding.admission)

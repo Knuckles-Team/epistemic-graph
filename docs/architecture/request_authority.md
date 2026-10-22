@@ -1,6 +1,6 @@
 # Checked Request Authority
 
-The graph engine accepts exactly one checked request context: the `eg2.`
+The default authenticated graph engine accepts exactly one checked request context: the `eg2.`
 authority envelope. It binds the request id, graph, method, body
 digest, timestamp, nonce, idempotency key, effective ACL agent, tenant,
 audience, policy version, roles, scopes, delegation chain, and trace context.
@@ -48,11 +48,8 @@ Secure deployments must align these values with the issuing Arbora service:
 The replay ledger keeps accepted read-request nonces in a bounded in-memory
 window and makes only a high-water envelope timestamp durable, once per clock
 second, before the request dispatches. A graceful shutdown (SIGTERM/SIGINT)
-seals the window into a one-shot handoff that the next start consumes, so a
-clean restart refuses only genuine replays. After a crash there is no handoff:
-every envelope signed at or before the high-water is refused as a possible
-replay, so a client whose request raced the crash re-signs it; signed mutations
-consume their nonce inside the mutation kernel instead.
+seals the window into a one-shot handoff. The next start consumes it. A clean restart refuses only genuine replays. A crash leaves no handoff. The engine refuses envelopes signed at or before the high-water as possible replays.
+A client whose request raced the crash re-signs it. Signed mutations consume their nonce inside the mutation kernel instead.
 
 All values are mandatory except the skew override. The server also requires a
 build containing the `security` feature. Graph operations receive identity only
@@ -126,3 +123,48 @@ consumer handoff for lanes minting caller identity) is frozen as
 read before adding a new auxiliary surface's identity binding (SPARQL,
 federation, observability) — the Iceberg-bearer tenant-match pattern above is
 the template such a surface should follow, not a new mechanism.
+
+## Explicit local anonymous store (EG-IDENTITY-R003.1)
+
+Arbora owns public admission. For its explicit local `none` mode, the native
+engine supports `--auth-mode none` (`GRAPH_SERVICE_AUTH_MODE=none`) with a fresh
+persistence directory and no authentication secret. This does not disable
+verification for an authenticated deployment: the two modes reject each other's
+carriers and cannot open each other's stored data.
+
+For a local TCP-only deployment:
+
+```sh
+epistemic-graph-server --auth-mode none --persist-dir /path/to/fresh-local-store \
+  --tcp-only --tcp-addr 127.0.0.1:19100
+```
+
+Omit `--tcp-only` to retain the private UDS plus optional TCP transport. Anonymous
+mode requires owner-only UDS permissions and literal loopback native TCP. It
+rejects auxiliary listeners, cluster/federation configuration, identity-provider
+configuration and nonempty authentication secrets. An unmarked nonempty store
+is refused; the existing engine lock protects initialization of the durable
+anonymous-store marker. Switching an anonymous store to authenticated mode is
+not supported by this option. Use a separate fresh store for authenticated tests.
+
+Every anonymous request uses server-owned principal/agent `anonymous`, tenant
+`local`, audience `epistemic-graph`, and policy `no-auth`. This is local-owner
+store authorization, not authenticated identity; ordinary ACL/mutation machinery
+still handles reads, writes and persistence. WorkItem provenance explicitly uses
+`authentication_method: none`, and caller-supplied principal substitutions fail.
+
+The Python client requires `connect(auth_mode="none", tcp_addr="127.0.0.1:19100")`
+with no secret or checked context, and reports `authenticated == False`. It
+never signs an anonymous request. The required wire field `agent_id` is explicitly
+`null`, not a caller identity claim. The historical wire field `auth_token` is
+empty when no explicit retry key is supplied. For keyed operations, that field
+carries `anon1.` followed by raw JSON containing only `idempotency_key`. This is
+unsigned correlation metadata, **not a credential**. Keys are 1..256 UTF-8 bytes,
+not whitespace-only, with no control characters. Unknown/duplicate fields,
+identity claims, signatures, and oversized carriers are rejected. The engine
+mints an attempt nonce; durable mutation handling binds retries to the request
+body and refuses conflicting reuse. Without a caller retry key, each received
+operation is distinct and an ambiguous write must not be automatically retried.
+
+The no-auth mode does not claim TLS, remote multiuser isolation, OIDC, or
+production authentication validation. Authenticated defaults remain unchanged.

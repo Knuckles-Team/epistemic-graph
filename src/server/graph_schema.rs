@@ -141,6 +141,7 @@ pub(crate) async fn commit_pack_projection(
     let plan = MutationPlan::for_method(&method);
     let result_graph_name = graph_name.clone();
     let ctx = MutationCtx {
+        anonymous: state.read().await.local_anonymous,
         req_id,
         caller: Some(verified.agent_id()),
         attempt_nonce: verified.attempt_nonce(),

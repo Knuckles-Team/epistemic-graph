@@ -21,7 +21,9 @@ Two universal rules hold for **every** listener:
    `GRAPH_SERVICE_AUTH_SECRET`, `GRAPH_SERVICE_PERSIST_DIR`,
    `EPISTEMIC_GRAPH_AUDIENCE`, `EPISTEMIC_GRAPH_TENANT`,
    `EPISTEMIC_GRAPH_POLICY_VERSION`, and `EPISTEMIC_GRAPH_SIGNER_KEYS_JSON` from
-   deployment configuration. There is no anonymous or in-memory served mode.
+   deployment configuration. There is no in-memory served mode. The
+   [request authority](../architecture/request_authority.md#explicit-local-anonymous-store-eg-identity-r0031) guide describes explicit local anonymous mode.
+   That native-only mode does not apply to the authenticated auxiliary protocol examples below.
 
 The prebuilt `full` binary carries every single-node surface. `cluster` adds Raft
 replication, not a different security or wire contract. See

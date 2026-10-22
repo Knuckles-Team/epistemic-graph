@@ -788,7 +788,7 @@
         "a676823d2b54"
       ],
       "verified_by": [
-        "src/server/mutation/context.rs:549",
+        "src/server/mutation/context.rs:566",
         "src/server/udf_catalog.rs:126"
       ]
     },
@@ -1172,7 +1172,7 @@
         "92f13033b00a"
       ],
       "verified_by": [
-        "src/server/dispatch/graph_pipeline/dispatch_helpers.rs:686"
+        "src/server/dispatch/graph_pipeline/dispatch_helpers.rs:687"
       ]
     },
     {
@@ -3134,7 +3134,7 @@
       "verified_by": [
         "crates/eg-types/src/change_envelope/material.rs:161",
         "crates/eg-types/src/change_envelope/material.rs:181",
-        "src/server/mod.rs:2156"
+        "src/server/mod.rs:2157"
       ]
     },
     {
@@ -3147,7 +3147,7 @@
       ],
       "verified_by": [
         "crates/eg-types/src/change_envelope/material.rs:198",
-        "src/server/mod.rs:2156"
+        "src/server/mod.rs:2157"
       ]
     },
     {

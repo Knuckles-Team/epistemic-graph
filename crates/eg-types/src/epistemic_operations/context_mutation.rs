@@ -19,6 +19,10 @@ pub enum RequestContextAuthenticationMethod {
     MutualTls,
     #[serde(rename = "local_process")]
     LocalProcess,
+    // Explicit anonymous local-store provenance, not verified identity.
+    // Append only: retain the existing variants' serialized ordinal positions.
+    #[serde(rename = "none")]
+    Anonymous,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

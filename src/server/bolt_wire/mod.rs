@@ -569,6 +569,7 @@ async fn commit_writes(
     let method = receipt_method(&writes);
     let plan = MutationPlan::for_method(&method);
     let ctx = MutationCtx {
+        anonymous: false,
         req_id: request_id,
         caller: Some(verified.agent_id()),
         attempt_nonce: verified.attempt_nonce(),

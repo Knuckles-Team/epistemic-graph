@@ -10,6 +10,7 @@ pub(crate) mod denial_sample;
 pub(crate) mod identity_view;
 #[cfg(feature = "security")]
 pub use denial_sample::spawn_flusher as spawn_denial_sample_flusher;
+mod anonymous;
 pub(crate) mod auth;
 pub(crate) mod authority_context;
 pub(crate) mod issuer_trust;

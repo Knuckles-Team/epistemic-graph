@@ -461,7 +461,7 @@ async fn dispatch_inner(
         Some(context) => context,
         None => {
             let s = timed_read(state).await;
-            match verify_request_with_security_dir(&s.auth_secret, &req, s.persist_dir.as_deref()) {
+            match s.request_authority(&req) {
                 Ok(context) => context,
                 Err(error) => {
                     crate::metrics::auth_failure();
@@ -470,6 +470,9 @@ async fn dispatch_inner(
             }
         }
     };
+    if timed_read(state).await.local_anonymous == verified_context.is_authenticated() {
+        return Response::err(req.id, "AUTHENTICATION_REQUIRED: authority mode mismatch");
+    }
     req.agent_id = Some(verified_context.agent_id().to_string());
 
     #[cfg(feature = "raft")]

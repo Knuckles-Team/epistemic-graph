@@ -353,11 +353,7 @@ async fn admit_qos_request(
     };
     let context = {
         let server = state.read().await;
-        super::auth::verify_request_with_security_dir(
-            &server.auth_secret,
-            req,
-            server.persist_dir.as_deref(),
-        )
+        server.request_authority(req)
     }
     .map_err(|_| {
         crate::metrics::auth_failure();
