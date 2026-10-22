@@ -5,10 +5,10 @@
 
 Tool-neutral rules for any AI agent or human working in this repository. This block is maintained by the fleet standard; edit outside the markers.
 
-- **Owner boundary:** this repository owns facts, records, storage, query (UQL and natural language), retrieval, ingest, reasoning, decisions and choices, in the native Rust engine (spec prefix `EG-`). Feature routing across repositories: [ecosystem boundaries](https://github.com/Knuckles-Team/pipelines/blob/main/reference/ecosystem-boundaries.md).
-- **Setup:** run `scripts/bootstrap.sh`. It is idempotent and non-interactive: it pins uv and Python, syncs the locked environment, installs the git hooks and prints the gate command.
-- **Gates:** `uvx pre-commit run --all-files` must pass before you push. Do not bypass hooks to get green.
-- **Commits:** one logical change per commit with a `Spec: <ID>` trailer (or `Spec: none (<reason>)`), plus a `Co-Authored-By:` trailer naming the assisting agent. Stage explicit paths only; never `git add -A` or `git add .`. Use your own configured Git identity, never a tool or bot name.
+- **Owner boundary:** this repository owns facts, records, storage, query, retrieval, ingest, reasoning, decisions and choices. It is the native Rust engine (spec prefix `EG-`). Query covers UQL and natural language. Feature routing across repositories: [ecosystem boundaries](https://github.com/Knuckles-Team/pipelines/blob/main/reference/ecosystem-boundaries.md).
+- **Setup:** run `scripts/bootstrap.sh`. It is idempotent and non-interactive. It pins uv and Python, syncs the locked environment and installs the git hooks. It then prints the gate command.
+- **Gates:** `uvx pre-commit run --all-files` must pass before any push. Never bypass hooks to get green.
+- **Commits:** one logical change per commit with a `Spec: <ID>` trailer (or `Spec: none (<reason>)`), plus a `Co-Authored-By:` trailer naming the assisting agent. Stage explicit paths only; never `git add -A` or `git add .`. Commit under the author's configured Git identity, never a tool or bot name.
 - **Org rules:** [organization AGENTS.md](https://github.com/Knuckles-Team/.github/blob/main/AGENTS.md).
 <!-- agent-contract:end -->
 
