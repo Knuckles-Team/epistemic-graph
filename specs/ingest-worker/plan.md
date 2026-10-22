@@ -158,3 +158,9 @@ Three more batch kinds keep the held copy true to the source:
 All four enter through `admit_records` in `src/server/handlers/source_ingestion.rs`. The SDK
 connector contract `SDK-SOURCE-INGEST-R805` produces them. A restricted record whose access
 snapshot is older than its bound fails closed at retrieval.
+
+## Stream content versions (R910)
+
+A connector sync sends one source stream as one or more batches. Today the content version object id is the batch id. The second batch then names a prior digest that its own object never held. The engine refuses it with `STALE_CONTENT_VERSION`, and the ingest runner of ARBORA-OPS-R020.6.6 stops.
+
+The fix keys the content version on the stream. `admit_records` in `src/server/handlers/source_ingestion.rs` stamps the stream object id. The content guard in `src/redb_store/store_state.rs` reads the stream head. Equal content counts as unchanged. A true head mismatch still refuses. The mutation scope version of EG-DURABLE-KERNEL-R031 is a separate guard.

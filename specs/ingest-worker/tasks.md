@@ -69,3 +69,13 @@ Order: R001.5 and R001.6 prerequisites, then R001.1-R001.3, R001.7-R001.8, R001.
 - [ ] **EG-INGEST-WORKER-R904.4:** Refusal.
 - [ ] **EG-INGEST-WORKER-R904.5:** Evidence.
 - [ ] **EG-INGEST-WORKER-R904.6:** Hot-path proof.
+
+## Stream content versions (R910)
+
+- [ ] **EG-INGEST-WORKER-R910 (rollup):** Version source content per stream, not per batch.
+- [ ] **EG-INGEST-WORKER-R910.1 (Model):** Derive the content version object id from the stream.
+- [ ] **EG-INGEST-WORKER-R910.2 (Behavior):** Chain each batch to the prior stream digest; count equal content as unchanged.
+- [ ] **EG-INGEST-WORKER-R910.3 (Wiring):** Stamp the stream id in `admit_records` and read the chain in the content check.
+- [ ] **EG-INGEST-WORKER-R910.4 (Refusal):** Refuse a true stream-head mismatch with `STALE_CONTENT_VERSION`.
+- [ ] **EG-INGEST-WORKER-R910.5 (Evidence):** Record the digest chain in the receipt.
+- [ ] **EG-INGEST-WORKER-R910.6 (Hot-path proof):** Add the served two-batch test and the benchmark.

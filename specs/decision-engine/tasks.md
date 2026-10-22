@@ -799,3 +799,34 @@ Deliver these additive leaves in order; preserve R137.1–.6 and R128 unchanged.
   - [ ] **EG-DECISION-ENGINE-R651.7:** Episodic-to-semantic promotion.
   - [ ] **EG-DECISION-ENGINE-R651.8:** Reinforce and decay share one salience update.
   - [ ] **EG-DECISION-ENGINE-R700.7:** Contradiction records are tracked.
+
+## Program optimization, policy evolution and champion promotion (R810 to R813)
+
+- [ ] **EG-DECISION-ENGINE-R810 (rollup):** Program and prompt optimization job (rollup)
+- [ ] **EG-DECISION-ENGINE-R810.1:** Model
+- [ ] **EG-DECISION-ENGINE-R810.2:** Behavior
+- [ ] **EG-DECISION-ENGINE-R810.3:** Wiring
+- [ ] **EG-DECISION-ENGINE-R810.4:** Refusal
+- [ ] **EG-DECISION-ENGINE-R810.5:** Evidence
+- [ ] **EG-DECISION-ENGINE-R810.6:** Hot-path proof
+- [ ] **EG-DECISION-ENGINE-R811 (rollup):** Policy evolution capture, training and held-out evaluation receipts (rollup)
+- [ ] **EG-DECISION-ENGINE-R811.1:** Model
+- [ ] **EG-DECISION-ENGINE-R811.2:** Behavior
+- [ ] **EG-DECISION-ENGINE-R811.3:** Wiring
+- [ ] **EG-DECISION-ENGINE-R811.4:** Refusal
+- [ ] **EG-DECISION-ENGINE-R811.5:** Evidence
+- [ ] **EG-DECISION-ENGINE-R811.6:** Hot-path proof
+- [ ] **EG-DECISION-ENGINE-R812 (rollup):** Champion and challenger promotion with rollback (rollup)
+- [ ] **EG-DECISION-ENGINE-R812.1:** Model
+- [ ] **EG-DECISION-ENGINE-R812.2:** Behavior
+- [ ] **EG-DECISION-ENGINE-R812.3:** Wiring
+- [ ] **EG-DECISION-ENGINE-R812.4:** Refusal
+- [ ] **EG-DECISION-ENGINE-R812.5:** Evidence
+- [ ] **EG-DECISION-ENGINE-R812.6:** Hot-path proof
+- [ ] **EG-DECISION-ENGINE-R813 (rollup):** Trace-store scores become evaluation examples (rollup)
+- [ ] **EG-DECISION-ENGINE-R813.1:** Model
+- [ ] **EG-DECISION-ENGINE-R813.2:** Behavior
+- [ ] **EG-DECISION-ENGINE-R813.3:** Wiring
+- [ ] **EG-DECISION-ENGINE-R813.4:** Refusal
+- [ ] **EG-DECISION-ENGINE-R813.5:** Evidence
+- [ ] **EG-DECISION-ENGINE-R813.6:** Hot-path proof
