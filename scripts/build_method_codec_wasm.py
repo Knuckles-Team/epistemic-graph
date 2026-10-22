@@ -19,12 +19,17 @@ builder verifies the WebAssembly header and refuses an import section, then
 digests. The generated-artifact ledger separately pins the committed SHA-256
 for each copy. Regeneration updates those existing pins with the module bytes.
 No post-link executable or archive is needed.
+
+``--export-dir`` saves the fresh module and a SHA-256/source/build provenance
+sidecar before checking committed copies, without weakening the freshness gate.
+Failed builds clear old exports and never advertise a completed fresh export.
 """
 
 from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import os
 import re
 import subprocess
@@ -53,6 +58,19 @@ TARGET = "wasm32-unknown-unknown"
 PROFILE = "method-codec"
 MODULE = "eg_method_codec.wasm"
 CLIENT_DIRS = ("clients/go", "clients/js")
+PROVENANCE = "eg_method_codec.provenance.json"
+BUILD_COMMAND = (
+    "cargo",
+    "build",
+    "--locked",
+    "-p",
+    "eg-method-codec",
+    "--lib",
+    "--profile",
+    PROFILE,
+    "--target",
+    TARGET,
+)
 
 
 def build(root: Path, target_dir: Path) -> bytes:
@@ -72,19 +90,7 @@ def build(root: Path, target_dir: Path) -> bytes:
     env["CARGO_TARGET_DIR"] = str(target_dir)
     flags, _, _ = encoded_rustflags(env, checkout=root, target=TARGET)
     env["CARGO_ENCODED_RUSTFLAGS"] = flags
-    command = [
-        "cargo",
-        "build",
-        "--locked",
-        "-p",
-        "eg-method-codec",
-        "--lib",
-        "--profile",
-        PROFILE,
-        "--target",
-        TARGET,
-    ]
-    subprocess.run(command, cwd=root, env=env, check=True)
+    subprocess.run(list(BUILD_COMMAND), cwd=root, env=env, check=True)
     module = (target_dir / TARGET / PROFILE / MODULE).read_bytes()
     verify_no_imports(module)
     return module
@@ -235,6 +241,48 @@ def write(root: Path, module: bytes) -> int:
     return 0
 
 
+def export(root: Path, directory: Path, module: bytes) -> None:
+    """Export verified fresh bytes with source and canonical recipe provenance."""
+
+    verify_no_imports(module)
+
+    def git(*args: str) -> str:
+        return subprocess.check_output(["git", *args], cwd=root, text=True).strip()
+
+    provenance = {
+        "sha256": _sha256(module),
+        "size_bytes": len(module),
+        "source_revision": git("rev-parse", "HEAD"),
+        "source_tree": git("rev-parse", "HEAD^{tree}"),
+        "source_dirty": bool(git("status", "--porcelain", "--untracked-files=no")),
+        "build_command": list(BUILD_COMMAND),
+        "target": TARGET,
+        "profile": PROFILE,
+        "rustc_version": subprocess.check_output(
+            ["rustc", "--version", "--verbose"], cwd=root, text=True
+        ).strip(),
+        "recipe_sha256": {
+            name: _sha256((root / name).read_bytes())
+            for name in (
+                "Cargo.lock",
+                "Cargo.toml",
+                "rust-toolchain.toml",
+                "scripts/build_method_codec_wasm.py",
+                "scripts/configure_rust_path_remap.py",
+            )
+        },
+    }
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / MODULE).write_bytes(module)
+    (directory / PROVENANCE).write_text(
+        json.dumps(provenance, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    # This step-scoped signal cannot be supplied by a restored target cache.
+    if output := os.environ.get("GITHUB_OUTPUT"):
+        with Path(output).open("a", encoding="utf-8") as stream:
+            stream.write("fresh_export=true\n")
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -246,11 +294,22 @@ def main(argv: Sequence[str] | None = None) -> int:
         default=None,
         help="cargo target directory (default: $CARGO_TARGET_DIR, else <repo>/target)",
     )
+    parser.add_argument(
+        "--export-dir",
+        type=Path,
+        help="export fresh WASM and provenance before checking committed copies",
+    )
     args = parser.parse_args(argv)
+    if args.export_dir:
+        # Clear only our two outputs, before attempting a new build.
+        for name in (MODULE, PROVENANCE):
+            (args.export_dir / name).unlink(missing_ok=True)
     target_dir = args.target_dir or Path(
         os.environ.get("CARGO_TARGET_DIR", ROOT / "target")
     )
     module = build(ROOT, target_dir.resolve())
+    if args.export_dir:
+        export(ROOT, args.export_dir, module)
     return check(ROOT, module) if args.check else write(ROOT, module)
 
 

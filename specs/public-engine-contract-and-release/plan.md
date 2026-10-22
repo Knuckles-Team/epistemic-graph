@@ -486,3 +486,17 @@ Canonical Cargo resolution also rebinds eight Windows-only dependency edges to c
 No other package version changes, and no package is added or removed outside those three replacements.
 Validate the locked graph, the unchanged advisory gate and the affected client and server paths.
 Raw cargo-audit findings covered by existing, dated policy exceptions remain separate from these fixes.
+
+### 2026-10-22: recover canonical codec bytes from hosted CI
+
+EG-CONTRACT-R006.1 / EG-C-06 permits an optional artifact export from the existing
+canonical builder after a successful, import-verified build and before freshness
+comparison. Export the WASM with SHA-256, checked-out source revision/tree, dirty
+state, pinned toolchain and build-recipe provenance. A failed build must never
+export cached bytes. The language-clients job may upload a completed fresh export
+even when committed copies are stale; the freshness check must still fail.
+Existing codec-builder Python tests cover success, failed builds and provenance.
+
+This export-only child does not complete EG-CONTRACT-R006 or EG-T-05/EG-T-06.
+Two-build reproducibility, size-budget acceptance and Go/JS vector replay remain
+separate qualification obligations; baseline committed WASM bytes and pins stay unchanged.
