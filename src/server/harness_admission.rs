@@ -853,3 +853,6 @@ impl HarnessBoundaryState {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests;

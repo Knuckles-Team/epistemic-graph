@@ -82,24 +82,43 @@ pub fn validate_outbound_http_target(
     })
 }
 
-/// The ONE pinned-transport `ureq` agent builder for every federation HTTP caller
-/// (CONCEPT:EG-KG.query.query-federation, EH-563 FO-05). Resolves once in
-/// [`validate_outbound_http_target`] / [`validate_http_json_target`], then pins that
-/// exact address list in the client's resolver -- closing the validate-then-resolve DNS
-/// rebinding gap -- disables the implicit environment proxy (which would otherwise route
-/// a pinned request through an unvalidated hop) and refuses redirects (a redirect target
-/// was never vetted). Callers add their own timeouts and finish with `.build()`.
-pub fn pinned_agent_builder(target: &ValidatedHttpJsonTarget) -> ureq::AgentBuilder {
-    let pinned_addresses = target.addresses.clone();
-    ureq::AgentBuilder::new()
-        .try_proxy_from_env(false)
-        .resolver(
-            move |_: &str| -> std::io::Result<Vec<std::net::SocketAddr>> {
-                Ok(pinned_addresses.clone())
-            },
-        )
+/// Build a transport from validated addresses without a second DNS lookup.
+/// Proxy routing and redirects remain disabled because those targets were not validated.
+pub fn pinned_agent(
+    target: &ValidatedHttpJsonTarget,
+    builder: ureq::config::ConfigBuilder<ureq::typestate::AgentScope>,
+) -> ureq::Agent {
+    let config = builder
+        .proxy(None)
         .https_only(target.https_only)
-        .redirects(0)
+        .max_redirects(0)
+        .build();
+    ureq::Agent::with_parts(
+        config,
+        ureq::unversioned::transport::DefaultConnector::default(),
+        PinnedResolver(target.addresses.clone()),
+    )
+}
+
+#[derive(Debug)]
+struct PinnedResolver(Vec<std::net::SocketAddr>);
+
+impl ureq::unversioned::resolver::Resolver for PinnedResolver {
+    fn resolve(
+        &self,
+        _: &ureq::http::Uri,
+        _: &ureq::config::Config,
+        _: ureq::unversioned::transport::NextTimeout,
+    ) -> Result<ureq::unversioned::resolver::ResolvedSocketAddrs, ureq::Error> {
+        let mut addresses = self.empty();
+        for address in self.0.iter().take(16) {
+            addresses.push(*address);
+        }
+        if addresses.is_empty() {
+            return Err(ureq::Error::HostNotFound);
+        }
+        Ok(addresses)
+    }
 }
 
 /// Reject a URL with disallowed bytes/shape before any scheme/authority
@@ -492,3 +511,7 @@ mod http_json_security_tests {
         assert!(check_sql_dsn("postgres://u@127.0.0.1:5433/db").is_err());
     }
 }
+
+#[cfg(test)]
+#[path = "federation_transport_regressions.rs"]
+mod transport_regressions;

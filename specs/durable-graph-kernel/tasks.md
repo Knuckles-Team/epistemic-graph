@@ -48,6 +48,7 @@ Status key: `[ ]` queued, `[-]` in progress, `[x]` verified at cited main revisi
 - [x] **EG-DURABLE-KERNEL-R027.1:** Governed-change model types
 - [x] **EG-DURABLE-KERNEL-R027.2:** Governed-change dispatch wiring
 - [x] **EG-DURABLE-KERNEL-R027.3:** Governed-change raft catalog registration
+- [x] **EG-DURABLE-KERNEL-R031.1:** The audit append accounts the serving write version, including the maintenance batch a replayed attempt commits
 - [x] **EG-DURABLE-KERNEL-R032:** Native primary-key fast path bypasses the SQL planner
 - [x] **EG-DURABLE-KERNEL-R032.1:** PrimaryKeyOperation and FastPathDecision typed routing model with authorization/audit-checked invariant and refusal
 - [x] **EG-DURABLE-KERNEL-R033:** Hot-store engine choice is evaluated against captured workloads
@@ -250,3 +251,22 @@ This batch defines the slices; it runs none of their runtime tests.
 - [ ] **EG-DURABLE-KERNEL-R028.4:** Bind verified run ownership during single WorkItem admission and prove transaction refusals.
 
 - [ ] **EG-DURABLE-KERNEL-R028.5:** Implement private native plan publication/readback. Native and served tests, replay/expiry/restart and performance acceptance remain pending.
+
+## Agent-memory substrate claims (2026-10-22)
+
+  - [ ] **EG-DURABLE-KERNEL-R083.5:** Tier ladder from accelerator memory to durable storage.
+  - [ ] **EG-DURABLE-KERNEL-R083.6:** Graph-guided paging policy.
+  - [ ] **EG-DURABLE-KERNEL-R083.7:** Long-context coherence across tiers.
+  - [ ] **EG-DURABLE-KERNEL-R083.8:** Tier refusals.
+  - [ ] **EG-DURABLE-KERNEL-R042.2:** Cross-modal query latency benchmark.
+  - [ ] **EG-DURABLE-KERNEL-R042.3:** KV-cache tiering benchmark.
+  - [ ] **EG-DURABLE-KERNEL-R042.4:** Ingest throughput benchmark.
+  - [ ] **EG-DURABLE-KERNEL-R042.5:** Wire protocol benchmark.
+  - [ ] **EG-DURABLE-KERNEL-R042.6:** Benchmark publication and regression gate.
+- [ ] **EG-DURABLE-KERNEL-R860:** Served wire protocol listeners (rollup).
+  - [ ] **EG-DURABLE-KERNEL-R860.1:** PostgreSQL wire listener.
+  - [ ] **EG-DURABLE-KERNEL-R860.2:** Bolt listener.
+  - [ ] **EG-DURABLE-KERNEL-R860.3:** RESP listener.
+  - [ ] **EG-DURABLE-KERNEL-R860.4:** S3-compatible object API.
+  - [ ] **EG-DURABLE-KERNEL-R860.5:** Listener refusals.
+  - [ ] **EG-DURABLE-KERNEL-R860.6:** Hot-path proof: one store behind four protocols.

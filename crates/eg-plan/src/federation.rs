@@ -743,22 +743,26 @@ impl HttpJsonSource<'_> {
         // ureq's per-call resolver via the shared federation gate. This closes the usual
         // validate-then-resolve DNS rebinding gap.
         let target = validate_http_json_target(self.url)?;
-        let agent = crate::federation_ssrf::pinned_agent_builder(&target)
-            .timeout_connect(HTTP_JSON_CONNECT_TIMEOUT)
-            .timeout_read(HTTP_JSON_IO_TIMEOUT)
-            .timeout_write(HTTP_JSON_IO_TIMEOUT)
-            .timeout(HTTP_JSON_TOTAL_TIMEOUT)
-            .build();
+        let builder = ureq::Agent::config_builder()
+            .timeout_connect(Some(HTTP_JSON_CONNECT_TIMEOUT))
+            .timeout_recv_response(Some(HTTP_JSON_IO_TIMEOUT))
+            .timeout_recv_body(Some(HTTP_JSON_IO_TIMEOUT))
+            .timeout_send_request(Some(HTTP_JSON_IO_TIMEOUT))
+            .timeout_send_body(Some(HTTP_JSON_IO_TIMEOUT))
+            .timeout_global(Some(HTTP_JSON_TOTAL_TIMEOUT));
+        let agent = crate::federation_ssrf::pinned_agent(&target, builder);
 
         let response = agent
             .get(self.url)
             .call()
             .map_err(|_| "federation: HTTP JSON request failed".to_string())?;
-        if !(200..300).contains(&response.status()) {
+        if !response.status().is_success() {
             return Err("federation: HTTP JSON source returned an error".to_string());
         }
         if response
-            .header("Content-Length")
+            .headers()
+            .get("Content-Length")
+            .and_then(|value| value.to_str().ok())
             .and_then(|value| value.parse::<u64>().ok())
             .is_some_and(|length| length > MAX_HTTP_JSON_BODY_BYTES as u64)
         {
@@ -770,6 +774,7 @@ impl HttpJsonSource<'_> {
         // from oversized without trusting Content-Length or transfer framing.
         let mut body = Vec::new();
         response
+            .into_body()
             .into_reader()
             .take((MAX_HTTP_JSON_BODY_BYTES + 1) as u64)
             .read_to_end(&mut body)

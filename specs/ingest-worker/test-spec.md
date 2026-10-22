@@ -60,3 +60,29 @@ R003.14 and R003.18 must reuse session/message IDs across two connectors and two
 Same-source replay must remain idempotent; conflicting same-source content must return `DuplicateMessageConflict`.
 R003.18 must deny transcript text and provenance to same-tenant unauthorized callers, while allowing a second authorized agent.
 Forged tenant or policy identities must never broaden access or commit a projection.
+
+## Source permission sync, deletion reconciliation and hierarchy
+
+| Row | Proving test |
+|---|---|
+| `EG-INGEST-WORKER-R902` | See each child. |
+| `EG-INGEST-WORKER-R902.1` | `crates/eg-types/tests/source_governance.rs::access_snapshot_round_trips` |
+| `EG-INGEST-WORKER-R902.2` | `crates/eg-core/tests/source_permission_sync.rs::access_batch_leaves_content_unchanged` |
+| `EG-INGEST-WORKER-R902.3` | `tests/test_source_permission_sync_served.py::test_group_change_applies_without_rewrite` |
+| `EG-INGEST-WORKER-R902.4` | `tests/test_source_permission_sync_served.py::test_permission_sync_refusals` |
+| `EG-INGEST-WORKER-R902.5` | `tests/test_source_permission_sync_served.py::test_stale_restricted_record_fails_closed` |
+| `EG-INGEST-WORKER-R902.6` | `cargo bench --bench source_permission_sync` |
+| `EG-INGEST-WORKER-R903` | See each child. |
+| `EG-INGEST-WORKER-R903.1` | `crates/eg-types/tests/source_governance.rs::reconcile_plan_round_trips` |
+| `EG-INGEST-WORKER-R903.2` | `crates/eg-core/tests/source_reconcile.rs::missing_records_delete_after_grace` |
+| `EG-INGEST-WORKER-R903.3` | `tests/test_source_reconcile_served.py::test_enumeration_prunes_deleted_record` |
+| `EG-INGEST-WORKER-R903.4` | `tests/test_source_reconcile_served.py::test_mass_delete_guard_refuses` |
+| `EG-INGEST-WORKER-R903.5` | `tests/test_source_reconcile_served.py::test_reconcile_receipt_reads_back` |
+| `EG-INGEST-WORKER-R903.6` | `cargo bench --bench source_reconcile` |
+| `EG-INGEST-WORKER-R904` | See each child. |
+| `EG-INGEST-WORKER-R904.1` | `crates/eg-types/tests/source_governance.rs::container_round_trips` |
+| `EG-INGEST-WORKER-R904.2` | `crates/eg-core/tests/source_hierarchy.rs::subtree_returns_descendants` |
+| `EG-INGEST-WORKER-R904.3` | `tests/test_source_hierarchy_served.py::test_containers_ingest_and_scope` |
+| `EG-INGEST-WORKER-R904.4` | `tests/test_source_hierarchy_served.py::test_container_refusals` |
+| `EG-INGEST-WORKER-R904.5` | `tests/test_source_hierarchy_served.py::test_container_tree_reads_back` |
+| `EG-INGEST-WORKER-R904.6` | `cargo bench --bench source_hierarchy` |

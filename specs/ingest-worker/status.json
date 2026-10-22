@@ -111,7 +111,28 @@
     "EG-INGEST-WORKER-R901.3",
     "EG-INGEST-WORKER-R901.4",
     "EG-INGEST-WORKER-R901.5",
-    "EG-INGEST-WORKER-R901.6"
+    "EG-INGEST-WORKER-R901.6",
+    "EG-INGEST-WORKER-R902",
+    "EG-INGEST-WORKER-R902.1",
+    "EG-INGEST-WORKER-R902.2",
+    "EG-INGEST-WORKER-R902.3",
+    "EG-INGEST-WORKER-R902.4",
+    "EG-INGEST-WORKER-R902.5",
+    "EG-INGEST-WORKER-R902.6",
+    "EG-INGEST-WORKER-R903",
+    "EG-INGEST-WORKER-R903.1",
+    "EG-INGEST-WORKER-R903.2",
+    "EG-INGEST-WORKER-R903.3",
+    "EG-INGEST-WORKER-R903.4",
+    "EG-INGEST-WORKER-R903.5",
+    "EG-INGEST-WORKER-R903.6",
+    "EG-INGEST-WORKER-R904",
+    "EG-INGEST-WORKER-R904.1",
+    "EG-INGEST-WORKER-R904.2",
+    "EG-INGEST-WORKER-R904.3",
+    "EG-INGEST-WORKER-R904.4",
+    "EG-INGEST-WORKER-R904.5",
+    "EG-INGEST-WORKER-R904.6"
   ],
   "requirements": [
     {
@@ -984,6 +1005,177 @@
     },
     {
       "id": "EG-INGEST-WORKER-R901.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R902",
+      "title": "Source permission and group sync (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-INGEST-WORKER-R902.1",
+        "EG-INGEST-WORKER-R902.2",
+        "EG-INGEST-WORKER-R902.3",
+        "EG-INGEST-WORKER-R902.4",
+        "EG-INGEST-WORKER-R902.5",
+        "EG-INGEST-WORKER-R902.6"
+      ]
+    },
+    {
+      "id": "EG-INGEST-WORKER-R902.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R902.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R902.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R902.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R902.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R902.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R903",
+      "title": "Source deletion reconciliation (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-INGEST-WORKER-R903.1",
+        "EG-INGEST-WORKER-R903.2",
+        "EG-INGEST-WORKER-R903.3",
+        "EG-INGEST-WORKER-R903.4",
+        "EG-INGEST-WORKER-R903.5",
+        "EG-INGEST-WORKER-R903.6"
+      ]
+    },
+    {
+      "id": "EG-INGEST-WORKER-R903.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R903.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R903.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R903.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R903.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R903.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R904",
+      "title": "Source container hierarchy (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-INGEST-WORKER-R904.1",
+        "EG-INGEST-WORKER-R904.2",
+        "EG-INGEST-WORKER-R904.3",
+        "EG-INGEST-WORKER-R904.4",
+        "EG-INGEST-WORKER-R904.5",
+        "EG-INGEST-WORKER-R904.6"
+      ]
+    },
+    {
+      "id": "EG-INGEST-WORKER-R904.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R904.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R904.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R904.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R904.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R904.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],

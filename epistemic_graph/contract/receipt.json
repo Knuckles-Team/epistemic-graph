@@ -1,6 +1,6 @@
 {
   "artifact_digests": {
-    "contract/errors.json": "f364d7712aad64bec33a53f67b291827d57dee6474dab094a3864fdcaaf5a5eb",
+    "contract/errors.json": "8223b5c016e3c5d23ebc3b45259ab2721313b8939668b097e16c56082ed362f5",
     "contract/fixtures/connector_pack_digest_vectors.json": "b2d1e0410853004a6cd3db63f660fbd99adfa87fd3d5839b008590dbc35fd8d6",
     "contract/fixtures/decision_digest_vectors.json": "cbf0d0712d78901015451aa9e7e2b0041063c53d8056a8046faf64330f4c5a41",
     "contract/fixtures/method_body_vectors.json": "b9dc9b98c500745f879103168d06264c63c5d4ebe0868026c2b27384e8446891",
@@ -22,7 +22,7 @@
     "crates/eg-capabilities/generated/method_catalog.rs": "3cd4e8641e253a5afd2d320c8dc6c9a01ea41be3671a82a3519ece92afcb5753",
     "docs/capabilities.generated.md": "5223f8cd463625f80b7e55457798ebb2235084feeb07f1222c4062d6dd05e977",
     "epistemic_graph/contract/__init__.py": "028357ea7c0ac35605ca94b4b2d2e7b4735077766a027519bc336b904bf8b3cf",
-    "epistemic_graph/contract/errors.json": "f364d7712aad64bec33a53f67b291827d57dee6474dab094a3864fdcaaf5a5eb",
+    "epistemic_graph/contract/errors.json": "8223b5c016e3c5d23ebc3b45259ab2721313b8939668b097e16c56082ed362f5",
     "epistemic_graph/contract/methods.json": "683c9f10bdef4105cdd257c0479d890c15af83131f72b9a518bbab643d26ce3a",
     "epistemic_graph/contract/schemas/method.request.json": "4b2375c12cb96b3670b77a1415ba882b859508e7ffba30f54f3f05983c698403",
     "epistemic_graph/contract/schemas/result.cluster.json": "edf102195cce1961ec9fa9b695753ab741f0c40031c3c8beeb9b953bc1472c07",
@@ -71,7 +71,7 @@
     "epistemic_graph/generated/transactions.py": "83174fd4a8d2032577c60bf61dacf08fbe3b5df8530da66a19d1b36eb9920335",
     "epistemic_graph/generated/write_back.py": "cbd29e0308e7e095abf84d5f31a67ce88ea46c69f8f39a95369a03ce82c21df0"
   },
-  "contract_digest": "d24c26950c4c6d9ee7306944db3129e39c39899d2110107638efbe8b6ca8d6d2",
+  "contract_digest": "dd76dc902c3b1e3f579f7214517a37ff0f670ab17e892d93a8d6b5e52bdd2b46",
   "contract_version": 1,
   "feature_profile": [
     "contract",

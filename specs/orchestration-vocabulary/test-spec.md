@@ -82,3 +82,9 @@ Test equal admitted endpoints in exact and descendant modes. Test distinct candi
 - `EG-ORCH-VOCAB-R802.6`: `tests/orchestration/test_harness_lessons_served.py::test_contrast_lesson_and_retrieval_served`.
 
 Status remains SPECIFIED. `landed_in` and `verified_by` remain empty.
+
+## Requirement rows as typed nodes
+
+| Row | Proving test |
+|---|---|
+| `EG-ORCH-VOCAB-R012.9` | `crates/eg-core/tests/spec_folder_mapping.rs::requirement_rows_become_nodes` |

@@ -1,0 +1,75 @@
+# EG-HYBRID-STORAGE — Implementation tasks
+
+Governing spec: [spec.md](spec.md). Design: [plan.md](plan.md). Rows: [requirements.md](requirements.md).
+
+Ordered producer first. Compile slot: EG only, one cargo lane host-wide at a time.
+Phase order follows plan.md "Build sequence".
+
+- [ ] `EG-HYBRID-STORAGE-R001` — Capability partition taxonomy.
+- [ ] `EG-HYBRID-STORAGE-R002` — Plan-level query router.
+- [ ] `EG-HYBRID-STORAGE-R003` — Placement catalog and single DDL authority.
+- [ ] `EG-HYBRID-STORAGE-R004` — Single admission authority for row writes.
+- [ ] `EG-HYBRID-STORAGE-R005` — Fence record and cross-engine consistency.
+- [ ] `EG-HYBRID-STORAGE-R006` — Secondary-index contract.
+- [ ] `EG-HYBRID-STORAGE-R007` — Projection pipeline over the committed stream.
+- [ ] `EG-HYBRID-STORAGE-R008` — Backfill and row-ready gate.
+- [ ] `EG-HYBRID-STORAGE-R009` — Shadow-read parity before cutover.
+- [ ] `EG-HYBRID-STORAGE-R010` — Degradation and failover semantics.
+- [ ] `EG-HYBRID-STORAGE-R011` — Workload-class extension and per-listener route gate.
+- [ ] `EG-HYBRID-STORAGE-R012` — Mixed-batch boundary: typed refusal and coordinated-commit seam.
+- [ ] `EG-HYBRID-STORAGE-R013` — Storage-provider capability negotiation (rollup).
+- [ ] `EG-HYBRID-STORAGE-R013.1` — Model.
+- [ ] `EG-HYBRID-STORAGE-R013.2` — Behavior.
+- [ ] `EG-HYBRID-STORAGE-R013.3` — Wiring.
+- [ ] `EG-HYBRID-STORAGE-R013.4` — Refusal.
+- [ ] `EG-HYBRID-STORAGE-R013.5` — Evidence.
+- [ ] `EG-HYBRID-STORAGE-R013.6` — Hot-path proof.
+- [ ] `EG-HYBRID-STORAGE-R014` — Placement policy by record class (rollup).
+- [ ] `EG-HYBRID-STORAGE-R014.1` — Model.
+- [ ] `EG-HYBRID-STORAGE-R014.2` — Behavior.
+- [ ] `EG-HYBRID-STORAGE-R014.3` — Wiring.
+- [ ] `EG-HYBRID-STORAGE-R014.4` — Refusal.
+- [ ] `EG-HYBRID-STORAGE-R014.5` — Evidence.
+- [ ] `EG-HYBRID-STORAGE-R014.6` — Hot-path proof.
+- [ ] `EG-HYBRID-STORAGE-R015` — Own-write reads, idempotency and replay across engines (rollup).
+- [ ] `EG-HYBRID-STORAGE-R015.1` — Model.
+- [ ] `EG-HYBRID-STORAGE-R015.2` — Behavior.
+- [ ] `EG-HYBRID-STORAGE-R015.3` — Wiring.
+- [ ] `EG-HYBRID-STORAGE-R015.4` — Refusal.
+- [ ] `EG-HYBRID-STORAGE-R015.5` — Evidence.
+- [ ] `EG-HYBRID-STORAGE-R015.6` — Hot-path proof.
+- [ ] `EG-HYBRID-STORAGE-R016` — Federated plans with pushdown to the row engine (rollup).
+- [ ] `EG-HYBRID-STORAGE-R016.1` — Model.
+- [ ] `EG-HYBRID-STORAGE-R016.2` — Behavior.
+- [ ] `EG-HYBRID-STORAGE-R016.3` — Wiring.
+- [ ] `EG-HYBRID-STORAGE-R016.4` — Refusal.
+- [ ] `EG-HYBRID-STORAGE-R016.5` — Evidence.
+- [ ] `EG-HYBRID-STORAGE-R016.6` — Hot-path proof.
+- [ ] `EG-HYBRID-STORAGE-R017` — Tenancy and row-level security on the row engine (rollup).
+- [ ] `EG-HYBRID-STORAGE-R017.1` — Model.
+- [ ] `EG-HYBRID-STORAGE-R017.2` — Behavior.
+- [ ] `EG-HYBRID-STORAGE-R017.3` — Wiring.
+- [ ] `EG-HYBRID-STORAGE-R017.4` — Refusal.
+- [ ] `EG-HYBRID-STORAGE-R017.5` — Evidence.
+- [ ] `EG-HYBRID-STORAGE-R017.6` — Hot-path proof.
+- [ ] `EG-HYBRID-STORAGE-R018` — Backup, restore and placement migration (rollup).
+- [ ] `EG-HYBRID-STORAGE-R018.1` — Model.
+- [ ] `EG-HYBRID-STORAGE-R018.2` — Behavior.
+- [ ] `EG-HYBRID-STORAGE-R018.3` — Wiring.
+- [ ] `EG-HYBRID-STORAGE-R018.4` — Refusal.
+- [ ] `EG-HYBRID-STORAGE-R018.5` — Evidence.
+- [ ] `EG-HYBRID-STORAGE-R018.6` — Hot-path proof.
+- [ ] `EG-HYBRID-STORAGE-R019` — Performance budget and placement benchmarks (rollup).
+- [ ] `EG-HYBRID-STORAGE-R019.1` — Model.
+- [ ] `EG-HYBRID-STORAGE-R019.2` — Behavior.
+- [ ] `EG-HYBRID-STORAGE-R019.3` — Wiring.
+- [ ] `EG-HYBRID-STORAGE-R019.4` — Refusal.
+- [ ] `EG-HYBRID-STORAGE-R019.5` — Evidence.
+- [ ] `EG-HYBRID-STORAGE-R019.6` — Hot-path proof.
+- [ ] `EG-HYBRID-STORAGE-R020` — Row-engine deployment contract (rollup).
+- [ ] `EG-HYBRID-STORAGE-R020.1` — Model.
+- [ ] `EG-HYBRID-STORAGE-R020.2` — Behavior.
+- [ ] `EG-HYBRID-STORAGE-R020.3` — Wiring.
+- [ ] `EG-HYBRID-STORAGE-R020.4` — Refusal.
+- [ ] `EG-HYBRID-STORAGE-R020.5` — Evidence.
+- [ ] `EG-HYBRID-STORAGE-R020.6` — Hot-path proof.

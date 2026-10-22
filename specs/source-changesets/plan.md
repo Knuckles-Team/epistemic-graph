@@ -95,3 +95,29 @@ Standard per-repo gates apply. Clippy, test, jscpd, CCCC, dupehound, KISS. The c
 and the tree query are new code. They pass the no-duplicate-authority check against the existing
 commit and blob modules. The simulation harness runs in the spec gate. Release proof follows
 EG-CONTRACT.
+
+
+## Graph-native edits (R013) and structured trailers (R002.1)
+
+An agent edits a code symbol, not a file. The engine owns the projection from symbol to bytes.
+
+```text
+agent -> arbora source.edit_symbol (ARBORA-OPS-R848.4)
+      -> EG SubmitSymbolEdit
+         1. resolve symbol_id at base_rev -> (path, blob_digest, byte span)   code graph, EG-REPO-INGEST-R600
+         2. check anchor_span_digest == digest(span bytes)                     else EDIT_BASE_STALE
+         3. splice ops per file, descending span order                         bytes outside spans unchanged
+         4. parse_file (crates/eg-compute/src/parser/tree_sitter.rs:249)       re-parse each changed file
+         5. compare symbols: edited resolves, untouched keep structure hash    else EDIT_ROUNDTRIP_MISMATCH
+         6. write blobs (R001), build one changeset (R002), accept (R003)
+         7. re-index (R006), derive lifecycle edges (EG-SDLC-R001)
+      <- accept, server rebase, or typed refusal
+```
+
+The file projection is the authority for bytes. The code graph is the authority for structure.
+The re-parse ties both: a changeset lands only when the new bytes parse back to the declared
+symbol change. A plain file changeset through `SubmitChangeset` stays available for files with
+no parser.
+
+Trailers become typed fields on the changeset. The git bridge of R010 maps them to and from the
+commit message trailers. EG-SDLC reads the typed fields, never the message text.

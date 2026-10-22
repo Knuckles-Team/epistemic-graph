@@ -158,6 +158,12 @@
       "retryable": false
     },
     {
+      "class": "validation",
+      "code": "AdoptedHarnessNoDecision",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
       "class": "server",
       "code": "BODY_DIGEST_MISMATCH",
       "http_status_hint": 400,
@@ -400,6 +406,12 @@
     {
       "class": "server",
       "code": "CORRUPT_WRITE_BACK",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "validation",
+      "code": "ContrastConditionsMismatch",
       "http_status_hint": 400,
       "retryable": false
     },
@@ -723,7 +735,109 @@
     },
     {
       "class": "decision",
+      "code": "HARNESS_COMPONENT_VERSION_UNKNOWN",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "decision",
+      "code": "HARNESS_CONTRAST_MIN_CANDIDATES",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "decision",
+      "code": "HARNESS_CONTRAST_TOO_MANY_CANDIDATES",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "decision",
+      "code": "HARNESS_CONTRAST_TRACE_MISMATCH",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "decision",
       "code": "HEAD_INVALID",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "validation",
+      "code": "HarnessConfidenceInvalid",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "validation",
+      "code": "HarnessContentDigestMismatch",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "validation",
+      "code": "HarnessIdentityMissing",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "validation",
+      "code": "HarnessKindUnknown",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "validation",
+      "code": "HarnessRecordImmutable",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "validation",
+      "code": "HarnessRecordMalformed",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "validation",
+      "code": "HarnessRecordWithoutStamp",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "validation",
+      "code": "HarnessSupersessionStale",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "validation",
+      "code": "HarnessSupersessionUnknown",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "validation",
+      "code": "HarnessValidIntervalInverted",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "validation",
+      "code": "HarnessVersionImmutable",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "validation",
+      "code": "HarnessVersionWithoutEvidence",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "validation",
+      "code": "HarnessVersionWithoutStamp",
       "http_status_hint": 400,
       "retryable": false
     },
@@ -938,6 +1052,24 @@
       "retryable": false
     },
     {
+      "class": "validation",
+      "code": "LessonConfidenceInvalid",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "validation",
+      "code": "LessonWithoutEvidence",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "validation",
+      "code": "LessonWithoutImprovement",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
       "class": "server",
       "code": "MALFORMED_BODY",
       "http_status_hint": 400,
@@ -976,6 +1108,12 @@
     {
       "class": "decision",
       "code": "NUMERIC_REFUSED",
+      "http_status_hint": 400,
+      "retryable": false
+    },
+    {
+      "class": "validation",
+      "code": "NoLessons",
       "http_status_hint": 400,
       "retryable": false
     },
