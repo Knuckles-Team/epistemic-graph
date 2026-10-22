@@ -196,12 +196,13 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "37a29ee3fe0e",
+        "398f3164f85b",
         "6cd6c7ea0c87",
         "72c7dfa478ba",
         "e2b2f1cfa8ee"
       ],
       "verified_by": [
-        "crates/eg-capabilities/src/contract/python/surfaces/tests.rs:116",
+        "crates/eg-capabilities/src/contract/python/surfaces/tests.rs:121",
         "tests/test_generated_models.py:123",
         "tests/test_generated_union_variants.py:25",
         "tests/test_generated_union_variants.py:27"

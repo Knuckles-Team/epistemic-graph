@@ -528,7 +528,7 @@
         "b43f33569dd4"
       ],
       "verified_by": [
-        "src/raft/command/native/tests.rs:179"
+        "src/raft/command/native/tests.rs:180"
       ]
     },
     {
@@ -1112,7 +1112,7 @@
         "cd899a5c8c20"
       ],
       "verified_by": [
-        "src/raft/command/native/tests.rs:279"
+        "src/raft/command/native/tests.rs:280"
       ]
     },
     {
@@ -3405,10 +3405,11 @@
       "title": "Read the committed terminal event through the existing WorkItem outcome read",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "398f3164f85b",
         "6aa2533a8865"
       ],
       "verified_by": [
-        "src/redb_store.rs:6302",
+        "src/redb_store.rs:6308",
         "src/redb_store/work_item/read/tests.rs:130",
         "src/redb_store/work_item/read/tests.rs:182",
         "src/redb_store/work_item/read/tests.rs:221",
@@ -4156,7 +4157,7 @@
         "2f8b61b390e9"
       ],
       "verified_by": [
-        "src/redb_store/work_item/row_guard.rs:267",
+        "src/redb_store/work_item/row_guard.rs:271",
         "tests/adopt_workitem_authenticated_replay.rs:451",
         "tests/test_work_item_retry_identity.py:128",
         "tests/test_work_item_retry_identity.py:274"
@@ -4241,11 +4242,11 @@
         "2f8b61b390e9"
       ],
       "verified_by": [
-        "src/redb_store/work_item/row_guard.rs:317",
+        "src/redb_store/work_item/row_guard.rs:321",
         "src/redb_store/work_item/run_owner/tests.rs:104",
         "src/redb_store/work_item/run_owner/tests.rs:132",
         "src/redb_store/work_item/run_owner/tests.rs:164",
-        "src/redb_store/work_item/run_owner/tests.rs:65"
+        "src/redb_store/work_item/run_owner/tests.rs:476"
       ]
     },
     {
