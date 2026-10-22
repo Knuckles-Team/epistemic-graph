@@ -1182,6 +1182,7 @@
       "title": "Writes are stamped from the authoritative scope version",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "5c83a1967042",
         "aeb9c998476a"
       ],
       "verified_by": [
