@@ -2043,3 +2043,14 @@ model-judge-only test split never drives promotion, per R016.
 ## Memory consolidation and contradiction tracking (R651.7, R651.8, R700.7)
 
 The served `Consolidate`, `Reinforce` and `DecayMemories` methods exist and route through `src/server/handlers/graph_ops/gateway_graph_routes.rs`. R651.7 adds episodic-to-semantic promotion on that route. R651.8 puts reinforce and decay on one salience function. R700.7 persists each contradiction that the truth-maintenance code in `crates/eg-epistemic/src/tms.rs` detects. UQL `CONTRADICTS` reads the records.
+
+## Program optimization and champion promotion (R810 to R813)
+
+The engine already holds the program compiler, the policy evolution receipts and the promotion compare-and-set. These rows bind that code to IDs and serve it. Most of the work is wiring.
+
+- R810 serves `ProgramOptimize`. The job path is `submit_job_program_optimize` in `src/server/handlers/jobs/submit.rs`, then `executor_program.rs`.
+- R811 binds `PolicyEvolution` capture, training and held-out evaluation. The dispatch path is `src/server/dispatch/policy_evolution/gate.rs`.
+- R812 names the champion as the active `ProgramRevisionIdentity`. A rollback re-promotes `parent_ref` through `program_promotion_methods` in `src/server/mutation_batch/commit/program.rs`.
+- R813 turns trace-store scores into training examples with a grader kind. A model-judge score never decides a promotion, per R016.
+
+arbora serves the optimize, promote and rollback operations through ARBORA-OPS-R860. The trace-store connector imports scores through CONN-LANGFUSE-AGENT-TRACE-INGEST-R001. Self-healing stays in R161 and R704. Evaluation gates stay in R006 and R060.

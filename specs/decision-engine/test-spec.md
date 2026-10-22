@@ -858,3 +858,40 @@ Hot-path proof for `EG-DECISION-ENGINE-R803`: `tests/decide/test_harness_contras
 | Episodic-to-semantic promotion | `EG-DECISION-ENGINE-R651.7` | `tests/memory/test_consolidate_served.py::test_episodes_promote_to_semantic_fact` |
 | Reinforce and decay share one salience update | `EG-DECISION-ENGINE-R651.8` | `tests/memory/test_consolidate_served.py::test_reinforce_and_decay_share_salience` |
 | Contradiction records are tracked | `EG-DECISION-ENGINE-R700.7` | `tests/decision/test_contradiction_records.py::test_detected_contradiction_is_tracked` |
+
+## EG-DECISION-ENGINE-R810 to R813 acceptance
+
+| Case | Row | Proving test and observation |
+|---|---|---|
+| Model | `EG-DECISION-ENGINE-R810.1` | `crates/eg-program/tests/native_program.rs` round-trips each contract and lists the 13 kinds. |
+| Behavior | `EG-DECISION-ENGINE-R810.2` | `native_program.rs` tests compile each kind on a fixture corpus and cancel one run. |
+| Wiring | `EG-DECISION-ENGINE-R810.3` | A served test submits the job and reads the finished `ProgramRevision`. |
+| Refusal | `EG-DECISION-ENGINE-R810.4` | A served test submits each invalid request and asserts the code. |
+| Evidence | `EG-DECISION-ENGINE-R810.5` | A test reruns one job and compares the digests. |
+| Hot-path proof | `EG-DECISION-ENGINE-R810.6` | `tests/test_program_optimize_served.py::test_program_optimize_job_end_to_end` passes, and the benchmark meets the budget. |
+| Model | `EG-DECISION-ENGINE-R811.1` | `crates/eg-types/src/policy_evolution/tests.rs` round-trips each op and receipt. |
+| Behavior | `EG-DECISION-ENGINE-R811.2` | `policy_evolution/tests.rs` covers capture denial and split isolation. |
+| Wiring | `EG-DECISION-ENGINE-R811.3` | A served test runs capture, training and evaluation in order. |
+| Refusal | `EG-DECISION-ENGINE-R811.4` | `src/server/dispatch/policy_evolution/gate/tests.rs` asserts each code. |
+| Evidence | `EG-DECISION-ENGINE-R811.5` | A test reads back each receipt and compares the fields. |
+| Hot-path proof | `EG-DECISION-ENGINE-R811.6` | `tests/test_policy_evolution_served.py::test_capture_train_evaluate_served` passes. |
+| Model | `EG-DECISION-ENGINE-R812.1` | A unit test builds a champion, a challenger and a parent link. |
+| Behavior | `EG-DECISION-ENGINE-R812.2` | Unit tests cover win, loss, tie, rollback and the model-judge refusal. |
+| Wiring | `EG-DECISION-ENGINE-R812.3` | A served test promotes one challenger and rolls it back. |
+| Refusal | `EG-DECISION-ENGINE-R812.4` | A served test asserts each code and an unchanged champion. |
+| Evidence | `EG-DECISION-ENGINE-R812.5` | A test reads back the promotion record. |
+| Hot-path proof | `EG-DECISION-ENGINE-R812.6` | `tests/test_program_champion_served.py::test_promote_then_rollback` passes. |
+| Model | `EG-DECISION-ENGINE-R813.1` | A unit test round-trips one example per grader kind. |
+| Behavior | `EG-DECISION-ENGINE-R813.2` | Unit tests cover each grader kind and the skip. |
+| Wiring | `EG-DECISION-ENGINE-R813.3` | A served test ingests two scores and builds one corpus. |
+| Refusal | `EG-DECISION-ENGINE-R813.4` | A served test asserts each code. |
+| Evidence | `EG-DECISION-ENGINE-R813.5` | A test reads back one example. |
+| Hot-path proof | `EG-DECISION-ENGINE-R813.6` | `tests/test_trace_scores_to_corpus_served.py::test_scores_build_corpus_and_compile` passes. |
+
+Hot-path proof for `EG-DECISION-ENGINE-R810`: `tests/test_program_optimize_served.py::test_program_optimize_job_end_to_end`.
+
+Hot-path proof for `EG-DECISION-ENGINE-R811`: `tests/test_policy_evolution_served.py::test_capture_train_evaluate_served`.
+
+Hot-path proof for `EG-DECISION-ENGINE-R812`: `tests/test_program_champion_served.py::test_promote_then_rollback`.
+
+Hot-path proof for `EG-DECISION-ENGINE-R813`: `tests/test_trace_scores_to_corpus_served.py::test_scores_build_corpus_and_compile`.
