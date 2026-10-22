@@ -137,6 +137,8 @@
     "EG-TYPED-PACKS-R085",
     "EG-TYPED-PACKS-R085.1",
     "EG-TYPED-PACKS-R085.2",
+    "EG-TYPED-PACKS-R085.3",
+    "EG-TYPED-PACKS-R085.4",
     "EG-TYPED-PACKS-R086",
     "EG-TYPED-PACKS-R087",
     "EG-TYPED-PACKS-R088",
@@ -267,7 +269,22 @@
     "EG-TYPED-PACKS-R800.3",
     "EG-TYPED-PACKS-R800.4",
     "EG-TYPED-PACKS-R800.5",
-    "EG-TYPED-PACKS-R800.6"
+    "EG-TYPED-PACKS-R800.6",
+    "EG-TYPED-PACKS-R085.5",
+    "EG-TYPED-PACKS-R085.6",
+    "EG-TYPED-PACKS-R085.3.1",
+    "EG-TYPED-PACKS-R085.3.2",
+    "EG-TYPED-PACKS-R085.3.3",
+    "EG-TYPED-PACKS-R085.4.1",
+    "EG-TYPED-PACKS-R085.4.2",
+    "EG-TYPED-PACKS-R085.4.3",
+    "EG-TYPED-PACKS-R085.5.1",
+    "EG-TYPED-PACKS-R085.5.2",
+    "EG-TYPED-PACKS-R085.5.3",
+    "EG-TYPED-PACKS-R085.5.4",
+    "EG-TYPED-PACKS-R085.6.1",
+    "EG-TYPED-PACKS-R085.6.2",
+    "EG-TYPED-PACKS-R085.6.3"
   ],
   "requirements": [
     {
@@ -1665,7 +1682,11 @@
       "verified_by": [],
       "rollup_of": [
         "EG-TYPED-PACKS-R085.1",
-        "EG-TYPED-PACKS-R085.2"
+        "EG-TYPED-PACKS-R085.2",
+        "EG-TYPED-PACKS-R085.3",
+        "EG-TYPED-PACKS-R085.4",
+        "EG-TYPED-PACKS-R085.5",
+        "EG-TYPED-PACKS-R085.6"
       ]
     },
     {
@@ -1687,6 +1708,30 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R085.3",
+      "title": "Rollup through R085.3.1–R085.3.3",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-TYPED-PACKS-R085.3.1",
+        "EG-TYPED-PACKS-R085.3.2",
+        "EG-TYPED-PACKS-R085.3.3"
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R085.4",
+      "title": "Rollup through R085.4.1–R085.4.3",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-TYPED-PACKS-R085.4.1",
+        "EG-TYPED-PACKS-R085.4.2",
+        "EG-TYPED-PACKS-R085.4.3"
+      ]
     },
     {
       "id": "EG-TYPED-PACKS-R086",
@@ -2818,6 +2863,122 @@
     {
       "id": "EG-TYPED-PACKS-R800.6",
       "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R085.5",
+      "title": "Rollup through R085.5.1–R085.5.4",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-TYPED-PACKS-R085.5.1",
+        "EG-TYPED-PACKS-R085.5.2",
+        "EG-TYPED-PACKS-R085.5.3",
+        "EG-TYPED-PACKS-R085.5.4"
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R085.6",
+      "title": "Rollup through R085.6.1–R085.6.3",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-TYPED-PACKS-R085.6.1",
+        "EG-TYPED-PACKS-R085.6.2",
+        "EG-TYPED-PACKS-R085.6.3"
+      ]
+    },
+    {
+      "id": "EG-TYPED-PACKS-R085.3.1",
+      "title": "Pure reference inspection",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R085.3.2",
+      "title": "Durable reference snapshots",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R085.3.3",
+      "title": "Reference contract and served qualification",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R085.4.1",
+      "title": "Pure renewal ceiling transitions",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R085.4.2",
+      "title": "Durable renewal CAS",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R085.4.3",
+      "title": "Renewal contract and served qualification",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R085.5.1",
+      "title": "Pure registered approval-key transitions",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R085.5.2",
+      "title": "Durable approval-key evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R085.5.3",
+      "title": "Approval-key request stamping",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R085.5.4",
+      "title": "Approval-key served qualification",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R085.6.1",
+      "title": "Pure credential observation",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R085.6.2",
+      "title": "Durable observation revision",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R085.6.3",
+      "title": "Observation contract and served qualification",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

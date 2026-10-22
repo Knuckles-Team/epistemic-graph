@@ -250,3 +250,8 @@ This batch defines the slices; it runs none of their runtime tests.
 - [ ] **EG-DURABLE-KERNEL-R028.4:** Bind verified run ownership during single WorkItem admission and prove transaction refusals.
 
 - [ ] **EG-DURABLE-KERNEL-R028.5:** Implement private native plan publication/readback. Native and served tests, replay/expiry/restart and performance acceptance remain pending.
+
+- [ ] **EG-DURABLE-KERNEL-R030.1:** Qualify dedicated issuer-bound host-start
+  records through canonical contract generation, typed and signed native tests,
+  and normal publication gates. Keep execution reservation, current session policy,
+  restart and benchmark acceptance pending; no live grant or host deployment.

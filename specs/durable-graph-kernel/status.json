@@ -379,7 +379,8 @@
     "EG-DURABLE-KERNEL-R852.5",
     "EG-DURABLE-KERNEL-R852.6",
     "EG-DURABLE-KERNEL-R028.4",
-    "EG-DURABLE-KERNEL-R028.5"
+    "EG-DURABLE-KERNEL-R028.5",
+    "EG-DURABLE-KERNEL-R030.1"
   ],
   "requirements": [
     {
@@ -1122,12 +1123,15 @@
     {
       "id": "EG-DURABLE-KERNEL-R030",
       "title": "Reserved RBAC elevation lease kind cannot be issued generically",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "3157bcbb4ac2",
         "a676823d2b54"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DURABLE-KERNEL-R030.1"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R031",
@@ -1187,7 +1191,7 @@
     },
     {
       "id": "EG-DURABLE-KERNEL-R033.1",
-      "title": "HotStoreEngine, WorkloadProfile, and BenchmarkResult are typed, and winner selection refuses rather than silently defaulting",
+      "title": "HotStoreEngine, WorkloadProfile, and BenchmarkResult are typed. Winner selection refuses rather than silently defaulting",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "19da6ec1bc9b",
@@ -4126,6 +4130,13 @@
         "src/redb_store/work_item/current_plan/tests.rs:62",
         "src/redb_store/work_item/current_plan/tests.rs:95"
       ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R030.1",
+      "title": "Issuer-bound host-start record",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     }
   ]
 }

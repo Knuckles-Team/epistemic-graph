@@ -778,3 +778,8 @@ Deliver these additive leaves in order; preserve R137.1–.6 and R128 unchanged.
 - [ ] **EG-DECISION-ENGINE-R803.6 (Hot-path proof):** Add the served contrast test and the benchmark.
 
 - [ ] **EG-DECISION-ENGINE-R036.102:** Bind the existing graph prepare writer and recovery readers to versioned transaction/participant identity; qualify refusal and legacy recovery.
+
+- [ ] `EG-DECISION-ENGINE-R036.103` Implement durable RBAC prepare, writer interlock and coordinator resolution; qualify reopen, conflicting writes, replay and offline layout upgrade. No profile-admission completion claim.
+- [ ] **EG-DECISION-ENGINE-R036.105:** Qualify atomic certificate persistence, strict expiry, immutable recovery and exact cross-owner binding.
+- [ ] **EG-DECISION-ENGINE-R036.104:** Implement and qualify AgentLibraryOwner durable prepare, all-writer fencing and decision-record materialization/recovery against the native coordinator certificate.
+- [ ] **EG-DECISION-ENGINE-R801.7:** Co-commit caller-bound observed run usage and aggregate unique committed runs with explicit coverage.
