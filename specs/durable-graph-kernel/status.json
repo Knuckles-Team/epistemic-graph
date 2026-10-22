@@ -61,6 +61,7 @@
     "EG-DURABLE-KERNEL-R030",
     "EG-DURABLE-KERNEL-R031",
     "EG-DURABLE-KERNEL-R031.1",
+    "EG-DURABLE-KERNEL-R031.2",
     "EG-DURABLE-KERNEL-R032",
     "EG-DURABLE-KERNEL-R032.1",
     "EG-DURABLE-KERNEL-R033",
@@ -1149,7 +1150,7 @@
     {
       "id": "EG-DURABLE-KERNEL-R031",
       "title": "Audit append supports tenant-scoped idempotent reservation",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "1ef84395fa69",
         "2cc878fb8938",
@@ -1161,7 +1162,8 @@
         "src/redb_store/operation_audit_tests.rs:278"
       ],
       "rollup_of": [
-        "EG-DURABLE-KERNEL-R031.1"
+        "EG-DURABLE-KERNEL-R031.1",
+        "EG-DURABLE-KERNEL-R031.2"
       ]
     },
     {
@@ -1173,6 +1175,15 @@
       ],
       "verified_by": [
         "src/server/dispatch/graph_pipeline/dispatch_helpers.rs:686"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R031.2",
+      "title": "Writes are stamped from the authoritative scope version",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "src/server/mutation_batch/tests.rs:1405"
       ]
     },
     {

@@ -22,7 +22,9 @@ use finish_helpers::{compiled_outbox, compiled_scope_identity};
 
 /// Resolve the current graph version without treating RAM as a substitute for a
 /// missing durable authority. Version zero is the sole implicit bootstrap state;
-/// once RAM has advanced, the durable version row must exist and agree with it.
+/// once RAM has advanced, the durable version row must exist. A durable version
+/// ahead of RAM is accounted into the serving projection; RAM ahead of the
+/// durable version is refused.
 pub(crate) async fn authoritative_graph_version(
     persistence: &Arc<dyn PersistenceBackend>,
     graph_fname: &str,
@@ -31,6 +33,13 @@ pub(crate) async fn authoritative_graph_version(
     let projected_version = core.version();
     match persistence.read_mutation_graph_version(graph_fname).await? {
         Some(version) if version == projected_version => Ok(version),
+        // A durable commit in this scope that the serving projection did not
+        // account (EG-DURABLE-KERNEL-R031.2): bring the projection up to the
+        // authority before anything stamps a version from it.
+        Some(version) if version > projected_version => {
+            core.account_durable_version(version);
+            Ok(version)
+        }
         Some(version) => Err(format!(
             "authoritative graph version {version} does not match the serving projection {projected_version}"
         )),
