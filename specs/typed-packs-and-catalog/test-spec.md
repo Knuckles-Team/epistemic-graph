@@ -385,6 +385,10 @@ No test named here has run; names describe acceptance obligations, not evidence.
 
 Hot-path proof for `EG-TYPED-PACKS-R104`: `tests/connector_pack/test_seed_graph_served.py::test_seed_idempotent_and_partial_reimport`.
 
+## R085.3 session-liveness check
+
+`EG-TYPED-PACKS-R085.3`: served tests cover live, revoked (single and revoke_all), expired (idle and absolute, fake clock), `not_session_bound` for API-key and external-identity callers, refusal of unknown and cross-tenant references, no token text on the wire, and no idle-expiry extension from the check. Pending until the operation exists.
+
 ## R085.1 durable session projection
 
 The native session_evidence source fixtures cover post-touch facts, distinct
