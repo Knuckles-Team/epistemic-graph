@@ -509,3 +509,17 @@ Existing codec-builder Python tests cover success, failed builds and provenance.
 This export-only child does not complete EG-CONTRACT-R006 or EG-T-05/EG-T-06.
 Two-build reproducibility, size-budget acceptance and Go/JS vector replay remain
 separate qualification obligations; baseline committed WASM bytes and pins stay unchanged.
+
+### 2026-10-22: bound workspace Clippy with the full-engine budget
+
+EG-CONTRACT-R031 retains blocking Clippy on all three published profiles.
+Run 39801247219 canceled workspace Clippy after about ten minutes of job time.
+Header installation and cache restoration left about six minutes for Clippy.
+The log ends during compilation without a Rust diagnostic.
+This timing supports a job-budget mismatch; it does not prove a manual cancellation.
+Give only the workspace-all-features PR leg the existing 45-minute native budget.
+Keep the other PR legs at ten minutes and non-PR legs at sixty minutes.
+Preserve every profile, all targets, locked dependencies and warnings-as-errors.
+Keep the isolated target path and main-only cache writes unchanged.
+Workflow regression tests verify the budget expression and unchanged job inputs.
+Static tests do not establish native lint acceptance or complete EG-CONTRACT-R031.2.

@@ -606,3 +606,51 @@ def test_job_environment_uses_only_allowed_expression_contexts(context: str) -> 
             if isinstance(value, str) and "${{" in value:
                 assert f"{context}." not in value, name
                 assert f"{context}[" not in value, name
+
+
+def test_workspace_clippy_budget_preserves_blocking_profile_contract() -> None:
+    """EG-CONTRACT-R031: extra compile time never relaxes lint acceptance."""
+    jobs = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())["jobs"]
+    job = jobs["quality-advisory"]
+    assert job["timeout-minutes"] == (
+        "${{ github.event_name == 'pull_request' && "
+        "(matrix.profile.name == 'workspace-all-features' && 45 || 10) || 60 }}"
+    )
+    assert job["needs"] == "changes"
+    assert job["if"] == "needs.changes.outputs.code == 'true'"
+    assert job["runs-on"] == "ubuntu-latest"
+    assert not job.get("continue-on-error", False)
+    assert job["strategy"] == {
+        "fail-fast": False,
+        "matrix": {
+            "profile": [
+                {
+                    "name": "workspace-all-features",
+                    "flags": "--workspace --all-features",
+                },
+                {
+                    "name": "published-full",
+                    "flags": "--no-default-features --features full,ast-extended",
+                },
+                {
+                    "name": "slim-server",
+                    "flags": "--no-default-features --features server",
+                },
+            ]
+        },
+    }
+    for step in job["steps"]:
+        assert not step.get("continue-on-error", False)
+    assert job["steps"][-1]["run"] == (
+        "cargo clippy --locked --keep-going ${{ matrix.profile.flags }} "
+        "--all-targets -- -D warnings"
+    )
+    cache = next(step for step in job["steps"] if "rust-cache@" in step.get("uses", ""))
+    assert cache["with"] == {
+        "workspaces": ". -> target-isolated",
+        "shared-key": "eg-ci-gates",
+        "save-if": "${{ github.ref == 'refs/heads/main' }}",
+        "key": "clippy-${{ matrix.profile.name }}",
+    }
+    config = tomllib.loads((ROOT / ".cargo/config.toml").read_text())
+    assert config["build"]["target-dir"] == "target-isolated"
