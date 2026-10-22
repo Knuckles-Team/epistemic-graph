@@ -1476,7 +1476,7 @@
         "b23e8815f42c"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/statistical.rs:363"
+        "crates/eg-types/src/decision/statistical.rs:374"
       ]
     },
     {
@@ -1509,7 +1509,7 @@
         "b23e8815f42c"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/statistical.rs:370"
+        "crates/eg-types/src/decision/statistical.rs:381"
       ]
     },
     {
@@ -2381,7 +2381,7 @@
         "aea4fe89bd19"
       ],
       "verified_by": [
-        "crates/eg-capabilities/src/error_routing.rs:341",
+        "crates/eg-capabilities/src/error_routing.rs:363",
         "src/server/handlers/admin/connector_pack/tests/content_model.rs:372",
         "src/server/handlers/admin/connector_pack/tests/content_model.rs:407",
         "src/server/handlers/admin/connector_pack/tests/withdrawal.rs:43"
@@ -3772,7 +3772,7 @@
         "c7da75413a3c"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/statistical.rs:351",
+        "crates/eg-types/src/decision/statistical.rs:362",
         "src/server/handlers/decide/stat_tests/harness_config_tests.rs:57",
         "src/server/handlers/decide/stat_tests/harness_config_tests.rs:98"
       ]
@@ -9017,7 +9017,7 @@
     {
       "id": "EG-DECISION-ENGINE-R803",
       "title": "Contrastive harness composition decision (rollup)",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
@@ -9032,44 +9032,72 @@
     {
       "id": "EG-DECISION-ENGINE-R803.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "50ee57133655"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/decision/harness_contrast.rs:528"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R803.2",
       "title": "Behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "50ee57133655"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/decision/harness_contrast.rs:592"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R803.3",
       "title": "Wiring",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "1d4ac34067ff",
+        "50ee57133655"
+      ],
+      "verified_by": [
+        "tests/decide/test_harness_contrast_served.py:313",
+        "tests/decide/test_harness_contrast_served.py:314"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R803.4",
       "title": "Refusal",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "50ee57133655"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/decision/harness_contrast.rs:689"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R803.5",
       "title": "Evidence",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "50ee57133655"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/decision/harness_contrast.rs:914"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R803.6",
       "title": "Hot-path proof",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "1d4ac34067ff",
+        "50ee57133655"
+      ],
+      "verified_by": [
+        "tests/decide/test_harness_contrast_served.py:435",
+        "tests/decide/test_harness_contrast_served.py:436"
+      ]
     },
     {
       "id": "EG-DECISION-ENGINE-R810",

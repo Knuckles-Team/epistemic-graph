@@ -5,9 +5,11 @@ use std::sync::OnceLock;
 
 use eg_types::connector_pack::result::PackWriteErrorCode;
 use eg_types::contract::{EngineErrorCode, ServerErrorCode, UqlCode};
+use eg_types::decision::harness_contrast::HarnessContrastErrorCode;
 use eg_types::decision::statistical::StatisticalErrorCode;
 use eg_types::decision::DecisionErrorCode;
 use eg_types::graph_schema::GraphSchemaErrorCode;
+use eg_types::orchestration::HarnessVocabularyErrorCode;
 use eg_types::solve::SolveErrorCode;
 
 use crate::MethodDescriptor;
@@ -258,6 +260,22 @@ fn add_owner_errors(d: &MethodDescriptor, codes: &mut BTreeSet<&'static str>) {
     if d.policy.is_durable() {
         codes.insert("CORRUPT_MUTATION_LEDGER");
     }
+    // The harness vocabulary's typed write admission (EG-ORCH-VOCAB-R801/R802)
+    // runs inside every node-write method: the direct AddNode gateway path and
+    // the ChangeEnvelope carriers (single and batch, draft and confirmed).
+    if matches!(
+        d.id.as_str(),
+        "AddNode"
+            | "ApplyChangeEnvelope"
+            | "ApplyChangeEnvelopeDraft"
+            | "ApplyChangeEnvelopes"
+            | "ApplyChangeEnvelopeDrafts"
+    ) {
+        codes.extend(typed_codes(
+            HarnessVocabularyErrorCode::ALL,
+            HarnessVocabularyErrorCode::as_str,
+        ));
+    }
     if d.domain == "security" {
         codes.insert("POLICY_NATIVE_AUTHORITY_REQUIRED");
     }
@@ -284,6 +302,10 @@ fn add_typed_handler_errors(d: &MethodDescriptor, codes: &mut BTreeSet<&'static 
         codes.extend(typed_codes(
             StatisticalErrorCode::ALL,
             StatisticalErrorCode::as_str,
+        ));
+        codes.extend(typed_codes(
+            HarnessContrastErrorCode::ALL,
+            HarnessContrastErrorCode::as_str,
         ));
     }
     if id.starts_with("GraphSchema") {
