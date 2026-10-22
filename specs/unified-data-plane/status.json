@@ -315,9 +315,10 @@
       "delivery_state": "LANDED",
       "landed_in": [
         "23ba8c7eab2a",
+        "3dd56fe53283",
         "64f76c5b3209",
-        "d603182af742",
-        "dc9533466828"
+        "9a7674d1bae5",
+        "b28c6e06c13a"
       ],
       "verified_by": [
         "src/server/foreign_catalog.rs:402",
@@ -369,10 +370,16 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "37003f28164f",
+        "3dd56fe53283",
         "8ef8d8e817b7",
         "dc9533466828"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "crates/eg-types/src/attached_catalog.rs:117",
+        "crates/eg-types/src/attached_catalog.rs:145",
+        "crates/eg-types/src/attached_catalog.rs:159",
+        "crates/eg-types/src/attached_catalog.rs:173"
+      ],
       "rollup_of": [
         "EG-UNIFIED-DATA-PLANE-R003.1"
       ]
@@ -398,9 +405,15 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "197081533292",
+        "3dd56fe53283",
         "8ef8d8e817b7"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "crates/eg-types/src/schema_inference.rs:101",
+        "crates/eg-types/src/schema_inference.rs:65",
+        "crates/eg-types/src/schema_inference.rs:75",
+        "crates/eg-types/src/schema_inference.rs:88"
+      ],
       "rollup_of": [
         "EG-UNIFIED-DATA-PLANE-R004.1"
       ]
@@ -426,10 +439,15 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "197081533292",
+        "3dd56fe53283",
         "545b68818f0b",
         "79ba71d072a5"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "crates/eg-plan/src/virtual_graph_mapping.rs:80",
+        "crates/eg-plan/src/virtual_graph_mapping.rs:87",
+        "crates/eg-plan/src/virtual_graph_mapping.rs:96"
+      ],
       "rollup_of": [
         "EG-UNIFIED-DATA-PLANE-R005.1"
       ]
@@ -453,9 +471,14 @@
       "title": "Push down virtual-graph queries to source SQL",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "3dd56fe53283",
         "545b68818f0b"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "crates/eg-plan/src/pushdown_plan.rs:70",
+        "crates/eg-plan/src/pushdown_plan.rs:80",
+        "crates/eg-plan/src/pushdown_plan.rs:90"
+      ],
       "rollup_of": [
         "EG-UNIFIED-DATA-PLANE-R006.1"
       ]
@@ -479,10 +502,16 @@
       "title": "Federate attached tables as DataFusion table providers",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "3dd56fe53283",
         "bff86f252aa4",
         "e8695518196e"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "crates/eg-plan/src/federation_capabilities.rs:106",
+        "crates/eg-plan/src/federation_capabilities.rs:71",
+        "crates/eg-plan/src/federation_capabilities.rs:85",
+        "crates/eg-plan/src/federation_capabilities.rs:92"
+      ],
       "rollup_of": [
         "EG-UNIFIED-DATA-PLANE-R007.1"
       ]
@@ -493,9 +522,16 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "343ebb9c7c6a",
+        "3dd56fe53283",
         "64f76c5b3209"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "crates/eg-durable/src/change_envelope.rs:113",
+        "crates/eg-durable/src/change_envelope.rs:126",
+        "crates/eg-durable/src/change_envelope.rs:141",
+        "crates/eg-durable/src/change_envelope.rs:157",
+        "crates/eg-durable/src/change_envelope.rs:176"
+      ],
       "rollup_of": [
         "EG-UNIFIED-DATA-PLANE-R008.1"
       ]
@@ -538,7 +574,12 @@
       "landed_in": [
         "79ba71d072a5"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "crates/eg-durable/src/idempotent_consumer.rs:60",
+        "crates/eg-durable/src/idempotent_consumer.rs:66",
+        "crates/eg-durable/src/idempotent_consumer.rs:74",
+        "crates/eg-durable/src/idempotent_consumer.rs:82"
+      ],
       "rollup_of": [
         "EG-UNIFIED-DATA-PLANE-R009.1"
       ]
@@ -550,7 +591,12 @@
       "landed_in": [
         "343ebb9c7c6a"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "crates/eg-lake/src/acceleration_policy.rs:110",
+        "crates/eg-lake/src/acceleration_policy.rs:72",
+        "crates/eg-lake/src/acceleration_policy.rs:83",
+        "crates/eg-lake/src/acceleration_policy.rs:94"
+      ],
       "rollup_of": [
         "EG-UNIFIED-DATA-PLANE-R010.1"
       ]
@@ -590,7 +636,12 @@
       "landed_in": [
         "bff86f252aa4"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "crates/eg-plan/src/freshness_router.rs:72",
+        "crates/eg-plan/src/freshness_router.rs:79",
+        "crates/eg-plan/src/freshness_router.rs:85",
+        "crates/eg-plan/src/freshness_router.rs:91"
+      ],
       "rollup_of": [
         "EG-UNIFIED-DATA-PLANE-R011.1"
       ]
@@ -614,9 +665,16 @@
       "title": "Govern write-back to attached sources",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "b3aca9fb42ce"
+        "b3aca9fb42ce",
+        "d0a69c4685f5"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "crates/eg-types/src/attached_source_governance.rs:109",
+        "crates/eg-types/src/attached_source_governance.rs:120",
+        "crates/eg-types/src/attached_source_governance.rs:131",
+        "crates/eg-types/src/attached_source_governance.rs:142",
+        "crates/eg-types/src/attached_source_governance.rs:92"
+      ],
       "rollup_of": [
         "EG-UNIFIED-DATA-PLANE-R012.1"
       ]
@@ -1141,9 +1199,17 @@
       "title": "Bridge Debezium Kafka events into ChangeEnvelope",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "9cb571fb74aa"
+        "6c11520aebfc",
+        "9cb571fb74aa",
+        "de71b5ddd2b2"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "crates/eg-types/src/debezium_bridge.rs:273",
+        "crates/eg-types/src/debezium_bridge.rs:282",
+        "crates/eg-types/src/debezium_bridge.rs:291",
+        "crates/eg-types/src/debezium_bridge.rs:303",
+        "crates/eg-types/src/debezium_bridge.rs:315"
+      ],
       "rollup_of": [
         "EG-UNIFIED-DATA-PLANE-R021.1",
         "EG-UNIFIED-DATA-PLANE-R021.2",
@@ -1377,9 +1443,17 @@
       "title": "Admit applications to the shared platform with rollback",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "1b3cc2f03fa2"
+        "15a7370ecac3",
+        "1b3cc2f03fa2",
+        "6c11520aebfc"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "crates/eg-types/src/platform_admission.rs:232",
+        "crates/eg-types/src/platform_admission.rs:242",
+        "crates/eg-types/src/platform_admission.rs:254",
+        "crates/eg-types/src/platform_admission.rs:262",
+        "crates/eg-types/src/platform_admission.rs:272"
+      ],
       "rollup_of": [
         "EG-UNIFIED-DATA-PLANE-R024.1",
         "EG-UNIFIED-DATA-PLANE-R024.2",
@@ -1409,7 +1483,11 @@
       "landed_in": [
         "15a7370ecac3"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "crates/eg-types/src/platform_admission.rs:292",
+        "crates/eg-types/src/platform_admission.rs:304",
+        "crates/eg-types/src/platform_admission.rs:317"
+      ],
       "rollup_of": [
         "EG-UNIFIED-DATA-PLANE-R024.2.1"
       ]
@@ -1434,7 +1512,9 @@
       "landed_in": [
         "15a7370ecac3"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "crates/eg-types/src/platform_admission.rs:352"
+      ],
       "rollup_of": [
         "EG-UNIFIED-DATA-PLANE-R024.3.1"
       ]
@@ -1487,7 +1567,11 @@
       "landed_in": [
         "15a7370ecac3"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "crates/eg-types/src/pgrx_spike.rs:229",
+        "crates/eg-types/src/pgrx_spike.rs:242",
+        "crates/eg-types/src/pgrx_spike.rs:257"
+      ],
       "rollup_of": [
         "EG-UNIFIED-DATA-PLANE-R025.2.1"
       ]
@@ -1642,9 +1726,17 @@
       "title": "Fix Postgres compatibility gaps proven by captured traffic",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "5873d340b4de"
+        "5873d340b4de",
+        "6c11520aebfc",
+        "e8b99c7db914"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "crates/eg-types/src/pg_compat_feature.rs:193",
+        "crates/eg-types/src/pg_compat_feature.rs:204",
+        "crates/eg-types/src/pg_compat_feature.rs:215",
+        "crates/eg-types/src/pg_compat_feature.rs:228",
+        "crates/eg-types/src/pg_compat_feature.rs:240"
+      ],
       "rollup_of": [
         "EG-UNIFIED-DATA-PLANE-R027.1",
         "EG-UNIFIED-DATA-PLANE-R027.2",
@@ -1674,7 +1766,11 @@
       "landed_in": [
         "e8b99c7db914"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "crates/eg-types/src/pg_compat_feature.rs:262",
+        "crates/eg-types/src/pg_compat_feature.rs:272",
+        "crates/eg-types/src/pg_compat_feature.rs:280"
+      ],
       "rollup_of": [
         "EG-UNIFIED-DATA-PLANE-R027.2.1"
       ]
@@ -1699,7 +1795,10 @@
       "landed_in": [
         "e8b99c7db914"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "crates/eg-types/src/pg_compat_feature.rs:295",
+        "crates/eg-types/src/pg_compat_feature.rs:311"
+      ],
       "rollup_of": [
         "EG-UNIFIED-DATA-PLANE-R027.3.1"
       ]
@@ -1753,7 +1852,11 @@
       "landed_in": [
         "e8b99c7db914"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "crates/eg-types/src/pg_diff_baseline.rs:210",
+        "crates/eg-types/src/pg_diff_baseline.rs:233",
+        "crates/eg-types/src/pg_diff_baseline.rs:245"
+      ],
       "rollup_of": [
         "EG-UNIFIED-DATA-PLANE-R028.2.1"
       ]
@@ -1783,9 +1886,18 @@
       "title": "Expose a schema_context query surface",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "d9b702c9e7e2"
+        "6c11520aebfc",
+        "c1bf552a9c33",
+        "d9b702c9e7e2",
+        "efcab03c2fa8"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "crates/eg-types/src/schema_context.rs:146",
+        "crates/eg-types/src/schema_context.rs:156",
+        "crates/eg-types/src/schema_context.rs:163",
+        "crates/eg-types/src/schema_context.rs:170",
+        "crates/eg-types/src/schema_context.rs:179"
+      ],
       "rollup_of": [
         "EG-UNIFIED-DATA-PLANE-R029.1",
         "EG-UNIFIED-DATA-PLANE-R029.2"

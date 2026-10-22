@@ -111,11 +111,17 @@
       "title": "Served Agent Library tests cover pack import and Decide",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "37a29ee3fe0e",
         "4f364b55e0dc",
         "52f2f3e347a3",
         "c047e6602b42"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "tests/test_decide_auth_boundary.py:100",
+        "tests/test_decide_auth_boundary.py:145",
+        "tests/test_decide_auth_boundary.py:81",
+        "tests/test_installed_wheel_decision_client_boundary.py:60"
+      ],
       "rollup_of": [
         "EG-CONTRACT-R002.1",
         "EG-CONTRACT-R002.2",
@@ -233,9 +239,17 @@
       "title": "Repo-parity check validates the resolved checkout",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "1e48414f9e58"
+        "1e48414f9e58",
+        "72c7dfa478ba",
+        "8baee8a94894",
+        "fb6841592a83"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "scripts/tests/test_check_five_repo_parity.py:10",
+        "scripts/tests/test_repo_root_parity.py:10",
+        "scripts/tests/test_repo_root_parity.py:21",
+        "scripts/tests/test_repo_root_parity.py:31"
+      ],
       "rollup_of": [
         "EG-CONTRACT-R008.1",
         "EG-CONTRACT-R008.2"
@@ -307,8 +321,16 @@
       "id": "EG-CONTRACT-R011",
       "title": "Parallel fan-out for the land gate across build hosts",
       "delivery_state": "VERIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "landed_in": [
+        "a3e3d9924822"
+      ],
+      "verified_by": [
+        "tests/test_check_fanout_host_groups.py:118",
+        "tests/test_check_fanout_host_groups.py:25",
+        "tests/test_check_fanout_host_groups.py:48",
+        "tests/test_check_fanout_host_groups.py:75",
+        "tests/test_check_fanout_host_groups.py:92"
+      ],
       "rollup_of": [
         "EG-CONTRACT-R011.1"
       ]
@@ -474,8 +496,15 @@
       "id": "EG-CONTRACT-R023",
       "title": "Pre-commit hooks pass clean without bypass flags",
       "delivery_state": "VERIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "landed_in": [
+        "2598a0697e5a",
+        "85ce2ac73a96",
+        "a3e3d9924822"
+      ],
+      "verified_by": [
+        "tests/test_check_registry_test_ownership_completeness.py:24",
+        "tests/test_check_registry_test_ownership_completeness.py:31"
+      ],
       "rollup_of": [
         "EG-CONTRACT-R023.1"
       ]
