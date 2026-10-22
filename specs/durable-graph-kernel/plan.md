@@ -848,3 +848,130 @@ The KV-cache tier ladder reuses `crates/eg-kvcache`. `tiered.rs` holds the hot, 
 The benchmark rows R042.2 to R042.6 publish each result as the `BenchmarkClaim` of R042.1. Each target is a starting default. A measurement on this platform replaces it.
 
 The four wire listeners already start in `src/main.rs`. R860 binds them to one admission path and to round-trip tests. R035 keeps the PostgreSQL operational parity work.
+
+### 2026-10-22 — R028.2 ordinary admitted-run terminal receipt design (unimplemented)
+
+The native A2A proof at EG `906316171`, Arbora `81a8a685`, AU
+`94fb3594` exposes a distinct producer gap. Ordinary `CommitWorkItemResult`
+commits status but no `outcome_extension`. `read_work_item_outcome` returns
+`None` before reading an event when `CommittedOutcomeRefs` are absent.
+The existing extension is a delegated outcome bundle: its receipt validator
+requires delegation, selected agent, capability, catalog, policy and model
+bindings. Ordinary run admission does not provide that complete provenance.
+Do not invent these values, weaken that validator, or relabel best-effort
+`RunEvent` trace nodes as committed receipts.
+
+The smallest owner-correct next slice is an ordinary-run completion projection
+on the existing native commit and owner-bound run read, independent of the
+richer delegated outcome bundle:
+
+1. Add one optional, versioned `run_completion` input to
+   `CommitWorkItemResult`, with the exact run ID and an optional measured
+   usage snapshot. The counter vocabulary matches AU's existing public
+   counters; each present value is an unsigned integer no larger than
+   2^53-1. Missing snapshot means unavailable; `{}` means the producer had
+   no known counters. Never fill absent counters with zero, infer a total,
+   sum the snapshot again, attach cost, or alter execution budgets.
+2. Validate the supplied run against the immutable `run_owner_binding` and
+   stored admission in `work_item/run_owner.rs`. Reuse the native lease
+   owner/epoch/fence and verified tenant/graph checks in `commit.rs`.
+   Reject completion input for non-run admissions and mismatched runs.
+   Only the final transition may publish a terminal receipt; retry_scheduled
+   must not expose terminal state or silently accumulate repeated snapshots.
+3. The native compiler derives the event's tenant, graph scope/incarnation,
+   WorkItem, run, outcome, result/error references and mutation batch from
+   the actual authorized transition. Persist a distinct versioned ordinary
+   completion outbox payload and its digest binding in the same atomic
+   transaction as the WorkItem. The writer, not AU or Arbora, supplies
+   committed sequence and ordinal. Existing delegated extension semantics
+   remain unchanged. Reject simultaneous ordinary and delegated extensions
+   initially, rather than emitting two terminal events.
+4. Extend `RunWorkItemView` with an optional terminal receipt projection;
+   preserve `GetWorkItemOutcome`'s existing delegated-provenance contract.
+   `GetRunWorkItem` already enforces immutable caller principal as well as
+   tenant, owner graph and run. Read row, ledger and matching outbox in one
+   MVCC snapshot; check committed status, scope, batch membership, ordinal,
+   version and payload digest as `read/terminal_event.rs` already does.
+   Missing legacy binding is explicitly unavailable; a present corrupt or
+   missing binding refuses. No private admission authority or lease data
+   is copied into the new receipt.
+5. Add the binding keys to the generic row-write guard. Generic node writes,
+   removals, opaque replacements and imported trace payloads cannot forge
+   or change the native receipt. Idempotent duplicate commit returns the
+   original receipt unchanged, never adds counters or a second outbox event.
+6. Regenerate protocol, Python client, result/schema and capability surfaces
+   from authoritative sources. No generated file is hand-edited. Scoped
+   native tests and a real served reopen/restart test are mandatory before
+   advertising availability. No compiler build was run in this design slice.
+
+AU owns producing the validated final `RunResult`/`RunFailed` snapshot and
+continues to count initial planner use once. Arbora owns passing that snapshot
+through `work_items.commit_result`, checking the native commit result, and
+projecting the owner-bound receipt for every client. The A2A task/context
+identity comes from its admitted row. Initial dispatch and later reads should
+use the same committed projection, not transient exception data as a durable
+claim. The existing `usage.read` service can subsequently expose these facts;
+session aggregation and TPS require their own owner-backed measurements and
+are not closed by this per-turn receipt. Failed results remain failed and
+produce no answer artifact. Historical trace rows are not retroactively
+upgraded into native receipts.
+
+Implementation handoff: use native-only `run_completion_batch` and
+`run_completion_digest` WorkItem properties (add both to
+`crates/eg-types/src/work_item_read.rs::NATIVE_WORK_ITEM_ROW_KEYS` and test
+`src/redb_store/work_item/row_guard.rs`). The outbox is the measurement store;
+do not add a second mutable usage table. Proposed wire snapshot keys are
+`requests`, `tool_calls`, `input_tokens`, `output_tokens`, `total_tokens` only.
+The ordinary receipt payload carries its own schema version and purpose,
+not the delegated `outcome_bundle::RunEvent` shape. Reuse the transaction
+ledger/outbox verification algorithm while decoding this distinct payload.
+Native files to change are `crates/eg-types/src/protocol/method/method_00.rs`,
+`crates/eg-types/src/work_item_read.rs`, the existing WorkItem mutation-batch
+compiler/lowering path, `src/redb_store/work_item/commit.rs`,
+`src/redb_store/work_item/run_owner.rs`, and row guards, plus generated
+bindings and contract surfaces. Keep GetRunWorkItem owner validation before
+any receipt read. `read_admission` currently opens a snapshot through
+`snapshot_row`; its implementation must retain that read transaction while
+resolving ledger/outbox instead of opening another snapshot.
+
+The next slice needs a coordinated EG native contract build/test slot only
+after source/type changes are ready. AU already exposes immutable validated
+RunFailed usage at the frozen baseline; avoid unnecessary ledger changes.
+Arbora changes then belong in `arbora/work_items.py`,
+`arbora/a2a/authority.py` and the shared owner-bound terminal projection,
+with tests in `tests/a2a/test_failed_usage.py`,
+`tests/a2a/test_native_task_reads.py` and `tests/a2a/test_terminal_event.py`.
+Do not mark the current 61 passing consumer regression tests as native
+ordinary-receipt acceptance: they merely preserve existing fail-closed behavior.
+
+### 2026-10-22 — R028.2 first ordinary completion source slice (validation pending)
+
+Implemented optional ordinary completion input, bounded optional counters, native
+compiler/store outbox binding, conditional terminal publication, protected row
+bindings, and same-snapshot owner-bound projection. No compilation or served
+restart acceptance evidence yet; generated surfaces remain pending. This first
+slice deliberately refuses `retryable=true` when an ordinary completion is
+supplied: a producer must submit a final nonretryable result. This avoids
+pre-compiling an outcome that could become retry_scheduled or dead_letter. The
+existing delegated extension and legacy commits retain their prior semantics.
+Receipt projection nests the input as `payload.completion` and carries writer
+sequence, ordinal, scope and digest alongside the payload.
+
+### 2026-10-22 — R028.2 ordinary completion native validation
+
+The source slice now passes two measurement type tests and six scoped native
+completion tests, including actual ledger/outbox commit, storage reopen,
+rollback, replay, terminal no-op and foreign-owner refusal. Rust formatting and
+diff whitespace checks pass. These establish the narrow ordinary receipt
+capability only. Generated contracts and fresh codec/server qualification are
+separate remaining stages; served AU/Arbora restart acceptance, approval flows,
+aggregate metrics and performance targets remain pending.
+
+### 2026-10-22 — R028.2 public Python completion forwarding
+
+Real served qualification found that the generated request accepted the ordinary
+completion but the public WorkItem client omitted the keyword. The public
+`commit_result` adapter must forward an explicitly supplied `run_completion`
+unchanged through generated validation, while preserving omission for legacy
+callers. Its regression covers measured, empty and absent usage inputs. This
+Python-only wiring repair does not qualify the native served restart scenario.

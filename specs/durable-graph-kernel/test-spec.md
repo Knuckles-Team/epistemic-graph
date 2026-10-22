@@ -391,3 +391,59 @@ Hot-path proof for `EG-DURABLE-KERNEL-R101`: `tests/scheduler/test_downtime_sche
 | S3-compatible object API | `EG-DURABLE-KERNEL-R860.4` | `tests/s3_roundtrip.rs::put_get_list_delete` |
 | Listener refusals | `EG-DURABLE-KERNEL-R860.5` | `tests/wire_listeners_one_store.rs::unauthenticated_sessions_refuse` |
 | Hot-path proof: one store behind four protocols | `EG-DURABLE-KERNEL-R860.6` | `tests/wire_listeners_one_store.rs::write_one_protocol_read_all` |
+
+### 2026-10-22 — ordinary run completion acceptance matrix (not implemented)
+
+Extend R028.2's real redb mutation/owner-read fixtures, not a scripted reader.
+The implementation slice must add these public-surface tests:
+
+- `ordinary_run_completion_survives_reopen`: admit with verified owner,
+  claim, commit failed with requests=1/input=3/output=2/total=5, read through
+  GetRunWorkItem, close/reopen the shard and assert byte-equivalent counters
+  and identical scope/batch/sequence/ordinal/digest. No result artifact exists.
+- `ordinary_completion_unknown_is_not_zero`: provider-before-ledger failure
+  persists `{}` exactly; missing receipt/snapshot remains unavailable, and
+  missing input/output/total fields are not computed or inserted.
+- `ordinary_completion_is_bound_to_native_owner`: independently vary caller
+  principal (same tenant), tenant, owner graph, run, WorkItem, worker,
+  lease epoch and fencing token. Foreign reads reveal no receipt; invalid
+  commits do not alter status, usage or outbox. Include a changed caller
+  between Arbora admission and projection.
+- `ordinary_completion_retry_is_not_double_counted`: replay the exact
+  idempotency key, then a new key after terminal commit. Both retain the
+  first receipt and one outbox member; no addition of aggregate snapshots.
+  Retry-scheduled failures must not appear terminal.
+- `ordinary_completion_rejects_invalid_measurements`: boolean, negative,
+  floating, string, overflow, unsupported counter and cross-run snapshots
+  refuse atomically; successful requests=5/total=25 remains exactly 5/25.
+- `ordinary_completion_binding_cannot_be_forged`: generic property changes,
+  opaque row replacement/removal, forged trace events, wrong digest, missing
+  outbox, duplicate outbox topic, wrong scope/incarnation, noncommitted batch
+  and mismatched ordinal/version cannot yield a valid receipt.
+- `ordinary_and_delegated_outcomes_remain_distinct`: legacy ordinary commits
+  remain unavailable; the existing delegated bundle read retains all
+  provenance verification and its current tests. Neither mode fabricates
+  delegation fields or accepts both completion inputs.
+- Real AU -> Arbora -> EG acceptance: invalid initial planner receipt gives
+  failed + 1 request/5 tokens; provider failure gives failed + unknown `{}`;
+  success gives 5 requests/25 tokens. Restart both EG and Arbora, then use
+  tasks/get and repeated message/send admission to obtain the same counts
+  without model redispatch. Foreign caller gets no data. Public runs.events
+  remains stripped of usage and is never the source of recovered totals.
+
+These are pending tests, not a pass receipt. Existing R028.2 tests establish
+only the richer delegated terminal extension, not ordinary A2A production.
+
+First source-slice tests added (not executed): unknown counters remain empty;
+invalid numeric and incoherent counters refuse; completion owner validates
+original admission and graph/tenant/run/item; foreign callers remain invisible;
+incomplete binding is refused rather than treated as legacy; generic unlabelled
+rows cannot plant completion bindings. Full native commit/reopen, repeat-commit,
+stale-fence and receipt tamper integration acceptance remains mandatory.
+
+Native source validation update: two `run_completion::tests` and six
+`ordinary_completion` tests pass. In particular,
+`ordinary_completion_native_ledger_outbox_restart_atomicity` exercises the
+actual committed ledger/outbox, reopen, rollback, replay and foreign-owner
+paths. Earlier pending design text records the original acceptance plan;
+these scoped results do not close the full public served acceptance matrix.

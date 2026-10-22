@@ -326,7 +326,7 @@ fn dto_array_type(node: &serde_json::Value) -> String {
                 && items.get("minimum").and_then(|value| value.as_u64()) == Some(0)
                 && items.get("maximum").and_then(|value| value.as_u64()) == Some(255)
             {
-                "bytes".to_string()
+                "_EgOctets".to_string()
             } else {
                 format!("list[{}]", dto_python_type(items))
             }
@@ -805,15 +805,26 @@ pub(super) fn push_dto_imports(
     let pydantic_names = [
         ("AfterValidator", "AfterValidator("),
         ("BaseModel", "(BaseModel)"),
+        ("BeforeValidator", "BeforeValidator("),
         ("ConfigDict", "ConfigDict("),
         ("Field", "Field("),
+        ("PlainSerializer", "PlainSerializer("),
     ]
     .into_iter()
     .filter(|(_, marker)| body.contains(marker))
     .map(|(name, _)| name)
     .collect::<Vec<_>>();
     if !pydantic_names.is_empty() {
-        let _ = writeln!(out, "from pydantic import {}", pydantic_names.join(", "));
+        let names = pydantic_names.join(", ");
+        if names.len() + "from pydantic import ".len() <= 88 {
+            let _ = writeln!(out, "from pydantic import {names}");
+        } else {
+            out.push_str("from pydantic import (\n");
+            for name in &pydantic_names {
+                let _ = writeln!(out, "    {name},");
+            }
+            out.push_str(")\n");
+        }
     }
     let mut local = foreign.clone();
     let digest_names: Vec<String> = [

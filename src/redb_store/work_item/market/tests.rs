@@ -312,6 +312,7 @@ fn commit(shard: &Shard, work_item_id: &str, hold: &ClaimWorkItemResult, outcome
         retryable: false,
         now_ms: 3_000,
         outcome_extension: None,
+        run_completion: None,
     };
     apply(shard, &format!("commit-{outcome}"), method, 3_000).unwrap();
 }
