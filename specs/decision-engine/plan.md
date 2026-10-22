@@ -2005,3 +2005,17 @@ abstention keeps the current harness. The answer stores as a
 ARBORA-OPS-R068.4 adopts it service-only, beside the decide-commit
 pattern of ARBORA-OPS-R021.1. The engine runs no model and holds no
 local ranking: the measured contrast is the authority.
+
+## Amendment 2026-10-20: R036.102 bound graph prepare records
+
+Extend the existing cross-shard prepare writer and both recovery readers. New
+records name the graph-shard owner, format version, transaction and participant.
+Hash exact encoded slices with a domain-separated digest binding those identities.
+Read legacy array records explicitly; never interpret an unknown envelope as
+legacy. Old binaries cannot read new envelopes. Rollback requires resolving new
+prepares before an old binary starts; this source change performs no deployment.
+
+This is one prerequisite for the adopted coordinated-owner protocol. RBAC and
+Agent Library reservations, decision-time expiry, visibility fencing and atomic
+SubmitWorkItem admission remain unimplemented. No profile-enabled receipt or
+public admission method is introduced. Native validation remains pending.

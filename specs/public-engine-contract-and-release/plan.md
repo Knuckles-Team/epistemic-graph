@@ -26,7 +26,7 @@ The request envelope and signed body are distinct. The codec canonicalizes only 
 3. **Codec parity:** build Rust WASM from pinned tool versions. Compare both embedded copies. Run Go/JS/Python/Rust vectors and record source and artifact hashes. Reduce size by removing unused decode paths before changing optimization flags.
 4. **Package:** include catalogs, schemas and receipt in wheel data. Clean-install into a new virtual environment and verify loader digests and typed operations. Avoid source-tree fallbacks.
 5. **CI:** run full root Python tests with the kernel/engine build in hosted CI, static contract reachability, Go/JS tests, all release feature profiles, and differential quality scanners. Tests needing a service start one from checked-in fixtures; deployment/soak has its own documented workflow.
-6. **Release:** build the wheel twice in clean environments, compare normalized artifacts, install from the built wheel, run consumer parity and mark a precise commit/tag. Record evidence per requirement.
+6. **Release:** build the wheel twice in clean environments and compare normalized artifacts. Install the built wheel, run consumer parity and mark a precise commit/tag. Record evidence per requirement.
 
 ## Fresh checkout developer path
 
@@ -470,3 +470,16 @@ Explicit job and event conditions preserve their separate test commands.
 The PyO3 budget remains unchanged.
 Storage never evaluates workspace scope output.
 Workflow tests establish routing; exact-head hosted tests establish acceptance.
+
+### Wasmtime patch update — 2026-10-20
+
+The Rust advisory gate must reject RUSTSEC-2026-0378 and RUSTSEC-2026-0379 without policy exceptions. Move the existing Wasmtime 49.0.3 dependency family to the compatible 49.0.4 patch and retain the same enabled features. Validate the unchanged advisory gate and lockfile; full native compilation remains hosted CI work when the local compiler slot is limited to leaf contract crates.
+
+### Certificate dependency repair — 2026-10-21
+
+Remove the vulnerable certificate dependencies reported by RUSTSEC-2026-0381, RUSTSEC-2026-0382 and RUSTSEC-2026-0383.
+Use the patched certificate verifier and root bundles without advisory exceptions.
+The legacy HTTP client requires an unpatched root bundle, so migrate its existing calls to ureq 3.
+Preserve DNS pinning, proxy and redirect restrictions, TLS verification, custom CA augmentation, timeouts and response limits.
+Validate the unchanged advisory gate, locked compilation and focused transport regressions before review.
+No endpoint settings, credentials or deployed services change.

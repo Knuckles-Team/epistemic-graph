@@ -222,9 +222,12 @@ pub fn maybe_push_http(event: &Value) {
     }
     let url = format!("{}/api/v1/lineage", endpoint.trim_end_matches('/'));
     let body = event.to_string();
-    let _ = ureq::post(&url)
-        .set("content-type", "application/json")
-        .send_string(&body);
+    let _ = crate::server::outbound_http_config()
+        .build()
+        .new_agent()
+        .post(&url)
+        .header("content-type", "application/json")
+        .send(&body);
 }
 
 #[cfg(test)]

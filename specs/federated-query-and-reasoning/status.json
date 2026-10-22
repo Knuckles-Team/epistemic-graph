@@ -709,7 +709,7 @@
       ],
       "verified_by": [
         "crates/eg-plan/src/exec.rs:2661",
-        "src/server/mod.rs:2077"
+        "src/server/mod.rs:2092"
       ]
     },
     {
@@ -1220,7 +1220,7 @@
         "8710a3709c47"
       ],
       "verified_by": [
-        "crates/eg-plan/src/nl.rs:730"
+        "crates/eg-plan/src/nl.rs:748"
       ]
     },
     {

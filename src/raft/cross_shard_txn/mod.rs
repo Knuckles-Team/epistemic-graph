@@ -196,6 +196,8 @@ use serde::{Deserialize, Serialize};
 // in this submodule rather than as further items in this already-oversized file --
 // see `commit.rs`'s module doc for why.
 mod commit;
+mod prepare_record;
+use prepare_record::{decode_prepared_slices, encode_prepared_slices};
 
 use super::multi::MultiRaft;
 #[cfg(any(feature = "calvin", test, feature = "harness"))]
@@ -259,22 +261,6 @@ fn slice_fence_is_current(
     }
     let current_fence = current.placed.then_some(current.fencing_token());
     current.group == gid && current.epoch == slice_epoch && current_fence == slice_fence
-}
-
-fn decode_prepared_slices(blob: &[u8]) -> Result<Vec<GraphSlice>, String> {
-    let slices: Vec<GraphSlice> = eg_types::msgpack::decode_bounded(
-        blob,
-        eg_types::msgpack::MsgpackLimits::new(
-            MAX_PREPARED_TXN_BYTES,
-            MAX_PREPARED_TXN_ITEMS,
-            eg_types::msgpack::DEFAULT_MAX_DEPTH,
-        ),
-    )
-    .map_err(|_| "invalid durable cross-shard prepare record".to_string())?;
-    if prepared_slices_exceed_limits(&slices) {
-        return Err("durable cross-shard prepare record exceeds limits".to_string());
-    }
-    Ok(slices)
 }
 
 /// One participant graph's slice of a cross-shard transaction: the staged write-set
@@ -432,7 +418,7 @@ impl CrossShardCoordinator {
         let mut prepared: BTreeMap<GroupId, Vec<GraphSlice>> = BTreeMap::new();
         for (existing_txn, gid, blob) in redb.xshard_scan_prepares()? {
             if existing_txn == txn.txn_id {
-                let slices = decode_prepared_slices(&blob)?;
+                let slices = decode_prepared_slices(&blob, &existing_txn, gid)?;
                 prepared.insert(gid, slices);
             }
         }
@@ -612,7 +598,7 @@ impl CrossShardCoordinator {
 
     /// PHASE 1 for one participant: validate its OCC read-set against the live group
     /// state, then DURABLY persist its prepared slice (commit-before-vote). Returns
-    /// the vote (`true` = YES). The slice is persisted as a serialized `Vec<GraphSlice>`
+    /// the vote (`true` = YES). The slice is persisted in a versioned identity-bound envelope
     /// so recovery can re-apply every graph this participant owns.
     async fn prepare_participant(
         &self,
@@ -645,11 +631,7 @@ impl CrossShardCoordinator {
         if prepared_slices_exceed_limits(slices) {
             return Err("cross-shard prepare exceeds limits".to_string());
         }
-        let blob = rmp_serde::to_vec_named(slices)
-            .map_err(|_| "unable to encode cross-shard prepare".to_string())?;
-        if blob.len() > MAX_PREPARED_TXN_BYTES {
-            return Err("cross-shard prepare exceeds limits".to_string());
-        }
+        let blob = encode_prepared_slices(txn_id, gid, slices)?;
         redb.xshard_prepare_put(txn_id, gid, blob).await?;
         Ok(true)
     }
