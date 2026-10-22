@@ -152,7 +152,7 @@ Native storage and wire work (EG-DURABLE-KERNEL-R032/EG-DURABLE-KERNEL-R033/EG-D
   - [x] **EG-UNIFIED-DATA-PLANE-R027.3.1:** `apply_proven_fix` runner applying a feature's fix only once proven, against a fake fix closure (`crates/eg-types/src/pg_compat_feature.rs`); no live Postgres-compatible target needed.
 - [x] **EG-UNIFIED-DATA-PLANE-R028:** Differential Postgres regression, generated and captured-traffic corpora with reviewed deviations and no ratchet; depends on EG-UNIFIED-DATA-PLANE-R022.
 - [x] **EG-UNIFIED-DATA-PLANE-R028.1:** `DeviationBaseline`/`PostgresDeviation` typed model plus no-silent-drop refusal (`crates/eg-types/src/pg_diff_baseline.rs`).
-- [ ] **EG-UNIFIED-DATA-PLANE-R028.2:** Run the Postgres regression suite and SQLancer-style generated corpora against EG.
+- [ ] **EG-UNIFIED-DATA-PLANE-R028.2:** Run the Postgres regression suite and generated SQL differential corpora against EG.
   - [x] **EG-UNIFIED-DATA-PLANE-R028.2.1:** `run_differential_harness`/`DifferentialCaseEvaluator` runner assembling a baseline from fake evaluators (`crates/eg-types/src/pg_diff_baseline.rs`); no live Postgres instance needed.
 - [ ] **EG-UNIFIED-DATA-PLANE-R028.3:** Run the captured-application-traffic corpus and publish the harness report.
 - [x] **EG-UNIFIED-DATA-PLANE-R033 (rollup) / Gramps P6:** Separate explicitly authorized production cutover, replica, independent nightly export and 30-day read-only SQLite fallback. Depends on EG-UNIFIED-DATA-PLANE-R026 and every P0–P5 acceptance artifact.

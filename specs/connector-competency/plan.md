@@ -83,7 +83,7 @@ Mechanism is existing engine functionality, not new: cross-source answers use fe
 | R011 | ciso-assistant | Which controls in an applied framework are non-compliant and which risk scenarios do they mitigate? | Which CISO Assistant risks map to a ServiceNow CMDB service with an open incident? (onetrust, servicenow; control / risk) | government-v1 |
 | R012 | clarity | Which pages have the highest rage-click or dead-click rate over the last week? | Which pages with a spike in rage clicks were changed by a pull request merged in the previous week? (plane, github; web page / release) | MISSING |
 | R013 | container-manager | Which containers or pods are restarting repeatedly, and from which image? | Which running images have a newer tag on Docker Hub than the one deployed? (dockerhub, portainer; container image) | infrastructure-v1 |
-| R014 | data-science | Which trained models have validation metrics below their baseline run, and on which dataset? | Which fine-tuned models have no evaluation dataset trace in Langfuse and no stored artifact in the object store? (langfuse, objectstore; model / dataset) | MISSING |
+| R014 | data-science | Which trained models have validation metrics below their baseline run, and on which dataset? | Which fine-tuned models lack both an evaluation dataset trace and a stored artifact? Check model-observability (`langfuse`) and object-store sources. (langfuse, objectstore; model / dataset) | MISSING |
 | R015 | dockerhub | Which repositories in an organization have not been pushed to in a year, and what are their pull counts? | Which Docker Hub repositories correspond to a GitHub repository with recent commits but no recent image push? (container-manager, github; container image / repository) | infrastructure-v1 |
 | R016 | documentdb | Which collections have the most documents and which fields are missing in more than half of them? | Which documentdb collections duplicate a table in the SQL database, and which side is newer? (sql, objectstore; dataset / collection) | MISSING |
 | R017 | egeria | Which glossary terms are linked to a data asset with a confidential classification? | Which Egeria-cataloged assets correspond to a live SQL table, and which are cataloged but missing? (sql, jena; data asset) | core-foundation-v1 |
@@ -283,7 +283,7 @@ The 23 MISSING connectors; connector-side mapping code; copying source data; the
 
 ## Vocabulary decisions and acceptance
 
-Home Assistant uses `infrastructure-v1.ttl`; Langfuse uses `orchestration-v1.ttl`.
+Home Assistant uses `infrastructure-v1.ttl`; The model-observability connector (`langfuse`) uses `orchestration-v1.ttl`.
 Ciso Assistant and OneTrust use `government-v1.ttl`.
 OneTrust derives overdue status from assessmentDueDate and assessmentStatus; assessedVendor refers to the existing TRM Vendor class.
 ServiceNow uses the shared kg Incident and Change anchors in `archimate-v1.ttl`.

@@ -1,7 +1,7 @@
 # EG-SRC-AUTH — Source authority: the ontology says which connected source answers a concept
 
 Owner: epistemic-graph. Cross-repo IDs: graph-os (served intent tool prints the "sources used and why" block, connected-source list), agent-packages connectors (operation contracts that a pack's mapping proposals cite). Consumers in this repository: `EG-CQ-XSRC-001` (`R001`, `R005`), `EG-CQ-ORCH-001` (`.3` children of `R001` to `R007`), `EG-CQ-CONN-001` (cross-source children).
-Public provenance: gap found while designing the Stardog-style requirement "the ontology specifies which connected data sources are used to answer a question".
+Public provenance: gap found while designing the source-selection requirement "the ontology specifies which connected data sources are used to answer a question".
 
 ## Purpose and user stories
 
