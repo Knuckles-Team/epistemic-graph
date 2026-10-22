@@ -4326,6 +4326,40 @@ class WorkItemClient:
             return None
         return _work_item_view(value)
 
+    async def get_run(self, *, tenant: str, run_id: str) -> dict[str, Any] | None:
+        """Read this verified owner's immutable original run admission.
+
+        Missing and foreign-owner runs return None. Historical evidence remains
+        readable after completion or lease expiry but grants no execution rights.
+        Legacy runs without original evidence refuse with RUN_ADMISSION_UNAVAILABLE;
+        never recover original identity from the mutable current metadata.
+        """
+        result = await _gen.coordination.send_get_run_work_item(
+            self._client,
+            {
+                "tenant": _string("GetRunWorkItem.tenant", tenant),
+                "run_id": _string("GetRunWorkItem.run_id", run_id),
+            },
+        )
+        try:
+            _gen.coordination.decode_get_run_work_item(result)
+        except ValueError as exc:
+            raise RuntimeError(
+                "Run admission does not match the typed contract"
+            ) from exc
+        value = result.payload
+        if value is None:
+            return None
+        _work_item_view(value["work_item"])
+        admission = value["admission"]
+        if (
+            admission["run_id"] != run_id
+            or admission["context"]["tenant_id"] != tenant
+            or admission["work_item_id"] is not None
+        ):
+            raise RuntimeError("Run admission does not match the requested identity")
+        return value
+
     @staticmethod
     def receipt_properties(properties: dict[str, Any]) -> bytes:
         """Encode a receipt node's properties as the ``properties_msgpack``

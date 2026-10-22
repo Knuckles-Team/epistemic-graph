@@ -842,3 +842,8 @@ The KV-cache tier ladder reuses `crates/eg-kvcache`. `tiered.rs` holds the hot, 
 The benchmark rows R042.2 to R042.6 publish each result as the `BenchmarkClaim` of R042.1. Each target is a starting default. A measurement on this platform replaces it.
 
 The four wire listeners already start in `src/main.rs`. R860 binds them to one admission path and to round-trip tests. R035 keeps the PostgreSQL operational parity work.
+
+
+## Immutable run submission recovery
+
+EG-DURABLE-KERNEL-R028.4.1 stores the original submission beside the existing immutable owner binding in the native WorkItem transaction. A point read returns that record and the current caller-safe WorkItem from the same snapshot. Verified owner selection is mandatory even after the lease expires or execution ends. This is historical database evidence, not authentication, application admission or permission to execute. Arbora continues to own those application decisions. Legacy records without evidence refuse explicitly instead of reconstructing a request from mutable metadata. Generic mutations cannot forge or remove the private record. Retry identity and receipt semantics remain unchanged. EG-DURABLE-KERNEL-R028.4.2 retains independent performance acceptance.

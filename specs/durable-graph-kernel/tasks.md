@@ -275,3 +275,6 @@ This batch defines the slices; it runs none of their runtime tests.
 - [ ] **EG-DURABLE-KERNEL-R028.5.2:** Bind the first attachment immutably through the existing owner transaction; preserve omitted attachments and refuse conflicts.
 - [ ] **EG-DURABLE-KERNEL-R028.5.3:** Verify native attachment replay, restart and scoped availability.
 - [ ] **EG-DURABLE-KERNEL-R028.5.4:** Implement and measure the attached-plan publication/readback benchmark; preserve this performance residual until a reproducible receipt exists.
+
+- [ ] **EG-DURABLE-KERNEL-R028.4.1:** Deliver immutable submission storage, owner-fenced recovery and native restart tests.
+- [ ] **EG-DURABLE-KERNEL-R028.4.2:** Measure recovery latency on a reproducible bounded workload.

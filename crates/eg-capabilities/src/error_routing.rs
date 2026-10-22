@@ -106,6 +106,7 @@ const DOMAIN_PREFIXES: &[(&str, &[&str])] = &[
     ),
 ];
 const EXACT_METHOD_ERRORS: &[(&str, &[&str])] = &[
+    ("GetRunWorkItem", &["RUN_ADMISSION_UNAVAILABLE"]),
     (
         "AgentComponent",
         &["COMPONENT_WITHDRAWN", "MALFORMED_GUARDRAIL_RULE"],

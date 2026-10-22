@@ -9,6 +9,7 @@ closed_error_codes! {
         AbortedAtomicGraphBatch => "ABORTED_ATOMIC_GRAPH_BATCH",
         ArchiveDigestMismatch => "ARCHIVE_DIGEST_MISMATCH",
         ArchiveMissing => "ARCHIVE_MISSING",
+        RunAdmissionUnavailable => "RUN_ADMISSION_UNAVAILABLE",
         AstInputInvalid => "AST_INPUT_INVALID",
         AstInputLimit => "AST_INPUT_LIMIT",
         AttachPackClusterUnavailable => "ATTACH_PACK_CLUSTER_UNAVAILABLE",

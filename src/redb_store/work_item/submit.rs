@@ -647,6 +647,10 @@ pub(crate) fn write_submit_work_item_node_and_edges(
     )?;
     if let Some(owner) = owner {
         props.insert("run_owner_binding".into(), owner);
+        props.insert(
+            super::run_owner::ADMISSION_REQUEST.into(),
+            serde_json::to_value(request).map_err(|error| error.to_string())?,
+        );
     }
     write_work_item_props(nodes, graph, work_item_id, &mut props, crypto)?;
     write_submit_work_item_dependency_edges(
