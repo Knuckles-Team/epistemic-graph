@@ -257,3 +257,5 @@ Keep each ruled boundary and adjacent owner obligation intact.
 - [ ] **EG-TYPED-PACKS-R802.7:** Trust flags on assets.
 - [ ] **EG-TYPED-PACKS-R802.8:** Critical data elements.
 - [ ] **EG-TYPED-PACKS-R805.7:** Data product proposals.
+
+- [ ] **EG-TYPED-PACKS-R085.3:** Add the served session-liveness check by opaque session reference returning `live`, `revoked`, `expired` or `not_session_bound`, never taking the raw token and never touching the session.
