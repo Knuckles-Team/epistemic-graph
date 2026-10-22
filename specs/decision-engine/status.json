@@ -4027,8 +4027,10 @@
     {
       "id": "EG-DECISION-ENGINE-R128.13.1",
       "title": "Typed harness evaluation evidence is part of sealed statistical inputs",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "b5dc313b4403"
+      ],
       "verified_by": [
         "crates/eg-types/src/decision/statistical/harness_config.rs:682",
         "crates/eg-types/src/decision/statistical/harness_config.rs:694",
@@ -8984,7 +8986,8 @@
       "title": "Wiring",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "52b574819aca"
+        "52b574819aca",
+        "b5dc313b4403"
       ],
       "verified_by": [
         "crates/eg-capabilities/src/scopes/tests.rs:73"
@@ -9404,8 +9407,10 @@
     {
       "id": "EG-DECISION-ENGINE-R036.102",
       "title": "Bind graph participant prepare records to their recovery identity",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "b5dc313b4403"
+      ],
       "verified_by": [
         "src/raft/cross_shard_txn/prepare_record.rs:112",
         "src/raft/cross_shard_txn/prepare_record.rs:125",
