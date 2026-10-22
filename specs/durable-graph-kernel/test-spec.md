@@ -387,6 +387,9 @@ Hot-path proof for `EG-DURABLE-KERNEL-R101`: `tests/scheduler/test_downtime_sche
 | S3-compatible object API | `EG-DURABLE-KERNEL-R860.4` | `tests/s3_roundtrip.rs::put_get_list_delete` |
 | Listener refusals | `EG-DURABLE-KERNEL-R860.5` | `tests/wire_listeners_one_store.rs::unauthenticated_sessions_refuse` |
 | Hot-path proof: one store behind four protocols | `EG-DURABLE-KERNEL-R860.6` | `tests/wire_listeners_one_store.rs::write_one_protocol_read_all` |
+| Lifecycle replay and listing survive a patch upgrade (rollup) | `EG-DURABLE-KERNEL-R861` | Rollup: satisfied when the test of every child passes. |
+| Lifecycle replay compares the stored identity | `EG-DURABLE-KERNEL-R861.1` | `src/server/mutation_batch/lifecycle_tests.rs::lifecycle_replay_compares_identity_not_recompiled_bytes` |
+| Graph listing survives a patch upgrade | `EG-DURABLE-KERNEL-R861.2` | Upgrade fixture test (not yet written; see #709). |
 - **EG-DURABLE-KERNEL-R028.5.1:** `current_plan_task_plan_validation_and_legacy_roundtrip` checks JSON and named MessagePack compatibility. `current_plan_task_plan_rejects_unpaired_or_changed_content` refuses unpaired fields, tampered executable fields, policy, digests and ordering. The original proposal must reproduce every TaskPlan field.
 - **EG-DURABLE-KERNEL-R028.5.2:** `current_plan_attachment_is_immutable_and_scaffold_updates_preserve_it` checks initial and later attachment. `current_plan_attachment_refusals_preserve_rows` checks conflicting plans, malformed digests, foreign owners, stale fences and expiry. Refusals leave both private snapshot and owner rows unchanged.
 - **EG-DURABLE-KERNEL-R028.5.3:** `publication_attachment_changes_content_not_retry_identity` checks stable identity and changed canonical content. `current_plan_native_publish_read_and_receipt_replay` exercises authenticated attachment, unchanged replay receipts, conflict and exact restart readback. Expired replay returns historical evidence only.
