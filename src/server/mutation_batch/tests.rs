@@ -1385,3 +1385,57 @@ fn editing_a_compiled_batch_after_the_mint_is_refused() {
         .validate()
         .expect("a batch whose envelope covers its own body is valid");
 }
+
+/// A persistence stub whose mutation scope reports one fixed durable version.
+struct DurableVersion(u64);
+
+#[async_trait::async_trait]
+impl PersistenceBackend for DurableVersion {
+    async fn read_mutation_graph_version(&self, _graph_fname: &str) -> Result<Option<u64>, String> {
+        Ok(Some(self.0))
+    }
+}
+
+/// Issue #702: a durable scope commit that the serving projection did not
+/// account left RAM two versions behind, and every write stamped from RAM
+/// met `STALE_VERSION: expected 5 but authoritative version is 7`. The
+/// authoritative read now brings the projection up to the durable version, so
+/// the next stamped write agrees with the kernel. A projection ahead of its
+/// authority is still refused.
+// spec: EG-DURABLE-KERNEL-R031.2
+#[tokio::test]
+async fn the_authoritative_version_accounts_a_durable_write_the_projection_missed() {
+    let core = GraphCore::new();
+    for _ in 0..5 {
+        core.mark_dirty();
+    }
+    let ahead: Arc<dyn PersistenceBackend> = Arc::new(DurableVersion(7));
+    let version = super::authoritative_graph_version(&ahead, "g", &core)
+        .await
+        .expect("a durable version ahead of the projection is accounted");
+    assert_eq!(version, 7);
+    assert_eq!(
+        core.version(),
+        7,
+        "the serving projection now equals the authority"
+    );
+    let agreed = super::authoritative_graph_version(&ahead, "g", &core)
+        .await
+        .expect("an agreeing version reads back");
+    assert_eq!(agreed, 7);
+    assert_eq!(
+        core.version(),
+        7,
+        "an agreeing read leaves the version unchanged"
+    );
+
+    let behind: Arc<dyn PersistenceBackend> = Arc::new(DurableVersion(3));
+    let error = super::authoritative_graph_version(&behind, "g", &core)
+        .await
+        .expect_err("a projection ahead of its authority is refused");
+    assert!(
+        error.contains("does not match the serving projection"),
+        "{error}"
+    );
+    assert_eq!(core.version(), 7);
+}

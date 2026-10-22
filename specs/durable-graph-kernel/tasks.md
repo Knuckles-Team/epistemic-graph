@@ -49,6 +49,7 @@ Status key: `[ ]` queued, `[-]` in progress, `[x]` verified at cited main revisi
 - [x] **EG-DURABLE-KERNEL-R027.2:** Governed-change dispatch wiring
 - [x] **EG-DURABLE-KERNEL-R027.3:** Governed-change raft catalog registration
 - [x] **EG-DURABLE-KERNEL-R031.1:** The audit append accounts the serving write version, including the maintenance batch a replayed attempt commits
+- [x] **EG-DURABLE-KERNEL-R031.2:** Stamp writes from the authoritative scope version and account a durable commit the serving projection missed.
 - [x] **EG-DURABLE-KERNEL-R032:** Native primary-key fast path bypasses the SQL planner
 - [x] **EG-DURABLE-KERNEL-R032.1:** PrimaryKeyOperation and FastPathDecision typed routing model with authorization/audit-checked invariant and refusal
 - [x] **EG-DURABLE-KERNEL-R033:** Hot-store engine choice is evaluated against captured workloads

@@ -416,6 +416,23 @@ async fn route_source_ingestion_request(
     placement_epoch: u64,
     fencing_token: Option<u64>,
 ) -> Response {
+    // Stamp the batch from the authoritative scope version, not the RAM
+    // projection alone: a durable scope write the projection missed would
+    // otherwise make the kernel refuse this batch as STALE_VERSION
+    // (EG-DURABLE-KERNEL-R031.2).
+    let graph_version = match ctx.persistence.as_ref() {
+        Some(persistence) => match crate::server::mutation_batch::authoritative_graph_version(
+            persistence,
+            &crate::persist::sanitize(ctx.graph_name),
+            ctx.core,
+        )
+        .await
+        {
+            Ok(version) => version,
+            Err(error) => return Response::err(ctx.req_id, error),
+        },
+        None => ctx.core.version(),
+    };
     let prepared = match handlers::source_ingestion::prepare(
         handlers::source_ingestion::PrepareContext {
             state: ctx.state,
@@ -423,7 +440,7 @@ async fn route_source_ingestion_request(
             graph_name: ctx.graph_name,
             tenant_scope: ctx.tenant_scope,
             verified: ctx.verified_context,
-            graph_version: ctx.core.version(),
+            graph_version,
             placement_epoch,
             fencing_token,
         },
