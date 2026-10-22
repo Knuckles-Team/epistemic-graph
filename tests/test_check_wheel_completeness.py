@@ -357,7 +357,7 @@ def test_static_wheel_suite_selection_does_not_start_engine(
 
 
 def test_engine_selected_control_still_enters_startup(
-    monkeypatch, tmp_path: Path
+    monkeypatch, tmp_path: Path, test_auth_secret: str
 ) -> None:
     """The no-engine marker must not weaken the real-engine selection branch."""
 
@@ -438,7 +438,7 @@ def test_engine_selected_control_still_enters_startup(
         # though `functools.wraps` sets it at runtime) reaches the fixture's
         # own undecorated generator function.
         fixture = inspect.unwrap(conftest.start_epistemic_graph_server)
-        generator = fixture(_Request(), _TmpPathFactory())
+        generator = fixture(_Request(), _TmpPathFactory(), test_auth_secret)
         assert next(generator) is process
         assert events == ["build", "start", "connect", "bootstrap", "close"]
         with pytest.raises(StopIteration):
