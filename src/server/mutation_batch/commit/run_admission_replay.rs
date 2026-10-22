@@ -20,36 +20,64 @@ pub(super) async fn retain_original_admission(
     principal: Option<&str>,
     method: Method,
 ) -> Result<Method, String> {
-    let proposed = match &method {
-        Method::SubmitWorkItem { request } if request.run_id.is_some() => request,
-        _ => return Ok(method),
+    let Method::SubmitWorkItem { request: proposed } = &method else {
+        return Ok(method);
     };
+    if proposed.run_id.is_none() {
+        return Ok(method);
+    }
     let fname = crate::persist::sanitize(graph);
     let Some(record) = persistence.read_mutation_batch(&fname, batch_id).await? else {
         return Ok(method);
     };
     let actor = super::super::digest::principal_fingerprint(principal.ok_or(CONFLICT)?)?;
     let retained = checked_admission(&record, batch_id, &actor, proposed)?;
+    let work_item_id = retained_work_item_id(&record)?;
+    check_owner_binding(
+        persistence.as_ref(),
+        &fname,
+        graph,
+        proposed,
+        &actor,
+        &work_item_id,
+    )
+    .await?;
+    Ok(Method::SubmitWorkItem { request: retained })
+}
+
+/// The WorkItem id the retained admission's committed result names.
+fn retained_work_item_id(record: &MutationBatchRecord) -> Result<String, String> {
     let payload: ResultPayload = eg_types::msgpack::decode_bounded(
         record.result_msgpack.as_deref().ok_or(CONFLICT)?,
         eg_types::msgpack::MsgpackLimits::new(64 * 1024 * 1024, 1_000_000, 64),
     )
     .map_err(|_| CONFLICT.to_string())?;
-    let result = crate::server::handlers::delegation::decode_submit_result(payload)?;
+    Ok(crate::server::handlers::delegation::decode_submit_result(payload)?.work_item_id)
+}
+
+/// The retained WorkItem still carries the exact run owner binding.
+async fn check_owner_binding(
+    persistence: &dyn PersistenceBackend,
+    fname: &str,
+    graph: &str,
+    proposed: &SubmitWorkItemRequest,
+    actor: &str,
+    work_item_id: &str,
+) -> Result<(), String> {
     let row = persistence
-        .read_node(&fname, &result.work_item_id)
+        .read_node(fname, work_item_id)
         .await?
         .ok_or(CONFLICT)?;
     let props: serde_json::Value = rmp_serde::from_slice(&row).map_err(|_| CONFLICT)?;
     let expected = serde_json::json!({
         "graph": graph, "tenant": proposed.context.tenant_id,
-        "run_id": proposed.run_id, "work_item_id": result.work_item_id,
+        "run_id": proposed.run_id, "work_item_id": work_item_id,
         "principal": actor,
     });
     if props.get("run_owner_binding") != Some(&expected) {
         return Err(CONFLICT.into());
     }
-    Ok(Method::SubmitWorkItem { request: retained })
+    Ok(())
 }
 
 fn checked_admission(

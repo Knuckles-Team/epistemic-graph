@@ -488,21 +488,7 @@ async fn run_admission_binds_verified_owner_and_replays_without_row_changes() {
     // The first admission uses the unchanged pre-repair compilation/digest path.
     // Retain its exact receipt/outbox bytes, including its original context.
     let receipt_id = run_admission_receipt_id("work-item-inner-key");
-    let receipt_before = serde_json::to_vec(
-        &concrete
-            .read_mutation_batch(GRAPH, &receipt_id)
-            .await
-            .unwrap()
-            .unwrap(),
-    )
-    .unwrap();
-    let outbox_before = serde_json::to_vec(
-        &concrete
-            .read_mutation_outbox(GRAPH, &receipt_id)
-            .await
-            .unwrap(),
-    )
-    .unwrap();
+    let retained_before = retained_admission_bytes(&concrete, &receipt_id).await;
     let version_before = concrete.read_mutation_graph_version(GRAPH).await.unwrap();
     let replay = test_support::dispatch(
         &state,
@@ -517,25 +503,8 @@ async fn run_admission_binds_verified_owner_and_replays_without_row_changes() {
         version_before
     );
     assert_eq!(
-        serde_json::to_vec(
-            &concrete
-                .read_mutation_batch(GRAPH, &receipt_id)
-                .await
-                .unwrap()
-                .unwrap()
-        )
-        .unwrap(),
-        receipt_before
-    );
-    assert_eq!(
-        serde_json::to_vec(
-            &concrete
-                .read_mutation_outbox(GRAPH, &receipt_id)
-                .await
-                .unwrap()
-        )
-        .unwrap(),
-        outbox_before
+        retained_admission_bytes(&concrete, &receipt_id).await,
+        retained_before
     );
     assert_eq!(
         concrete
@@ -620,25 +589,8 @@ async fn run_admission_binds_verified_owner_and_replays_without_row_changes() {
     .await;
     let replay: SubmitWorkItemResult = decode_raw(&replay, "reopened admission replay");
     assert_eq!(
-        serde_json::to_vec(
-            &reopened
-                .read_mutation_batch(GRAPH, &receipt_id)
-                .await
-                .unwrap()
-                .unwrap()
-        )
-        .unwrap(),
-        receipt_before
-    );
-    assert_eq!(
-        serde_json::to_vec(
-            &reopened
-                .read_mutation_outbox(GRAPH, &receipt_id)
-                .await
-                .unwrap()
-        )
-        .unwrap(),
-        outbox_before
+        retained_admission_bytes(&reopened, &receipt_id).await,
+        retained_before
     );
     assert!(replay.replayed);
     assert_eq!(replay.work_item_id, admitted.work_item_id);
@@ -962,6 +914,20 @@ async fn current_plan_expired_replay(
         .unwrap(),
         outbox
     );
+}
+
+/// The exact retained receipt and outbox bytes of one native admission.
+async fn retained_admission_bytes(store: &RedbBackend, receipt_id: &str) -> (Vec<u8>, Vec<u8>) {
+    let receipt = store
+        .read_mutation_batch(GRAPH, receipt_id)
+        .await
+        .unwrap()
+        .unwrap();
+    let outbox = store.read_mutation_outbox(GRAPH, receipt_id).await.unwrap();
+    (
+        serde_json::to_vec(&receipt).unwrap(),
+        serde_json::to_vec(&outbox).unwrap(),
+    )
 }
 
 fn refreshed_run_submit_method() -> Method {
