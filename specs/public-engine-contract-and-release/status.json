@@ -285,8 +285,8 @@
         "tests/test_release_python_suite_contract.py:103",
         "tests/test_release_python_suite_contract.py:120",
         "tests/test_release_python_suite_contract.py:131",
-        "tests/test_release_python_suite_contract.py:354",
-        "tests/test_release_python_suite_contract.py:371"
+        "tests/test_release_python_suite_contract.py:347",
+        "tests/test_release_python_suite_contract.py:364"
       ]
     },
     {
@@ -541,7 +541,7 @@
         "9ed0560ea093"
       ],
       "verified_by": [
-        "tests/test_release_python_suite_contract.py:726"
+        "tests/test_release_python_suite_contract.py:719"
       ]
     },
     {
@@ -575,7 +575,7 @@
         "e729dc1650b6"
       ],
       "verified_by": [
-        "tests/test_ci_change_scope.py:188"
+        "tests/test_ci_change_scope.py:176"
       ],
       "rollup_of": [
         "EG-CONTRACT-R031.1",
@@ -590,7 +590,7 @@
         "733e1766936b"
       ],
       "verified_by": [
-        "tests/test_ci_change_scope.py:189"
+        "tests/test_ci_change_scope.py:177"
       ]
     },
     {
@@ -644,7 +644,7 @@
         "69411a23a248"
       ],
       "verified_by": [
-        "tests/test_ci_change_scope.py:470",
+        "tests/test_ci_change_scope.py:458",
         "tests/test_release_gates_test_target_coverage.py:62"
       ]
     },
@@ -979,7 +979,7 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [
-        "tests/test_release_full_wheel_contract.py:688"
+        "tests/test_release_full_wheel_contract.py:684"
       ]
     },
     {

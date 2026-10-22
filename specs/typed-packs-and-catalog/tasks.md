@@ -257,3 +257,8 @@ Keep each ruled boundary and adjacent owner obligation intact.
 - [ ] **EG-TYPED-PACKS-R802.7:** Trust flags on assets.
 - [ ] **EG-TYPED-PACKS-R802.8:** Critical data elements.
 - [ ] **EG-TYPED-PACKS-R805.7:** Data product proposals.
+
+## Schema drift wiring (R710, R712)
+
+- [ ] **EG-TYPED-PACKS-R714:** Call `drift::classify` from the record delivery path and return the `DriftReport`.
+- [ ] **EG-TYPED-PACKS-R715:** Quarantine a breaking delivery and prove it with a served test.

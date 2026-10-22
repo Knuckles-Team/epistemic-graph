@@ -289,14 +289,7 @@ def _assert_cache_job_settings(job_name: str, job: dict) -> None:
     budget = (
         45
         if job_name
-        in {
-            "gates",
-            "gates-plan-fuzz",
-            "gates-facade",
-            "python-server",
-            "gates-pyo3",
-            "gates-crates",
-        }
+        in {"gates", "gates-plan-fuzz", "gates-facade", "python-server", "gates-pyo3"}
         else 10
     )
     assert job["timeout-minutes"] == (
