@@ -93,7 +93,10 @@ This repository publishes two PyPI packages and one container image, all at the 
 ## Architecture
 
 <p align="center">
+  <a href="https://knuckles-team.github.io/.github/architecture/#eg">
   <img src="https://raw.githubusercontent.com/Knuckles-Team/epistemic-graph/main/docs/assets/runtime-architecture.svg" alt="People use browser, terminal, desktop, or messaging clients. Arbora serves clients. Agent Utilities coordinates agents. Epistemic Graph stores knowledge. Connectors synchronize source systems." width="960">
+  </a>
+  <br><a href="https://knuckles-team.github.io/.github/architecture/#eg">Explore the live architecture</a>
 </p>
 
 <p align="center">
