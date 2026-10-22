@@ -63,6 +63,9 @@ pub fn declared_error_code(code: &str) -> bool {
         crate::orchestration::HarnessVocabularyErrorCode::ALL
             .iter()
             .any(|item| item.as_str() == code),
+        crate::decision::harness_contrast::HarnessContrastErrorCode::ALL
+            .iter()
+            .any(|item| item.as_str() == code),
         crate::graph_schema::GraphSchemaErrorCode::ALL
             .iter()
             .any(|item| item.as_str() == code),

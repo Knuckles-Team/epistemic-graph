@@ -5,6 +5,7 @@ use std::sync::OnceLock;
 
 use eg_types::connector_pack::result::PackWriteErrorCode;
 use eg_types::contract::{EngineErrorCode, ServerErrorCode, UqlCode};
+use eg_types::decision::harness_contrast::HarnessContrastErrorCode;
 use eg_types::decision::statistical::StatisticalErrorCode;
 use eg_types::decision::DecisionErrorCode;
 use eg_types::graph_schema::GraphSchemaErrorCode;
@@ -301,6 +302,10 @@ fn add_typed_handler_errors(d: &MethodDescriptor, codes: &mut BTreeSet<&'static 
         codes.extend(typed_codes(
             StatisticalErrorCode::ALL,
             StatisticalErrorCode::as_str,
+        ));
+        codes.extend(typed_codes(
+            HarnessContrastErrorCode::ALL,
+            HarnessContrastErrorCode::as_str,
         ));
     }
     if id.starts_with("GraphSchema") {

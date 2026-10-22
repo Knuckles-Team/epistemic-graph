@@ -26,6 +26,7 @@ pub mod derivation;
 pub mod digest;
 pub mod errors;
 pub mod guardrail;
+pub mod harness_contrast;
 pub mod ingestion_admission;
 pub mod ingestion_ladder;
 pub mod jobs;
