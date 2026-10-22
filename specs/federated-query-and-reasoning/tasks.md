@@ -388,3 +388,5 @@ Preserve all previous acceptance and receipts. Deliver producer leaves before th
 - [ ] **EG-FEDERATED-QUERY-R709.4:** Refusal.
 - [ ] **EG-FEDERATED-QUERY-R709.5:** Evidence.
 - [ ] **EG-FEDERATED-QUERY-R709.6:** Hot-path proof.
+
+- [ ] **EG-FEDERATED-QUERY-R708.7:** Shared query workspace.

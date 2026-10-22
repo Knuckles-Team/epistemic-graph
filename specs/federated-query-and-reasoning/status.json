@@ -417,6 +417,7 @@
     "EG-FEDERATED-QUERY-R708.4",
     "EG-FEDERATED-QUERY-R708.5",
     "EG-FEDERATED-QUERY-R708.6",
+    "EG-FEDERATED-QUERY-R708.7",
     "EG-FEDERATED-QUERY-R709",
     "EG-FEDERATED-QUERY-R709.1",
     "EG-FEDERATED-QUERY-R709.2",
@@ -4114,7 +4115,8 @@
         "EG-FEDERATED-QUERY-R708.3",
         "EG-FEDERATED-QUERY-R708.4",
         "EG-FEDERATED-QUERY-R708.5",
-        "EG-FEDERATED-QUERY-R708.6"
+        "EG-FEDERATED-QUERY-R708.6",
+        "EG-FEDERATED-QUERY-R708.7"
       ]
     },
     {
@@ -4155,6 +4157,13 @@
     {
       "id": "EG-FEDERATED-QUERY-R708.6",
       "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R708.7",
+      "title": "Shared query workspace",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

@@ -476,3 +476,9 @@ Hot-path proof for `EG-FEDERATED-QUERY-R091`: `tests/federation/test_plan_evolut
 | `EG-FEDERATED-QUERY-R709.4` | `tests/test_geosparql_served.py::test_geo_refusals` |
 | `EG-FEDERATED-QUERY-R709.5` | `tests/test_geosparql_served.py::test_explain_names_spatial_index` |
 | `EG-FEDERATED-QUERY-R709.6` | `cargo bench -p eg-rdf --bench geosparql` |
+
+## Shared query workspace
+
+| Row | Proving test |
+|---|---|
+| `EG-FEDERATED-QUERY-R708.7` | `tests/test_stored_query_served.py::test_workspace_share_schedule_and_lint` |

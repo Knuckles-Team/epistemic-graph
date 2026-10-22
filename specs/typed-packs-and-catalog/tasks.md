@@ -252,3 +252,8 @@ Keep each ruled boundary and adjacent owner obligation intact.
 - [ ] **EG-TYPED-PACKS-R805.4:** Refusal.
 - [ ] **EG-TYPED-PACKS-R805.5:** Evidence.
 - [ ] **EG-TYPED-PACKS-R805.6:** Hot-path proof.
+
+- [ ] **EG-TYPED-PACKS-R801.7:** Proposed descriptions for terms and assets.
+- [ ] **EG-TYPED-PACKS-R802.7:** Trust flags on assets.
+- [ ] **EG-TYPED-PACKS-R802.8:** Critical data elements.
+- [ ] **EG-TYPED-PACKS-R805.7:** Data product proposals.
