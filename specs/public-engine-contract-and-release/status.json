@@ -381,11 +381,11 @@
       "title": "Generated error catalog has stable auth-mismatch codes",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "0762d1a3d687",
         "15acf1a959e5",
         "19d0663aaf5c",
         "2a4982e949a3",
-        "394f82a01e83"
+        "394f82a01e83",
+        "4c25220f6e1b"
       ],
       "verified_by": [
         "crates/eg-capabilities/src/contract/errors.rs:476",
@@ -403,8 +403,9 @@
       "title": "Authentication refusals name a safe cause class",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "0762d1a3d687",
-        "56d0a453d359"
+        "6309d2bb3095",
+        "e0267060cec8",
+        "e2b5a1e42c45"
       ],
       "verified_by": [
         "src/server/auth.rs:2053",
