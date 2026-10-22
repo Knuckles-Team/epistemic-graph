@@ -177,8 +177,14 @@ def test_workspace_gates_use_hosted_runner_with_required_headers(
     ]
     assert len(installs) == 1
     assert "if" not in installs[0]
-    assert installs[0]["run"] == (
-        "set -euo pipefail\n"
+    run = installs[0]["run"]
+    # The install is skipped when the image already has both headers.
+    assert run.startswith("set -euo pipefail\n")
+    assert (
+        "if dpkg -s libsasl2-dev libcurl4-openssl-dev >/dev/null 2>&1; "
+        "then exit 0; fi\n" in run
+    )
+    assert run.endswith(
         "sudo apt-get update\n"
         "sudo apt-get install -y --no-install-recommends "
         "libsasl2-dev libcurl4-openssl-dev\n"
