@@ -226,6 +226,7 @@
       "title": "Fresh canonical codec export with provenance",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "bc4f12231e6b",
         "de36fad57505"
       ],
       "verified_by": [
