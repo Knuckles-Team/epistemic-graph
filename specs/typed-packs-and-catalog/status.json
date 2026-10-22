@@ -261,6 +261,8 @@
     "EG-TYPED-PACKS-R712",
     "EG-TYPED-PACKS-R711",
     "EG-TYPED-PACKS-R713",
+    "EG-TYPED-PACKS-R714",
+    "EG-TYPED-PACKS-R715",
     "EG-TYPED-PACKS-R800",
     "EG-TYPED-PACKS-R800.1",
     "EG-TYPED-PACKS-R800.2",
@@ -2800,6 +2802,20 @@
     {
       "id": "EG-TYPED-PACKS-R713",
       "title": "Process, lifecycle, temporal and harness shape artifacts are generated: refusal, evidence and hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R714",
+      "title": "Delivery-path wiring of drift classification",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R715",
+      "title": "Served quarantine of a drifted delivery",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

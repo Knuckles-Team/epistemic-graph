@@ -681,3 +681,11 @@ runtime behavior, Arbora admission or live host startup.
 Masking enforcement lives in EG-FEDERATED-QUERY-R706. Quality scores live in
 EG-UNIFIED-DATA-PLANE-R762. Approval admission lives in arbora; the record and the reviewer
 choice stay here.
+
+## Schema drift wiring (R710, R712)
+
+`EG-TYPED-PACKS-R710` stays VERIFIED by the unit tests in `crates/eg-types/src/graph_schema/drift.rs`. Its acceptance is unit tests of the typed model and the bound.
+`EG-TYPED-PACKS-R712` stays VERIFIED by the benchmark `benches/schema_drift_classify.rs` and the approval-lease served test.
+Superseded evidence: `tests/packs/test_schema_drift_served.py` drives attach, validate and approval-lease operations only. It never classifies drift.
+No engine code outside `benches/` calls the classifier today.
+`EG-TYPED-PACKS-R714` owns the delivery-path wiring. `EG-TYPED-PACKS-R715` owns the served quarantine proof.

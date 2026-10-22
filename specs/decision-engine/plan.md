@@ -1595,11 +1595,9 @@ and its refusal tests do not establish successful HarnessConfig replay.
 The status generator uses commit trailers and test bindings, not test results.
 Record native execution evidence separately before claiming acceptance.
 
-R128.13.1.1 owns the unchanged evidence codec and native refusal tests.
-R128.13.1.2 retains the undefined workload and performance acceptance.
-R128.13.2.1 retains successful replay and readback; R128.13.2.2 retains their resource qualification.
-The benchmark paths named in those rows are planned and unimplemented.
-Vector cardinalities and context-token bounds do not establish byte, latency or memory budgets.
+R128.13.1 owns the evidence codec and native refusal tests.
+R128.13.2 owns successful replay and readback.
+Neither row states a resource budget. A budget row must state a measured numeric target.
 Generate status only from the canonical tool; record execution and measurement gaps separately.
 
 ## Amendment 2026-10-18: R036 profile-use admission ownership
@@ -2039,3 +2037,11 @@ R804 binds code that exists today: `crates/eg-program` and the `JobKind::Program
 `src/server/handlers/jobs/submit.rs:419`. R805 composes the promotion compare-and-swap at
 `src/server/mutation_batch/commit/program.rs:64`. Rollback re-promotes the parent revision. A
 model-judge-only test split never drives promotion, per R016.
+
+## Usage ledger wiring (R801.3)
+
+`EG-DECISION-ENGINE-R801.3` stays VERIFIED by the scope registration test in `crates/eg-capabilities/src/scopes/tests.rs`.
+That test proves the `usage:read` user scope and the service-only `usage:write` scope.
+Superseded evidence: the in-memory `UsageLedger` in `crates/eg-core/src/usage_ledger.rs` had no caller.
+Its tests did not prove a served tenant-scoped read. The module and its tests were removed.
+`EG-DECISION-ENGINE-R801.7` owns the served tenant-scoped read. It depends on the durable ledger of `EG-DECISION-ENGINE-R801.2`.
