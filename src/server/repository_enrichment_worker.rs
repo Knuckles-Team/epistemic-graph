@@ -222,8 +222,9 @@ mod worker {
         {
             return Err("CONFLICT: repository enrichment graph could not be opened".into());
         }
+        let anonymous = state.read().await.local_anonymous;
         #[cfg(feature = "security")]
-        {
+        if !anonymous {
             let mut state = state.write().await;
             let entry = state
                 .registry
@@ -242,21 +243,27 @@ mod worker {
                 return Err("ACCESS_DENIED: repository enrichment graph grant is absent".into());
             }
         }
-        let service = VerifiedRequestContext::authenticated_fixed_service_actor(
-            SERVICE,
-            &["work:submit", "repository:enrichment:submit"],
-        )?;
-        if service.tenant() != tenant {
+        let verified = if anonymous {
+            VerifiedRequestContext::anonymous_local(Some(page_key.to_string()))
+        } else {
+            let service = VerifiedRequestContext::authenticated_fixed_service_actor(
+                SERVICE,
+                &["work:submit", "repository:enrichment:submit"],
+            )?;
+            VerifiedRequestContext::from_verified_claims_with_nonce(
+                service.claims().clone(),
+                page_key.to_string(),
+                Some(eg_types::contract::Nonce::minted()),
+            )
+        };
+        if verified.tenant() != tenant {
             return Err("ACCESS_DENIED: repository enrichment tenant mismatch".into());
         }
-        let verified = VerifiedRequestContext::from_verified_claims_with_nonce(
-            service.claims().clone(),
-            page_key.to_string(),
-            Some(eg_types::contract::Nonce::minted()),
-        );
         let now = crate::server::dispatch::authoritative_now_ms();
         #[cfg(feature = "raft")]
-        let placement_epoch = {
+        let placement_epoch = if anonymous {
+            0
+        } else {
             let multi = state
                 .read()
                 .await
@@ -270,12 +277,20 @@ mod worker {
         let wire = RequestContext {
             schema_version: RequestContextSchemaVersion::V2,
             request_id: page_key.to_string(),
-            subject_id: verified.principal_persistence_id(),
+            subject_id: if anonymous {
+                verified.principal().to_string()
+            } else {
+                verified.principal_persistence_id()
+            },
             tenant_id: tenant.to_string(),
             agent_id: verified.agent_id().to_string(),
             scopes: vec!["work:submit".into(), "repository:enrichment:submit".into()],
             audience: verified.claims().audience.clone(),
-            authentication_method: RequestContextAuthenticationMethod::LocalProcess,
+            authentication_method: if anonymous {
+                RequestContextAuthenticationMethod::Anonymous
+            } else {
+                RequestContextAuthenticationMethod::LocalProcess
+            },
             policy_version: verified.claims().policy_version.clone(),
             graph: graph.to_string(),
             placement_epoch: Some(placement_epoch),

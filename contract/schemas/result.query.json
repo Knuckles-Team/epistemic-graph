@@ -44657,7 +44657,8 @@
         "workload_identity",
         "oidc",
         "mutual_tls",
-        "local_process"
+        "local_process",
+        "none"
       ],
       "type": "string"
     },

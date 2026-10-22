@@ -13,6 +13,8 @@ use super::MutationPlan;
 /// Borrowed, not owned — built fresh per request from already-resolved
 /// `dispatch_graph_op` locals (the registry lock is never re-acquired here).
 pub struct MutationCtx<'a> {
+    /// Server-owned origin, never derived from caller-controlled keys.
+    pub anonymous: bool,
     pub req_id: u64,
     pub caller: Option<&'a str>,
     /// Authenticated transport nonce; consumed by the mutation envelope's
@@ -172,7 +174,21 @@ pub(super) fn response_dedup_key(ctx: &MutationCtx<'_>, method: &Method) -> Stri
         ctx.tenant_scope,
         ctx.graph_name,
         ctx.caller,
-        &idempotency_key(ctx.graph_name, method, ctx.req_id),
+        &if ctx.anonymous {
+            // Distinguish independent operations across connections, while
+            // retaining explicit anonymous retry identity. Transient response
+            // caching must never answer a different method/body with old data;
+            // durable domains separately reject body/key conflicts in-kernel.
+            use sha2::{Digest, Sha256};
+            let body = format!("{method:?}");
+            format!(
+                "{}:{}",
+                ctx.idempotency_key,
+                hex::encode(Sha256::digest(body.as_bytes()))
+            )
+        } else {
+            idempotency_key(ctx.graph_name, method, ctx.req_id)
+        },
     )
 }
 
@@ -524,6 +540,7 @@ mod response_dedup_scope_tests {
         let core = Arc::new(GraphCore::new());
         let isolation = IsolationLayer::new();
         let ctx = MutationCtx {
+            anonymous: false,
             req_id,
             caller: Some(caller),
             attempt_nonce: None,

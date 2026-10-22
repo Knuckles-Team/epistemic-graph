@@ -17,12 +17,16 @@ use std::collections::HashSet;
 
 type HmacSha256 = Hmac<Sha256>;
 
-/// Authenticated request identity returned only after the corresponding
-/// envelope has passed cryptographic and deployment-policy verification.
+/// Request authority, retaining its historical name for internal compatibility.
+/// `Verified` follows cryptographic verification; `AnonymousLocal` is explicit
+/// deployment authorization of an isolated local store, never authentication.
 /// Fields are private so downstream code cannot construct a trusted context
 /// from caller-supplied JSON.
 #[derive(Debug, Clone)]
 pub(crate) struct VerifiedRequestContext {
+    // Historical type name: origin distinguishes verified identity from a
+    // deployment-authorized anonymous local store owner. Never caller-set.
+    origin: AuthorityOrigin,
     claims: RequestContextClaims,
     idempotency_key: String,
     /// The authenticated transport nonce, converted to the fixed-width kernel
@@ -33,7 +37,39 @@ pub(crate) struct VerifiedRequestContext {
     scope_wildcard_domains: HashSet<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AuthorityOrigin {
+    Verified,
+    AnonymousLocal,
+}
+
 impl VerifiedRequestContext {
+    pub(crate) fn is_authenticated(&self) -> bool {
+        self.origin == AuthorityOrigin::Verified
+    }
+
+    pub(crate) fn anonymous_local(idempotency_key: Option<String>) -> Self {
+        let nonce = Nonce::minted();
+        let mut context = Self::from_verified_claims_with_nonce(
+            RequestContextClaims {
+                principal: "anonymous".into(),
+                agent_id: "anonymous".into(),
+                tenant: "local".into(),
+                audience: "epistemic-graph".into(),
+                policy_version: "no-auth".into(),
+                scopes: vec!["*".into()],
+                roles: vec!["anonymous-local-owner".into()],
+                delegation: Vec::new(),
+                node: None,
+                priority: None,
+            },
+            idempotency_key.unwrap_or_else(|| format!("anonymous:{}", nonce.to_hex())),
+            Some(nonce),
+        );
+        context.origin = AuthorityOrigin::AnonymousLocal;
+        context
+    }
+
     pub(crate) fn from_verified_claims(
         claims: RequestContextClaims,
         idempotency_key: String,
@@ -53,6 +89,7 @@ impl VerifiedRequestContext {
             .filter_map(|scope| scope.strip_suffix(":*").map(str::to_owned))
             .collect();
         Self {
+            origin: AuthorityOrigin::Verified,
             claims,
             idempotency_key,
             wire_nonce,

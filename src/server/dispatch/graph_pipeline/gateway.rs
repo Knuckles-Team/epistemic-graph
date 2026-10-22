@@ -38,6 +38,7 @@ async fn commit_query_gateway(ctx: GatewayRouteCtx<'_>, method: Method) -> Respo
             .as_ref()
             .expect("is_gateway_routed query method must have a captured GatewayAuthzCtx");
         let mutation_ctx = crate::server::mutation::MutationCtx {
+            anonymous: ctx.state.read().await.local_anonymous,
             req_id: ctx.req_id,
             caller: ctx.caller,
             attempt_nonce: ctx.attempt_nonce,
@@ -132,6 +133,7 @@ async fn commit_rdf_gateway(ctx: GatewayRouteCtx<'_>, method: Method) -> Respons
             .as_ref()
             .expect("is_gateway_routed rdf method must have a captured GatewayAuthzCtx");
         let mutation_ctx = crate::server::mutation::MutationCtx {
+            anonymous: ctx.state.read().await.local_anonymous,
             req_id: ctx.req_id,
             caller: ctx.caller,
             attempt_nonce: ctx.attempt_nonce,

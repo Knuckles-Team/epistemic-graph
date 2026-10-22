@@ -236,11 +236,21 @@ async fn submit(
     method: crate::protocol::Method,
     as_of_ms: u64,
 ) -> Result<(), String> {
+    let anonymous = state.read().await.local_anonymous;
     #[cfg(feature = "security")]
-    grant::ensure(&mut state.write().await.isolation, graph)
-        .map_err(|error| format!("cannot be granted its graph: {error}"))?;
-    let context = service_context(&watch.id, as_of_ms)
-        .map_err(|error| format!("service identity unavailable: {error}"))?;
+    if !anonymous {
+        grant::ensure(&mut state.write().await.isolation, graph)
+            .map_err(|error| format!("cannot be granted its graph: {error}"))?;
+    }
+    let context = if anonymous {
+        VerifiedRequestContext::anonymous_local(Some(format!(
+            "{WATCH_SERVICE}:{}:{as_of_ms}",
+            watch.id
+        )))
+    } else {
+        service_context(&watch.id, as_of_ms)
+            .map_err(|error| format!("service identity unavailable: {error}"))?
+    };
     let request = crate::protocol::Request {
         id: 0,
         graph: graph.to_string(),

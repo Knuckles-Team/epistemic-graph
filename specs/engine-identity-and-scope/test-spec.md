@@ -2,17 +2,17 @@
 
 | Test | Requirement | Setup | Pass and refusal observations |
 |---|---|---|---|
-| I-01 | ID-01 | Network-free signed JWTs for issuers A/B, separate audiences and human/service kinds. | Both valid issuers bind exact principal and tenant; unknown issuer, bad signature/audience/expiry, subject/tenant mismatch and wrong kind are denied before method dispatch. |
-| I-02 | ID-01 | Rotate key ID on issuer A while issuer B remains unchanged. | Declared overlap works only in window; removed/stale/ambiguous key fails after refresh; B is unaffected. |
-| I-03 | ID-02 | Register and replace complete roles, then remove an admin role. | Effective grants reflect removal before success; a concurrent request cannot use removed role; state persists after restart. |
-| I-04 | ID-02 | Force failure between proposed role write and audit append; tamper with one historical audit record. | One transaction rolls back both writes; audit verification detects deletion/reorder/alteration and reports bounded location without secrets. |
-| I-05 | ID-03 | Exercise every allowed mode transition with two admins, local credentials, enabled IdP and a test-signed gateway attestation. | Mode/epoch advance once; accounts/grants persist; sessions on old epoch are denied; retry recovers revocation receipt after restart. |
-| I-06 | ID-03 | Stale epoch, missing surviving admin, no fresh MFA, non-loopback attestations, forged/replayed nonce, wrong tenant/principal. | Typed denial/conflict, unchanged mode and epoch, no retained session accepted after a committed transition. |
-| I-07 | ID-04 | Generate contract and install wheel in a clean environment. | Every declared scope has one class and digest; public catalog equals server registry and the consumer-derived allowlist. |
-| I-08 | ID-04 | Try human grant of service-only scope, service account admin, wildcard approver, and an unknown name. | Generation or runtime refuses each; direct human approver membership works only for the designated group. |
-| I-10 | ID-02 | Create a user whose explicit principal ID belongs to a `RegisterIdentity` principal or the System identity. | `IDENTITY_COLLISION`; the registered identity, its role set and its System role stay unchanged (`create_user_cannot_take_over_a_registered_principal`). |
-| I-09 | all | Run complete PR/release quality checks at exact commit. | No new CCCC/KISS/jscpd/Dupehound violation; generated artifacts fresh; supported Rust/Python/consumer tests pass. |
-| I-10 | ID-06 | Provision `tenant__alpha__default`, register a principal with role `tenant:alpha`, then check `__commons__` and `tenant__acme__default`. | Read on `__commons__` is allowed. Write on `__commons__` is denied. Read on the other tenant's graph is denied. Repeated provisioning keeps three grants. |
+| `I-01` | ID-01 | Network-free signed JWTs for issuers A/B, separate audiences and human/service kinds. | Both valid issuers bind exact principal and tenant; unknown issuer, bad signature/audience/expiry, subject/tenant mismatch and wrong kind are denied before method dispatch. |
+| `I-02` | ID-01 | Rotate key ID on issuer A while issuer B remains unchanged. | Declared overlap works only in window; removed/stale/ambiguous key fails after refresh; B is unaffected. |
+| `I-03` | ID-02 | Register and replace complete roles, then remove an admin role. | Effective grants reflect removal before success; a concurrent request cannot use removed role; state persists after restart. |
+| `I-04` | ID-02 | Force failure between proposed role write and audit append; tamper with one historical audit record. | One transaction rolls back both writes; audit verification detects deletion/reorder/alteration and reports bounded location without secrets. |
+| `I-05` | ID-03 | Exercise every allowed mode transition with two admins, local credentials, enabled IdP and a test-signed gateway attestation. | Mode/epoch advance once; accounts/grants persist; sessions on old epoch are denied; retry recovers revocation receipt after restart. |
+| `I-06` | ID-03 | Stale epoch, missing surviving admin, no fresh MFA, non-loopback attestations, forged/replayed nonce, wrong tenant/principal. | Typed denial/conflict, unchanged mode and epoch, no retained session accepted after a committed transition. |
+| `I-07` | ID-04 | Generate contract and install wheel in a clean environment. | Every declared scope has one class and digest; public catalog equals server registry and the consumer-derived allowlist. |
+| `I-08` | ID-04 | Try human grant of service-only scope, service account admin, wildcard approver, and an unknown name. | Generation or runtime refuses each; direct human approver membership works only for the designated group. |
+| `I-10` | ID-02 | Create a user whose explicit principal ID belongs to a `RegisterIdentity` principal or the System identity. | `IDENTITY_COLLISION`; the registered identity, its role set and its System role stay unchanged (`create_user_cannot_take_over_a_registered_principal`). |
+| `I-09` | all | Run complete PR/release quality checks at exact commit. | No new CCCC/KISS/jscpd/Dupehound violation; generated artifacts fresh; supported Rust/Python/consumer tests pass. |
+| `I-10` | ID-06 | Provision `tenant__alpha__default`, register a principal with role `tenant:alpha`, then check `__commons__` and `tenant__acme__default`. | Read on `__commons__` is allowed. Write on `__commons__` is denied. Read on the other tenant's graph is denied. Repeated provisioning keeps three grants. |
 
 ## Open acceptance gap: replicated tenant provisioning
 
@@ -35,9 +35,8 @@ policy persistence/reprojection using temporary Redb. These regressions are
 unexecuted pending exact-source native qualification; they do not establish
 cross-group ordering or close this acceptance gap.
 
-Separately, the new managed tenant provisioning side effect mutates the identity
-store and must have correct route ownership and ordering against Identity
-mutations. `CreateGraph` follows the named graph route, while Identity mutations
+Managed tenant provisioning also mutates the identity store.
+It must preserve route ownership and ordering against Identity mutations. `CreateGraph` follows the named graph route, while Identity mutations
 use `__commons__` (`src/server/dispatch/consensus/routing.rs`). The local store
 transaction and focused Identity routing regression do not establish ordering
 between these routes.
@@ -63,7 +62,7 @@ Review: [PR 445](https://github.com/Knuckles-Team/epistemic-graph/pull/445).
 `dispatch_attributes_every_queue_class_to_the_one_verified_principal` retains its verified-principal and spoofed-consumer assertions.
 Native execution of both tests remains pending.
 Hosted facade execution must establish R005 acceptance; source inspection alone does not establish it.
-| I-11 | R008 | A principal with a stored policy node allowing two tools; plans naming two tools and three tools. | The two-tool plan passes. The three-tool plan returns `ScopeExceedsPolicy` naming the third tool, and an audit record exists. |
+| `I-11` | R008 | A principal with a stored policy node allowing two tools; plans naming two tools and three tools. | The two-tool plan passes. The three-tool plan returns `ScopeExceedsPolicy` naming the third tool, and an audit record exists. |
 
 ### EG-IDENTITY-R023 tests
 
@@ -130,3 +129,15 @@ installed GraphOS wheel or live authorization deployment.
 | Hot-path proof | `EG-IDENTITY-R023.13.6` | The served test passes against a restarted engine, and the benchmark receipt meets the budget. |
 
 Hot-path proof for `EG-IDENTITY-R023.13`: `tests/identity/test_share_restart_served.py::test_org_share_revocation_persists_across_restart`.
+
+## Explicit isolated anonymous authority
+
+| Test | Requirement | Setup | Pass and refusal observations |
+|---|---|---|---|
+| `I-12` | EG-IDENTITY-R003.1 | `tests/test_native_no_auth_served.py` owns real loopback native processes and fresh anonymous stores. | Cover write/read/restart, durable replay/conflict, independent-client clears and real Blob CAS. Cover signed/mixed/forged metadata refusals, store separation and loopback-only startup. Connector-pack import becomes visible with a nonempty graph-schema source through the actual background sweep. |
+| `I-13` | EG-IDENTITY-R003.1 | `tests/test_client_no_auth.py` plus existing verified-context/client regressions. | Explicit anonymous mode never signs or manufactures verified claims. Strict unsigned retry metadata preserves caller keys and the required null agent field. Authenticated defaults and payloads remain unchanged. |
+| `I-14` | EG-IDENTITY-R003.2 | Pending dedicated admission benchmark implementation and allocation/latency receipt. | No measured performance claim from the opt0 scoped runtime build or functional tests. |
+
+Private UDS runtime proof on a suitable host remains pending. So do the full default feature matrix, including AST enrichment, and native Rust unit execution. Synthetic authenticated end-to-end comparison also remains pending. The parent durable mode-transition row R003 is not closed by this isolated-store child.
+
+`I-15` (EG-IDENTITY-R003.3) remains pending: real private-UDS operations and the full feature runtime matrix, including AST enrichment. This is separate from `I-12` native TCP qualification.

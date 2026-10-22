@@ -170,6 +170,8 @@ pub struct ServerState {
     pub isolation: IsolationLayer,
     pub channels: ChannelManager,
     pub auth_secret: String,
+    /// Explicit local anonymous store mode; never inferred from an empty secret.
+    pub local_anonymous: bool,
     pub persist_dir: Option<String>,
     /// Authoritative durable persistence tier (CONCEPT:EG-KG.storage.kg-kg).
     /// Served startup supplies this backend and every durable mutation awaits its
@@ -472,6 +474,7 @@ impl ServerState {
             isolation,
             channels: ChannelManager::default(),
             auth_secret: auth_secret.into(),
+            local_anonymous: false,
             persist_dir: None,
             persistence: None,
             #[cfg(feature = "redb")]
@@ -603,5 +606,22 @@ mod construction_tests {
         assert!(state.foreign_sources.is_empty());
         #[cfg(feature = "blob")]
         assert_eq!(state.blob_cursor_ttl_secs, 300);
+    }
+}
+
+impl ServerState {
+    pub(crate) fn request_authority(
+        &self,
+        request: &crate::protocol::Request,
+    ) -> Result<crate::server::authority_context::VerifiedRequestContext, String> {
+        if self.local_anonymous {
+            crate::server::anonymous::request_authority(request)
+        } else {
+            crate::server::auth::verify_request_with_security_dir(
+                &self.auth_secret,
+                request,
+                self.persist_dir.as_deref(),
+            )
+        }
     }
 }

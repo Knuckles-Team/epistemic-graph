@@ -136,6 +136,7 @@ pub(crate) async fn try_handle_gateway(
 
     let plan = MutationPlan::for_method(&method);
     let ctx = MutationCtx {
+        anonymous: state.read().await.local_anonymous,
         req_id,
         caller,
         attempt_nonce,

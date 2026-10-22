@@ -262,6 +262,7 @@ mod tests {
         assert_eq!(plan.durability_domain, DurabilityDomain::GraphRedb);
 
         let ctx = MutationCtx {
+            anonymous: false,
             req_id: 1,
             caller: Some("system-agent"),
             attempt_nonce: None,
@@ -380,6 +381,7 @@ mod tests {
             };
             let plan = MutationPlan::for_method(&method);
             let ctx = MutationCtx {
+                anonymous: false,
                 req_id: 1,
                 caller: Some("system-agent"),
                 attempt_nonce: None,
@@ -470,6 +472,7 @@ mod tests {
         assert_eq!(plan.durability_domain, DurabilityDomain::GraphRedb);
 
         let ctx = MutationCtx {
+            anonymous: false,
             req_id: 2,
             caller: Some("system-agent"),
             attempt_nonce: None,
@@ -540,6 +543,7 @@ mod tests {
         assert_eq!(plan.durability_domain, DurabilityDomain::GraphRedb);
 
         let ctx = MutationCtx {
+            anonymous: false,
             req_id: 1,
             caller: Some("system-agent"),
             attempt_nonce: None,
@@ -729,6 +733,7 @@ mod tests {
             let graph_name = format!("g-w1c-{tag}");
 
             let ctx = MutationCtx {
+                anonymous: false,
                 req_id: 1,
                 caller: Some("system-agent"),
                 attempt_nonce: None,
@@ -846,6 +851,7 @@ mod tests {
         assert!(!plan.emits_cdc, "DeclareExchange policy-does-NOT-emit-CDC");
 
         let ctx = MutationCtx {
+            anonymous: false,
             req_id: 10,
             caller: Some("system-agent"),
             attempt_nonce: None,
@@ -928,6 +934,7 @@ mod tests {
         assert!(!plan.emits_cdc);
 
         let ctx = MutationCtx {
+            anonymous: false,
             req_id: 11,
             caller: Some("system-agent"),
             attempt_nonce: None,
@@ -1055,6 +1062,7 @@ mod tests {
         };
         let plan_ro = MutationPlan::for_method(&method_ro);
         let ctx_ro = MutationCtx {
+            anonymous: false,
             req_id: 20,
             caller: Some("system-agent"),
             attempt_nonce: None,
@@ -1127,6 +1135,7 @@ mod tests {
         assert!(plan_rw.audited, "MineAssociate is policy-audited");
         assert!(!plan_rw.emits_cdc, "MineAssociate policy-does-NOT-emit-CDC");
         let ctx_rw = MutationCtx {
+            anonymous: false,
             req_id: 21,
             caller: Some("system-agent"),
             attempt_nonce: None,
@@ -1212,6 +1221,7 @@ mod tests {
         let plan = MutationPlan::for_method(&method);
 
         let ctx = MutationCtx {
+            anonymous: false,
             req_id: 3,
             caller: Some("intruder"),
             attempt_nonce: None,
@@ -1270,6 +1280,7 @@ mod tests {
         let plan = MutationPlan::for_method(&method);
         let apply_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let first = MutationCtx {
+            anonymous: false,
             req_id: 4,
             caller: Some("system-agent"),
             attempt_nonce: Some(eg_types::contract::Nonce::from_bytes([1; 32])),
@@ -1302,6 +1313,7 @@ mod tests {
             Arc::new(RedbBackend::open(dir_s, 64).expect("reopen redb backend"));
         let core = Arc::new(GraphCore::new());
         let retry = MutationCtx {
+            anonymous: false,
             req_id: 5,
             caller: Some("system-agent"),
             attempt_nonce: Some(eg_types::contract::Nonce::from_bytes([2; 32])),
@@ -1329,6 +1341,7 @@ mod tests {
         assert_eq!(apply_count.load(std::sync::atomic::Ordering::SeqCst), 1);
 
         let consumed = MutationCtx {
+            anonymous: false,
             req_id: 6,
             attempt_nonce: Some(eg_types::contract::Nonce::from_bytes([1; 32])),
             ..retry
@@ -1347,6 +1360,7 @@ mod tests {
         };
         let changed_plan = MutationPlan::for_method(&changed);
         let conflict = MutationCtx {
+            anonymous: false,
             req_id: 7,
             attempt_nonce: Some(eg_types::contract::Nonce::from_bytes([3; 32])),
             ..consumed
@@ -1386,6 +1400,7 @@ mod tests {
         let plan = MutationPlan::for_method(&method);
         let apply_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let first = MutationCtx {
+            anonymous: false,
             req_id: 40,
             caller: Some("system-agent"),
             attempt_nonce: Some(eg_types::contract::Nonce::from_bytes([11; 32])),
@@ -1424,6 +1439,7 @@ mod tests {
             Arc::new(RedbBackend::open(dir_s, 64).expect("reopen redb backend"));
         let core = Arc::new(GraphCore::new());
         let retry = MutationCtx {
+            anonymous: false,
             req_id: 41,
             caller: Some("system-agent"),
             attempt_nonce: Some(eg_types::contract::Nonce::from_bytes([12; 32])),
@@ -1453,6 +1469,7 @@ mod tests {
         assert!(core.has_node("n1"));
 
         let consumed = MutationCtx {
+            anonymous: false,
             req_id: 42,
             attempt_nonce: Some(eg_types::contract::Nonce::from_bytes([11; 32])),
             ..retry
@@ -1473,6 +1490,7 @@ mod tests {
         };
         let changed_plan = MutationPlan::for_method(&changed);
         let conflict = MutationCtx {
+            anonymous: false,
             req_id: 43,
             attempt_nonce: Some(eg_types::contract::Nonce::from_bytes([13; 32])),
             ..consumed
