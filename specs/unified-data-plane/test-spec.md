@@ -247,3 +247,12 @@ Hot-path proof for `EG-UNIFIED-DATA-PLANE-R651.7`: `tests/web_document_enrich_se
 | `EG-UNIFIED-DATA-PLANE-R764.4` | `tests/test_catalog_search_served.py::test_search_refusals` |
 | `EG-UNIFIED-DATA-PLANE-R764.5` | `tests/test_catalog_search_served.py::test_hit_components_listed` |
 | `EG-UNIFIED-DATA-PLANE-R764.6` | `cargo bench --bench catalog_search` |
+
+## Source query-log intelligence, rule proposals and outside quality results
+
+| Row | Proving test |
+|---|---|
+| `EG-UNIFIED-DATA-PLANE-R762.7` | `crates/eg-core/tests/quality.rs::profile_yields_proposed_rules` |
+| `EG-UNIFIED-DATA-PLANE-R762.8` | `tests/test_quality_served.py::test_outside_scores_open_incident` |
+| `EG-UNIFIED-DATA-PLANE-R764.7` | `tests/test_catalog_search_served.py::test_source_query_log_feeds_usage` |
+| `EG-UNIFIED-DATA-PLANE-R764.8` | `tests/test_catalog_search_served.py::test_frequent_users_and_join_suggestions` |

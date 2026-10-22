@@ -276,6 +276,8 @@
     "EG-UNIFIED-DATA-PLANE-R762.4",
     "EG-UNIFIED-DATA-PLANE-R762.5",
     "EG-UNIFIED-DATA-PLANE-R762.6",
+    "EG-UNIFIED-DATA-PLANE-R762.7",
+    "EG-UNIFIED-DATA-PLANE-R762.8",
     "EG-UNIFIED-DATA-PLANE-R763",
     "EG-UNIFIED-DATA-PLANE-R763.1",
     "EG-UNIFIED-DATA-PLANE-R763.2",
@@ -289,7 +291,9 @@
     "EG-UNIFIED-DATA-PLANE-R764.3",
     "EG-UNIFIED-DATA-PLANE-R764.4",
     "EG-UNIFIED-DATA-PLANE-R764.5",
-    "EG-UNIFIED-DATA-PLANE-R764.6"
+    "EG-UNIFIED-DATA-PLANE-R764.6",
+    "EG-UNIFIED-DATA-PLANE-R764.7",
+    "EG-UNIFIED-DATA-PLANE-R764.8"
   ],
   "requirements": [
     {
@@ -3103,7 +3107,9 @@
         "EG-UNIFIED-DATA-PLANE-R762.3",
         "EG-UNIFIED-DATA-PLANE-R762.4",
         "EG-UNIFIED-DATA-PLANE-R762.5",
-        "EG-UNIFIED-DATA-PLANE-R762.6"
+        "EG-UNIFIED-DATA-PLANE-R762.6",
+        "EG-UNIFIED-DATA-PLANE-R762.7",
+        "EG-UNIFIED-DATA-PLANE-R762.8"
       ]
     },
     {
@@ -3144,6 +3150,20 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R762.6",
       "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R762.7",
+      "title": "Rule proposals from profiles",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R762.8",
+      "title": "Quality results from outside checkers",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -3217,7 +3237,9 @@
         "EG-UNIFIED-DATA-PLANE-R764.3",
         "EG-UNIFIED-DATA-PLANE-R764.4",
         "EG-UNIFIED-DATA-PLANE-R764.5",
-        "EG-UNIFIED-DATA-PLANE-R764.6"
+        "EG-UNIFIED-DATA-PLANE-R764.6",
+        "EG-UNIFIED-DATA-PLANE-R764.7",
+        "EG-UNIFIED-DATA-PLANE-R764.8"
       ]
     },
     {
@@ -3258,6 +3280,20 @@
     {
       "id": "EG-UNIFIED-DATA-PLANE-R764.6",
       "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R764.7",
+      "title": "Usage from attached-source query logs",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-UNIFIED-DATA-PLANE-R764.8",
+      "title": "Frequent users and usage suggestions",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

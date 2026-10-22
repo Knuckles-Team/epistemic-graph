@@ -272,3 +272,8 @@ For each row, add a subentry containing its merged commit, exact-head test run, 
 - [ ] **EG-UNIFIED-DATA-PLANE-R764.4:** Refusal.
 - [ ] **EG-UNIFIED-DATA-PLANE-R764.5:** Evidence.
 - [ ] **EG-UNIFIED-DATA-PLANE-R764.6:** Hot-path proof.
+
+- [ ] **EG-UNIFIED-DATA-PLANE-R762.7:** Rule proposals from profiles.
+- [ ] **EG-UNIFIED-DATA-PLANE-R762.8:** Quality results from outside checkers.
+- [ ] **EG-UNIFIED-DATA-PLANE-R764.7:** Usage from attached-source query logs.
+- [ ] **EG-UNIFIED-DATA-PLANE-R764.8:** Frequent users and usage suggestions.

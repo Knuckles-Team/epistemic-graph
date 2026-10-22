@@ -275,6 +275,7 @@
     "EG-TYPED-PACKS-R801.4",
     "EG-TYPED-PACKS-R801.5",
     "EG-TYPED-PACKS-R801.6",
+    "EG-TYPED-PACKS-R801.7",
     "EG-TYPED-PACKS-R802",
     "EG-TYPED-PACKS-R802.1",
     "EG-TYPED-PACKS-R802.2",
@@ -282,6 +283,8 @@
     "EG-TYPED-PACKS-R802.4",
     "EG-TYPED-PACKS-R802.5",
     "EG-TYPED-PACKS-R802.6",
+    "EG-TYPED-PACKS-R802.7",
+    "EG-TYPED-PACKS-R802.8",
     "EG-TYPED-PACKS-R803",
     "EG-TYPED-PACKS-R803.1",
     "EG-TYPED-PACKS-R803.2",
@@ -302,7 +305,8 @@
     "EG-TYPED-PACKS-R805.3",
     "EG-TYPED-PACKS-R805.4",
     "EG-TYPED-PACKS-R805.5",
-    "EG-TYPED-PACKS-R805.6"
+    "EG-TYPED-PACKS-R805.6",
+    "EG-TYPED-PACKS-R805.7"
   ],
   "requirements": [
     {
@@ -2869,7 +2873,8 @@
         "EG-TYPED-PACKS-R801.3",
         "EG-TYPED-PACKS-R801.4",
         "EG-TYPED-PACKS-R801.5",
-        "EG-TYPED-PACKS-R801.6"
+        "EG-TYPED-PACKS-R801.6",
+        "EG-TYPED-PACKS-R801.7"
       ]
     },
     {
@@ -2915,6 +2920,13 @@
       "verified_by": []
     },
     {
+      "id": "EG-TYPED-PACKS-R801.7",
+      "title": "Proposed descriptions for terms and assets",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
       "id": "EG-TYPED-PACKS-R802",
       "title": "Stewardship roles, change requests and certification (rollup)",
       "delivery_state": "SPECIFIED",
@@ -2926,7 +2938,9 @@
         "EG-TYPED-PACKS-R802.3",
         "EG-TYPED-PACKS-R802.4",
         "EG-TYPED-PACKS-R802.5",
-        "EG-TYPED-PACKS-R802.6"
+        "EG-TYPED-PACKS-R802.6",
+        "EG-TYPED-PACKS-R802.7",
+        "EG-TYPED-PACKS-R802.8"
       ]
     },
     {
@@ -2967,6 +2981,20 @@
     {
       "id": "EG-TYPED-PACKS-R802.6",
       "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R802.7",
+      "title": "Trust flags on assets",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R802.8",
+      "title": "Critical data elements",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -3097,7 +3125,8 @@
         "EG-TYPED-PACKS-R805.3",
         "EG-TYPED-PACKS-R805.4",
         "EG-TYPED-PACKS-R805.5",
-        "EG-TYPED-PACKS-R805.6"
+        "EG-TYPED-PACKS-R805.6",
+        "EG-TYPED-PACKS-R805.7"
       ]
     },
     {
@@ -3138,6 +3167,13 @@
     {
       "id": "EG-TYPED-PACKS-R805.6",
       "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-TYPED-PACKS-R805.7",
+      "title": "Data product proposals",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

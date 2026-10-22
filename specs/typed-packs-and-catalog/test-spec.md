@@ -449,3 +449,12 @@ requires an error response with no result. Canonical artifact freshness passes. 
 | `EG-TYPED-PACKS-R805.4` | `tests/test_data_product_served.py::test_product_refusals` |
 | `EG-TYPED-PACKS-R805.5` | `tests/test_data_product_served.py::test_violation_evidence_reads_back` |
 | `EG-TYPED-PACKS-R805.6` | `cargo bench --bench data_contract_check` |
+
+## Trust flags, critical data elements and model-proposed curation
+
+| Row | Proving test |
+|---|---|
+| `EG-TYPED-PACKS-R801.7` | `tests/test_glossary_served.py::test_proposed_description_needs_review` |
+| `EG-TYPED-PACKS-R802.7` | `tests/test_stewardship_served.py::test_deprecation_lowers_rank_and_notifies` |
+| `EG-TYPED-PACKS-R802.8` | `tests/test_stewardship_served.py::test_critical_element_gaps_reported` |
+| `EG-TYPED-PACKS-R805.7` | `tests/test_data_product_served.py::test_usage_cluster_yields_product_proposal` |
