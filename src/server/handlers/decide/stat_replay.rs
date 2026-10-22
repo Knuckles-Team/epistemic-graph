@@ -11,9 +11,11 @@
 
 use eg_numeric::decision::features::FeatureMatrix;
 use eg_types::decision::digest::statistical_record_digest;
+use eg_types::decision::harness_contrast::{replay_record, CONTRAST_FEATURE_NAMES};
 use eg_types::decision::statistical::keyed::{seed_commitment, seed_text};
 use eg_types::decision::statistical::{
-    FeatureMatrixRef, StatisticalDecisionRecord, StatisticalErrorCode, StatisticalOutcome,
+    FeatureMatrixRef, QuestionKind, StatisticalDecisionRecord, StatisticalErrorCode,
+    StatisticalOutcome,
 };
 use eg_types::decision::DecisionErrorCode;
 
@@ -93,7 +95,53 @@ fn require_supported_replay(record: &StatisticalDecisionRecord) -> Result<(), St
             "harness_config evidence replay is not supported",
         ));
     }
+    if record.inputs.harness_contrast.is_some()
+        && record.question.kind != QuestionKind::HarnessContrast
+    {
+        return Err(refusal(
+            StatisticalErrorCode::ParameterInvalid,
+            "a harness contrast decision cannot ride another question kind",
+        ));
+    }
     Ok(())
+}
+
+/// The verify-replay of a `HarnessContrast` record (EG-DECISION-ENGINE-R803.5):
+/// the generic ladder re-run cannot reproduce the contrast outcome, so the
+/// stored inputs are re-derived by the decision's own deterministic core —
+/// its pins still resolve, its stored matrix carries exactly the recorded
+/// candidates and deltas, and re-running the adoption rule over the stored
+/// deltas gives the recorded outcome. The graph evidence (held versions,
+/// probe runs, stored contrasts) was read at decide time and is not
+/// replayable; the replay verifies the core and the digest, the same trust
+/// model as the generic replay over a stored matrix.
+fn replay_harness_contrast(
+    ctx: &ExecutionContext,
+    record: &StatisticalDecisionRecord,
+) -> Result<StatisticalDecisionRecord, String> {
+    let inputs = &record.inputs;
+    let pinned = pinned_inputs(ctx, &inputs.feature_schema, inputs.head.as_ref())?;
+    let policy = resolve_policy(ctx.store, ctx.tenant_id, &inputs.policy)?;
+    if policy.digest != inputs.policy_digest {
+        return Err(mismatch(
+            "the pinned policy no longer has the recorded digest",
+        ));
+    }
+    let mut names = pinned.schema.names();
+    names.sort();
+    let expected: Vec<&str> = CONTRAST_FEATURE_NAMES.to_vec();
+    if names.iter().map(String::as_str).collect::<Vec<_>>() != expected {
+        return Err(mismatch(
+            "the pinned feature schema is not the contrast delta schema",
+        ));
+    }
+    if inputs.head.is_some() {
+        return Err(mismatch("a contrast decision pins no head"));
+    }
+    replay_record(record).map_err(|detail| mismatch(&detail))?;
+    let mut logged = record.clone();
+    logged.record_digest = statistical_record_digest(&logged);
+    Ok(logged)
 }
 
 /// Re-derive `record` and return the copy to log, with its seed revealed.
@@ -112,6 +160,9 @@ pub(super) fn replay(
         ));
     }
     let inputs = &record.inputs;
+    if inputs.harness_contrast.is_some() {
+        return replay_harness_contrast(ctx, record);
+    }
     if inputs.classification_rules.is_some() && inputs.classification_rules != current_rules() {
         return Err(mismatch(
             "the record's classes were derived under another rule set",

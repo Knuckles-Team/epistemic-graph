@@ -17,8 +17,8 @@ use eg_types::decision::statistical::keyed::seed_commitment;
 use eg_types::decision::statistical::nl::{NlBinding, NlChoiceSource};
 use eg_types::decision::statistical::{
     CandidateSource, DecideRequest, DecisionBatch, ExplorationRecord, FeatureMatrixRef,
-    ShortlistProvenance, StatisticalDecisionRecord, StatisticalErrorCode, StatisticalInputs,
-    StatisticalOutcome,
+    QuestionKind, ShortlistProvenance, StatisticalDecisionRecord, StatisticalErrorCode,
+    StatisticalInputs, StatisticalOutcome,
 };
 use eg_types::decision::{
     EvidenceClass, PremiseClass, PremiseProvenance, PremiseRef, QuantScaleTag, ResolutionKind,
@@ -85,9 +85,22 @@ async fn serve(
         let mut guard = state.write().await;
         (guard.ensure_agent_library()?, guard.auth_secret.clone())
     };
-    let graph_view =
+    // A `harness_contrast` question declares its candidates but still reads
+    // its evidence (held versions, probe runs, stored contrasts) from the
+    // graph named by its `graph` param, under the same RLS filter.
+    let graph_view = if request.question.kind == QuestionKind::HarnessContrast {
+        Some(
+            super::stat_harness_contrast::contrast_evidence_view(
+                state,
+                verified.agent_id(),
+                &request,
+            )
+            .await?,
+        )
+    } else {
         super::candidates::filtered_graph_view(state, verified.agent_id(), &request.candidates)
-            .await?;
+            .await?
+    };
     let principal = verified.principal_persistence_id();
     let now_ms = crate::server::dispatch::authoritative_now_ms();
     let started = Instant::now();
@@ -151,8 +164,12 @@ fn decide_blocking(
             },
             reading: None,
             seed: [0u8; 32],
+            harness_contrast: None,
         },
-        None => execute(ctx, request, &pinned, &policy, &candidates.views)?,
+        None => match super::stat_harness_contrast::contrast_executed(request, graph_view) {
+            Some(result) => result?,
+            None => execute(ctx, request, &pinned, &policy, &candidates.views)?,
+        },
     };
     let slices = live_slices(ctx, request, &pinned, &candidates.views)?;
     let nl = binding(request, &executed.ladder.outcome, &candidates.entries)?;
@@ -389,6 +406,7 @@ fn seal(
 ) -> Result<StatisticalDecisionRecord, String> {
     let inputs = StatisticalInputs {
         harness_evaluation: None,
+        harness_contrast: executed.harness_contrast.clone(),
         feature_schema: sealing.request.feature_schema.clone(),
         head: sealing.request.head.clone(),
         policy: sealing.request.policy.clone(),
