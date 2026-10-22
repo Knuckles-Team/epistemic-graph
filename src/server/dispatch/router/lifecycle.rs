@@ -19,7 +19,6 @@ async fn reconcile_existing_graph_create(
             graph_name: graph_name.to_string(),
             graph_type,
         },
-        &created_result,
     )
     .await
     {
@@ -184,7 +183,6 @@ async fn create_declared_graph(
                 tenant_scope: &tenant_scope,
                 graph: &graph_name,
                 request_id: req_id,
-                attempt_nonce,
                 principal: req_agent_id.as_deref(),
                 idempotency_key: &idempotency_key,
             },
@@ -302,7 +300,6 @@ async fn reconcile_missing_graph_delete(
         Method::DeleteGraph {
             graph_name: graph_name.to_string(),
         },
-        &deleted_result,
     )
     .await
     {
@@ -407,7 +404,6 @@ async fn delete_declared_graph(
                 tenant_scope: &tenant_scope,
                 graph: graph_name,
                 request_id: req_id,
-                attempt_nonce,
                 principal: req_agent_id.as_deref(),
                 idempotency_key: &idempotency_key,
             },

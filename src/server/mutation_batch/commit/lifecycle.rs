@@ -7,7 +7,7 @@ use crate::server::persistence::PersistenceBackend;
 use eg_types::contract::Nonce;
 
 use super::super::compile::{compile_methods, CompileBatch};
-use super::super::digest::lifecycle_batch_id;
+use super::super::digest::{lifecycle_batch_id, principal_fingerprint};
 
 pub(crate) struct LifecycleCommitRequest<'a> {
     pub(crate) persistence: &'a Arc<dyn PersistenceBackend>,
@@ -132,57 +132,96 @@ fn validate_lifecycle_replay_result(
 /// Did this exact lifecycle request already reach its durable commit point? Used
 /// when the registry already reflects Create (or no longer reflects Delete) so a
 /// network retry returns the committed outcome instead of creating a second batch.
+///
+/// The answer compares the retained lifecycle IDENTITY of the stored receipt --
+/// graph, graph type, principal, tenant scope and idempotency key -- and never
+/// recompiles the batch. A recompiled batch carries build-dependent bytes (the
+/// contract catalog digest, method schema and policy digests, encoder output), so
+/// comparing its digest with a receipt an earlier release wrote refused every
+/// retry after an upgrade (#709). The tenant scope, action, graph, principal and
+/// key address the receipt through [`lifecycle_batch_id`]; the receipt's own
+/// operation, actor attribution and idempotency key are then checked against the
+/// request, and any disagreement is a conflict, not a replay.
 pub(crate) async fn lifecycle_was_committed(
     persistence: &Arc<dyn PersistenceBackend>,
     attempt: LifecycleAttempt<'_>,
     method: Method,
-    result: &ResultPayload,
 ) -> Result<bool, String> {
     let LifecycleAttempt {
         action,
         tenant_scope,
         graph,
-        request_id,
-        attempt_nonce,
         principal,
         idempotency_key,
+        request_id: _,
     } = attempt;
     let fname = crate::persist::sanitize(graph);
     let batch_id = lifecycle_batch_id(action, tenant_scope, graph, principal, idempotency_key);
-    if persistence
-        .read_mutation_batch(&fname, &batch_id)
-        .await?
-        .is_none()
-    {
+    let Some(record) = persistence.read_mutation_batch(&fname, &batch_id).await? else {
+        return Ok(false);
+    };
+    if record.status != eg_types::mutation_batch::MutationBatchStatus::Committed {
         return Ok(false);
     }
-    let committed = commit_lifecycle(
-        LifecycleCommitRequest::new(
-            persistence,
-            action,
-            crate::server::mutation_batch::CommitOrigin {
-                request_id,
-                principal,
-            },
-            idempotency_key,
-            graph,
-            method,
-            result,
-        )
-        .with_attempt_nonce(attempt_nonce)
-        .with_tenant_scope(tenant_scope),
-    )
-    .await?;
-    if !committed.replayed {
-        return Err("lifecycle replay probe unexpectedly committed fresh work".to_string());
-    }
-    // The replayed receipt IS the answer. This used to also require the batch to be
-    // the graph's `mutation_lifecycle_head`, but that table was retired (ceec54145):
-    // `read_mutation_lifecycle_head` is now the trait default `Ok(None)` for every
-    // backend, so the comparison was always false and every retry of a committed
-    // CreateGraph/DeleteGraph was refused ("already exists" / "not found"). Stale
-    // retries across a delete/recreate are fenced by the kernel instead: purging a
-    // graph retires its scope binding and its receipts, so an old incarnation's batch
-    // is no longer readable above (`store_cleanup::purge_graph_rows`, RF-RULING-004).
+    lifecycle_identity_matches(&record, &batch_id, principal, idempotency_key, &method)?;
+    // The stored receipt IS the answer. Stale retries across a delete/recreate are
+    // fenced by the kernel: purging a graph retires its scope binding and its
+    // receipts, so an old incarnation's batch is no longer readable above
+    // (`store_cleanup::purge_graph_rows`, RF-RULING-004).
     Ok(true)
+}
+
+/// Refuse a stored lifecycle receipt whose retained identity differs from the
+/// request. Build-dependent envelope bytes are deliberately not compared.
+pub(crate) fn lifecycle_identity_matches(
+    record: &crate::mutation_batch::MutationBatchRecord,
+    batch_id: &str,
+    principal: Option<&str>,
+    idempotency_key: &str,
+    method: &Method,
+) -> Result<(), String> {
+    const CONFLICT: &str = "lifecycle receipt has a conflicting identity";
+    if record.batch.batch_id != batch_id {
+        return Err(format!("{CONFLICT}: batch id"));
+    }
+    let principal =
+        principal.ok_or_else(|| "lifecycle replay requires a verified principal".to_string())?;
+    if record.committing_actor()? != principal_fingerprint(principal)? {
+        return Err(format!("{CONFLICT}: principal"));
+    }
+    let stored_key = record
+        .batch
+        .envelope
+        .operation()
+        .and_then(|operation| operation.authority.idempotency_key.as_ref())
+        .map(|key| key.as_str());
+    if stored_key != Some(idempotency_key) {
+        return Err(format!("{CONFLICT}: idempotency key"));
+    }
+    let [operation] = record.batch.operations.as_slice() else {
+        return Err(format!("{CONFLICT}: operation count"));
+    };
+    let same_target = match (&operation.method, method) {
+        (
+            Method::CreateGraph {
+                graph_name: stored_graph,
+                graph_type: stored_type,
+            },
+            Method::CreateGraph {
+                graph_name,
+                graph_type,
+            },
+        ) => stored_graph == graph_name && stored_type == graph_type,
+        (
+            Method::DeleteGraph {
+                graph_name: stored_graph,
+            },
+            Method::DeleteGraph { graph_name },
+        ) => stored_graph == graph_name,
+        _ => false,
+    };
+    if !same_target {
+        return Err(format!("{CONFLICT}: graph or graph type"));
+    }
+    Ok(())
 }

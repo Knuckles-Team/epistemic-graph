@@ -401,7 +401,10 @@
     "EG-DURABLE-KERNEL-R028.5.1",
     "EG-DURABLE-KERNEL-R028.5.2",
     "EG-DURABLE-KERNEL-R028.5.3",
-    "EG-DURABLE-KERNEL-R028.5.4"
+    "EG-DURABLE-KERNEL-R028.5.4",
+    "EG-DURABLE-KERNEL-R861",
+    "EG-DURABLE-KERNEL-R861.1",
+    "EG-DURABLE-KERNEL-R861.2"
   ],
   "requirements": [
     {
@@ -793,7 +796,7 @@
         "a676823d2b54"
       ],
       "verified_by": [
-        "src/server/mutation/context.rs:566",
+        "src/server/mutation/context.rs:564",
         "src/server/udf_catalog.rs:126"
       ]
     },
@@ -807,7 +810,7 @@
         "a676823d2b54"
       ],
       "verified_by": [
-        "src/server/mutation_batch/lifecycle_tests.rs:410"
+        "src/server/mutation_batch/lifecycle_tests.rs:411"
       ]
     },
     {
@@ -1825,7 +1828,7 @@
         "ceec54145720"
       ],
       "verified_by": [
-        "src/server/mutation_batch/lifecycle_tests.rs:242"
+        "src/server/mutation_batch/lifecycle_tests.rs:243"
       ]
     },
     {
@@ -4420,6 +4423,33 @@
     {
       "id": "EG-DURABLE-KERNEL-R028.5.4",
       "title": "Attachment performance qualification",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R861",
+      "title": "Graph lifecycle replay and graph listing survive a patch upgrade (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DURABLE-KERNEL-R861.1",
+        "EG-DURABLE-KERNEL-R861.2"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R861.1",
+      "title": "Lifecycle replay compares the stored identity",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "src/server/mutation_batch/lifecycle_tests.rs:479"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R861.2",
+      "title": "Graph listing survives a patch upgrade",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
