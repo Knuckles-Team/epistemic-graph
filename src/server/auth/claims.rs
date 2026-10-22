@@ -96,10 +96,13 @@ fn validate_deployment_binding(
     policy: &RequestContextPolicy,
 ) -> Result<(), String> {
     if claims.audience != policy.expected_audience {
-        return Err(
-            "AUTH_AUDIENCE_MISMATCH: request context audience does not match deployment"
-                .to_string(),
-        );
+        // The expected audience is deployment configuration, not a secret; naming
+        // it lets an operator see a client/server audience misconfiguration.
+        return Err(format!(
+            "AUTH_AUDIENCE_MISMATCH: request context audience does not match deployment \
+             (expected '{}')",
+            policy.expected_audience
+        ));
     }
     if claims.tenant != policy.expected_tenant {
         return Err(
