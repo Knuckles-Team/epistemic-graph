@@ -814,19 +814,22 @@ pub(super) fn validate_auth_mode(args: &super::Args, socket_mode: u32) -> Result
         );
     }
     for (name, value) in std::env::vars() {
-        if !value.is_empty()
-            && ((name.starts_with("EPISTEMIC_GRAPH_")
-                && (name.ends_with("_ADDR")
-                    || name.contains("RAFT_")
-                    || name.contains("FEDERATION_")
-                    || name.contains("OIDC_")
-                    || name.contains("SIGNER")))
-                || name.starts_with("OIDC_"))
-        {
+        if anonymous_env_conflicts(&name, &value) {
             return Err(format!("anonymous mode conflicts with {name}").into());
         }
     }
     Ok(())
+}
+
+fn anonymous_env_conflicts(name: &str, value: &str) -> bool {
+    !value.is_empty()
+        && ((name.starts_with("EPISTEMIC_GRAPH_")
+            && (name.ends_with("_ADDR")
+                || name.contains("RAFT_")
+                || name.contains("FEDERATION_")
+                || name.contains("OIDC_")
+                || name.contains("SIGNER")))
+            || name.starts_with("OIDC_"))
 }
 
 /// Called while holding the existing engine.lock and before opening any stores.
@@ -874,7 +877,27 @@ pub(super) fn prepare_auth_store(mode: &str, dir: &str) -> Result<(), BoxError> 
 
 #[cfg(test)]
 mod anonymous_store_tests {
-    use super::prepare_auth_store;
+    use super::{anonymous_env_conflicts, prepare_auth_store};
+
+    #[test]
+    fn anonymous_environment_conflicts_preserve_exact_prefix_and_value_rules() {
+        for (name, conflicts) in [
+            ("EPISTEMIC_GRAPH_PGWIRE_ADDR", true),
+            ("EPISTEMIC_GRAPH_RAFT_NODE_ID", true),
+            ("EPISTEMIC_GRAPH_FEDERATION_TOKEN", true),
+            ("EPISTEMIC_GRAPH_OIDC_ISSUER", true),
+            ("EPISTEMIC_GRAPH_SIGNER_KEY", true),
+            ("OIDC_ISSUER", true),
+            ("EPISTEMIC_GRAPH_OTHER", false),
+            ("OTHER_RAFT_NODE_ID", false),
+            ("OTHER_ADDR", false),
+            ("GRAPH_SERVICE_AUTH_SECRET", false),
+        ] {
+            assert_eq!(anonymous_env_conflicts(name, "value"), conflicts, "{name}");
+            assert_eq!(anonymous_env_conflicts(name, " "), conflicts, "{name}");
+            assert!(!anonymous_env_conflicts(name, ""), "{name}");
+        }
+    }
 
     #[test]
     fn anonymous_store_mode_is_explicit_and_restart_stable() {

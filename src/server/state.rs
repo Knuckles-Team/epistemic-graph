@@ -577,6 +577,23 @@ impl ServerState {
     }
 }
 
+impl ServerState {
+    pub(crate) fn request_authority(
+        &self,
+        request: &crate::protocol::Request,
+    ) -> Result<crate::server::authority_context::VerifiedRequestContext, String> {
+        if self.local_anonymous {
+            crate::server::anonymous::request_authority(request)
+        } else {
+            crate::server::auth::verify_request_with_security_dir(
+                &self.auth_secret,
+                request,
+                self.persist_dir.as_deref(),
+            )
+        }
+    }
+}
+
 #[cfg(test)]
 mod construction_tests {
     use super::{IsolationLayer, ServerState};
@@ -606,22 +623,5 @@ mod construction_tests {
         assert!(state.foreign_sources.is_empty());
         #[cfg(feature = "blob")]
         assert_eq!(state.blob_cursor_ttl_secs, 300);
-    }
-}
-
-impl ServerState {
-    pub(crate) fn request_authority(
-        &self,
-        request: &crate::protocol::Request,
-    ) -> Result<crate::server::authority_context::VerifiedRequestContext, String> {
-        if self.local_anonymous {
-            crate::server::anonymous::request_authority(request)
-        } else {
-            crate::server::auth::verify_request_with_security_dir(
-                &self.auth_secret,
-                request,
-                self.persist_dir.as_deref(),
-            )
-        }
     }
 }

@@ -202,6 +202,35 @@ mod tests {
         isolation
     }
 
+    /// Common authenticated carrier for durable replay tests. Each attempt
+    /// supplies its own request ID, nonce, and stable idempotency key below.
+    #[cfg(feature = "redb")]
+    fn durable_replay_context<'a>(
+        graph_name: &'a str,
+        core: &'a Arc<GraphCore>,
+        isolation: &'a IsolationLayer,
+        persistence: &'a Arc<dyn PersistenceBackend>,
+    ) -> MutationCtx<'a> {
+        MutationCtx {
+            anonymous: false,
+            req_id: 0,
+            caller: Some("system-agent"),
+            attempt_nonce: None,
+            idempotency_key: "",
+            tenant_scope: "opaque-test-tenant",
+            graph_name,
+            graph_type: GraphType::Commons,
+            owner: None,
+            isolation,
+            core,
+            persistence: Some(persistence),
+            #[cfg(feature = "streaming")]
+            cdc: None,
+            materialization_manifest: None,
+            write_coalescer: None,
+        }
+    }
+
     fn temp_dir(tag: &str) -> std::path::PathBuf {
         crate::test_support::temp_dir("eg-mutation-gateway-test", tag)
     }
@@ -1280,22 +1309,10 @@ mod tests {
         let plan = MutationPlan::for_method(&method);
         let apply_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let first = MutationCtx {
-            anonymous: false,
             req_id: 4,
-            caller: Some("system-agent"),
             attempt_nonce: Some(eg_types::contract::Nonce::from_bytes([1; 32])),
             idempotency_key: "caller-stable-remove",
-            tenant_scope: "opaque-test-tenant",
-            graph_name,
-            graph_type: GraphType::Commons,
-            owner: None,
-            isolation: &isolation,
-            core: &core,
-            persistence: Some(&persistence),
-            #[cfg(feature = "streaming")]
-            cdc: None,
-            materialization_manifest: None,
-            write_coalescer: None,
+            ..durable_replay_context(graph_name, &core, &isolation, &persistence)
         };
         let count = Arc::clone(&apply_count);
         let response = commit_mutation(&first, &plan, &method, move |core| {
@@ -1313,22 +1330,10 @@ mod tests {
             Arc::new(RedbBackend::open(dir_s, 64).expect("reopen redb backend"));
         let core = Arc::new(GraphCore::new());
         let retry = MutationCtx {
-            anonymous: false,
             req_id: 5,
-            caller: Some("system-agent"),
             attempt_nonce: Some(eg_types::contract::Nonce::from_bytes([2; 32])),
             idempotency_key: "caller-stable-remove",
-            tenant_scope: "opaque-test-tenant",
-            graph_name,
-            graph_type: GraphType::Commons,
-            owner: None,
-            isolation: &isolation,
-            core: &core,
-            persistence: Some(&persistence),
-            #[cfg(feature = "streaming")]
-            cdc: None,
-            materialization_manifest: None,
-            write_coalescer: None,
+            ..durable_replay_context(graph_name, &core, &isolation, &persistence)
         };
         let count = Arc::clone(&apply_count);
         let response = commit_mutation(&retry, &plan, &method, move |_| {
@@ -1400,22 +1405,10 @@ mod tests {
         let plan = MutationPlan::for_method(&method);
         let apply_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let first = MutationCtx {
-            anonymous: false,
             req_id: 40,
-            caller: Some("system-agent"),
             attempt_nonce: Some(eg_types::contract::Nonce::from_bytes([11; 32])),
             idempotency_key: "caller-stable-cypher",
-            tenant_scope: "opaque-test-tenant",
-            graph_name,
-            graph_type: GraphType::Commons,
-            owner: None,
-            isolation: &isolation,
-            core: &core,
-            persistence: Some(&persistence),
-            #[cfg(feature = "streaming")]
-            cdc: None,
-            materialization_manifest: None,
-            write_coalescer: None,
+            ..durable_replay_context(graph_name, &core, &isolation, &persistence)
         };
         let count = Arc::clone(&apply_count);
         let response = commit_conditional_mutation_async(
@@ -1439,22 +1432,10 @@ mod tests {
             Arc::new(RedbBackend::open(dir_s, 64).expect("reopen redb backend"));
         let core = Arc::new(GraphCore::new());
         let retry = MutationCtx {
-            anonymous: false,
             req_id: 41,
-            caller: Some("system-agent"),
             attempt_nonce: Some(eg_types::contract::Nonce::from_bytes([12; 32])),
             idempotency_key: "caller-stable-cypher",
-            tenant_scope: "opaque-test-tenant",
-            graph_name,
-            graph_type: GraphType::Commons,
-            owner: None,
-            isolation: &isolation,
-            core: &core,
-            persistence: Some(&persistence),
-            #[cfg(feature = "streaming")]
-            cdc: None,
-            materialization_manifest: None,
-            write_coalescer: None,
+            ..durable_replay_context(graph_name, &core, &isolation, &persistence)
         };
         let response = commit_conditional_mutation_async(&retry, &plan, &method, true, |_| async {
             panic!("stable replay must not rerun staged query")

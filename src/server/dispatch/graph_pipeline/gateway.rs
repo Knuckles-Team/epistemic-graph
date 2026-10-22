@@ -26,6 +26,37 @@ pub(super) struct GatewayRouteCtx<'a> {
     pub(super) rls: std::sync::Arc<crate::isolation::IsolationLayer>,
 }
 
+#[cfg(any(
+    feature = "query",
+    feature = "cypher",
+    feature = "graphql",
+    feature = "rdf"
+))]
+async fn gateway_mutation_context<'a>(
+    ctx: &'a GatewayRouteCtx<'_>,
+    missing_authz_message: &str,
+) -> crate::server::mutation::MutationCtx<'a> {
+    let (iso, gtype, owner) = ctx.gateway_authz_ctx.as_ref().expect(missing_authz_message);
+    crate::server::mutation::MutationCtx {
+        anonymous: ctx.state.read().await.local_anonymous,
+        req_id: ctx.req_id,
+        caller: ctx.caller,
+        attempt_nonce: ctx.attempt_nonce,
+        idempotency_key: ctx.idempotency_key,
+        tenant_scope: ctx.tenant_scope,
+        graph_name: ctx.graph_name,
+        graph_type: *gtype,
+        owner: owner.as_deref(),
+        isolation: iso,
+        core: &ctx.core,
+        persistence: ctx.persistence.as_ref(),
+        #[cfg(feature = "streaming")]
+        cdc: ctx.cdc.as_ref(),
+        materialization_manifest: ctx.materialization_manifest.as_ref(),
+        write_coalescer: None,
+    }
+}
+
 #[cfg(any(feature = "query", feature = "cypher", feature = "graphql"))]
 async fn commit_query_gateway(ctx: GatewayRouteCtx<'_>, method: Method) -> Response {
     if crate::server::mutation::is_query_gateway_method(&method)
@@ -33,28 +64,11 @@ async fn commit_query_gateway(ctx: GatewayRouteCtx<'_>, method: Method) -> Respo
     {
         let mutates_now = requires_write(&method);
         let plan = crate::server::mutation::MutationPlan::for_method(&method);
-        let (iso, gtype, owner) = ctx
-            .gateway_authz_ctx
-            .as_ref()
-            .expect("is_gateway_routed query method must have a captured GatewayAuthzCtx");
-        let mutation_ctx = crate::server::mutation::MutationCtx {
-            anonymous: ctx.state.read().await.local_anonymous,
-            req_id: ctx.req_id,
-            caller: ctx.caller,
-            attempt_nonce: ctx.attempt_nonce,
-            idempotency_key: ctx.idempotency_key,
-            tenant_scope: ctx.tenant_scope,
-            graph_name: ctx.graph_name,
-            graph_type: *gtype,
-            owner: owner.as_deref(),
-            isolation: iso,
-            core: &ctx.core,
-            persistence: ctx.persistence.as_ref(),
-            #[cfg(feature = "streaming")]
-            cdc: ctx.cdc.as_ref(),
-            materialization_manifest: ctx.materialization_manifest.as_ref(),
-            write_coalescer: None,
-        };
+        let mutation_ctx = gateway_mutation_context(
+            &ctx,
+            "is_gateway_routed query method must have a captured GatewayAuthzCtx",
+        )
+        .await;
         let method_apply = method.clone();
         let query_read_authority = ctx.read_authority.clone();
         #[cfg(feature = "security")]
@@ -128,28 +142,11 @@ pub(super) async fn route_query_gateway(
 async fn commit_rdf_gateway(ctx: GatewayRouteCtx<'_>, method: Method) -> Response {
     if crate::server::mutation::is_rdf_gateway_method(&method) {
         let plan = crate::server::mutation::MutationPlan::for_method(&method);
-        let (iso, gtype, owner) = ctx
-            .gateway_authz_ctx
-            .as_ref()
-            .expect("is_gateway_routed rdf method must have a captured GatewayAuthzCtx");
-        let mutation_ctx = crate::server::mutation::MutationCtx {
-            anonymous: ctx.state.read().await.local_anonymous,
-            req_id: ctx.req_id,
-            caller: ctx.caller,
-            attempt_nonce: ctx.attempt_nonce,
-            idempotency_key: ctx.idempotency_key,
-            tenant_scope: ctx.tenant_scope,
-            graph_name: ctx.graph_name,
-            graph_type: *gtype,
-            owner: owner.as_deref(),
-            isolation: iso,
-            core: &ctx.core,
-            persistence: ctx.persistence.as_ref(),
-            #[cfg(feature = "streaming")]
-            cdc: ctx.cdc.as_ref(),
-            materialization_manifest: ctx.materialization_manifest.as_ref(),
-            write_coalescer: None,
-        };
+        let mutation_ctx = gateway_mutation_context(
+            &ctx,
+            "is_gateway_routed rdf method must have a captured GatewayAuthzCtx",
+        )
+        .await;
         let method_apply = method.clone();
         let rdf_read_authority = ctx.read_authority.clone();
         #[cfg(feature = "security")]

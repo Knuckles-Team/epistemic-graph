@@ -15018,6 +15018,27 @@ def _validate_auth_mode(
         raise ValueError("auth_mode='none' cannot be combined with credentials")
 
 
+def _authenticated_connection_authority(
+    auth_secret: str | None,
+    verified_context: RequestContextClaims | dict[str, Any] | None,
+) -> tuple[str, RequestContextClaims]:
+    secret = auth_secret or os.environ.get("GRAPH_SERVICE_AUTH_SECRET", "")
+    if not secret:
+        raise ValueError("a non-empty authentication secret is required")
+    if verified_context is None:
+        raise TypeError("verified_context must be a mapping")
+    return secret, validate_request_context(verified_context)
+
+
+def _connection_tls_server_hostname(server_hostname: str | None) -> str | None:
+    return (
+        str(
+            server_hostname or os.environ.get("GRAPH_SERVICE_TLS_SERVER_NAME", "") or ""
+        ).strip()
+        or None
+    )
+
+
 class EpistemicGraphClient:
     """CONCEPT:EG-KG.query.wire-protocol — Epistemic Graph Core Client
 
@@ -15379,24 +15400,16 @@ class EpistemicGraphClient:
             _secret = None
             context = None
         else:
-            _secret = auth_secret or os.environ.get("GRAPH_SERVICE_AUTH_SECRET", "")
-            if not _secret:
-                raise ValueError("a non-empty authentication secret is required")
-            if verified_context is None:
-                raise TypeError("verified_context must be a mapping")
-            context = validate_request_context(verified_context)
+            _secret, context = _authenticated_connection_authority(
+                auth_secret, verified_context
+            )
         socket_path, required_socket_path = _bound_socket_paths(
             socket_path, required_socket_path
         )
         if context is not None:
             _validate_write_admission(context, required_socket_path, write_admission)
-        resolved_tls_server_hostname = (
-            str(
-                tls_server_hostname
-                or os.environ.get("GRAPH_SERVICE_TLS_SERVER_NAME", "")
-                or ""
-            ).strip()
-            or None
+        resolved_tls_server_hostname = _connection_tls_server_hostname(
+            tls_server_hostname
         )
         tls_context = cls._resolve_tls(
             tls,

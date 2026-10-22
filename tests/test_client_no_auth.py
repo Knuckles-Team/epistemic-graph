@@ -288,3 +288,48 @@ def test_generated_authentication_method_preserves_closed_enum():
     for value in ("unknown", "", "anonymous", "NONE", "oidc-extra"):
         with pytest.raises(ValueError):
             RequestContextAuthenticationMethod(value)
+
+
+@pytest.mark.parametrize(
+    "kwargs,error,message",
+    [
+        (
+            {"auth_mode": "none", "auth_secret": "", "tcp_addr": "bad"},
+            ValueError,
+            "credentials",
+        ),
+        (
+            {"auth_mode": "none", "tcp_addr": "bad", "node_id": "node"},
+            ValueError,
+            "literal loopback",
+        ),
+        ({"auth_mode": "none", "node_id": "node"}, ValueError, "verified authority"),
+        ({}, ValueError, "authentication secret"),
+        ({"auth_secret": "synthetic"}, TypeError, "must be a mapping"),
+    ],
+)
+def test_connection_authority_refactor_preserves_refusal_order(
+    monkeypatch, kwargs, error, message
+):
+    monkeypatch.delenv("GRAPH_SERVICE_AUTH_SECRET", raising=False)
+    with pytest.raises(error, match=message):
+        asyncio.run(EpistemicGraphClient.connect(**kwargs))
+
+
+@pytest.mark.parametrize(
+    "explicit,environment,expected",
+    [
+        (None, " host.example ", "host.example"),
+        ("", "host.example", "host.example"),
+        (" ", "host.example", None),
+        (" explicit.example ", "host.example", "explicit.example"),
+        (None, "", None),
+    ],
+)
+def test_connection_tls_hostname_refactor_preserves_precedence(
+    monkeypatch, explicit, environment, expected
+):
+    from epistemic_graph.client import _connection_tls_server_hostname
+
+    monkeypatch.setenv("GRAPH_SERVICE_TLS_SERVER_NAME", environment)
+    assert _connection_tls_server_hostname(explicit) == expected
