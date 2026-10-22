@@ -5,7 +5,7 @@ All fixtures run against a disposable local data directory and generated credent
 | Scenario | Requirements | Positive fixture and expected result | Negative/failure fixture and expected result |
 |---|---|---|---|
 | T-KG-01 batch terminality | KG-01, KG-02 | Graph+table+KV batch commits once. Readback and retry return same terminal result | Inject failure at every commit phase. Restart yields all-or-none. Lost-ack retry does not duplicate |
-| T-KG-02 table-only path | KG-02 | Concurrent table-only writes use current atomic path and match reference corpus | Mixed unsupported member set refuses before any table or graph write |
+| T-KG-02 table-only path | KG-02 | Concurrent table-only writes use current atomic path and match reference corpus. | Mixed unsupported member set refuses before any table or graph write. |
 | T-KG-03 owner lineage | KG-03 | Load each supported golden manifest. One validation per transaction | Unknown predecessor or extra physical table returns typed upgrade/ownership error. Stale cached binding never crosses transactions |
 | T-KG-04 scrub | KG-04 | Corrupt one persisted node. The scrub reports a typed finding and resumes the cursor after restart | Rate cap prevents writer starvation. The scrub hides unreadable payloads and never silently repairs them |
 | T-KG-05 outbox | KG-05 | Healthy successors deliver after a failing head is rejected/rewound with ordered receipts | Retry one head 16 times. Successors keep their own zero-attempt count. Reasoning skip without rebuild is refused |
@@ -22,7 +22,7 @@ All fixtures run against a disposable local data directory and generated credent
 
 ## Commands and quality evidence
 
-Use focused package tests for `eg-types`, `eg-transaction`, `eg-storage`, `eg-stream`, `eg-tsdb`, and affected server integration tests, followed by the configured full pre-commit and hosted parity commands in `plan.md`. Run `python3 scripts/check_universal_read_rls.py` and `python3 scripts/check_persisted_mutation_contract.py` when their paths are affected. The repository's CCCC changed-function gate rejects new cyclomatic >10 or cognitive >15; run the configured Dupehound changed-function and jscpd differential gates without new suppressions, plus KISS, Rust architecture lint and clippy. Record scanner versions from the checked-in scanner contract. A benchmark is evidence only for its measured hardware/workload/durability class; no live environment is an implicit prerequisite to unit or contract acceptance.
+Use focused package tests for `eg-types`, `eg-transaction`, `eg-storage`, `eg-stream`, `eg-tsdb`, and affected server integration tests. Then run the configured full pre-commit and hosted parity commands in `plan.md`. Run `python3 scripts/check_universal_read_rls.py` and `python3 scripts/check_persisted_mutation_contract.py` when their paths are affected. The repository's CCCC changed-function gate rejects new cyclomatic >10 or cognitive >15; run the configured Dupehound changed-function and jscpd differential gates without new suppressions, plus KISS, Rust architecture lint and clippy. Record scanner versions from the checked-in scanner contract. A benchmark is evidence only for its measured hardware/workload/durability class. No live environment is an implicit prerequisite to unit or contract acceptance.
 
 ## Evidence record
 
@@ -397,8 +397,8 @@ Hot-path proof for `EG-DURABLE-KERNEL-R101`: `tests/scheduler/test_downtime_sche
 Extend R028.2's real redb mutation/owner-read fixtures, not a scripted reader.
 The implementation slice must add these public-surface tests:
 
-- `ordinary_run_completion_survives_reopen`: admit with verified owner,
-  claim, commit failed with requests=1/input=3/output=2/total=5, read through
+- `ordinary_run_completion_survives_reopen`: admit with validated owner,
+  claim, and commit failed with requests=1/input=3/output=2/total=5. Read through
   GetRunWorkItem, close/reopen the shard and assert byte-equivalent counters
   and identical scope/batch/sequence/ordinal/digest. No result artifact exists.
 - `ordinary_completion_unknown_is_not_zero`: provider-before-ledger failure
@@ -418,15 +418,15 @@ The implementation slice must add these public-surface tests:
   refuse atomically; successful requests=5/total=25 remains exactly 5/25.
 - `ordinary_completion_binding_cannot_be_forged`: generic property changes,
   opaque row replacement/removal, forged trace events, wrong digest, missing
-  outbox, duplicate outbox topic, wrong scope/incarnation, noncommitted batch
-  and mismatched ordinal/version cannot yield a valid receipt.
+  outbox, and duplicate outbox topic cannot yield a valid receipt. Neither can wrong scope/incarnation, noncommitted batch
+  or mismatched ordinal/version.
 - `ordinary_and_delegated_outcomes_remain_distinct`: legacy ordinary commits
   remain unavailable; the existing delegated bundle read retains all
   provenance verification and its current tests. Neither mode fabricates
   delegation fields or accepts both completion inputs.
 - Real AU -> Arbora -> EG acceptance: invalid initial planner receipt gives
   failed + 1 request/5 tokens; provider failure gives failed + unknown `{}`;
-  success gives 5 requests/25 tokens. Restart both EG and Arbora, then use
+  success gives 5 requests/25 tokens. Restart both EG and Arbora. Then use
   tasks/get and repeated message/send admission to obtain the same counts
   without model redispatch. Foreign caller gets no data. Public runs.events
   remains stripped of usage and is never the source of recovered totals.
@@ -434,10 +434,10 @@ The implementation slice must add these public-surface tests:
 These are pending tests, not a pass receipt. Existing R028.2 tests establish
 only the richer delegated terminal extension, not ordinary A2A production.
 
-First source-slice tests added (not executed): unknown counters remain empty;
-invalid numeric and incoherent counters refuse; completion owner validates
-original admission and graph/tenant/run/item; foreign callers remain invisible;
-incomplete binding is refused rather than treated as legacy; generic unlabelled
+First source-slice tests added (not run): unknown counters remain empty.
+Invalid numeric and incoherent counters refuse. The completion owner validates
+original admission and graph/tenant/run/item. Foreign callers remain invisible.
+Incomplete binding is refused rather than treated as legacy. Generic unlabelled
 rows cannot plant completion bindings. Full native commit/reopen, repeat-commit,
 stale-fence and receipt tamper integration acceptance remains mandatory.
 

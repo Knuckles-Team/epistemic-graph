@@ -855,14 +855,14 @@ The native A2A proof at EG `906316171`, Arbora `81a8a685`, AU
 `94fb3594` exposes a distinct producer gap. Ordinary `CommitWorkItemResult`
 commits status but no `outcome_extension`. `read_work_item_outcome` returns
 `None` before reading an event when `CommittedOutcomeRefs` are absent.
-The existing extension is a delegated outcome bundle: its receipt validator
+The existing extension is a delegated outcome bundle. Its receipt validator
 requires delegation, selected agent, capability, catalog, policy and model
 bindings. Ordinary run admission does not provide that complete provenance.
 Do not invent these values, weaken that validator, or relabel best-effort
 `RunEvent` trace nodes as committed receipts.
 
 The smallest owner-correct next slice is an ordinary-run completion projection
-on the existing native commit and owner-bound run read, independent of the
+on the existing native commit and owner-bound run read. It is independent of the
 richer delegated outcome bundle:
 
 1. Add one optional, versioned `run_completion` input to
@@ -876,7 +876,7 @@ richer delegated outcome bundle:
    stored admission in `work_item/run_owner.rs`. Reuse the native lease
    owner/epoch/fence and verified tenant/graph checks in `commit.rs`.
    Reject completion input for non-run admissions and mismatched runs.
-   Only the final transition may publish a terminal receipt; retry_scheduled
+   Only the final transition may publish a terminal receipt. The retry_scheduled state
    must not expose terminal state or silently accumulate repeated snapshots.
 3. The native compiler derives the event's tenant, graph scope/incarnation,
    WorkItem, run, outcome, result/error references and mutation batch from
@@ -890,7 +890,7 @@ richer delegated outcome bundle:
    preserve `GetWorkItemOutcome`'s existing delegated-provenance contract.
    `GetRunWorkItem` already enforces immutable caller principal as well as
    tenant, owner graph and run. Read row, ledger and matching outbox in one
-   MVCC snapshot; check committed status, scope, batch membership, ordinal,
+   MVCC snapshot. Check committed status, scope, batch membership, ordinal,
    version and payload digest as `read/terminal_event.rs` already does.
    Missing legacy binding is explicitly unavailable; a present corrupt or
    missing binding refuses. No private admission authority or lease data
@@ -910,9 +910,9 @@ through `work_items.commit_result`, checking the native commit result, and
 projecting the owner-bound receipt for every client. The A2A task/context
 identity comes from its admitted row. Initial dispatch and later reads should
 use the same committed projection, not transient exception data as a durable
-claim. The existing `usage.read` service can subsequently expose these facts;
-session aggregation and TPS require their own owner-backed measurements and
-are not closed by this per-turn receipt. Failed results remain failed and
+claim. The existing `usage.read` service can expose these facts later.
+Session aggregation and TPS require their own owner-backed measurements.
+This per-turn receipt does not close them. Failed results remain failed and
 produce no answer artifact. Historical trace rows are not retroactively
 upgraded into native receipts.
 
@@ -925,13 +925,13 @@ do not add a second mutable usage table. Proposed wire snapshot keys are
 The ordinary receipt payload carries its own schema version and purpose,
 not the delegated `outcome_bundle::RunEvent` shape. Reuse the transaction
 ledger/outbox verification algorithm while decoding this distinct payload.
-Native files to change are `crates/eg-types/src/protocol/method/method_00.rs`,
-`crates/eg-types/src/work_item_read.rs`, the existing WorkItem mutation-batch
+Change native files `crates/eg-types/src/protocol/method/method_00.rs` and
+`crates/eg-types/src/work_item_read.rs`. Change the existing WorkItem mutation-batch
 compiler/lowering path, `src/redb_store/work_item/commit.rs`,
-`src/redb_store/work_item/run_owner.rs`, and row guards, plus generated
+`src/redb_store/work_item/run_owner.rs`, and row guards. Also change generated
 bindings and contract surfaces. Keep GetRunWorkItem owner validation before
 any receipt read. `read_admission` currently opens a snapshot through
-`snapshot_row`; its implementation must retain that read transaction while
+`snapshot_row`. Its implementation must retain that read transaction while
 resolving ledger/outbox instead of opening another snapshot.
 
 The next slice needs a coordinated EG native contract build/test slot only
@@ -946,13 +946,13 @@ ordinary-receipt acceptance: they merely preserve existing fail-closed behavior.
 
 ### 2026-10-22 — R028.2 first ordinary completion source slice (validation pending)
 
-Implemented optional ordinary completion input, bounded optional counters, native
+Implemented optional ordinary completion input and bounded optional counters. Also implemented native
 compiler/store outbox binding, conditional terminal publication, protected row
 bindings, and same-snapshot owner-bound projection. No compilation or served
 restart acceptance evidence yet; generated surfaces remain pending. This first
 slice deliberately refuses `retryable=true` when an ordinary completion is
 supplied: a producer must submit a final nonretryable result. This avoids
-pre-compiling an outcome that could become retry_scheduled or dead_letter. The
+pre-compiling an outcome with a possible retry_scheduled or dead_letter transition. The
 existing delegated extension and legacy commits retain their prior semantics.
 Receipt projection nests the input as `payload.completion` and carries writer
 sequence, ordinal, scope and digest alongside the payload.
@@ -960,11 +960,11 @@ sequence, ordinal, scope and digest alongside the payload.
 ### 2026-10-22 — R028.2 ordinary completion native validation
 
 The source slice now passes two measurement type tests and six scoped native
-completion tests, including actual ledger/outbox commit, storage reopen,
+completion tests. These include actual ledger/outbox commit, storage reopen,
 rollback, replay, terminal no-op and foreign-owner refusal. Rust formatting and
 diff whitespace checks pass. These establish the narrow ordinary receipt
 capability only. Generated contracts and fresh codec/server qualification are
-separate remaining stages; served AU/Arbora restart acceptance, approval flows,
+separate remaining stages. Served AU/Arbora restart acceptance, approval flows,
 aggregate metrics and performance targets remain pending.
 
 ### 2026-10-22 — R028.2 public Python completion forwarding
