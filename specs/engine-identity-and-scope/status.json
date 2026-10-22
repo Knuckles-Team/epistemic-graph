@@ -106,8 +106,10 @@
     {
       "id": "EG-IDENTITY-R003.1",
       "title": "Explicit isolated anonymous store authority (native TCP qualification)",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "844fec51e35a"
+      ],
       "verified_by": [
         "tests/test_native_no_auth_served.py:16"
       ]
