@@ -1110,8 +1110,7 @@ fn verify_envelope_v2_with(
 const BAD_SIGNATURE: &str =
     "AUTH_BAD_SIGNATURE: Authentication failed: request signature did not verify";
 /// Checked only after the MAC verifies, so it never answers for a forged request.
-const EXPIRED: &str =
-    "AUTH_EXPIRED: request timestamp is outside the allowed clock-skew window";
+const EXPIRED: &str = "AUTH_EXPIRED: request timestamp is outside the allowed clock-skew window";
 const UNKNOWN_PRINCIPAL_NO_TOKEN: &str =
     "AUTH_UNKNOWN_PRINCIPAL: request context requires a verified OIDC bearer token";
 const UNKNOWN_PRINCIPAL_UNVERIFIED: &str =
@@ -2064,7 +2063,10 @@ mod tests {
         let mut claims = verified_claims();
         claims.audience = "other-service".into();
         let wrong_audience = refused(&signed_v2_with_claims(520, "cls-aud", claims), SECRET);
-        assert_eq!(wrong_audience.error.as_deref(), Some("AUTH_AUDIENCE_MISMATCH"));
+        assert_eq!(
+            wrong_audience.error.as_deref(),
+            Some("AUTH_AUDIENCE_MISMATCH")
+        );
         assert_eq!(
             wrong_audience.error_detail.as_deref(),
             Some("request context audience does not match deployment (expected 'engine')")
@@ -2099,7 +2101,10 @@ mod tests {
                 "NODE_MISMATCH: request context is bound to node 'n7', which does not match",
                 "NODE_MISMATCH",
             ),
-            ("nonce already used (replay rejected)", "AUTHENTICATION_REQUIRED"),
+            (
+                "nonce already used (replay rejected)",
+                "AUTHENTICATION_REQUIRED",
+            ),
             (
                 "AUTH_AUDIENCE_MISMATCH: request context audience does not match deployment \
                  (expected 'x'\n')",
@@ -2110,10 +2115,17 @@ mod tests {
             assert_eq!(response.error.as_deref(), Some(code), "{error}");
         }
         // Redacted classes never echo request values back.
-        let node = crate::protocol::Response::err(1, authentication_refusal("NODE_MISMATCH: bound to node 'n7'"));
+        let node = crate::protocol::Response::err(
+            1,
+            authentication_refusal("NODE_MISMATCH: bound to node 'n7'"),
+        );
         assert_eq!(node.error_detail.as_deref(), Some("Authentication failed"));
-        let replay = crate::protocol::Response::err(1, authentication_refusal("nonce 'abc' already used"));
-        assert_eq!(replay.error_detail.as_deref(), Some("Authentication failed"));
+        let replay =
+            crate::protocol::Response::err(1, authentication_refusal("nonce 'abc' already used"));
+        assert_eq!(
+            replay.error_detail.as_deref(),
+            Some("Authentication failed")
+        );
     }
 
     #[test]

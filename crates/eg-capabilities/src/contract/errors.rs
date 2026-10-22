@@ -494,7 +494,11 @@ mod tests {
         assert!(codes.contains("AUTH_TENANT_MISMATCH"));
         assert!(codes.contains("AUTH_AUDIENCE_MISMATCH"));
         assert!(codes.contains("AUTH_POLICY_VERSION_MISMATCH"));
-        for code in ["AUTH_EXPIRED", "AUTH_BAD_SIGNATURE", "AUTH_UNKNOWN_PRINCIPAL"] {
+        for code in [
+            "AUTH_EXPIRED",
+            "AUTH_BAD_SIGNATURE",
+            "AUTH_UNKNOWN_PRINCIPAL",
+        ] {
             assert!(codes.contains(code), "{code}");
             assert_eq!(http_status_hint(code), 401, "{code}");
             assert_eq!(class(code, "engine"), "auth", "{code}");
