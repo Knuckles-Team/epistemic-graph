@@ -1285,7 +1285,7 @@
     {
       "id": "EG-ORCH-VOCAB-R801",
       "title": "Versioned harness components as graph facts (rollup)",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
@@ -1300,8 +1300,10 @@
     {
       "id": "EG-ORCH-VOCAB-R801.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "c54aa624a21c"
+      ],
       "verified_by": [
         "crates/eg-types/src/orchestration/mod.rs:457",
         "crates/eg-types/tests/harness_components.rs:32"
@@ -1310,8 +1312,10 @@
     {
       "id": "EG-ORCH-VOCAB-R801.2",
       "title": "Behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "c54aa624a21c"
+      ],
       "verified_by": [
         "crates/eg-types/tests/harness_components.rs:70"
       ]
@@ -1319,8 +1323,10 @@
     {
       "id": "EG-ORCH-VOCAB-R801.3",
       "title": "Wiring",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "c54aa624a21c"
+      ],
       "verified_by": [
         "src/server/handlers/graph_ops/gateway_graph.rs:684"
       ]
@@ -1328,8 +1334,10 @@
     {
       "id": "EG-ORCH-VOCAB-R801.4",
       "title": "Refusal",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "c54aa624a21c"
+      ],
       "verified_by": [
         "crates/eg-types/tests/harness_components.rs:141"
       ]
@@ -1337,8 +1345,10 @@
     {
       "id": "EG-ORCH-VOCAB-R801.5",
       "title": "Evidence",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "c54aa624a21c"
+      ],
       "verified_by": [
         "crates/eg-types/tests/harness_components.rs:209"
       ]
@@ -1346,8 +1356,10 @@
     {
       "id": "EG-ORCH-VOCAB-R801.6",
       "title": "Hot-path proof",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "c54aa624a21c"
+      ],
       "verified_by": [
         "tests/orchestration/test_harness_components_served.py:119"
       ]
