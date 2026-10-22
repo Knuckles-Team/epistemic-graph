@@ -4117,6 +4117,7 @@
       "title": "Native current-plan publication and readback",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "4294fc57c596",
         "88fc4a5577c7"
       ],
       "verified_by": [

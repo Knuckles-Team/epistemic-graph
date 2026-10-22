@@ -795,3 +795,19 @@ This repairs a prerequisite in the existing coordinator. It does not establish
 heterogeneous-owner reservations, revocation fencing, visibility or profile
 admission. R034 and EG-DECISION-ENGINE-R036 remain incomplete. Native test
 execution and storage-fixture qualification must be reported separately.
+
+### 2026-10-20 amendment — retained native run-admission replay
+
+Extend `EG-DURABLE-KERNEL-R028.5`: a fresh authenticated attempt may carry new
+request/trace identifiers, issue/expiry times and placement observations. These
+are the existing native submission retry-context fields. All command, run,
+principal, agent, tenant, graph, scope, audience, policy, metadata and input fields
+remain exact. Recover only the committed native admission operation and result
+under its stable batch identity. Verify the receipt's caller/tenant and the
+immutable WorkItem run-owner binding. Recompile the retained operation under the
+fresh verified carrier and nonce through the ordinary ledger replay path. Do not
+change canonical digest rules, rewrite historical receipts, recover from metadata,
+or return an unverified stored result. Missing/corrupt ownership or retained
+receipt evidence refuses. Coverage must preserve original receipt/row/outbox bytes
+across refreshed-context replay and restart. Include receipts made before this
+repair. Changes to any non-attempt field still refuse.
