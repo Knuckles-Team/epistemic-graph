@@ -753,9 +753,15 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "0265d3a41baf",
+        "629101277687",
+        "6fb1c534abec",
+        "8040b672e582",
         "8451d7eecf02"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "crates/eg-plan/src/exec.rs:2661",
+        "src/server/mod.rs:2093"
+      ],
       "rollup_of": [
         "EG-FEDERATED-QUERY-R022.1"
       ]
@@ -1105,9 +1111,15 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "62c450561948",
+        "6c11520aebfc",
         "f708d6e7728f"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "crates/eg-plan/src/federation_stats.rs:166",
+        "crates/eg-plan/src/federation_stats.rs:174",
+        "crates/eg-plan/src/federation_stats.rs:185",
+        "crates/eg-plan/src/federation_stats.rs:209"
+      ],
       "rollup_of": [
         "EG-FEDERATED-QUERY-R048.1"
       ]
@@ -1468,9 +1480,16 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "62c450561948",
+        "6c11520aebfc",
         "f948211fb8c7"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "crates/eg-rdf/src/source_selection.rs:321",
+        "crates/eg-rdf/src/source_selection.rs:343",
+        "crates/eg-rdf/src/source_selection.rs:369",
+        "crates/eg-rdf/src/source_selection.rs:378",
+        "crates/eg-rdf/src/source_selection.rs:388"
+      ],
       "rollup_of": [
         "EG-FEDERATED-QUERY-R072.1"
       ]

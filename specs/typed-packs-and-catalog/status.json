@@ -973,9 +973,19 @@
       "title": "Typed capability annotations: provides and requires_capabilities",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "042cd2be6b01",
+        "481fa6ea2c55",
+        "795a1ea18fa6",
+        "a0743ba9b542",
         "a1bb9fb9503e"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "src/server/handlers/admin/connector_pack/import/capability_tests.rs:10",
+        "src/server/handlers/admin/connector_pack/import/capability_tests.rs:101",
+        "src/server/handlers/admin/connector_pack/import/capability_tests.rs:28",
+        "src/server/handlers/admin/connector_pack/import/capability_tests.rs:48",
+        "src/server/handlers/admin/connector_pack/import/capability_tests.rs:68"
+      ],
       "rollup_of": [
         "EG-TYPED-PACKS-R042.1",
         "EG-TYPED-PACKS-R042.2"
@@ -1822,10 +1832,16 @@
       "title": "Turtle parser blank-node identities do not collide",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "481fa6ea2c55",
         "90f5578ae2f4",
+        "a60419de4cf7",
+        "c764285d098c",
         "f17f47ab300f"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "crates/eg-rdf/src/mapping/parsing.rs:172",
+        "src/server/handlers/admin/connector_pack/tests/outbox.rs:181"
+      ],
       "rollup_of": [
         "EG-TYPED-PACKS-R093.1",
         "EG-TYPED-PACKS-R093.2"
