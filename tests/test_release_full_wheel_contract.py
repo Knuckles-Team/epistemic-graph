@@ -380,10 +380,7 @@ def _assert_runner_budget(workflow: Path, name: str, job: dict) -> None:
         # Native compilation jobs retain the longer PR build budget, including
         # the independent canonical generator. Classification/lint stay short.
         # python-server/python-suite build/run the full engine suite and exceed
-        # the short budget on cold hosted PR runners; gates-crates' per-crate
-        # narrowing falls back to the FULL workspace on a broad/unmapped diff
-        # (release version bumps), which cold-builds past the short budget too
-        # (release PR #666 cancelled at ~10:15 on 3/3 runs).
+        # the short budget on cold hosted PR runners.
         if workflow.name in {"ci.yml", "release.yml"} and name in {
             "gates",
             "gates-contract",
@@ -394,7 +391,6 @@ def _assert_runner_budget(workflow: Path, name: str, job: dict) -> None:
             "python-server",
             "python-suite",
             "gates-pyo3",
-            "gates-crates",
         }:
             expected = {("ci.yml", "gates-facade"): 60}.get(
                 (workflow.name, name),

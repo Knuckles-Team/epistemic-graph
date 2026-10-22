@@ -300,7 +300,6 @@ def _assert_cache_job_settings(job_name: str, job: dict) -> None:
             "gates-facade",
             "python-server",
             "gates-pyo3",
-            "gates-crates",
         }
         else 10
     )
