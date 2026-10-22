@@ -108,6 +108,7 @@
       "title": "Explicit isolated anonymous store authority (native TCP qualification)",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "5918e6017779",
         "844fec51e35a"
       ],
       "verified_by": [
