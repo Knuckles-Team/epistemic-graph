@@ -397,7 +397,11 @@
     "EG-DURABLE-KERNEL-R860.3",
     "EG-DURABLE-KERNEL-R860.4",
     "EG-DURABLE-KERNEL-R860.5",
-    "EG-DURABLE-KERNEL-R860.6"
+    "EG-DURABLE-KERNEL-R860.6",
+    "EG-DURABLE-KERNEL-R028.5.1",
+    "EG-DURABLE-KERNEL-R028.5.2",
+    "EG-DURABLE-KERNEL-R028.5.3",
+    "EG-DURABLE-KERNEL-R028.5.4"
   ],
   "requirements": [
     {
@@ -867,8 +871,8 @@
         "35f12e9cc56f",
         "3a14159c3768",
         "3ddc77c97ef8",
-        "4746fbcf1601",
-        "7b7d4a0fb10f"
+        "42a0b101b111",
+        "4746fbcf1601"
       ],
       "verified_by": [],
       "rollup_of": [
@@ -904,9 +908,17 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "3ddc77c97ef8",
-        "7a8f87ca8484"
+        "42a0b101b111",
+        "7a8f87ca8484",
+        "9a7674d1bae5"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "crates/eg-plan/src/mirror_target.rs:138",
+        "crates/eg-plan/src/mirror_target.rs:148",
+        "crates/eg-plan/src/mirror_target.rs:159",
+        "crates/eg-plan/src/mirror_target.rs:169",
+        "crates/eg-plan/src/mirror_target.rs:180"
+      ],
       "rollup_of": [
         "EG-DURABLE-KERNEL-R024.2.1",
         "EG-DURABLE-KERNEL-R024.2.2"
@@ -1053,11 +1065,19 @@
       "title": "Schema repair uses a reserved two-person approval lease (rollup)",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "2a4982e949a3",
         "3c618dd255ba",
-        "a676823d2b54",
-        "cd899a5c8c20"
+        "42a0b101b111",
+        "6e52c9bcfb57",
+        "a676823d2b54"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "crates/eg-types/src/control_lease/tests.rs:174",
+        "crates/eg-types/src/governed_change/tests.rs:110",
+        "crates/eg-types/src/governed_change/tests.rs:148",
+        "crates/eg-types/src/governed_change/tests.rs:54",
+        "crates/eg-types/src/governed_change/tests.rs:77"
+      ],
       "rollup_of": [
         "EG-DURABLE-KERNEL-R027.1",
         "EG-DURABLE-KERNEL-R027.2",
@@ -1154,12 +1174,14 @@
       "landed_in": [
         "1ef84395fa69",
         "2cc878fb8938",
+        "5c83a1967042",
         "8628416b1736",
-        "8e288da667fc",
-        "94edcf341758"
+        "8e288da667fc"
       ],
       "verified_by": [
-        "src/redb_store/operation_audit_tests.rs:278"
+        "src/redb_store/operation_audit_tests.rs:278",
+        "src/server/dispatch/graph_pipeline/dispatch_helpers.rs:687",
+        "src/server/mutation_batch/tests.rs:1407"
       ],
       "rollup_of": [
         "EG-DURABLE-KERNEL-R031.1",
@@ -1194,10 +1216,16 @@
       "title": "Native primary-key fast path bypasses the SQL planner",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "19da6ec1bc9b",
         "1ef84395fa69",
         "49c43fca68d0"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "crates/eg-types/src/fast_path.rs:109",
+        "crates/eg-types/src/fast_path.rs:118",
+        "crates/eg-types/src/fast_path.rs:81",
+        "crates/eg-types/src/fast_path.rs:97"
+      ],
       "rollup_of": [
         "EG-DURABLE-KERNEL-R032.1"
       ]
@@ -1222,10 +1250,17 @@
       "title": "Hot-store engine choice is evaluated against captured workloads",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "19da6ec1bc9b",
         "1ef84395fa69",
         "be3fad3f9840"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "crates/eg-types/src/hot_store_engine.rs:125",
+        "crates/eg-types/src/hot_store_engine.rs:140",
+        "crates/eg-types/src/hot_store_engine.rs:157",
+        "crates/eg-types/src/hot_store_engine.rs:168",
+        "crates/eg-types/src/hot_store_engine.rs:190"
+      ],
       "rollup_of": [
         "EG-DURABLE-KERNEL-R033.1"
       ]
@@ -1251,10 +1286,16 @@
       "title": "Cross-store atomicity is proven and scoped to mixed transactions",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "19da6ec1bc9b",
         "1ef84395fa69",
         "5dc0a601b2cf"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "crates/eg-types/src/cross_store_scope.rs:65",
+        "crates/eg-types/src/cross_store_scope.rs:79",
+        "crates/eg-types/src/cross_store_scope.rs:85",
+        "crates/eg-types/src/cross_store_scope.rs:94"
+      ],
       "rollup_of": [
         "EG-DURABLE-KERNEL-R034.1"
       ]
@@ -1297,10 +1338,17 @@
       "title": "Mirror sinks reach fan-out parity and include Postgres table mirroring",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "19da6ec1bc9b",
         "1ef84395fa69",
         "d833c1d987a6"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "crates/eg-types/src/mirror_sink.rs:111",
+        "crates/eg-types/src/mirror_sink.rs:121",
+        "crates/eg-types/src/mirror_sink.rs:130",
+        "crates/eg-types/src/mirror_sink.rs:138",
+        "crates/eg-types/src/mirror_sink.rs:147"
+      ],
       "rollup_of": [
         "EG-DURABLE-KERNEL-R036.1"
       ]
@@ -1376,10 +1424,18 @@
       "title": "Workload classifier routes point operations around the SQL planner",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "19da6ec1bc9b",
         "1ef84395fa69",
-        "4ed831ced92f"
+        "4ed831ced92f",
+        "add3fe5b1d67"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "crates/eg-types/src/workload_class.rs:110",
+        "crates/eg-types/src/workload_class.rs:117",
+        "crates/eg-types/src/workload_class.rs:126",
+        "crates/eg-types/src/workload_class.rs:136",
+        "crates/eg-types/src/workload_class.rs:144"
+      ],
       "rollup_of": [
         "EG-DURABLE-KERNEL-R037.1",
         "EG-DURABLE-KERNEL-R037.2"
@@ -1557,10 +1613,16 @@
       "title": "Pipelined requests commit as a single batch",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "19da6ec1bc9b",
         "1ef84395fa69",
         "726ee0a3eadf"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "crates/eg-types/src/pipeline_batch.rs:101",
+        "crates/eg-types/src/pipeline_batch.rs:112",
+        "crates/eg-types/src/pipeline_batch.rs:78",
+        "crates/eg-types/src/pipeline_batch.rs:92"
+      ],
       "rollup_of": [
         "EG-DURABLE-KERNEL-R040.1"
       ]
@@ -1570,10 +1632,18 @@
       "title": "SQL plan cache keyed by statement digest and schema version",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "19da6ec1bc9b",
         "1ef84395fa69",
+        "88496b615981",
         "aaf7113fe427"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "crates/eg-types/src/plan_cache_key.rs:142",
+        "crates/eg-types/src/plan_cache_key.rs:150",
+        "crates/eg-types/src/plan_cache_key.rs:157",
+        "crates/eg-types/src/plan_cache_key.rs:170",
+        "crates/eg-types/src/plan_cache_key.rs:178"
+      ],
       "rollup_of": [
         "EG-DURABLE-KERNEL-R041.1",
         "EG-DURABLE-KERNEL-R041.2"
@@ -3496,11 +3566,16 @@
       "landed_in": [
         "34d9e78dbe3c",
         "48284711e3db",
+        "5430f4d714ee",
         "70d7b722668b",
-        "b714af935390"
+        "74f3436402b8"
       ],
       "verified_by": [
-        "src/server/kv/dispatch_tests.rs:158"
+        "src/server/kv/dispatch_tests.rs:158",
+        "src/server/kv/dispatch_tests.rs:159",
+        "src/server/kv/dispatch_tests.rs:160",
+        "src/server/kv/dispatch_tests.rs:232",
+        "src/server/kv/dispatch_tests.rs:261"
       ],
       "rollup_of": [
         "EG-DURABLE-KERNEL-R102.1",
@@ -4163,22 +4238,30 @@
       "landed_in": [],
       "verified_by": [
         "src/redb_store/work_item/row_guard.rs:263",
-        "tests/adopt_workitem_authenticated_replay.rs:451"
+        "tests/adopt_workitem_authenticated_replay.rs:451",
+        "tests/test_work_item_retry_identity.py:128",
+        "tests/test_work_item_retry_identity.py:274"
       ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R028.5",
       "title": "Native current-plan publication and readback",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "88fc4a5577c7"
       ],
       "verified_by": [
         "crates/eg-storage/src/owner/agent_library_upgrade/tests.rs:293",
-        "crates/eg-types/src/current_plan.rs:106",
-        "src/redb_store/work_item/current_plan/tests.rs:131",
-        "src/redb_store/work_item/current_plan/tests.rs:62",
-        "src/redb_store/work_item/current_plan/tests.rs:95"
+        "crates/eg-types/src/current_plan/tests.rs:3",
+        "src/redb_store/work_item/current_plan/tests.rs:135",
+        "src/redb_store/work_item/current_plan/tests.rs:66",
+        "src/redb_store/work_item/current_plan/tests.rs:99"
+      ],
+      "rollup_of": [
+        "EG-DURABLE-KERNEL-R028.5.1",
+        "EG-DURABLE-KERNEL-R028.5.2",
+        "EG-DURABLE-KERNEL-R028.5.3",
+        "EG-DURABLE-KERNEL-R028.5.4"
       ]
     },
     {
@@ -4297,6 +4380,46 @@
     {
       "id": "EG-DURABLE-KERNEL-R860.6",
       "title": "Hot-path proof: one store behind four protocols",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R028.5.1",
+      "title": "Typed executable attachment",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "crates/eg-types/src/current_plan/tests.rs:20",
+        "crates/eg-types/src/current_plan/tests.rs:56"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R028.5.2",
+      "title": "Immutable fenced attachment",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "src/redb_store/work_item/current_plan/tests/attachment.rs:13",
+        "src/redb_store/work_item/current_plan/tests/attachment.rs:139",
+        "src/redb_store/work_item/current_plan/tests/attachment.rs:61"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R028.5.3",
+      "title": "Attachment replay and recovery",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "src/server/mutation_batch/digest.rs:319",
+        "tests/adopt_workitem_authenticated_replay.rs:582",
+        "tests/decide/test_task_plan_served.py:230",
+        "tests/decide/test_task_plan_served.py:351"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R028.5.4",
+      "title": "Attachment performance qualification",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

@@ -144,7 +144,11 @@
       "title": "EG is sole home for remaining migrated ingestion modules (rollup)",
       "delivery_state": "LANDED",
       "landed_in": [
-        "ae0f93b6bf70"
+        "0554e82ae743",
+        "06a13bef2738",
+        "72c7dfa478ba",
+        "77fa741ee191",
+        "a17a6c5ded2f"
       ],
       "verified_by": [],
       "rollup_of": [
@@ -343,7 +347,10 @@
       "id": "EG-REPO-INGEST-R009",
       "title": "Repository hydration links into the specification bridge",
       "delivery_state": "LANDED",
-      "landed_in": [],
+      "landed_in": [
+        "1bb3ca5fed33",
+        "1f5ba9350abb"
+      ],
       "verified_by": [],
       "rollup_of": [
         "EG-REPO-INGEST-R009.1",
