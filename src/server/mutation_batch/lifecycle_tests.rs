@@ -282,7 +282,6 @@ async fn delete_purges_receipts_of_a_prior_incarnation() {
             "delete",
             crate::server::mutation_batch::CommitOrigin {
                 request_id: 2,
-                attempt_nonce: None,
                 principal,
             },
             "delete-key",
