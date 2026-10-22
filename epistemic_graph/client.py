@@ -4029,6 +4029,7 @@ class WorkItemClient:
         error_ref: str | None = None,
         retryable: bool = False,
         outcome_extension: dict[str, Any] | None = None,
+        run_completion: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Commit a leased item's terminal result under its fence.
 
@@ -4036,6 +4037,8 @@ class WorkItemClient:
         bundle, its RunTrace/ToolCall/OutcomeEvaluation receipt nodes and the
         RunEvent) commits the provenance atomically with the result; read it
         back with :meth:`get_outcome`.
+        ``run_completion`` carries ordinary admitted-run measurements; it is
+        optional, independently owner-bound, and read back with :meth:`get_run`.
         """
         params: dict[str, Any] = {
             "tenant": tenant,
@@ -4052,6 +4055,8 @@ class WorkItemClient:
         }
         if outcome_extension is not None:
             params["outcome_extension"] = outcome_extension
+        if run_completion is not None:
+            params["run_completion"] = run_completion
         return (
             await _gen.coordination.send_commit_work_item_result(
                 self._client, params, idempotency_key=idempotency_key

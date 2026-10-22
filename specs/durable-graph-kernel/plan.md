@@ -847,3 +847,27 @@ The four wire listeners already start in `src/main.rs`. R860 binds them to one a
 ## Immutable run submission recovery
 
 EG-DURABLE-KERNEL-R028.4.1 stores the original submission beside the existing immutable owner binding in the native WorkItem transaction. A point read returns that record and the current caller-safe WorkItem from the same snapshot. Verified owner selection is mandatory even after the lease expires or execution ends. This is historical database evidence, not authentication, application admission or permission to execute. Arbora continues to own those application decisions. Legacy records without evidence refuse explicitly instead of reconstructing a request from mutable metadata. Generic mutations cannot forge or remove the private record. Retry identity and receipt semantics remain unchanged. EG-DURABLE-KERNEL-R028.4.2 retains independent performance acceptance.
+## Ordinary terminal completion (EG-DURABLE-KERNEL-R028.6)
+
+Extend `CommitWorkItemResult` with an optional `RunCompletionInput`. Existing
+callers retain their current behavior. Ordinary completion and delegated outcome
+extensions cannot share one operation. The original admitted run and verified
+owner binding remain authoritative. A caller cannot attach a different run.
+
+Reuse the native WorkItem transaction and MutationBatch ledger. Check the live
+worker lease before changing the terminal row. Bind one completion event's batch
+and byte digest to that row. Read the row, ledger and event from one snapshot.
+Return the exact scope, sequence, ordinal and digest. Missing or corrupt bound
+evidence refuses; an older unbound row has no ordinary completion receipt.
+
+Persist observed request, tool and token counts without estimating missing data.
+Each supplied counter must be an exact nonnegative JSON integer. Supplied totals
+must agree with supplied components. Empty usage stays empty. Failed and cancelled
+outcomes have no answer reference. Replay cannot replace the first terminal
+receipt, even when a later request has a different retry key.
+
+This slice does not implement agent scheduling, streaming, checkpoint resume,
+session totals, billing, model selection or caller credential renewal. The shared
+host and execution libraries consume this storage contract. Canonical generators
+own every derived schema and client artifact. Historical source-stack acceptance
+is background only; native and served receipts must identify the tested revision.

@@ -98,6 +98,7 @@ pub(crate) fn apply_work_item_rows(
             retryable,
             now_ms,
             outcome_extension,
+            run_completion,
             idempotency_key: _,
         } => apply_commit_work_item_result_row(CommitWorkItemResultInput {
             graph,
@@ -112,6 +113,7 @@ pub(crate) fn apply_work_item_rows(
             retryable: *retryable,
             now_ms: *now_ms,
             outcome_extension: outcome_extension.as_deref(),
+            run_completion: run_completion.as_deref(),
             batch_id,
             nodes: &mut *nodes,
             holds: &mut *holds,

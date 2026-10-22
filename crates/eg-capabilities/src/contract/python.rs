@@ -298,7 +298,7 @@ impl FieldPresence {
 /// described by the schema as an array too, but binds to Python `bytes`, whose
 /// empty value is `b""`, not `[]`.
 fn empty_factory(annotation: &str) -> &'static str {
-    if annotation == "bytes" {
+    if annotation == "bytes" || annotation == "_EgOctets" {
         "bytes"
     } else {
         "list"
@@ -721,10 +721,18 @@ fn push_domain_imports(out: &mut String, descriptors: &[MethodDescriptor], body:
         out.push_str(")\n");
         emitted_local_import = true;
     }
+    let mut octets_imported = !body.contains("_EgOctets");
     for surface in surfaces {
+        if !octets_imported && surface.module > "models" {
+            out.push_str("from .models import _EgOctets\n");
+            octets_imported = true;
+        }
         let before = out.len();
         push_surface_import(out, descriptors, body, surface);
         emitted_local_import |= out.len() != before;
+    }
+    if !octets_imported {
+        out.push_str("from .models import _EgOctets\n");
     }
     if emitted_local_import {
         out.push('\n');

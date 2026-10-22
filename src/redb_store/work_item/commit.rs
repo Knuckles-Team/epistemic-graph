@@ -182,6 +182,7 @@ pub(crate) struct CommitWorkItemResultInput<'args, 'table, 'crypto> {
     pub(crate) retryable: bool,
     pub(crate) now_ms: u64,
     pub(crate) outcome_extension: Option<&'args eg_types::outcome_bundle::TerminalOutcomeExtension>,
+    pub(crate) run_completion: Option<&'args eg_types::run_completion::RunCompletionInput>,
     pub(crate) batch_id: &'args str,
     pub(crate) nodes:
         &'args mut ScopedOwnerTableMut<'table, (&'static str, &'static str), &'static [u8]>,
@@ -225,6 +226,22 @@ pub(crate) fn apply_commit_work_item_result_row(
     };
     let mut props: serde_json::Map<String, serde_json::Value> = decode_durable(&bytes)?;
     let pre_props = props.clone();
+    if let Some(completion) = input.run_completion {
+        completion.validate()?;
+        run_owner::validate_completion_owner(
+            &props,
+            input.graph,
+            input.tenant,
+            &completion.run_id,
+            input.work_item_id,
+        )?;
+        if input.outcome_extension.is_some()
+            || input.retryable
+            || (input.outcome != "succeeded" && input.result_ref.is_some())
+        {
+            return Err("ordinary completion requires an exclusive final result without failed answer artifacts".into());
+        }
+    }
     if let Some(refusal) = commit_work_item_result_precheck(
         &props,
         input.work_item_id,
@@ -321,6 +338,27 @@ pub(crate) fn apply_commit_work_item_result_row(
         );
     }
     record_outcome_refs(&mut props, committed_status, input.outcome_extension)?;
+    if let Some(completion) = input.run_completion {
+        use sha2::{Digest, Sha256};
+        let payload = eg_types::run_completion::RunCompletionPayload {
+            completion: completion.clone(),
+            tenant: input.tenant.into(),
+            work_item_id: input.work_item_id.into(),
+            batch_id: input.batch_id.into(),
+            outcome: committed_status.into(),
+            result_ref: input.result_ref.clone(),
+            error_ref: input.error_ref.clone(),
+        };
+        let bytes = rmp_serde::to_vec_named(&payload).map_err(|e| e.to_string())?;
+        props.insert(
+            eg_types::run_completion::RUN_COMPLETION_BATCH.into(),
+            input.batch_id.into(),
+        );
+        props.insert(
+            eg_types::run_completion::RUN_COMPLETION_DIGEST.into(),
+            hex::encode(Sha256::digest(&bytes)).into(),
+        );
+    }
     write_work_item_props(
         input.nodes,
         input.graph,

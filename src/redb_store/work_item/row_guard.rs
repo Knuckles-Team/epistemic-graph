@@ -96,7 +96,9 @@ impl RowGuard<'_, '_> {
         refuse_policy_row(Some(&incoming))?;
         // Reserve this key even before a row is labelled WorkItem; otherwise
         // a caller could plant it on a plain row and relabel that row later.
-        if incoming.contains_key("current_plan")
+        if incoming.contains_key(eg_types::run_completion::RUN_COMPLETION_BATCH)
+            || incoming.contains_key(eg_types::run_completion::RUN_COMPLETION_DIGEST)
+            || incoming.contains_key("current_plan")
             || incoming.contains_key("run_owner_binding")
             || incoming.contains_key(super::run_owner::ADMISSION_REQUEST)
             || incoming.contains_key("pending_call_lease_ref")
@@ -147,7 +149,9 @@ impl RowGuard<'_, '_> {
 
 fn refuse_stored_lease(stored: Option<&NodeMap>) -> Result<(), String> {
     if stored.is_some_and(|row| {
-        row.contains_key("run_owner_binding")
+        row.contains_key(eg_types::run_completion::RUN_COMPLETION_BATCH)
+            || row.contains_key(eg_types::run_completion::RUN_COMPLETION_DIGEST)
+            || row.contains_key("run_owner_binding")
             || row.contains_key(super::run_owner::ADMISSION_REQUEST)
     }) {
         return Err(NATIVE_KEY_AUTHORITY.to_string());
@@ -375,6 +379,27 @@ mod tests {
         .enumerate()
         {
             assert!(check(&temp.shard, &format!("replace-{index}"), method).is_err());
+        }
+    }
+}
+
+#[cfg(test)]
+mod completion_tests {
+    use super::super::test_shard::{check_guard, open};
+    use super::*;
+    #[test]
+    fn ordinary_completion_bindings_cannot_be_planted_on_unlabelled_rows() {
+        let temp = open("completion-guard");
+        for key in [
+            eg_types::run_completion::RUN_COMPLETION_BATCH,
+            eg_types::run_completion::RUN_COMPLETION_DIGEST,
+        ] {
+            let properties = serde_json::json!({key: "forged"});
+            let method = Method::AddNode {
+                node_id: "forged".into(),
+                properties_msgpack: rmp_serde::to_vec_named(&properties).unwrap(),
+            };
+            assert!(check_guard(&temp.shard, key, method).is_err());
         }
     }
 }
