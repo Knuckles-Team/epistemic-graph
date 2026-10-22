@@ -752,3 +752,9 @@ The three conflicting generated receipt and catalog files retain the exact main 
 These files are stale for the identity union, not a qualified combined contract.
 Fresh hosted native generation and final-source parity must replace this draft baseline before merge.
 The earlier identity exports remain preserved with their original source receipts.
+## Schema drift wiring (R710, R712)
+`EG-TYPED-PACKS-R710` stays VERIFIED by the unit tests in `crates/eg-types/src/graph_schema/drift.rs`. Its acceptance is unit tests of the typed model and the bound.
+`EG-TYPED-PACKS-R712` stays VERIFIED by the benchmark `benches/schema_drift_classify.rs` and the approval-lease served test.
+Superseded evidence: `tests/packs/test_schema_drift_served.py` drives attach, validate and approval-lease operations only. It never classifies drift.
+No engine code outside `benches/` calls the classifier today.
+`EG-TYPED-PACKS-R714` owns the delivery-path wiring. `EG-TYPED-PACKS-R715` owns the served quarantine proof.
