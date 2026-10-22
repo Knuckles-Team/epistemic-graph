@@ -98,6 +98,13 @@
     "EG-INGEST-WORKER-R702.6",
     "EG-INGEST-WORKER-R003.700",
     "EG-INGEST-WORKER-R003.701",
+    "EG-INGEST-WORKER-R910",
+    "EG-INGEST-WORKER-R910.1",
+    "EG-INGEST-WORKER-R910.2",
+    "EG-INGEST-WORKER-R910.3",
+    "EG-INGEST-WORKER-R910.4",
+    "EG-INGEST-WORKER-R910.5",
+    "EG-INGEST-WORKER-R910.6",
     "EG-INGEST-WORKER-R900",
     "EG-INGEST-WORKER-R900.1",
     "EG-INGEST-WORKER-R900.2",
@@ -892,6 +899,63 @@
     {
       "id": "EG-INGEST-WORKER-R003.701",
       "title": "Knowledge-base run outcomes, entity and claim extraction, link inference and note-vault sync: refusal, evidence and hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R910",
+      "title": "Source ingest content versions chain per stream (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-INGEST-WORKER-R910.1",
+        "EG-INGEST-WORKER-R910.2",
+        "EG-INGEST-WORKER-R910.3",
+        "EG-INGEST-WORKER-R910.4",
+        "EG-INGEST-WORKER-R910.5",
+        "EG-INGEST-WORKER-R910.6"
+      ]
+    },
+    {
+      "id": "EG-INGEST-WORKER-R910.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R910.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R910.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R910.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R910.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-INGEST-WORKER-R910.6",
+      "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
