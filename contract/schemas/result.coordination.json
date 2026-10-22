@@ -2039,6 +2039,38 @@
       ],
       "type": "object"
     },
+    "CommittedRunCompletion": {
+      "additionalProperties": false,
+      "properties": {
+        "commit_sequence": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "ordinal": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "payload": {
+          "$ref": "#/$defs/RunCompletionPayload"
+        },
+        "payload_digest": {
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/MutationScopeIdentity"
+        }
+      },
+      "required": [
+        "payload",
+        "scope",
+        "commit_sequence",
+        "ordinal",
+        "payload_digest"
+      ],
+      "type": "object"
+    },
     "ComponentContribution": {
       "additionalProperties": false,
       "description": "One component's share of a slate's success rate.",
@@ -9597,12 +9629,136 @@
       ],
       "type": "object"
     },
+    "RunCompletionInput": {
+      "additionalProperties": false,
+      "properties": {
+        "run_id": {
+          "type": "string"
+        },
+        "schema_version": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "usage": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunUsage"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "schema_version",
+        "run_id"
+      ],
+      "type": "object"
+    },
+    "RunCompletionPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "batch_id": {
+          "type": "string"
+        },
+        "completion": {
+          "$ref": "#/$defs/RunCompletionInput"
+        },
+        "error_ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "outcome": {
+          "type": "string"
+        },
+        "result_ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tenant": {
+          "type": "string"
+        },
+        "work_item_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "completion",
+        "tenant",
+        "work_item_id",
+        "batch_id",
+        "outcome"
+      ],
+      "type": "object"
+    },
+    "RunUsage": {
+      "additionalProperties": false,
+      "properties": {
+        "input_tokens": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "output_tokens": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "requests": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "tool_calls": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "total_tokens": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
     "RunWorkItemView": {
       "additionalProperties": false,
       "description": "Owner-only historical admission evidence and the current caller-safe view.\nThe original context is provenance, not a credential or execution grant.",
       "properties": {
         "admission": {
           "$ref": "#/$defs/SubmitWorkItemRequest"
+        },
+        "run_completion": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CommittedRunCompletion"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "work_item": {
           "$ref": "#/$defs/WorkItemView"

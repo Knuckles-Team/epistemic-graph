@@ -21923,6 +21923,16 @@
                   "default": false,
                   "type": "boolean"
                 },
+                "run_completion": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/RunCompletionInput"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
                 "tenant": {
                   "type": "string"
                 },
@@ -45916,6 +45926,34 @@
       "minimum": 0,
       "type": "integer"
     },
+    "RunCompletionInput": {
+      "additionalProperties": false,
+      "properties": {
+        "run_id": {
+          "type": "string"
+        },
+        "schema_version": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "usage": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunUsage"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "schema_version",
+        "run_id"
+      ],
+      "type": "object"
+    },
     "RunEvent": {
       "additionalProperties": false,
       "description": "One durable projection event a [`CommitOutcomeBundle`]'s commit (or a\nrepair pass) publishes. Streaming/AG-UI/SSE/WebSocket/terminal/MCP\nsurfaces are projections of a sequence of these, never a second event\nauthority (lane doc \"Cursor/streaming semantics\").",
@@ -46046,6 +46084,52 @@
         "cursor_token",
         "carrier_digest"
       ],
+      "type": "object"
+    },
+    "RunUsage": {
+      "additionalProperties": false,
+      "properties": {
+        "input_tokens": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "output_tokens": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "requests": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "tool_calls": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "total_tokens": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
       "type": "object"
     },
     "SafetyOutcome": {
