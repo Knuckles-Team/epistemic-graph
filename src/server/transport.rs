@@ -355,9 +355,11 @@ async fn admit_qos_request(
         let server = state.read().await;
         server.request_authority(req)
     }
-    .map_err(|_| {
+    .map_err(|error| {
         crate::metrics::auth_failure();
-        Response::err(req.id, "AUTHENTICATION_REQUIRED: Authentication failed")
+        // Same typed refusal as dispatch: QoS admission verifies first when it is
+        // enabled, so a generic refusal here would hide the cause class.
+        Response::err(req.id, super::auth::authentication_refusal(&error))
     })?;
     let principal_scope = context.principal_persistence_id();
     let qos_request =
