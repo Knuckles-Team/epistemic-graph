@@ -172,3 +172,5 @@ Status remains SPECIFIED. `landed_in` and `verified_by` remain empty.
 - [ ] **EG-ORCH-VOCAB-R802.4:** Supersession. Lessons and adoptions supersede by edge; superseded records stay readable. Proving test: `crates/eg-types/tests/harness_lessons.rs::supersession_keeps_old_readable`.
 - [ ] **EG-ORCH-VOCAB-R802.5:** Refusal. Missing evidence runs, mismatched conditions and a missing decision reference refuse with typed codes. Proving test: `crates/eg-types/tests/harness_lessons.rs::evidence_and_condition_refusals`.
 - [ ] **EG-ORCH-VOCAB-R802.6:** Hot-path proof. Served write and retrieval of contrast, adoption and lesson; three refusals; benchmark within budget. Proving test: `tests/orchestration/test_harness_lessons_served.py::test_contrast_lesson_and_retrieval_served`.
+
+- [ ] **EG-ORCH-VOCAB-R012.9:** Requirement rows become typed nodes.

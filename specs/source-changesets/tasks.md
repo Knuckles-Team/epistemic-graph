@@ -14,3 +14,13 @@ Ordered one-bite lanes. Compile slot: EG only, one cargo lane host-wide at a tim
 - [ ] EG-SCM-R010 — git import and export fidelity (`crates/eg-compute/src/source_git_objects.rs`; tree-hash parity; round-trip test).
 - [ ] EG-SCM-R011 — simulation harness (`tests/simulation/source_changesets.rs`; concurrent writers; crash and replay; fuzzing).
 - [ ] EG-SCM-R012 — run provenance (agent principal binding; run trace id; typed refusal).
+
+- [ ] **EG-SCM-R002.1:** Structured trailers on a changeset.
+- [ ] **EG-SCM-R013:** Graph-native code edits (rollup).
+- [ ] **EG-SCM-R013.1:** Model.
+- [ ] **EG-SCM-R013.2:** Projection.
+- [ ] **EG-SCM-R013.3:** Round-trip check.
+- [ ] **EG-SCM-R013.4:** Wiring.
+- [ ] **EG-SCM-R013.5:** Refusal.
+- [ ] **EG-SCM-R013.6:** Evidence.
+- [ ] **EG-SCM-R013.7:** Hot-path proof.

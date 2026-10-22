@@ -831,3 +831,22 @@ Hot-path proof for `EG-DECISION-ENGINE-R803`: `tests/decide/test_harness_contras
 ## EG-DECISION-ENGINE-R036.102
 
 `src/raft/cross_shard_txn/prepare_record.rs::tests` covers the production codec: canonical round trip, wrong transaction/group, modified payload, unsupported version/owner, malformed envelope and legacy array recovery. The existing cross-shard harness must pass with the new writer. Codec tests alone do not qualify heterogeneous-owner admission or distributed recovery.
+
+## Harness self-improvement: evaluation sets, optimizer loop, promotion and rollback
+
+| Row | Proving test |
+|---|---|
+| `EG-DECISION-ENGINE-R804` | See each child. |
+| `EG-DECISION-ENGINE-R804.1` | `crates/eg-program/tests/native_program.rs::all_modalities_compile_and_require_evidence_before_promotion` |
+| `EG-DECISION-ENGINE-R804.2` | `crates/eg-program/tests/native_program.rs::random_search_is_deterministic` |
+| `EG-DECISION-ENGINE-R804.3` | `tests/decide/test_program_optimize_served.py::test_optimize_job_returns_candidate` |
+| `EG-DECISION-ENGINE-R804.4` | `tests/decide/test_program_optimize_served.py::test_judge_only_corpus_refuses` |
+| `EG-DECISION-ENGINE-R804.5` | `crates/eg-program/tests/native_program.rs::promotion_identity_and_model_trace_bind_to_one_revision` |
+| `EG-DECISION-ENGINE-R804.6` | `tests/decide/test_program_optimize_served.py::test_optimize_hot_path` |
+| `EG-DECISION-ENGINE-R805` | See each child. |
+| `EG-DECISION-ENGINE-R805.1` | `crates/eg-types/src/decision/promotion.rs::tests::records_round_trip` |
+| `EG-DECISION-ENGINE-R805.2` | `crates/eg-types/src/decision/promotion.rs::tests::regression_triggers_rollback` |
+| `EG-DECISION-ENGINE-R805.3` | `tests/decide/test_harness_promotion_served.py::test_promote_then_rollback` |
+| `EG-DECISION-ENGINE-R805.4` | `tests/decide/test_harness_promotion_served.py::test_promotion_refusals` |
+| `EG-DECISION-ENGINE-R805.5` | `tests/decide/test_harness_promotion_served.py::test_pointer_history_replays` |
+| `EG-DECISION-ENGINE-R805.6` | `cargo bench -p eg-numeric --bench harness_promotion` |

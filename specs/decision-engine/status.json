@@ -873,7 +873,21 @@
     "EG-DECISION-ENGINE-R803.4",
     "EG-DECISION-ENGINE-R803.5",
     "EG-DECISION-ENGINE-R803.6",
-    "EG-DECISION-ENGINE-R036.102"
+    "EG-DECISION-ENGINE-R036.102",
+    "EG-DECISION-ENGINE-R804",
+    "EG-DECISION-ENGINE-R804.1",
+    "EG-DECISION-ENGINE-R804.2",
+    "EG-DECISION-ENGINE-R804.3",
+    "EG-DECISION-ENGINE-R804.4",
+    "EG-DECISION-ENGINE-R804.5",
+    "EG-DECISION-ENGINE-R804.6",
+    "EG-DECISION-ENGINE-R805",
+    "EG-DECISION-ENGINE-R805.1",
+    "EG-DECISION-ENGINE-R805.2",
+    "EG-DECISION-ENGINE-R805.3",
+    "EG-DECISION-ENGINE-R805.4",
+    "EG-DECISION-ENGINE-R805.5",
+    "EG-DECISION-ENGINE-R805.6"
   ],
   "requirements": [
     {
@@ -9026,6 +9040,120 @@
     {
       "id": "EG-DECISION-ENGINE-R036.102",
       "title": "Bind graph participant prepare records to their recovery identity",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R804",
+      "title": "Evaluation sets and the program optimizer loop (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R804.1",
+        "EG-DECISION-ENGINE-R804.2",
+        "EG-DECISION-ENGINE-R804.3",
+        "EG-DECISION-ENGINE-R804.4",
+        "EG-DECISION-ENGINE-R804.5",
+        "EG-DECISION-ENGINE-R804.6"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R804.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R804.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R804.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R804.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R804.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R804.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R805",
+      "title": "Harness promotion and rollback (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R805.1",
+        "EG-DECISION-ENGINE-R805.2",
+        "EG-DECISION-ENGINE-R805.3",
+        "EG-DECISION-ENGINE-R805.4",
+        "EG-DECISION-ENGINE-R805.5",
+        "EG-DECISION-ENGINE-R805.6"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R805.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R805.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R805.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R805.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R805.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R805.6",
+      "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
