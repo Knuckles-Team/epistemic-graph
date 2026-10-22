@@ -4441,8 +4441,10 @@
     {
       "id": "EG-DURABLE-KERNEL-R861.1",
       "title": "Lifecycle replay compares the stored identity",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "283817e82fd0"
+      ],
       "verified_by": [
         "src/server/mutation_batch/lifecycle_tests.rs:479"
       ]
