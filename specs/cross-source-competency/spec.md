@@ -5,7 +5,7 @@ Public provenance: program exit gate for the Graph OS refactor.
 
 ## Purpose and user stories
 
-This is the exit gate. An operator asks one question and gets one report that joins supply-chain data with service data. The ontology, not the query, says which connected source is authoritative for each concept. This is the Stardog-style capability: SPARQL, OWL, RDF and SHACL over virtual graphs on connectors.
+This is the exit gate. An operator asks one question and gets one report that joins supply-chain data with service data. The ontology, not the query, says which connected source is authoritative for each concept. This is the virtual-graph capability: SPARQL, OWL, RDF and SHACL over virtual graphs on connectors.
 
 Exit-gate question, verbatim: **"How does the supply chain affect our services?"**
 
