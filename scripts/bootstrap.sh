@@ -33,7 +33,8 @@ uv_minor() { uv --version 2>/dev/null | awk '{split($2, v, "."); print v[1] * 10
 if ! command -v uv >/dev/null 2>&1 || [[ "$(uv_minor)" -lt 9 ]]; then
   echo "bootstrap: installing a current uv"
   python3 -m pip install --quiet --user --upgrade "uv>=0.9" \
-    || curl -LsSf https://astral.sh/uv/install.sh | sh
+    || python3 -m pip install --quiet --user --break-system-packages --upgrade "uv>=0.9" \
+    || { echo "bootstrap: could not install uv>=0.9; see https://docs.astral.sh/uv/getting-started/installation/" >&2; exit 2; }
 fi
 
 echo "bootstrap: Python $(cat .python-version) and locked test dependencies"
@@ -42,7 +43,8 @@ uv sync --frozen --extra test --no-install-project
 
 echo "bootstrap: Rust toolchain from rust-toolchain.toml"
 if ! command -v rustup >/dev/null 2>&1; then
-  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain none
+  echo "bootstrap: rustup is required; install it from https://rustup.rs and re-run" >&2
+  exit 2
 fi
 rustup toolchain install
 
