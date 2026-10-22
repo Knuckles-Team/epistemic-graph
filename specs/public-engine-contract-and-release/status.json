@@ -379,7 +379,7 @@
     {
       "id": "EG-CONTRACT-R014",
       "title": "Generated error catalog has stable auth-mismatch codes",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "15acf1a959e5",
         "19d0663aaf5c",
@@ -390,7 +390,9 @@
       "verified_by": [
         "crates/eg-capabilities/src/contract/errors.rs:476",
         "crates/eg-capabilities/src/error_routing.rs:353",
-        "crates/eg-types/src/governed_change/tests.rs:183"
+        "crates/eg-types/src/governed_change/tests.rs:183",
+        "src/server/auth.rs:2054",
+        "src/server/transport/tests.rs:145"
       ],
       "rollup_of": [
         "EG-CONTRACT-R014.1"
@@ -399,8 +401,10 @@
     {
       "id": "EG-CONTRACT-R014.1",
       "title": "Authentication refusals name a safe cause class",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "56d0a453d359"
+      ],
       "verified_by": [
         "src/server/auth.rs:2054",
         "src/server/transport/tests.rs:145"
