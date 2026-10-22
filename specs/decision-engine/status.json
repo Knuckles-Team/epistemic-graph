@@ -878,6 +878,7 @@
     "EG-DECISION-ENGINE-R036.103",
     "EG-DECISION-ENGINE-R036.104",
     "EG-DECISION-ENGINE-R036.105",
+    "EG-DECISION-ENGINE-R036.106",
     "EG-DECISION-ENGINE-R804",
     "EG-DECISION-ENGINE-R804.1",
     "EG-DECISION-ENGINE-R804.2",
@@ -1542,7 +1543,8 @@
         "EG-DECISION-ENGINE-R036.102",
         "EG-DECISION-ENGINE-R036.103",
         "EG-DECISION-ENGINE-R036.104",
-        "EG-DECISION-ENGINE-R036.105"
+        "EG-DECISION-ENGINE-R036.105",
+        "EG-DECISION-ENGINE-R036.106"
       ]
     },
     {
@@ -9082,6 +9084,13 @@
     {
       "id": "EG-DECISION-ENGINE-R036.105",
       "title": "Persist a request-bound coordinator decision certificate",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R036.106",
+      "title": "Durable profile-use grant records",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

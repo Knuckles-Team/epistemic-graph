@@ -803,3 +803,4 @@ Deliver these additive leaves in order; preserve R137.1–.6 and R128 unchanged.
   - [ ] **EG-DECISION-ENGINE-R651.7:** Episodic-to-semantic promotion.
   - [ ] **EG-DECISION-ENGINE-R651.8:** Reinforce and decay share one salience update.
   - [ ] **EG-DECISION-ENGINE-R700.7:** Contradiction records are tracked.
+- [ ] **EG-DECISION-ENGINE-R036.106:** Wire profile-use grant records and the offline RBAC layout upgrade. Qualify grant issuance and composed model admission.
