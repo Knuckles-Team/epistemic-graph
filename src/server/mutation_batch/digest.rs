@@ -316,6 +316,64 @@ pub(crate) fn opaque_coordinator_key(namespace: &str, graph: &str, coordinator_i
 mod current_plan_identity_tests {
     use super::*;
 
+    // spec: EG-DURABLE-KERNEL-R028.5.3
+    #[test]
+    fn publication_attachment_changes_content_not_retry_identity() {
+        use crate::server::mutation_batch::compile::{compile_methods, CompileBatch};
+        let plain = Method::PublishCurrentPlan {
+            request: eg_types::current_plan::sample_publish_request(),
+        };
+        let attached = Method::PublishCurrentPlan {
+            request: eg_types::current_plan::sample_task_plan_publish_request(),
+        };
+        let identity = work_item_batch_identity("graph", "tenant", 1, &plain).unwrap();
+        assert_eq!(
+            identity,
+            work_item_batch_identity("graph", "tenant", 99, &attached).unwrap()
+        );
+        let digest = |method| {
+            compile_methods(
+                CompileBatch {
+                    batch_id: &identity.batch_id,
+                    request_id: identity.durable_request_id,
+                    attempt_nonce: None,
+                    principal: Some("owner"),
+                    tenant: "tenant",
+                    graph: "graph",
+                    placement_epoch: 0,
+                    idempotency_key: &identity.idempotency_key,
+                    expected_graph_version: Some(0),
+                    fencing_token: None,
+                    created_at_ms: 1,
+                    default_surface: crate::mutation_batch::MutationSurface::Job,
+                    authoritative_state: None,
+                },
+                vec![method],
+            )
+            .unwrap()
+            .envelope
+            .operation()
+            .unwrap()
+            .canonical_payload_digest
+        };
+        assert_eq!(digest(attached.clone()), digest(attached.clone()));
+        assert_ne!(digest(plain), digest(attached.clone()));
+        let mut changed = eg_types::current_plan::sample_task_plan_publish_request();
+        changed.task_plan_proposal.as_mut().unwrap().max_concurrency = 1;
+        changed.snapshot.task_plan = Some(
+            eg_types::decision::task_plan::plan_explicit_tasks(
+                changed.task_plan_proposal.as_ref().unwrap(),
+            )
+            .unwrap(),
+        );
+        let changed = Method::PublishCurrentPlan { request: changed };
+        assert_eq!(
+            identity,
+            work_item_batch_identity("graph", "tenant", 3, &changed).unwrap()
+        );
+        assert_ne!(digest(attached), digest(changed));
+    }
+
     // spec: EG-DURABLE-KERNEL-R028.5
     #[test]
     fn publication_identity_separates_operation_revision_run_and_transport() {

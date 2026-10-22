@@ -125,9 +125,12 @@ def _decode_envelope(request: dict[str, Any]) -> dict[str, Any]:
     return json.loads(bytes.fromhex(token.removeprefix("eg2.")).decode("utf-8"))
 
 
+# spec: EG-DURABLE-KERNEL-R028.4
+@pytest.mark.parametrize("run_id", [None, "run-fixture"])
 @pytest.mark.asyncio
 async def test_work_item_retries_bind_stable_keys_to_signed_wire(
     monkeypatch: pytest.MonkeyPatch,
+    run_id: str | None,
 ) -> None:
     """Exercise WorkItemClient -> generated helper -> real signed request.
 
@@ -181,6 +184,8 @@ async def test_work_item_retries_bind_stable_keys_to_signed_wire(
     monkeypatch.setattr(client, "supports", supports)
 
     submit = _submit_request()
+    if run_id is not None:
+        submit.update(run_id=run_id, work_item_id=None)
     await client.work_items.submit(submit)
     await client.work_items.submit(submit)
 
@@ -226,6 +231,9 @@ async def test_work_item_retries_bind_stable_keys_to_signed_wire(
     ]
     assert wire[0]["params"]["request"]["idempotency_key"] == "submit-retry-1"
     assert wire[1]["params"]["request"] == wire[0]["params"]["request"]
+    assert wire[0]["params"]["request"].get("run_id") == run_id
+    if run_id is not None:
+        assert wire[0]["params"]["request"]["work_item_id"] is None
     assert envelopes[0]["nonce"] != envelopes[1]["nonce"]
 
 
@@ -261,3 +269,22 @@ async def test_work_item_retry_key_validation_rejects_blank_values() -> None:
             set_metadata={"attempt": 1},
             idempotency_key=" ",
         )
+
+
+# spec: EG-DURABLE-KERNEL-R028.4
+@pytest.mark.asyncio
+async def test_run_owned_submission_keeps_closed_request_validation() -> None:
+    client = EpistemicGraphClient(
+        unused_reader(),
+        unused_writer(),
+        "fixture-secret",
+        "graph-fixture",
+        verified_context=_context(),
+    )
+    request = {**_submit_request(), "run_id": "run-fixture", "work_item_id": None}
+    with pytest.raises(ValueError, match="unsupported fields"):
+        await client.work_items.submit({**request, "owner_principal": "forged"})
+    with pytest.raises(TypeError, match="SubmitWorkItem.run_id"):
+        await client.work_items.submit({**request, "run_id": 1})
+    with pytest.raises(ValueError, match="SubmitWorkItem.run_id"):
+        await client.work_items.submit({**request, "run_id": " "})

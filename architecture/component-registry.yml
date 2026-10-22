@@ -3895,6 +3895,8 @@ components:
       - "tests/test_decision_stat_client.py"
       - "tests/test_decision_static_contracts.py"
       - "tests/test_decision_verifier.py"
+      - "tests/decide/test_task_plan_served.py"
+      - "tests/test_task_plan_client.py"
       - "tests/test_error_contract_client.py"
       - "tests/test_finance_market.py"
       - "tests/test_finance_pine_companion.py"

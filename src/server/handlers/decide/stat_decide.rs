@@ -111,6 +111,7 @@ fn decide_blocking(
     principal: String,
     started: Instant,
 ) -> Result<DecisionBatch, String> {
+    let task_plan = super::stat_task_plan::task_plan(request)?;
     let mut candidates = read_candidates(
         ctx.store,
         ctx.tenant_id,
@@ -134,7 +135,11 @@ fn decide_blocking(
         policy.statistical.tenant_public_features,
         &mut candidates.views,
     )?;
-    let executed = match tool_subset_outcome(request) {
+    let specialized = task_plan
+        .as_ref()
+        .map(|plan| Ok(super::stat_task_plan::outcome(plan)))
+        .or_else(|| tool_subset_outcome(request));
+    let executed = match specialized {
         Some(outcome_result) => Executed {
             matrix: None,
             ladder: LadderResult {
@@ -163,6 +168,7 @@ fn decide_blocking(
         },
         &executed,
         nl,
+        task_plan,
     )?;
     telemetry::decided(&record, candidates.views.len(), started);
     let records = BoundedVec::new(vec![record])
@@ -208,6 +214,9 @@ fn feature_matrix(
 }
 
 fn exploration(sealing: &Sealing, executed: &Executed) -> Option<ExplorationRecord> {
+    if sealing.request.question.kind == eg_types::decision::QuestionKind::TaskPlan {
+        return None; // Explicit DAG planning never makes an exploration draw.
+    }
     let eg_types::decision::ColdStart::Explore { budget } = &sealing.policy.policy.cold_start
     else {
         return None;
@@ -376,6 +385,7 @@ fn seal(
     sealing: Sealing,
     executed: &Executed,
     nl: Option<NlBinding>,
+    task_plan: Option<eg_types::decision::task_plan::TaskPlan>,
 ) -> Result<StatisticalDecisionRecord, String> {
     let inputs = StatisticalInputs {
         harness_evaluation: None,
@@ -398,7 +408,10 @@ fn seal(
         STATISTICAL_INPUTS_DOMAIN,
         &(&sealing.request.question, &inputs),
     );
-    let premise_list = premises(&sealing, nl.as_ref());
+    let mut premise_list = premises(&sealing, nl.as_ref());
+    if let Some(plan) = &task_plan {
+        premise_list.extend(super::stat_task_plan::premises(plan));
+    }
     let outcome = executed.ladder.outcome.clone();
     let synthetic = sealing
         .pinned
@@ -415,12 +428,17 @@ fn seal(
         candidate_source: sealing.candidates.record.clone(),
         inputs,
         inputs_digest,
-        resolution_kind: resolution(&outcome),
+        resolution_kind: if task_plan.is_some() {
+            ResolutionKind::Constraint
+        } else {
+            resolution(&outcome)
+        },
         evidence_class: evidence_class(&premise_list, &outcome),
         trace_fidelity: TraceFidelity::FullStep,
         premises: BoundedVec::new(premise_list)
             .map_err(|detail| refusal(StatisticalErrorCode::ParameterInvalid, detail))?,
         outcome,
+        task_plan,
         calibration: executed.ladder.calibration,
         explanation: recorded_explanation(sealing.pinned, executed)?,
         audit: executed.ladder.audit,

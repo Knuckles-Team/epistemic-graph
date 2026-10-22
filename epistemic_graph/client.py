@@ -3732,6 +3732,8 @@ class WorkItemClient:
             )
         if value["work_item_id"] is not None:
             _string("SubmitWorkItem.work_item_id", value["work_item_id"])
+        if value.get("run_id") is not None:
+            _string("SubmitWorkItem.run_id", value["run_id"])
 
     @staticmethod
     def _submit_scheduling(value: dict[str, Any]) -> None:
@@ -3777,8 +3779,11 @@ class WorkItemClient:
         outbox. A replay returns the original explicit result; reusing a key
         with a different command digest is an error.
         """
-        value = _exact_mapping(
-            "SubmitWorkItem request", request, _SUBMIT_WORK_ITEM_REQUEST_FIELDS
+        value = _closed_mapping(
+            "SubmitWorkItem request",
+            request,
+            _SUBMIT_WORK_ITEM_REQUEST_FIELDS,
+            frozenset({"run_id"}),
         )
         if value["schema_version"] != "1":
             raise ValueError("SubmitWorkItem schema_version must be 1")
