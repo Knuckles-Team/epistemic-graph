@@ -95,9 +95,17 @@ pub(crate) mod worker {
         state: &Arc<RwLock<ServerState>>,
         subscribed: &AtomicBool,
     ) -> Result<bool, String> {
-        let tenant = crate::server::auth::request_context_policy()?
-            .expected_tenant
-            .clone();
+        let tenant = if state.read().await.local_anonymous {
+            // Deployment authority owns the namespace; no signer/OIDC policy
+            // exists (or is consulted) for an isolated anonymous store.
+            VerifiedRequestContext::anonymous_local(None)
+                .tenant()
+                .to_string()
+        } else {
+            crate::server::auth::request_context_policy()?
+                .expected_tenant
+                .clone()
+        };
         let store = state.write().await.ensure_agent_library()?;
         if !subscribed.load(Ordering::Acquire) {
             let (store, tenant) = (Arc::clone(&store), tenant.clone());
@@ -230,9 +238,16 @@ pub(crate) mod worker {
         if head.visible_record_id.as_deref() == Some(head.record_id.as_str()) {
             return Ok(());
         }
-        grant_projection_access(state, tenant, record).await?;
+        let anonymous = state.read().await.local_anonymous;
+        if !anonymous {
+            grant_projection_access(state, tenant, record).await?;
+        }
         let plan = store.prepare_connector_pack_projection(tenant, &record.connector)?;
-        let verified = service_context(&plan.record_id)?;
+        let verified = if anonymous {
+            VerifiedRequestContext::anonymous_local(Some(format!("{CONSUMER}:{}", plan.record_id)))
+        } else {
+            service_context(&plan.record_id)?
+        };
         let context = crate::server::handlers::admin::bind_agent_library_context(
             store,
             0,

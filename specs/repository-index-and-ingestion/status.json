@@ -35,6 +35,7 @@
     "EG-REPO-INGEST-R006.4",
     "EG-REPO-INGEST-R002.100",
     "EG-REPO-INGEST-R002.101",
+    "EG-REPO-INGEST-R002.102",
     "EG-REPO-INGEST-R600",
     "EG-REPO-INGEST-R600.1",
     "EG-REPO-INGEST-R600.2",
@@ -129,6 +130,7 @@
         "EG-REPO-INGEST-R002.1",
         "EG-REPO-INGEST-R002.100",
         "EG-REPO-INGEST-R002.101",
+        "EG-REPO-INGEST-R002.102",
         "EG-REPO-INGEST-R002.650",
         "EG-REPO-INGEST-R002.651",
         "EG-REPO-INGEST-R002.652",
@@ -438,6 +440,17 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
+    },
+    {
+      "id": "EG-REPO-INGEST-R002.102",
+      "title": "Successive batches to one stream chain one content version",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "5e27eab394f3"
+      ],
+      "verified_by": [
+        "src/server/handlers/admin/connector_pack/tests/scale.rs:145"
+      ]
     },
     {
       "id": "EG-REPO-INGEST-R600",

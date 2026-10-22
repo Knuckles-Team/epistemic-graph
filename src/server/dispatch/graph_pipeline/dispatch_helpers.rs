@@ -395,6 +395,7 @@ async fn commit_served_modality(
         .expect("ServedModality must be registered in the mutation gateway");
     let plan = crate::server::mutation::MutationPlan::for_method(&method);
     let mutation_ctx = crate::server::mutation::MutationCtx {
+        anonymous: !verified_context.is_authenticated(),
         req_id,
         caller,
         attempt_nonce: verified_context.attempt_nonce(),

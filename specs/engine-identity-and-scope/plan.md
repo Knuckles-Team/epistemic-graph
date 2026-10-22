@@ -4,7 +4,7 @@
 2. Add typed full-replacement identity mutation in the ControlRedb write transaction. Couple the identity audit record and chain head to that transaction; add `AuditVerify` and bounded denial storage. Route existing `RegisterIdentity` and `RbacAdmin` through the same mutation path.
 3. Add the durable mode singleton and epoch CAS. Implement the precondition table, verified gateway attestation and nonce, session-epoch invalidation, revocation/rotation receipt and restart recovery. Keep account/link/grant/data records intact.
 4. Classify scopes in capability declarations, generate the registry and package digest, then update server grant evaluation to use the generated classification. Add consumer contract tests using only the public wheel catalog.
-5. Run focused and full checks in [test-spec.md](test-spec.md), review exact source and generated-artifact diffs, and record a merged-head SHA plus hosted results in [tasks.md](tasks.md). Keep spec acceptance pending until consumer and release proof exists.
+5. Run focused and full checks in [test-spec.md](test-spec.md). Review exact source and generated-artifact diffs. Record a merged-head SHA plus hosted results in [tasks.md](tasks.md). Keep spec acceptance pending until consumer and release proof exists.
 
 The first implementation slice should land issuer verification with negative tests, then transactional RBAC audit, then mode transitions, then registry. Each slice has a compatibility and rollback receipt. Do not enable a partially generated scope table or silently reinterpret an existing role set.
 
@@ -27,7 +27,7 @@ Parse bounded JWT header and claims without trusting them. Resolve exact issuer 
 
 ### Control transaction and audit
 
-`IdentityAdmin` loads current full role set and mode/epoch under a write transaction, checks principal and scope, computes a replacement set, writes identity state plus audit record, then commits. No response succeeds until durable commit. Denial records are bounded and rate-controlled; refusal paths contain no raw token, password, JWKS URL with credentials or role-target secrets. The identity audit chain has sequence, previous hash, record hash and canonical payload digest. A verification oracle reads from genesis to head and reports missing, reordered or altered records. Recovery after crash reads the last committed role/mode/audit head; it never infers a successful transition from a partially written external session-revocation task.
+`IdentityAdmin` loads the current full role set and mode/epoch under a write transaction. It checks principal and scope, then computes a replacement set. It writes identity state and the audit record, then commits. No response succeeds until durable commit. Denial records are bounded and rate-controlled. Refusals contain no raw tokens, passwords, credential-bearing JWKS URLs or role-target secrets. The identity audit chain has sequence, previous hash, record hash and canonical payload digest. A verification oracle reads from genesis to head and reports missing, reordered or altered records. Recovery after crash reads the last committed role/mode/audit head; it never infers a successful transition from a partially written external session-revocation task.
 
 ### Mode state machine
 
@@ -214,3 +214,15 @@ Budget: p50 under 2 ms and p99 under 10 ms per operation on a 1,000,000-node gra
 
 References
 - No paper is cited.
+
+## Amendments: 2026-10-22
+
+EG-IDENTITY-R003.1 adds an explicit, isolated anonymous durable-store authority for Arbora's local no-auth admission. Arbora owns public admission and mode selection; EG owns the fixed anonymous provenance record, store separation, client/native protocol projection and existing ACL/mutation machinery. Default verified-envelope/OIDC behavior remains unchanged. This narrow opt-in supersedes earlier unconditional no-development-escape wording only for fresh anonymous-marked local stores. No deployment, credential or mode migration is authorized.
+
+Unsigned replay metadata uses `anon1.` plus a strict JSON object containing only a 1..256-byte UTF-8 `idempotency_key` in the legacy envelope slot named `auth_token`. It is not a credential and carries no identity, MAC or signature. Only explicit anonymous mode accepts it. Durable request provenance uses authentication_method `none`; verified modes reject that provenance.
+
+The native local boundary supports explicit `--tcp-only --tcp-addr 127.0.0.1:PORT` for hosts without Unix-socket support. It never silently retries a denied bind; omitted `--tcp-only` retains the existing UDS plus optional TCP behavior. Anonymous mode still rejects hostname/wildcard/nonloopback addresses.
+
+Native scheduled consumers derive the same server-owned anonymous origin and fixed tenant before subscribing, claiming or projecting work. They never read authenticated signer policy in explicit anonymous mode. Served coverage in `tests/test_native_no_auth_served.py` imports a real connector pack and requires its committed head to become visible in a nonempty projected graph-schema source, in addition to checking background health. The optional AST repository enrichment branch has mode-aware source coverage but is not included in the scoped local runtime receipt.
+
+R003.1 call path: `src/main.rs` CLI mode selection -> `src/server_startup.rs::validate_auth_mode` and store-marker check under the existing persistence lock -> `ServerState.local_anonymous` -> `src/server/anonymous.rs::request_authority` -> the existing dispatch, ACL and mutation gateways. `AuthorityOrigin::AnonymousLocal` is a server-owned discriminator, never wire data. Storage stays in the existing redb/transaction paths; only an isolated store marker is added. Per-request metadata is bounded to 2 KiB, with a 256-byte correlation key; no per-principal unbounded cache is added. Transient replay keys include the method-body digest, while durable replay/conflict semantics remain in the existing kernel. Startup sets the mode once before listener/background tasks; request admission reads it without a new global lock. R003.2 owns measurement rather than inferring a latency budget from the functional fixture.

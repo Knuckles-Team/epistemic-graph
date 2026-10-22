@@ -385,6 +385,7 @@ where
 type BoxedApplyFn = Box<dyn FnOnce(&GraphCore) -> Result<ResultPayload, String> + Send>;
 
 struct OwnedMutationCtx {
+    anonymous: bool,
     req_id: u64,
     caller: Option<String>,
     attempt_nonce: Option<eg_types::contract::Nonce>,
@@ -405,6 +406,7 @@ struct OwnedMutationCtx {
 impl OwnedMutationCtx {
     fn from_context(ctx: &MutationCtx<'_>) -> Self {
         Self {
+            anonymous: ctx.anonymous,
             req_id: ctx.req_id,
             caller: ctx.caller.map(str::to_owned),
             attempt_nonce: ctx.attempt_nonce,
@@ -424,6 +426,7 @@ impl OwnedMutationCtx {
 
     fn borrow(&self) -> MutationCtx<'_> {
         MutationCtx {
+            anonymous: self.anonymous,
             req_id: self.req_id,
             caller: self.caller.as_deref(),
             attempt_nonce: self.attempt_nonce,

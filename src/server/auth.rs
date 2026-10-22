@@ -5,8 +5,9 @@
 //! Audience, tenant, and policy version must match deployment configuration;
 //! mutation nonces are carried into the durable MutationBatch replay ledger,
 //! while read-only nonces are accepted by the transport replay ledger before
-//! dispatch. Unknown envelope formats fail closed. This workspace intentionally has no downgraded protocol,
-//! environment alias, or development authentication escape.
+//! dispatch. Unknown envelope formats fail closed in authenticated mode.
+//! EG-IDENTITY-R003.1 separately permits explicit anonymous authority only for
+//! an isolated local anonymous store; it never passes through this verifier.
 //!
 //!    Transport TLS/mTLS are a separate layer: this module is the
 //!    request-envelope crypto core, while the served TCP boundary enforces its

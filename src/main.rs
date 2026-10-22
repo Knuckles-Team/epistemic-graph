@@ -70,6 +70,10 @@ struct Args {
     #[arg(long, default_value = "0600", env = "GRAPH_SERVICE_SOCKET_MODE")]
     socket_mode: String,
 
+    /// Serve only native TCP instead of also binding a Unix socket.
+    #[arg(long, env = "GRAPH_SERVICE_TCP_ONLY", requires = "tcp_addr")]
+    tcp_only: bool,
+
     /// Optional TCP address (e.g., 0.0.0.0:9100). If set, TCP listener is started.
     #[arg(long, env = "GRAPH_SERVICE_TCP_ADDR")]
     tcp_addr: Option<String>,
@@ -85,6 +89,10 @@ struct Args {
     /// Optional PEM CA bundle for required client-certificate authentication.
     #[arg(long, env = "GRAPH_SERVICE_TLS_CLIENT_CA")]
     tcp_tls_client_ca: Option<String>,
+
+    /// Explicit isolated local anonymous mode. Defaults to authenticated.
+    #[arg(long, env = "GRAPH_SERVICE_AUTH_MODE", default_value = "authenticated", value_parser = ["authenticated", "none"])]
+    auth_mode: String,
 
     /// HMAC-SHA256 shared secret for authentication.
     #[arg(long, env = "GRAPH_SERVICE_AUTH_SECRET", default_value = "")]
@@ -438,7 +446,7 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
     let socket_mode = server_startup::socket_mode_or_exit(&args.socket_mode);
 
     // ── Security gate: an auth secret and a durable-state directory are mandatory ──
-    server_startup::require_secret_and_persist_dir(&args.auth_secret, args.persist_dir.as_deref());
+    server_startup::validate_auth_mode(&args, socket_mode)?;
     let tcp_tls = server_startup::prepare_tcp_tls(&args).await?;
 
     // ── Hardware capacity auto-detection (CONCEPT:AU-KG.backend.b-auto-size) ─────────────────
@@ -468,6 +476,10 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
     // authoritative rows (the engine-level complement to the Python spawn guard). Kept in
     // `_persist_lock` until run() returns; the kernel releases it on exit/crash.
     let _persist_lock = server_startup::acquire_persist_lock(args.persist_dir.as_deref());
+    server_startup::prepare_auth_store(
+        &args.auth_mode,
+        args.persist_dir.as_deref().expect("persist dir required"),
+    )?;
 
     #[cfg(feature = "ann-redb")]
     server::install_rf019_activation(
@@ -487,25 +499,31 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
     // open failure is fatal at boot (loud + early).
     let stores = server_startup::open_durable_stores(args.persist_dir.as_deref(), &host_capacity);
     let persistence_shutdown = stores.persistence.clone();
-    let isolation =
-        server_startup::open_isolation_layer(&args.auth_secret, args.persist_dir.as_deref());
+    let isolation = server_startup::open_isolation_layer(
+        &args.auth_secret,
+        args.persist_dir.as_deref(),
+        args.auth_mode == "none",
+    );
 
     // Keep resolution side-effect-free: transport and complete verified-context
     // validation must succeed before startup creates the Windows LOCALAPPDATA
     // anchor directory. The sole directory effect is awaited off-reactor before
     // state construction or any listener can open.
     #[cfg(windows)]
-    prepare_socket_directory(socket_parent).await?;
+    if !args.tcp_only {
+        prepare_socket_directory(socket_parent).await?;
+    }
     #[cfg(not(windows))]
     debug_assert!(socket_parent.is_none());
 
-    let server_state = server_startup::compose_server_state(
+    let mut server_state = server_startup::compose_server_state(
         ServerState::new(std::mem::take(&mut args.auth_secret), isolation),
         args.persist_dir.take(),
         stores,
         &limits,
         txn_limits,
     );
+    server_state.local_anonymous = args.auth_mode == "none";
     let state = Arc::new(RwLock::new(server_state));
 
     // Compose the ordinary process as a real local-placement server before any
@@ -541,6 +559,7 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
 
     // ── Transport ───────────────────────────────────────────────────────
     let transports = server_startup::Transports {
+        tcp_only: args.tcp_only,
         socket_path,
         socket_mode,
         tcp_addr: args.tcp_addr.take(),

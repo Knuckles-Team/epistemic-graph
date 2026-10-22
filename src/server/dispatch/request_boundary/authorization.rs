@@ -35,7 +35,10 @@ fn validate_submit_context(
         context,
         verified_context,
     ) {
-        return Err("SubmitWorkItem context does not match verified request authority".to_string());
+        return Err(
+            "ACCESS_DENIED: SubmitWorkItem context does not match verified request authority"
+                .to_string(),
+        );
     }
     if !submit_context_within_carrier_bounds(context, verified_context) {
         return Err("SubmitWorkItem context violates the verified carrier bounds".to_string());

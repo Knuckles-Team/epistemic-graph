@@ -97,7 +97,11 @@ pub(super) fn detect_capacity_and_log_startup(
     tcp_tls: bool,
 ) -> epistemic_graph::autosize::Capacity {
     info!("Starting epistemic-graph-server");
-    info!("  UDS: private local socket configured");
+    if args.tcp_only {
+        info!("  Native TCP-only transport configured");
+    } else {
+        info!("  UDS: private local socket configured");
+    }
     let capacity = epistemic_graph::autosize::detect_capacity();
     info!(
         "  Capacity: {} cpu(s), {} MiB RAM, tier {:?} (auto-sizing inflight/writer/node-cap defaults)",
@@ -468,6 +472,7 @@ pub(super) fn compose_server_state(
 pub(super) fn open_isolation_layer(
     auth_secret: &str,
     persist_dir: Option<&str>,
+    anonymous: bool,
 ) -> epistemic_graph::isolation::IsolationLayer {
     info!("RLS default-deny ACTIVE: rows require explicit public visibility or an owner grant");
     let Some(dir) = persist_dir else {
@@ -477,7 +482,7 @@ pub(super) fn open_isolation_layer(
         );
     };
     let authority = epistemic_graph::store_authority::process_authority();
-    let isolation = epistemic_graph::isolation::IsolationLayer::with_persist_dir(
+    let mut isolation = epistemic_graph::isolation::IsolationLayer::with_persist_dir(
         dir,
         authority.as_ref(),
         authority.principal(),
@@ -489,6 +494,18 @@ pub(super) fn open_isolation_layer(
             1,
         )
     });
+    if anonymous {
+        isolation
+            .try_register_agent(epistemic_graph::acl::AgentIdentity {
+                agent_id: "anonymous".into(),
+                role: epistemic_graph::acl::AgentRole::System,
+                teams: Vec::new(),
+                roles: Vec::new(),
+            })
+            .unwrap_or_else(|error| exit_with(error, 1));
+        info!("Explicit anonymous local-owner authority ACTIVE; no authentication credentials accepted");
+        return isolation;
+    }
     if let Err(error) = server::validate_verified_request_context_startup(auth_secret, persist_dir)
     {
         exit_with(
@@ -571,6 +588,7 @@ pub(super) fn spawn_idle_shutdown_watcher(
 
 /// Where and how the engine listens.
 pub(super) struct Transports {
+    pub(super) tcp_only: bool,
     pub(super) socket_path: String,
     pub(super) socket_mode: u32,
     pub(super) tcp_addr: Option<String>,
@@ -585,6 +603,13 @@ pub(super) async fn serve_transports(
     state: &SharedState,
     shutdown: &Arc<server::ShutdownCoordinator>,
 ) -> Result<(), BoxError> {
+    if transports.tcp_only {
+        let addr = transports
+            .tcp_addr
+            .ok_or("TCP-only mode requires --tcp-addr")?;
+        server::serve_tcp(&addr, state.clone(), shutdown.clone(), transports.tcp_tls).await?;
+        return Ok(());
+    }
     if let Some(addr) = transports.tcp_addr {
         let tcp_state = state.clone();
         let tcp_shutdown = shutdown.clone();
@@ -614,7 +639,11 @@ pub(super) async fn serve_transports(
     state: &SharedState,
     shutdown: &Arc<server::ShutdownCoordinator>,
 ) -> Result<(), BoxError> {
-    let _ = (&transports.socket_path, transports.socket_mode);
+    let _ = (
+        &transports.socket_path,
+        transports.socket_mode,
+        transports.tcp_only,
+    );
     let addr = transports
         .tcp_addr
         .unwrap_or_else(|| "127.0.0.1:8765".to_string());
@@ -740,5 +769,169 @@ pub(super) async fn txn_ttl_tick(state: SharedState, ttl: u64) {
             "Txn TTL sweep: rolled back {} idle transaction(s)",
             reclaimed
         );
+    }
+}
+
+/// Narrow opt-in consumed from Arbora's local admission mode (EG-IDENTITY-R003.1).
+/// Never infer anonymous authority from an absent secret.
+pub(super) fn validate_auth_mode(args: &super::Args, socket_mode: u32) -> Result<(), BoxError> {
+    if args.auth_mode != "none" {
+        require_secret_and_persist_dir(&args.auth_secret, args.persist_dir.as_deref());
+        return Ok(());
+    }
+    if !args.auth_secret.is_empty() || args.persist_dir.is_none() {
+        return Err(
+            "anonymous mode requires a durable directory and forbids an auth secret".into(),
+        );
+    }
+    if socket_mode != 0o600
+        || args.tcp_addr.as_deref().is_some_and(|addr| {
+            !addr
+                .parse::<std::net::SocketAddr>()
+                .is_ok_and(|address| address.ip().is_loopback())
+        })
+    {
+        return Err("anonymous mode requires owner-only UDS and literal loopback TCP".into());
+    }
+    if [
+        args.metrics_addr.as_ref(),
+        args.sparql_addr.as_ref(),
+        args.policy_export_addr.as_ref(),
+        args.graphql_addr.as_ref(),
+        args.obs_addr.as_ref(),
+        args.viz_interactive_addr.as_ref(),
+        args.iceberg_addr.as_ref(),
+        args.federated_addr.as_ref(),
+        args.tcp_tls_cert.as_ref(),
+        args.tcp_tls_key.as_ref(),
+        args.tcp_tls_client_ca.as_ref(),
+    ]
+    .into_iter()
+    .any(|value| value.is_some())
+    {
+        return Err(
+            "anonymous mode forbids auxiliary listeners and TLS identity configuration".into(),
+        );
+    }
+    for (name, value) in std::env::vars() {
+        if anonymous_env_conflicts(&name, &value) {
+            return Err(format!("anonymous mode conflicts with {name}").into());
+        }
+    }
+    Ok(())
+}
+
+fn anonymous_env_conflicts(name: &str, value: &str) -> bool {
+    !value.is_empty()
+        && ((name.starts_with("EPISTEMIC_GRAPH_")
+            && (name.ends_with("_ADDR")
+                || name.contains("RAFT_")
+                || name.contains("FEDERATION_")
+                || name.contains("OIDC_")
+                || name.contains("SIGNER")))
+            || name.starts_with("OIDC_"))
+}
+
+/// Called while holding the existing engine.lock and before opening any stores.
+/// A mode marker is not an authentication credential. It prevents accidental
+/// reuse of protected data under anonymous authority. No implicit conversions.
+pub(super) fn prepare_auth_store(mode: &str, dir: &str) -> Result<(), BoxError> {
+    use std::io::Write;
+    let root = std::path::Path::new(dir);
+    let marker = root.join("anonymous-store-v1");
+    match std::fs::symlink_metadata(&marker) {
+        Ok(meta) => {
+            if mode != "none"
+                || !meta.file_type().is_file()
+                || std::fs::read(&marker)? != b"epistemic-graph anonymous local store v1\n"
+            {
+                return Err(
+                    "store authentication mode conflict or invalid anonymous marker".into(),
+                );
+            }
+            return Ok(());
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(e.into()),
+    }
+    if mode != "none" {
+        return Ok(());
+    }
+    for entry in std::fs::read_dir(root)? {
+        if entry?.file_name() != "engine.lock" {
+            return Err(
+                "anonymous mode refuses an existing unmarked store; select a fresh directory"
+                    .into(),
+            );
+        }
+    }
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&marker)?;
+    file.write_all(b"epistemic-graph anonymous local store v1\n")?;
+    file.sync_all()?;
+    std::fs::File::open(root)?.sync_all()?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod anonymous_store_tests {
+    use super::{anonymous_env_conflicts, prepare_auth_store};
+
+    #[test]
+    fn anonymous_environment_conflicts_preserve_exact_prefix_and_value_rules() {
+        for (name, conflicts) in [
+            ("EPISTEMIC_GRAPH_PGWIRE_ADDR", true),
+            ("EPISTEMIC_GRAPH_RAFT_NODE_ID", true),
+            ("EPISTEMIC_GRAPH_FEDERATION_TOKEN", true),
+            ("EPISTEMIC_GRAPH_OIDC_ISSUER", true),
+            ("EPISTEMIC_GRAPH_SIGNER_KEY", true),
+            ("OIDC_ISSUER", true),
+            ("EPISTEMIC_GRAPH_OTHER", false),
+            ("OTHER_RAFT_NODE_ID", false),
+            ("OTHER_ADDR", false),
+            ("GRAPH_SERVICE_AUTH_SECRET", false),
+        ] {
+            assert_eq!(anonymous_env_conflicts(name, "value"), conflicts, "{name}");
+            assert_eq!(anonymous_env_conflicts(name, " "), conflicts, "{name}");
+            assert!(!anonymous_env_conflicts(name, ""), "{name}");
+        }
+    }
+
+    #[test]
+    fn anonymous_store_mode_is_explicit_and_restart_stable() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_str().unwrap();
+        prepare_auth_store("none", root).unwrap();
+        std::fs::write(dir.path().join("real-engine-state"), b"data").unwrap();
+        prepare_auth_store("none", root).unwrap();
+        assert!(prepare_auth_store("authenticated", root).is_err());
+    }
+
+    #[test]
+    fn anonymous_refuses_preexisting_unmarked_state() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("protected-data"), b"private").unwrap();
+        assert!(prepare_auth_store("none", dir.path().to_str().unwrap()).is_err());
+        assert!(!dir.path().join("anonymous-store-v1").exists());
+        prepare_auth_store("authenticated", dir.path().to_str().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn anonymous_refuses_invalid_marker() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("anonymous-store-v1"), b"wrong").unwrap();
+        assert!(prepare_auth_store("none", dir.path().to_str().unwrap()).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn anonymous_refuses_symlink_marker() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("target");
+        std::fs::write(&target, b"epistemic-graph anonymous local store v1\n").unwrap();
+        std::os::unix::fs::symlink(&target, dir.path().join("anonymous-store-v1")).unwrap();
+        assert!(prepare_auth_store("none", dir.path().to_str().unwrap()).is_err());
     }
 }

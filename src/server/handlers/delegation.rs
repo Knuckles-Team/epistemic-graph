@@ -74,7 +74,11 @@ pub(crate) fn context_matches_verified_authority(
     context: &RequestContext,
     verified_context: &VerifiedRequestContext,
 ) -> bool {
-    context.tenant_id == verified_context.tenant()
+    let anonymous = context.authentication_method
+        == crate::epistemic_operations::RequestContextAuthenticationMethod::Anonymous;
+    anonymous != verified_context.is_authenticated()
+        && (!anonymous || context.subject_id == verified_context.principal())
+        && context.tenant_id == verified_context.tenant()
         && context.agent_id == verified_context.agent_id()
         && context.audience == verified_context.claims().audience
         && context.policy_version == verified_context.claims().policy_version
@@ -232,6 +236,35 @@ mod tests {
             "tenant:1",
             &["work:delegate"],
         )
+    }
+
+    #[test]
+    fn embedded_provenance_matches_only_its_authority_origin() {
+        let anonymous = VerifiedRequestContext::anonymous_local(None);
+        let mut wire = context("local");
+        wire.subject_id = anonymous.principal().to_string();
+        wire.agent_id = anonymous.agent_id().to_string();
+        wire.audience = anonymous.claims().audience.clone();
+        wire.policy_version = anonymous.claims().policy_version.clone();
+        wire.authentication_method = RequestContextAuthenticationMethod::Anonymous;
+        assert!(context_matches_verified_authority(&wire, &anonymous));
+        let verified =
+            VerifiedRequestContext::verified_for_test_with_scopes("anonymous", "local", &["*"]);
+        wire.audience = verified.claims().audience.clone();
+        wire.policy_version = verified.claims().policy_version.clone();
+        assert!(!context_matches_verified_authority(&wire, &verified));
+        wire.audience = anonymous.claims().audience.clone();
+        wire.policy_version = anonymous.claims().policy_version.clone();
+        for method in [
+            RequestContextAuthenticationMethod::Oidc,
+            RequestContextAuthenticationMethod::LocalProcess,
+        ] {
+            wire.authentication_method = method;
+            assert!(!context_matches_verified_authority(&wire, &anonymous));
+        }
+        wire.authentication_method = RequestContextAuthenticationMethod::Anonymous;
+        wire.subject_id = "forged-principal".into();
+        assert!(!context_matches_verified_authority(&wire, &anonymous));
     }
 
     #[test]
