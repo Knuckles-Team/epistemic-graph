@@ -2770,6 +2770,7 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "4e402b2ec8bf",
+        "862a58cfbf6c",
         "dc810128a66d"
       ],
       "verified_by": [
@@ -2786,6 +2787,7 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "0305cbd4457e",
+        "862a58cfbf6c",
         "912a39a98afe"
       ],
       "verified_by": [
