@@ -10,7 +10,7 @@ The asset-class comment migration replaces one triple without a net increase.
 The shipped ontology and its admission policy do not change in this repair.
 
 The native facade run on 43423bcd reported 13,751 composed triples. An independent
-RDFLib parse of all 36 registered documents confirms that total. It also confirms
+An RDF parser run over all 36 registered documents confirms that total. It also confirms
 13,565 semantic axioms, 462 named subclass links, and unchanged header/import/property counts.
 This cross-parser check is supporting evidence; the changed native census test
 still requires execution. It does not establish the remaining served finance work.

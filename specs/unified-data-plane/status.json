@@ -1748,7 +1748,7 @@
     },
     {
       "id": "EG-UNIFIED-DATA-PLANE-R028.2",
-      "title": "Run the Postgres regression suite and SQLancer-style generated corpora against EG",
+      "title": "Run the Postgres regression suite and generated metamorphic query corpora against EG",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "e8b99c7db914"
