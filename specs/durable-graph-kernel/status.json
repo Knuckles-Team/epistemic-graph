@@ -1149,7 +1149,7 @@
     {
       "id": "EG-DURABLE-KERNEL-R031",
       "title": "Audit append supports tenant-scoped idempotent reservation",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "1ef84395fa69",
         "2cc878fb8938",
@@ -1167,8 +1167,10 @@
     {
       "id": "EG-DURABLE-KERNEL-R031.1",
       "title": "The audit append accounts the serving write version",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "92f13033b00a"
+      ],
       "verified_by": [
         "src/server/dispatch/graph_pipeline/dispatch_helpers.rs:686"
       ]
