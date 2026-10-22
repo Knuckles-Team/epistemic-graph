@@ -840,3 +840,11 @@ execution and storage-fixture qualification must be reported separately.
 EG-DURABLE-KERNEL-R028.4.1 retains the original typed SubmitWorkItemRequest beside immutable run ownership. GetRunWorkItem reuses that owner check and the native snapshot reader. It never reconstructs evidence from mutable metadata or returns lease authority. Arbora owns logical retry equivalence and uses this historical evidence without resubmitting an altered historical context. The native mutation ledger remains unchanged. Functional tests do not establish the pending EG-DURABLE-KERNEL-R028.4.2 10-ms performance target.
 
 The owner-only guarantee belongs to GetRunWorkItem, not to every graph reader. Generic property reads retain existing graph ACL and row-visibility rules. They may expose this historical row property to broader authorized graph readers. GetWorkItem and ListWorkItems retain their existing caller-safe projection and do not expose the admission snapshot. No credential or lease-secret fields are added.
+
+## Agent-memory substrate: KV-cache tiers, benchmarks and wire listeners (R083.5–R083.8, R042.2–R042.6, R860)
+
+The KV-cache tier ladder reuses `crates/eg-kvcache`. `tiered.rs` holds the hot, warm and cold tiers. `cold.rs` holds the durable redb cold store. `graph_importance.rs` holds the centrality scores. The inference connector in `epistemic_graph/kvcache/connector.py` moves blocks between accelerator memory and the engine. R083.5 to R083.8 bind this code to tests; graph-neighbor prefetch is new code.
+
+The benchmark rows R042.2 to R042.6 publish each result as the `BenchmarkClaim` of R042.1. Each target is a starting default. A measurement on this platform replaces it.
+
+The four wire listeners already start in `src/main.rs`. R860 binds them to one admission path and to round-trip tests. R035 keeps the PostgreSQL operational parity work.

@@ -163,24 +163,27 @@ pub fn query_opensearch(
     let body = build_search_body(query_dsl)?;
     let endpoint = format!("{base}/{index}/_search");
 
-    let agent = ureq::AgentBuilder::new()
-        .timeout_connect(Duration::from_secs(super::CONNECT_TIMEOUT_SECS))
-        .timeout_read(Duration::from_secs(super::READ_TIMEOUT_SECS))
-        .build();
+    let agent = crate::server::outbound_http_config()
+        .timeout_connect(Some(Duration::from_secs(super::CONNECT_TIMEOUT_SECS)))
+        .timeout_recv_response(Some(Duration::from_secs(super::READ_TIMEOUT_SECS)))
+        .timeout_recv_body(Some(Duration::from_secs(super::READ_TIMEOUT_SECS)))
+        .build()
+        .new_agent();
     let mut req = agent
         .post(&endpoint)
-        .set("Content-Type", "application/json")
-        .set("Accept", "application/json");
+        .header("Content-Type", "application/json")
+        .header("Accept", "application/json");
     if let Some(tok) = bearer {
         if !tok.trim().is_empty() {
-            req = req.set("Authorization", &format!("Bearer {tok}"));
+            req = req.header("Authorization", &format!("Bearer {tok}"));
         }
     }
     let resp = req
-        .send_string(&body)
+        .send(&body)
         .map_err(|e| format!("POST {endpoint} failed: {e}"))?;
     let mut text = String::new();
-    resp.into_reader()
+    resp.into_body()
+        .into_reader()
         .take(super::MAX_RESPONSE_BYTES)
         .read_to_string(&mut text)
         .map_err(|e| format!("reading {endpoint} response: {e}"))?;

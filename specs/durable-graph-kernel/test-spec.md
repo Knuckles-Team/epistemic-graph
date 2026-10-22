@@ -370,3 +370,24 @@ Hot-path proof for `EG-DURABLE-KERNEL-R101`: `tests/scheduler/test_downtime_sche
 - **EG-DURABLE-KERNEL-R028.5.2:** `current_plan_attachment_is_immutable_and_scaffold_updates_preserve_it` checks initial and later attachment. `current_plan_attachment_refusals_preserve_rows` checks conflicting plans, malformed digests, foreign owners, stale fences and expiry. Refusals leave both private snapshot and owner rows unchanged.
 - **EG-DURABLE-KERNEL-R028.5.3:** `publication_attachment_changes_content_not_retry_identity` checks stable identity and changed canonical content. `current_plan_native_publish_read_and_receipt_replay` exercises authenticated attachment, unchanged replay receipts, conflict and exact restart readback. Expired replay returns historical evidence only.
 - **EG-DURABLE-KERNEL-R028.5.4:** Planned benchmark `current_plan_publication_readback` must measure attached-plan latency and transient memory against the parent budgets. No benchmark implementation or measurement receipt is claimed by the functional attachment tests.
+
+## Agent-memory substrate claims (2026-10-22)
+
+| Case | Requirement | Proving test |
+|---|---|---|
+| Tier ladder from accelerator memory to durable storage | `EG-DURABLE-KERNEL-R083.5` | `crates/eg-kvcache/tests/tier_ladder.rs::demote_then_promote_keeps_bytes` |
+| Graph-guided paging policy | `EG-DURABLE-KERNEL-R083.6` | `crates/eg-kvcache/tests/graph_paging.rs::central_blocks_stay_hot_and_neighbors_prefetch` |
+| Long-context coherence across tiers | `EG-DURABLE-KERNEL-R083.7` | `crates/eg-kvcache/tests/long_context.rs::ten_million_token_context_pages_in_coherent` |
+| Tier refusals | `EG-DURABLE-KERNEL-R083.8` | `crates/eg-kvcache/tests/tier_ladder.rs::cold_write_failure_and_digest_mismatch_refuse` |
+| Cross-modal query latency benchmark | `EG-DURABLE-KERNEL-R042.2` | `crates/eg-plan/benches/hybrid_queries.rs` |
+| KV-cache tiering benchmark | `EG-DURABLE-KERNEL-R042.3` | `crates/eg-kvcache/benches/tiering.rs` |
+| Ingest throughput benchmark | `EG-DURABLE-KERNEL-R042.4` | `benches/ingest_throughput.rs` |
+| Wire protocol benchmark | `EG-DURABLE-KERNEL-R042.5` | `benches/wire_protocols.rs` |
+| Benchmark publication and regression gate | `EG-DURABLE-KERNEL-R042.6` | `tests/test_benchmark_receipts.py::test_regression_over_ten_percent_fails` |
+| Served wire protocol listeners (rollup) | `EG-DURABLE-KERNEL-R860` | Rollup: satisfied when the test of every child passes. |
+| PostgreSQL wire listener | `EG-DURABLE-KERNEL-R860.1` | `tests/pgwire_roundtrip.rs` |
+| Bolt listener | `EG-DURABLE-KERNEL-R860.2` | `tests/bolt_roundtrip.rs::run_returns_records` |
+| RESP listener | `EG-DURABLE-KERNEL-R860.3` | `tests/resp_roundtrip.rs::set_get_maps_to_kv_methods` |
+| S3-compatible object API | `EG-DURABLE-KERNEL-R860.4` | `tests/s3_roundtrip.rs::put_get_list_delete` |
+| Listener refusals | `EG-DURABLE-KERNEL-R860.5` | `tests/wire_listeners_one_store.rs::unauthenticated_sessions_refuse` |
+| Hot-path proof: one store behind four protocols | `EG-DURABLE-KERNEL-R860.6` | `tests/wire_listeners_one_store.rs::write_one_protocol_read_all` |

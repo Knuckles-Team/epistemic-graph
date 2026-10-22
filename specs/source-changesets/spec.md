@@ -27,7 +27,7 @@ sync. A rollback returns authority to the mirror.
 ## Requirements
 
 Every requirement ID this spec owns lives in [requirements.md](requirements.md). The IDs
-are `EG-SCM-R001`–`R012`. Architecture and live wiring live in [plan.md](plan.md).
+are `EG-SCM-R001`–`R013`. Architecture and live wiring live in [plan.md](plan.md).
 The test contract lives in [test-spec.md](test-spec.md). Ordered work lives in
 [tasks.md](tasks.md). Machine-readable delivery state lives in [status.json](status.json).
 

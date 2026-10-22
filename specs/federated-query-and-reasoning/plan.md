@@ -907,3 +907,35 @@ Correctness: a candidate is kept only when its result multiset equals the baseli
 ## Web Document citations (R653.7)
 
 A web Document answers through the same hybrid retrieval as every other Document. `fuse_rrf` (`crates/eg-plan/src/exec.rs:848`) fuses the vector, graph and keyword branches. The citation reads the `WebDocumentProvenance` of `EG-UNIFIED-DATA-PLANE-R651.7.1`. No second retriever exists for web content.
+
+
+## Context engine completion (R703 to R705)
+
+The agent context engine is the retrieval path that ends in `ContextCompile` (R650). The table
+maps each context-engine capability to its owning row.
+
+| Capability | Owning rows |
+|---|---|
+| Connector-sourced knowledge | SDK-SOURCE-INGEST-R004, R800; EG-INGEST-WORKER-R900, R902 to R904 |
+| Permission-aware retrieval | R078, R008, R040, EG-IDENTITY-R023, R703 |
+| Hybrid lexical and vector search | R008, R035, R039, R040, R650.2 fusion |
+| Query understanding and reranking | R651, R652 |
+| Agent knowledge scope | R028, R704 |
+| Feedback-adjusted rank | R705, EG-DECISION-ENGINE-R100 |
+| Embedding generation switchover | EG-DECISION-ENGINE-R174, R059 |
+| Context assembly under a token budget | R650, R089, R090 |
+| Retrieval quality gates | R655, EG-UNIFIED-DATA-PLANE-R040 |
+
+R703 runs after fusion and before bundle compile in `crates/eg-plan/src/exec.rs`. R704 adds its
+prefilter beside the R078 tenant predicates. R705 adds its boost after score calibration.
+
+## Governance query rows (R706 to R709)
+
+R706 adds tag-based masking and row filters as one plan rewrite for every query language. R707
+adds SPARQL 1.1 Update and Graph Store semantics; arbora serves the protocol endpoint. R708
+adds named stored queries with materialized results. R709 adds the GeoSPARQL function set over
+`crates/eg-geo`.
+
+## One plan and one RowSet algebra (R720, R721)
+
+`crates/eg-plan/src/rowset.rs` defines `RowSet`, the one currency between plan operators. `crates/eg-modality/src/rowset.rs` defines `RowSetShape` for each modality. The UQL grammar already holds the `CONFIDENCE`, `BELIEF AS OF`, `CONTRADICTS` and `EVIDENCE FOR` stages. R720 adds the `DECAY` and `CLUSTER BY EMBEDDING` stages and the epistemic row fields. `CLUSTER BY EMBEDDING` reuses `crates/eg-compute/src/mining/cluster.rs`. R721 binds every modality to the contract, the planner and the redb store registry.

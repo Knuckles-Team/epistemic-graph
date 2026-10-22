@@ -59,7 +59,13 @@
     "EG-CQ-XSRC-R008.3.1",
     "EG-CQ-XSRC-R008.3.2",
     "EG-CQ-XSRC-R008.3.3",
-    "EG-CQ-XSRC-R008.3.4"
+    "EG-CQ-XSRC-R008.3.4",
+    "EG-CQ-XSRC-R009",
+    "EG-CQ-XSRC-R009.1",
+    "EG-CQ-XSRC-R009.2",
+    "EG-CQ-XSRC-R009.3",
+    "EG-CQ-XSRC-R009.4",
+    "EG-CQ-XSRC-R009.5"
   ],
   "requirements": [
     {
@@ -520,6 +526,55 @@
     {
       "id": "EG-CQ-XSRC-R008.3.4",
       "title": "Acceptance: open incidents and changes listed with the service and contract",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-XSRC-R009",
+      "title": "Acceptance: high-confidence agent claims against a new external report (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CQ-XSRC-R009.1",
+        "EG-CQ-XSRC-R009.2",
+        "EG-CQ-XSRC-R009.3",
+        "EG-CQ-XSRC-R009.4",
+        "EG-CQ-XSRC-R009.5"
+      ]
+    },
+    {
+      "id": "EG-CQ-XSRC-R009.1",
+      "title": "Query fixture: claims that touch the report",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-XSRC-R009.2",
+      "title": "Evidence clustering",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-XSRC-R009.3",
+      "title": "Contradiction decay analysis",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-XSRC-R009.4",
+      "title": "Served acceptance through arbora",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-CQ-XSRC-R009.5",
+      "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

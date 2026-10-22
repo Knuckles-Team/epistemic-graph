@@ -784,3 +784,24 @@ Deliver these additive leaves in order; preserve R137.1–.6 and R128 unchanged.
   and cross-owner admission/execution acceptance separate and open.
 
 - [ ] **EG-DECISION-ENGINE-R134.111.6:** Qualify the named maximum-input benchmark; record the profile, hardware and latency/memory results before claiming the performance budget.
+
+- [ ] **EG-DECISION-ENGINE-R804:** Evaluation sets and the program optimizer loop (rollup).
+- [ ] **EG-DECISION-ENGINE-R804.1:** Model.
+- [ ] **EG-DECISION-ENGINE-R804.2:** Behavior.
+- [ ] **EG-DECISION-ENGINE-R804.3:** Wiring.
+- [ ] **EG-DECISION-ENGINE-R804.4:** Refusal.
+- [ ] **EG-DECISION-ENGINE-R804.5:** Evidence.
+- [ ] **EG-DECISION-ENGINE-R804.6:** Hot-path proof.
+- [ ] **EG-DECISION-ENGINE-R805:** Harness promotion and rollback (rollup).
+- [ ] **EG-DECISION-ENGINE-R805.1:** Model.
+- [ ] **EG-DECISION-ENGINE-R805.2:** Behavior.
+- [ ] **EG-DECISION-ENGINE-R805.3:** Wiring.
+- [ ] **EG-DECISION-ENGINE-R805.4:** Refusal.
+- [ ] **EG-DECISION-ENGINE-R805.5:** Evidence.
+- [ ] **EG-DECISION-ENGINE-R805.6:** Hot-path proof.
+
+## Agent-memory substrate claims (2026-10-22)
+
+  - [ ] **EG-DECISION-ENGINE-R651.7:** Episodic-to-semantic promotion.
+  - [ ] **EG-DECISION-ENGINE-R651.8:** Reinforce and decay share one salience update.
+  - [ ] **EG-DECISION-ENGINE-R700.7:** Contradiction records are tracked.

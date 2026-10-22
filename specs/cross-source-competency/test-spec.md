@@ -19,3 +19,14 @@ Equal-rank authority. Authority on an unapproved mapping. Unconnected rank-1 sou
 ## Quality and release proof
 
 Focused `cargo test` for `eg-rdf`, `eg-types` and `eg-core` ontology tests; `pipelines-hook spec-status` and `spec-decomposition`. Live acceptance runs through graph-os and records revision, connected sources and output. A source test alone is not served acceptance.
+
+## Agent-memory substrate claims (2026-10-22)
+
+| Case | Requirement | Proving test |
+|---|---|---|
+| Acceptance: high-confidence agent claims against a new external report (rollup) | `EG-CQ-XSRC-R009` | Rollup: satisfied when the test of every child passes. |
+| Query fixture: claims that touch the report | `EG-CQ-XSRC-R009.1` | `tests/test_cq_xsrc_r009.py::test_fixture_compiles_to_one_plan` |
+| Evidence clustering | `EG-CQ-XSRC-R009.2` | `tests/test_cq_xsrc_r009.py::test_agent_claims_against_report_one_plan` |
+| Contradiction decay analysis | `EG-CQ-XSRC-R009.3` | `tests/test_cq_xsrc_r009.py::test_agent_claims_against_report_one_plan` |
+| Served acceptance through arbora | `EG-CQ-XSRC-R009.4` | `tests/test_cq_xsrc_r009.py::test_agent_claims_against_report_one_plan` |
+| Refusal | `EG-CQ-XSRC-R009.5` | `tests/test_cq_xsrc_r009.py::test_unknown_report_refuses` |
