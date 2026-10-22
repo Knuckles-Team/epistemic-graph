@@ -887,7 +887,10 @@
     "EG-DECISION-ENGINE-R805.3",
     "EG-DECISION-ENGINE-R805.4",
     "EG-DECISION-ENGINE-R805.5",
-    "EG-DECISION-ENGINE-R805.6"
+    "EG-DECISION-ENGINE-R805.6",
+    "EG-DECISION-ENGINE-R651.7",
+    "EG-DECISION-ENGINE-R651.8",
+    "EG-DECISION-ENGINE-R700.7"
   ],
   "requirements": [
     {
@@ -8097,7 +8100,9 @@
         "EG-DECISION-ENGINE-R651.3",
         "EG-DECISION-ENGINE-R651.4",
         "EG-DECISION-ENGINE-R651.5",
-        "EG-DECISION-ENGINE-R651.6"
+        "EG-DECISION-ENGINE-R651.6",
+        "EG-DECISION-ENGINE-R651.7",
+        "EG-DECISION-ENGINE-R651.8"
       ]
     },
     {
@@ -8325,7 +8330,8 @@
         "EG-DECISION-ENGINE-R700.3",
         "EG-DECISION-ENGINE-R700.4",
         "EG-DECISION-ENGINE-R700.5",
-        "EG-DECISION-ENGINE-R700.6"
+        "EG-DECISION-ENGINE-R700.6",
+        "EG-DECISION-ENGINE-R700.7"
       ]
     },
     {
@@ -9154,6 +9160,27 @@
     {
       "id": "EG-DECISION-ENGINE-R805.6",
       "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R651.7",
+      "title": "Episodic-to-semantic promotion",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R651.8",
+      "title": "Reinforce and decay share one salience update",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R700.7",
+      "title": "Contradiction records are tracked",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

@@ -2039,3 +2039,7 @@ R804 binds code that exists today: `crates/eg-program` and the `JobKind::Program
 `src/server/handlers/jobs/submit.rs:419`. R805 composes the promotion compare-and-swap at
 `src/server/mutation_batch/commit/program.rs:64`. Rollback re-promotes the parent revision. A
 model-judge-only test split never drives promotion, per R016.
+
+## Memory consolidation and contradiction tracking (R651.7, R651.8, R700.7)
+
+The served `Consolidate`, `Reinforce` and `DecayMemories` methods exist and route through `src/server/handlers/graph_ops/gateway_graph_routes.rs`. R651.7 adds episodic-to-semantic promotion on that route. R651.8 puts reinforce and decay on one salience function. R700.7 persists each contradiction that the truth-maintenance code in `crates/eg-epistemic/src/tms.rs` detects. UQL `CONTRADICTS` reads the records.

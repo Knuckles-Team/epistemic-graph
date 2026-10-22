@@ -366,3 +366,24 @@ Hot-path proof for `EG-DURABLE-KERNEL-R101`: `tests/scheduler/test_downtime_sche
 - **EG-DURABLE-KERNEL-R028.4:** Native admission tests cover immutable caller attribution, duplicate run refusal, and generic-write refusal. Native execution remains pending.
 
 - **EG-DURABLE-KERNEL-R028.5:** `current_plan_publication_readback`, `current_plan_refusals_preserve_row`, `renewal_does_not_extend_snapshot_and_generic_nodes_carry_no_plan` exercise private storage; `current_plan_native_publish_read_and_receipt_replay` exercises authenticated admission, native claim, ordered publication, foreign-owner refusal, replay and reopen. Native acceptance remains pending.
+
+## Agent-memory substrate claims (2026-10-22)
+
+| Case | Requirement | Proving test |
+|---|---|---|
+| Tier ladder from accelerator memory to durable storage | `EG-DURABLE-KERNEL-R083.5` | `crates/eg-kvcache/tests/tier_ladder.rs::demote_then_promote_keeps_bytes` |
+| Graph-guided paging policy | `EG-DURABLE-KERNEL-R083.6` | `crates/eg-kvcache/tests/graph_paging.rs::central_blocks_stay_hot_and_neighbors_prefetch` |
+| Long-context coherence across tiers | `EG-DURABLE-KERNEL-R083.7` | `crates/eg-kvcache/tests/long_context.rs::ten_million_token_context_pages_in_coherent` |
+| Tier refusals | `EG-DURABLE-KERNEL-R083.8` | `crates/eg-kvcache/tests/tier_ladder.rs::cold_write_failure_and_digest_mismatch_refuse` |
+| Cross-modal query latency benchmark | `EG-DURABLE-KERNEL-R042.2` | `crates/eg-plan/benches/hybrid_queries.rs` |
+| KV-cache tiering benchmark | `EG-DURABLE-KERNEL-R042.3` | `crates/eg-kvcache/benches/tiering.rs` |
+| Ingest throughput benchmark | `EG-DURABLE-KERNEL-R042.4` | `benches/ingest_throughput.rs` |
+| Wire protocol benchmark | `EG-DURABLE-KERNEL-R042.5` | `benches/wire_protocols.rs` |
+| Benchmark publication and regression gate | `EG-DURABLE-KERNEL-R042.6` | `tests/test_benchmark_receipts.py::test_regression_over_ten_percent_fails` |
+| Served wire protocol listeners (rollup) | `EG-DURABLE-KERNEL-R860` | Rollup: satisfied when the test of every child passes. |
+| PostgreSQL wire listener | `EG-DURABLE-KERNEL-R860.1` | `tests/pgwire_roundtrip.rs` |
+| Bolt listener | `EG-DURABLE-KERNEL-R860.2` | `tests/bolt_roundtrip.rs::run_returns_records` |
+| RESP listener | `EG-DURABLE-KERNEL-R860.3` | `tests/resp_roundtrip.rs::set_get_maps_to_kv_methods` |
+| S3-compatible object API | `EG-DURABLE-KERNEL-R860.4` | `tests/s3_roundtrip.rs::put_get_list_delete` |
+| Listener refusals | `EG-DURABLE-KERNEL-R860.5` | `tests/wire_listeners_one_store.rs::unauthenticated_sessions_refuse` |
+| Hot-path proof: one store behind four protocols | `EG-DURABLE-KERNEL-R860.6` | `tests/wire_listeners_one_store.rs::write_one_protocol_read_all` |

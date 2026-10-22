@@ -424,7 +424,19 @@
     "EG-FEDERATED-QUERY-R709.3",
     "EG-FEDERATED-QUERY-R709.4",
     "EG-FEDERATED-QUERY-R709.5",
-    "EG-FEDERATED-QUERY-R709.6"
+    "EG-FEDERATED-QUERY-R709.6",
+    "EG-FEDERATED-QUERY-R720",
+    "EG-FEDERATED-QUERY-R720.1",
+    "EG-FEDERATED-QUERY-R720.2",
+    "EG-FEDERATED-QUERY-R720.3",
+    "EG-FEDERATED-QUERY-R720.4",
+    "EG-FEDERATED-QUERY-R720.5",
+    "EG-FEDERATED-QUERY-R720.6",
+    "EG-FEDERATED-QUERY-R721",
+    "EG-FEDERATED-QUERY-R721.1",
+    "EG-FEDERATED-QUERY-R721.2",
+    "EG-FEDERATED-QUERY-R721.3",
+    "EG-FEDERATED-QUERY-R721.4"
   ],
   "requirements": [
     {
@@ -4221,6 +4233,104 @@
     {
       "id": "EG-FEDERATED-QUERY-R709.6",
       "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R720",
+      "title": "One UQL plan across graph, vector, SQL, SPARQL and epistemic stages (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-FEDERATED-QUERY-R720.1",
+        "EG-FEDERATED-QUERY-R720.2",
+        "EG-FEDERATED-QUERY-R720.3",
+        "EG-FEDERATED-QUERY-R720.4",
+        "EG-FEDERATED-QUERY-R720.5",
+        "EG-FEDERATED-QUERY-R720.6"
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R720.1",
+      "title": "Epistemic row fields",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R720.2",
+      "title": "Confidence, bitemporal and time-decay stages",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R720.3",
+      "title": "Embedding-similarity clustering stage",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R720.4",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R720.5",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R720.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R721",
+      "title": "Modalities are views over one RowSet algebra in one store (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-FEDERATED-QUERY-R721.1",
+        "EG-FEDERATED-QUERY-R721.2",
+        "EG-FEDERATED-QUERY-R721.3",
+        "EG-FEDERATED-QUERY-R721.4"
+      ]
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R721.1",
+      "title": "Each modality implements the modality contract",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R721.2",
+      "title": "Wiring and store authority",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R721.3",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-FEDERATED-QUERY-R721.4",
+      "title": "Hot-path proof: cross-modal queries with default configuration",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

@@ -58,3 +58,12 @@ Governing spec: [spec.md](spec.md). Design: [plan.md](plan.md). Producers first;
     - [ ] SHACL shape: a contract names a customer and at least one service. **EG-CQ-XSRC-R008.3.2**
     - [ ] Authority rows and query fixture: open incident or change to service to contract. **EG-CQ-XSRC-R008.3.3**
     - [ ] Acceptance: open incidents and changes listed with the service and contract. **EG-CQ-XSRC-R008.3.4**
+
+## Agent-memory substrate claims (2026-10-22)
+
+- [ ] **EG-CQ-XSRC-R009:** Acceptance: high-confidence agent claims against a new external report (rollup).
+  - [ ] **EG-CQ-XSRC-R009.1:** Query fixture: claims that touch the report.
+  - [ ] **EG-CQ-XSRC-R009.2:** Evidence clustering.
+  - [ ] **EG-CQ-XSRC-R009.3:** Contradiction decay analysis.
+  - [ ] **EG-CQ-XSRC-R009.4:** Served acceptance through arbora.
+  - [ ] **EG-CQ-XSRC-R009.5:** Refusal.
