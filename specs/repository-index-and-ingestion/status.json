@@ -444,8 +444,10 @@
     {
       "id": "EG-REPO-INGEST-R002.102",
       "title": "Successive batches to one stream chain one content version",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "5e27eab394f3"
+      ],
       "verified_by": [
         "src/server/handlers/admin/connector_pack/tests/scale.rs:130"
       ]
