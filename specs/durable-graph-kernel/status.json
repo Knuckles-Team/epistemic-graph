@@ -1150,7 +1150,7 @@
     {
       "id": "EG-DURABLE-KERNEL-R031",
       "title": "Audit append supports tenant-scoped idempotent reservation",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "1ef84395fa69",
         "2cc878fb8938",
@@ -1180,8 +1180,10 @@
     {
       "id": "EG-DURABLE-KERNEL-R031.2",
       "title": "Writes are stamped from the authoritative scope version",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "aeb9c998476a"
+      ],
       "verified_by": [
         "src/server/mutation_batch/tests.rs:1405"
       ]
