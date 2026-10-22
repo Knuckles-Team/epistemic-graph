@@ -298,6 +298,10 @@ pub mod mutation_outbox;
 // Executable admitted plans/tokens are private to the future eg-transaction kernel.
 pub mod mutation;
 pub mod mutation_batch;
+// EG-ORCH-VOCAB-R801/R802 — the versioned harness-component vocabulary and the
+// improvement library beside it: typed model + pure rules. The durable write
+// (ChangeEnvelope/AddNode) and the served reads live upstream.
+pub mod orchestration;
 // AU wire-first native control-plane operations: bounded capacity leases and
 // WorkItem admission/submission.  This module is hand-written until the AU
 // protocol catalog generator can express the bounded maps and native enums.

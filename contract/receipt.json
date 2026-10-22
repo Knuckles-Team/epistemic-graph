@@ -4,7 +4,7 @@
     "contract/fixtures/connector_pack_digest_vectors.json": "b2d1e0410853004a6cd3db63f660fbd99adfa87fd3d5839b008590dbc35fd8d6",
     "contract/fixtures/decision_digest_vectors.json": "cbf0d0712d78901015451aa9e7e2b0041063c53d8056a8046faf64330f4c5a41",
     "contract/fixtures/method_body_vectors.json": "cbc05c6d603740e3ce1f3229ca349051ff77ea590424144ab2bd12ac145c95ef",
-    "contract/methods.json": "f4271948b6ab7697f2f6908cc8ef8b0e5ed61e130bcb10864bd739cdcc32ee03",
+    "contract/methods.json": "bdda6da3e7c8e73cc767a9b87eeaf694fecdf2b0034c0e8feac1e4608110b750",
     "contract/schemas/method.request.json": "927801bedf55ac022daf0e3bc10945976138ba149f7fa53449066254115f27d5",
     "contract/schemas/result.cluster.json": "edf102195cce1961ec9fa9b695753ab741f0c40031c3c8beeb9b953bc1472c07",
     "contract/schemas/result.compute.json": "e521cd956226b8a59ec6f09a756412495cf96720e9ef7be028b99a33669cc71d",
@@ -23,7 +23,7 @@
     "docs/capabilities.generated.md": "5223f8cd463625f80b7e55457798ebb2235084feeb07f1222c4062d6dd05e977",
     "epistemic_graph/contract/__init__.py": "028357ea7c0ac35605ca94b4b2d2e7b4735077766a027519bc336b904bf8b3cf",
     "epistemic_graph/contract/errors.json": "f364d7712aad64bec33a53f67b291827d57dee6474dab094a3864fdcaaf5a5eb",
-    "epistemic_graph/contract/methods.json": "f4271948b6ab7697f2f6908cc8ef8b0e5ed61e130bcb10864bd739cdcc32ee03",
+    "epistemic_graph/contract/methods.json": "bdda6da3e7c8e73cc767a9b87eeaf694fecdf2b0034c0e8feac1e4608110b750",
     "epistemic_graph/contract/schemas/method.request.json": "927801bedf55ac022daf0e3bc10945976138ba149f7fa53449066254115f27d5",
     "epistemic_graph/contract/schemas/result.cluster.json": "edf102195cce1961ec9fa9b695753ab741f0c40031c3c8beeb9b953bc1472c07",
     "epistemic_graph/contract/schemas/result.compute.json": "e521cd956226b8a59ec6f09a756412495cf96720e9ef7be028b99a33669cc71d",
@@ -71,7 +71,7 @@
     "epistemic_graph/generated/transactions.py": "83174fd4a8d2032577c60bf61dacf08fbe3b5df8530da66a19d1b36eb9920335",
     "epistemic_graph/generated/write_back.py": "cbd29e0308e7e095abf84d5f31a67ce88ea46c69f8f39a95369a03ce82c21df0"
   },
-  "contract_digest": "fe34236da5f90661545ca6660ed5dbcb9b90dafe7f4b5da37d19add6db2f8e8b",
+  "contract_digest": "82e31f218e266cabe03aa5a1c3e16a3c9e41ead5814ba1bc3ad996e79e7f6b19",
   "contract_version": 1,
   "feature_profile": [
     "contract",

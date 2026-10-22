@@ -3825,6 +3825,7 @@ components:
       - "tests/mysql_roundtrip.rs"
       - "tests/node_binding_envelope.rs"
       - "tests/occ_wire_serializable_begin_version.rs"
+      - "tests/orchestration/test_harness_components_served.py"
       - "tests/packs"
       - "tests/parity"
       - "tests/pgwire_roundtrip.rs"

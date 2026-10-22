@@ -134,6 +134,20 @@ pub(crate) async fn try_handle_gateway(
     #[cfg(feature = "security")]
     let method = super::gateway_graph::stamp_owner_id_if_applicable(method, caller, isolation);
 
+    // EG-ORCH-VOCAB-R801.3: a harness-component version write is admitted at
+    // the SAME pre-commit point — validated, bitemporally stamped and linked
+    // to the current version before either the durable commit or the apply
+    // closure sees the method. The admitted (possibly stamped) method is the
+    // one that commits.
+    let method = match crate::server::harness_admission::direct_add_node(
+        &method,
+        core,
+        crate::server::dispatch::authoritative_now_ms(),
+    ) {
+        Ok(admitted) => admitted,
+        Err(error) => return Ok(Response::err(req_id, error)),
+    };
+
     let plan = MutationPlan::for_method(&method);
     let ctx = MutationCtx {
         req_id,
