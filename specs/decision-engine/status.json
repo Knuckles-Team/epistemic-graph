@@ -8969,7 +8969,7 @@
     {
       "id": "EG-DECISION-ENGINE-R803",
       "title": "Contrastive harness composition decision (rollup)",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
@@ -8984,8 +8984,10 @@
     {
       "id": "EG-DECISION-ENGINE-R803.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "50ee57133655"
+      ],
       "verified_by": [
         "crates/eg-types/src/decision/harness_contrast.rs:528"
       ]
@@ -8993,8 +8995,10 @@
     {
       "id": "EG-DECISION-ENGINE-R803.2",
       "title": "Behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "50ee57133655"
+      ],
       "verified_by": [
         "crates/eg-types/src/decision/harness_contrast.rs:592"
       ]
@@ -9002,8 +9006,10 @@
     {
       "id": "EG-DECISION-ENGINE-R803.3",
       "title": "Wiring",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "50ee57133655"
+      ],
       "verified_by": [
         "tests/decide/test_harness_contrast_served.py:313",
         "tests/decide/test_harness_contrast_served.py:314"
@@ -9012,8 +9018,10 @@
     {
       "id": "EG-DECISION-ENGINE-R803.4",
       "title": "Refusal",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "50ee57133655"
+      ],
       "verified_by": [
         "crates/eg-types/src/decision/harness_contrast.rs:689"
       ]
@@ -9021,8 +9029,10 @@
     {
       "id": "EG-DECISION-ENGINE-R803.5",
       "title": "Evidence",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "50ee57133655"
+      ],
       "verified_by": [
         "crates/eg-types/src/decision/harness_contrast.rs:914"
       ]
@@ -9030,8 +9040,10 @@
     {
       "id": "EG-DECISION-ENGINE-R803.6",
       "title": "Hot-path proof",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "50ee57133655"
+      ],
       "verified_by": [
         "tests/decide/test_harness_contrast_served.py:433",
         "tests/decide/test_harness_contrast_served.py:434"
