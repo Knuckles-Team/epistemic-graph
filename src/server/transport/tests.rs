@@ -183,7 +183,9 @@ async fn qos_verification_names_the_audience_mismatch_cause() {
     assert_eq!(response.error.as_deref(), Some("AUTH_AUDIENCE_MISMATCH"));
     assert_eq!(
         response.error_detail.as_deref(),
-        Some("request context audience does not match deployment (expected 'epistemic-graph-test')")
+        Some(
+            "request context audience does not match deployment (expected 'epistemic-graph-test')"
+        )
     );
     assert_eq!(scheduler.stats().in_flight, 0);
 }
