@@ -563,6 +563,9 @@ jobs:
         name: Install librdkafka/Cyrus-SASL build headers
         run: |
           set -euo pipefail
+          # The hosted image usually ships both; `apt-get update` alone can take
+          # minutes there, which is most of a 10-minute PR budget.
+          if dpkg -s libsasl2-dev libcurl4-openssl-dev >/dev/null 2>&1; then exit 0; fi
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends libsasl2-dev libcurl4-openssl-dev
       - *eg-gates-toolchain
