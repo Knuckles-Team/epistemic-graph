@@ -1,5 +1,17 @@
 # epistemic-graph
 
+<!-- agent-contract:start -->
+## Agent contract
+
+Tool-neutral rules for any AI agent or human working in this repository. This block is maintained by the fleet standard; edit outside the markers.
+
+- **Owner boundary:** this repository owns facts, records, storage, query (UQL and natural language), retrieval, ingest, reasoning, decisions and choices, in the native Rust engine (spec prefix `EG-`). Feature routing across repositories: [ecosystem boundaries](https://github.com/Knuckles-Team/pipelines/blob/main/reference/ecosystem-boundaries.md).
+- **Setup:** run `scripts/bootstrap.sh`. It is idempotent and non-interactive: it pins uv and Python, syncs the locked environment, installs the git hooks and prints the gate command.
+- **Gates:** `uvx pre-commit run --all-files` must pass before you push. Do not bypass hooks to get green.
+- **Commits:** one logical change per commit with a `Spec: <ID>` trailer (or `Spec: none (<reason>)`), plus a `Co-Authored-By:` trailer naming the assisting agent. Stage explicit paths only; never `git add -A` or `git add .`. Use your own configured Git identity, never a tool or bot name.
+- **Org rules:** [organization AGENTS.md](https://github.com/Knuckles-Team/.github/blob/main/AGENTS.md).
+<!-- agent-contract:end -->
+
 `epistemic-graph` is a standalone Rust database and compute engine for connected
 knowledge, evidence, and multimodal data. Applications can use it directly; it
 can also serve as the storage and reasoning engine beneath agent-utilities.
