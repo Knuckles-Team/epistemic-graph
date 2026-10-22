@@ -54,6 +54,8 @@ authority, durability, audit, CDC, and transaction properties.
   <figcaption>Epistemic Graph is the durable authority at the base of the shared runtime.</figcaption>
 </figure>
 
+<p><a href="https://knuckles-team.github.io/.github/architecture/#eg">Explore the live architecture</a>.</p>
+
 <div class="site-ownership">
   <div class="site-ownership__grid">
     <div class="site-ownership__item">
