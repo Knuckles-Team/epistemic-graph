@@ -449,7 +449,7 @@
         "5e27eab394f3"
       ],
       "verified_by": [
-        "src/server/handlers/admin/connector_pack/tests/scale.rs:130"
+        "src/server/handlers/admin/connector_pack/tests/scale.rs:145"
       ]
     },
     {
