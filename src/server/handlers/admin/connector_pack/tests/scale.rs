@@ -10,7 +10,6 @@ use eg_types::source_ingestion::{SourceIngestionRequest, SourceJson};
 
 use super::{bind, build_pack, imported, tool, Content, Served, ADMIN, TENANT};
 use crate::protocol::{GraphType, Method};
-use crate::server::persistence::PersistenceBackend as _;
 
 const CONNECTOR: &str = "demo-connector";
 const GRAPH: &str = "packingest";
@@ -49,20 +48,18 @@ fn first_ingest() -> SourceIngestionRequest {
     SourceIngestionRequest::new(batch).expect("valid source ingestion request")
 }
 
-/// Import keys pack heads by the verified tenant; `SourceIngest` must resolve
-/// the mapping under that same key, not the route's hashed carrier scope.
-// spec: EG-TYPED-PACKS-R101.9
-#[tokio::test]
-async fn an_imported_pack_maps_source_ingest_records_of_the_same_tenant() {
+/// A served engine with the demo pack imported under the test tenant and the
+/// ingest graph created. The guard keeps the graph persistence environment.
+async fn pack_graph(label: &str) -> (Served, crate::crypto::TestEnvReadGuard) {
     show_refusals();
     let served = Served::new();
-    let _guard = served.with_graph_persistence().await;
+    let guard = served.with_graph_persistence().await;
     bind(&served, CONNECTOR, ADMIN).await;
     imported(&served, &build_pack(CONNECTOR, &[manifest()]), None).await;
     let created = served
         .call_on(
             GRAPH,
-            "pack-ingest:create",
+            &format!("{label}:create"),
             Method::CreateGraph {
                 graph_name: GRAPH.to_string(),
                 graph_type: GraphType::Global,
@@ -70,15 +67,33 @@ async fn an_imported_pack_maps_source_ingest_records_of_the_same_tenant() {
         )
         .await;
     assert!(created.error.is_none(), "{created:?}");
-    let ingested = served
+    (served, guard)
+}
+
+/// One served `SourceIngest` call on the ingest graph.
+async fn ingest(
+    served: &Served,
+    request_id: &str,
+    request: &SourceIngestionRequest,
+) -> crate::protocol::Response {
+    served
         .call_on(
             GRAPH,
-            "pack-ingest:ingest",
+            request_id,
             Method::SourceIngest {
-                request: Box::new(first_ingest()),
+                request: Box::new(request.clone()),
             },
         )
-        .await;
+        .await
+}
+
+/// Import keys pack heads by the verified tenant; `SourceIngest` must resolve
+/// the mapping under that same key, not the route's hashed carrier scope.
+// spec: EG-TYPED-PACKS-R101.9
+#[tokio::test]
+async fn an_imported_pack_maps_source_ingest_records_of_the_same_tenant() {
+    let (served, _guard) = pack_graph("pack-ingest").await;
+    let ingested = ingest(&served, "pack-ingest:ingest", &first_ingest()).await;
     assert!(
         ingested.error.is_none(),
         "SourceIngest under the import tenant {TENANT} must be accepted: {ingested:?}"
@@ -130,34 +145,11 @@ async fn committed_envelope(
 // spec: EG-REPO-INGEST-R002.102
 #[tokio::test]
 async fn a_second_batch_to_the_same_stream_chains_its_content_version() {
-    show_refusals();
-    let served = Served::new();
-    let _guard = served.with_graph_persistence().await;
-    bind(&served, CONNECTOR, ADMIN).await;
-    imported(&served, &build_pack(CONNECTOR, &[manifest()]), None).await;
-    let created = served
-        .call_on(
-            GRAPH,
-            "pack-chain:create",
-            Method::CreateGraph {
-                graph_name: GRAPH.to_string(),
-                graph_type: GraphType::Global,
-            },
-        )
-        .await;
-    assert!(created.error.is_none(), "{created:?}");
+    let (served, _guard) = pack_graph("pack-chain").await;
     let first = first_ingest();
     let second = second_ingest(&first);
     for (label, request) in [("first", &first), ("second", &second)] {
-        let ingested = served
-            .call_on(
-                GRAPH,
-                &format!("pack-chain:{label}"),
-                Method::SourceIngest {
-                    request: Box::new(request.clone()),
-                },
-            )
-            .await;
+        let ingested = ingest(&served, &format!("pack-chain:{label}"), request).await;
         assert!(
             ingested.error.is_none(),
             "the {label} batch to the stream must commit: {ingested:?}"

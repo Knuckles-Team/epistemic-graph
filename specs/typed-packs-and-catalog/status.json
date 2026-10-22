@@ -2253,7 +2253,7 @@
         "c4a73f6d5a74"
       ],
       "verified_by": [
-        "src/server/handlers/admin/connector_pack/tests/scale.rs:54"
+        "src/server/handlers/admin/connector_pack/tests/scale.rs:92"
       ]
     },
     {
