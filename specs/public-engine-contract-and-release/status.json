@@ -13,6 +13,8 @@
     "EG-CONTRACT-R004",
     "EG-CONTRACT-R005",
     "EG-CONTRACT-R006",
+    "EG-CONTRACT-R006.1",
+    "EG-CONTRACT-R006.2",
     "EG-CONTRACT-R007",
     "EG-CONTRACT-R008",
     "EG-CONTRACT-R008.1",
@@ -84,7 +86,8 @@
     "EG-CONTRACT-R053.9",
     "EG-CONTRACT-R053.10",
     "EG-CONTRACT-R053.11",
-    "EG-CONTRACT-R053.12"
+    "EG-CONTRACT-R053.12",
+    "EG-CONTRACT-R006.3"
   ],
   "requirements": [
     {
@@ -205,7 +208,7 @@
         "e2b2f1cfa8ee"
       ],
       "verified_by": [
-        "crates/eg-capabilities/src/contract/python/surfaces/tests.rs:116",
+        "crates/eg-capabilities/src/contract/python/surfaces/tests.rs:121",
         "tests/test_generated_models.py:123",
         "tests/test_generated_union_variants.py:25",
         "tests/test_generated_union_variants.py:27"
@@ -214,11 +217,38 @@
     {
       "id": "EG-CONTRACT-R006",
       "title": "Deterministic, size-budgeted WASM codec artifact",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "2b681e1a159c",
         "6cd6c7ea0c87"
       ],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-CONTRACT-R006.1",
+        "EG-CONTRACT-R006.2",
+        "EG-CONTRACT-R006.3"
+      ]
+    },
+    {
+      "id": "EG-CONTRACT-R006.1",
+      "title": "Fresh canonical codec export with provenance",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "fc65d45d509d"
+      ],
+      "verified_by": [
+        "tests/test_build_method_codec_wasm.py:248",
+        "tests/test_build_method_codec_wasm.py:276",
+        "tests/test_build_method_codec_wasm.py:297",
+        "tests/test_build_method_codec_wasm.py:305",
+        "tests/test_build_method_codec_wasm.py:315"
+      ]
+    },
+    {
+      "id": "EG-CONTRACT-R006.2",
+      "title": "Complete canonical WASM qualification",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {
@@ -387,8 +417,8 @@
         "4c25220f6e1b"
       ],
       "verified_by": [
-        "crates/eg-capabilities/src/contract/errors.rs:470",
-        "crates/eg-capabilities/src/error_routing.rs:350",
+        "crates/eg-capabilities/src/contract/errors.rs:472",
+        "crates/eg-capabilities/src/error_routing.rs:351",
         "crates/eg-types/src/governed_change/tests.rs:183"
       ]
     },
@@ -1064,6 +1094,17 @@
       "verified_by": [
         "tests/test_server_package.py:139",
         "tests/test_server_package.py:157"
+      ]
+    },
+    {
+      "id": "EG-CONTRACT-R006.3",
+      "title": "Export fresh typed contracts for parity repair",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "fc65d45d509d"
+      ],
+      "verified_by": [
+        "tests/test_export_canonical_contract.py:10"
       ]
     }
   ]
