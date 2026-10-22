@@ -446,7 +446,7 @@
       "title": "Successive batches to one stream chain one content version",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "5e27eab394f3"
+        "2a47417c6cfc"
       ],
       "verified_by": [
         "src/server/handlers/admin/connector_pack/tests/scale.rs:145"

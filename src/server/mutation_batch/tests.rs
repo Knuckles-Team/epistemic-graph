@@ -1394,6 +1394,8 @@ impl PersistenceBackend for DurableVersion {
     async fn read_mutation_graph_version(&self, _graph_fname: &str) -> Result<Option<u64>, String> {
         Ok(Some(self.0))
     }
+
+    fn shutdown(&self) {}
 }
 
 /// Issue #702: a durable scope commit that the serving projection did not
