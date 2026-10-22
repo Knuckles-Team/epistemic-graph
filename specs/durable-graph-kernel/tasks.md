@@ -271,3 +271,7 @@ This batch defines the slices; it runs none of their runtime tests.
   - [ ] **EG-DURABLE-KERNEL-R860.4:** S3-compatible object API.
   - [ ] **EG-DURABLE-KERNEL-R860.5:** Listener refusals.
   - [ ] **EG-DURABLE-KERNEL-R860.6:** Hot-path proof: one store behind four protocols.
+- [ ] **EG-DURABLE-KERNEL-R028.5.1:** Add paired typed proposal and executable attachment fields; recompute exact plan equality and retain legacy codecs.
+- [ ] **EG-DURABLE-KERNEL-R028.5.2:** Bind the first attachment immutably through the existing owner transaction; preserve omitted attachments and refuse conflicts.
+- [ ] **EG-DURABLE-KERNEL-R028.5.3:** Verify native attachment replay, restart and scoped availability.
+- [ ] **EG-DURABLE-KERNEL-R028.5.4:** Implement and measure the attached-plan publication/readback benchmark; preserve this performance residual until a reproducible receipt exists.

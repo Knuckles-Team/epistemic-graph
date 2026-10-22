@@ -579,6 +579,7 @@ async fn run_admission_binds_verified_owner_and_replays_without_row_changes() {
 }
 
 // spec: EG-DURABLE-KERNEL-R028.5
+// spec: EG-DURABLE-KERNEL-R028.5.3
 #[tokio::test]
 async fn current_plan_native_publish_read_and_receipt_replay() {
     use eg_types::current_plan::{
@@ -612,12 +613,14 @@ async fn current_plan_native_publish_read_and_receipt_replay() {
         lease_epoch: claimed.lease_epoch.unwrap(),
         fencing_token: claimed.fencing_token.unwrap(),
         idempotency_key: "wire-key".into(),
+        task_plan_proposal: None,
         snapshot: CurrentPlanSnapshot {
             run_id: "run-owner-admission".into(),
             revision: 0,
             observed_at_ms: now_secs() * 1000,
             expires_at_ms: now_secs() * 1000 + 30_000,
             items: vec![],
+            task_plan: None,
         },
     };
     let publish = |request| Method::PublishCurrentPlan { request };
@@ -631,6 +634,9 @@ async fn current_plan_native_publish_read_and_receipt_replay() {
     );
     let mut updated = initial.clone();
     updated.snapshot.revision = 2;
+    let attachment = eg_types::current_plan::sample_task_plan_publish_request();
+    updated.snapshot.task_plan = attachment.snapshot.task_plan;
+    updated.task_plan_proposal = attachment.task_plan_proposal;
     updated.snapshot.items = vec![
         PlanItem {
             text: "ordered first".into(),
@@ -710,13 +716,26 @@ async fn current_plan_native_publish_read_and_receipt_replay() {
     .await;
     assert!(denied.error.is_some());
     let mut changed = updated.clone();
-    changed.snapshot.items[0].text = "changed".into();
+    changed.task_plan_proposal.as_mut().unwrap().max_concurrency = 1;
+    changed.snapshot.task_plan = Some(
+        eg_types::decision::task_plan::plan_explicit_tasks(
+            changed.task_plan_proposal.as_ref().unwrap(),
+        )
+        .unwrap(),
+    );
     let conflict = test_support::dispatch(
         &state,
-        signed_run_request(509, publish(changed), "plan-two"),
+        signed_run_request(509, publish(changed.clone()), "plan-two"),
     )
     .await;
     assert!(conflict.error.is_some());
+    changed.snapshot.revision = 3;
+    let immutable_conflict = test_support::dispatch(
+        &state,
+        signed_run_request(513, publish(changed), "changed-task-plan"),
+    )
+    .await;
+    assert!(immutable_conflict.error.is_some());
     let regression = test_support::dispatch(
         &state,
         signed_run_request(510, publish(updated.clone()), "new-key-same-revision"),

@@ -830,3 +830,8 @@ Deliver these additive leaves in order; preserve R137.1–.6 and R128 unchanged.
 - [ ] **EG-DECISION-ENGINE-R813.4:** Refusal
 - [ ] **EG-DECISION-ENGINE-R813.5:** Evidence
 - [ ] **EG-DECISION-ENGINE-R813.6:** Hot-path proof
+- [ ] **EG-DECISION-ENGINE-R134.111.1-.5:** Add and verify the bounded explicit-task
+  Decide path. Keep semantic decomposition, skill search, durable graph publish,
+  and cross-owner admission/execution acceptance separate and open.
+
+- [ ] **EG-DECISION-ENGINE-R134.111.6:** Qualify the named maximum-input benchmark; record the profile, hardware and latency/memory results before claiming the performance budget.

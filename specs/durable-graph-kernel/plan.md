@@ -777,6 +777,45 @@ the previous build and native execution evidence remain pending.
 This engine prerequisite does not compose Arbora's reader or AU's run loop and
 does not establish successful end-to-end inspector publication.
 
+### 2026-10-22 — executable attachment on the existing current-plan owner
+
+`EG-DURABLE-KERNEL-R028.5.1` through `.5.3` extend the existing private snapshot, not its authority model.
+`CurrentPlanSnapshot.task_plan` optionally holds the typed `EG-DECISION-ENGINE-R134.111` TaskPlan.
+Legacy JSON and named MessagePack omit this field and decode with no attachment.
+Older binaries use strict snapshot decoding and may reject attachment-bearing rows; downgrade compatibility is not established.
+The existing owner-table layout identity describes table keys and values, which remain unchanged.
+This source change performs no deployment, store migration or production data rewrite.
+EG never embeds executable JSON inside scaffold item text.
+
+The live path remains `PublishCurrentPlan` -> `prepare_current_plan` -> `commit_work_item` -> `store_native` -> `current_plan::publish`.
+An explicit attachment requires the original typed proposal in `PublishCurrentPlanRequest.task_plan_proposal`.
+`PublishCurrentPlanRequest::validate` recomputes `plan_explicit_tasks(proposal)` and requires exact TaskPlan equality.
+This comparison covers canonical tasks, output, limits, total count, policy revision and all three digests.
+The original proposal preserves declaration ordering, so EG also verifies the `input_digest`.
+An unpaired proposal or attachment refuses; legacy requests omit both fields.
+Content validation is not an attested decision receipt, authenticated principal or authorization proof.
+Arbora still supplies verified admission and transport; AU only executes the admitted bound plan.
+
+The first accepted attachment becomes immutable for this admitted run.
+An empty revision-zero scaffold may carry that attachment; a later increasing revision may attach a previously absent plan.
+A later omission of both request fields preserves the original attachment, including its input digest.
+An explicit different attachment refuses even with a new revision or retry key.
+EG hashes the resolved publication body, including any retained attachment, into the returned payload digest.
+The private snapshot stores only the verified TaskPlan; the existing mutation body digest also binds the original proposal.
+The existing MutationBatch digest binds the submitted body, and its stable identity excludes that body's content.
+An exact authenticated retry returns the original receipt without revision, lease, expiry or outbox changes.
+An expired replay never makes the snapshot available.
+
+Storage still uses `work_item_current_plans`, its existing owner table, and the existing native claim record.
+No new table, admission capability, replay ledger or generic node projection is introduced.
+`GetCurrentPlan` returns the typed attachment with scaffold items under the existing single-snapshot owner and live-fence checks.
+Expiry, terminal status and superseded leases hide that view without deleting its private persisted bytes.
+A later valid publication preserves the attachment even after the previous snapshot expires.
+Current-plan reads do not provide historical inspection after termination or an active-run resume protocol.
+Those lifecycle surfaces remain separate requirements; this attachment does not broaden read authority.
+Retries must retain their original observation and expiry fields; changed timestamps conflict under the same scoped key.
+The parent point-read/publication budget and the TaskPlan producer bounds apply; benchmark measurements remain required.
+
 ## Amendment 2026-10-18: R034 coordinator decision monotonicity
 
 The existing cross-shard decision row must preserve its first terminal outcome.
