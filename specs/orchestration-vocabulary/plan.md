@@ -459,3 +459,11 @@ Decisions:
 - A lesson is a fact with applicability, not a rule. Rule promotion stays with `EG-DECISION-ENGINE-R129`. The decision record of `EG-DECISION-ENGINE-R803.5` refuses a lesson that contradicts a stored invariant.
 
 Consumers: `EG-DECISION-ENGINE-R803` composes from the contrast. `AU-HARNESS-CYCLE-R001.2` reads the lessons before proposing. `ARBORA-OPS-R068` serves the reads.
+
+
+## Requirement rows as nodes (R012.9)
+
+The spec-folder indexer already classifies each file of a spec folder (R012.1 to R012.6). R012.9
+adds one parse step for `requirements.md`. Each table row becomes a `:Requirement` node keyed by
+its row ID. EG-SDLC-R005 derives each row state from these nodes and the changeset log. The call
+site is the non-code branch of `IndexRepository` at `src/server/dispatch/router/source_ingest.rs:24`.

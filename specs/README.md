@@ -56,6 +56,8 @@ bootstrap skill, together with the [SDD full lifecycle](https://github.com/Knuck
 ## Local specifications
 
 - [`EG-SCM`](source-changesets/spec.md) — source changesets as the source of truth for repository files.
+- [`EG-HYBRID-STORAGE`](hybrid-storage/spec.md) — dual-engine storage: one commit authority, placement by record class, a row engine and the columnar engine under one fence.
+- [`EG-SDLC`](development-lifecycle/spec.md) — graph-driven development lifecycle records, derived edges, defects and derived requirement state.
 - [`EG-BRANCH-MERGE`](branch-merge/spec.md) — agent branching, three-way merge, and epistemic conflict resolution.
 - [`EG-OBJECT-STORAGE-BACKEND`](object-storage-backend/spec.md) — object-storage-native durable store and comparative cost gate.
 - [`EG-UNIFIED-DATA-PLANE`](unified-data-plane/spec.md) — EG attached-source, dialect and app-admission owner contract

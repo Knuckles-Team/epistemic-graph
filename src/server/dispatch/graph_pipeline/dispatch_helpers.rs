@@ -183,16 +183,33 @@ pub(super) async fn dispatch_op_audit_read_event(
 pub(super) async fn dispatch_op_audit_append(
     req_id: u64,
     graph_name: &str,
+    core: Arc<crate::graph::GraphCore>,
     persistence: Option<Arc<dyn crate::server::persistence::PersistenceBackend>>,
     event: crate::redb_store::OperationAuditEvent,
 ) -> Response {
     let fname = crate::persist::sanitize(graph_name);
     match persistence.as_ref().and_then(|p| p.as_redb()) {
         Some(redb) => match redb.audit_append(&fname, event).await {
-            Ok(receipt) => Response::ok(
-                req_id,
-                ResultPayload::of::<eg_types::result_contract::security::AuditAppend>(receipt),
-            ),
+            Ok(receipt) => {
+                // Every successful append — a replayed reservation included —
+                // commits ONE new batch in this graph's mutation scope: the
+                // attempt id is unique per attempt, so the kernel never
+                // resolves the attempt as a replay and admits the fresh
+                // maintenance batch even when the audit chain appends no new
+                // entry. The kernel advances the scope's authoritative
+                // version by exactly one per admitted batch, maintenance
+                // included, so account the durable commit in the serving
+                // projection with the same write the ordinary commit path
+                // uses: left uncounted, the serving version lags the
+                // authoritative one by one, and the next write stamped from it
+                // (a source ingest's graph version expectation) meets
+                // `STALE_VERSION` at the kernel.
+                core.mark_dirty();
+                Response::ok(
+                    req_id,
+                    ResultPayload::of::<eg_types::result_contract::security::AuditAppend>(receipt),
+                )
+            }
             // No method-name prefix: the error is already either a bare
             // declared code (`AUDIT_CLASS_REQUIRED`) or `CODE: detail`
             // (`AUDIT_WRITER_UNAVAILABLE: cause`), the same shape
@@ -588,5 +605,193 @@ pub(super) async fn resolve_routed_raft(
                 "authoritative placement group is not running on this node",
             ))
         }
+    }
+}
+
+#[cfg(all(test, feature = "security", feature = "redb"))]
+mod tests {
+    use super::*;
+    use crate::graph::GraphCore;
+    use crate::protocol::Method;
+    use crate::redb_store::operation_audit::tests::{event, TENANT};
+    use crate::server::persistence::redb_backend::audit_append_tests::seeded;
+    use crate::server::persistence::PersistenceBackend;
+
+    const GRAPH: &str = "audit_skew_graph";
+
+    /// One change envelope whose graph version expectation was stamped from the
+    /// serving version `stamped` — the same stamp a source ingest carries —
+    /// committing one `AddNode` into `graph`.
+    fn stamped_envelope(
+        stamped: u64,
+        graph: &str,
+        node: &str,
+    ) -> crate::change_envelope::ChangeEnvelope {
+        let mut envelope = eg_types::test_support::change_envelope::minimal_envelope();
+        envelope.envelope_id = format!("envelope-audit-skew-{node}");
+        let mutation = &mut envelope.mutation;
+        mutation.batch_id = format!("batch-audit-skew-{node}");
+        mutation.identity = eg_types::mutation_batch::MutationScopeIdentity::graph(
+            eg_types::mutation_batch::ScopeTenantId::new(TENANT).expect("tenant id"),
+            eg_types::mutation_batch::LogicalName::new(graph).expect("graph name"),
+            eg_types::mutation_batch::IncarnationId::new("incarnation:test:audit-skew")
+                .expect("incarnation"),
+        );
+        mutation.version_expectation = eg_types::mutation_batch::VersionExpectation::Graph(stamped);
+        mutation.operations = vec![eg_types::mutation_batch::MutationOperation {
+            ordinal: 0,
+            surface: eg_types::mutation_batch::MutationSurface::Graph,
+            domain: eg_types::mutation_batch::DurabilityDomain::GraphRows,
+            method: Method::AddNode {
+                node_id: node.into(),
+                properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"value": "skew"}))
+                    .expect("encode"),
+            },
+        }];
+        if let eg_types::mutation_batch::MutationEnvelope::Operation(operation) =
+            &mut mutation.envelope
+        {
+            // The fixture's authority context was minted for the fixture's own
+            // scope; the batch now carries a different graph identity, so the
+            // context must describe THIS batch: the authority scope is derived
+            // from the scope identity, the purpose names the same target
+            // resource, and the context digest covers both.
+            let scope = eg_types::mutation_batch::authority_scope_for(&mutation.identity)
+                .expect("authority scope for the batch identity");
+            operation.authority.purpose_resource = Some(scope.scope_id.clone());
+            operation.authority.authority_scope = scope;
+            operation.authority.context_digest = operation
+                .authority
+                .recompute_context_digest()
+                .expect("context digest");
+        } else {
+            panic!("the fixture envelope carries an operation envelope");
+        }
+        // Re-mint the envelope's method identity and canonical payload digest
+        // from the batch's current operations (the fixture's cover its own).
+        mutation
+            .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
+            .expect("reseal");
+        envelope
+    }
+
+    /// Every successful `AuditAppend` — a replayed reservation included,
+    /// because each attempt is admitted as a fresh maintenance batch — commits
+    /// one batch in the graph's mutation scope, and the kernel advances the
+    /// scope's authoritative version by exactly one per admitted batch,
+    /// maintenance included. The served append must therefore account that
+    /// durable commit in the serving projection: one `audit_append` followed
+    /// by the next write stamped from the serving version (a source ingest's
+    /// `VersionExpectation::Graph`) must not meet a +1 skew — `STALE_VERSION`
+    /// at the kernel — on an otherwise quiet graph.
+    // spec: EG-DURABLE-KERNEL-R031.1
+    #[tokio::test(flavor = "multi_thread")]
+    async fn an_audit_append_accounts_the_serving_version_for_stamped_writes() {
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        let dir = tempfile::tempdir().expect("tempdir");
+
+        // One ordinary audited write creates the graph: the authoritative
+        // scope version and the serving projection agree at 1.
+        let backend = Arc::new(seeded(&dir.path().to_string_lossy(), GRAPH).await);
+        let core = Arc::new(GraphCore::new());
+        core.adopt_materialized_version(1)
+            .expect("adopt the watermark");
+
+        let receipt_of =
+            |response: &Response| -> eg_types::result_contract::security::AuditAppendReceipt {
+                match &response.result {
+                    Some(ResultPayload::Raw(bytes)) => {
+                        rmp_serde::from_slice(bytes).expect("receipt")
+                    }
+                    other => panic!(
+                        "audit append did not answer with a receipt: {other:?} / error={:?}",
+                        response.error
+                    ),
+                }
+            };
+
+        // One audit append — a durable scope commit the kernel counts.
+        let appended = dispatch_op_audit_append(
+            1,
+            GRAPH,
+            core.clone(),
+            Some(backend.clone()),
+            event("skew-request", "reserved"),
+        )
+        .await;
+        assert!(
+            appended.error.is_none(),
+            "audit append refused: {:?}",
+            appended.error
+        );
+        assert!(
+            !receipt_of(&appended).replayed,
+            "the first append must not replay"
+        );
+
+        // The serving projection accounted for the durable commit: its version
+        // equals the authoritative scope version.
+        let authoritative = backend
+            .read_mutation_graph_version(GRAPH)
+            .await
+            .expect("read the authoritative version")
+            .expect("the graph scope has an authoritative version");
+        assert_eq!(
+            core.version(),
+            authoritative,
+            "the audit append advanced the authoritative version without accounting it in the serving projection"
+        );
+
+        // The banked repro: the next write stamped from the serving version
+        // commits, instead of meeting `STALE_VERSION` at the kernel (the
+        // refusal a quiet tenant's ingest met: the append advanced the
+        // authoritative scope version by one, the stamp did not).
+        let stamped = core.version();
+        let committed = backend
+            .commit_change_envelope(GRAPH, &stamped_envelope(stamped, GRAPH, "stamped-node"), 2)
+            .await;
+        assert!(
+            committed.is_ok(),
+            "the write stamped from the serving version was refused: {committed:?}"
+        );
+        // The served commit path publishes the committed write to the
+        // projection with one version bump (the `commit_change_envelope`
+        // backend call above is pre-projection); account it the same way.
+        core.install_committed_snapshot(core.snapshot(), core.version() + 1)
+            .expect("publish the committed write");
+
+        // A replay of the same reservation appends no new audit entry, but
+        // the attempt still committed its fresh maintenance batch under a
+        // unique attempt id: the serving version must account that one too,
+        // or the same +1 skew returns.
+        let replayed = dispatch_op_audit_append(
+            2,
+            GRAPH,
+            core.clone(),
+            Some(backend.clone()),
+            event("skew-request", "reserved"),
+        )
+        .await;
+        assert!(
+            replayed.error.is_none(),
+            "the replay was refused: {:?}",
+            replayed.error
+        );
+        assert!(
+            receipt_of(&replayed).replayed,
+            "the second append must replay"
+        );
+        let authoritative = backend
+            .read_mutation_graph_version(GRAPH)
+            .await
+            .expect("read the authoritative version")
+            .expect("the graph scope has an authoritative version");
+        assert_eq!(
+            core.version(),
+            authoritative,
+            "the replayed audit append committed a maintenance batch without accounting it in the serving projection"
+        );
+
+        backend.shutdown();
     }
 }

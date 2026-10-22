@@ -47,3 +47,25 @@ Order: R001.5 and R001.6 prerequisites, then R001.1-R001.3, R001.7-R001.8, R001.
 - [ ] EG-INGEST-WORKER-R003.16: Refusal for transcript ingestion.
 - [ ] EG-INGEST-WORKER-R003.17: Evidence for transcript ingestion.
 - [ ] EG-INGEST-WORKER-R003.18: Prove source isolation, idempotence and same-tenant unauthorized read denial.
+
+- [ ] **EG-INGEST-WORKER-R902:** Source permission and group sync (rollup).
+- [ ] **EG-INGEST-WORKER-R902.1:** Model.
+- [ ] **EG-INGEST-WORKER-R902.2:** Behavior.
+- [ ] **EG-INGEST-WORKER-R902.3:** Wiring.
+- [ ] **EG-INGEST-WORKER-R902.4:** Refusal.
+- [ ] **EG-INGEST-WORKER-R902.5:** Evidence.
+- [ ] **EG-INGEST-WORKER-R902.6:** Hot-path proof.
+- [ ] **EG-INGEST-WORKER-R903:** Source deletion reconciliation (rollup).
+- [ ] **EG-INGEST-WORKER-R903.1:** Model.
+- [ ] **EG-INGEST-WORKER-R903.2:** Behavior.
+- [ ] **EG-INGEST-WORKER-R903.3:** Wiring.
+- [ ] **EG-INGEST-WORKER-R903.4:** Refusal.
+- [ ] **EG-INGEST-WORKER-R903.5:** Evidence.
+- [ ] **EG-INGEST-WORKER-R903.6:** Hot-path proof.
+- [ ] **EG-INGEST-WORKER-R904:** Source container hierarchy (rollup).
+- [ ] **EG-INGEST-WORKER-R904.1:** Model.
+- [ ] **EG-INGEST-WORKER-R904.2:** Behavior.
+- [ ] **EG-INGEST-WORKER-R904.3:** Wiring.
+- [ ] **EG-INGEST-WORKER-R904.4:** Refusal.
+- [ ] **EG-INGEST-WORKER-R904.5:** Evidence.
+- [ ] **EG-INGEST-WORKER-R904.6:** Hot-path proof.

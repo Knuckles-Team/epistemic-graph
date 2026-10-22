@@ -1677,10 +1677,10 @@ eg-kvcache = { path = "crates/eg-kvcache", optional = true }
 eg-wasm = { path = "crates/eg-wasm", optional = true }
 # SPARQL SERVICE federation client (feature `sparql-service`, CONCEPT:EG-052). The SAME
 # pure-Rust rustls HTTP client `federation` already links via eg-plan — pinned to the
-# same 2.x, so activating it here adds a direct edge but no new crate to the tree. The
+# same 3.x, so activating it here adds a direct edge but no new crate to the tree. The
 # main build includes both federation features. Also the JWKS-fetch transport for
 # `oidc` (`src/server/oidc.rs::JwtValidator::refresh`).
-ureq = { version = "2.12", optional = true }
+ureq = { version = "3.4.2", optional = true }
 # Keycloak JWT validation, feature `oidc` (`src/server/oidc.rs`): verifies an OIDC
 # bearer against the realm JWKS — issuer/audience/expiry, RSA-signature-only (never
 # `none`/HMAC). Shared by the KV-cache HTTP surface's bearer guard (`kvcache-server`)

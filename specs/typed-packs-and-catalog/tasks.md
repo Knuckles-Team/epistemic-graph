@@ -216,3 +216,44 @@ Keep each ruled boundary and adjacent owner obligation intact.
 - [ ] **EG-TYPED-PACKS-R104.4 (Refusal):** Add the typed refusals.
 - [ ] **EG-TYPED-PACKS-R104.5 (Evidence):** Emit the evidence.
 - [ ] **EG-TYPED-PACKS-R104.6 (Hot-path proof):** Add the served hot-path test.
+
+- [ ] **EG-TYPED-PACKS-R801:** Business glossary as SKOS concept schemes (rollup).
+- [ ] **EG-TYPED-PACKS-R801.1:** Model.
+- [ ] **EG-TYPED-PACKS-R801.2:** Behavior.
+- [ ] **EG-TYPED-PACKS-R801.3:** Wiring.
+- [ ] **EG-TYPED-PACKS-R801.4:** Refusal.
+- [ ] **EG-TYPED-PACKS-R801.5:** Evidence.
+- [ ] **EG-TYPED-PACKS-R801.6:** Hot-path proof.
+- [ ] **EG-TYPED-PACKS-R802:** Stewardship roles, change requests and certification (rollup).
+- [ ] **EG-TYPED-PACKS-R802.1:** Model.
+- [ ] **EG-TYPED-PACKS-R802.2:** Behavior.
+- [ ] **EG-TYPED-PACKS-R802.3:** Wiring.
+- [ ] **EG-TYPED-PACKS-R802.4:** Refusal.
+- [ ] **EG-TYPED-PACKS-R802.5:** Evidence.
+- [ ] **EG-TYPED-PACKS-R802.6:** Hot-path proof.
+- [ ] **EG-TYPED-PACKS-R803:** Sensitive data detection proposes classification claims (rollup).
+- [ ] **EG-TYPED-PACKS-R803.1:** Model.
+- [ ] **EG-TYPED-PACKS-R803.2:** Behavior.
+- [ ] **EG-TYPED-PACKS-R803.3:** Wiring.
+- [ ] **EG-TYPED-PACKS-R803.4:** Refusal.
+- [ ] **EG-TYPED-PACKS-R803.5:** Evidence.
+- [ ] **EG-TYPED-PACKS-R803.6:** Hot-path proof.
+- [ ] **EG-TYPED-PACKS-R804:** Ontology revision diff and change impact (rollup).
+- [ ] **EG-TYPED-PACKS-R804.1:** Model.
+- [ ] **EG-TYPED-PACKS-R804.2:** Behavior.
+- [ ] **EG-TYPED-PACKS-R804.3:** Wiring.
+- [ ] **EG-TYPED-PACKS-R804.4:** Refusal.
+- [ ] **EG-TYPED-PACKS-R804.5:** Evidence.
+- [ ] **EG-TYPED-PACKS-R804.6:** Hot-path proof.
+- [ ] **EG-TYPED-PACKS-R805:** Data products and data contracts (rollup).
+- [ ] **EG-TYPED-PACKS-R805.1:** Model.
+- [ ] **EG-TYPED-PACKS-R805.2:** Behavior.
+- [ ] **EG-TYPED-PACKS-R805.3:** Wiring.
+- [ ] **EG-TYPED-PACKS-R805.4:** Refusal.
+- [ ] **EG-TYPED-PACKS-R805.5:** Evidence.
+- [ ] **EG-TYPED-PACKS-R805.6:** Hot-path proof.
+
+- [ ] **EG-TYPED-PACKS-R801.7:** Proposed descriptions for terms and assets.
+- [ ] **EG-TYPED-PACKS-R802.7:** Trust flags on assets.
+- [ ] **EG-TYPED-PACKS-R802.8:** Critical data elements.
+- [ ] **EG-TYPED-PACKS-R805.7:** Data product proposals.

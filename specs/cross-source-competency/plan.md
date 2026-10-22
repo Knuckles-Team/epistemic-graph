@@ -67,3 +67,7 @@ Question, then graph-os intent tool (graph-os repo), then EG `select_sources` re
 - Risk: connector operation contracts for erpnext, uptime and container-manager may not exist yet (cross-repo, `R002.7`, `R003.4`, `R003.5`).
 - Alternative rejected: naming connectors in the query. It fails the exit gate (`R007.4`).
 - Entity resolution quality for vendor names is unproven; approval gating bounds the risk.
+
+## Agent memory acceptance question (R009)
+
+R009 is the acceptance question for the agent-memory substrate. It composes `EG-FEDERATED-QUERY-R720` stages with `EG-DECISION-ENGINE-R700.7` contradiction records. arbora serves the program through [`ARBORA-OPS-R018`](https://github.com/Knuckles-Team/arbora/blob/main/specs/hosted-api-operations/requirements.md). `EG-DURABLE-KERNEL-R042.2` measures its latency.

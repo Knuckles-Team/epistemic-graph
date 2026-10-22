@@ -475,6 +475,15 @@ Workflow tests establish routing; exact-head hosted tests establish acceptance.
 
 The Rust advisory gate must reject RUSTSEC-2026-0378 and RUSTSEC-2026-0379 without policy exceptions. Move the existing Wasmtime 49.0.3 dependency family to the compatible 49.0.4 patch and retain the same enabled features. Validate the unchanged advisory gate and lockfile; full native compilation remains hosted CI work when the local compiler slot is limited to leaf contract crates.
 
+### Certificate dependency repair — 2026-10-21
+
+Remove the vulnerable certificate dependencies reported by RUSTSEC-2026-0381, RUSTSEC-2026-0382 and RUSTSEC-2026-0383.
+Use the patched certificate verifier and root bundles without advisory exceptions.
+The legacy HTTP client requires an unpatched root bundle, so migrate its existing calls to ureq 3.
+Preserve DNS pinning, proxy and redirect restrictions, TLS verification, custom CA augmentation, timeouts and response limits.
+Validate the unchanged advisory gate, locked compilation and focused transport regressions before review.
+No endpoint settings, credentials or deployed services change.
+
 ### 2026-10-22: reject distrusted TLS intermediates
 
 EG-CONTRACT-R031 retains the existing Rust advisory policy without new exceptions.
