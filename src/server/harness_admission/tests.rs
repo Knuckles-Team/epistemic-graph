@@ -43,6 +43,18 @@ fn add_node(node_id: String, props: &serde_json::Map<String, serde_json::Value>)
     }
 }
 
+/// The property blob the direct AddNode admission commits for `method`.
+fn admitted_blob(method: &Method, core: &GraphCore, tx_now: u64) -> Vec<u8> {
+    let admitted = direct_add_node(method, core, tx_now).unwrap();
+    let Method::AddNode {
+        properties_msgpack, ..
+    } = admitted
+    else {
+        panic!("AddNode came back")
+    };
+    properties_msgpack
+}
+
 // spec: EG-ORCH-VOCAB-R801.3
 #[test]
 fn harness_component_write_stamps_and_links() {
@@ -57,13 +69,7 @@ fn harness_component_write_stamps_and_links() {
         v1_id.clone(),
         &harness_version_props(component, "system_prompt", "blob:v1", 10, 0.8),
     );
-    let admitted = direct_add_node(&first, &core, 1000).unwrap();
-    let Method::AddNode {
-        properties_msgpack, ..
-    } = &admitted
-    else {
-        panic!("AddNode came back")
-    };
+    let properties_msgpack = &admitted_blob(&first, &core, 1000);
     let stamped = decode_props(properties_msgpack);
     assert_eq!(stamped["tx_from"], serde_json::json!(1000));
     assert!(stamped.get("supersedes_id").is_none());
@@ -75,13 +81,7 @@ fn harness_component_write_stamps_and_links() {
         v2_id.clone(),
         &harness_version_props(component, "system_prompt", "blob:v2", 20, 0.9),
     );
-    let admitted = direct_add_node(&second, &core, 2000).unwrap();
-    let Method::AddNode {
-        properties_msgpack, ..
-    } = &admitted
-    else {
-        panic!("AddNode came back")
-    };
+    let properties_msgpack = &admitted_blob(&second, &core, 2000);
     let stamped = decode_props(properties_msgpack);
     assert_eq!(stamped["tx_from"], serde_json::json!(2000));
     assert_eq!(stamped["supersedes_id"], serde_json::json!(v1_id));
@@ -94,13 +94,7 @@ fn harness_component_write_stamps_and_links() {
         v2_id.clone(),
         &harness_version_props(component, "system_prompt", "blob:v2", 20, 0.9),
     );
-    let admitted = direct_add_node(&replay, &core, 3000).unwrap();
-    let Method::AddNode {
-        properties_msgpack, ..
-    } = &admitted
-    else {
-        panic!("AddNode came back")
-    };
+    let properties_msgpack = &admitted_blob(&replay, &core, 3000);
     assert_eq!(properties_msgpack, &v2_blob);
     let replayed = decode_props(properties_msgpack);
     assert_eq!(replayed["tx_from"], serde_json::json!(2000));

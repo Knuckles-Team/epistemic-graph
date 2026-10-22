@@ -22,8 +22,7 @@ use eg_types::decision::harness_contrast::{
 };
 use eg_types::decision::statistical::declared::DeclaredOption;
 use eg_types::decision::statistical::{
-    CandidateSource, DecideRequest, QuestionKind, StatisticalErrorCode, StatisticalOutcome,
-    TypedValue,
+    CandidateSource, DecideRequest, QuestionKind, StatisticalOutcome, TypedValue,
 };
 use eg_types::decision::{AbstainReason, UnitRationalWire};
 use eg_types::orchestration::improvement::{
@@ -32,7 +31,7 @@ use eg_types::orchestration::improvement::{
 use eg_types::orchestration::is_harness_component_write;
 
 use super::stat_executor::Executed;
-use super::stat_support::{invalid_parameter, readable_graph};
+use super::stat_support::{filtered_view, invalid_parameter};
 
 /// The closed set of typed params a `harness_contrast` question must carry.
 const PARAM_TASK_REF: &str = "task_ref";
@@ -109,23 +108,7 @@ pub(super) async fn contrast_evidence_view(
     request: &DecideRequest,
 ) -> Result<eg_core::graph::GraphView, String> {
     let graph = typed_param(request, PARAM_GRAPH, "text")?;
-    let (core, isolation) = readable_graph(
-        state,
-        agent_id,
-        graph,
-        StatisticalErrorCode::CandidatePlanRefused,
-    )
-    .await?;
-    #[cfg(not(feature = "security"))]
-    let _ = isolation;
-    let view = core.analysis_snapshot();
-    #[cfg(feature = "security")]
-    let view = {
-        let mut view = view;
-        isolation.filter_view(agent_id, &mut view);
-        view
-    };
-    Ok(view)
+    filtered_view(state, agent_id, graph).await
 }
 
 /// `Some` only for a `HarnessContrast` question: the executed decision to

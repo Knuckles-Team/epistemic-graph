@@ -9009,7 +9009,7 @@
         "50ee57133655"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/harness_contrast.rs:528"
+        "crates/eg-types/src/decision/harness_contrast.rs:559"
       ]
     },
     {
@@ -9020,7 +9020,7 @@
         "50ee57133655"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/harness_contrast.rs:592"
+        "crates/eg-types/src/decision/harness_contrast.rs:611"
       ]
     },
     {
@@ -9032,8 +9032,8 @@
         "50ee57133655"
       ],
       "verified_by": [
-        "tests/decide/test_harness_contrast_served.py:313",
-        "tests/decide/test_harness_contrast_served.py:314"
+        "tests/decide/test_harness_contrast_served.py:257",
+        "tests/decide/test_harness_contrast_served.py:258"
       ]
     },
     {
@@ -9044,7 +9044,7 @@
         "50ee57133655"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/harness_contrast.rs:689"
+        "crates/eg-types/src/decision/harness_contrast.rs:704"
       ]
     },
     {
@@ -9055,7 +9055,7 @@
         "50ee57133655"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/harness_contrast.rs:914"
+        "crates/eg-types/src/decision/harness_contrast.rs:925"
       ]
     },
     {
@@ -9067,8 +9067,8 @@
         "50ee57133655"
       ],
       "verified_by": [
-        "tests/decide/test_harness_contrast_served.py:435",
-        "tests/decide/test_harness_contrast_served.py:436"
+        "tests/decide/test_harness_contrast_served.py:379",
+        "tests/decide/test_harness_contrast_served.py:380"
       ]
     },
     {

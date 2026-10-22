@@ -23,9 +23,10 @@ use super::stat_belief::points;
 use super::stat_classes::current_rules;
 use super::stat_executor::{
     pinned_inputs, recorded_explanation, run_on_matrix, Executed, ExecutionContext, MatrixInputs,
+    Pinned,
 };
 use super::stat_support::{
-    materialize_matrix, refusal, require_supported_question_kind, resolve_policy,
+    materialize_matrix, refusal, require_supported_question_kind, resolve_policy, ResolvedPolicy,
 };
 
 fn mismatch(detail: &str) -> String {
@@ -112,13 +113,7 @@ fn replay_harness_contrast(
     record: &StatisticalDecisionRecord,
 ) -> Result<StatisticalDecisionRecord, String> {
     let inputs = &record.inputs;
-    let pinned = pinned_inputs(ctx, &inputs.feature_schema, inputs.head.as_ref())?;
-    let policy = resolve_policy(ctx.store, ctx.tenant_id, &inputs.policy)?;
-    if policy.digest != inputs.policy_digest {
-        return Err(mismatch(
-            "the pinned policy no longer has the recorded digest",
-        ));
-    }
+    let (pinned, _policy) = pinned_and_policy(ctx, record)?;
     let mut names = pinned.schema.names();
     names.sort();
     let expected: Vec<&str> = CONTRAST_FEATURE_NAMES.to_vec();
@@ -134,6 +129,23 @@ fn replay_harness_contrast(
     let mut logged = record.clone();
     logged.record_digest = statistical_record_digest(&logged);
     Ok(logged)
+}
+
+/// The record's pinned feature schema and head, and its pinned policy, which
+/// must still carry the recorded digest.
+fn pinned_and_policy(
+    ctx: &ExecutionContext,
+    record: &StatisticalDecisionRecord,
+) -> Result<(Pinned, ResolvedPolicy), String> {
+    let inputs = &record.inputs;
+    let pinned = pinned_inputs(ctx, &inputs.feature_schema, inputs.head.as_ref())?;
+    let policy = resolve_policy(ctx.store, ctx.tenant_id, &inputs.policy)?;
+    if policy.digest != inputs.policy_digest {
+        return Err(mismatch(
+            "the pinned policy no longer has the recorded digest",
+        ));
+    }
+    Ok((pinned, policy))
 }
 
 /// Re-derive `record` and return the copy to log, with its seed revealed.
@@ -160,13 +172,7 @@ pub(super) fn replay(
             "the record's classes were derived under another rule set",
         ));
     }
-    let pinned = pinned_inputs(ctx, &inputs.feature_schema, inputs.head.as_ref())?;
-    let policy = resolve_policy(ctx.store, ctx.tenant_id, &inputs.policy)?;
-    if policy.digest != inputs.policy_digest {
-        return Err(mismatch(
-            "the pinned policy no longer has the recorded digest",
-        ));
-    }
+    let (pinned, policy) = pinned_and_policy(ctx, record)?;
     let matrix_inputs = MatrixInputs {
         question: &record.question,
         params: inputs.params.as_slice(),

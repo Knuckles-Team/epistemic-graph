@@ -17,14 +17,14 @@
 //!
 //! Run: cargo bench --features server --bench harness_lessons
 
-use std::time::Instant;
+#[path = "common/harness_admission.rs"]
+mod harness_bench;
 
 use eg_types::contract::BoundedVec;
 use eg_types::orchestration::improvement::{HarnessLesson, HarnessProbeRun};
 use eg_types::orchestration::HarnessComponentKind;
 use epistemic_graph::graph::GraphCore;
 use epistemic_graph::protocol::Method;
-use epistemic_graph::server::harness_admission::direct_add_node;
 
 const TASK_CLASSES: usize = 100;
 const DEFICIENCIES: usize = 100;
@@ -107,50 +107,25 @@ fn main() {
     let core = GraphCore::new();
 
     // The two probe runs the lessons cite, admitted through the same path.
-    for trace in ["trace-a", "trace-b"] {
-        let admitted = direct_add_node(&probe_run_write(trace, 1), &core, 1)
-            .unwrap_or_else(|error| panic!("probe run write refused: {error}"));
-        let Method::AddNode {
-            node_id,
-            properties_msgpack,
-        } = &admitted
-        else {
-            panic!("admission must keep the AddNode method");
-        };
-        core.add_node(node_id.clone(), properties_msgpack.clone());
+    for (index, trace) in ["trace-a", "trace-b"].into_iter().enumerate() {
+        harness_bench::admit_and_project(&core, index, &probe_run_write(trace, 1), 1);
     }
 
     // The 10k-lesson library, one lesson per (task class, deficiency).
     let mut latencies_ns = Vec::with_capacity(LESSONS);
     for index in 0..LESSONS {
         let method = lesson_write(index, (index as u64 + 1) * 1_000);
-        let started = Instant::now();
-        let admitted = direct_add_node(&method, &core, (index as u64 + 1) * 1_000)
-            .unwrap_or_else(|error| panic!("write {index} refused: {error}"));
-        let Method::AddNode {
-            node_id: stored_id,
-            properties_msgpack,
-        } = &admitted
-        else {
-            panic!("admission must keep the AddNode method");
-        };
-        core.add_node(stored_id.clone(), properties_msgpack.clone());
-        latencies_ns.push(started.elapsed().as_nanos());
+        latencies_ns.push(harness_bench::admit_and_project(
+            &core,
+            index,
+            &method,
+            (index as u64 + 1) * 1_000,
+        ));
     }
 
-    let mut sorted = latencies_ns.clone();
-    sorted.sort_unstable();
-    let p50 = sorted[sorted.len() / 2];
-    let p99 = sorted[(sorted.len() as f64 * 0.99) as usize];
-    let max = *sorted.last().unwrap();
-    println!("harness lesson writes into a {LESSONS}-lesson library:");
-    println!("  p50 = {p50} ns");
-    println!("  p99 = {p99} ns");
-    println!("  max = {max} ns");
-    if p99 < BUDGET_P99_NS {
-        println!("  PASS (budget: p99 under {BUDGET_P99_NS} ns)");
-    } else {
-        println!("  FAIL (budget: p99 under {BUDGET_P99_NS} ns)");
-        std::process::exit(1);
-    }
+    harness_bench::report(
+        &format!("harness lesson writes into a {LESSONS}-lesson library"),
+        &latencies_ns,
+        BUDGET_P99_NS,
+    );
 }

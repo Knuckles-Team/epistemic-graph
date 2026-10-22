@@ -460,23 +460,9 @@ pub(super) async fn filtered_graph_view(
     let CandidateSource::Graph { graph, .. } = source else {
         return Ok(None);
     };
-    let (core, isolation) = super::stat_support::readable_graph(
-        state,
-        agent_id,
-        graph,
-        StatisticalErrorCode::CandidatePlanRefused,
-    )
-    .await?;
-    #[cfg(not(feature = "security"))]
-    let _ = isolation;
-    let view = core.analysis_snapshot();
-    #[cfg(feature = "security")]
-    let view = {
-        let mut view = view;
-        isolation.filter_view(agent_id, &mut view);
-        view
-    };
-    Ok(Some(view))
+    Ok(Some(
+        super::stat_support::filtered_view(state, agent_id, graph).await?,
+    ))
 }
 
 /// Without the query feature a graph source is refused before any read.

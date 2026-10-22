@@ -475,12 +475,8 @@ pub fn register_lesson(
     if !cited(&run_a.trace_id) || !cited(&run_b.trace_id) {
         return Err(ImprovementLibraryRefusal::LessonWithoutEvidence);
     }
-    // A published record never mutates: the same record replays as an
-    // idempotent no-op, anything else with the same identity refuses.
-    match lessons.iter().find(|l| l.node_id() == new.node_id()) {
-        Some(existing) if *existing == new => return Ok(()),
-        Some(_) => return Err(ImprovementLibraryRefusal::RecordImmutable),
-        None => {}
+    if replayed_or_immutable(lessons.iter().find(|l| l.node_id() == new.node_id()), &new)? {
+        return Ok(());
     }
     let head = lessons
         .iter()
@@ -534,12 +530,11 @@ pub fn register_adoption(
     tx_now: u64,
 ) -> Result<(), ImprovementLibraryRefusal> {
     new.validate()?;
-    // A published adoption never mutates either: the same record replays as
-    // an idempotent no-op, anything else with the same identity refuses.
-    match adoptions.iter().find(|a| a.node_id() == new.node_id()) {
-        Some(existing) if *existing == new => return Ok(()),
-        Some(_) => return Err(ImprovementLibraryRefusal::RecordImmutable),
-        None => {}
+    if replayed_or_immutable(
+        adoptions.iter().find(|a| a.node_id() == new.node_id()),
+        &new,
+    )? {
+        return Ok(());
     }
     let head = adoptions
         .iter()
@@ -569,6 +564,29 @@ pub fn register_adoption(
 
 /// Whether `record` is current at `as_of`: not superseded at or before it,
 /// and (when it supersedes an older one) stamped at or before it.
+/// Owned `(new, superseded, valid_at)` supersession edges.
+fn supersession_edges<'e>(
+    edges: impl Iterator<Item = (&'e String, &'e String, u64)>,
+) -> Vec<(String, String, u64)> {
+    edges
+        .map(|(new, superseded, valid_at)| (new.clone(), superseded.clone(), valid_at))
+        .collect()
+}
+
+/// A published record never mutates: the same record replays as an
+/// idempotent no-op (`Ok(true)`); anything else with the same identity
+/// refuses.
+fn replayed_or_immutable<T: PartialEq>(
+    existing: Option<&T>,
+    new: &T,
+) -> Result<bool, ImprovementLibraryRefusal> {
+    match existing {
+        Some(existing) if existing == new => Ok(true),
+        Some(_) => Err(ImprovementLibraryRefusal::RecordImmutable),
+        None => Ok(false),
+    }
+}
+
 fn edge_current_at(record_id: &str, supersessions: &[(String, String, u64)], as_of: u64) -> bool {
     !supersessions
         .iter()
@@ -593,16 +611,11 @@ pub fn retrieve_lessons<'a>(
     trajectory_features: &[String],
     as_of: u64,
 ) -> Result<Vec<&'a HarnessLesson>, ImprovementLibraryRefusal> {
-    let edges: Vec<(String, String, u64)> = supersessions
-        .iter()
-        .map(|e| {
-            (
-                e.new_version.clone(),
-                e.superseded_version.clone(),
-                e.valid_at,
-            )
-        })
-        .collect();
+    let edges = supersession_edges(
+        supersessions
+            .iter()
+            .map(|e| (&e.new_version, &e.superseded_version, e.valid_at)),
+    );
     let hits: Vec<&HarnessLesson> = lessons
         .iter()
         .filter(|l| {
@@ -636,16 +649,11 @@ pub fn current_adopted_harness<'a>(
     task_class: &str,
     as_of: u64,
 ) -> Option<&'a AdoptedHarness> {
-    let edges: Vec<(String, String, u64)> = supersessions
-        .iter()
-        .map(|e| {
-            (
-                e.new_version.clone(),
-                e.superseded_version.clone(),
-                e.valid_at,
-            )
-        })
-        .collect();
+    let edges = supersession_edges(
+        supersessions
+            .iter()
+            .map(|e| (&e.new_version, &e.superseded_version, e.valid_at)),
+    );
     adoptions.iter().rev().find(|a| {
         a.agent_ref == agent_ref
             && a.task_class == task_class

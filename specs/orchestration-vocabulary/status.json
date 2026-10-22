@@ -1337,7 +1337,7 @@
         "c54aa624a21c"
       ],
       "verified_by": [
-        "src/server/harness_admission/tests.rs:46"
+        "src/server/harness_admission/tests.rs:58"
       ]
     },
     {
@@ -1370,7 +1370,7 @@
         "c54aa624a21c"
       ],
       "verified_by": [
-        "tests/orchestration/test_harness_components_served.py:119"
+        "tests/orchestration/test_harness_components_served.py:63"
       ]
     },
     {
@@ -1429,7 +1429,7 @@
         "2be15ffa3021"
       ],
       "verified_by": [
-        "crates/eg-types/tests/harness_lessons.rs:400"
+        "crates/eg-types/tests/harness_lessons.rs:408"
       ]
     },
     {
@@ -1440,7 +1440,7 @@
         "2be15ffa3021"
       ],
       "verified_by": [
-        "crates/eg-types/tests/harness_lessons.rs:562"
+        "crates/eg-types/tests/harness_lessons.rs:568"
       ]
     },
     {
@@ -1451,7 +1451,7 @@
         "2be15ffa3021"
       ],
       "verified_by": [
-        "tests/orchestration/test_harness_lessons_served.py:210"
+        "tests/orchestration/test_harness_lessons_served.py:154"
       ]
     }
   ]
