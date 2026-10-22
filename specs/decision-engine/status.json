@@ -873,7 +873,14 @@
     "EG-DECISION-ENGINE-R803.4",
     "EG-DECISION-ENGINE-R803.5",
     "EG-DECISION-ENGINE-R803.6",
-    "EG-DECISION-ENGINE-R036.102"
+    "EG-DECISION-ENGINE-R036.102",
+    "EG-DECISION-ENGINE-R134.111",
+    "EG-DECISION-ENGINE-R134.111.1",
+    "EG-DECISION-ENGINE-R134.111.2",
+    "EG-DECISION-ENGINE-R134.111.3",
+    "EG-DECISION-ENGINE-R134.111.4",
+    "EG-DECISION-ENGINE-R134.111.5",
+    "EG-DECISION-ENGINE-R134.111.6"
   ],
   "requirements": [
     {
@@ -1431,7 +1438,7 @@
         "b23e8815f42c"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/statistical.rs:363"
+        "crates/eg-types/src/decision/statistical.rs:370"
       ]
     },
     {
@@ -1464,7 +1471,7 @@
         "b23e8815f42c"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/statistical.rs:370"
+        "crates/eg-types/src/decision/statistical.rs:377"
       ]
     },
     {
@@ -2336,7 +2343,7 @@
         "aea4fe89bd19"
       ],
       "verified_by": [
-        "crates/eg-capabilities/src/error_routing.rs:341",
+        "crates/eg-capabilities/src/error_routing.rs:342",
         "src/server/handlers/admin/connector_pack/tests/content_model.rs:372",
         "src/server/handlers/admin/connector_pack/tests/content_model.rs:407",
         "src/server/handlers/admin/connector_pack/tests/withdrawal.rs:43"
@@ -3727,7 +3734,7 @@
         "c7da75413a3c"
       ],
       "verified_by": [
-        "crates/eg-types/src/decision/statistical.rs:351",
+        "crates/eg-types/src/decision/statistical.rs:358",
         "src/server/handlers/decide/stat_tests/harness_config_tests.rs:57",
         "src/server/handlers/decide/stat_tests/harness_config_tests.rs:98"
       ]
@@ -4253,7 +4260,8 @@
         "EG-DECISION-ENGINE-R134.109",
         "EG-DECISION-ENGINE-R134.110",
         "EG-DECISION-ENGINE-R134.750",
-        "EG-DECISION-ENGINE-R134.751"
+        "EG-DECISION-ENGINE-R134.751",
+        "EG-DECISION-ENGINE-R134.111"
       ]
     },
     {
@@ -9026,6 +9034,93 @@
     {
       "id": "EG-DECISION-ENGINE-R036.102",
       "title": "Bind graph participant prepare records to their recovery identity",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R134.111",
+      "title": "Bounded explicit task graphs (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "EG-DECISION-ENGINE-R134.111.1",
+        "EG-DECISION-ENGINE-R134.111.2",
+        "EG-DECISION-ENGINE-R134.111.3",
+        "EG-DECISION-ENGINE-R134.111.4",
+        "EG-DECISION-ENGINE-R134.111.5",
+        "EG-DECISION-ENGINE-R134.111.6"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R134.111.1",
+      "title": "Model",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "2f8b61b390e9"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/decision/task_plan/tests.rs:26",
+        "tests/test_task_plan_client.py:10"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R134.111.2",
+      "title": "Behavior",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "2f8b61b390e9"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/decision/task_plan/tests.rs:169",
+        "crates/eg-types/src/decision/task_plan/tests.rs:43"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R134.111.3",
+      "title": "Wiring",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "2f8b61b390e9"
+      ],
+      "verified_by": [
+        "src/server/handlers/decide/stat_tests/task_plan_tests.rs:60",
+        "tests/decide/test_task_plan_served.py:224",
+        "tests/decide/test_task_plan_served.py:346"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R134.111.4",
+      "title": "Refusal",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "2f8b61b390e9"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/decision/task_plan/tests.rs:117",
+        "crates/eg-types/src/decision/task_plan/tests.rs:195",
+        "crates/eg-types/src/decision/task_plan/tests.rs:82",
+        "src/server/handlers/decide/stat_tests/task_plan_tests.rs:117",
+        "tests/decide/test_task_plan_served.py:292"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R134.111.5",
+      "title": "Evidence",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "2f8b61b390e9"
+      ],
+      "verified_by": [
+        "src/server/handlers/decide/stat_tests/task_plan_tests.rs:155",
+        "src/server/handlers/decide/stat_tests/task_plan_tests.rs:61",
+        "tests/decide/test_task_plan_served.py:225"
+      ]
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R134.111.6",
+      "title": "Performance qualification",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

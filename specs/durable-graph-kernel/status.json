@@ -379,7 +379,13 @@
     "EG-DURABLE-KERNEL-R852.5",
     "EG-DURABLE-KERNEL-R852.6",
     "EG-DURABLE-KERNEL-R028.4",
-    "EG-DURABLE-KERNEL-R028.5"
+    "EG-DURABLE-KERNEL-R028.5",
+    "EG-DURABLE-KERNEL-R028.5.1",
+    "EG-DURABLE-KERNEL-R028.5.2",
+    "EG-DURABLE-KERNEL-R028.5.3",
+    "EG-DURABLE-KERNEL-R028.5.4",
+    "EG-DURABLE-KERNEL-R028.4.1",
+    "EG-DURABLE-KERNEL-R028.4.2"
   ],
   "requirements": [
     {
@@ -4106,26 +4112,108 @@
       "id": "EG-DURABLE-KERNEL-R028.4",
       "title": "Bind run ownership during native admission",
       "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "landed_in": [
+        "2f8b61b390e9"
+      ],
       "verified_by": [
-        "src/redb_store/work_item/row_guard.rs:263",
-        "tests/adopt_workitem_authenticated_replay.rs:451"
+        "src/redb_store/work_item/row_guard.rs:267",
+        "tests/adopt_workitem_authenticated_replay.rs:451",
+        "tests/test_work_item_retry_identity.py:128",
+        "tests/test_work_item_retry_identity.py:274"
+      ],
+      "rollup_of": [
+        "EG-DURABLE-KERNEL-R028.4.1",
+        "EG-DURABLE-KERNEL-R028.4.2"
       ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R028.5",
       "title": "Native current-plan publication and readback",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "88fc4a5577c7"
       ],
       "verified_by": [
         "crates/eg-storage/src/owner/agent_library_upgrade/tests.rs:293",
-        "crates/eg-types/src/current_plan.rs:106",
-        "src/redb_store/work_item/current_plan/tests.rs:131",
-        "src/redb_store/work_item/current_plan/tests.rs:62",
-        "src/redb_store/work_item/current_plan/tests.rs:95"
+        "crates/eg-types/src/current_plan/tests.rs:3",
+        "src/redb_store/work_item/current_plan/tests.rs:135",
+        "src/redb_store/work_item/current_plan/tests.rs:66",
+        "src/redb_store/work_item/current_plan/tests.rs:99"
+      ],
+      "rollup_of": [
+        "EG-DURABLE-KERNEL-R028.5.1",
+        "EG-DURABLE-KERNEL-R028.5.2",
+        "EG-DURABLE-KERNEL-R028.5.3",
+        "EG-DURABLE-KERNEL-R028.5.4"
       ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R028.5.1",
+      "title": "Typed executable attachment",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "2f8b61b390e9"
+      ],
+      "verified_by": [
+        "crates/eg-types/src/current_plan/tests.rs:20",
+        "crates/eg-types/src/current_plan/tests.rs:56"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R028.5.2",
+      "title": "Immutable fenced attachment",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "2f8b61b390e9"
+      ],
+      "verified_by": [
+        "src/redb_store/work_item/current_plan/tests/attachment.rs:13",
+        "src/redb_store/work_item/current_plan/tests/attachment.rs:139",
+        "src/redb_store/work_item/current_plan/tests/attachment.rs:61"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R028.5.3",
+      "title": "Attachment replay and recovery",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "2f8b61b390e9"
+      ],
+      "verified_by": [
+        "src/server/mutation_batch/digest.rs:319",
+        "tests/adopt_workitem_authenticated_replay.rs:582",
+        "tests/decide/test_task_plan_served.py:226",
+        "tests/decide/test_task_plan_served.py:347"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R028.5.4",
+      "title": "Attachment performance qualification",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R028.4.1",
+      "title": "Owner-bound admission recovery",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "2f8b61b390e9"
+      ],
+      "verified_by": [
+        "src/redb_store/work_item/row_guard.rs:317",
+        "src/redb_store/work_item/run_owner/tests.rs:104",
+        "src/redb_store/work_item/run_owner/tests.rs:132",
+        "src/redb_store/work_item/run_owner/tests.rs:164",
+        "src/redb_store/work_item/run_owner/tests.rs:65"
+      ]
+    },
+    {
+      "id": "EG-DURABLE-KERNEL-R028.4.2",
+      "title": "Admission recovery performance qualification",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     }
   ]
 }
