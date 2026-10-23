@@ -410,6 +410,13 @@ async fn run_state_with(
     state
 }
 
+async fn fresh_run_state(label: &str) -> (String, Arc<RedbBackend>, test_support::SharedState) {
+    let dir = temp_dir(label);
+    let concrete = Arc::new(RedbBackend::open(dir.clone(), 8192).unwrap());
+    let state = run_state_with(concrete.clone(), dir.clone()).await;
+    (dir, concrete, state)
+}
+
 async fn reopen_run_state(
     state: test_support::SharedState,
     concrete: Arc<RedbBackend>,
@@ -452,9 +459,7 @@ fn signed_run_request(id: u64, method: Method, idempotency_key: &str) -> Request
 #[tokio::test]
 async fn run_admission_binds_verified_owner_and_replays_without_row_changes() {
     use sha2::{Digest, Sha256};
-    let dir = temp_dir("eg-run-owner-admission");
-    let concrete = Arc::new(RedbBackend::open(dir.clone(), 8192).unwrap());
-    let state = run_state_with(concrete.clone(), dir.clone()).await;
+    let (dir, concrete, state) = fresh_run_state("eg-run-owner-admission").await;
     let first = test_support::dispatch(
         &state,
         signed_request_with_agent(
@@ -809,17 +814,21 @@ async fn current_plan_native_publish_read_and_receipt_replay() {
 
 // Locate the native receipt independently of the transport request number.
 fn current_plan_receipt_id(key: &str, revision: u64) -> String {
-    use sha2::{Digest, Sha256};
-    let mut hash = Sha256::new();
-    hash.update(b"epistemic-graph.work-item-terminal.v1");
-    for field in [
+    work_item_receipt_id(&[
         GRAPH,
         TENANT,
         key,
         "publish",
         "run-owner-admission",
         &revision.to_string(),
-    ] {
+    ])
+}
+
+fn work_item_receipt_id(fields: &[&str]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hash = Sha256::new();
+    hash.update(b"epistemic-graph.work-item-terminal.v1");
+    for field in fields {
         hash.update((field.len() as u64).to_be_bytes());
         hash.update(field.as_bytes());
     }
@@ -910,9 +919,7 @@ async fn current_plan_expired_replay(
 #[tokio::test]
 async fn run_admission_owner_read_survives_native_changes_and_restart() {
     use eg_types::work_item_read::RunWorkItemView;
-    let dir = temp_dir("eg-run-admission-read");
-    let concrete = Arc::new(RedbBackend::open(dir.clone(), 8192).unwrap());
-    let state = run_state_with(concrete.clone(), dir.clone()).await;
+    let (dir, concrete, state) = fresh_run_state("eg-run-admission-read").await;
     let Method::SubmitWorkItem { request: original } = run_submit_method() else {
         unreachable!()
     };
@@ -1096,9 +1103,7 @@ async fn change_and_cancel_admission(
 #[tokio::test]
 async fn run_admission_concurrent_retry_recovers_exact_winner() {
     use eg_types::work_item_read::RunWorkItemView;
-    let dir = temp_dir("eg-run-admission-race");
-    let concrete = Arc::new(RedbBackend::open(dir.clone(), 8192).unwrap());
-    let state = run_state_with(concrete.clone(), dir.clone()).await;
+    let (dir, concrete, state) = fresh_run_state("eg-run-admission-race").await;
     let Method::SubmitWorkItem { request: original } = run_submit_method() else {
         unreachable!()
     };
@@ -1160,21 +1165,14 @@ async fn run_admission_concurrent_retry_recovers_exact_winner() {
 }
 
 fn admission_receipt_id() -> String {
-    use sha2::{Digest, Sha256};
-    let mut hash = Sha256::new();
-    hash.update(b"epistemic-graph.work-item-terminal.v1");
-    for field in [
+    work_item_receipt_id(&[
         GRAPH,
         TENANT,
         "work-item-inner-key",
         "admit",
         "admission",
         "run-owner-admission",
-    ] {
-        hash.update((field.len() as u64).to_be_bytes());
-        hash.update(field.as_bytes());
-    }
-    format!("work:{}", hex::encode(hash.finalize()))
+    ])
 }
 
 async fn admission_durable_bytes(backend: &RedbBackend, item: &str) -> Vec<u8> {
@@ -1307,9 +1305,7 @@ async fn assert_strict_admission_recovery(
 // spec: EG-DURABLE-KERNEL-R028.4.1
 #[tokio::test]
 async fn strict_run_admission_refusals_preserve_durable_evidence_after_restart() {
-    let dir = temp_dir("eg-strict-run-admission");
-    let concrete = Arc::new(RedbBackend::open(dir.clone(), 8192).unwrap());
-    let state = run_state_with(concrete.clone(), dir.clone()).await;
+    let (dir, concrete, state) = fresh_run_state("eg-strict-run-admission").await;
     let admitted: SubmitWorkItemResult = decode_raw(
         &test_support::dispatch(
             &state,
