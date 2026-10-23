@@ -9673,7 +9673,8 @@
       "title": "Bounded aggregation and client contract",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "446aebcfb66c"
+        "446aebcfb66c",
+        "495b5a0ee7c7"
       ],
       "verified_by": [
         "crates/eg-capabilities/tests/contract_registry.rs:278",
@@ -9688,7 +9689,8 @@
       "title": "Native completion projection",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "446aebcfb66c"
+        "446aebcfb66c",
+        "495b5a0ee7c7"
       ],
       "verified_by": [
         "src/redb_store/work_item/run_owner/tests.rs:773",
