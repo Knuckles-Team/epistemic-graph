@@ -1045,8 +1045,13 @@ jobs:
       - name: Install espeak-ng / bindgen native build dependencies
         run: |
           set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends build-essential cmake clang libclang-dev pkg-config curl ca-certificates
+          # Skip apt entirely when every package is already installed: a slow
+          # mirror (`apt-get update` + download) cancelled this job at its
+          # 10-minute PR budget before any test ran (#735, #738, #740).
+          if dpkg -s build-essential cmake clang libclang-dev pkg-config curl ca-certificates >/dev/null 2>&1; then exit 0; fi
+          # Fail fast and retry: a stalled download must not hang to the job cap.
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 update
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 install -y --no-install-recommends build-essential cmake clang libclang-dev pkg-config curl ca-certificates
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: stable

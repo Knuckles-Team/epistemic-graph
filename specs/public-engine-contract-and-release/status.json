@@ -733,6 +733,7 @@
       ],
       "verified_by": [
         "tests/test_ci_change_scope.py:509",
+        "tests/test_ci_change_scope.py:858",
         "tests/test_release_gates_test_target_coverage.py:62"
       ]
     },
