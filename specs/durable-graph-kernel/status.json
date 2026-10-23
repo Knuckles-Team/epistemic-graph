@@ -4501,9 +4501,17 @@
     {
       "id": "EG-DURABLE-KERNEL-R861",
       "title": "Graph lifecycle replay and graph listing survive a patch upgrade (rollup)",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "9d5b6a58de75",
+        "eec3e5ffbf2d",
+        "f3b89fbc5e09",
+        "fcb8d033061e"
+      ],
+      "verified_by": [
+        "src/server/mutation_batch/lifecycle_tests.rs:480",
+        "tests/test_upgrade_store_listing.py:39"
+      ],
       "rollup_of": [
         "EG-DURABLE-KERNEL-R861.1",
         "EG-DURABLE-KERNEL-R861.2"
@@ -4524,10 +4532,14 @@
     },
     {
       "id": "EG-DURABLE-KERNEL-R861.2",
-      "title": "Graph listing survives a patch upgrade",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "title": "Graph listing survives a restart and a patch upgrade",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "eec3e5ffbf2d"
+      ],
+      "verified_by": [
+        "tests/test_upgrade_store_listing.py:39"
+      ]
     },
     {
       "id": "EG-DURABLE-KERNEL-R028.4.3",
