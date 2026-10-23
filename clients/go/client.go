@@ -960,3 +960,13 @@ func (c *Client) NlQuery(text, graph string) (any, error) {
 	}
 	return c.send("NlQuery", nlQueryParams{Text: text, Graph: targetGraph}, targetGraph)
 }
+
+// NlQueryExplain answers {uql, rows}: the executed UQL with the same rows as NlQuery
+// (EG-FEDERATED-QUERY-R058.2.2.1).
+func (c *Client) NlQueryExplain(text, graph string) (any, error) {
+	targetGraph := graph
+	if targetGraph == "" {
+		targetGraph = c.graph
+	}
+	return c.send("NlQueryExplain", nlQueryParams{Text: text, Graph: targetGraph}, targetGraph)
+}

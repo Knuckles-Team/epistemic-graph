@@ -215,11 +215,11 @@ fn every_wire_variant_has_exactly_one_descriptor_and_vice_versa() {
     // EG-DECISION-ENGINE-R802 `SelectWebPages`.
     // 468 -> 470: EG-DURABLE-KERNEL-R028.5 `PublishCurrentPlan` and `GetCurrentPlan`.
     // 470 -> 471: EG-DURABLE-KERNEL-R028.4.1 owner-bound GetRunWorkItem.
-    // 471 -> 475: GetSessionUsage, IssueHostStartGrant, PublishRunCheckpoint
-    // and GetRunCheckpoint compose the usage, host and checkpoint slices.
+    // 471 -> 476: GetSessionUsage, IssueHostStartGrant, PublishRunCheckpoint,
+    // GetRunCheckpoint and main NlQueryExplain compose the five additions.
     assert_eq!(
         variants.len(),
-        475,
+        476,
         "the wire method census changed; update this exact count deliberately"
     );
 }

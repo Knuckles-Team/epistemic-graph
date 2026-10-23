@@ -135,7 +135,6 @@ class AgentComponentFactsModelProfile(BaseModel):
     context_window_tokens: Annotated[int, Field(ge=0)]
     cost: CostFacts | None = None
     facts: Literal["model_profile"]
-    input_capabilities: ModelInputCapabilities | None = None
     latency_declared: DeclaredLatency | None = None
     latency_observed_ref: ObservationRef | None = None
     max_output_tokens: Annotated[int, Field(ge=0)]
@@ -983,21 +982,6 @@ class ModalityFacts(BaseModel):
 
     input: list[str] = Field(default_factory=list)
     output: list[str] = Field(default_factory=list)
-
-
-class ModelInputCapabilities(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
-
-    max_aggregate_bytes: Annotated[int, Field(ge=0)]
-    max_parts: Annotated[int, Field(ge=0)]
-    media_types: list[ModelInputMediaType]
-
-
-class ModelInputMediaType(str, Enum):
-    TEXT_PLAIN = "text/plain"
-    IMAGE_PNG = "image/png"
-    IMAGE_JPEG = "image/jpeg"
-    IMAGE_WEBP = "image/webp"
 
 
 class ObjectiveLevelKind(str, Enum):
@@ -2121,8 +2105,6 @@ MeasuredFact_StoppingBehaviour.model_rebuild()
 
 ModalityFacts.model_rebuild()
 
-ModelInputCapabilities.model_rebuild()
-
 ObjectiveLevelSpec.model_rebuild()
 
 ObjectiveOrderLexicographic.model_rebuild()
@@ -2431,8 +2413,6 @@ __all__ = [
     "MeasuredFact_ShellProficiency",
     "MeasuredFact_StoppingBehaviour",
     "ModalityFacts",
-    "ModelInputCapabilities",
-    "ModelInputMediaType",
     "Nonce",
     "ObjectiveLevelKind",
     "ObjectiveLevelSpec",

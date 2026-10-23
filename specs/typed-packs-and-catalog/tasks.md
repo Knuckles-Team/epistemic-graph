@@ -320,3 +320,5 @@ The existing Resolve operation accepts optional `refresh`. False preserves the c
 ## R085 acceptance qualification layers
 
 R085.4–R085.7 preserve their parent obligations as rollups. Their .1 children cover pure store transitions; .2 children require durable owner execution. R085.5.3 covers request stamping only. R085.7.3, R085.4.3, R085.5.4 and R085.6.3 retain generated/served qualification. A passing unit filter is not evidence for unexecuted durable or served acceptance. Source markers bind only their matching layer.
+
+- [ ] **EG-TYPED-PACKS-R105.3:** Parent catalog declares the recurring connector concepts.

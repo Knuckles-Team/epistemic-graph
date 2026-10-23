@@ -2683,6 +2683,9 @@ mod tests {
     // EH-373 foreign-source tenancy proofs through the full served dispatch chain.
     #[cfg(all(feature = "federation", feature = "nl-query"))]
     mod foreign_tenancy;
+    // EG-FEDERATED-QUERY-R058.2.2.1 NlQueryExplain proofs through the full served chain.
+    #[cfg(all(feature = "query", feature = "nl-query"))]
+    mod nl_explain;
     // EH-374 WASM UDF tenancy proofs through the full served dispatch chain.
     #[cfg(feature = "wasm-udf")]
     mod udf_tenancy;

@@ -81,7 +81,23 @@ _CANNED: dict[str, Any] = {
         "restored_shards": 2,
     },
     "NlQuery": [{"id": "n1"}],
+    "NlQueryExplain": {"uql": "MATCH (:Doc) |> LIMIT 1", "rows": [["n1", None]]},
 }
+
+
+@pytest.mark.spec("EG-FEDERATED-QUERY-R058.2.2.1")
+@pytest.mark.asyncio
+async def test_nl_query_explain_wire_shape() -> None:
+    fake = _FakeClient()
+    q = QueryClient(fake)
+
+    out = await q.nl_query_explain("recent docs", graph="agent:planner")
+
+    method, params, graph = fake.sent[-1]
+    assert method == "NlQueryExplain"
+    assert params == {"text": "recent docs", "graph": "agent:planner"}
+    assert graph == "agent:planner"
+    assert out == {"uql": "MATCH (:Doc) |> LIMIT 1", "rows": [["n1", None]]}
 
 
 @pytest.mark.asyncio

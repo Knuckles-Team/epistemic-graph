@@ -668,10 +668,11 @@ ex:parent a owl:AsymmetricProperty .
         // was removed from the Person/Organization/Server/Event disjointness because
         // it is a subclass of `:Event` (EH-356), plus the 8 triples declaring BFO
         // realizable entity and disposition, the category of `:Skill`, plus BFO's
-        // `Continuant owl:disjointWith Occurrent` (operator ruling, EH-363); plus 138 for
+        // `Continuant owl:disjointWith Occurrent` (operator ruling, EH-363); plus 60 for
+        // the core connector parent classes (EG-TYPED-PACKS-R105.3); plus 138 for
         // the world model: BFO material entity and object, the RO/BFO-aligned shared
         // relations, and the shared reference-term / quantity / observation vocabulary.
-        assert_eq!(triples.len(), 1_025);
+        assert_eq!(triples.len(), 1_085);
         for required in [
             "http://knuckles.team/kg#Concept",
             "http://knuckles.team/kg#Evidence",
@@ -723,7 +724,9 @@ ex:parent a owl:AsymmetricProperty .
         // +8: TaskStep and BestPractice (EG-ORCH-VOCAB-R001.1/R004.1).
         // +4: the shell-centric task vocabulary -- `swarm:shellCentric`'s
         // declaration, domain, range and comment (EG-TYPED-PACKS-R066.2).
-        assert_eq!(composed.ontology.len(), 13_763);
+        // +129: the 19 connector parent classes across the core, software, sdlc,
+        // company, infrastructure and supply-chain modules (EG-TYPED-PACKS-R105.3).
+        assert_eq!(composed.ontology.len(), 13_892);
 
         let ontology_subjects: BTreeSet<String> = composed
             .ontology
@@ -772,7 +775,8 @@ ex:parent a owl:AsymmetricProperty .
         // +8: the two orchestration vocabulary class declarations.
         // +4: the shell-centric task vocabulary -- `swarm:shellCentric`'s
         // declaration, domain, range and comment (EG-TYPED-PACKS-R066.2).
-        assert_eq!(semantic_axioms, 13_577);
+        // +129: the 19 connector parent classes (EG-TYPED-PACKS-R105.3).
+        assert_eq!(semantic_axioms, 13_706);
 
         let count_type = |object: &str| {
             composed
@@ -826,7 +830,8 @@ ex:parent a owl:AsymmetricProperty .
             // +9: finance (EH-411); +1: EH-420/EH-421.
             // +4: Account, Position, Activity and Lot specialize BFO GDC.
             // +2: TaskStep specializes Entity; BestPractice specializes DevelopmentStandard.
-            464
+            // +18: the connector parent classes (EG-TYPED-PACKS-R105.3).
+            482
         );
     }
 

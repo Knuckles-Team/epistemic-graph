@@ -171,8 +171,6 @@ from ._shared import (
     MeasuredFact_ShellProficiency,
     MeasuredFact_StoppingBehaviour,
     ModalityFacts,
-    ModelInputCapabilities,
-    ModelInputMediaType,
     Nonce,
     ObjectiveLevelKind,
     ObjectiveLevelSpec,
@@ -11148,6 +11146,13 @@ class MethodNlQuery(BaseModel):
     params: MethodNlQueryParams
 
 
+class MethodNlQueryExplain(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["NlQueryExplain"]
+    params: MethodNlQueryExplainParams
+
+
 class MethodRegisterForeignSource(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -12515,6 +12520,7 @@ Method = Annotated[
     | MethodCausalCounterfactual
     | MethodRankByProvenance
     | MethodNlQuery
+    | MethodNlQueryExplain
     | MethodRegisterForeignSource
     | MethodQueryForeignColumns
     | MethodRegisterUdf
@@ -14956,6 +14962,13 @@ class MethodMutationOutboxParams(BaseModel):
     op: MutationOutboxOp
 
 
+class MethodNlQueryExplainParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    graph: str | None = None
+    text: str
+
+
 class MethodNlQueryParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -16401,6 +16414,13 @@ NlChoiceSource = Annotated[
     NlChoiceSourceEngine | NlChoiceSourceLlmProposal,
     Field(discriminator="by"),
 ]
+
+
+class NlQueryExplainResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    rows: list[NlQueryExplainResultRowsItem]
+    uql: str
 
 
 class NlTargetDecide(BaseModel):
@@ -25198,6 +25218,18 @@ MutationEnvelope = MutationEnvelopeOperation | MutationEnvelopeMaintenance
 MutationScopeDigest = Annotated[_EgOctets, Field(min_length=32, max_length=32)]
 
 
+NlQueryExplainResultRowsItemItem1 = float | None
+
+
+NlQueryExplainResultRowsItem = Annotated[
+    tuple[str, NlQueryExplainResultRowsItemItem1],
+    Field(
+        min_length=2,
+        max_length=2,
+    ),
+]
+
+
 NlQueryResultValueItemItem1 = float | None
 
 
@@ -27717,6 +27749,8 @@ __all__ = [
     "MethodMutationOutbox",
     "MethodMutationOutboxParams",
     "MethodNlQuery",
+    "MethodNlQueryExplain",
+    "MethodNlQueryExplainParams",
     "MethodNlQueryParams",
     "MethodNodeCount",
     "MethodNodeIds",
@@ -28031,8 +28065,6 @@ __all__ = [
     "MinimumSpanningTreeResultValueItem",
     "ModalityFacts",
     "ModeTransition",
-    "ModelInputCapabilities",
-    "ModelInputMediaType",
     "ModelPolicyVersion",
     "ModelSpec",
     "MotifCountsRow",
@@ -28079,6 +28111,8 @@ __all__ = [
     "NlChoiceSource",
     "NlChoiceSourceEngine",
     "NlChoiceSourceLlmProposal",
+    "NlQueryExplainResult",
+    "NlQueryExplainResultRowsItem",
     "NlQueryResult",
     "NlQueryResultValueItem",
     "NlTarget",

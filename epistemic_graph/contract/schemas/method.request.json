@@ -536,17 +536,6 @@
               "const": "model_profile",
               "type": "string"
             },
-            "input_capabilities": {
-              "anyOf": [
-                {
-                  "$ref": "#/$defs/ModelInputCapabilities"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Declaration bound by this component's definition digest. Missing is unknown."
-            },
             "latency_declared": {
               "anyOf": [
                 {
@@ -30582,6 +30571,37 @@
         },
         {
           "additionalProperties": false,
+          "description": "`NlQuery` that also discloses the generated query (EG-FEDERATED-QUERY-R058.2.2.1):\nthe SAME request, planner, budget, parse, authority and rows as `NlQuery`, answered\nas `{uql, rows}` so a caller can show the exact UQL the engine executed. Like\n`NlQuery`, the handler is gated behind the facade `nl-query` feature.",
+          "properties": {
+            "method": {
+              "const": "NlQueryExplain",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "graph": {
+                  "default": "",
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "text"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
           "description": "Register (or replace) a foreign RowSet source under `name`. `source` is the\n[`crate::wire::ForeignSourceSpec`] (a remote engine or an HTTP/JSON API). A\nlater `ForeignScan` can name this registered source by id (the registry-backed\nform) instead of inlining the whole spec. Returns the name on success.",
           "properties": {
             "method": {
@@ -36759,44 +36779,6 @@
       ],
       "type": "object"
     },
-    "ModelInputCapabilities": {
-      "additionalProperties": false,
-      "description": "Optional on a profile: absence means unknown, never unrestricted input.",
-      "properties": {
-        "max_aggregate_bytes": {
-          "format": "uint64",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "max_parts": {
-          "format": "uint32",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "media_types": {
-          "items": {
-            "$ref": "#/$defs/ModelInputMediaType"
-          },
-          "type": "array"
-        }
-      },
-      "required": [
-        "media_types",
-        "max_aggregate_bytes",
-        "max_parts"
-      ],
-      "type": "object"
-    },
-    "ModelInputMediaType": {
-      "description": "Closed set of inline input representations supported by the run contract.",
-      "enum": [
-        "text/plain",
-        "image/png",
-        "image/jpeg",
-        "image/webp"
-      ],
-      "type": "string"
-    },
     "ModelPolicyVersion": {
       "additionalProperties": false,
       "description": "`ModelPolicyVersion/v1`: an immutable artifact identity. Bytes stay in the\nexternal artifact store; EG holds identity and lineage. The record id the\nengine returns IS the version id every capture and route refers to.",
@@ -39774,16 +39756,6 @@
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
-        },
-        "input_capabilities": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/ModelInputCapabilities"
-            },
-            {
-              "type": "null"
-            }
-          ]
         },
         "max_output_tokens": {
           "format": "uint64",
@@ -66257,6 +66229,37 @@
       "properties": {
         "method": {
           "const": "NlQuery",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": false,
+          "properties": {
+            "graph": {
+              "default": "",
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "text"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    "NlQueryExplain": {
+      "additionalProperties": false,
+      "description": "`NlQuery` that also discloses the generated query (EG-FEDERATED-QUERY-R058.2.2.1):\nthe SAME request, planner, budget, parse, authority and rows as `NlQuery`, answered\nas `{uql, rows}` so a caller can show the exact UQL the engine executed. Like\n`NlQuery`, the handler is gated behind the facade `nl-query` feature.",
+      "properties": {
+        "method": {
+          "const": "NlQueryExplain",
           "type": "string"
         },
         "params": {

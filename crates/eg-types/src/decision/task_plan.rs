@@ -12,6 +12,34 @@ use crate::contract::BoundedVec;
 use super::digest::digest_text;
 
 pub const TASK_PLAN_POLICY_REVISION: &str = "bounded-explicit-dag-v1";
+
+/// The Agent Library component id a host publishes the canonical task-plan
+/// feature schema under (EG-DECISION-ENGINE-R134.111.7).
+pub const TASK_PLAN_FEATURE_SCHEMA_COMPONENT_ID: &str = "task-plan-features";
+
+/// The canonical feature schema a `task_plan` Decide request pins.
+///
+/// A task-plan decision resolves by constraint and never builds a feature
+/// matrix, but every Decide request pins a published `FeatureSchema`. One
+/// engine-defined body means every host publishes the same bytes, so one
+/// tenant's pin is reproducible and checkable at start-up. The single feature
+/// reads each task's declared position and abstains when it is absent.
+pub fn task_plan_feature_schema() -> super::statistical::features::FeatureSchemaBody {
+    use super::statistical::features::{
+        FeatureKind, FeatureSchemaBody, FeatureSpec, MissingValue, FEATURE_SCHEMA_VERSION,
+    };
+    FeatureSchemaBody {
+        schema_version: FEATURE_SCHEMA_VERSION,
+        features: BoundedVec::new(vec![FeatureSpec {
+            name: "task_position".to_string(),
+            kind: FeatureKind::Number {
+                key: "task_position".to_string(),
+            },
+            missing: MissingValue::Abstain,
+        }])
+        .expect("one feature is within the schema bound"),
+    }
+}
 pub const MAX_TASKS: u16 = 64;
 pub const MAX_CONCURRENCY: u16 = 8;
 pub const MAX_PROMPT_BYTES: usize = 16 * 1024;

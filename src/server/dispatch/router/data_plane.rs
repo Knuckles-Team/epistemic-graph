@@ -685,6 +685,39 @@ pub(super) async fn dispatch_change_envelope_methods(
 /// assumes a single `req.graph`.
 ///
 /// Hands a method it does not own back as `ControlFlow::Continue`.
+/// The graph a natural-language method runs against: the method's own `graph`, or the
+/// request envelope's graph when that is empty (CONCEPT:EG-KG.query.core-query-input/EG-080).
+fn nl_target_graph(graph: &str, req_graph: &str) -> String {
+    if graph.is_empty() {
+        req_graph.to_string()
+    } else {
+        graph.to_string()
+    }
+}
+
+/// Route a natural-language method (`NlQuery`, `NlQueryExplain`) to `target` through the
+/// per-graph chain, where the `nl-query` handler runs it.
+async fn dispatch_nl_method(ctx: DispatchCtx<'_>, target: &str, method: Method) -> Response {
+    let DispatchCtx {
+        state,
+        req,
+        verified_context,
+        ..
+    } = ctx;
+    dispatch_boxed(async {
+        dispatch_graph_op(
+            state,
+            target,
+            req.id,
+            req.agent_id.as_deref(),
+            verified_context,
+            method,
+        )
+        .await
+    })
+    .await
+}
+
 pub(super) async fn dispatch_method_scoped_graph_methods(
     ctx: DispatchCtx<'_>,
     method: Method,
@@ -739,29 +772,14 @@ pub(super) async fn dispatch_method_scoped_graph_methods(
         // handler (behind `nl-query`) turns NL→UQL and runs the deterministic
         // UQL pipeline; a build without `nl-query` reaches the graph_ops
         // "not available" catch-all like any other feature-off method.
+        // `NlQueryExplain` (EG-FEDERATED-QUERY-R058.2.2.1) routes exactly like `NlQuery`.
         Method::NlQuery { text, graph } => {
-            dispatch_boxed(async {
-                let req_id = req.id;
-                let req_agent_id = req.agent_id.clone();
-                let req_graph = req.graph.clone();
-                {
-                    let target = if graph.is_empty() {
-                        req_graph.clone()
-                    } else {
-                        graph.clone()
-                    };
-                    dispatch_graph_op(
-                        state,
-                        &target,
-                        req_id,
-                        req_agent_id.as_deref(),
-                        verified_context,
-                        Method::NlQuery { text, graph },
-                    )
-                    .await
-                }
-            })
-            .await
+            let target = nl_target_graph(&graph, &req.graph);
+            dispatch_nl_method(ctx, &target, Method::NlQuery { text, graph }).await
+        }
+        Method::NlQueryExplain { text, graph } => {
+            let target = nl_target_graph(&graph, &req.graph);
+            dispatch_nl_method(ctx, &target, Method::NlQueryExplain { text, graph }).await
         }
         // Batched CROSS-GRAPH write (CONCEPT:EG-KG.storage.multi-graph-batch-write) — the
         // graphs ride the METHOD (one round-trip, many graphs), so like the txn/ts

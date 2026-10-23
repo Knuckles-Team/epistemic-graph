@@ -12043,6 +12043,25 @@ class QueryClient:
         ).payload
         return result or []
 
+    async def nl_query_explain(
+        self, text: str, graph: str | None = None
+    ) -> dict[str, Any]:
+        """Natural-language query that also returns the generated query
+        (EG-FEDERATED-QUERY-R058.2.2.1).
+
+        Sends ``text`` to ``Method::NlQueryExplain``: the same planner, budget, parse,
+        authority and refusals as :meth:`nl_query`. Returns
+        ``{"uql": <the exact UQL the engine executed>, "rows": [[node_id, score|None],
+        ...]}``, where ``rows`` equals what :meth:`nl_query` returns for the same text.
+        ``graph`` defaults to the connection's graph."""
+        target_graph = graph or self._client._graph_name
+        result = (
+            await _gen.query.send_nl_query_explain(
+                self._client, {"text": text, "graph": target_graph}, graph=target_graph
+            )
+        ).payload
+        return result or {"uql": "", "rows": []}
+
     @staticmethod
     def _rows_to_dicts(result: Any) -> list[dict[str, Any]]:
         """Zip a ``{columns, rows}`` query result into per-row dicts. Shared by

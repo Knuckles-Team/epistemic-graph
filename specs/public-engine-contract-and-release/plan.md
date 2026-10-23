@@ -594,3 +594,9 @@ All 73 canonical outputs, both codec copies and the ledger retain exact PR688 by
 The reviewed checkpoint fixture correction compares the row projection rather than the returned table-and-row tuple. Its no-mutation and snapshot-count assertions remain intact. New combined native execution must qualify this correction.
 
 Resource benchmarks, complete served image admission, installed session usage and live host activation remain open under their owning residuals. Checkpoint restore and full served continuation also remain open. This integration creates no release, deployment, credentials or policy grants.
+
+## Current-main reconciliation after initial union qualification
+
+Main `28ceffdbcff7042f266aa7b8be999d89635a4e7d` adds `NlQueryExplain`, the canonical task-plan feature-schema export and connector ontology parents. This necessary union retains those sources and the four existing feature slices. Its exact method inventory is 476, not the historical 475 above.
+
+The initial union's 2,405 passing native tests and reviewed generated artifacts remain evidence for their recorded source only. All 74 canonical outputs, both codec copies and the artifact ledger now retain exact current-main bytes as explicitly stale placeholders. No receipt or codec hash is combined by hand. Fresh current-union generation and native, client and parity gates must qualify this composition. The installed, served and resource residuals above remain open.

@@ -1182,7 +1182,7 @@ mod tests {
             ),
             (
                 "company",
-                "77b0c36d8818fbab307b201acfcceb339289090e44f420834960b346af48a1a9",
+                "db896668d88d609de6a9b0652bcaa09feb788281ab5d3b576d68b2de5166fd50",
             ),
             (
                 "company_infra",
@@ -1194,7 +1194,7 @@ mod tests {
             ),
             (
                 "foundation",
-                "cd3a0e736d9174d582e8b3c321966a4cd7ebf5c1264ac6640d78f4a54dc47378",
+                "7de021b92a2661ea6413a0191f6862f5127105f6cd33b801970920d2cf831ff3",
             ),
             (
                 "documentation",
@@ -1230,7 +1230,7 @@ mod tests {
             ),
             (
                 "infrastructure",
-                "a14ccc9d0c004c92e50bb3ac10dff4fcd06f4c46131f8b4b2ee079994f1bdab1",
+                "3a97753afe8acd19d5c9718dc4bb19ef05baf65e779278b56d3f57e456e27a9c",
             ),
             (
                 "medical",
@@ -1258,11 +1258,11 @@ mod tests {
             ),
             (
                 "sdlc_lifecycle",
-                "81ada4f509f18c302b3cca917d3c59862c6563abaa0961cb9de5f8df934738e3",
+                "a3acaecdc8df53c2fda939b643a63a1cc2c9a040c8a26062c9c47c52bc3428d2",
             ),
             (
                 "software",
-                "0f9945da89dce3c4ee657028edc67003e4a52a419807d50904323afd9c25aa66",
+                "78b30a26ff70a29269f05e9b863a7419bfbb9eae3b1eee05c74f79a2c5a2cb1d",
             ),
             (
                 "system",

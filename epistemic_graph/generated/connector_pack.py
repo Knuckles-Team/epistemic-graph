@@ -19,8 +19,6 @@ from ._shared import (
     McpCatalogSnapshotBinding,
     MeasuredFact_ShellProficiency,
     MeasuredFact_StoppingBehaviour,
-    ModelInputCapabilities,
-    ModelInputMediaType,
     Nonce,
     ObservationRef,
     ShellProficiency,
@@ -415,7 +413,6 @@ class PackModelFacts(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     context_window_tokens: Annotated[int, Field(ge=0)]
-    input_capabilities: ModelInputCapabilities | None = None
     max_output_tokens: Annotated[int, Field(ge=0)]
     model_identity: str
     provider: str
@@ -699,8 +696,6 @@ __all__ = [
     "McpSelfServedCatalogAttestRequest",
     "MeasuredFact_ShellProficiency",
     "MeasuredFact_StoppingBehaviour",
-    "ModelInputCapabilities",
-    "ModelInputMediaType",
     "Nonce",
     "ObservationRef",
     "PackAnnotations",
