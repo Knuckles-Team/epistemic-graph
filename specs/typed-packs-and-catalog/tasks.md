@@ -282,3 +282,14 @@ Keep each ruled boundary and adjacent owner obligation intact.
 - [ ] **EG-TYPED-PACKS-R108.4:** Refusal.
 - [ ] **EG-TYPED-PACKS-R108.5:** Evidence.
 - [ ] **EG-TYPED-PACKS-R108.6:** Hot-path proof.
+
+- [ ] **EG-TYPED-PACKS-R108.7:** Technical metadata from contracts.
+- [ ] **EG-TYPED-PACKS-R108.8:** Operational metadata from provenance.
+- [ ] **EG-TYPED-PACKS-R108.9:** Sensitivity propagation and policy link.
+- [ ] **EG-TYPED-PACKS-R108.10:** End-to-end lineage across the platform.
+- [ ] **EG-TYPED-PACKS-R108.11:** Metric and KPI definitions.
+- [ ] **EG-TYPED-PACKS-R108.12:** Annotations: comments, tags, ratings and threads.
+- [ ] **EG-TYPED-PACKS-R108.13:** Curated articles and guides.
+- [ ] **EG-TYPED-PACKS-R108.14:** Dashboards, reports, saved queries and templates.
+- [ ] **EG-TYPED-PACKS-R108.15:** AI and ML model assets.
+- [ ] **EG-TYPED-PACKS-R108.16:** One ranked index across all asset families.
