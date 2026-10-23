@@ -107,9 +107,9 @@
         "ee2a3497659c"
       ],
       "verified_by": [
-        "crates/eg-rdf/tests/supply_chain_declarations.rs:21",
-        "crates/eg-rdf/tests/supply_chain_declarations.rs:53",
-        "crates/eg-rdf/tests/supply_chain_declarations.rs:71"
+        "crates/eg-rdf/tests/supply_chain_declarations.rs:14",
+        "crates/eg-rdf/tests/supply_chain_declarations.rs:46",
+        "crates/eg-rdf/tests/supply_chain_declarations.rs:64"
       ]
     },
     {

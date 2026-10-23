@@ -2612,8 +2612,8 @@
         "85dbb47bfd95",
         "9ae34c125957",
         "acfebe3d7d0d",
-        "c6d10af54f64",
-        "d09be388ac86"
+        "c65b21d8f9e3",
+        "c6d10af54f64"
       ],
       "verified_by": [
         "crates/eg-rdf/tests/service_operations_classes.rs:112",
@@ -2626,6 +2626,7 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "85dbb47bfd95",
+        "c65b21d8f9e3",
         "d09be388ac86"
       ],
       "verified_by": [

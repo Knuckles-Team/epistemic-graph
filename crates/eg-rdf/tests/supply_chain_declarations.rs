@@ -1,22 +1,15 @@
 //! Native-parser contract for the shared supply-chain vocabulary declarations.
 #![cfg(feature = "rdf")]
 
+mod common;
+
+use common::{has_iri, KG, RDFS};
 use eg_rdf::mapping::parse_turtle;
-use eg_rdf::oxrdf::{NamedNode, Triple};
+use eg_rdf::oxrdf::NamedNode;
 
 const DOCUMENT: &str = include_str!("../../eg-core/ontology/supply_chain-v1.ttl");
-const KG: &str = "http://knuckles.team/kg#";
 const RDF_TYPE: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
-const RDFS: &str = "http://www.w3.org/2000/01/rdf-schema#";
 const OWL: &str = "http://www.w3.org/2002/07/owl#";
-
-fn has_iri(triples: &[Triple], subject: &str, predicate: &str, object: &str) -> bool {
-    triples.contains(&Triple::new(
-        NamedNode::new(subject).unwrap(),
-        NamedNode::new(predicate).unwrap(),
-        NamedNode::new(object).unwrap(),
-    ))
-}
 
 // spec: EG-SUPPLY-VOCAB-R001.1.1
 #[test]
