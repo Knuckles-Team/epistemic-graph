@@ -62,15 +62,14 @@ impl ApprovalKeyBinding {
         super::text::identifier(&self.key_id)?;
         super::validate_principal_id(&self.principal_id)?;
         super::text::bounded(&self.tenant, super::text::MAX_ID_BYTES)?;
-        if self.public_key_hex.len() != 64
-            || !self
+        let valid_public_key = self.public_key_hex.len() == 64
+            && self
                 .public_key_hex
                 .bytes()
-                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-        {
-            return Err(IdentityRefusal::InvalidRequest);
-        }
-        Ok(())
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte));
+        valid_public_key
+            .then_some(())
+            .ok_or(IdentityRefusal::InvalidRequest)
     }
 }
 

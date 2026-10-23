@@ -170,14 +170,7 @@ fn resolve_preserves_creation_tenant_and_exact_mfa_timestamp() {
 fn original_reference_inspection_is_owner_bound_and_does_not_touch() {
     let mut store = opened();
     let before = store.clone();
-    let op = IdentityOp::Session(SessionOp::InspectReference {
-        session_ref: "ses:one".into(),
-        tenant: "tenant-one".into(),
-    });
-    let mut owner = broker();
-    owner.actor.principal_id = "usr:alice".into();
-    owner.actor.scopes = std::collections::BTreeSet::from([IDENTITY_SELF_SCOPE.into()]);
-    owner.session_tenant = Some("tenant-one".into());
+    let (op, owner) = reference_inspection();
     let IdentityReply::SessionRecord(record) =
         apply_kept(&mut store, &op, &owner, NOW + 61_000).unwrap()
     else {
@@ -212,14 +205,7 @@ fn original_reference_inspection_is_owner_bound_and_does_not_touch() {
 #[test]
 fn reference_inspection_refuses_pending_disabled_and_ambiguous_records() {
     let original = opened();
-    let op = IdentityOp::Session(SessionOp::InspectReference {
-        session_ref: "ses:one".into(),
-        tenant: "tenant-one".into(),
-    });
-    let mut owner = broker();
-    owner.actor.principal_id = "usr:alice".into();
-    owner.actor.scopes = std::collections::BTreeSet::from([IDENTITY_SELF_SCOPE.into()]);
-    owner.session_tenant = Some("tenant-one".into());
+    let (op, owner) = reference_inspection();
     let mut pending = original.clone();
     pending.sessions.get_mut("hash-one").unwrap().mfa_pending = true;
     assert!(apply_kept(&mut pending, &op, &owner, NOW).is_err());
@@ -384,14 +370,7 @@ fn renewal_clamps_idle_to_original_absolute_expiry_and_preserves_subject_mfa() {
     session.idle_expires_at_ms = NOW + 90_000;
     session.mfa_at_ms = Some(NOW - 17);
     let before = session.clone();
-    let mut owner = IdentityStamp::for_actor(actor("usr:alice", &[IDENTITY_SELF_SCOPE]));
-    owner.session_tenant = Some("tenant-one".into());
-    let op = IdentityOp::Session(SessionOp::RenewReference {
-        session_ref: "ses:one".into(),
-        tenant: "tenant-one".into(),
-        expected_authority_revision: 0,
-        expected_scopes: store.resolve("usr:alice", &TestRegistry).unwrap().scopes,
-    });
+    let (op, owner) = renewal_for(&store);
     apply_kept(&mut store, &op, &owner, NOW + 1).unwrap();
     let after = &store.sessions["hash-one"];
     let mut expected = before;
@@ -407,50 +386,22 @@ fn renewal_clamps_idle_to_original_absolute_expiry_and_preserves_subject_mfa() {
 #[test]
 fn renewal_refuses_invalid_authority_without_mutation() {
     for reason in [
-        "revoked",
-        "idle",
-        "absolute",
-        "pending",
-        "disabled",
-        "ambiguous",
-        "owner",
-        "tenant",
-        "delegated",
-        "scopes",
+        InvalidRenewal::Revoked,
+        InvalidRenewal::Idle,
+        InvalidRenewal::Absolute,
+        InvalidRenewal::Pending,
+        InvalidRenewal::Disabled,
+        InvalidRenewal::Ambiguous,
+        InvalidRenewal::Owner,
+        InvalidRenewal::Tenant,
+        InvalidRenewal::Delegated,
+        InvalidRenewal::Scopes,
     ] {
         let mut store = opened();
         let mut owner = IdentityStamp::for_actor(actor("usr:alice", &[IDENTITY_SELF_SCOPE]));
         owner.session_tenant = Some("tenant-one".into());
         let mut scopes = store.resolve("usr:alice", &TestRegistry).unwrap().scopes;
-        match reason {
-            "revoked" => store.sessions.get_mut("hash-one").unwrap().revoked_at_ms = Some(NOW),
-            "idle" => {
-                store
-                    .sessions
-                    .get_mut("hash-one")
-                    .unwrap()
-                    .idle_expires_at_ms = NOW + 1
-            }
-            "absolute" => {
-                store
-                    .sessions
-                    .get_mut("hash-one")
-                    .unwrap()
-                    .absolute_expires_at_ms = NOW + 1
-            }
-            "pending" => store.sessions.get_mut("hash-one").unwrap().mfa_pending = true,
-            "disabled" => store.users.get_mut("usr:alice").unwrap().status = UserStatus::Disabled,
-            "ambiguous" => {
-                store.sessions.get_mut("hash-two").unwrap().session_ref = Some("ses:one".into())
-            }
-            "owner" => owner.actor.principal_id = "usr:other".into(),
-            "tenant" => owner.session_tenant = Some("tenant-other".into()),
-            "delegated" => owner.actor.delegated = true,
-            "scopes" => {
-                scopes.remove("kg:read");
-            }
-            _ => unreachable!(),
-        }
+        invalidate_renewal(reason, &mut store, &mut owner, &mut scopes);
         let op = IdentityOp::Session(SessionOp::RenewReference {
             session_ref: "ses:one".into(),
             tenant: "tenant-one".into(),
@@ -460,9 +411,9 @@ fn renewal_refuses_invalid_authority_without_mutation() {
         let before = store.clone();
         assert!(
             apply_kept(&mut store, &op, &owner, NOW + 1).is_err(),
-            "{reason}"
+            "{reason:?}"
         );
-        assert_eq!(store, before, "{reason}");
+        assert_eq!(store, before, "{reason:?}");
     }
 }
 
@@ -474,14 +425,7 @@ fn repeated_renewal_never_becomes_issuer_reauthentication() {
     let original = store.sessions["hash-one"].clone();
     let idle = original.idle_expires_at_ms - NOW;
     assert!(idle > 1);
-    let mut owner = IdentityStamp::for_actor(actor("usr:alice", &[IDENTITY_SELF_SCOPE]));
-    owner.session_tenant = Some("tenant-one".into());
-    let op = IdentityOp::Session(SessionOp::RenewReference {
-        session_ref: "ses:one".into(),
-        tenant: "tenant-one".into(),
-        expected_authority_revision: 0,
-        expected_scopes: store.resolve("usr:alice", &TestRegistry).unwrap().scopes,
-    });
+    let (op, owner) = renewal_for(&store);
     let mut now = NOW;
     let mut renewals = 0;
     while store.sessions["hash-one"].idle_expires_at_ms < original.absolute_expires_at_ms {
@@ -502,5 +446,83 @@ fn repeated_renewal_never_becomes_issuer_reauthentication() {
     ] {
         assert!(apply_kept(&mut store, &op, &owner, time).is_err());
         assert_eq!(store, before);
+    }
+}
+
+fn reference_inspection() -> (IdentityOp, IdentityStamp) {
+    let op = IdentityOp::Session(SessionOp::InspectReference {
+        session_ref: "ses:one".into(),
+        tenant: "tenant-one".into(),
+    });
+    let mut owner = broker();
+    owner.actor.principal_id = "usr:alice".into();
+    owner.actor.scopes = std::collections::BTreeSet::from([IDENTITY_SELF_SCOPE.into()]);
+    owner.session_tenant = Some("tenant-one".into());
+    (op, owner)
+}
+
+fn renewal_for(store: &IdentityStore) -> (IdentityOp, IdentityStamp) {
+    let mut owner = IdentityStamp::for_actor(actor("usr:alice", &[IDENTITY_SELF_SCOPE]));
+    owner.session_tenant = Some("tenant-one".into());
+    let op = IdentityOp::Session(SessionOp::RenewReference {
+        session_ref: "ses:one".into(),
+        tenant: "tenant-one".into(),
+        expected_authority_revision: 0,
+        expected_scopes: store.resolve("usr:alice", &TestRegistry).unwrap().scopes,
+    });
+    (op, owner)
+}
+
+#[derive(Debug, Clone, Copy)]
+enum InvalidRenewal {
+    Revoked,
+    Idle,
+    Absolute,
+    Pending,
+    Disabled,
+    Ambiguous,
+    Owner,
+    Tenant,
+    Delegated,
+    Scopes,
+}
+
+fn invalidate_renewal(
+    reason: InvalidRenewal,
+    store: &mut IdentityStore,
+    owner: &mut IdentityStamp,
+    scopes: &mut std::collections::BTreeSet<String>,
+) {
+    match reason {
+        InvalidRenewal::Revoked => {
+            store.sessions.get_mut("hash-one").unwrap().revoked_at_ms = Some(NOW)
+        }
+        InvalidRenewal::Idle => {
+            store
+                .sessions
+                .get_mut("hash-one")
+                .unwrap()
+                .idle_expires_at_ms = NOW + 1
+        }
+        InvalidRenewal::Absolute => {
+            store
+                .sessions
+                .get_mut("hash-one")
+                .unwrap()
+                .absolute_expires_at_ms = NOW + 1
+        }
+        InvalidRenewal::Pending => store.sessions.get_mut("hash-one").unwrap().mfa_pending = true,
+        InvalidRenewal::Disabled => {
+            store.users.get_mut("usr:alice").unwrap().status = UserStatus::Disabled
+        }
+        InvalidRenewal::Ambiguous => {
+            store.sessions.get_mut("hash-two").unwrap().session_ref = Some("ses:one".into())
+        }
+        InvalidRenewal::Owner => owner.actor.principal_id = "usr:other".into(),
+        InvalidRenewal::Tenant => owner.session_tenant = Some("tenant-other".into()),
+        InvalidRenewal::Delegated => owner.actor.delegated = true,
+        InvalidRenewal::Scopes => {
+            scopes.remove("kg:read");
+        }
     }
 }

@@ -7,12 +7,7 @@ use crate::rbac_persist::test_support::open_test_store;
 // spec: EG-TYPED-PACKS-R085.6.2
 #[test]
 fn exact_session_facts_and_revocation_survive_durable_reopen() {
-    let nonce = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    let dir =
-        std::env::temp_dir().join(format!("eg-session-record-{}-{nonce}", std::process::id()));
+    let dir = durable_fixture_dir("eg-session-record");
     let request = SessionTouch {
         refresh: None,
         session_token: Secret::default(),
@@ -166,11 +161,7 @@ fn exact_session_facts_and_revocation_survive_durable_reopen() {
 // spec: EG-TYPED-PACKS-R085.4.2
 #[test]
 fn renewal_uses_global_revision_and_survives_reopen_without_resurrection() {
-    let nonce = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    let dir = std::env::temp_dir().join(format!("eg-session-renew-{}-{nonce}", std::process::id()));
+    let dir = durable_fixture_dir("eg-session-renew");
     let mut fixture = seeded();
     let mut issuer = stamp(IDENTITY_AUTHENTICATE_SCOPE);
     issuer.token_hashes = vec!["renew-session-hash".into()];

@@ -2,7 +2,8 @@
 //! store owns subject, tenant, current session, revision and lifecycle checks.
 
 use super::super::approval_key::{
-    ApprovalKeyLookup, ApprovalKeyRecord, ApprovalKeyRegistration, ApprovalKeyRevocation,
+    ApprovalKeyBinding, ApprovalKeyLookup, ApprovalKeyRecord, ApprovalKeyRegistration,
+    ApprovalKeyRevocation,
 };
 use super::super::{IdentityEvent, IdentityRefusal, IdentityReply, IdentityStamp, UserKind};
 use super::sessions::PendingSession;
@@ -39,35 +40,16 @@ impl IdentityStore {
         Ok((principal, tenant.clone()))
     }
 
-    pub(super) fn register_approval_key(
-        &mut self,
-        request: &ApprovalKeyRegistration,
-        stamp: &IdentityStamp,
+    fn validate_approval_key_revision(
+        &self,
+        binding: &ApprovalKeyBinding,
+        principal: &str,
+        tenant: &str,
         now_ms: u64,
-    ) -> Result<IdentityReply, IdentityRefusal> {
-        let binding = &request.binding;
-        binding.validate()?;
-        let (principal, tenant) = self.approval_key_subject(stamp, now_ms)?;
-        if binding.principal_id != principal || binding.tenant != tenant {
-            return Err(IdentityRefusal::NotAuthorized);
-        }
-        if binding.expires_at_ms <= now_ms {
-            return Err(IdentityRefusal::InvalidRequest);
-        }
+    ) -> Result<(), IdentityRefusal> {
         match self.approval_keys.get(&binding.key_id) {
             Some(record) => {
-                if record.principal_id != principal
-                    || record.tenant != tenant
-                    || record.purpose != binding.purpose
-                {
-                    return Err(IdentityRefusal::NotFound);
-                }
-                if record.revoked_at_ms.is_some() || record.expires_at_ms <= now_ms {
-                    return Err(IdentityRefusal::StaleCredential);
-                }
-                if record.revision != binding.expected_revision {
-                    return Err(IdentityRefusal::PreconditionFailed);
-                }
+                validate_replacement(record, binding, principal, tenant, now_ms)?;
             }
             None => {
                 if binding.expected_revision != 0 {
@@ -84,6 +66,25 @@ impl IdentityStore {
                 }
             }
         }
+        Ok(())
+    }
+
+    pub(super) fn register_approval_key(
+        &mut self,
+        request: &ApprovalKeyRegistration,
+        stamp: &IdentityStamp,
+        now_ms: u64,
+    ) -> Result<IdentityReply, IdentityRefusal> {
+        let binding = &request.binding;
+        binding.validate()?;
+        let (principal, tenant) = self.approval_key_subject(stamp, now_ms)?;
+        if binding.principal_id != principal || binding.tenant != tenant {
+            return Err(IdentityRefusal::NotAuthorized);
+        }
+        if binding.expires_at_ms <= now_ms {
+            return Err(IdentityRefusal::InvalidRequest);
+        }
+        self.validate_approval_key_revision(binding, &principal, &tenant, now_ms)?;
         let revision = binding
             .expected_revision
             .checked_add(1)
@@ -177,4 +178,26 @@ impl IdentityStore {
         );
         Ok(IdentityReply::ApprovalKey(record))
     }
+}
+
+fn validate_replacement(
+    record: &ApprovalKeyRecord,
+    binding: &ApprovalKeyBinding,
+    principal: &str,
+    tenant: &str,
+    now_ms: u64,
+) -> Result<(), IdentityRefusal> {
+    if record.principal_id != principal
+        || record.tenant != tenant
+        || record.purpose != binding.purpose
+    {
+        return Err(IdentityRefusal::NotFound);
+    }
+    if record.revoked_at_ms.is_some() || record.expires_at_ms <= now_ms {
+        return Err(IdentityRefusal::StaleCredential);
+    }
+    if record.revision != binding.expected_revision {
+        return Err(IdentityRefusal::PreconditionFailed);
+    }
+    Ok(())
 }

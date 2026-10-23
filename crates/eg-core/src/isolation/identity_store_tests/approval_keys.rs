@@ -28,14 +28,12 @@ fn register(revision: u64) -> IdentityOp {
     })
 }
 
-fn revoke(revision: u64) -> IdentityOp {
-    IdentityOp::Credential(CredentialOp::RevokeApprovalKey {
-        request: ApprovalKeyRevocation {
-            session_token: Secret::default(),
-            key: key(),
-            expected_revision: revision,
-        },
-    })
+fn revocation(revision: u64) -> ApprovalKeyRevocation {
+    ApprovalKeyRevocation {
+        session_token: Secret::default(),
+        key: key(),
+        expected_revision: revision,
+    }
 }
 
 fn inspect(layer: &mut IsolationLayer, owner: &IdentityStamp) -> ApprovalKeyRecord {
@@ -65,29 +63,13 @@ fn refuse_unchanged(layer: &mut IsolationLayer, operation: IdentityOp, owner: &I
 // spec: EG-TYPED-PACKS-R085.5.2
 #[test]
 fn approval_key_reopen_preserves_rotation_revocation_and_refuses_stale_cas() {
-    let nonce = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    let dir = std::env::temp_dir().join(format!("eg-approval-key-{}-{nonce}", std::process::id()));
+    let dir = durable_fixture_dir("eg-approval-key");
     let mut owner = stamp(IDENTITY_AUTHENTICATE_SCOPE);
     owner.actor.principal_id = "svc:graph-os".into();
     owner.token_hashes = vec!["synthetic-approval-session-hash".into()];
     owner.session_tenant = Some("tenant-original".into());
     {
-        let mut fixture = seeded();
-        apply(
-            &mut fixture,
-            IdentityOp::Credential(CredentialOp::BootstrapSession {
-                request: SessionTouch {
-                    refresh: None,
-                    session_token: Secret::default(),
-                    code: Secret::default(),
-                },
-            }),
-            &owner,
-        )
-        .unwrap();
+        let fixture = session_fixture(&owner);
         let source = fixture
             .policy_store()
             .unwrap()
@@ -116,7 +98,13 @@ fn approval_key_reopen_preserves_rotation_revocation_and_refuses_stale_cas() {
         let mut stale_writer = reopened.clone();
         apply(&mut reopened, register(1), &owner).unwrap();
         refuse_unchanged(&mut stale_writer, register(1), &owner);
-        refuse_unchanged(&mut reopened, revoke(1), &owner);
+        refuse_unchanged(
+            &mut reopened,
+            IdentityOp::Credential(CredentialOp::RevokeApprovalKey {
+                request: revocation(1),
+            }),
+            &owner,
+        );
         assert_eq!(inspect(&mut reopened, &owner).revision, 2);
     }
     {
@@ -125,9 +113,22 @@ fn approval_key_reopen_preserves_rotation_revocation_and_refuses_stale_cas() {
         let rotated = inspect(&mut reopened, &owner);
         assert_eq!(rotated.public_key_hex, "cd".repeat(32));
         assert_eq!(rotated.revision, 2);
-        apply(&mut reopened, revoke(2), &owner).unwrap();
+        apply(
+            &mut reopened,
+            IdentityOp::Credential(CredentialOp::RevokeApprovalKey {
+                request: revocation(2),
+            }),
+            &owner,
+        )
+        .unwrap();
         refuse_unchanged(&mut reopened, register(2), &owner);
-        refuse_unchanged(&mut reopened, revoke(2), &owner);
+        refuse_unchanged(
+            &mut reopened,
+            IdentityOp::Credential(CredentialOp::RevokeApprovalKey {
+                request: revocation(2),
+            }),
+            &owner,
+        );
     }
     {
         let mut reopened =

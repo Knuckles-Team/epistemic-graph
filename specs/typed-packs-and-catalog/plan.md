@@ -724,3 +724,24 @@ criteria and complete normal gates before publication.
 The candidate key records were absent from upstream main at `1242b7dd`. They had no published native commit or release. The paired Arbora consumer remains draft PR395. Rename the new purpose to `signed_approval` and attestation to `broker_verified_ed25519` before publication. Update generated contracts and exact registration bytes together. Keep the existing signature domain, field order, length encoding and verification unchanged. This candidate does not migrate a deployed format or enroll a live key. Earlier native evidence applies before this naming correction; record targeted regeneration and test results separately. Durable core, server and served approval qualification remain pending.
 
 Publication-only checks passed after the rename: five native key tests and canonical contract generation. The stable-source contract freshness check passed, followed by WASM generation and freshness. A codec attempt interrupted during temporary hook stashing provides no qualification evidence. The completed stable-source sequence replaces it. No durable core, server, benchmark or served acceptance test ran.
+
+
+### Identity qualification helper boundaries
+
+R085.4, R085.5 and R085.7 retain their authority and refusal ordering.
+Approval-key replacement validation and unique session-reference lookup use
+small shared helpers. Native fixtures reuse setup without changing assertions.
+Fresh hosted native tests and canonical generation remain required.
+
+Hosted artifacts 12481088380 and 12481785495 came from source
+7d3ff1feb1b83943e20370f09de3b501ed0f3ac8, tree
+cd8aab733a002e72a588f01c8845701f52103b00. Archive, recipe and output
+hashes were verified before importing all 73 canonical files and both codecs.
+The helper cleanup changes no DTO fields or wire validation rules.
+Final-head native, generated parity and served qualification remain pending.
+
+At published head cd7569af, hosted job 120258833170 passed the new
+pure identity and durable reopen tests. These include rotation, revocation,
+renewal CAS, original scope ceilings, human ownership and absolute expiry.
+Its only failing test was committed canonical artifact parity.
+These are prior-head receipts, not execution proof for the helper cleanup.

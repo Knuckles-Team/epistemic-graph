@@ -525,3 +525,28 @@ fn admin_capability_refuses_missing_or_unreadable_authority() {
     layer.persist = None;
     assert!(!layer.has_admin_capability("system"));
 }
+
+fn durable_fixture_dir(label: &str) -> std::path::PathBuf {
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    std::env::temp_dir().join(format!("{label}-{}-{nonce}", std::process::id()))
+}
+
+fn session_fixture(owner: &IdentityStamp) -> IsolationLayer {
+    let mut fixture = seeded();
+    apply(
+        &mut fixture,
+        IdentityOp::Credential(CredentialOp::BootstrapSession {
+            request: SessionTouch {
+                refresh: None,
+                session_token: Secret::default(),
+                code: Secret::default(),
+            },
+        }),
+        owner,
+    )
+    .unwrap();
+    fixture
+}

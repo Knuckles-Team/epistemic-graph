@@ -2,7 +2,7 @@
 
 use super::{ApplyContext, IdentityStore};
 use crate::identity::{
-    IdentityRefusal, IdentityReply, IdentityStamp, SessionRecordProjection, UserKind,
+    IdentityRefusal, IdentityReply, IdentityStamp, SessionRecord, SessionRecordProjection, UserKind,
 };
 
 impl IdentityStore {
@@ -46,6 +46,19 @@ impl IdentityStore {
         self.inspect_session_reference(reference, tenant, stamp, ctx)
     }
 
+    fn unique_session_reference(&self, reference: &str) -> Result<&SessionRecord, IdentityRefusal> {
+        let mut matches = self
+            .sessions
+            .values()
+            .filter(|session| session.session_ref.as_deref() == Some(reference));
+        let session = matches.next().ok_or(IdentityRefusal::NotFound)?;
+        // An ambiguous stored reference must never select an arbitrary session.
+        if matches.next().is_some() {
+            return Err(IdentityRefusal::NotAuthorized);
+        }
+        Ok(session)
+    }
+
     pub(super) fn inspect_session_reference(
         &self,
         reference: &str,
@@ -59,14 +72,8 @@ impl IdentityStore {
         {
             return Err(IdentityRefusal::NotAuthorized);
         }
-        let mut matches = self
-            .sessions
-            .values()
-            .filter(|session| session.session_ref.as_deref() == Some(reference));
-        let session = matches.next().ok_or(IdentityRefusal::NotFound)?;
-        // An ambiguous stored reference must never select an arbitrary session.
-        if matches.next().is_some()
-            || session.session_tenant.as_deref() != Some(tenant)
+        let session = self.unique_session_reference(reference)?;
+        if session.session_tenant.as_deref() != Some(tenant)
             || session.principal_id != stamp.actor.principal_id
             || self
                 .users
