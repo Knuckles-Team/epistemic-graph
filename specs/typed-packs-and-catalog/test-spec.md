@@ -477,3 +477,11 @@ requires an error response with no result. Canonical artifact freshness passes. 
 - `EG-TYPED-PACKS-R107.4`: `crates/eg-core/tests/pack_contract.rs::ungranted_incomplete_breaking_and_in_use_refuse`.
 - `EG-TYPED-PACKS-R107.5`: `tests/typed_packs/test_pack_contract_served.py::test_receipt_carries_digests_break_count_request_and_grant`.
 - `EG-TYPED-PACKS-R107.6`: `tests/typed_packs/test_pack_contract_served.py::test_breaking_release_waits_for_approval_then_serves`.
+
+- `EG-TYPED-PACKS-R108`: See each child.
+- `EG-TYPED-PACKS-R108.1`: `crates/eg-core/tests/catalog_assets.rs::four_families_validate_and_share_one_parent_asset_class`.
+- `EG-TYPED-PACKS-R108.2`: `crates/eg-core/tests/catalog_assets.rs::existing_records_project_with_owner_term_and_lineage_without_copies`.
+- `EG-TYPED-PACKS-R108.3`: `tests/typed_packs/test_catalog_assets_served.py::test_publish_register_and_create_reach_the_one_projector`.
+- `EG-TYPED-PACKS-R108.4`: `crates/eg-core/tests/catalog_assets.rs::orphan_class_missing_owner_and_marked_field_are_handled`.
+- `EG-TYPED-PACKS-R108.5`: `tests/typed_packs/test_catalog_assets_served.py::test_node_carries_owner_steward_revision_usage_and_history`.
+- `EG-TYPED-PACKS-R108.6`: `tests/typed_packs/test_catalog_assets_served.py::test_one_query_returns_agents_business_workflows_graphs_and_connector_assets`.
