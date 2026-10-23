@@ -939,7 +939,8 @@
     "EG-DECISION-ENGINE-R814.3",
     "EG-DECISION-ENGINE-R814.4",
     "EG-DECISION-ENGINE-R814.5",
-    "EG-DECISION-ENGINE-R814.6"
+    "EG-DECISION-ENGINE-R814.6",
+    "EG-DECISION-ENGINE-R814.7"
   ],
   "requirements": [
     {
@@ -9732,7 +9733,8 @@
         "EG-DECISION-ENGINE-R814.3",
         "EG-DECISION-ENGINE-R814.4",
         "EG-DECISION-ENGINE-R814.5",
-        "EG-DECISION-ENGINE-R814.6"
+        "EG-DECISION-ENGINE-R814.6",
+        "EG-DECISION-ENGINE-R814.7"
       ]
     },
     {
@@ -9773,6 +9775,13 @@
     {
       "id": "EG-DECISION-ENGINE-R814.6",
       "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "EG-DECISION-ENGINE-R814.7",
+      "title": "Competency query",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
