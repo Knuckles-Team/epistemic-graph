@@ -330,8 +330,8 @@
         "tests/test_release_python_suite_contract.py:104",
         "tests/test_release_python_suite_contract.py:121",
         "tests/test_release_python_suite_contract.py:132",
-        "tests/test_release_python_suite_contract.py:355",
-        "tests/test_release_python_suite_contract.py:372"
+        "tests/test_release_python_suite_contract.py:359",
+        "tests/test_release_python_suite_contract.py:376"
       ]
     },
     {
@@ -601,7 +601,7 @@
         "9ed0560ea093"
       ],
       "verified_by": [
-        "tests/test_release_python_suite_contract.py:727"
+        "tests/test_release_python_suite_contract.py:769"
       ]
     },
     {
@@ -670,7 +670,7 @@
         "9ed0560ea093"
       ],
       "verified_by": [
-        "tests/test_release_feature_matrix.py:327"
+        "tests/test_release_feature_matrix.py:329"
       ]
     },
     {
@@ -839,7 +839,7 @@
         "5bf5b719de7e"
       ],
       "verified_by": [
-        "tests/test_release_feature_matrix.py:306"
+        "tests/test_release_feature_matrix.py:308"
       ]
     },
     {
@@ -1041,7 +1041,7 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [
-        "tests/test_release_full_wheel_contract.py:688"
+        "tests/test_release_full_wheel_contract.py:702"
       ]
     },
     {
