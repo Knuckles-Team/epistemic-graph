@@ -918,6 +918,14 @@ These checks do not authenticate a caller-supplied receipt or authorize executio
 
 The `bounded_task_plan` performance receipt for R134.111.6 remains pending.
 
+## Committed session usage
+
+R801.7.1 binds the run_usage typed fixtures and session tests in test_work_item_read_client.py. They check duplicate identity, missing counters, exact integers and partial coverage. A generated client method is a separate prerequisite; mocked response validation is not generated-contract proof.
+
+R801.7.2 binds ordinary_completion_native_ledger_outbox_restart_atomicity and the native session inventory fixtures. The existing native commit journey now also reads session counts. It retains ledger/outbox, crash rollback, nonce retry, terminal no-op and reopen checks. Failed, unknown and explicit-zero usage remain distinct. Changing mutable metadata does not move the original context. Foreign owner, tenant or context reads reveal no run counts. Missing immutable admission and the examined-row limit report incomplete inventory.
+
+R801.7.3 remains open. These native fixtures have not run locally. Exact-source native execution, signed request denials, installed Arbora reads and maximum-input latency/memory measurements are required before full session qualification. The node-row byte bound is not a claim about total ledger/outbox transient memory.
+
 - `EG-DECISION-ENGINE-R814`: See each child.
 - `EG-DECISION-ENGINE-R814.1`: `crates/eg-types/tests/prompt_candidate.rs::candidate_round_trips_and_kind_follows_role`.
 - `EG-DECISION-ENGINE-R814.2`: `crates/eg-core/tests/prompt_candidate.rs::assemble_selects_covering_candidate_and_abstains_without_one`.

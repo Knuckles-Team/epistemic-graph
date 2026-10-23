@@ -13,7 +13,7 @@ All fixtures run against a disposable local data directory and generated credent
 | T-KG-07 scope | KG-07 | Owner and explicitly granted principal can access allowed data | Cross-tenant/principal probes deny SQL, UQL, TSDB and KV access. UDF, foreign-source and cache probes also deny access. Revoked grants deny the next use |
 | T-KG-07a auth modes | KG-07, KG-09 | `none`, `local` and `external` each resolve to the same internal principal/RBAC evaluator | Spoofed name in `none`, stale local session after mode switch, wrong external issuer/audience/tenant/policy version and generic elevation lease all deny |
 | T-KG-08 audit | KG-08 | Reservation precedes the governed effect and links its truthful outcome. | An unavailable audit writer, missing class, wrong tenant or duplicate ID refuses. A crash after effect reconciles without false success. |
-| T-KG-09 approval | KG-09 | Two distinct principals approve exact digest before expiry | Self-approval, generic lease, altered digest, expiry and replay all deny and audit refusal |
+| T-KG-09 approval | KG-09 | Two distinct principals approve exact digest before expiry. | Self-approval, generic lease, altered digest, expiry and replay all deny and audit refusal |
 | T-KG-10 Raft | KG-10 | Repeated 3-node multi-group writes/failover preserve independent progress and one committed result | Inject slow peer/leader loss. Unaffected groups progress. Failed assertion emits causal ring-buffer trace |
 | T-KG-11 durability | KG-11, KG-12 | Sync survives kill. Async oldest-unflushed age stays ≤100 ms. Hot structures rebuild from log | Ephemeral disappears on restart. Forced flush lag yields explicit degraded/refusal, never silent class change. Concurrent primitive history linearizes |
 | T-KG-11a control-lease expiry | EG-DURABLE-KERNEL-R039.2 | `native_record_consumption_checks_commit_time_and_preserves_expired_rows` enters native-record dispatch over a real shard and consumes strictly before expiry. Existing row-applier tests prove single use; the new regression also proves revocation after expiry. | At or after either deadline, consumption returns `Conflict`. It reports no changed IDs. The persisted lease and revision remain unchanged. Time is the engine-owned mutation timestamp, not caller input or physical commit wall-clock. Runtime execution is required; source presence alone is not acceptance. |
@@ -22,7 +22,7 @@ All fixtures run against a disposable local data directory and generated credent
 
 ## Commands and quality evidence
 
-Use focused package tests for `eg-types`, `eg-transaction`, `eg-storage`, `eg-stream`, `eg-tsdb`, and affected server integration tests, followed by the configured full pre-commit and hosted parity commands in `plan.md`. Run `python3 scripts/check_universal_read_rls.py` and `python3 scripts/check_persisted_mutation_contract.py` when their paths are affected. The repository's CCCC changed-function gate rejects new cyclomatic >10 or cognitive >15; run the configured Dupehound changed-function and jscpd differential gates without new suppressions, plus KISS, Rust architecture lint and clippy. Record scanner versions from the checked-in scanner contract. A benchmark is evidence only for its measured hardware/workload/durability class; no live environment is an implicit prerequisite to unit or contract acceptance.
+Use focused package tests for `eg-types`, `eg-transaction`, `eg-storage`, `eg-stream`, `eg-tsdb`, and affected server integration tests. Then run the full pre-commit and hosted parity commands in `plan.md`. Run `python3 scripts/check_universal_read_rls.py` and `python3 scripts/check_persisted_mutation_contract.py` when their paths are affected. The repository's CCCC changed-function gate rejects new cyclomatic >10 or cognitive >15. Run Dupehound changed-function and jscpd differential gates without new suppressions. Also run KISS, Rust architecture lint and clippy. Record scanner versions from the checked-in scanner contract. A benchmark is evidence only for its measured hardware/workload/durability class. No live environment is an implicit prerequisite to unit or contract acceptance.
 
 ## Evidence record
 
@@ -43,9 +43,8 @@ R076.1 and EG-PLACEMENT-R002.2 bind native tests in `crates/eg-types/src/schedul
 R082.2 binds the table-driven tests in `src/server/handlers/jobs/graph_tests.rs`.
 Fifteen malformed outer-list, transaction-list and item shapes go through the
 actual native request-body decoder and return `INVALID_ARGUMENT`, correlation
-id 82, a bounded encoding detail and no result. A matching valid full request
-is decoded and submitted to the real governor with support 0.1, confidence 0.5
-and fpgrowth defaults. Governor tables cover NaN, both infinities, thresholds
+id 82, a bounded encoding detail and no result. The decoder submits a matching valid full request to the real governor.
+It uses support 0.1, confidence 0.5 and fpgrowth defaults. Governor tables cover NaN, both infinities, thresholds
 outside [0, 1], unknown algorithms, all five accepted names/aliases and inclusive
 0/1 boundaries. The production reader uses the same decoder; no second refusal
 implementation is introduced for tests.
@@ -265,9 +264,10 @@ This specification batch makes no runtime execution or implementation-complete c
 <!-- spec-definition-patch:owner-batch-20261012-durable-graph-kernel -->
 ## Durable-kernel owner acceptance targets — 2026-10-12
 
-Planned cases only. None have run. EG producer acceptance stops at its authenticated durable memory contract. Cross-owner cases remain blocked where called out.
+Execution evidence appears in the relevant rows and plan. Unreported cases remain planned. EG producer acceptance stops at its authenticated durable memory contract. Cross-owner cases remain blocked where called out.
 
-- **`EG-DURABLE-KERNEL-R028.1` / AU:21:** Write a checkpoint and both referenced memory revisions through R085. Restart and read back the same revision and digests. Refuse wrong tenant/graph, stale head or stale WorkItem fence. Also refuse a crash/race between snapshot write and WorkItem pointer update. Refuse digest mismatch, changed-body replay identity or unavailable storage without advancing the head. AU must resume the same run and fence. GraphOS must continue from the exact existing host-issued stream cursor without duplicate or skipped output. Those cases remain blocked on the atomic snapshot/pointer transaction or crash-recovery contract. Short-/long-term kind and retention decisions, AU resume-binding and host cursor/replay semantics also remain open. Preserve `EG-DURABLE-KERNEL-R028`, `EG-IDENTITY-R006`, `ARBORA-A2A-R001`, `ARBORA-A2A-R001.1`, `ARBORA-OPS-R001`. Source hash `d89bb9c69e2fdef6a5c3fd428ede3f91868539056c2b949700867d8d8087d1e7`.
+- **`EG-DURABLE-KERNEL-R028.1.1`:** Run `checkpoint_native_authenticated_cas_replay_and_owner_isolation` through authenticated dispatch and MutationBatch. Exact nonce reuse returns `REPLAY_NONCE_CONSUMED`. Live-claim and expected-head refusals return `CONFLICT`, not `INTERNAL`. Closed error-routing tests preserve only the declared method codes. A fresh nonce with identical canonical retry identity returns the original receipt, including after expiry/reopen, without another snapshot/version. Changed content/references/fence conflict; wrong owner/context/tenant/run refuse before ledger replay. Run `run_checkpoint` DTO tests, native `work_item/checkpoint/tests.rs` for immutable admitted-context authority despite metadata replacement, wrong graph/tenant/run and missing admission/node-type refusals, CAS/digest/fence and rollback tests. Run graph predecessor/offline upgrade/reopen tests and regenerate owner layout/public contracts from the exact candidate. Python `tests/test_run_checkpoint_client.py` requires those fresh generated methods. Hosted job 120276448287 passes the full authenticated checkpoint fixture after the refusal fixes. Replay, expiry, owner isolation, claim-bearing read refusal and reopen now have native evidence for head `c065ad9a`. The integrated final source still requires a fresh complete gate run. Hosted storage predecessor and migration-preservation tests pass, as recorded in the plan. Both Python facade tests pass with the hosted generated send methods. Final composed-head export, parity and complete gate qualification remain pending.
+- **`EG-DURABLE-KERNEL-R028.1.2` / AU:21:** Resolve and read back both referenced memory revisions after restart. AU must resume the same run and current fence, preferring its current-run checkpoint. Shared served paths must enforce durable context ordering and continue the exact host-issued cursor without duplicate or skipped output. Retention/release, memory existence and host replay authority remain open. Preserve `EG-DURABLE-KERNEL-R028`, `EG-IDENTITY-R006`, `ARBORA-A2A-R001`, `ARBORA-A2A-R001.1`, `ARBORA-OPS-R001`. Source hash `d89bb9c69e2fdef6a5c3fd428ede3f91868539056c2b949700867d8d8087d1e7`.
 - **`EG-DURABLE-KERNEL-R085.9` / AU:48:** Store all required search-state fields and evict context. Restart or use an independent client. Read back byte-identical exact UTF-8 JSON content at its bound revision. Validate the envelope field types and the equality of state revision and snapshot revision. Refuse missing/malformed fields, oversize content, wrong authority, stale graph, digest mismatch, and unavailable storage without changing the head. Stale expected revision preserves the accepted head and retains the candidate conflict. AU continuation must restore all four fields using the exact returned document ID/revision before compacted context is used. That last case is blocked on AU’s per-entry schema/source identity and continuation receipt decision. Preserve AU R013.13/R020.1 and EG R085.1/.4/.7. Source hash `8c76fa1637e0cc2082a1cce16b9d637f12b310ae96d1fe9a50ec9c64f8e23944`.
 - **`EG-DURABLE-KERNEL-R085.10` / AU:49:** Write/read an authorized note across restart with source revision, digest, and provenance intact. Ensure cross-tenant/revoked reads are redacted. Stale writes must retain conflict without replacing the accepted head. Capacity exhaustion must refuse before effects. AU must separately test the decided capture trigger, relevance/staleness rule, and conflict presentation without using unresolved content. That acceptance is blocked on AU defining those semantics. Preserve AU R022.3 and EG R085.2/.5/.7. Source hash `2362fd76bf40223aeb813866392670b65eae13d02a725b1af9a2e6711542dd12`.
 - **`EG-DURABLE-KERNEL-R084.7` / EG:28:** Existing one-graph two-client acceptance continues to prove one commit and one typed stale-writer conflict. No cross-backend positive case is valid until owners define the writable target set, ordering key and coordinator. They must also define atomic/eventual semantics and the partial failure/retry/receipt contract. Once defined, cover two tenants, multiple targets, concurrent writes, failure/replay, and assert R039 remains sole durability authority. This child remains explicitly held. Do not use R084.6 as cross-backend evidence. Preserve all R084.1-.6 clauses. Source hash `96c3079859b0e63ec3e1174e25e7a4ab107b23ef6863ae9b54ff0e921a88e4b0`.
@@ -413,6 +413,11 @@ Hot-path proof for `EG-DURABLE-KERNEL-R101`: `tests/scheduler/test_downtime_sche
 - Keep current-source native tests, generated freshness and served tests separate.
   No historical test receipt establishes acceptance for a new source revision.
 
+- **`EG-DURABLE-KERNEL-R028.1.3`:** Record exact-source hosted native, migration, fresh layout/export and generated Python client results for the R028.1.1 fixtures. No local native build or test was run for this slice; no broad successful conversation continuation is claimed.
+
+- **`EG-DURABLE-KERNEL-R028.1.3.1`:** Validate the hosted source, recipe and artifact hashes against the import. Run `tests/test_run_checkpoint_client.py` and the neighboring read and retry facade suites from the plan.
+- **`EG-DURABLE-KERNEL-R028.1.3.2`:** Run the R028.1.1 native fixtures and predecessor migration against the final reviewed source. Regenerate the layout and public contracts. Attach full repository gate receipts. Pending, not satisfied by the export or Python facade checks.
+
 ## Ordered conversation admission (EG-DURABLE-KERNEL-R028.4.3)
 
 Source tests live in `src/redb_store/work_item/conversation/tests.rs`.
@@ -445,3 +450,35 @@ turns, inspect the actual model request for prior user, assistant and tool
 messages, and prove no repeated tool effect. It must also prove fresh new-turn
 budgets, exact same-run checkpoint precedence, bounded context and explicit
 conflict handling. Those checks remain open under the existing parent rows.
+
+- **EG-DURABLE-KERNEL-R030.1:** Typed host-start tests cover bounded bindings,
+  expiry clamping and caller provenance injection. Native shard tests cover
+  absent issuer refusal, immutable issuer stamping, collision, tenant read
+  isolation, revocation and generic consumption refusal. The signed dispatch
+  test `signed_issuer_is_stamped_and_retry_retains_attribution` must prove
+  exact-scope refusal and stable native principal fingerprint across a retry.
+  These Rust tests remain unexecuted. Python provenance and existing lease-client
+  checks passed; dedicated issue transport runtime validation remains pending.
+  Session liveness, external execution reservation, restart and latency qualification
+  remain separate pending acceptance; fixture objects do not prove live policy.
+
+## Current-main host-start qualification boundaries
+
+R030.1.1 binds the typed host-start tests and `tests/test_host_start_client.py`. R030.1.2 binds the native redb host-start tests. R030.1.3 binds the signed-dispatch host-start tests. The Rust fixtures remain unexecuted in this reconciliation.
+
+R030.1.4 retains the complete parent qualification. Old canonical outputs do not qualify current-main source. Fresh hosted generation, native suites, installed consumer and benchmark evidence remain required. No issuer enrollment, policy grant or infrastructure start is performed.
+
+The authored R030.1.3 signed negative fixture sends a foreign body tenant through the signed issuer request path. It also attempts generic host-start issuance with forged provenance inside grant JSON. Each must refuse with no grant or graph-version change. A subsequent legitimate dedicated issue must still succeed with native issuer attribution. This test remains unexecuted locally and does not complete R030.1.3 or R030.1.4.
+
+
+### Original context binding bridge (EG-DURABLE-KERNEL-R028.1.1)
+
+- Publish and read under a typed-only original conversation admission.
+- Accept matching typed and original A2A metadata bindings.
+- Retain legacy original-metadata coverage and reject mutable metadata rebinding.
+- Refuse foreign owners and conflicting, null or non-string original metadata.
+- Compare native snapshot count and WorkItem state before and after refusals.
+- Run the signed typed-only checkpoint fixture through MutationBatch, then reopen.
+
+These composed-source fixtures require fresh native execution. Prior green
+checkpoint and admission runs do not qualify this new integration.

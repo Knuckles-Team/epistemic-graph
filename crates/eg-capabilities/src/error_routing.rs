@@ -159,6 +159,8 @@ const EXACT_METHOD_ERRORS: &[(&str, &[&str])] = &[
     ("GraphQl", &["REPLAY_NONCE_CONSUMED"]),
     ("SubmitWorkItem", &["REPLAY_NONCE_CONSUMED"]),
     ("ClaimWorkItem", &["REPLAY_NONCE_CONSUMED"]),
+    ("PublishRunCheckpoint", &["REPLAY_NONCE_CONSUMED"]),
+    ("GetRunCheckpoint", &["CONFLICT"]),
     ("TsListSeries", &["REPLAY_NONCE_CONSUMED"]),
     // delegation/validation.rs refuses a retired Agent Library head or entry.
     (
@@ -390,6 +392,7 @@ mod tests {
             "GraphQl",
             "SubmitWorkItem",
             "ClaimWorkItem",
+            "PublishRunCheckpoint",
             "TsListSeries",
         ] {
             assert!(
@@ -411,6 +414,21 @@ mod tests {
         assert!(!method_allows_error(
             "SubmitWorkItem",
             "CLUSTER_CONFIGURATION_INVALID"
+        ));
+    }
+
+    // spec: EG-DURABLE-KERNEL-R028.1.1
+    #[test]
+    fn checkpoint_refusals_are_declared_without_widening_other_reads() {
+        assert!(method_allows_error("GetRunCheckpoint", "CONFLICT"));
+        assert!(!method_allows_error(
+            "GetRunCheckpoint",
+            "REPLAY_NONCE_CONSUMED"
+        ));
+        assert!(!method_allows_error("GetNodes", "CONFLICT"));
+        assert!(!method_allows_error(
+            "PublishRunCheckpoint",
+            "UNSUPPORTED_COALITION"
         ));
     }
 

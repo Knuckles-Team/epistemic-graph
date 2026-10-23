@@ -449,6 +449,8 @@ const CLASSIFICATION_GOLDEN: &[(&str, &str)] = &[
     ("DeferWorkItem", "ControlPlane"),
     ("CasWorkItemMetadata", "ControlPlane"),
     ("PublishCurrentPlan", "ControlPlane"),
+    ("IssueHostStartGrant", "ControlPlane"),
+    ("PublishRunCheckpoint", "ControlPlane"),
     ("IssueControlLease", "ControlPlane"),
     ("TransitionControlLease", "ControlPlane"),
     ("PolicyEvolutionStore", "ControlPlane"),
@@ -1427,4 +1429,34 @@ async fn the_authoritative_version_accounts_a_durable_write_the_projection_misse
         "{error}"
     );
     assert_eq!(core.version(), 7);
+}
+
+// spec: EG-DECISION-ENGINE-R801.7.2
+#[test]
+fn session_usage_keeps_the_existing_read_only_domain_classification() {
+    let usage = Method::GetSessionUsage {
+        tenant: "tenant".into(),
+        context_id: "context".into(),
+    };
+    let run = Method::GetRunWorkItem {
+        tenant: "tenant".into(),
+        run_id: "run".into(),
+    };
+    assert!(usage.write_family().is_none());
+    assert!(super::canonical::surface_for(&usage).is_none());
+    for surface in [
+        MutationSurface::Graph,
+        MutationSurface::Transaction,
+        MutationSurface::Query,
+        MutationSurface::Rdf,
+        MutationSurface::Lifecycle,
+        MutationSurface::Job,
+        MutationSurface::Broker,
+        MutationSurface::Other,
+    ] {
+        assert_eq!(
+            super::domain_for(&usage, surface),
+            super::domain_for(&run, surface)
+        );
+    }
 }

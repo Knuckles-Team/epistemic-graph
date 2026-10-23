@@ -220,3 +220,77 @@ fn the_named_manifest_refusal_wins_over_a_table_census_mismatch() {
     .expect("a predecessor file must not open");
     assert!(error.starts_with(&predecessor.error_code()), "{error}");
 }
+
+// spec: EG-DURABLE-KERNEL-R028.1.1
+#[test]
+fn checkpoint_predecessor_preserves_the_last_sixty_table_layout() {
+    let predecessor = &GRAPH_SHARD_BEFORE_RUN_CHECKPOINTS;
+    assert_eq!(predecessor.owner_tables.len(), 60);
+    assert!(predecessor
+        .owner_tables
+        .contains(&"work_item_current_plans"));
+    assert!(!predecessor
+        .owner_tables
+        .contains(&"work_item_run_checkpoints"));
+    let manifest = predecessor_manifest(predecessor);
+    assert_eq!(
+        manifest.layout_digest,
+        GRAPH_SHARD_PRE_RUN_CHECKPOINTS_DIGEST
+    );
+    let error = validate_against_lineage(&manifest).unwrap_err();
+    assert!(error.starts_with("GRAPH_SHARD_FORMAT_UPGRADE_REQUIRED:"));
+    assert!(error.contains(predecessor.label));
+}
+
+// spec: EG-DURABLE-KERNEL-R028.1.1
+#[test]
+fn predecessor_document_reuses_only_compatible_table_sets() {
+    let previous = LayoutPredecessor {
+        label: "earlier table set",
+        owner_tables: &["nodes", "ledger"],
+        ..GRAPH_SHARD_BEFORE_RUN_CHECKPOINTS
+    };
+    let current = LayoutPredecessor {
+        owner_tables: &["nodes", "work_item_run_checkpoints", "ledger"],
+        ..previous
+    };
+    assert_eq!(
+        render_predecessor_tables(&current, Some(&previous)),
+        "Same table set as **earlier table set** above. Added tables: `work_item_run_checkpoints`."
+    );
+    assert_eq!(
+        render_predecessor_tables(&previous, Some(&previous)),
+        "Same table set as **earlier table set** above."
+    );
+    assert_eq!(
+        render_predecessor_tables(&previous, Some(&current)),
+        "`nodes`, `ledger`"
+    );
+    let foreign = LayoutPredecessor {
+        layout: OwnerLayout::AgentLibrary,
+        ..previous
+    };
+    assert_eq!(
+        render_predecessor_tables(&previous, Some(&foreign)),
+        "`nodes`, `ledger`"
+    );
+    assert_eq!(
+        render_predecessor_tables(&previous, None),
+        "`nodes`, `ledger`"
+    );
+}
+
+// spec: EG-DURABLE-KERNEL-R028.1.1
+#[test]
+fn predecessor_document_keeps_operator_clauses_when_splitting_sentences() {
+    assert_eq!(
+        render_predecessor_prose(
+            "rows remain; upgrade offline, or move the file aside, so re-ingest"
+        ),
+        "rows remain. upgrade offline. Alternatively, move the file aside. Thus, re-ingest"
+    );
+    assert_eq!(
+        render_predecessor_prose("unchanged table data"),
+        "unchanged table data"
+    );
+}

@@ -539,6 +539,8 @@ Verify the locked graph and unchanged advisory gate before publication.
 The changed lockfile requires fresh hosted artifact recipe qualification.
 Complete same-tree quality acceptance under R031.2 remains open.
 
+Reuse the R006.1 and R006.3 fresh-export path for host-start source qualification. Preserve parity failures and exact source/build provenance. Keep R006.2 native, measured-size and cross-language acceptance open.
+
 
 ### 2026-10-23: compose identity contracts with recovery main
 
@@ -580,3 +582,15 @@ All 73 canonical outputs match their receipt; both client codecs match the impor
 The generated schema includes conversation admission alongside identity and recovery operations.
 These outputs replace prior-union placeholders without changing production source or test assertions.
 Final-head native and generated parity remain required; complete served identity acceptance stays open.
+
+## Coordinated pending-source integration for 2.27.6
+
+This integration preserves the published media, session-usage, host-start and checkpoint source histories. It composes their existing methods without widening authority or adding parallel effect owners. The shared dispatch inventories retain all four new method variants. The exact expected method count is 475: main had 471, usage adds one, host-start adds one and checkpoints add two.
+
+The native publication dispatcher retains the host-start shape check before its row call. Checkpoint publication retains its existing transaction and refusal behavior. The shared read handler keeps separate session-usage and checkpoint payloads, tenant checks and actor bindings. Only checkpoint reads preserve the classified CONFLICT refusal.
+
+All 73 canonical outputs, both codec copies and the ledger retain exact PR688 bytes as known placeholders. They do not describe this combined source. Prior native and artifact receipts apply only to their recorded source trees. Fresh combined-source canonical and codec generation, native tests and final parity are required before merge.
+
+The reviewed checkpoint fixture correction compares the row projection rather than the returned table-and-row tuple. Its no-mutation and snapshot-count assertions remain intact. New combined native execution must qualify this correction.
+
+Resource benchmarks, complete served image admission, installed session usage and live host activation remain open under their owning residuals. Checkpoint restore and full served continuation also remain open. This integration creates no release, deployment, credentials or policy grants.

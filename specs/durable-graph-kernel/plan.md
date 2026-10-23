@@ -875,6 +875,120 @@ host and execution libraries consume this storage contract. Canonical generators
 own every derived schema and client artifact. Historical source-stack acceptance
 is background only; native and served receipts must identify the tested revision.
 
+## Checkpoint-only adaptation after run admission recovery
+
+R028.1 reuses the native owner-bound admission and immutable
+`run_admission_request`. A checkpoint request carries an exact context ID.
+Read and publish compare it with the original admission metadata's
+`a2a_context_id`, never the mutable caller-view metadata. The original graph,
+tenant and run must match the native owner binding. The sealed snapshot,
+publication receipt and retry identity retain that context. Checkpoint content
+and the caller WorkItem view come from one native read snapshot.
+
+Only the private checkpoint table is added. Lifecycle event tables and context
+ordering are outside this increment. A timestamp is not a context head or a
+concurrent continuation lock. Generate and qualify the checkpoint-only layout digest and migration on a native build host.
+The old two-table branch digest is not valid here. Native compilation, migration/reopen, atomic
+rollback, replay and installed client acceptance remain required before merge.
+No local native qualification is claimed by source preparation.
+
+Hosted run 39896593200 generated canonical contracts and the method codec from
+source tree `a8054781d6fea0a4ecf260ef3724db7694476cd6`.
+The clean source revision was `92b3bafd2b2b317a8359ee7e45c6a6e287c14f9d`.
+Artifacts 12478335048 and 12477775592 retain source and build provenance.
+All recipe hashes and artifact hashes were checked before application.
+Later fixture and routing fixes do not change the wire fields.
+The composed source still needs fresh hosted parity and native qualification.
+
+Local Python facade qualification now passes all 30 tests across
+`test_run_checkpoint_client.py`, `test_run_work_item_read_client.py`,
+`test_task_plan_client.py`, `test_work_item_capability_client.py`,
+`test_work_item_read_client.py` and `test_work_item_retry_identity.py`.
+These tests qualify generated facade dispatch, not native checkpoint behavior.
+Hosted compilation exposed an unsupported test-table iterator and a routing
+Clippy error. The source fixes retain scoped reads and unchanged fallthrough.
+Native migration, replay, rollback and final-source compilation remain pending.
+No native build or test was run locally.
+
+Hosted storage qualification from run 39896593200, job 120229890281, executed
+`cargo test --locked -p eg-storage --all-features --no-fail-fast -- --test-threads=1`.
+It passed 121 tests and failed four stale generated expectations.
+The checkpoint predecessor and migration-preserves-rows tests both passed.
+Five documentation tests also passed.
+The native registry emitted GraphShard digest
+`3d32d052bba344a00ecdb4bd0aededaadf6d55e86fe0d1e43575e1705c78fc51`.
+The pin and owner inventories now include exactly the added checkpoint table.
+The format document is the test's exact native renderer output.
+No parked layout identity or manually rendered document was used.
+Final-source storage reruns and authenticated checkpoint/replay tests remain pending.
+
+The full duplication gate found one repeated Markdown block in that native
+format document. The renderer now references an earlier compatible table set
+and names only added tables. It retains full lists for removals or other layouts.
+A focused native test covers those cases and equal table sets.
+The checked-in document still contains the prior exact native output.
+Fresh hosted renderer output and a passing duplication gate remain required.
+This source-only draft update does not waive those gates or authorize merge.
+
+Run 39901436674 qualifies published head `fa7ca15558188edac02812970310842a24bffc66`.
+Its canonical contract and Go/JavaScript codec parity jobs pass.
+Storage job 120246693153 passes 125 tests and five documentation tests.
+The checkpoint layout pin, predecessor migration and table-set renderer tests pass.
+Only the checked-in format document differs from the native renderer output.
+That output exposes long references and unsupported asterisk-bullet paragraph joins
+in the prose scanner. The revised renderer uses dash bullets and short sentences.
+The complete changed-section preview has zero blocking prose findings and zero
+pinned-scanner duplicate pairs. The offline procedure remains byte-identical.
+This preview is not native generation evidence and is not the canonical document.
+The next source-matched native output must replace the prior checked-in document.
+Authenticated checkpoint acceptance and final repository gates remain pending.
+
+The fresh all-features Clippy job reached compiler layout-query depth 130.
+The production crate now uses the existing test compiler budget of 256.
+This changes no runtime or layout assertion. Final all-features qualification
+remains pending a hosted rerun.
+
+The fresh facade job passed 2378 library tests. Its physical census expectation
+still named 60 tables rather than the native checkpoint layout's 61 tables.
+Authenticated checkpoint publication succeeded, but exact nonce reuse was masked
+as INTERNAL. The method error catalog lacked REPLAY_NONCE_CONSUMED.
+The checkpoint error catalog now preserves that refusal and live-claim conflicts.
+Focused tests retain strict nonce, identity-conflict and CAS refusal assertions.
+Fresh canonical exports and native integration reruns remain required.
+The same run's complete Python suite and plan fuzz jobs passed.
+
+Run 39910476760 checks head `c065ad9a449f09ffd7ecc312373a2d496b58650e`.
+Storage job 120276448336 passes 126 tests and five documentation tests.
+Only the stale checked-in format document fails. Its exact native output is
+now imported without edits. The renderer and storage source remain unchanged
+in the reviewed recovery-base integration. Prose validation has zero findings.
+The canonical artifact verifies all 73 file hashes and four recipe hashes.
+Its only method changes are the two declared checkpoint refusal codes.
+That artifact is retained as evidence, not copied over the newer base exports.
+The integrated connector DTO changes require a new composed-source export.
+Both receipts and the catalog digest remain unchanged until that generation.
+Final native replay, document parity and complete repository gates remain open.
+
+Facade job 120276448287 passes all 2380 library tests and its integration suite.
+`checkpoint_native_authenticated_cas_replay_and_owner_isolation` passes in full.
+The fixture checks strict nonce and body-conflict codes, owner checks and native head CAS.
+It also checks expired-claim read refusal, historical replay and receipt/snapshot recovery after reopen.
+Direct checkpoint CAS, retention and metadata-rebinding tests also pass.
+All three Clippy profiles pass. The lower-crate gate fails only its stale
+canonical contract comparison; it reports no new runtime failure.
+The imported native format document passes the actual prose and duplication gates.
+The integrated final source still needs fresh exports and complete hosted gates.
+The complete Python suite passes 4073 tests with 46 skips.
+
+Run 39919217919 exports the integrated source at head `149a3c24`.
+Artifact 12487138842 records clean source tree `b3b31aee`.
+All 73 output hashes and four build recipe hashes match that source.
+The exact five-file output updates both method catalogs and receipts.
+It also updates the native catalog digest. The only method changes declare
+checkpoint nonce reuse and live-claim conflict refusals.
+Independent review confirms the artifact and source match.
+Final hosted parity and complete native gates remain open.
+
 ## Amendment: ordered conversation admission, 2026-10-23
 
 Extend R028.4 and retain the session/chat obligations in R751.750 and R751.751.
@@ -918,3 +1032,60 @@ The source merge preserves conversation admission and the new ontology fields.
 The conflicting receipt and catalog files retain exact parent versions pending fresh child generation.
 Those placeholders do not certify the combined child schema.
 Fresh native exports and final-head parity remain required before merge.
+
+### 2026-10-20 — R030.1 issuer-bound host-start records
+
+Arbora decides startup policy and calls a dedicated native storage operation.
+EG records the issuer assertions in the existing ControlLease store.
+It does not execute infrastructure or grant a deployed principal a scope.
+The authenticated MutationBatch actor supplies the immutable top-level provenance.
+Generic grant JSON cannot supply that provenance. Existing manager capabilities remain unchanged.
+Arbora owns session freshness and workspace admission.
+This slice does not qualify execution reservation or atomic cross-owner admission.
+
+Validation checkpoint: Python legacy/provenance and lease-client checks passed.
+Canonical generation and freshness checking passed for all 73 artifacts on 2026-10-20.
+The generation-only continuation took 776.2 seconds.
+Earlier attempts timed out during eg-types compilation at 360 and 540 seconds.
+Rust typed, redb and signed-dispatch tests exist but remain unexecuted.
+No deployed issuer, live host execution, atomic external-effect reservation or native terminal handoff is qualified.
+Normal publication gates remain required.
+The signed-dispatch runtime test must qualify authenticated issuer attribution and idempotent retry.
+
+The current-main reconciliation preserves current security and uses fresh hosted canonical generation for host-start DTO changes. R030.1.1 through R030.1.3 separate typed/client, native store and signed dispatch evidence. R030.1.4 keeps the complete producer qualification open. Arbora remains responsible for live session and construction-owner policy; these storage assertions cannot reserve an external effect atomically.
+
+### 2026-10-23: compose qualified identity main for host-start
+
+Retain the dedicated host-start issuer, signed refusal proofs and strict client provenance checks.
+Main fdb75651 contributes the qualified identity approval and Human-session renewal contracts.
+All canonical contract, codec and ledger files are exact main placeholders, not hand-merged outputs.
+Earlier host-start exports remain evidence only for their original source tree.
+The client helper extraction also changes a canonical receipt input.
+Fresh composed-source exports and required native and Clippy checks must qualify this union.
+R030.1.4 retains installed-consumer and latency acceptance; deployed issuer policy and actual startup remain separate.
+
+
+### Checkpoint and ordered-admission integration
+
+The exact checkpoint head `48bbf6de` passed all 23 executed jobs in run
+39938181881. This includes native checkpoint replay, migration, full Python,
+canonical parity, codec rebuild and patched-lock security checks.
+The later integration with ordered admission requires fresh union qualification.
+
+R028.1.1 now reads context from the immutable original typed admission.
+If original A2A metadata is present, it must match the typed context.
+A malformed or conflicting original binding refuses reads and publication.
+Legacy requests retain the original metadata fallback. Mutable WorkItem metadata
+never supplies checkpoint authority. Existing owner and live-fence checks remain.
+
+Native tests cover typed-only and matching dual bindings, foreign owners and
+conflicting original bindings without snapshot or WorkItem changes.
+The signed MutationBatch fixture now admits a typed-only context. It retains
+strict replay, nonce, CAS, owner and reopen assertions. Legacy native tests remain.
+These updated fixtures have not yet run on the composed source.
+
+Both source and test sets are preserved from ordered admission and checkpoints.
+Generated contract files, codec bytes and pins retain the exact prior checkpoint
+outputs as stale placeholders. Only genuine composed-source export may replace
+them. Full hosted qualification remains required before merge.
+This bridge does not implement public history paging or served model continuation.

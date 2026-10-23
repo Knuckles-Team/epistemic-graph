@@ -88,3 +88,6 @@ The linked requirement rows retain the full contract, hashes, acceptance, and ow
 - [ ] **EG-CONTRACT-R006.3:** Deliver and qualify bounded hosted canonical contract export with source provenance.
 
 - [ ] **EG-CONTRACT-R053.13:** Retain and verify the qualified wheel for isolated installed-artifact acceptance.
+
+- [ ] **EG-CONTRACT-R006.1:** Qualify fresh WASM exports without inferring native reproducibility.
+- [ ] **EG-CONTRACT-R006.2:** Complete independent native builds, measured size and cross-language acceptance.
