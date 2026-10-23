@@ -38,6 +38,13 @@ pub(crate) async fn handle_txn_uql(
     ))
 }
 
+/// The `NlQuery` refusal for invalid planner request config: the registered
+/// `ENGINE_UNAVAILABLE` code plus a detail naming the bad key (EG-FEDERATED-QUERY-R058.5).
+#[cfg(feature = "nl-query")]
+pub(crate) fn nl_config_refusal(e: &eg_plan::NlConfigError) -> String {
+    format!("ENGINE_UNAVAILABLE: NlQuery: invalid NL planner config: {e}")
+}
+
 #[cfg(feature = "nl-query")]
 /// The NL → executable-UQL-plan resolution of [`handle_nl_query`]: resolve the
 /// configured/injected `NlPlanner`, turn `text` into a UQL query STRING, then
@@ -50,16 +57,18 @@ pub(crate) fn handle_nl_query_plan(
     core: &Arc<GraphCore>,
     req_id: u64,
 ) -> Result<(String, eg_plan::Plan), Response> {
-    let planner = crate::server::nl::resolve_planner().ok_or_else(|| {
-        Response::err(
-            req_id,
-            "ENGINE_UNAVAILABLE: NlQuery: no NL planner configured — set an OpenAI-compatible \
+    let planner = crate::server::nl::resolve_planner()
+        .map_err(|e| Response::err(req_id, nl_config_refusal(&e)))?
+        .ok_or_else(|| {
+            Response::err(
+                req_id,
+                "ENGINE_UNAVAILABLE: NlQuery: no NL planner configured — set an OpenAI-compatible \
                      endpoint in agent-utilities config.json (or \
                      EPISTEMIC_GRAPH_NL_ENDPOINT), or inject one via \
                      server::set_nl_planner"
-                .to_string(),
-        )
-    })?;
+                    .to_string(),
+            )
+        })?;
     let hint = nl_schema_hint(core);
     let uql = planner.plan(text, &hint).map_err(|e| {
         Response::err(
@@ -236,5 +245,20 @@ mod tests {
             assert_ne!(mutated, src, "boundary anchor must exist");
             assert!(check_nl_cache_isolation(&mutated).is_err());
         }
+    }
+}
+
+#[cfg(all(test, feature = "nl-query"))]
+mod nl_config_refusal_tests {
+    // spec: EG-FEDERATED-QUERY-R058.5
+    #[test]
+    fn invalid_planner_config_is_refused_with_code_and_key() {
+        let msg = super::nl_config_refusal(&eg_plan::NlConfigError::ReadTimeoutOutOfRange(0));
+        assert!(msg.starts_with("ENGINE_UNAVAILABLE:"), "{msg}");
+        assert!(msg.contains("read_timeout_secs"), "{msg}");
+        let msg = super::nl_config_refusal(&eg_plan::NlConfigError::ExtraBodyReservedKey(
+            "model".into(),
+        ));
+        assert!(msg.contains("extra_body") && msg.contains("model"), "{msg}");
     }
 }
